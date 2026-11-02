@@ -12,6 +12,8 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::governance::McpServerConfigWriteConflictReason;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_store::credential_store::KeychainRefusal;
 
 use crate::binding::store::McpBindingKey;
@@ -126,6 +128,31 @@ pub enum McpRefusal {
 }
 
 const _: () = assert!(size_of::<McpRefusal>() <= 64);
+
+/// Why an `mcp.server.signIn` launch opened no browser: an `mcp.*` refusal, or a provider's own
+/// flow that failed before the browser opened for a cause its driver names, answered as the
+/// driver's error is.
+#[derive(Debug, thiserror::Error)]
+pub enum SignInLaunchError {
+    /// An `mcp.*` refusal.
+    #[error(transparent)]
+    Refused(#[from] McpRefusal),
+    /// The provider's driver failed before the browser opened: a provider not installed, its
+    /// process failing or too slow, or a fault of the daemon's own.
+    #[error("a provider's own MCP sign-in failed before the browser opened")]
+    Provider(#[source] DriverError),
+}
+
+impl From<SignInLaunchError> for HandlerError {
+    /// An `mcp.*` refusal answers by its code, and a provider's failure as the driver's error
+    /// answers.
+    fn from(error: SignInLaunchError) -> Self {
+        match error {
+            SignInLaunchError::Refused(refusal) => Self::Refused(refusal.into()),
+            SignInLaunchError::Provider(driver_error) => Self::from(driver_error),
+        }
+    }
+}
 
 impl From<McpRefusal> for DomainError {
     fn from(refusal: McpRefusal) -> Self {

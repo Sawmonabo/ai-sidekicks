@@ -16,7 +16,8 @@
 //!   no mark.
 //! - **After a mark.** Where no provider's flow admits the server, the daemon's own client is the
 //!   only client there is: the mark clears and the same press signs in with the own client, or,
-//!   where the own client would go to a provider's flow again, is refused at once.
+//!   where the own client would go to a provider's flow again, is refused at once. A press runs
+//!   the providers' flows at most once.
 
 use std::collections::HashMap;
 use std::ops::ControlFlow;
@@ -25,7 +26,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use reqwest::Url;
-use rmcp::transport::auth::{AuthorizationManager, OAuthClientConfig, OAuthHttpClient};
+use rmcp::transport::auth::{AuthorizationManager, OAuthHttpClient};
 use secrecy::{SecretBox, SecretString};
 use sidekicks_contracts::dpop::DPOP_PROOF_ALGORITHM;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
@@ -38,7 +39,7 @@ use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
-use crate::errors::{McpRefusal, SignInUnsupportedReason};
+use crate::errors::{McpRefusal, SignInLaunchError, SignInUnsupportedReason};
 use crate::oauth::dpop_proof::DpopKey;
 use crate::oauth::pushed_authorization::{AuthorizationRequestEndpoints, PushedAuthorizationError};
 use crate::oauth::redirect_receiver::{
@@ -48,7 +49,7 @@ use crate::sign_in::admitted_client::AdmittedClientStore;
 use crate::sign_in::canonical_server_address;
 use crate::sign_in::credential_store::SignInCustody;
 use crate::sign_in::oauth_http_client::{BrowserAddressError, OAuthHttpPools};
-use crate::sign_in::provider_flow::ProviderFlowStart;
+use crate::sign_in::provider_flow::{ProviderFlowStart, ProviderFlowsTried};
 use crate::sign_in::redemption::{AttemptRedemption, ExpectedIssuer};
 use crate::sign_in::registration::{
     ClientRequest, RelayAddress, SignInClient, choose_client, classify_pushed_authorization_refusal,
@@ -256,23 +257,27 @@ impl SignInService {
     /// first, through the daemon's own client or, where the server does not admit it, a provider's
     /// own, run for that provider's account in `provider_accounts`. Answers the address the browser
     /// opens, which nothing else holds; refuses with `mcp.server.signInUnsupported`, naming why,
-    /// when the binding or the server offers no sign-in the daemon or a provider can run, and
-    /// `mcp.server.signInFailed` when one could not be started.
+    /// when the binding or the server offers no sign-in the daemon or a provider can run,
+    /// `mcp.server.signInFailed` when one could not be started, and as the driver's error answers
+    /// when a provider's driver failed before the browser opened.
     pub(crate) async fn launch(
         self: &Arc<Self>,
         target: &SignInTarget,
         scopes: &[String],
         provider_accounts: &ProviderAccounts,
-    ) -> Result<Url, McpRefusal> {
-        let unsupported = |reason| McpRefusal::ServerSignInUnsupported {
-            binding: Box::new(target.binding.clone()),
-            reason,
+    ) -> Result<Url, SignInLaunchError> {
+        let unsupported = |reason| {
+            SignInLaunchError::from(McpRefusal::ServerSignInUnsupported {
+                binding: Box::new(target.binding.clone()),
+                reason,
+            })
         };
-        let failed =
-            |source: Box<dyn std::error::Error + Send + Sync>| McpRefusal::ServerSignInFailed {
+        let failed = |source: Box<dyn std::error::Error + Send + Sync>| {
+            SignInLaunchError::from(McpRefusal::ServerSignInFailed {
                 binding: Box::new(target.binding.clone()),
                 source,
-            };
+            })
+        };
         let Some(server) = addressed_server(target) else {
             return Err(unsupported(SignInUnsupportedReason::NotReachedAtAddress));
         };
@@ -365,6 +370,7 @@ impl SignInService {
             resolution.clone(),
         )
         .await;
+        let mut tried = ProviderFlowsTried::No;
         if matches!(client, SignInClient::OwnClientUnfinished) {
             match self
                 .run_provider_flow(target, server, None, provider_accounts)
@@ -385,28 +391,20 @@ impl SignInService {
                         resolution,
                     )
                     .await;
-                    // The providers' flows were just tried, so none is run again.
-                    if let SignInClient::ProviderFlow {
-                        refusal_if_none_admits,
-                        ..
-                    } = client
+                    if let Some(failure) = &failure
+                        && !matches!(client, SignInClient::ProviderFlow { .. })
                     {
-                        return Err(match failure {
-                            Some(source) => failed(source),
-                            None => unsupported(refusal_if_none_admits),
-                        });
-                    }
-                    if let Some(failure) = failure {
                         tracing::warn!(
-                            error = &*failure as &(dyn std::error::Error + 'static),
+                            error = failure as &(dyn std::error::Error + 'static),
                             "no provider's MCP sign-in started, so the daemon's own client signs in"
                         );
                     }
+                    tried = ProviderFlowsTried::NoneAdmitted(failure);
                 }
             }
         }
         let own_client = match self
-            .answer_other_client(target, server, client, provider_accounts)
+            .answer_other_client(target, server, client, provider_accounts, &mut tried)
             .await
         {
             ControlFlow::Break(answer) => return answer,
@@ -456,7 +454,7 @@ impl SignInService {
             Err(BrowserAddressError::Push(PushedAuthorizationError::Refused(refusal))) => {
                 let client = classify_pushed_authorization_refusal(refusal);
                 return match self
-                    .answer_other_client(target, server, client, provider_accounts)
+                    .answer_other_client(target, server, client, provider_accounts, &mut tried)
                     .await
                 {
                     ControlFlow::Break(answer) => answer,
@@ -501,55 +499,6 @@ impl SignInService {
         for address in addresses {
             self.mark_unfinished_logged(&address).await;
         }
-    }
-
-    // The launch's answer for every client but the daemon's own, whose configuration continues
-    // the launch: a provider's flow is run, the provider the server admitted first, and no
-    // provider's flow refuses the sign-in with the failure of the one asked, or as unsupported for
-    // the reason the client carries.
-    async fn answer_other_client(
-        self: &Arc<Self>,
-        target: &SignInTarget,
-        server: &AddressedServer,
-        client: SignInClient,
-        provider_accounts: &ProviderAccounts,
-    ) -> ControlFlow<Result<Url, McpRefusal>, OAuthClientConfig> {
-        let binding = Box::new(target.binding.clone());
-        let (admitted_provider, refusal_if_none_admits) = match client {
-            SignInClient::OwnClient(own_client) => return ControlFlow::Continue(own_client),
-            SignInClient::Unsupported { reason } => {
-                return ControlFlow::Break(Err(McpRefusal::ServerSignInUnsupported {
-                    binding,
-                    reason,
-                }));
-            }
-            SignInClient::Failed { source } => {
-                return ControlFlow::Break(Err(McpRefusal::ServerSignInFailed { binding, source }));
-            }
-            SignInClient::ProviderFlow {
-                admitted_provider,
-                refusal_if_none_admits,
-            } => (admitted_provider, refusal_if_none_admits),
-            SignInClient::OwnClientUnfinished => (None, SignInUnsupportedReason::NoProviderFlow),
-        };
-        ControlFlow::Break(
-            match self
-                .run_provider_flow(target, server, admitted_provider, provider_accounts)
-                .await
-            {
-                Ok(ProviderFlowStart::Opened(browser_url)) => Ok(browser_url),
-                Ok(ProviderFlowStart::NoneAdmits {
-                    failure: Some(source),
-                }) => Err(McpRefusal::ServerSignInFailed { binding, source }),
-                Ok(ProviderFlowStart::NoneAdmits { failure: None }) => {
-                    Err(McpRefusal::ServerSignInUnsupported {
-                        binding,
-                        reason: refusal_if_none_admits,
-                    })
-                }
-                Err(refusal) => Err(refusal),
-            },
-        )
     }
 
     /// Keeps `flow`, the guard that stops a provider's flow for the server at `canonical_address`,
@@ -716,7 +665,7 @@ mod tests {
     use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
     use super::{ATTEMPT_LIFETIME, ProviderAccounts, SignInServer, SignInTarget};
-    use crate::errors::McpRefusal;
+    use crate::errors::{McpRefusal, SignInLaunchError};
     use crate::sign_in::test_service::{
         FakeServerAnswers, Harness, addressed_target, harness, launch_to_browser, provider,
         serve_authorization_server, server_name,
@@ -864,7 +813,9 @@ mod tests {
 
         assert!(matches!(
             refusal,
-            Err(McpRefusal::ServerSignInUnsupported { .. })
+            Err(SignInLaunchError::Refused(
+                McpRefusal::ServerSignInUnsupported { .. }
+            ))
         ));
         assert_eq!(server.requests.load(Ordering::SeqCst), 0);
         assert!(super::lock(&harness.service.attempts).by_address.is_empty());

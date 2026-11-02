@@ -173,7 +173,8 @@ pub(crate) struct FakeAuthorizationServer {
 }
 
 /// How the fake authorization server answers; by default it lists `S256` as its PKCE method,
-/// registers every client, answers every token request with tokens and every revocation with 200.
+/// registers every client, publishes no pushed-request endpoint, answers every token request with
+/// tokens and every revocation with 200.
 #[derive(Clone, Copy)]
 pub(crate) struct FakeServerAnswers {
     /// Whether its metadata says it sends `iss` with every response.
@@ -184,6 +185,9 @@ pub(crate) struct FakeServerAnswers {
     pub(crate) is_registration_refused: bool,
     /// Whether it refuses every token request with `invalid_grant`.
     pub(crate) is_code_refused: bool,
+    /// Whether it publishes a pushed-request endpoint, which refuses every request with
+    /// `invalid_client`.
+    pub(crate) is_pushed_request_refused: bool,
     /// The status its revocation endpoint answers.
     pub(crate) revocation_status: StatusCode,
 }
@@ -195,6 +199,7 @@ impl Default for FakeServerAnswers {
             pkce_methods: &["S256"],
             is_registration_refused: false,
             is_code_refused: false,
+            is_pushed_request_refused: false,
             revocation_status: StatusCode::OK,
         }
     }
@@ -218,6 +223,7 @@ pub(crate) async fn serve_authorization_server(
         pkce_methods,
         is_registration_refused,
         is_code_refused,
+        is_pushed_request_refused,
         revocation_status,
     } = answers;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -239,6 +245,9 @@ pub(crate) async fn serve_authorization_server(
     });
     if !pkce_methods.is_empty() {
         metadata["code_challenge_methods_supported"] = json!(pkce_methods);
+    }
+    if is_pushed_request_refused {
+        metadata["pushed_authorization_request_endpoint"] = json!(format!("{base}/par"));
     }
     let metadata = metadata.to_string();
     let requests = Arc::new(AtomicUsize::new(0));
@@ -295,6 +304,10 @@ pub(crate) async fn serve_authorization_server(
                     answer(200, tokens.to_string())
                 }
             }),
+        )
+        .route(
+            "/par",
+            post(|| async { answer(400, json!({"error": "invalid_client"}).to_string()) }),
         )
         .route(
             "/revoke",

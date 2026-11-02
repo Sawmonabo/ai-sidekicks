@@ -7,9 +7,12 @@ use reqwest::{Method, Url};
 use rstest::rstest;
 use secrecy::ExposeSecret;
 use serde_json::Value;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::sign_in::{
     BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInFailure, ProviderSignInReturn,
@@ -20,7 +23,7 @@ use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
 use sidekicks_std::mutex_lock::lock;
 
 use crate::client::http::McpRequestAuthorizer as _;
-use crate::errors::{McpRefusal, SignInUnsupportedReason};
+use crate::errors::{McpRefusal, SignInLaunchError, SignInUnsupportedReason};
 use crate::sign_in::canonical_server_address;
 use crate::sign_in::completion_event::SignInFailureReason;
 use crate::sign_in::service::{ProviderAccounts, SignInTarget};
@@ -39,6 +42,8 @@ const PROVIDER_CLIENT_SECRET: &str = "test-provider-client-secret";
 enum ScriptedFlow {
     /// Fails at once: the provider has no entry of the person's for the binding.
     NoFlow,
+    /// Fails before the browser opens, with the driver's failure `failure` makes.
+    FailsBeforeBrowser { failure: fn() -> DriverError },
     /// Opens the browser at its address, then completes with credentials the server at the
     /// address issued.
     Completes { issuer: String },
@@ -75,6 +80,7 @@ fn scripted_driver(
                         }
                         .into());
                     }
+                    ScriptedFlow::FailsBeforeBrowser { failure } => return Err(failure()),
                     ScriptedFlow::Completes { issuer } => issuer,
                     ScriptedFlow::Fails { failure } => {
                         request
@@ -364,10 +370,12 @@ async fn a_server_without_s256_signs_in_through_a_provider_or_is_refused_for_it(
         assert!(
             matches!(
                 &launched,
-                Err(McpRefusal::ServerSignInUnsupported {
-                    reason: SignInUnsupportedReason::NoS256Challenge,
-                    ..
-                })
+                Err(SignInLaunchError::Refused(
+                    McpRefusal::ServerSignInUnsupported {
+                        reason: SignInUnsupportedReason::NoS256Challenge,
+                        ..
+                    }
+                ))
             ),
             "refused for the missing method, not {launched:?}"
         );
@@ -540,4 +548,150 @@ async fn a_kept_provider_sign_in_renews_through_the_daemons_store_alone() {
             path.display()
         );
     }
+}
+
+/// The own client's mark, as the admitted clients store reads it.
+async fn is_own_client_unfinished(harness: &Harness, address: &McpServerAddress) -> bool {
+    harness
+        .admitted_clients
+        .read(address)
+        .await
+        .expect("the admitted client reads")
+        .is_some_and(|admitted| admitted.is_own_client_unfinished)
+}
+
+/// A provider's flow that opened the browser and then failed, after the daemon's own client did
+/// not finish, clears that mark, so the next press reaches the daemon's own client again and runs
+/// no provider's flow. Killed by a failed flow that leaves the mark, which sends every later press
+/// to the provider's flow.
+#[tokio::test]
+async fn a_failed_provider_flow_sends_the_next_press_to_the_own_client() {
+    let server = serve_authorization_server(FakeServerAnswers::default()).await;
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let harness = harness_with(vec![scripted_driver(
+        ScriptedFlow::Fails {
+            failure: Some(ProviderSignInFailure::CodeNotRedeemed),
+        },
+        "only",
+        &calls,
+    )])
+    .await;
+    let provider = registered_providers(&harness).remove(0);
+    let (target, accounts) = provider_target(&harness, &provider, &server);
+    let address = McpServerAddress::new(&server.base).expect("a server address");
+    harness
+        .admitted_clients
+        .mark_own_client_unfinished(&address)
+        .await
+        .expect("the mark is recorded");
+
+    let first = harness
+        .service
+        .launch(&target, &[], &accounts)
+        .await
+        .expect("the provider's flow opens the browser");
+    assert_eq!(first, scripted_browser_url());
+    let completions = settled_completions(&harness).await;
+    assert_eq!(completions[0]["outcome"], "failure");
+    assert!(!is_own_client_unfinished(&harness, &address).await);
+
+    let next = harness
+        .service
+        .launch(&target, &[], &accounts)
+        .await
+        .expect("the daemon's own client opens the browser");
+
+    assert!(
+        next.as_str()
+            .starts_with(&format!("{}/authorize", server.base)),
+        "the own client's authorization address opens, not {next}"
+    );
+    assert_eq!(*lock(&calls), ["only"], "the provider's flow runs once");
+}
+
+/// A provider's flow that fails before the browser opens answers the launch as its driver's error
+/// does: a provider refusal by its code, the driver's own fault as a fault of the daemon, and only
+/// a sign-in that did not finish as `mcp.server.signInFailed`. Killed by every driver failure
+/// answered `mcp.server.signInFailed`, and by a sign-in that did not finish answered as a fault.
+#[rstest]
+#[case::provider_unavailable(
+    || DomainError::new("the provider failed", RefusalCode::ProviderUnavailable).into(),
+    Some(RefusalCode::ProviderUnavailable)
+)]
+#[case::driver_fault(|| DriverError::Internal("the driver failed".into()), None)]
+#[case::sign_in_not_finished(
+    || DriverError::SignInFailed(ProviderSignInFailure::ReplyUnreadable),
+    Some(RefusalCode::McpServerSignInFailed)
+)]
+#[tokio::test]
+async fn a_provider_failure_before_the_browser_answers_as_its_driver_error(
+    #[case] failure: fn() -> DriverError,
+    #[case] expected_code: Option<RefusalCode>,
+) {
+    let server = serve_authorization_server(FakeServerAnswers {
+        is_registration_refused: true,
+        ..FakeServerAnswers::default()
+    })
+    .await;
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let harness = harness_with(vec![scripted_driver(
+        ScriptedFlow::FailsBeforeBrowser { failure },
+        "only",
+        &calls,
+    )])
+    .await;
+    let provider = registered_providers(&harness).remove(0);
+    let (target, accounts) = provider_target(&harness, &provider, &server);
+
+    let refused = harness
+        .service
+        .launch(&target, &[], &accounts)
+        .await
+        .expect_err("no provider's flow opens the browser");
+
+    let code = match HandlerError::from(refused) {
+        HandlerError::Refused(refusal) => Some(refusal.code),
+        HandlerError::Internal(_) => None,
+        HandlerError::Canceled => panic!("a launch is never canceled"),
+    };
+    assert_eq!(code, expected_code);
+}
+
+/// A press that ran the providers' flows, after the daemon's own client did not finish, and then
+/// had the own client's pushed request refused, answers that no provider's flow admits the server
+/// without running the flows again. Killed by a refused push that runs every provider's flow a
+/// second time.
+#[tokio::test]
+async fn a_refused_push_after_the_flows_ran_runs_them_no_more() {
+    let server = serve_authorization_server(FakeServerAnswers {
+        is_pushed_request_refused: true,
+        ..FakeServerAnswers::default()
+    })
+    .await;
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let harness = harness_with(vec![scripted_driver(ScriptedFlow::NoFlow, "only", &calls)]).await;
+    let provider = registered_providers(&harness).remove(0);
+    let (target, accounts) = provider_target(&harness, &provider, &server);
+    let address = McpServerAddress::new(&server.base).expect("a server address");
+    harness
+        .admitted_clients
+        .mark_own_client_unfinished(&address)
+        .await
+        .expect("the mark is recorded");
+
+    let refused = harness.service.launch(&target, &[], &accounts).await;
+
+    assert!(
+        matches!(
+            &refused,
+            Err(SignInLaunchError::Refused(
+                McpRefusal::ServerSignInUnsupported {
+                    reason: SignInUnsupportedReason::NoProviderFlow,
+                    ..
+                }
+            ))
+        ),
+        "refused as no provider's flow admits it, not {refused:?}"
+    );
+    assert_eq!(*lock(&calls), ["only"], "the provider's flow runs once");
 }

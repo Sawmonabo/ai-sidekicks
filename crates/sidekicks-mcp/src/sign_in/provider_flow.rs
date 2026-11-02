@@ -4,7 +4,10 @@
 //!   then every other registered provider in the registry's order; one with no account handed in
 //!   is passed over, and one whose driver finds no entry of the person's for the binding (it has
 //!   no flow for the server) hands on to the next. Any other failure before the browser opens, or
-//!   no provider left, means no provider's flow admits the server; the launch decides what follows.
+//!   no provider left, means no provider's flow admits the server; the launch decides what follows,
+//!   and runs the flows at most once per press. A driver's failure answers the launch as the
+//!   driver's error does, but for a sign-in that did not finish, which is
+//!   `mcp.server.signInFailed`.
 //! - **The browser.** The driver names the address the browser opens, which the launch answers.
 //!   The flow goes on in a task the daemon's stop, a sign-out or a new launch for the server ends.
 //!   For a driver whose descriptor says its flow can return to the daemon's receiver, the browser
@@ -15,8 +18,9 @@
 //!   the return, and no listener is bound for it.
 //! - **The completion.** A completed flow's credentials are kept as the server's sign-in, which
 //!   marks it signed in, unless the server was signed out since the flow began; the provider is
-//!   recorded as the client the server admits, and the completion event is appended; a failed one
-//!   appends its failure and records nothing.
+//!   recorded as the client the server admits, and the completion event is appended. A failed one
+//!   records no provider, clears the mark that the daemon's own client did not finish, so the next
+//!   press reaches the own client again, and appends its failure.
 
 #![cfg_attr(
     not(test),
@@ -26,6 +30,7 @@
     )
 )]
 
+use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -34,7 +39,8 @@ use oauth2::basic::BasicTokenType;
 use oauth2::{AccessToken, RefreshToken};
 use reqwest::Url;
 use rmcp::transport::auth::{
-    CredentialStore as _, OAuthTokenResponse, StoredCredentials, VendorExtraTokenFields,
+    CredentialStore as _, OAuthClientConfig, OAuthTokenResponse, StoredCredentials,
+    VendorExtraTokenFields,
 };
 use secrecy::SecretString;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
@@ -51,7 +57,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::AbortOnDropHandle;
 
 use crate::binding::store::McpBindingKey;
-use crate::errors::McpRefusal;
+use crate::errors::{McpRefusal, SignInLaunchError, SignInUnsupportedReason};
 use crate::oauth::redirect_receiver::{
     CallbackAnswer, CallbackPath, RedirectCallback, RedirectCallbackOwner, RedirectListener,
     RedirectReceiver, ResultPage,
@@ -59,6 +65,7 @@ use crate::oauth::redirect_receiver::{
 use crate::sign_in::completion_event::{SignInFailureReason, append_sign_in_completed};
 use crate::sign_in::credential_store::SignOutGeneration;
 use crate::sign_in::redemption::REDEMPTION_BOUND;
+use crate::sign_in::registration::SignInClient;
 use crate::sign_in::service::{
     ATTEMPT_LIFETIME, AddressedServer, ProviderAccounts, SignInService, SignInTarget,
 };
@@ -76,19 +83,55 @@ pub(super) enum ProviderFlowStart {
     /// opened, with that failure.
     NoneAdmits {
         /// Why the provider asked failed; `None` when no provider offers a flow.
-        failure: Option<Box<dyn std::error::Error + Send + Sync>>,
+        failure: Option<ProviderFlowError>,
     },
 }
 
-/// Why a provider's flow ended before the browser opened, where its driver gave no failure.
+/// Why the provider's flow asked ended before the browser opened.
 #[derive(Debug, thiserror::Error)]
-enum ProviderFlowError {
+pub(super) enum ProviderFlowError {
+    /// Its driver failed.
+    #[error(transparent)]
+    Driver(DriverError),
     /// The flow answered with no address for the browser to open.
     #[error("the provider's MCP sign-in ended before it named an address to open")]
     NoAuthorizationAddress,
     /// A new launch, a sign-out or the daemon's stop ended the flow first.
     #[error("the provider's MCP sign-in was ended before it named an address to open")]
     Ended,
+    /// The flow's task failed.
+    #[error("the provider's MCP sign-in task failed")]
+    TaskFailed(#[source] tokio::task::JoinError),
+}
+
+impl ProviderFlowError {
+    // The launch's refusal for `binding` with this failure: a driver's failure answers as the
+    // driver's error does, but for a sign-in that did not finish, which, like every other
+    // failure, is `mcp.server.signInFailed`.
+    fn into_launch_error(self, binding: &McpServerBindingRef) -> SignInLaunchError {
+        match self {
+            Self::Driver(error) if !matches!(error, DriverError::SignInFailed(_)) => {
+                SignInLaunchError::Provider(error)
+            }
+            failure @ (Self::Driver(_)
+            | Self::NoAuthorizationAddress
+            | Self::Ended
+            | Self::TaskFailed(_)) => McpRefusal::ServerSignInFailed {
+                binding: Box::new(binding.clone()),
+                source: Box::new(failure),
+            }
+            .into(),
+        }
+    }
+}
+
+/// Whether this press has run the providers' flows yet, and once it has, what they came to: no
+/// flow admitted the server, with the failure of the one asked, where one failed.
+pub(super) enum ProviderFlowsTried {
+    /// The press has not run them.
+    No,
+    /// The press ran them and none admitted the server.
+    NoneAdmitted(Option<ProviderFlowError>),
 }
 
 // One flow under way: the server it signs in to, the provider whose flow it is and the stop that
@@ -220,7 +263,7 @@ impl SignInService {
                 self.follow_flow(running, flow, daemon_receiver, &browser_url);
                 return Ok(ProviderFlowStart::Opened(browser_url));
             }
-            let failure: Box<dyn std::error::Error + Send + Sync> = match (&mut flow).await {
+            let failure = match (&mut flow).await {
                 Ok(Some(Err(DriverError::NoPersonServerEntry(_)))) => {
                     tracing::debug!(
                         provider = provider.as_str(),
@@ -228,10 +271,10 @@ impl SignInService {
                     );
                     continue;
                 }
-                Ok(Some(Err(error))) => Box::new(error),
-                Ok(Some(Ok(_takeover))) => Box::new(ProviderFlowError::NoAuthorizationAddress),
-                Ok(None) => Box::new(ProviderFlowError::Ended),
-                Err(error) => Box::new(error),
+                Ok(Some(Err(error))) => ProviderFlowError::Driver(error),
+                Ok(Some(Ok(_takeover))) => ProviderFlowError::NoAuthorizationAddress,
+                Ok(None) => ProviderFlowError::Ended,
+                Err(error) => ProviderFlowError::TaskFailed(error),
             };
             self.end_provider_flow(&server.canonical_address, Some(flow_id));
             return Ok(ProviderFlowStart::NoneAdmits {
@@ -240,6 +283,65 @@ impl SignInService {
         }
         self.end_provider_flow(&server.canonical_address, Some(flow_id));
         Ok(ProviderFlowStart::NoneAdmits { failure: None })
+    }
+
+    /// The launch's answer for every client but the daemon's own, whose configuration continues
+    /// the launch: a provider's flow is run, the provider the server admitted first, unless this
+    /// press ran the flows already (`tried`); where no provider's flow admits the server the
+    /// sign-in is refused with the failure of the one asked, or as unsupported for the reason the
+    /// client carries.
+    pub(super) async fn answer_other_client(
+        self: &Arc<Self>,
+        target: &SignInTarget,
+        server: &AddressedServer,
+        client: SignInClient,
+        provider_accounts: &ProviderAccounts,
+        tried: &mut ProviderFlowsTried,
+    ) -> ControlFlow<Result<Url, SignInLaunchError>, OAuthClientConfig> {
+        let binding = Box::new(target.binding.clone());
+        let (admitted_provider, refusal_if_none_admits) = match client {
+            SignInClient::OwnClient(own_client) => return ControlFlow::Continue(own_client),
+            SignInClient::Unsupported { reason } => {
+                return ControlFlow::Break(Err(McpRefusal::ServerSignInUnsupported {
+                    binding,
+                    reason,
+                }
+                .into()));
+            }
+            SignInClient::Failed { source } => {
+                return ControlFlow::Break(Err(
+                    McpRefusal::ServerSignInFailed { binding, source }.into()
+                ));
+            }
+            SignInClient::ProviderFlow {
+                admitted_provider,
+                refusal_if_none_admits,
+            } => (admitted_provider, refusal_if_none_admits),
+            SignInClient::OwnClientUnfinished => (None, SignInUnsupportedReason::NoProviderFlow),
+        };
+        let failure = match std::mem::replace(tried, ProviderFlowsTried::No) {
+            ProviderFlowsTried::NoneAdmitted(failure) => failure,
+            ProviderFlowsTried::No => {
+                match self
+                    .run_provider_flow(target, server, admitted_provider, provider_accounts)
+                    .await
+                {
+                    Ok(ProviderFlowStart::Opened(browser_url)) => {
+                        return ControlFlow::Break(Ok(browser_url));
+                    }
+                    Ok(ProviderFlowStart::NoneAdmits { failure }) => failure,
+                    Err(refusal) => return ControlFlow::Break(Err(refusal.into())),
+                }
+            }
+        };
+        ControlFlow::Break(Err(match failure {
+            Some(failure) => failure.into_launch_error(&binding),
+            None => McpRefusal::ServerSignInUnsupported {
+                binding,
+                reason: refusal_if_none_admits,
+            }
+            .into(),
+        }))
     }
 
     // Follows `flow` once its browser opened `browser_url`: serves the browser's return on the
@@ -293,8 +395,10 @@ impl SignInService {
 
     // Settles the flow by how it ended: keeps a completed flow's sign-in, appends the one
     // completion event and publishes the outcome the browser is shown. A flow that ended without a
-    // sign-in carries its driver's kind of failure; any other failure, the task's own among them,
-    // reads as not finished in time. A flow ended by its stop settles nothing.
+    // sign-in clears the mark that the daemon's own client did not finish, so the next press
+    // reaches the own client again, and carries its driver's kind of failure; any other failure,
+    // the task's own among them, reads as not finished in time. A flow ended by its stop settles
+    // nothing.
     async fn settle_flow(
         &self,
         running: &RunningFlow,
@@ -324,6 +428,18 @@ impl SignInService {
                 Some(SignInFailureReason::DidNotFinishInTime)
             }
         };
+        if failure.is_some()
+            && let Err(error) = self
+                .admitted_clients
+                .clear_own_client_unfinished(&running.address)
+                .await
+        {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "the mark that the daemon's own client did not finish an MCP sign-in was not \
+                 cleared"
+            );
+        }
         if let Err(error) = append_sign_in_completed(&self.events, &running.binding, failure).await
         {
             tracing::warn!(

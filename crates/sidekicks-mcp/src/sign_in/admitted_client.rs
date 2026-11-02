@@ -3,7 +3,8 @@
 //! flow signed in with, and the mark that the daemon's own client's attempt did not finish (it ran
 //! out, the daemon stopped, or the server sent the browser back with an error), which outlives a
 //! restart so the next press goes to a provider's flow, and which clears where no provider's flow
-//! admits the server. Neither is a credential, and a sign-out keeps the row.
+//! admits the server or one ends without a sign-in. Neither is a credential, and a sign-out keeps
+//! the row.
 
 use std::borrow::Cow;
 use std::sync::{Arc, LazyLock};
@@ -44,7 +45,7 @@ const RECORD_ADMITTED_PROVIDER_SQL: &str = "INSERT INTO mcp_server_admitted_clie
     admitted_oauth_client = excluded.admitted_oauth_client,
     own_client_unfinished_at = NULL";
 
-// No provider's flow admits the server, so the daemon's own client is the one to try again.
+// No provider's flow admitted the server, so the daemon's own client is the one to try again.
 const CLEAR_OWN_CLIENT_UNFINISHED_SQL: &str = "UPDATE mcp_server_admitted_clients
   SET own_client_unfinished_at = NULL WHERE server_address = @server_address";
 
@@ -169,8 +170,8 @@ impl AdmittedClientStore {
     }
 
     /// Clears the mark that the daemon's own client did not finish at `address`, once no
-    /// provider's flow admits the server. Fails with [`AdmittedClientError::Write`] when the write
-    /// is not kept.
+    /// provider's flow admits the server or one ended without a sign-in. Fails with
+    /// [`AdmittedClientError::Write`] when the write is not kept.
     pub(crate) async fn clear_own_client_unfinished(
         &self,
         address: &McpServerAddress,
