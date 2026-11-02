@@ -2,5 +2,6 @@
 //! handle the daemon mints, with its place under its parent and the newest run it carries. A
 //! projection written in the run event's own write and rebuilt from the log.
 
+pub mod projection;
 pub mod schema;
 pub mod store;
