@@ -59,7 +59,7 @@ pub(crate) struct RecordedDelivery {
     pub(crate) is_daemon_interrupt_end: bool,
     /// The run a child run delivery starts beneath.
     pub(crate) parent_run_id: Option<RunId>,
-    /// The row a session row delivery appends.
+    /// The row a session row or after-run row delivery appends.
     pub(crate) row: Option<LateAppendableRow>,
     /// The session a notice names.
     pub(crate) session_id: Option<SessionId>,
@@ -259,6 +259,7 @@ impl InboundDispatch for RecordingRunEngine {
                 None,
             ),
             InboundDelivery::SessionRow { .. }
+            | InboundDelivery::AfterRunRow { .. }
             | InboundDelivery::UnstampedRow { .. }
             | InboundDelivery::ThinkingUpdate { .. }
             | InboundDelivery::RunMarker { .. }
@@ -483,6 +484,13 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
         InboundDelivery::SessionRow { binding, row, .. } => {
             recorded.kind = "sessionRow";
             recorded.binding_id = Some(binding.binding_id.clone());
+            recorded.row = Some(row.clone());
+        }
+        InboundDelivery::AfterRunRow {
+            binding_id, row, ..
+        } => {
+            recorded.kind = "afterRunRow";
+            recorded.binding_id = Some(binding_id.clone());
             recorded.row = Some(row.clone());
         }
         InboundDelivery::UnstampedRow { binding, row } => {

@@ -5,7 +5,9 @@
 //! end of a turn the daemon interrupted or belongs to a helper refused at its setup, and so is a
 //! piece of a reply or of reasoning once no turn of its ended run is open; any other row is
 //! appended, stamped with its source pair when it is late, a reasoning update among them with its
-//! body. A session notice or session row belongs to no execution and is appended as it is.
+//! body. A session notice or session row belongs to no execution and is appended as it is, and so
+//! is a run's row that lands after its run: unstamped, on that run's own binding, whatever its
+//! cursor holds.
 
 mod absorb;
 #[cfg(test)]
@@ -215,10 +217,10 @@ impl RunInboundDispatch {
     /// delivery order. A piece of a run being continued waits for the continue's write, so the
     /// caller must never await this future on the task that reads its provider's frames: a
     /// continue's start may wait on a frame behind the piece.
-    /// Fails with [`InboundDispatchError::Cursor`] for a binding with no cursor open, with
-    /// [`RunRefusal::NotFound`] for a piece of a run with no row, and with the engine's or the
-    /// log's failure; a refusal for an ended run is an absorb, and a resend the engine owed after
-    /// a move is logged, never failed.
+    /// Fails with [`InboundDispatchError::Cursor`] for a binding with no cursor open, on every
+    /// delivery but an after-run row, with [`RunRefusal::NotFound`] for a piece of a run with no
+    /// row, and with the engine's or the log's failure; a refusal for an ended run is an absorb,
+    /// and a resend the engine owed after a move is logged, never failed.
     pub(crate) fn dispatch<'dispatch>(
         &'dispatch self,
         delivery: InboundDelivery<'_>,
@@ -285,7 +287,8 @@ impl RunInboundDispatch {
     }
 
     // Attributes `delivery` and settles what needs no write: a turn boundary, a delivery from
-    // before a cut, a permission ask and a live state.
+    // before a cut, a permission ask and a live state. A session notice, a row about the session or
+    // the machine and a run's row that lands after its run are appended without attributing.
     fn attribute(&self, delivery: InboundDelivery<'_>) -> Result<Attributed, EpochCursorError> {
         let (binding, absorbable) = match delivery {
             InboundDelivery::SessionNotice { session_id, notice } => {
@@ -314,6 +317,10 @@ impl RunInboundDispatch {
                     SessionEventLinkage::default(),
                     None,
                 ));
+            }
+            InboundDelivery::AfterRunRow { row, content, .. } => {
+                let (session_id, event, source) = row.into_event(None);
+                return Ok(appended(session_id, event, body_linkage(content), source));
             }
             InboundDelivery::TurnBoundary { binding_id } => {
                 return self.open_turn(&binding_id).map(Attributed::Settled);
