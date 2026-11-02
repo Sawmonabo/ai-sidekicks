@@ -81,20 +81,14 @@ impl RunRedaction {
     /// `text`, a record written at once, with each secret form in it masked; borrowed when nothing
     /// matched.
     pub fn scrub<'text>(&self, text: &'text str) -> Cow<'text, str> {
-        let needle_set = self.current();
-        let ranges = needle_set.merged_ranges(text.as_bytes());
+        let ranges = current_needle_set(&self.needle_set).merged_ranges(text.as_bytes());
         if ranges.is_empty() {
             return Cow::Borrowed(text);
         }
-        let mut scrubbed = String::with_capacity(text.len());
-        let mut position = 0;
-        for range in ranges {
-            scrubbed.push_str(&text[position..range.start]);
-            scrubbed.push_str(CREDENTIAL_REDACTION);
-            position = range.end;
-        }
-        scrubbed.push_str(&text[position..]);
-        Cow::Owned(scrubbed)
+        Cow::Owned(
+            String::from_utf8(masked(text.as_bytes(), &ranges))
+                .expect("every needle is whole UTF-8 text, so a mask replaces whole characters"),
+        )
     }
 
     /// A scrubber for one stream the run writes, such as a step's stdout, stderr, log or progress.
@@ -103,11 +97,6 @@ impl RunRedaction {
             needle_set: Arc::clone(&self.needle_set),
             carry: Vec::new(),
         }
-    }
-
-    /// The needle set as it stands now.
-    fn current(&self) -> Arc<NeedleSet> {
-        current_needle_set(&self.needle_set)
     }
 }
 
@@ -138,29 +127,14 @@ impl StreamScrubber {
         }
         let held = self.carry.split_off(cut);
         let written = std::mem::replace(&mut self.carry, held);
-        let mut scrubbed = Vec::with_capacity(written.len());
-        let mut position = 0;
-        for range in ranges.iter().take_while(|range| range.end <= cut) {
-            scrubbed.extend_from_slice(&written[position..range.start]);
-            scrubbed.extend_from_slice(CREDENTIAL_REDACTION.as_bytes());
-            position = range.end;
-        }
-        scrubbed.extend_from_slice(&written[position..]);
-        scrubbed
+        let before_cut = ranges.iter().take_while(|range| range.end <= cut).count();
+        masked(&written, &ranges[..before_cut])
     }
 
     /// The carry, scrubbed, at the end of the stream.
     pub fn finish(self) -> Vec<u8> {
-        let needle_set = current_needle_set(&self.needle_set);
-        let mut scrubbed = Vec::with_capacity(self.carry.len());
-        let mut position = 0;
-        for range in needle_set.merged_ranges(&self.carry) {
-            scrubbed.extend_from_slice(&self.carry[position..range.start]);
-            scrubbed.extend_from_slice(CREDENTIAL_REDACTION.as_bytes());
-            position = range.end;
-        }
-        scrubbed.extend_from_slice(&self.carry[position..]);
-        scrubbed
+        let ranges = current_needle_set(&self.needle_set).merged_ranges(&self.carry);
+        masked(&self.carry, &ranges)
     }
 }
 
@@ -202,6 +176,19 @@ impl NeedleSet {
 /// swaps one in.
 fn current_needle_set(shared: &RwLock<Arc<NeedleSet>>) -> Arc<NeedleSet> {
     Arc::clone(&shared.read().unwrap_or_else(PoisonError::into_inner))
+}
+
+/// `bytes` with each of `ranges`, sorted and apart, replaced by one mask.
+fn masked(bytes: &[u8], ranges: &[Range<usize>]) -> Vec<u8> {
+    let mut scrubbed = Vec::with_capacity(bytes.len());
+    let mut position = 0;
+    for range in ranges {
+        scrubbed.extend_from_slice(&bytes[position..range.start]);
+        scrubbed.extend_from_slice(CREDENTIAL_REDACTION.as_bytes());
+        position = range.end;
+    }
+    scrubbed.extend_from_slice(&bytes[position..]);
+    scrubbed
 }
 
 /// `cut` moved back to the start of the UTF-8 character it falls inside, at most three bytes, so
