@@ -7,6 +7,7 @@ pub(crate) mod askpass;
 pub(crate) mod c_string;
 pub(crate) mod child_command;
 pub(crate) mod child_tree;
+pub(crate) mod clone_refusal;
 pub(crate) mod command_wrapper;
 pub(crate) mod ctrl_c;
 pub(crate) mod current_user;

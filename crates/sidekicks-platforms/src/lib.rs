@@ -66,6 +66,7 @@ mod c_string_array;
 mod caller_process;
 mod child_command;
 mod child_tree;
+mod clone_refusal;
 mod code_signature;
 mod credential_store;
 mod entry_identity;
@@ -152,6 +153,7 @@ pub use child_tree::{
     ChildTree, ChildTreeOutput, ChildTreeOutputError, read_bounded_to_end,
     read_stderr_left_at_exit, start_child_tree,
 };
+pub use clone_refusal::CloneRefusal;
 #[cfg(not(target_os = "macos"))]
 pub use code_signature::DesktopClientRequirement;
 pub use code_signature::{CodeSignatureError, SignatureCheck};
@@ -292,6 +294,8 @@ pub use posix::child_command::{
     prepare_child_command, spawn_lasting_child, wrap_child_command, wrap_group_child_command,
     wrap_leading_child_command,
 };
+#[cfg(unix)]
+pub use posix::clone_refusal::read_clone_refusal;
 #[cfg(unix)]
 pub use posix::command_wrapper::{
     RawStandardInput, TerminalOutputWatch, blocking_terminal_master, end_as_child_ended,
@@ -495,6 +499,8 @@ pub use windows::child_command::{
     prepare_child_command, wrap_child_command, wrap_group_child_command,
     wrap_leading_child_command,
 };
+#[cfg(target_os = "windows")]
+pub use windows::clone_refusal::{CloneVolumeReadFailure, read_clone_refusal};
 #[cfg(target_os = "windows")]
 pub use windows::command_argument_limit::read_command_argument_limit;
 #[cfg(target_os = "windows")]
