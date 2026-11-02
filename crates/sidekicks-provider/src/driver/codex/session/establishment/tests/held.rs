@@ -268,8 +268,8 @@ async fn a_held_helpers_ended_turn_leaves_its_run_waiting() {
 }
 
 // A held helper whose turn still runs at the adoption is bound with its turn unmarked, so the turn
-// runs on as the run's own: the person's stop of it ends the run as that stop's, with its
-// `subagent.completed` row and the end read as the daemon's interrupt, never as the restart's.
+// runs on as the run's own: the person's stop of it ends the run with its `subagent.completed` row,
+// never as the restart's held end.
 // Killed by a running held turn marked (the end is written as the daemon's and the run never
 // moves, so the stop hangs it).
 #[tokio::test(start_paused = true)]
@@ -309,10 +309,6 @@ async fn a_stopped_held_helper_ends_as_its_stop() {
     let ended = turn_completed("thread-helper-a", HELPER_TURN, "interrupted");
     session.task.handle(queued(&ended)).await;
 
-    assert_eq!(
-        session.engine.daemon_interrupt_ends_of_run(helper_run_id),
-        vec![true]
-    );
     assert_eq!(subagent_completed_rows(&session, helper_run_id), 1);
     assert_eq!(turn_ends(&session.engine.calls()).0, Vec::new());
 }

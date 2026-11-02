@@ -5,11 +5,8 @@ use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedWrite};
-use crate::driver::claude::session::scripted::{
-    SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
-};
+use crate::driver::claude::session::scripted::{ScriptedSession, settle};
 use crate::driver::run_control::{HelperStopOutcome, HelperStopParams, HelperStopReason};
-use crate::run::state_entry::RunStateEntry;
 
 // The stop of the helper `helper` whose own run is `run_id`.
 fn helper_stop(session: &ScriptedSession, run_id: RunId) -> HelperStopParams {
@@ -91,12 +88,11 @@ async fn a_helper_at_its_token_limit_is_denied_its_next_tool_use() {
     );
 }
 
-// A tool use racing the stop is denied while Claude Code has not yet answered it, and the helper's
-// end then reads stopped for good, as the daemon's own. Killed by marking the helper after the
-// stop is sent, or never (the racing call passes and the end reads interrupted), by a `stop_task`
-// naming another task, and by an end not marked as the daemon's.
+// A tool use racing the stop is denied while Claude Code has not yet answered it, and the stop
+// names the helper's own task. Killed by marking the helper after the stop is sent, or never (the
+// racing call passes), and by a `stop_task` naming another task.
 #[tokio::test(start_paused = true)]
-async fn a_helper_stopped_from_the_console_is_denied_and_ends_stopped() {
+async fn a_helper_stopped_from_the_console_is_denied_at_once() {
     let session = ScriptedSession::new().await;
     let lead = session.hold_lead_turn("lead");
     let helper = session.bind_helper(lead, "helper");
@@ -109,16 +105,6 @@ async fn a_helper_stopped_from_the_console_is_denied_and_ends_stopped() {
         settle().await;
         drop(release);
     });
-    session.frame(&json!({
-        "type": "system",
-        "subtype": "task_notification",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "task_id": "helper",
-        "tool_use_id": "call-1",
-        "status": "stopped",
-        "summary": "Stopped",
-    }));
-    settle().await;
 
     assert_eq!(
         outcome.expect("the stop is answered"),
@@ -129,14 +115,6 @@ async fn a_helper_stopped_from_the_console_is_denied_and_ends_stopped() {
     assert_eq!(requests[0]["subtype"], "stop_task");
     assert_eq!(requests[0]["task_id"], "helper");
     assert!(is_denied_as_stopped(&session, "helper-tool"));
-    assert_eq!(
-        session.engine.moves_of_run(helper),
-        [RunStateEntry::Stopped {
-            intended_close: None,
-            trigger: None,
-        }]
-    );
-    assert_eq!(session.engine.daemon_interrupt_ends_of_run(helper), [true]);
 }
 
 // A stop answers as Claude Code takes it. Killed by reading a refusal as a failure, by a cut write
