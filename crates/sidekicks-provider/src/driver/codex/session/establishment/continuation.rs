@@ -148,7 +148,7 @@ impl CodexSessionEstablishment {
         let run_routes = &self.dependencies.run_routes;
         let mut continued = Vec::new();
         for run in live_runs {
-            let is_lead = run.subagent_id.is_none() && run.parent_run_id.is_none();
+            let is_lead = run.is_lead();
             let is_live = matches!(
                 run.run_state,
                 RunState::Running

@@ -289,7 +289,7 @@ fn find_run_in_progress(live_runs: &[LiveRunResume]) -> Option<(&LiveRunResume, 
     live_runs
         .iter()
         .filter(|run| {
-            is_lead(run)
+            run.is_lead()
                 && !run.is_stopping
                 && matches!(run.run_state, RunState::Starting | RunState::Running)
                 && !run.is_held(live_runs)
@@ -321,7 +321,7 @@ fn answer_fresh_process(
 // or stops, and no process is started for it.
 fn is_process_owed(live_runs: &[LiveRunResume]) -> bool {
     let has_lead_to_run = live_runs.iter().any(|run| {
-        is_lead(run)
+        run.is_lead()
             && !run.is_stopping
             && !run.is_held(live_runs)
             && matches!(
@@ -333,11 +333,6 @@ fn is_process_owed(live_runs: &[LiveRunResume]) -> bool {
         .iter()
         .any(|run| !matches!(run.run_state, RunState::Queued | RunState::Paused));
     has_lead_to_run || !has_run_in_progress
-}
-
-// Whether `run` is a lead: started on its own and no helper.
-fn is_lead(run: &LiveRunResume) -> bool {
-    run.subagent_id.is_none() && run.parent_run_id.is_none()
 }
 
 // What the session's live process holds of each run in `live_runs`: the run holding the session's

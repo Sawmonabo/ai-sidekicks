@@ -195,5 +195,6 @@ pub(super) fn compose_claude_relaunch(live: &LiveClaudeSession) -> Option<Resume
         kept_schedules: Vec::new(),
         // A relaunch the driver takes itself names no runs for the daemon to settle.
         live_runs: Vec::new(),
+        held_run_continue: None,
     })
 }

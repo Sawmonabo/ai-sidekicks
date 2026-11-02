@@ -48,6 +48,9 @@ use tokio_util::sync::CancellationToken;
 use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
 use crate::driver::idle_sleep::KeptSchedule;
 use crate::driver::mcp_server::status::McpServerStatusProducer;
+use crate::driver::session_control::continuation::HeldRunContinue;
+
+pub mod continuation;
 
 /// The longest account or plan descriptor an authentication probe keeps, in code points; a longer
 /// one is cut, and dropping it loses only words, never the probe's status.
@@ -175,6 +178,9 @@ pub struct ResumeSessionParams {
     /// Every run of the session not yet ended, lead and children alike, which the driver answers
     /// for in [`DriverResumeResult::Resumed`]'s `runs`.
     pub live_runs: Vec<LiveRunResume>,
+    /// The person's answers a lead the restart held on them now continues with, its continue
+    /// claimed for this resume; `None` where nothing is owed.
+    pub held_run_continue: Option<HeldRunContinue>,
 }
 
 /// A run of a resumed session not yet ended, as its log names it to the provider: the run it was
@@ -199,6 +205,11 @@ pub struct LiveRunResume {
 }
 
 impl LiveRunResume {
+    /// Whether the run is a lead: started on its own, and no provider's helper.
+    pub fn is_lead(&self) -> bool {
+        self.subagent_id.is_none() && self.parent_run_id.is_none()
+    }
+
     /// Whether the run is held on the person, its own ask or question or a helper's beneath it
     /// in `live_runs`, so a resume leaves it waiting; a run with a stop that wins is never held.
     pub fn is_held(&self, live_runs: &[LiveRunResume]) -> bool {
