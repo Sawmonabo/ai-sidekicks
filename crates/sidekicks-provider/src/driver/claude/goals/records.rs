@@ -90,12 +90,12 @@ const GOAL_STATUS_ATTACHMENT_TYPE: &str = "goal_status";
 #[derive(Deserialize)]
 struct AttachmentEntry {
     #[serde(default, deserialize_with = "read_lenient")]
-    attachment: Option<Attachment>,
+    attachment: Option<EntryAttachment>,
 }
 
 // An attachment's members as a `goal_status` one carries them, each read leniently.
 #[derive(Deserialize)]
-struct Attachment {
+struct EntryAttachment {
     #[serde(rename = "type", default, deserialize_with = "read_lenient")]
     attachment_type: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
@@ -116,7 +116,7 @@ struct Attachment {
     tokens: Option<u64>,
 }
 
-lenient_object!(AttachmentEntry, Attachment);
+lenient_object!(AttachmentEntry, EntryAttachment);
 
 #[cfg(test)]
 mod tests {
@@ -139,20 +139,12 @@ mod tests {
             .expect("the conversation is written");
     }
 
-    fn goal_status_line(members: Value) -> String {
-        let mut attachment = json!({"type": "goal_status"});
-        attachment
-            .as_object_mut()
-            .expect("an attachment is an object")
-            .extend(
-                members
-                    .as_object()
-                    .expect("the members are an object")
-                    .clone(),
-            );
+    // A `goal_status` attachment entry carrying `members`, on a line of its own.
+    fn goal_status_line(mut members: Value) -> String {
+        members["type"] = json!("goal_status");
         format!(
             "{}\n",
-            json!({"type": "attachment", "uuid": "g", "attachment": attachment})
+            json!({"type": "attachment", "uuid": "g", "attachment": members})
         )
     }
 
