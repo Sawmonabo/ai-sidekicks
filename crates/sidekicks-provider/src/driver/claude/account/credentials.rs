@@ -459,7 +459,8 @@ mod tests {
     use tracing_subscriber::layer::SubscriberExt;
 
     use super::{
-        ClaudeSignInReader, ClaudeSignInReading, claude_keychain_account, claude_keychain_service,
+        ClaudeSignInReader, ClaudeSignInReading, SECURE_STORAGE_FOLDER_VARIABLE,
+        claude_keychain_account, claude_keychain_service,
     };
 
     // A token no log line may hold.
@@ -505,7 +506,7 @@ mod tests {
                 folder.path().display().to_string(),
             ),
             (
-                "CLAUDE_SECURESTORAGE_CONFIG_DIR".to_owned(),
+                SECURE_STORAGE_FOLDER_VARIABLE.to_owned(),
                 folder.path().display().to_string(),
             ),
             ("USER".to_owned(), "tester".to_owned()),
@@ -648,13 +649,13 @@ mod tests {
 
         assert_eq!(service(&[]), "Claude Code-credentials");
         assert_eq!(
-            service(&[("CLAUDE_SECURESTORAGE_CONFIG_DIR", ""), config_home]),
+            service(&[(SECURE_STORAGE_FOLDER_VARIABLE, ""), config_home]),
             "Claude Code-credentials"
         );
         assert_eq!(service(&[config_home]), "Claude Code-credentials-22d54fbb");
         assert_eq!(
             service(&[
-                ("CLAUDE_SECURESTORAGE_CONFIG_DIR", "/accounts/work/secure"),
+                (SECURE_STORAGE_FOLDER_VARIABLE, "/accounts/work/secure"),
                 config_home
             ]),
             "Claude Code-credentials-c8d32363"
@@ -662,7 +663,7 @@ mod tests {
         // A decomposed `é` salts as the composed one.
         assert_eq!(
             service(&[(
-                "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+                SECURE_STORAGE_FOLDER_VARIABLE,
                 "/accounts/re\u{301}sume\u{301}"
             )]),
             "Claude Code-credentials-bdce0c9c"

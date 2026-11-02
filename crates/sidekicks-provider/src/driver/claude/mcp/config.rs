@@ -28,7 +28,7 @@ use sidekicks_platforms::PathRules;
 use self::plugin_manifest::read_plugin_manifest_name;
 use self::policy::read_server_policy;
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::claude::account_credentials::CUSTOM_SIGN_IN_HOST_VARIABLE;
+use crate::driver::claude::account::credentials::CUSTOM_SIGN_IN_HOST_VARIABLE;
 use crate::driver::claude::session::ignored_settings::{
     ClaudeSettingsReadError, find_claude_setting, list_managed_settings_files,
 };

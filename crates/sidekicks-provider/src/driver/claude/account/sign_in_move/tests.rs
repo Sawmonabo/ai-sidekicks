@@ -39,10 +39,10 @@ use crate::account::registry::{
 use crate::account::sign_in::{
     ProviderAccountNotificationPublisher, ProviderSignInBroker, SignedInAccountWatcher,
 };
-use crate::driver::claude::account::{ClaudeAccountLegs, test_account_legs};
-use crate::driver::claude::account_credentials::{
-    claude_keychain_account, claude_keychain_service,
+use crate::driver::claude::account::credentials::{
+    SECURE_STORAGE_FOLDER_VARIABLE, claude_keychain_account, claude_keychain_service,
 };
+use crate::driver::claude::account::{ClaudeAccountLegs, test_account_legs};
 use crate::driver::contract::account::{
     ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs,
     ProviderSignInObservation, SignInOrigin,
@@ -277,7 +277,7 @@ impl PlantedSignIn {
     fn for_store(store: &Path) -> Self {
         let environment = [
             (
-                "CLAUDE_SECURESTORAGE_CONFIG_DIR".to_owned(),
+                SECURE_STORAGE_FOLDER_VARIABLE.to_owned(),
                 store.display().to_string(),
             ),
             ("USER".to_owned(), USER.to_owned()),

@@ -15,6 +15,9 @@ use sidekicks_contracts::session::id::SessionId;
 
 use super::start_params;
 use crate::driver::ProviderAccountFolders;
+use crate::driver::claude::account::credentials::{
+    OAUTH_TOKEN_VARIABLE, SECURE_STORAGE_FOLDER_VARIABLE,
+};
 use crate::driver::claude::account::{ClaudeAccountLegs, test_account_legs};
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
@@ -28,9 +31,6 @@ use crate::driver::contract::account::{
 };
 use crate::driver::test_registry::new_run_id;
 use crate::runtime_binding::test_store::test_provider_account_id;
-
-const STORE_VARIABLE: &str = "CLAUDE_SECURESTORAGE_CONFIG_DIR";
-const TOKEN_VARIABLE: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 
 // A driver with one session open on the default account's store, the account `to` registered as
 // `to_mode` says, and the switch leg over its sessions.
@@ -173,7 +173,7 @@ async fn a_store_switch_points_the_session_at_the_new_store_in_place(#[case] is_
 
     assert_eq!(
         switch.sent_environments(sent_before),
-        [json!({STORE_VARIABLE: switch.store("to")})]
+        [json!({SECURE_STORAGE_FOLDER_VARIABLE: switch.store("to")})]
     );
     assert_eq!(switch.admitted(), switch.to);
     let moves = switch.fixture.bindings.moves();
@@ -223,10 +223,10 @@ async fn a_token_target_relaunches_between_turns_and_resumes_by_id() {
         ClaudeConversationStart::Resume { resume_handle } if resume_handle == conversation
     ));
     assert_eq!(
-        environment_value(&relaunched, STORE_VARIABLE),
+        environment_value(&relaunched, SECURE_STORAGE_FOLDER_VARIABLE),
         Some(switch.store("to").as_str())
     );
-    assert_eq!(environment_value(&relaunched, TOKEN_VARIABLE), None);
+    assert_eq!(environment_value(&relaunched, OAUTH_TOKEN_VARIABLE), None);
     assert_eq!(switch.sent_environments(sent_before), Vec::<Value>::new());
     assert_eq!(switch.admitted(), switch.to);
     assert!(
@@ -271,8 +271,8 @@ async fn a_login_refusal_after_the_move_hands_the_previous_account_back() {
     assert_eq!(
         switch.sent_environments(sent_before),
         [
-            json!({STORE_VARIABLE: switch.store("to")}),
-            json!({STORE_VARIABLE: switch.store("from")}),
+            json!({SECURE_STORAGE_FOLDER_VARIABLE: switch.store("to")}),
+            json!({SECURE_STORAGE_FOLDER_VARIABLE: switch.store("from")}),
         ]
     );
     assert_eq!(switch.admitted(), test_provider_account_id());

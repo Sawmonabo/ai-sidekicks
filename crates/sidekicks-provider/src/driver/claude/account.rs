@@ -1,6 +1,7 @@
 //! The Claude Code driver's account legs: Claude Code's own acts on one account's home, each run
 //! on the folders the caller names, and where its memory import reads and lands.
 
+pub(super) mod credentials;
 mod limits;
 mod read_folder;
 mod sign_in_move;

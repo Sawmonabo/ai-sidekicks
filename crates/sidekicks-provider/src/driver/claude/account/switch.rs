@@ -15,7 +15,7 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 
 use super::ClaudeAccountLegs;
-use crate::driver::claude::account_credentials::SECURE_STORAGE_FOLDER_VARIABLE;
+use crate::driver::claude::account::credentials::SECURE_STORAGE_FOLDER_VARIABLE;
 use crate::driver::claude::delivery::stream::ClaudeFirstRequest;
 use crate::driver::claude::session::control_requests::ClaudeAccountMoveMarker;
 use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
