@@ -24,6 +24,7 @@ pub(crate) mod power_source;
 pub(crate) mod process_start;
 pub(crate) mod processes;
 pub(crate) mod responsibility;
+pub(crate) mod running_program;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) mod scratch_volume;
 pub(crate) mod session_child;

@@ -207,6 +207,8 @@ pub use linux::processes::list_user_process_ids;
 #[cfg(target_os = "linux")]
 pub use linux::read_command_argument_limit;
 #[cfg(target_os = "linux")]
+pub(crate) use linux::running_program::is_program_path_marked_replaced;
+#[cfg(target_os = "linux")]
 pub use linux::session_child::{SessionChild, start_session_child};
 #[cfg(target_os = "linux")]
 pub use linux::user_namespace::can_create_user_namespace;
@@ -257,6 +259,8 @@ pub use macos::processes::list_user_process_ids;
 pub use macos::read_command_argument_limit;
 #[cfg(target_os = "macos")]
 pub use macos::responsibility::become_own_root;
+#[cfg(target_os = "macos")]
+pub(crate) use macos::running_program::is_program_path_marked_replaced;
 #[cfg(target_os = "macos")]
 pub use macos::session_child::{SessionChild, start_session_child};
 #[cfg(target_os = "macos")]
@@ -587,6 +591,8 @@ pub use windows::real_path::real_path;
 pub use windows::run_folder::{
     RUN_FOLDER_FILE_MODE, check_private_run_folder, create_private_run_folder, daemon_run_folder,
 };
+#[cfg(target_os = "windows")]
+pub(crate) use windows::running_program::is_program_path_marked_replaced;
 #[cfg(target_os = "windows")]
 pub use windows::session_child::{SessionChild, start_session_child};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
