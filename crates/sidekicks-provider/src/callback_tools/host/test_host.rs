@@ -84,7 +84,13 @@ impl CallbackToolExecutor for CountingExecutor {
         _invocation: CallbackToolInvocation,
     ) -> BoxFuture<'_, Result<CallbackToolResult, CallbackToolPortError>> {
         self.count.fetch_add(1, Ordering::SeqCst);
-        async { Ok(CallbackToolResult::Completed { output: None }) }.boxed()
+        async {
+            Ok(CallbackToolResult::Completed {
+                output: None,
+                session_links: Vec::new(),
+            })
+        }
+        .boxed()
     }
 }
 

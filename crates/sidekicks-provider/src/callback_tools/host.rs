@@ -22,7 +22,9 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use strum::IntoStaticStr;
 
-use crate::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
+use crate::driver::callback_tool::{
+    CallbackToolInvocation, CallbackToolResult, CallbackToolSessionLink,
+};
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -78,8 +80,8 @@ pub trait CallbackToolApprovalSeam: Send + Sync {
 
 /// Runs a call the seam allowed, so it never checks authorization again.
 pub trait CallbackToolExecutor: Send + Sync {
-    /// Runs `invocation` and answers it. An error when it could not run, which the host answers
-    /// `failed`.
+    /// Runs `invocation` and answers it; a completed answer names the session links its call made.
+    /// An error when it could not run, which the host answers `failed`.
     fn execute(
         &self,
         invocation: CallbackToolInvocation,
@@ -121,6 +123,9 @@ pub struct CallbackToolActivityRecord {
     pub disposition: CallbackToolActivityDisposition,
     /// How it was adjudicated; `None` when it was refused before adjudication.
     pub approval_basis: Option<CallbackToolApprovalBasis>,
+    /// The session links the call made, which the sink records in the row's own write; empty on
+    /// every disposition but `Completed`.
+    pub session_links: Vec<CallbackToolSessionLink>,
 }
 
 /// Lands each settled call as an ordinary tool activity row.
@@ -293,6 +298,7 @@ impl CallbackToolHost {
             tool_call_id,
             disposition: refusal.disposition(),
             approval_basis: None,
+            session_links: Vec::new(),
         };
         let detail = fault.to_string();
         self.refuse(provider.as_ref(), &record, refusal, detail)
@@ -554,8 +560,9 @@ impl CallbackToolHost {
                 error: Some(error.to_string()),
             },
         };
-        if matches!(result, CallbackToolResult::Completed { .. }) {
+        if let CallbackToolResult::Completed { session_links, .. } = &result {
             record.disposition = CallbackToolActivityDisposition::Completed;
+            record.session_links.clone_from(session_links);
         }
         self.record_activity(provider, &record).await;
         result
@@ -627,6 +634,7 @@ fn activity_of(
         tool_call_id: invocation.tool_call_id.clone(),
         disposition,
         approval_basis,
+        session_links: Vec::new(),
     }
 }
 
