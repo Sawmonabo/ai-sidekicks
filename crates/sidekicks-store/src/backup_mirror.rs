@@ -41,8 +41,9 @@ const TIME_PROBE_FILE_NAME: &str = ".sidekicks-time-probe";
 // adds each fraction to.
 const TIME_PROBE_BASE: Duration = Duration::from_secs(1_700_000_000);
 
-// The precision of a folder that keeps no time a probe set to the second: FAT's two seconds.
-const COARSEST_TIME_PRECISION: Duration = Duration::from_secs(2);
+/// The coarsest modification-time precision any supported file system keeps: FAT's two seconds,
+/// the precision of a folder that keeps no time a probe set to the second.
+pub const COARSEST_TIME_PRECISION: Duration = Duration::from_secs(2);
 
 // The separator of a root's path in the mirror's list, whatever system wrote it.
 const LISTED_PATH_SEPARATOR: char = '/';

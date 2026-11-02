@@ -1,7 +1,7 @@
-//! The git steps of one turn-snapshot capture: resolve the base, seed and partition the scratch
-//! index, stage the listing, record embedded repositories, write and commit the tree and write its
-//! ref, every write into the capture folder. The service orders them and turns a failure into the
-//! failed step.
+//! The git steps of a capture, a turn snapshot or a command capture: resolve the base, seed and
+//! partition the index it stages into, split the listing by size, stage it, record embedded
+//! repositories, write and commit the tree and write its ref, every write into the capture folder.
+//! Each capture orders them and turns a failure into the failed step.
 //!
 //! - A duplicate capture whose worktree changed leaves an unreferenced tree and commit for gc.
 //! - Host git config, measured on git 2.50.1: `core.ignorecase` and `core.precomposeUnicode` state
@@ -33,11 +33,12 @@ use tokio::task::JoinError;
 use crate::git::GITLINK_MODE;
 use crate::git::process::{GitCall, GitError, GitRunner, in_folder, strip_line_end};
 use crate::git::turn_snapshot::capture::{
-    CORE_SPARSE_CHECKOUT_KEY, INDEX_COPY_GUARDS, ObjectFormat,
-    SKIPPED_EMBEDDED_REPOSITORIES_TRAILER, SNAPSHOT_COMMIT_MESSAGE, SNAPSHOT_IDENTITY_EMAIL,
-    SNAPSHOT_IDENTITY_NAME, SPARSE_BOUNDARY_PATHS_TRAILER, SPARSE_SEED_INDEX_LOCK_ATTEMPTS,
-    SPARSE_SEED_INDEX_LOCK_RETRY_DELAY, SparseListingPartition, UnrecognizedObjectFormat,
-    join_nul_terminated_listing, split_nul_terminated_listing_bytes, to_raw_git_date,
+    CORE_FSYNC_PIN, CORE_SPARSE_CHECKOUT_KEY, INDEX_COPY_GUARDS, LARGE_FILE_BYTES,
+    LEFT_OUT_PATHS_TRAILER, LargeFile, ObjectFormat, SKIPPED_EMBEDDED_REPOSITORIES_TRAILER,
+    SNAPSHOT_IDENTITY_EMAIL, SNAPSHOT_IDENTITY_NAME, SPARSE_BOUNDARY_PATHS_TRAILER,
+    SPARSE_SEED_INDEX_LOCK_ATTEMPTS, SPARSE_SEED_INDEX_LOCK_RETRY_DELAY, SizePartition,
+    SparseListingPartition, UnreadPath, UnrecognizedObjectFormat, join_nul_terminated_listing,
+    split_nul_terminated_listing_bytes, to_raw_git_date,
 };
 use crate::git::turn_snapshot::capture_folder::{
     CaptureFolder, CaptureFolderError, git_folder_argument,
@@ -46,9 +47,9 @@ use crate::git::turn_snapshot::refs::USE_REPLACE_REFS_PIN;
 
 const INDEX_COPY_OPERATION: &str = "copying the live index to the scratch index";
 
-/// Every capture write flushes its objects and its ref to disk before git answers, whatever the
-/// host sets, so a crash after the answer loses no snapshot.
-const CORE_FSYNC_PIN: [&str; 2] = ["-c", "core.fsync=objects,reference"];
+/// The exit of `rev-parse --verify -q` when the name resolves to nothing, an unborn `HEAD` among
+/// them; any other failure exits 128.
+const UNRESOLVED_NAME_EXIT_CODE: i32 = 1;
 
 /// Why one capture step failed; the service reports it with the step's name, and the turn ends
 /// anyway.
@@ -81,6 +82,9 @@ pub(crate) enum CaptureStepError {
     /// The capture folder's folder of indexes could not be made.
     #[error("the capture folder's folder of indexes could not be made")]
     IndexFolder(#[source] io::Error),
+    /// The listed paths' sizes could not be read: the blocking read did not finish.
+    #[error("the listed paths' sizes could not be read")]
+    PathSizes(#[source] io::Error),
     /// The kept index, or the HEAD recorded beside it, could not be read or written.
     #[error("the kept index or the HEAD it was seeded at could not be read or written")]
     KeptIndex(#[source] io::Error),
@@ -122,36 +126,37 @@ pub(crate) struct SnapshotCheckout<'checkout> {
 
 impl SnapshotCheckout<'_> {
     /// Resolves `HEAD` once; the id is both the tree base and the recorded parent, so a branch
-    /// moving mid-capture cannot pair an old tree with a new parent. Fails as git does, an unborn
-    /// `HEAD` among them, or with `NotAnObjectId`.
-    pub(crate) async fn resolve_base_commit(&self) -> Result<GitObjectId, CaptureStepError> {
+    /// moving mid-capture cannot pair an old tree with a new parent. `None` for an unborn `HEAD`, a
+    /// repository with no commit yet, whose capture has no base and no parent. Fails as git does
+    /// otherwise, or with `NotAnObjectId`.
+    pub(crate) async fn resolve_base_commit(
+        &self,
+    ) -> Result<Option<GitObjectId>, CaptureStepError> {
         // `--verify` prints nothing on a miss; the bare form echoes `HEAD` with a non-zero exit.
-        let output = self
-            .git
-            .run(
-                self.place,
-                GitCall::read(self.in_checkout(&["rev-parse", "--verify", "HEAD"])),
-            )
-            .await?;
-        require_object_id(&output.stdout)
+        let call = GitCall::read(self.in_checkout(&["rev-parse", "--verify", "-q", "HEAD"]));
+        match self.git.run(self.place, call).await {
+            Ok(output) => require_object_id(&output.stdout).map(Some),
+            Err(unresolved) if unresolved.exit_code() == Some(UNRESOLVED_NAME_EXIT_CODE) => {
+                Ok(None)
+            }
+            Err(failure) => Err(failure.into()),
+        }
     }
 
-    /// Whether the root is sparse, read from `core.sparseCheckout` alone (what git consults before
-    /// skip-worktree). A rules file without the bit fails the matcher (exit 128), so the capture
-    /// fails closed. Read per root, not per mode: a worktree inherits sparseness. Fails as git
-    /// does.
-    pub(crate) async fn detect_sparse_root(&self) -> Result<bool, CaptureStepError> {
-        // `--default=false` makes an unset key a clean false; a bare `--get` exits 1 (unset) or 128
-        // (unreadable), which an exit code alone cannot tell apart.
-        let arguments = self.in_checkout(&[
-            "config",
-            "--type=bool",
-            "--default=false",
-            "--get",
-            CORE_SPARSE_CHECKOUT_KEY,
-        ]);
-        let output = self.git.run(self.place, GitCall::read(arguments)).await?;
-        Ok(String::from_utf8_lossy(&output.stdout).trim() == "true")
+    /// Seeds `index` with `base`'s tree, or empty when there is no base, under the replace-ref pin:
+    /// a replace ref on the base would seed from the replacement's tree and drop a path that is
+    /// both tracked in the index and ignored (measured against `add -A`). Fails as git does.
+    pub(crate) async fn seed_index_from_base(
+        &self,
+        index: &Path,
+        base: Option<&GitObjectId>,
+    ) -> Result<(), CaptureStepError> {
+        let [pin_flag, pin_setting] = USE_REPLACE_REFS_PIN;
+        let tree = base.map_or("--empty", GitObjectId::as_str);
+        let arguments = self.on_index_copy(&[pin_flag, pin_setting, "read-tree", tree]);
+        let call = GitCall::read(arguments).with_environment("GIT_INDEX_FILE", index);
+        self.git.run(self.place, call).await?;
+        Ok(())
     }
 
     /// Copies the live index to `scratch_index` while holding git's `<index>.lock`, made
@@ -258,6 +263,20 @@ impl SnapshotCheckout<'_> {
             .copied()
             .filter(|entry| !recorded.contains(entry))
             .collect())
+    }
+
+    /// Splits the NUL-terminated `listing` by each path's size, read under the checkout's root
+    /// with `symlink_metadata`, which follows no link: a regular file over [`LARGE_FILE_BYTES`]
+    /// and a path whose size cannot be read are left out, and everything else, a path gone since
+    /// the listing among them, is staged. Fails with `PathSizes` when the blocking read does not
+    /// finish.
+    pub(crate) async fn partition_listing_by_size(
+        &self,
+        listing: &[u8],
+    ) -> Result<SizePartition, CaptureStepError> {
+        let (root, listing) = (self.root.to_path_buf(), listing.to_vec());
+        joined(tokio::task::spawn_blocking(move || Ok(partition_by_size(&root, &listing))).await)
+            .map_err(CaptureStepError::PathSizes)
     }
 
     /// Stages every path of the NUL-terminated `listing` into `scratch_index`, hashing the worktree
@@ -375,35 +394,46 @@ impl SnapshotCheckout<'_> {
         Ok(skipped)
     }
 
-    /// Commits `tree` on `base` under the encoding pin, the snapshot identity and `turn_ended_at`
-    /// as both dates, so the id depends only on project state and the turn's end. What a restore
-    /// cannot re-derive rides as trailers (see [`compose_snapshot_message`]). Fails as git does,
-    /// or with `NotAnObjectId`.
+    /// Commits `tree` on `base`, with no parent when there is none, under the encoding pin, the
+    /// snapshot identity and `captured_at` as both dates, so the id depends only on project state,
+    /// `subject` and the capture's instant. What a restore cannot re-derive rides as trailers (see
+    /// [`compose_snapshot_message`]). Fails as git does, or with `NotAnObjectId`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each trailer's list is its own input to the commit's id"
+    )]
     pub(crate) async fn commit_snapshot_tree(
         &self,
         tree: &GitObjectId,
-        base: &GitObjectId,
+        base: Option<&GitObjectId>,
+        subject: &str,
         skipped_embedded_repositories: &[&[u8]],
         sparse_boundary_paths: Option<&[&[u8]]>,
-        turn_ended_at: Timestamp,
+        left_out_paths: &[Vec<u8>],
+        captured_at: Timestamp,
     ) -> Result<GitObjectId, CaptureStepError> {
-        let date = to_raw_git_date(turn_ended_at);
+        let date = to_raw_git_date(captured_at);
         // `i18n.commitEncoding=utf-8` because a host setting adds an `encoding` header. The dates
         // are commit fields too, so the identity alone would leak the host's time zone into the id.
-        let arguments = self.write_in_checkout(&[
+        let mut commit = vec![
             "-c",
             "i18n.commitEncoding=utf-8",
             "commit-tree",
             tree.as_str(),
-            "-p",
-            base.as_str(),
-            "-F",
-            "-",
-        ]);
-        // Over standard input, not `-m`: the sparse trailer is unbounded and an argument list is
+        ];
+        if let Some(base) = base {
+            commit.extend(["-p", base.as_str()]);
+        }
+        commit.extend(["-F", "-"]);
+        let arguments = self.write_in_checkout(&commit);
+        // Over standard input, not `-m`: the path trailers are unbounded and an argument list is
         // not.
-        let message =
-            compose_snapshot_message(skipped_embedded_repositories, sparse_boundary_paths);
+        let message = compose_snapshot_message(
+            subject,
+            skipped_embedded_repositories,
+            sparse_boundary_paths,
+            left_out_paths,
+        );
         let call = self
             .writing_capture_objects(GitCall::write(arguments))
             .with_environment("GIT_AUTHOR_NAME", SNAPSHOT_IDENTITY_NAME)
@@ -525,6 +555,31 @@ impl SnapshotCheckout<'_> {
     }
 }
 
+/// Whether the checkout at `root` is sparse, read from `core.sparseCheckout` alone (what git
+/// consults before skip-worktree), running git for the project at `place`. A rules file without
+/// the bit fails the matcher (exit 128), so the capture fails closed. Read per root, not per mode: a
+/// worktree inherits sparseness. Fails as git does.
+pub(crate) async fn detect_sparse_root(
+    git: &GitRunner,
+    place: Option<&Place>,
+    root: &Path,
+) -> Result<bool, CaptureStepError> {
+    // `--default=false` makes an unset key a clean false; a bare `--get` exits 1 (unset) or 128
+    // (unreadable), which an exit code alone cannot tell apart.
+    let arguments = in_folder(
+        root,
+        &[
+            "config",
+            "--type=bool",
+            "--default=false",
+            "--get",
+            CORE_SPARSE_CHECKOUT_KEY,
+        ],
+    );
+    let output = git.run(place, GitCall::read(arguments)).await?;
+    Ok(String::from_utf8_lossy(&output.stdout).trim() == "true")
+}
+
 /// git's answer as a SHA-1 or SHA-256 id, checked before it enters an argument list or a result,
 /// so an echo that is not an id never passes as one. Fails with `NotAnObjectId` on anything else.
 pub(crate) fn require_object_id(stdout: &[u8]) -> Result<GitObjectId, CaptureStepError> {
@@ -532,16 +587,19 @@ pub(crate) fn require_object_id(stdout: &[u8]) -> Result<GitObjectId, CaptureSte
         .ok_or(CaptureStepError::NotAnObjectId)
 }
 
-/// The snapshot commit's message: the fixed line, then the skipped embedded repositories when
-/// there are any, then the sparse boundary paths whenever the root is sparse (`None` when it is
-/// not), paragraphs apart and ending in a line end, without which the id differs. Both lists are
-/// sorted for a stable id: the skipped paths read as UTF-8, any other byte replaced, and ordered
-/// by UTF-16 units; the boundary paths ordered by their bytes and written one character per byte.
+/// A capture commit's message: `subject`, then the skipped embedded repositories when there are
+/// any, then the sparse boundary paths whenever the root is sparse (`None` when it is not), then
+/// the left-out paths when there are any, paragraphs apart and ending in a line end, without which
+/// the id differs. Every list is sorted for a stable id: the skipped paths read as UTF-8, any
+/// other byte replaced, and ordered by UTF-16 units; the boundary and left-out paths ordered by
+/// their bytes and written one character per byte.
 pub(crate) fn compose_snapshot_message(
+    subject: &str,
     skipped_embedded_repositories: &[&[u8]],
     sparse_boundary_paths: Option<&[&[u8]]>,
+    left_out_paths: &[Vec<u8>],
 ) -> String {
-    let mut paragraphs = vec![SNAPSHOT_COMMIT_MESSAGE.to_owned()];
+    let mut paragraphs = vec![subject.to_owned()];
     if !skipped_embedded_repositories.is_empty() {
         let mut skipped: Vec<String> = skipped_embedded_repositories
             .iter()
@@ -554,21 +612,79 @@ pub(crate) fn compose_snapshot_message(
         ));
     }
     if let Some(boundary_paths) = sparse_boundary_paths {
-        let mut sorted = boundary_paths.to_vec();
-        sorted.sort_unstable();
-        // One character per byte keeps distinct non-UTF-8 paths distinct through JSON.
-        let boundary: Vec<String> = sorted
-            .iter()
-            .map(|path| path.iter().copied().map(char::from).collect())
-            .collect();
         paragraphs.push(format!(
             "{SPARSE_BOUNDARY_PATHS_TRAILER} {}",
-            json_list(&boundary)
+            byte_json_list(boundary_paths.iter().copied())
+        ));
+    }
+    if !left_out_paths.is_empty() {
+        paragraphs.push(format!(
+            "{LEFT_OUT_PATHS_TRAILER} {}",
+            byte_json_list(left_out_paths.iter().map(Vec::as_slice))
         ));
     }
     let mut message = paragraphs.join("\n\n");
     message.push('\n');
     message
+}
+
+// `paths` sorted by their bytes as one JSON array, each byte written as the one character of the
+// same number, which keeps distinct non-UTF-8 paths distinct through JSON.
+fn byte_json_list<'path>(paths: impl Iterator<Item = &'path [u8]>) -> String {
+    let mut sorted: Vec<&[u8]> = paths.collect();
+    sorted.sort_unstable();
+    let written: Vec<String> = sorted
+        .iter()
+        .map(|path| path.iter().copied().map(char::from).collect())
+        .collect();
+    json_list(&written)
+}
+
+// The size split of `listing`'s entries under `root`, each path's size read without following a
+// link.
+fn partition_by_size(root: &Path, listing: &[u8]) -> SizePartition {
+    let mut partition = SizePartition {
+        staged_listing: Vec::with_capacity(listing.len()),
+        large_files: Vec::new(),
+        unread_paths: Vec::new(),
+        large_entries: Vec::new(),
+        left_out_entries: Vec::new(),
+    };
+    for entry in split_nul_terminated_listing_bytes(listing) {
+        let path = match path_from_program_output(entry.to_vec()) {
+            Ok(path) => path,
+            Err(error) => {
+                let path = PathBuf::from(String::from_utf8_lossy(entry).into_owned());
+                partition.unread_paths.push(UnreadPath { path, error });
+                partition.left_out_entries.push(entry.to_vec());
+                continue;
+            }
+        };
+        match std::fs::symlink_metadata(root.join(&path)) {
+            Ok(metadata) if metadata.is_file() && metadata.len() > LARGE_FILE_BYTES => {
+                let size = metadata.len();
+                partition.large_files.push(LargeFile { path, size });
+                partition.large_entries.push(entry.to_vec());
+                partition.left_out_entries.push(entry.to_vec());
+            }
+            // A path gone since the listing is staged too, so `--remove` drops it.
+            Ok(_) => stage_entry(&mut partition.staged_listing, entry),
+            Err(gone) if gone.kind() == io::ErrorKind::NotFound => {
+                stage_entry(&mut partition.staged_listing, entry);
+            }
+            Err(error) => {
+                partition.unread_paths.push(UnreadPath { path, error });
+                partition.left_out_entries.push(entry.to_vec());
+            }
+        }
+    }
+    partition
+}
+
+// Appends `entry` to the NUL-terminated `listing`.
+fn stage_entry(listing: &mut Vec<u8>, entry: &[u8]) {
+    listing.extend_from_slice(entry);
+    listing.push(0);
 }
 
 // `entries` as one JSON array; its escapes keep a line end from forging a trailer.
@@ -606,18 +722,25 @@ pub(crate) fn joined<Value>(answer: Result<io::Result<Value>, JoinError>) -> io:
 #[cfg(test)]
 mod tests {
     use super::compose_snapshot_message;
+    use crate::git::turn_snapshot::capture::TURN_SNAPSHOT_SUBJECT;
 
     // Fails when the trailers' bytes change for a path outside the Basic Multilingual Plane, one in
     // U+E000–U+FFFF or one that is not UTF-8: the order, the escapes or the decoding, each an input
-    // to every snapshot's id.
+    // to every snapshot's id; and when the left-out paths' trailer is dropped or misordered.
     #[test]
     fn the_trailers_keep_the_bytes_every_snapshot_id_hashes() {
         let astral = "vendor/\u{1F600}".as_bytes();
         let private_use = "vendor/\u{FF5E}".as_bytes();
         let not_utf8 = b"vendor/\xFF".as_slice();
         let paths = [not_utf8, private_use, astral];
+        let left_out: Vec<Vec<u8>> = paths.iter().map(|path| path.to_vec()).collect();
 
-        let message = compose_snapshot_message(&paths, Some(paths.as_slice()));
+        let message = compose_snapshot_message(
+            TURN_SNAPSHOT_SUBJECT,
+            &paths,
+            Some(paths.as_slice()),
+            &left_out,
+        );
 
         assert!(message.ends_with("]\n") && !message.ends_with("]\n\n"));
         insta::assert_snapshot!("turn_snapshot_message_trailers", message);

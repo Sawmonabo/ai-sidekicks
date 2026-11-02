@@ -46,6 +46,7 @@ use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_workspace::event_emitter::WorkspaceEventEmitter;
 use sidekicks_workspace::git::process::test_git_runner;
+use sidekicks_workspace::git::turn_snapshot::repack::CapturePacking;
 use sidekicks_workspace::git::turn_snapshot::service::{
     TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY, TurnSnapshotService,
 };
@@ -199,6 +200,7 @@ pub(crate) async fn test_purge(
             test_git_runner(),
             Arc::clone(&reads),
             Arc::new(KeyedLock::new()),
+            Arc::new(CapturePacking::new(test_git_runner())),
         )),
         project_rules,
         list_feed,

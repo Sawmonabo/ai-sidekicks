@@ -37,6 +37,7 @@ use sidekicks_workspace::clone::askpass::broker::{AskpassBroker, AskpassBrokerEr
 use sidekicks_workspace::clone::askpass::program::git_askpass_program_path;
 use sidekicks_workspace::event_emitter::WorkspaceEventEmitter;
 use sidekicks_workspace::git::process::GitRunner;
+use sidekicks_workspace::git::turn_snapshot::repack::CapturePacking;
 use sidekicks_workspace::git::turn_snapshot::service::TurnSnapshotService;
 use sidekicks_workspace::git::worktree::branch_list::BranchListReader;
 use sidekicks_workspace::git::worktree::event_emitter::WorktreeEventEmitter;
@@ -222,10 +223,12 @@ pub(crate) fn build_repo_services(
     }));
     let review_notes = Arc::new(live_folders.review_note_store(Arc::clone(&writer)));
     let checkout_lock = Arc::new(KeyedLock::new());
+    let packing = Arc::new(CapturePacking::new(git.clone()));
     let snapshots = Arc::new(TurnSnapshotService::new(
         git.clone(),
         Arc::clone(&reads),
         Arc::clone(&checkout_lock),
+        packing,
     ));
     let worktrees = Arc::new(WorktreeService::new(WorktreeServiceDeps {
         git: git.clone(),

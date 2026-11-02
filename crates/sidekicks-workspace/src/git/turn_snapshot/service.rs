@@ -10,12 +10,13 @@
 //! - A capture holds the checkout's lock, the one the run setup gate holds around a run's context
 //!   write, so captures of one checkout run one at a time, whichever session's run asks, and never
 //!   beside the gate's setup of it.
-//! - A git older than the newest feature a capture calls captures nothing and runs no other git.
+//! - A git that lacks a feature the capture calls captures nothing and writes nothing.
+//! - A file over the size bound is left out of the tree and named in its trailer.
+//! - Once captured, what the snapshot borrows from the repository is packed into the folder.
 
-use std::collections::HashSet;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use jiff::Timestamp;
 use rusqlite::{Connection, OptionalExtension, named_params};
@@ -23,31 +24,28 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_platforms::{
-    create_private_folder, path_from_program_output, real_path, remove_tree,
-};
+use sidekicks_platforms::{create_private_folder, remove_tree};
 use sidekicks_std::keyed_lock::KeyedLock;
-use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::random_hex::random_hex;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::stored_column::optional_text_column;
 
-use crate::folder::canonical_path::canonical_folder_path;
-use crate::git::process::version::{GitFeature, GitVersion};
-use crate::git::process::{
-    GitCall, GitError, GitRunner, in_folder, read_git_common_folder, strip_line_end,
+use crate::git::process::{GitCall, GitError, GitRunner};
+use crate::git::turn_snapshot::capture::{
+    EXCLUDE_PER_DIRECTORY_GITIGNORE, GitFloorReports, SparseListingPartition, TURN_SNAPSHOT_SUBJECT,
 };
-use crate::git::turn_snapshot::capture::{EXCLUDE_PER_DIRECTORY_GITIGNORE, SparseListingPartition};
 use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argument};
 use crate::git::turn_snapshot::capture_steps::{CaptureStepError, SnapshotCheckout, joined};
 use crate::git::turn_snapshot::diagnostics::{
-    TurnSnapshotCaptureStep, TurnSnapshotDiagnostic, TurnSnapshotRetentionSkipReason,
+    CaptureDiagnostic, CaptureStep, TurnSnapshotRetentionSkipReason,
 };
-use crate::git::turn_snapshot::refs::{
-    USE_REPLACE_REFS_PIN, build_run_snapshot_ref_prefix, build_turn_snapshot_ref,
+use crate::git::turn_snapshot::held_checkout::{
+    CaptureRoots, CaptureStartFailure, HeldCheckout, hold_checkout,
 };
+use crate::git::turn_snapshot::refs::{build_run_snapshot_ref_prefix, build_turn_snapshot_ref};
+use crate::git::turn_snapshot::repack::{CapturePacking, CapturedCommit};
 use crate::git::turn_snapshot::retention::{
     RunContextKey, RunContextRow, is_path_provably_absent, parse_snapshot_ref_listing,
 };
@@ -60,10 +58,6 @@ const SELECT_RUN_CONTEXT_SQL: &str =
 
 /// The random bytes in a scratch index's name, enough that two captures never meet.
 const SCRATCH_INDEX_NAME_BYTES: usize = 16;
-
-/// The feature with the newest first release among those a capture and its packing call, so a git
-/// that has it has them all.
-const CAPTURE_GIT_FLOOR: GitFeature = GitFeature::SparseCheckoutCheckRules;
 
 /// What one capture records, every field resolved by the caller.
 #[derive(Clone, Debug)]
@@ -96,8 +90,9 @@ pub enum TurnSnapshotCaptureOutcome {
         snapshot_ref: String,
         /// The snapshot commit the ref names.
         snapshot_commit: GitObjectId,
-        /// The one base resolved at the start: both the tree's base and the recorded parent.
-        base_commit: GitObjectId,
+        /// The one base resolved at the start: both the tree's base and the recorded parent;
+        /// `None` in a repository with no commit yet, where the snapshot has no parent.
+        base_commit: Option<GitObjectId>,
         /// The embedded repositories not recorded as gitlinks, in listing order, read as UTF-8
         /// with any other byte replaced, for the caller to record.
         skipped_embedded_repositories: Vec<String>,
@@ -116,7 +111,7 @@ pub enum TurnSnapshotCaptureOutcome {
         /// The ref the snapshot would have been written to.
         snapshot_ref: String,
         /// The step that failed.
-        failed_step: TurnSnapshotCaptureStep,
+        failed_step: CaptureStep,
     },
 }
 
@@ -164,7 +159,8 @@ pub enum RunContextReadError {
 }
 
 /// Owns the `refs/sidekicks/runs/` namespace of every capture folder and every git call that
-/// writes into it. Keeps nothing between calls but the places whose old git it already reported.
+/// writes into it. Keeps nothing between calls but the places and features whose old git it already
+/// reported.
 pub struct TurnSnapshotService {
     git: GitRunner,
     /// Where the prune reads a run's context row.
@@ -172,146 +168,100 @@ pub struct TurnSnapshotService {
     /// The run setup gate's lock, keyed by each checkout's canonical folder, so every spelling of
     /// one tree takes one lock.
     checkout_lock: Arc<KeyedLock<PathBuf>>,
-    /// The places whose git was reported older than the capture's floor in this daemon run.
-    floor_reported_places: Mutex<HashSet<Option<Place>>>,
+    /// The packing every capture's borrowed objects go through.
+    packing: Arc<CapturePacking>,
+    /// The places and features whose git was reported too old in this daemon run.
+    floor_reports: GitFloorReports,
 }
 
 impl TurnSnapshotService {
-    /// A service running `git`, reading run contexts through `reads`, and holding a checkout in
-    /// `checkout_lock`, the run setup gate's, while it captures it.
+    /// A service running `git`, reading run contexts through `reads`, holding a checkout in
+    /// `checkout_lock`, the run setup gate's, while it captures it, and packing each snapshot
+    /// through `packing`.
     pub fn new(
         git: GitRunner,
         reads: Arc<DatabaseReadPool>,
         checkout_lock: Arc<KeyedLock<PathBuf>>,
+        packing: Arc<CapturePacking>,
     ) -> Self {
         Self {
             git,
             reads,
             checkout_lock,
-            floor_reported_places: Mutex::new(HashSet::new()),
+            packing,
+            floor_reports: GitFloorReports::new(),
         }
     }
 
-    /// Records the checkout's project state (tracked plus non-ignored untracked files) as a
-    /// snapshot commit at the turn's ref in the owner's capture folder, running git for the
-    /// project at `place`. Never fails: every failure is logged and answered `Failed` with its
-    /// step, since a snapshot never holds up a turn; a git below the floor is logged once per
-    /// place.
+    /// Records the checkout's project state (tracked plus non-ignored untracked files, a file over
+    /// the size bound left out) as a snapshot commit at the turn's ref in the owner's capture
+    /// folder, running git for the project at `place`, then packs what it borrows from the
+    /// repository. Never fails: every failure is logged and answered `Failed` with its step, since a
+    /// snapshot never holds up a turn; a git lacking a feature is logged once per place and feature.
     pub async fn capture_turn_snapshot(
         &self,
         place: Option<&Place>,
         input: &TurnSnapshotCaptureInput,
     ) -> TurnSnapshotCaptureOutcome {
-        use TurnSnapshotCaptureStep as Step;
-
         let snapshot_ref = build_turn_snapshot_ref(&input.run_id, input.epoch, input.turn_ordinal);
-        // Before any other git call, so an old git writes nothing.
-        match self.git.version(place).await {
-            Ok(version) if version.has(CAPTURE_GIT_FLOOR) => {}
-            Ok(version) => {
-                self.report_below_floor(place, version);
-                return TurnSnapshotCaptureOutcome::Failed {
-                    snapshot_ref,
-                    failed_step: Step::GitFloor,
-                };
-            }
-            Err(failure) => {
-                return fail_capture(input, snapshot_ref, Step::GitFloor, failure.into());
-            }
-        }
-        let (checkout_root, git_common_folder) = match self.verify_checkout_root(place, input).await
-        {
-            Ok(verified) => verified,
-            Err(failure) => {
-                return fail_capture(input, snapshot_ref, Step::VerifyCheckoutRoot, failure);
-            }
+        let roots = CaptureRoots {
+            owner_folder: &input.owner_folder,
+            execution_root: &input.execution_root,
+            checkout_root: &input.checkout_root,
         };
-        let checkout_key = match canonical_folder_path(&checkout_root).await {
-            Ok(checkout_key) => checkout_key,
-            Err(failure) => {
-                let failure = CaptureStepError::CheckoutUnresolved(failure);
-                return fail_capture(input, snapshot_ref, Step::VerifyCheckoutRoot, failure);
-            }
-        };
-        let _checkout_hold = self.checkout_lock.acquire(checkout_key).await;
-        let capture_folder = match CaptureFolder::open_or_create(
+        let held = match hold_checkout(
             &self.git,
             place,
-            &input.owner_folder,
-            &git_common_folder,
+            &self.checkout_lock,
+            &self.floor_reports,
+            roots,
         )
         .await
         {
-            Ok(capture_folder) => capture_folder,
-            Err(failure) => {
-                return fail_capture(input, snapshot_ref, Step::OpenCaptureFolder, failure.into());
+            Ok(held) => held,
+            Err(CaptureStartFailure::BelowFloor) => {
+                return TurnSnapshotCaptureOutcome::Failed {
+                    snapshot_ref,
+                    failed_step: CaptureStep::GitFloor,
+                };
+            }
+            Err(CaptureStartFailure::Failed(failed_step, failure)) => {
+                return fail_capture(input, snapshot_ref, failed_step, failure);
             }
         };
-        let checkout = SnapshotCheckout {
-            git: &self.git,
-            place,
-            root: &checkout_root,
-            capture_folder: &capture_folder,
-        };
-        self.capture_checkout(&checkout, input, snapshot_ref).await
-    }
-
-    // Logs that the git at `place`, `git_version`, is older than the capture's floor, the first
-    // time this daemon run meets it there.
-    fn report_below_floor(&self, place: Option<&Place>, git_version: GitVersion) {
-        if lock(&self.floor_reported_places).insert(place.cloned()) {
-            TurnSnapshotDiagnostic::GitBelowFloor {
-                place: place.cloned(),
-                git_version,
-                git_floor: CAPTURE_GIT_FLOOR.floor(),
-            }
-            .warn();
+        let outcome = self
+            .capture_checkout(&held, place, input, snapshot_ref)
+            .await;
+        let HeldCheckout {
+            capture_folder,
+            hold,
+            ..
+        } = held;
+        // Packed after the checkout is let go, so the next capture of it does not wait.
+        drop(hold);
+        if let TurnSnapshotCaptureOutcome::Captured {
+            snapshot_commit,
+            base_commit,
+            ..
+        } = &outcome
+        {
+            let captured =
+                CapturedCommit::new(capture_folder, snapshot_commit.clone(), base_commit.clone());
+            self.packing.pack(place, &captured).await;
         }
-    }
-
-    // The supplied checkout, symlinks resolved, once git names it as the top level of the working
-    // tree holding the execution root, and the repository's common git folder.
-    async fn verify_checkout_root(
-        &self,
-        place: Option<&Place>,
-        input: &TurnSnapshotCaptureInput,
-    ) -> Result<(PathBuf, PathBuf), CaptureStepError> {
-        let (supplied, live, git_common_folder) = tokio::try_join!(
-            resolve_symlinks(input.checkout_root.clone()),
-            self.read_live_top_level(place, &input.execution_root),
-            async {
-                read_git_common_folder(&self.git, place, &input.execution_root, None)
-                    .await
-                    .map_err(CaptureStepError::from)
-            }
-        )?;
-        if supplied != live {
-            return Err(CaptureStepError::CheckoutMismatch);
-        }
-        Ok((supplied, git_common_folder))
-    }
-
-    // The top level of the working tree holding `execution_root`, symlinks resolved.
-    async fn read_live_top_level(
-        &self,
-        place: Option<&Place>,
-        execution_root: &Path,
-    ) -> Result<PathBuf, CaptureStepError> {
-        let call = GitCall::read(in_folder(execution_root, &["rev-parse", "--show-toplevel"]));
-        let output = self.git.run(place, call).await?;
-        let top_level =
-            path_from_program_output(strip_line_end(output.stdout)).map_err(GitError::PathText)?;
-        resolve_symlinks(top_level).await
+        outcome
     }
 
     // The capture's steps, each run at the top level of the verified checkout, and the scratch
     // index's removal after them whatever they did.
     async fn capture_checkout(
         &self,
-        checkout: &SnapshotCheckout<'_>,
+        held: &HeldCheckout<'_>,
+        place: Option<&Place>,
         input: &TurnSnapshotCaptureInput,
         snapshot_ref: String,
     ) -> TurnSnapshotCaptureOutcome {
+        let checkout = &held.checkout(&self.git, place);
         // A name that meets no other, removed in the same call; no row or event stores it. In the
         // capture folder, outside every worktree, so it never shows in `ls-files -o` or
         // `git status`.
@@ -324,13 +274,19 @@ impl TurnSnapshotService {
                 return fail_capture(
                     input,
                     snapshot_ref,
-                    TurnSnapshotCaptureStep::PrepareScratchIndex,
+                    CaptureStep::PrepareScratchIndex,
                     CaptureStepError::ScratchIndexName(failure),
                 );
             }
         };
         let captured = self
-            .run_capture_steps(checkout, input, &snapshot_ref, &scratch_index)
+            .run_capture_steps(
+                checkout,
+                held.is_sparse_root,
+                input,
+                &snapshot_ref,
+                &scratch_index,
+            )
             .await;
         // Never outlives the capture, nor does the lock file a git ended mid-write leaves beside
         // it; a failed removal is logged, never put in place of the capture's own outcome.
@@ -340,7 +296,7 @@ impl TurnSnapshotService {
             let removing = removal_path.clone();
             let removed = joined(tokio::task::spawn_blocking(move || remove_tree(&removing)).await);
             if let Err(failure) = removed {
-                TurnSnapshotDiagnostic::ScratchIndexCleanupFailed {
+                CaptureDiagnostic::ScratchIndexCleanupFailed {
                     run_id: input.run_id,
                     epoch: input.epoch,
                     turn_ordinal: input.turn_ordinal,
@@ -359,11 +315,12 @@ impl TurnSnapshotService {
     async fn run_capture_steps(
         &self,
         checkout: &SnapshotCheckout<'_>,
+        is_sparse_root: bool,
         input: &TurnSnapshotCaptureInput,
         snapshot_ref: &str,
         scratch_index: &Path,
-    ) -> Result<TurnSnapshotCaptureOutcome, (TurnSnapshotCaptureStep, CaptureStepError)> {
-        use TurnSnapshotCaptureStep as Step;
+    ) -> Result<TurnSnapshotCaptureOutcome, (CaptureStep, CaptureStepError)> {
+        use CaptureStep as Step;
 
         let indexes = checkout.capture_folder.indexes_folder();
         joined(tokio::task::spawn_blocking(move || create_private_folder(&indexes)).await)
@@ -373,29 +330,19 @@ impl TurnSnapshotService {
             .resolve_base_commit()
             .await
             .map_err(at(Step::ResolveBase))?;
-        let is_sparse_root = checkout
-            .detect_sparse_root()
-            .await
-            .map_err(at(Step::DetectSparseRoot))?;
 
-        if is_sparse_root {
+        if is_sparse_root && base_commit.is_some() {
             // The live index, not `read-tree <base>`: a read-tree index lacks skip-worktree bits,
             // so staging would re-stat each out-of-cone path, find it absent and drop it. The live
-            // index also carries legitimate differences from `HEAD` (`git add --sparse`).
+            // index also carries legitimate differences from `HEAD` (`git add --sparse`). With no
+            // commit yet nothing is skipped, and a fresh repository may have no live index.
             checkout
                 .seed_scratch_index_from_live_index(scratch_index)
                 .await
                 .map_err(at(Step::SeedIndex))?;
         } else {
-            // Pinned: a replace ref on the base would seed from the replacement's tree and drop a
-            // path that is both tracked in the index and ignored (measured against `add -A`).
-            let [pin_flag, pin_setting] = USE_REPLACE_REFS_PIN;
-            let arguments =
-                checkout.on_index_copy(&[pin_flag, pin_setting, "read-tree", base_commit.as_str()]);
-            let call = GitCall::read(arguments).with_environment("GIT_INDEX_FILE", scratch_index);
             checkout
-                .git
-                .run(checkout.place, call)
+                .seed_index_from_base(scratch_index, base_commit.as_ref())
                 .await
                 .map_err(at(Step::SeedIndex))?;
         }
@@ -424,7 +371,11 @@ impl TurnSnapshotService {
                 out_of_cone_entries: Vec::new(),
             }
         };
-        let listing: &[u8] = &partition.in_cone_listing;
+        let sizes = checkout
+            .partition_listing_by_size(&partition.in_cone_listing)
+            .await
+            .map_err(at(Step::ReadPathSizes))?;
+        let listing: &[u8] = &sizes.staged_listing;
 
         checkout
             .stage_listing(scratch_index, listing)
@@ -457,9 +408,11 @@ impl TurnSnapshotService {
         let snapshot_commit = checkout
             .commit_snapshot_tree(
                 &tree,
-                &base_commit,
+                base_commit.as_ref(),
+                TURN_SNAPSHOT_SUBJECT,
                 &skipped_embedded_repositories,
                 sparse_boundary_paths.as_deref(),
+                &sizes.left_out_entries,
                 input.turn_ended_at,
             )
             .await
@@ -481,7 +434,7 @@ impl TurnSnapshotService {
             .map(|path| String::from_utf8_lossy(path).into_owned())
             .collect();
         if !skipped.is_empty() {
-            TurnSnapshotDiagnostic::EmbeddedRepositoriesSkipped {
+            CaptureDiagnostic::EmbeddedRepositoriesSkipped {
                 run_id: input.run_id,
                 epoch: input.epoch,
                 turn_ordinal: input.turn_ordinal,
@@ -529,7 +482,7 @@ impl TurnSnapshotService {
             Ok(None) => return skipped(TurnSnapshotRetentionSkipReason::RunContextAbsent, None),
             Err(failure) => {
                 let failure = Arc::new(failure);
-                TurnSnapshotDiagnostic::RunContextReadFailed {
+                CaptureDiagnostic::RunContextReadFailed {
                     run_key,
                     detail: Box::new(Arc::clone(&failure)),
                 }
@@ -655,16 +608,10 @@ fn read_run_context(
         .optional()?)
 }
 
-// `path` with every symlink resolved, on the blocking pool.
-async fn resolve_symlinks(path: PathBuf) -> Result<PathBuf, CaptureStepError> {
-    joined(tokio::task::spawn_blocking(move || real_path(&path)).await)
-        .map_err(CaptureStepError::CheckoutUnresolved)
-}
-
 // Tags a step's failure with the step.
 fn at<Failure: Into<CaptureStepError>>(
-    step: TurnSnapshotCaptureStep,
-) -> impl FnOnce(Failure) -> (TurnSnapshotCaptureStep, CaptureStepError) {
+    step: CaptureStep,
+) -> impl FnOnce(Failure) -> (CaptureStep, CaptureStepError) {
     move |failure| (step, failure.into())
 }
 
@@ -672,10 +619,10 @@ fn at<Failure: Into<CaptureStepError>>(
 fn fail_capture(
     input: &TurnSnapshotCaptureInput,
     snapshot_ref: String,
-    failed_step: TurnSnapshotCaptureStep,
+    failed_step: CaptureStep,
     failure: CaptureStepError,
 ) -> TurnSnapshotCaptureOutcome {
-    TurnSnapshotDiagnostic::CaptureFailed {
+    CaptureDiagnostic::CaptureFailed {
         run_id: input.run_id,
         epoch: input.epoch,
         turn_ordinal: input.turn_ordinal,
@@ -699,5 +646,7 @@ fn skipped(
 
 pub(crate) mod list;
 
+#[cfg(test)]
+pub(crate) mod test_support;
 #[cfg(test)]
 mod tests;

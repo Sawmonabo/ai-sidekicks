@@ -1,34 +1,26 @@
-//! The version of the daemon's git, read once per runner, and the first git release of each
-//! feature a capture or its packing calls.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the snapshot packing checks its own git features through it"
-    )
-)]
+//! The record of what was read of the daemon's git build (its release, whether it has its built-in
+//! file watch, and the stat data of the program and of the git it runs), kept once per runner and
+//! read again only before a refusal and only when that stat data changed, and the first git
+//! release of each feature a capture or its packing calls.
 
 use std::ffi::OsString;
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::place::Place;
+use sidekicks_platforms::{FileFacts, file_facts, path_from_program_output};
 
-use super::{GitError, GitRunner, PreparedCall};
+use super::{BUILT_IN_FILE_WATCH_BUILD_LINE, GitError, GitRunner, PreparedCall, strip_line_end};
 
 /// A git feature some call relies on, each with the first release that has it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum GitFeature {
-    /// `rev-list --missing`, from 2.16.
-    RevListMissing,
-    /// `rev-parse --path-format`, from 2.31.
-    RevParsePathFormat,
-    /// `repack --geometric`, from 2.32.
+    /// `repack --geometric`, from 2.32, which the fold of a capture folder's packs runs.
     RepackGeometric,
     /// The `core.fsync` setting, with the `reference` component a capture's ref write names, from
     /// 2.36 (its configuration reference lists `reference` among the components).
     CoreFsync,
-    /// `sparse-checkout check-rules`, from 2.41.
+    /// `sparse-checkout check-rules`, from 2.41, which a capture in a sparse root runs.
     SparseCheckoutCheckRules,
 }
 
@@ -36,8 +28,6 @@ impl GitFeature {
     /// The first release that has the feature.
     pub(crate) fn floor(self) -> GitVersion {
         let minor = match self {
-            Self::RevListMissing => 16,
-            Self::RevParsePathFormat => 31,
             Self::RepackGeometric => 32,
             Self::CoreFsync => 36,
             Self::SparseCheckoutCheckRules => 41,
@@ -95,38 +85,155 @@ fn leading_number(part: &str) -> Option<u32> {
     part[..digits].parse().ok()
 }
 
+/// What one read of the daemon's git build found, replaced whole when it is read again.
+#[derive(Clone, Debug)]
+pub(crate) struct GitBuild {
+    /// The release `git version` named.
+    version: GitVersion,
+    /// Whether the program was built with its file-watch daemon.
+    has_built_in_file_watch: bool,
+    /// The found program's stat data, links followed; `None` when the stat failed.
+    program_facts: Option<FileFacts>,
+    /// The git under the program's `--exec-path`, which a launcher such as `/usr/bin/git` runs and
+    /// an update replaces while the launcher stays as it was.
+    installed_program: PathBuf,
+    /// That git's stat data, links followed; `None` when the stat failed.
+    installed_program_facts: Option<FileFacts>,
+}
+
 impl GitRunner {
-    /// The release of the git program for a project at `place`, read once for the runner, which
-    /// [`GitVersion::has`] checks a feature against. Fails as [`run`](Self::run) does, and with
+    /// The release of the git program for a project at `place`, which [`GitVersion::has`] checks
+    /// a feature against: the one kept from the last read, read again first only when it lacks
+    /// `needed` and the program's stat data changed since, so an upgrade counts at the next call
+    /// and an unchanged git spawns nothing. Fails as [`run`](Self::run) does, and with
     /// `UnreadableVersion` when git names no version this code can read, so no feature is ever
     /// taken to be there.
-    pub(crate) async fn version(&self, place: Option<&Place>) -> Result<GitVersion, GitError> {
+    pub(crate) async fn version(
+        &self,
+        place: Option<&Place>,
+        needed: GitFeature,
+    ) -> Result<GitVersion, GitError> {
         let executable = self.executable_for(place)?;
-        self.read_version(executable).await
+        let mut record = self.build_record.lock().await;
+        let kept = if let Some(kept) = record.as_ref() {
+            kept.clone()
+        } else {
+            let read = Box::pin(self.read_build(executable)).await?;
+            *record = Some(read.clone());
+            read
+        };
+        if kept.version.has(needed) {
+            return Ok(kept.version);
+        }
+        let facts = read_program_facts(executable, &kept.installed_program).await;
+        if facts == (kept.program_facts, kept.installed_program_facts) {
+            return Ok(kept.version);
+        }
+        // A failed read keeps nothing, so the next call reads again.
+        *record = None;
+        let read = Box::pin(self.read_build(executable)).await?;
+        let version = read.version;
+        *record = Some(read);
+        Ok(version)
     }
 
-    // The version of the git at `executable`, read once for the runner; a failed read is not kept.
-    async fn read_version(&self, executable: &Path) -> Result<GitVersion, GitError> {
-        self.git_version
-            .get_or_try_init(|| async {
-                let arguments = vec![OsString::from("--version")];
-                let output = self
-                    .run_git(executable, PreparedCall::of(arguments), self.limits.timeout)
-                    .await?;
-                GitVersion::from_version_output(&output.stdout).ok_or(GitError::UnreadableVersion)
-            })
-            .await
-            .copied()
+    // Whether the git at `executable` was built with its file-watch daemon, from the kept record,
+    // read once it is first needed; a failed read is not kept.
+    pub(super) async fn read_built_in_file_watch(
+        &self,
+        executable: &Path,
+    ) -> Result<bool, GitError> {
+        let mut record = self.build_record.lock().await;
+        if let Some(kept) = record.as_ref() {
+            return Ok(kept.has_built_in_file_watch);
+        }
+        let read = Box::pin(self.read_build(executable)).await?;
+        let has_built_in_file_watch = read.has_built_in_file_watch;
+        *record = Some(read);
+        Ok(has_built_in_file_watch)
     }
 
-    /// This runner with its git taken to be the release `version_output` names, read once already,
-    /// for a test of what an older or newer git does.
+    // One read of the build of the git at `executable`: `version --build-options` for the release
+    // and the file-watch line, `--exec-path` beside it for the git it runs, then both programs'
+    // stat data. Callers pin it on the heap, so its two calls sit in no caller's future.
+    async fn read_build(&self, executable: &Path) -> Result<GitBuild, GitError> {
+        let build_options = PreparedCall::of(vec![
+            OsString::from("version"),
+            OsString::from("--build-options"),
+        ]);
+        let exec_path = PreparedCall::of(vec![OsString::from("--exec-path")]);
+        let (options, exec_folder) = tokio::try_join!(
+            self.run_git(executable, build_options, self.limits.timeout),
+            self.run_git(executable, exec_path, self.limits.timeout),
+        )?;
+        // The first line names the release; the words after it stop at its end.
+        let version =
+            GitVersion::from_version_output(&options.stdout).ok_or(GitError::UnreadableVersion)?;
+        let has_built_in_file_watch = options
+            .stdout
+            .split(|byte| *byte == b'\n')
+            .any(|line| line.trim_ascii() == BUILT_IN_FILE_WATCH_BUILD_LINE);
+        let exec_folder = path_from_program_output(strip_line_end(exec_folder.stdout))
+            .map_err(GitError::PathText)?;
+        let installed_program = exec_folder.join(format!("git{}", std::env::consts::EXE_SUFFIX));
+        let (program_facts, installed_program_facts) =
+            read_program_facts(executable, &installed_program).await;
+        Ok(GitBuild {
+            version,
+            has_built_in_file_watch,
+            program_facts,
+            installed_program,
+            installed_program_facts,
+        })
+    }
+
+    /// This runner with its git taken to be the release `version_output` names, its other facts
+    /// read from the running git, for a test of what an older or newer git does. With
+    /// `are_facts_current` false the kept stat data no longer matches the programs, as after an
+    /// upgrade.
     #[cfg(test)]
-    pub(crate) fn reading_version_as(mut self, version_output: &[u8]) -> Self {
-        let version = GitVersion::from_version_output(version_output).expect("the version reads");
-        self.git_version = std::sync::Arc::new(tokio::sync::OnceCell::new_with(Some(version)));
+    pub(crate) async fn reading_version_as(
+        mut self,
+        version_output: &[u8],
+        are_facts_current: bool,
+    ) -> Self {
+        let executable = self
+            .executable_for(None)
+            .expect("the tests run where git is")
+            .to_path_buf();
+        let mut build = self.read_build(&executable).await.expect("the build reads");
+        build.version = GitVersion::from_version_output(version_output).expect("the version reads");
+        if !are_facts_current {
+            let stale = |facts: Option<FileFacts>| {
+                facts.map(|facts| FileFacts {
+                    size: facts.size + 1,
+                    ..facts
+                })
+            };
+            build.program_facts = stale(build.program_facts);
+            build.installed_program_facts = stale(build.installed_program_facts);
+        }
+        self.build_record = std::sync::Arc::new(tokio::sync::Mutex::new(Some(build)));
         self
     }
+}
+
+// The stat data of `program` and `installed_program`, links followed, on the blocking pool; a stat
+// that fails, or a blocking task that does not finish, reads `None`, which a later stat that works
+// differs from.
+async fn read_program_facts(
+    program: &Path,
+    installed_program: &Path,
+) -> (Option<FileFacts>, Option<FileFacts>) {
+    let (program, installed_program) = (program.to_path_buf(), installed_program.to_path_buf());
+    tokio::task::spawn_blocking(move || {
+        (
+            file_facts(&program).ok(),
+            file_facts(&installed_program).ok(),
+        )
+    })
+    .await
+    .unwrap_or((None, None))
 }
 
 #[cfg(test)]

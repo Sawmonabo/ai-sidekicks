@@ -21,7 +21,7 @@ use sidekicks_platforms::{
     path_from_program_output, read_child_exit, start_child_tree,
 };
 use tokio::process::Command;
-use tokio::sync::OnceCell;
+use tokio::sync::Mutex;
 use tokio_util::task::TaskTracker;
 
 mod entries;
@@ -347,7 +347,7 @@ impl GitLimits {
 
 /// The daemon's git: the program found at start, started from the spawner's thread in the login
 /// shell's environment, each call held to the runner's bounds. Cloning it shares the program, the
-/// environment and what was read of its build.
+/// environment and the record of what was read of its build.
 #[derive(Clone)]
 pub struct GitRunner {
     spawner: Spawner,
@@ -356,10 +356,9 @@ pub struct GitRunner {
     // a program the system starts holds without the person's search path.
     login_environment: Arc<[(String, String)]>,
     limits: GitLimits,
-    // Whether the program was built with its file-watch daemon, read once it is first needed.
-    has_built_in_file_watch: Arc<OnceCell<bool>>,
-    // The program's version, read once it is first needed.
-    git_version: Arc<OnceCell<version::GitVersion>>,
+    // What was read of the program's build, once it is first needed; replaced whole when a refusal
+    // finds the program changed.
+    build_record: Arc<Mutex<Option<version::GitBuild>>>,
     // The ends of the trees of calls that failed, run after the failure is answered.
     tree_ends: TaskTracker,
 }
@@ -379,8 +378,7 @@ impl GitRunner {
             executable: executable.map(Arc::from),
             login_environment,
             limits,
-            has_built_in_file_watch: Arc::new(OnceCell::new()),
-            git_version: Arc::new(OnceCell::new()),
+            build_record: Arc::new(Mutex::new(None)),
             tree_ends: TaskTracker::new(),
         }
     }
@@ -520,24 +518,6 @@ impl GitRunner {
             return Ok(BUILT_IN_FILE_WATCH_SETTING);
         }
         Ok(FILE_WATCH_OFF_SETTING)
-    }
-
-    // Whether the git at `executable` was built with its file-watch daemon, read from its build
-    // options once for the runner; a failed read is not kept.
-    async fn read_built_in_file_watch(&self, executable: &Path) -> Result<bool, GitError> {
-        self.has_built_in_file_watch
-            .get_or_try_init(|| async {
-                let arguments = vec![OsString::from("version"), OsString::from("--build-options")];
-                let output = self
-                    .run_git(executable, PreparedCall::of(arguments), self.limits.timeout)
-                    .await?;
-                Ok(output
-                    .stdout
-                    .split(|byte| *byte == b'\n')
-                    .any(|line| line.trim_ascii() == BUILT_IN_FILE_WATCH_BUILD_LINE))
-            })
-            .await
-            .copied()
     }
 
     // Starts the git at `executable` with `arguments` and holds it to `timeout` and the runner's

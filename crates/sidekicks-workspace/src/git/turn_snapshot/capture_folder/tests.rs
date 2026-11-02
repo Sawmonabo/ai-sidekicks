@@ -12,6 +12,7 @@ use crate::git::process::test_repository::{git_in, make_test_repository};
 use crate::git::process::{
     GitCall, GitLimits, GitRunner, read_git_common_folder, strip_line_end, test_git_runner,
 };
+use crate::git::turn_snapshot::capture::TURN_SNAPSHOT_SUBJECT;
 use crate::git::turn_snapshot::capture_steps::SnapshotCheckout;
 
 // What `arguments` against the git folder `folder` printed, its line end dropped, run with
@@ -165,7 +166,8 @@ async fn a_capture_writes_into_its_folder_and_leaves_the_repository_as_it_was() 
     let base = checkout
         .resolve_base_commit()
         .await
-        .expect("the base resolves");
+        .expect("the base resolves")
+        .expect("the repository has a commit");
     checkout
         .stage_listing(&scratch_index, b"notes.txt\0")
         .await
@@ -177,9 +179,11 @@ async fn a_capture_writes_into_its_folder_and_leaves_the_repository_as_it_was() 
     let commit = checkout
         .commit_snapshot_tree(
             &tree,
-            &base,
+            Some(&base),
+            TURN_SNAPSHOT_SUBJECT,
             &[],
             None,
+            &[],
             Timestamp::from_second(1_800_000_000).expect("the instant is in range"),
         )
         .await

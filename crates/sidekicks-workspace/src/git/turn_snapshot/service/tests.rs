@@ -1,112 +1,35 @@
-use std::ffi::{OsStr, OsString};
-use std::path::{Path, PathBuf};
+use std::ffi::OsString;
+use std::fs::File;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use jiff::Timestamp;
 use rstest::rstest;
-use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_std::keyed_lock::KeyedLock;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
-use super::{
-    TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY, TurnSnapshotCaptureInput, TurnSnapshotCaptureOutcome,
-    TurnSnapshotPruneOutcome, TurnSnapshotService,
+use super::test_support::{
+    TURN_ENDED_SECOND, answer, answer_in_git_folder, answer_with_captures, as_the_test,
+    files_with_bytes, made_capture_folder, minted_run_id, repository_with_a_commit,
+    service_reading, turn_of, utf8, write_in,
 };
+use super::{TurnSnapshotCaptureOutcome, TurnSnapshotPruneOutcome};
 use crate::folder::canonical_path::canonical_folder_path;
-use crate::git::process::{
-    GitCall, GitRunner, in_folder, read_git_common_folder, strip_line_end, test_git_runner,
-};
+use crate::git::process::{GitCall, GitRunner, in_folder, read_git_common_folder, test_git_runner};
+use crate::git::turn_snapshot::capture::LARGE_FILE_BYTES;
 use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argument};
-use crate::git::turn_snapshot::diagnostics::{
-    TurnSnapshotCaptureStep, TurnSnapshotRetentionSkipReason,
-};
+use crate::git::turn_snapshot::diagnostics::{CaptureStep, TurnSnapshotRetentionSkipReason};
 use crate::git::turn_snapshot::refs::build_run_snapshot_ref_prefix;
+use crate::git::turn_snapshot::repack::CapturePacking;
 use crate::git::turn_snapshot::retention::RunContextKey;
 use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::test_rows::{RunContextRow, insert_worktree_rows};
 
 const ENDED_AT: &str = "2026-10-19T10:00:00.000Z";
-
-const TURN_ENDED_SECOND: i64 = 1_800_000_000;
-
-// What `call` printed, its line end dropped.
-async fn answer(git: &GitRunner, call: GitCall) -> String {
-    let output = git.run(None, call).await.expect("git answers");
-    String::from_utf8(strip_line_end(output.stdout)).expect("git answers in UTF-8")
-}
-
-// What `arguments` against the git folder `folder` printed, run with `environment`.
-async fn answer_in_git_folder(
-    git: &GitRunner,
-    folder: &Path,
-    arguments: &[&str],
-    environment: &[(&str, &OsStr)],
-) -> String {
-    let mut call = GitCall::read(
-        [git_folder_argument(folder)]
-            .into_iter()
-            .chain(arguments.iter().map(OsString::from)),
-    );
-    for (name, value) in environment {
-        call = call.with_environment(*name, *value);
-    }
-    answer(git, call).await
-}
-
-fn utf8(path: &Path) -> &str {
-    path.to_str().expect("the temporary folder's path is UTF-8")
-}
-
-// The test's identity on a commit it writes.
-fn as_the_test(call: GitCall) -> GitCall {
-    call.with_environment("GIT_AUTHOR_NAME", "Test")
-        .with_environment("GIT_AUTHOR_EMAIL", "test@example.invalid")
-        .with_environment("GIT_COMMITTER_NAME", "Test")
-        .with_environment("GIT_COMMITTER_EMAIL", "test@example.invalid")
-}
-
-// A repository under `root` with one commit of the empty tree on its branch, its own config
-// keeping the person's hooks and commit signing out of every write: the repository and the
-// commit.
-async fn repository_with_a_commit(git: &GitRunner, root: &Path) -> (PathBuf, String) {
-    let repository = root.join("repository");
-    git.run(
-        None,
-        GitCall::write([OsString::from("init"), repository.clone().into()]),
-    )
-    .await
-    .expect("the repository is made");
-    let hooks = root.join("hooks");
-    for setting in [
-        ["core.hooksPath", utf8(&hooks)],
-        ["commit.gpgSign", "false"],
-    ] {
-        let arguments = in_folder(&repository, &["config", setting[0], setting[1]]);
-        git.run(None, GitCall::read(arguments))
-            .await
-            .expect("the setting is written");
-    }
-    let tree = answer(git, GitCall::read(in_folder(&repository, &["write-tree"]))).await;
-    let arguments = in_folder(&repository, &["commit-tree", &tree, "-F", "-"]);
-    let commit = answer(
-        git,
-        as_the_test(GitCall::write(arguments)).with_input(b"first\n".to_vec()),
-    )
-    .await;
-    write_in(git, &repository, &["update-ref", "HEAD", &commit]).await;
-    (repository, commit)
-}
-
-async fn write_in(git: &GitRunner, repository: &Path, arguments: &[&str]) {
-    git.run(None, GitCall::write(in_folder(repository, arguments)))
-        .await
-        .expect("the test's write succeeds");
-}
 
 // A commit of the empty tree written into the git folder `folder` alone.
 async fn commit_in_git_folder(git: &GitRunner, folder: &Path) -> String {
@@ -121,65 +44,14 @@ async fn commit_in_git_folder(git: &GitRunner, folder: &Path) -> String {
     .await
 }
 
-// Every file under `folder` with its bytes, by path.
-fn files_with_bytes(folder: &Path) -> Vec<(PathBuf, Vec<u8>)> {
-    let mut files = Vec::new();
-    let mut pending = vec![folder.to_path_buf()];
-    while let Some(next) = pending.pop() {
-        for entry in std::fs::read_dir(&next).expect("the folder lists") {
-            let path = entry.expect("the entry reads").path();
-            if path.is_dir() {
-                pending.push(path);
-            } else {
-                let bytes = std::fs::read(&path).expect("the file reads");
-                files.push((path, bytes));
-            }
-        }
-    }
-    files.sort();
-    files
-}
-
-fn service_reading(
-    git: GitRunner,
+// A service over a fresh test database, packing through its own packing.
+fn service_over(
+    git: &GitRunner,
     database: &TestDatabase,
-    checkout_lock: Arc<KeyedLock<PathBuf>>,
-) -> TurnSnapshotService {
-    let reads = DatabaseReadPool::new(database.path(), TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY);
-    TurnSnapshotService::new(git, Arc::new(reads), checkout_lock)
-}
-
-// Turn `turn_ordinal` of `run_id` in epoch 0 at the checkout `repository`, owned by `owner`.
-fn turn_of(
-    repository: &Path,
-    owner: &Path,
-    run_id: RunId,
-    turn_ordinal: u64,
-) -> TurnSnapshotCaptureInput {
-    TurnSnapshotCaptureInput {
-        owner_folder: owner.to_path_buf(),
-        execution_root: repository.to_path_buf(),
-        checkout_root: repository.to_path_buf(),
-        run_id,
-        epoch: 0,
-        turn_ordinal,
-        turn_ended_at: Timestamp::from_second(TURN_ENDED_SECOND).expect("the instant is in range"),
-    }
-}
-
-fn minted_run_id() -> RunId {
-    RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")
-}
-
-// The owner's capture folder for the repository at `repository`, which a capture made.
-async fn made_capture_folder(git: &GitRunner, owner: &Path, repository: &Path) -> CaptureFolder {
-    let git_common_folder = read_git_common_folder(git, None, repository, None)
-        .await
-        .expect("the repository's git folder is read");
-    CaptureFolder::open_existing(owner, &git_common_folder)
-        .await
-        .expect("the capture folder is looked for")
-        .expect("a capture made the capture folder")
+    checkout_lock: Arc<KeyedLock<std::path::PathBuf>>,
+) -> super::TurnSnapshotService {
+    let packing = Arc::new(CapturePacking::new(git.clone()));
+    service_reading(git.clone(), database, checkout_lock, packing)
 }
 
 // Fails when one project state at one turn end gives two snapshot ids, when the untracked file is
@@ -199,7 +71,7 @@ async fn a_turn_is_captured_once_into_its_owners_folder_and_the_repository_stays
     let git_folder = repository.join(".git");
     let before = files_with_bytes(&git_folder);
     let database = TestDatabase::new(schema_parts());
-    let service = service_reading(git.clone(), &database, Arc::new(KeyedLock::new()));
+    let service = service_over(&git, &database, Arc::new(KeyedLock::new()));
     let owner = root.path().join("owner");
     let run_id = minted_run_id();
     let turn = |turn_ordinal| turn_of(&repository, &owner, run_id, turn_ordinal);
@@ -218,7 +90,10 @@ async fn a_turn_is_captured_once_into_its_owners_folder_and_the_repository_stays
     else {
         panic!("the first turn is captured, got {first:?}");
     };
-    assert_eq!(base_commit.as_str(), base);
+    assert_eq!(
+        base_commit.as_ref().map(GitObjectId::as_str),
+        Some(base.as_str())
+    );
     let capture_folder = made_capture_folder(&git, &owner, &repository).await;
     let recorded = answer_in_git_folder(
         &git,
@@ -228,15 +103,11 @@ async fn a_turn_is_captured_once_into_its_owners_folder_and_the_repository_stays
     )
     .await;
     assert_eq!(recorded, snapshot_commit.as_str());
-    let listed = in_folder(
-        &repository,
-        &["ls-tree", "--name-only", snapshot_commit.as_str()],
+    let listing = ["ls-tree", "--name-only", snapshot_commit.as_str()];
+    assert_eq!(
+        answer_with_captures(&git, &repository, &capture_folder, &listing).await,
+        "notes.txt"
     );
-    let mut listing = GitCall::read(listed);
-    for (name, value) in capture_folder.read_environment() {
-        listing = listing.with_environment(name, value);
-    }
-    assert_eq!(answer(&git, listing).await, "notes.txt");
     let left_indexes = std::fs::read_dir(capture_folder.indexes_folder())
         .expect("the indexes folder lists")
         .count();
@@ -319,7 +190,7 @@ async fn a_run_prune_deletes_every_ref_under_its_prefix_in_the_capture_folder_an
     }
     .insert(&rows)
     .expect("the test stores the run's context");
-    let service = service_reading(git.clone(), &database, Arc::new(KeyedLock::new()));
+    let service = service_over(&git, &database, Arc::new(KeyedLock::new()));
 
     let pruned = service.prune_snapshots_for_run(None, run_key, &owner).await;
 
@@ -381,7 +252,7 @@ async fn the_list_answers_each_captured_turn_and_nothing_else() {
     let root = tempfile::tempdir().expect("the temporary folder is made");
     let (repository, _) = repository_with_a_commit(&git, root.path()).await;
     let database = TestDatabase::new(schema_parts());
-    let service = service_reading(git.clone(), &database, Arc::new(KeyedLock::new()));
+    let service = service_over(&git, &database, Arc::new(KeyedLock::new()));
     let owner = root.path().join("owner");
     let run_id = minted_run_id();
     let mut snapshot_commits = Vec::new();
@@ -469,7 +340,7 @@ async fn a_capture_waits_for_the_gate_holding_its_checkout() {
     let (repository, _) = repository_with_a_commit(&git, root.path()).await;
     let database = TestDatabase::new(schema_parts());
     let gate_lock = Arc::new(KeyedLock::new());
-    let service = service_reading(git, &database, Arc::clone(&gate_lock));
+    let service = service_over(&git, &database, Arc::clone(&gate_lock));
     let input = turn_of(&repository, &root.path().join("owner"), minted_run_id(), 0);
     let checkout_key = canonical_folder_path(&repository)
         .await
@@ -522,18 +393,36 @@ impl tracing::Subscriber for FloorReportCount {
     fn exit(&self, _span: &tracing::span::Id) {}
 }
 
-// Fails when the floor is not checked before every other git call (the capture writes its folder
-// or gets past the gate), or when the old git is reported at every capture rather than once.
+// Fails when the floor is one release for every capture rather than a feature per capture (a
+// plain root then refused on 2.40), when the sparse check runs after the capture folder is opened,
+// when a git below a floor writes anything, or when the old git is reported at every capture
+// rather than once per place and feature.
+#[rstest]
+#[case::below_the_fsync_floor(b"git version 2.35.9\n".as_slice(), false, false)]
+#[case::a_plain_root_on_2_40(b"git version 2.40.0\n".as_slice(), false, true)]
+#[case::a_sparse_root_on_2_40(b"git version 2.40.0\n".as_slice(), true, false)]
 #[tokio::test]
-async fn a_git_below_the_floor_captures_nothing_and_is_reported_once() {
+async fn each_capture_needs_only_the_git_features_it_calls(
+    #[case] version_output: &[u8],
+    #[case] is_sparse_root: bool,
+    #[case] is_captured: bool,
+) {
     let git = test_git_runner();
     let root = tempfile::tempdir().expect("the temporary folder is made");
     let (repository, _) = repository_with_a_commit(&git, root.path()).await;
+    if is_sparse_root {
+        write_in(
+            &git,
+            &repository,
+            &["config", "core.sparseCheckout", "true"],
+        )
+        .await;
+    }
     let git_folder = repository.join(".git");
     let before = files_with_bytes(&git_folder);
     let database = TestDatabase::new(schema_parts());
-    let old_git = git.reading_version_as(b"git version 2.40.0\n");
-    let service = service_reading(old_git, &database, Arc::new(KeyedLock::new()));
+    let old_git = git.reading_version_as(version_output, true).await;
+    let service = service_over(&old_git, &database, Arc::new(KeyedLock::new()));
     let owner = root.path().join("owner");
     let run_id = minted_run_id();
     let reports = Arc::new(AtomicUsize::new(0));
@@ -547,18 +436,71 @@ async fn a_git_below_the_floor_captures_nothing_and_is_reported_once() {
         .await;
 
     for outcome in [&first, &second] {
+        let is_refused = matches!(
+            outcome,
+            TurnSnapshotCaptureOutcome::Failed {
+                failed_step: CaptureStep::GitFloor,
+                ..
+            }
+        );
+        let is_outcome_captured = matches!(outcome, TurnSnapshotCaptureOutcome::Captured { .. });
         assert!(
-            matches!(
-                outcome,
-                TurnSnapshotCaptureOutcome::Failed {
-                    failed_step: TurnSnapshotCaptureStep::GitFloor,
-                    ..
-                }
-            ),
+            if is_captured {
+                is_outcome_captured
+            } else {
+                is_refused
+            },
             "got {outcome:?}"
         );
     }
-    assert!(!owner.exists(), "no capture folder is made");
-    assert_eq!(files_with_bytes(&git_folder), before);
-    assert_eq!(reports.load(Ordering::SeqCst), 1);
+    if !is_captured {
+        assert!(!owner.exists(), "no capture folder is made");
+        assert_eq!(files_with_bytes(&git_folder), before);
+    }
+    let expected_reports = usize::from(!is_captured);
+    assert_eq!(reports.load(Ordering::SeqCst), expected_reports);
+}
+
+// Fails when a file over the size bound is hashed into the snapshot, when the bound is read as
+// `>=` so a file of exactly the bound is left out, or when the left-out file goes unnamed in the
+// commit's trailer, where a restore reads it.
+#[tokio::test]
+async fn a_file_over_the_size_bound_is_left_out_of_a_turn_snapshot_and_named() {
+    let git = test_git_runner();
+    let root = tempfile::tempdir().expect("the temporary folder is made");
+    let (repository, _) = repository_with_a_commit(&git, root.path()).await;
+    for (name, size) in [
+        ("big.bin", LARGE_FILE_BYTES + 1),
+        ("edge.bin", LARGE_FILE_BYTES),
+    ] {
+        File::create(repository.join(name))
+            .and_then(|file| file.set_len(size))
+            .expect("the sized file is made");
+    }
+    let database = TestDatabase::new(schema_parts());
+    let service = service_over(&git, &database, Arc::new(KeyedLock::new()));
+    let owner = root.path().join("owner");
+
+    let outcome = service
+        .capture_turn_snapshot(None, &turn_of(&repository, &owner, minted_run_id(), 0))
+        .await;
+
+    let TurnSnapshotCaptureOutcome::Captured {
+        snapshot_commit, ..
+    } = outcome
+    else {
+        panic!("the turn is captured, got {outcome:?}");
+    };
+    let capture_folder = made_capture_folder(&git, &owner, &repository).await;
+    let listing = ["ls-tree", "--name-only", snapshot_commit.as_str()];
+    assert_eq!(
+        answer_with_captures(&git, &repository, &capture_folder, &listing).await,
+        "edge.bin"
+    );
+    let commit = ["cat-file", "commit", snapshot_commit.as_str()];
+    let message = answer_with_captures(&git, &repository, &capture_folder, &commit).await;
+    assert!(
+        message.ends_with("\n\nLeft-Out-Paths: [\"big.bin\"]"),
+        "got {message:?}"
+    );
 }
