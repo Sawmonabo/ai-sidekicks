@@ -17,7 +17,9 @@ use super::service_registration::{
     EXIT_TIME_OUT_SECONDS, SYSTEM_LIST_FOLDER, ServiceRegistration, is_list_turned_off,
     launchd_list_text, not_loaded_status, read_launchd_list, run_launchctl,
 };
-use crate::service_registration::{ServiceRegistrationError, SystemServiceOwner};
+use crate::service_registration::{
+    ServiceRegistrationError, SystemServiceKickstart, SystemServiceOwner,
+};
 use crate::spawner::Spawner;
 
 // Why this build refuses to install the system service, a cause the refusal names; `None` where
@@ -131,15 +133,16 @@ impl ServiceRegistration {
     }
 
     /// Starts the system service in launchd's system domain, which needs root's rights; a running
-    /// one is left running. Fails with `launchctl kickstart`'s exit status when it refuses, as it
-    /// does without root's rights or for a service that is not loaded.
-    pub fn kickstart_system_service(&self) -> Result<(), ServiceRegistrationError> {
+    /// one is left running for [`SystemServiceKickstart::Start`] and ended first for
+    /// [`SystemServiceKickstart::Restart`]. Fails with `launchctl kickstart`'s exit status when it
+    /// refuses, as it does without root's rights or for a service that is not loaded.
+    pub fn kickstart_system_service(
+        &self,
+        kickstart: SystemServiceKickstart,
+    ) -> Result<(), ServiceRegistrationError> {
         let service_target = system_service_target();
-        run_launchctl(
-            "kickstart",
-            [OsStr::new("kickstart"), service_target.as_os_str()],
-        )?
-        .succeeded("kickstart")
+        run_launchctl("kickstart", kickstart_arguments(kickstart, &service_target))?
+            .succeeded("kickstart")
     }
 
     /// Installs the system service running `daemon_program` as this account while it is logged
@@ -234,6 +237,17 @@ fn system_service_list_path() -> PathBuf {
     Path::new(SYSTEM_LIST_FOLDER).join(format!("{DAEMON_LAUNCHD_LABEL}.plist"))
 }
 
+// `launchctl`'s arguments that kickstart `service_target` as `kickstart` asks: `-k` ends a running
+// service first.
+fn kickstart_arguments(kickstart: SystemServiceKickstart, service_target: &OsStr) -> Vec<&OsStr> {
+    match kickstart {
+        SystemServiceKickstart::Start => vec![OsStr::new("kickstart"), service_target],
+        SystemServiceKickstart::Restart => {
+            vec![OsStr::new("kickstart"), OsStr::new("-k"), service_target]
+        }
+    }
+}
+
 // The system service in launchd's system domain, as `launchctl` names it.
 fn system_service_target() -> OsString {
     OsString::from(format!("system/{DAEMON_LAUNCHD_LABEL}"))
@@ -241,7 +255,30 @@ fn system_service_target() -> OsString {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsStr;
     use std::process::Command;
+
+    use rstest::rstest;
+
+    use super::kickstart_arguments;
+    use crate::service_registration::SystemServiceKickstart;
+
+    // Fails when a restart's kickstart leaves a service launchd still counts as running alone (no
+    // `-k`), which the restart's stop half may leave it as, or when a start ends a running one.
+    #[rstest]
+    #[case::start(SystemServiceKickstart::Start, &["kickstart", "system/label"])]
+    #[case::restart(SystemServiceKickstart::Restart, &["kickstart", "-k", "system/label"])]
+    fn a_restart_alone_ends_a_running_service_first(
+        #[case] kickstart: SystemServiceKickstart,
+        #[case] expected: &[&str],
+    ) {
+        let arguments = kickstart_arguments(kickstart, OsStr::new("system/label"));
+
+        assert_eq!(
+            arguments,
+            expected.iter().map(OsStr::new).collect::<Vec<_>>()
+        );
+    }
 
     /// Root installs the list it was given as text, byte for byte, from the folder it staged it
     /// in, whatever quotes, backslashes, `$` or line breaks the text holds. Mutation: read the

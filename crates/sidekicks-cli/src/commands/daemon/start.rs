@@ -32,8 +32,8 @@ use sidekicks_contracts::daemon::recovery::DaemonRepairingDetails;
 use sidekicks_contracts::daemon::service_status::DaemonCannotStart;
 use sidekicks_platforms::{
     LastingChild, LastingCommand, NULL_DEVICE_PATH, PinnedProcess, ServiceOwner,
-    ServiceRegistration, SystemServiceOwner, leave_daemon_scope, read_child_exit,
-    service_registration, spawn_lasting_child,
+    ServiceRegistration, SystemServiceKickstart, SystemServiceOwner, leave_daemon_scope,
+    read_child_exit, service_registration, spawn_lasting_child,
 };
 
 use crate::command_context::CommandContext;
@@ -281,7 +281,7 @@ pub(crate) fn start_system_service<Output: Write, ErrorOutput: Write>(
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> anyhow::Result<ExitCode> {
     refuse_other_system_program(args.daemon_path.as_deref(), registration)?;
-    kickstart_system_service(registration)?;
+    kickstart_system_service(registration, SystemServiceKickstart::Start)?;
     write_line(context, STARTED_LINE)
 }
 
@@ -317,11 +317,14 @@ fn names_registered_program(
     }
 }
 
-/// Starts this account's system service through `registration`, which needs root's rights; a
-/// running one is left running. Fails as [`registration_failure`] turns a refused start.
-pub(crate) fn kickstart_system_service(registration: ServiceRegistration) -> anyhow::Result<()> {
+/// Starts this account's system service through `registration` as `kickstart` asks, which needs
+/// root's rights. Fails as [`registration_failure`] turns a refused start.
+pub(crate) fn kickstart_system_service(
+    registration: ServiceRegistration,
+    kickstart: SystemServiceKickstart,
+) -> anyhow::Result<()> {
     registration
-        .kickstart_system_service()
+        .kickstart_system_service(kickstart)
         .map_err(|failure| registration_failure(failure, "could not start the background service"))
 }
 

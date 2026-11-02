@@ -40,6 +40,16 @@ pub enum SystemServiceOwner {
     OtherAccount,
 }
 
+/// How a start of the system service treats one the service manager already counts as running.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SystemServiceKickstart {
+    /// Starts it unless it runs; a running one is left running.
+    Start,
+    /// Ends a running one first, then starts it again, so one the service manager still counts as
+    /// running after its process ended is started too.
+    Restart,
+}
+
 /// What an install did, which decides what the person is told.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ServiceInstall {
@@ -212,7 +222,10 @@ impl ServiceRegistration {
     }
 
     /// Starts the system service; never called, since no value exists.
-    pub fn kickstart_system_service(&self) -> Result<(), ServiceRegistrationError> {
+    pub fn kickstart_system_service(
+        &self,
+        _kickstart: SystemServiceKickstart,
+    ) -> Result<(), ServiceRegistrationError> {
         match *self {}
     }
 

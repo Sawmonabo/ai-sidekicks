@@ -14,7 +14,7 @@ use clap::Args;
 use sidekicks_client::daemon_connection::DaemonEndpoint;
 use sidekicks_client::daemon_ending::DaemonEndingVerb;
 use sidekicks_client::error::ClientError;
-use sidekicks_platforms::{ServiceRegistration, service_registration};
+use sidekicks_platforms::{ServiceRegistration, SystemServiceKickstart, service_registration};
 use tokio_util::sync::CancellationToken;
 
 use crate::command_context::CommandContext;
@@ -130,7 +130,9 @@ pub(crate) fn restart_system_service<Output: Write, ErrorOutput: Write>(
     if stopped != ExitCode::Success {
         return Ok(stopped);
     }
-    kickstart_system_service(registration)?;
+    // The stop half returns once the process ended, which launchd may not have read yet, so the
+    // start ends whatever it still counts as running.
+    kickstart_system_service(registration, SystemServiceKickstart::Restart)?;
     write_line(context, RESTARTED_LINE)
 }
 
