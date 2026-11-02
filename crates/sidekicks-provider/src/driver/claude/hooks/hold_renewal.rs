@@ -11,7 +11,7 @@ use std::time::SystemTime;
 use futures::FutureExt;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::scheduler::{JobCondition, Scheduler};
+use sidekicks_std::scheduler::{JobCondition, ScheduleError, Scheduler};
 
 use crate::driver::claude::hooks::callbacks::answer_claude_request;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
@@ -23,8 +23,8 @@ const HOLD_RENEWAL_JOB: &str = "claude-hold-renewal";
 
 /// Arms the renewal of the helper `agent_id`'s held calls on `session_id`, unless one stands: when
 /// it falls due, each call the helper's pause holds then is denied for the helper to make again.
-/// A renewal the scheduler refuses is written to the log; the hold then ends at Claude Code's own
-/// bound.
+/// A renewal the scheduler refuses, at once or when it arms the timer, is written to the log and
+/// dropped, so the next hold arms another; the hold then ends at Claude Code's own bound.
 pub(crate) fn arm_hold_renewal(
     scheduler: &Scheduler,
     pauses: &Arc<Mutex<ClaudeRunPauses>>,
@@ -36,6 +36,7 @@ pub(crate) fn arm_hold_renewal(
     if held.has_renewal(&session_id, &agent_id) {
         return;
     }
+    let renewal_id = held.mint_renewal_id();
     let job_pauses = Arc::clone(pauses);
     let slots = slots.clone();
     let job_agent_id = agent_id.clone();
@@ -44,7 +45,8 @@ pub(crate) fn arm_hold_renewal(
         JobCondition::Always,
         SystemTime::now() + CLAUDE_HOOK_HOLD_RENEWAL_AFTER,
         move |_| {
-            let calls = lock(&job_pauses).take_renewed_calls(&session_id, &job_agent_id);
+            let calls =
+                lock(&job_pauses).take_renewed_calls(&session_id, &job_agent_id, renewal_id);
             // The answers are written off the scheduler's one task, which never waits on a
             // process's write.
             if !calls.is_empty()
@@ -68,13 +70,28 @@ pub(crate) fn arm_hold_renewal(
         },
     );
     match scheduled {
-        Ok(renewal) => held.keep_renewal(session_id, agent_id, renewal),
-        Err(error) => tracing::warn!(
-            session_id = %session_id,
-            error = &error as &(dyn Error + 'static),
-            "a held helper's call could not be renewed, so its hold ends at Claude Code's own bound"
-        ),
+        Ok(mut renewal) => {
+            let refusal = renewal.refusal();
+            held.keep_renewal(session_id, agent_id.clone(), renewal_id, renewal);
+            let refusal_pauses = Arc::clone(pauses);
+            tokio::spawn(async move {
+                if let Some(error) = refusal.await {
+                    lock(&refusal_pauses).drop_renewal(&session_id, &agent_id, renewal_id);
+                    warn_unrenewed(session_id, &error);
+                }
+            });
+        }
+        Err(error) => warn_unrenewed(session_id, &error),
     }
+}
+
+// Writes the scheduler's refusal of a renewal to the log.
+fn warn_unrenewed(session_id: SessionId, error: &ScheduleError) {
+    tracing::warn!(
+        session_id = %session_id,
+        error = error as &(dyn Error + 'static),
+        "a held helper's call could not be renewed, so its hold ends at Claude Code's own bound"
+    );
 }
 
 #[cfg(test)]

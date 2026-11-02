@@ -14,8 +14,9 @@ use crate::driver::run_control::{PauseRunParams, ResumeRunParams};
 use crate::driver::session_control::{CreateSessionParams, SubagentPolicy};
 use crate::run::state_entry::RunStateEntry;
 
-// The helper's pre-tool callback `tool_use_id` for `tool_name`, through the hook `callback_id`.
-fn helper_call(callback_id: &str, tool_name: &str, tool_use_id: &str) -> Value {
+// The helper `agent_id`'s pre-tool callback `tool_use_id` for `tool_name`, through the hook
+// `callback_id`.
+fn helper_call(agent_id: &str, callback_id: &str, tool_name: &str, tool_use_id: &str) -> Value {
     json!({
         "subtype": "hook_callback",
         "callback_id": callback_id,
@@ -23,14 +24,14 @@ fn helper_call(callback_id: &str, tool_name: &str, tool_use_id: &str) -> Value {
             "hook_event_name": "PreToolUse",
             "tool_name": tool_name,
             "tool_use_id": tool_use_id,
-            "agent_id": "helper",
+            "agent_id": agent_id,
         },
     })
 }
 
-// The helper's shell call, through the pause's hook.
-fn paused_hook_call() -> Value {
-    helper_call("sidekicks-pause-before-tool", "Bash", "call-shell")
+// The helper `agent_id`'s shell call `tool_use_id`, through the pause's hook.
+fn paused_hook_call(agent_id: &str, tool_use_id: &str) -> Value {
+    helper_call(agent_id, "sidekicks-pause-before-tool", "Bash", tool_use_id)
 }
 
 // The answer written to `request_id`, `None` while it is unanswered.
@@ -88,7 +89,7 @@ async fn a_held_helper_call_is_denied_before_claude_codes_bound_and_held_again()
     let lead = session.hold_lead_turn("lead");
     let helper = session.bind_helper(lead, "helper");
     pause(&session, helper);
-    session.request("r1", &paused_hook_call());
+    session.request("r1", &paused_hook_call("helper", "call-shell"));
     settle().await;
     // Read after the renewal was armed, so it falls due at the latest a renewal's span from here.
     let now = SystemTime::now();
@@ -109,7 +110,7 @@ async fn a_held_helper_call_is_denied_before_claude_codes_bound_and_held_again()
     assert!(renewed.contains(r#""permissionDecision":"deny""#));
     assert!(renewed.contains(HELD_HELPER_RENEWAL_REASON));
 
-    session.request("r2", &paused_hook_call());
+    session.request("r2", &paused_hook_call("helper", "call-shell"));
     settle().await;
     assert_eq!(
         answer_of(&session, "r2"),
@@ -141,7 +142,7 @@ async fn a_renewal_ends_with_its_hold_and_a_helper_limit_hold_arms_none() {
     let lead = session.hold_lead_turn("lead");
     let helper = session.bind_helper(lead, "helper");
     pause(&session, helper);
-    session.request("r1", &paused_hook_call());
+    session.request("r1", &paused_hook_call("helper", "call-shell"));
     settle().await;
     assert_eq!(renewals_waiting(&session), 1);
 
@@ -159,7 +160,7 @@ async fn a_renewal_ends_with_its_hold_and_a_helper_limit_hold_arms_none() {
     assert_eq!(renewals_waiting(&session), 0);
 
     let helper_start =
-        |tool_use_id: &str| helper_call("sidekicks-helper-limit", "Agent", tool_use_id);
+        |tool_use_id: &str| helper_call("helper", "sidekicks-helper-limit", "Agent", tool_use_id);
     session.request("start-1", &helper_start("call-1"));
     session.request("start-2", &helper_start("call-2"));
     settle().await;
@@ -170,4 +171,43 @@ async fn a_renewal_ends_with_its_hold_and_a_helper_limit_hold_arms_none() {
         "the second start is held"
     );
     assert_eq!(renewals_waiting(&session), 0);
+}
+
+// A renewal whose timer the system later refuses is dropped, so the helper's next held call arms
+// another. Killed by leaving the refused renewal standing (no renewal armed for the call made
+// again).
+#[tokio::test(start_paused = true)]
+async fn a_renewal_the_timer_refuses_is_armed_again_at_the_next_hold() {
+    let session = ScriptedSession::new().await;
+    let lead = session.hold_lead_turn("lead");
+    let first = session.bind_helper(lead, "helper");
+    let second = session.bind_helper(lead, "helper-b");
+    pause(&session, first);
+    pause(&session, second);
+    session.request("r1", &paused_hook_call("helper", "call-1"));
+    settle().await;
+    // Read after the first renewal was armed and before the second, so only the first falls due
+    // a renewal's span from here.
+    let now = SystemTime::now();
+    session.wall_clock.set_now(now);
+    session.wall_clock.refuse_arms(true);
+    session.request("r2", &paused_hook_call("helper-b", "call-2"));
+    settle().await;
+    assert_eq!(renewals_waiting(&session), 2);
+
+    session
+        .wall_clock
+        .set_now(now + CLAUDE_HOOK_HOLD_RENEWAL_AFTER);
+    settle().await;
+    assert!(answer_of(&session, "r1").is_some());
+    assert_eq!(
+        renewals_waiting(&session),
+        0,
+        "the second renewal's timer is refused once the first ran"
+    );
+
+    session.wall_clock.refuse_arms(false);
+    session.request("r3", &paused_hook_call("helper-b", "call-3"));
+    settle().await;
+    assert_eq!(renewals_waiting(&session), 1);
 }
