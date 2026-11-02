@@ -111,10 +111,13 @@ impl TelemetrySignal {
     }
 }
 
-/// `google.rpc.Status` as OTLP/HTTP answers a failure in, carrying only its developer-facing
-/// message, since the protocol leaves `code` and `details` out.
+/// `google.rpc.Status` as OTLP/HTTP answers a failure in, carrying its code and its
+/// developer-facing message; the receiver sends no `details`, which the protocol lets it omit.
 #[derive(prost::Message)]
 struct RpcStatus {
+    /// The `google.rpc.Code` the refusal's HTTP status pairs with.
+    #[prost(int32, tag = "1")]
+    code: i32,
     /// What failed, for the exporter's developer.
     #[prost(string, tag = "2")]
     message: String,
@@ -125,7 +128,7 @@ pub struct TelemetryReceiver {
     bearer: Arc<BearerToken>,
     readers: HashMap<ProviderId, Arc<dyn TelemetryExportReader>>,
     raw_messages: Arc<dyn RawProviderMessages>,
-    bodies_read: Semaphore,
+    body_read_permits: Semaphore,
 }
 
 impl TelemetryReceiver {
@@ -139,7 +142,7 @@ impl TelemetryReceiver {
             bearer,
             readers,
             raw_messages,
-            bodies_read: Semaphore::new(BODIES_READ_AT_ONCE),
+            body_read_permits: Semaphore::new(BODIES_READ_AT_ONCE),
         }
     }
 
@@ -201,7 +204,7 @@ async fn receive(
         return refused;
     }
     let permit = receiver
-        .bodies_read
+        .body_read_permits
         .acquire()
         .await
         .expect("the receiver never closes its body permits");
@@ -288,9 +291,11 @@ async fn refuse_method() -> Response {
     )
 }
 
-// Every refusal the receiver answers itself: `status` with a protobuf `Status` body.
+// Every refusal the receiver answers itself: `status` with a protobuf `Status` body carrying the
+// code the status pairs with.
 fn refusal(status: StatusCode, message: &str) -> Response {
     let body = RpcStatus {
+        code: rpc_code(status),
         message: message.to_owned(),
     }
     .encode_to_vec();
@@ -300,6 +305,26 @@ fn refusal(status: StatusCode, message: &str) -> Response {
         body,
     )
         .into_response()
+}
+
+// The `google.rpc.Code` a refusal's HTTP status pairs with: a bad request or media type is an
+// invalid argument, and a status the receiver never names itself, which only a body read's
+// rejection can bring, is unknown.
+fn rpc_code(status: StatusCode) -> i32 {
+    const UNKNOWN: i32 = 2;
+    const INVALID_ARGUMENT: i32 = 3;
+    const NOT_FOUND: i32 = 5;
+    const RESOURCE_EXHAUSTED: i32 = 8;
+    const UNIMPLEMENTED: i32 = 12;
+    const UNAUTHENTICATED: i32 = 16;
+    match status {
+        StatusCode::BAD_REQUEST | StatusCode::UNSUPPORTED_MEDIA_TYPE => INVALID_ARGUMENT,
+        StatusCode::UNAUTHORIZED => UNAUTHENTICATED,
+        StatusCode::NOT_FOUND => NOT_FOUND,
+        StatusCode::METHOD_NOT_ALLOWED => UNIMPLEMENTED,
+        StatusCode::PAYLOAD_TOO_LARGE => RESOURCE_EXHAUSTED,
+        _ => UNKNOWN,
+    }
 }
 
 #[cfg(test)]
@@ -450,18 +475,17 @@ mod tests {
         .encode_to_vec()
     }
 
-    // The developer message of a refusal's `Status` body.
-    fn status_message(body: &[u8]) -> String {
-        RpcStatus::decode(body)
-            .expect("the body is a Status")
-            .message
+    // A refusal's `Status` body: its code and whether it carries a developer message.
+    fn status_of(body: &[u8]) -> (i32, bool) {
+        let status = RpcStatus::decode(body).expect("the body is a Status");
+        (status.code, !status.message.is_empty())
     }
 
-    // A wrong token is refused before the body is read: the body here sends one chunk and never
-    // ends, so a read before the check never answers, and its stream records being polled. The
-    // handler is called directly so the check rests on whether the body was polled, not on
-    // whether a client reads an answer sent before its body ended. Killed by checking the token
-    // after the body read.
+    // A wrong token is refused before the body is read, with `UNAUTHENTICATED`: the body here
+    // sends one chunk and never ends, so a read before the check never answers, and its stream
+    // records being polled. The handler is called directly so the check rests on whether the body
+    // was polled, not on whether a client reads an answer sent before its body ended. Killed by
+    // checking the token after the body read, and by a `Status` sent with no code.
     #[tokio::test]
     async fn a_wrong_token_is_refused_before_the_body_is_read() {
         let Fixture {
@@ -495,30 +519,35 @@ mod tests {
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         assert!(!is_polled.load(Ordering::SeqCst), "the body was read");
         assert!(lock(&exports.0).is_empty());
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("the refusal's body");
+        assert_eq!(status_of(&body), (16, true));
     }
 
-    // The paths and methods the receiver does not take. Killed by answering a wrong method 404
-    // and by admitting a provider no reader answers to.
+    // The paths and methods the receiver does not take, each `Status` with its status's code; a
+    // path off both routes gets the mounting router's own 404. Killed by answering a wrong method
+    // 404, by admitting a provider no reader answers to, and by a code other than the status's.
     #[rstest]
     #[case::wrong_method(
         Method::GET,
         "/telemetry/codex/v1/logs",
         StatusCode::METHOD_NOT_ALLOWED,
-        true
+        Some(12)
     )]
-    #[case::unknown_signal(Method::POST, "/telemetry/codex/v1/x", StatusCode::NOT_FOUND, false)]
+    #[case::unknown_signal(Method::POST, "/telemetry/codex/v1/x", StatusCode::NOT_FOUND, None)]
     #[case::provider_without_reader(
         Method::POST,
         "/telemetry/nobody/v1/logs",
         StatusCode::NOT_FOUND,
-        true
+        Some(5)
     )]
     #[tokio::test]
     async fn an_export_off_the_receivers_routes_is_refused(
         #[case] method: Method,
         #[case] path: &str,
         #[case] status: StatusCode,
-        #[case] is_status_body: bool,
+        #[case] code: Option<i32>,
     ) {
         let served = serve().await;
         let response = served
@@ -531,16 +560,17 @@ mod tests {
             .await
             .expect("an answer");
         assert_eq!(response.status(), status);
-        if is_status_body {
+        if let Some(code) = code {
             let body = response.bytes().await.expect("the refusal's body");
-            assert_ne!(status_message(&body), String::new());
+            assert_eq!(status_of(&body), (code, true));
         }
         assert!(lock(&served.exports.0).is_empty());
     }
 
-    // A body past the cap is 413, any encoding but `identity` is 415, and `identity` is read as
-    // no encoding and answered with OTLP's empty success. Killed by an uncapped read and by
-    // refusing `identity`.
+    // A body past the cap is 413 with `RESOURCE_EXHAUSTED`, any encoding but `identity` is 415
+    // with `INVALID_ARGUMENT`, and `identity` is read as no encoding and answered with OTLP's
+    // empty success. Killed by an uncapped read, by refusing `identity`, and by a code other than
+    // the status's.
     #[tokio::test]
     async fn the_body_is_capped_and_only_identity_encoding_is_read() {
         let served = serve().await;
@@ -551,6 +581,8 @@ mod tests {
             .await
             .expect("an answer");
         assert_eq!(too_long.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let too_long = too_long.bytes().await.expect("the refusal's body");
+        assert_eq!(status_of(&too_long), (8, true));
         let gzip = served
             .export("/telemetry/codex/v1/logs")
             .header(header::CONTENT_ENCODING, "gzip")
@@ -559,6 +591,8 @@ mod tests {
             .await
             .expect("an answer");
         assert_eq!(gzip.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        let gzip = gzip.bytes().await.expect("the refusal's body");
+        assert_eq!(status_of(&gzip), (3, true));
         assert!(lock(&served.exports.0).is_empty());
         let identity = served
             .export("/telemetry/codex/v1/logs")
