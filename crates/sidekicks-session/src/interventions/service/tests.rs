@@ -1,22 +1,21 @@
 //! A person's interventions through the service, over a test database with a stand-in driver and
-//! a run queue that hands each end straight to the run engine; the limit's tests share it. A
-//! reused key's answers are in the module below.
+//! the engine queue of the service's test fixture; the limit's tests share it. A reused key's
+//! answers and the hand of a person's interrupt pending at a restart are in the modules below.
 
+mod restart_hand;
 mod reused_keys;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use futures::FutureExt as _;
-use futures::future::BoxFuture;
 use rstest::rstest;
 use rusqlite::params;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::events::{InterventionActor, InterventionDeviceActor};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{
-    AgentRunInterveneRequest, AgentRunInterveneResponse, InterventionId,
-    InterventionInterruptRequest,
+    AgentRunInterveneRequest, AgentRunInterveneResponse, InterventionInterruptRequest,
 };
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
@@ -50,146 +49,15 @@ use tempfile::TempDir;
 use super::{
     INTERVENTION_SERVICE_STATEMENT_CAPACITY, InterventionService, InterventionServiceDeps,
 };
-use crate::interventions::interrupt_queue::{
-    InterruptCause, InterruptChoice, InterruptEnd, InterruptQueue, InterruptQueueError, SendNow,
-    SendNowOutcome,
-};
+use crate::interventions::interrupt_queue::InterruptQueue;
+use crate::interventions::service::test_fixture::EngineQueue;
 use crate::questions::schema::schema_parts;
-use crate::queue_store::send_now::{SentNow, mark_sent_now_statement, record_sent_now_statement};
 use crate::queue_store::{
     NewQueueItem, QueueItemBody, QueueMessageBody, insert_queue_item_statement,
 };
 use crate::run::engine::RunEngine;
 use crate::run::engine::test_fixture::{insert_running_run, stored_run_state, test_engine};
 use crate::run::state_change::RunStateChange;
-
-/// A run queue that holds nothing but counts each hold it takes, records each release's choice,
-/// and hands each end straight to the run engine; with a writer, it counts each `Send now` it is
-/// asked for and marks its message as sent once per key, a key it marked answering the first's id.
-struct EngineQueue {
-    engine: Arc<RunEngine>,
-    holds_taken: Arc<AtomicUsize>,
-    releases: Arc<Mutex<Vec<InterruptPendingChoice>>>,
-    sends_now: Option<Arc<DatabaseWriter>>,
-    sent_now: Arc<AtomicUsize>,
-    marked: Mutex<Vec<(ClientUuid, InterventionId)>>,
-}
-
-impl EngineQueue {
-    // Records the release of a hold with `choice`.
-    fn record_release(&self, choice: InterruptChoice) {
-        self.releases
-            .lock()
-            .expect("the test's releases are writable")
-            .push(choice.pending);
-    }
-}
-
-impl InterruptQueue for EngineQueue {
-    fn send_now(
-        &self,
-        send: SendNow,
-    ) -> BoxFuture<'_, Result<SendNowOutcome, InterruptQueueError>> {
-        async move {
-            let writer = self
-                .sends_now
-                .as_ref()
-                .expect("only a provider that reads a priority message sends now");
-            let marked = self
-                .marked
-                .lock()
-                .expect("the test's marks are readable")
-                .iter()
-                .find(|(key, _)| *key == send.key)
-                .map(|(_, intervention_id)| *intervention_id);
-            self.sent_now.fetch_add(1, Ordering::SeqCst);
-            if let Some(intervention_id) = marked {
-                return Ok(SendNowOutcome::Sent { intervention_id });
-            }
-            let now = WireInstant::now();
-            let sent = SentNow {
-                item_id: send.item_id,
-                intervention_id: send.intervention_id,
-            };
-            writer
-                .write(vec![
-                    mark_sent_now_statement(&send.item_id, &send.intervention_id, &now),
-                    record_sent_now_statement(&send.run_id, &send.key, &sent, &now),
-                ])
-                .await
-                .expect("the test marks the message sent now");
-            self.marked
-                .lock()
-                .expect("the test's marks are writable")
-                .push((send.key, send.intervention_id));
-            Ok(SendNowOutcome::Sent {
-                intervention_id: send.intervention_id,
-            })
-        }
-        .boxed()
-    }
-
-    fn reorders_waiting(
-        &self,
-        _run_id: RunId,
-        _deliver_first: Option<QueueItemId>,
-    ) -> BoxFuture<'_, Result<bool, InterruptQueueError>> {
-        async { Ok(false) }.boxed()
-    }
-
-    fn hold_for_interrupt(
-        &self,
-        _run_id: RunId,
-        _intervention_id: InterventionId,
-        _choice: InterruptChoice,
-    ) -> BoxFuture<'_, Result<(), InterruptQueueError>> {
-        self.holds_taken.fetch_add(1, Ordering::SeqCst);
-        async { Ok(()) }.boxed()
-    }
-
-    fn end_run_for_interrupt(
-        &self,
-        end: InterruptEnd,
-    ) -> BoxFuture<'_, Result<bool, InterruptQueueError>> {
-        let (limit, cut_turn) = match end.cause {
-            InterruptCause::Person(_) => (None, None),
-            InterruptCause::Limit { limit, cut_turn } => (Some(limit), cut_turn),
-        };
-        async move {
-            Ok(self
-                .engine
-                .end_run_for_interrupt(
-                    end.run_id,
-                    end.accepted_run_version,
-                    limit,
-                    cut_turn,
-                    end.verdict,
-                )
-                .await?)
-        }
-        .boxed()
-    }
-
-    fn release_interrupt(
-        &self,
-        _run_id: RunId,
-        _intervention_id: InterventionId,
-        choice: InterruptChoice,
-    ) -> BoxFuture<'_, Result<(), InterruptQueueError>> {
-        self.record_release(choice);
-        async { Ok(()) }.boxed()
-    }
-
-    fn release_interrupt_at_run_end(
-        &self,
-        _run_id: RunId,
-        _intervention_id: InterventionId,
-        choice: InterruptChoice,
-    ) -> BoxFuture<'_, Result<(), InterruptQueueError>> {
-        self.record_release(choice);
-        async { Ok(()) }.boxed()
-    }
-}
 
 /// A service over a test database holding one running run, at version 1, bound to the table's
 /// first provider, whose driver is `driver`.
@@ -244,17 +112,14 @@ async fn harness_reading_priority(
     bind_run_to_first_provider(&database, run_id);
     let engine = test_engine(&database, Arc::clone(&log.service), home.path());
     let providers = registry_of_first_provider(Arc::new(driver));
-    let holds_taken = Arc::new(AtomicUsize::new(0));
-    let releases = Arc::new(Mutex::new(Vec::new()));
-    let sent_now = Arc::new(AtomicUsize::new(0));
-    let queue: Arc<dyn InterruptQueue> = Arc::new(EngineQueue {
-        engine: Arc::clone(&engine),
-        holds_taken: Arc::clone(&holds_taken),
-        releases: Arc::clone(&releases),
-        sends_now: reads_priority_message.then(|| Arc::clone(&log.writer)),
-        sent_now: Arc::clone(&sent_now),
-        marked: Mutex::new(Vec::new()),
-    });
+    let queue = EngineQueue::new(
+        Arc::clone(&engine),
+        reads_priority_message.then(|| Arc::clone(&log.writer)),
+    );
+    let holds_taken = Arc::clone(&queue.holds_taken);
+    let releases = Arc::clone(&queue.releases);
+    let sent_now = Arc::clone(&queue.sent_now);
+    let queue: Arc<dyn InterruptQueue> = Arc::new(queue);
     let writer = Arc::clone(&log.writer);
     engine
         .set_interrupt_queue(Arc::downgrade(&queue) as Weak<dyn InterruptQueue>)
