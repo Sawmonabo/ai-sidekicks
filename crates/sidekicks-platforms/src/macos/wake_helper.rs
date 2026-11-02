@@ -1,7 +1,7 @@
 //! The macOS wake helper as the service reaches it: a booking or cancel sent on the helper's
 //! socket, the helper's install and removal behind one administrator prompt, and its status read
-//! from the system's login items beside its property list. The root program itself is `program`,
-//! which the helper's own build includes by path.
+//! from the system's login items beside its property list. The root program's bookings are
+//! `program`, which the helper's own build includes by path beside its own run.
 
 mod install;
 pub(crate) mod program;
@@ -15,6 +15,12 @@ use tokio::net::UnixStream;
 
 use crate::spawner::Spawner;
 use crate::{WakeHelperError, WakeHelperStatus, WakeReply, WakeRequest};
+
+/// The socket launchd holds for the helper and starts it on, directly in `/var/run`, which no user
+/// but root and the system's own daemons can write: the system empties that folder at each start,
+/// so a folder of the helper's own there would be gone before launchd binds. The console user's
+/// service connects to it.
+pub const WAKE_HELPER_SOCKET_PATH: &str = "/var/run/sidekicks-wake-helper.sock";
 
 // How long one exchange with the helper may take, as long as the helper gives a connection.
 const EXCHANGE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -77,7 +83,7 @@ impl WakeHelper {
 // Sends `request` on the helper's socket and reads its one reply line.
 async fn exchange(request: WakeRequest) -> Result<WakeReply, WakeHelperError> {
     let reply = tokio::time::timeout(EXCHANGE_TIMEOUT, async {
-        let mut stream = UnixStream::connect(program::WAKE_HELPER_SOCKET_PATH).await?;
+        let mut stream = UnixStream::connect(WAKE_HELPER_SOCKET_PATH).await?;
         stream.write_all(format!("{request}\n").as_bytes()).await?;
         let mut reply = String::new();
         stream

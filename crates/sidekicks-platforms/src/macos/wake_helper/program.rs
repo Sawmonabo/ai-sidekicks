@@ -1,11 +1,11 @@
-//! The macOS wake helper, a root program launchd runs from a property list in
-//! `/Library/LaunchDaemons`: it books a wake from sleep one minute before a time the console user's
-//! service asks for, at most eight days ahead, through `IOPMSchedulePowerEvent` with
-//! `kIOPMAutoWake`, each wake tagged with the app's identifier, and cancels only a wake it booked,
-//! repeating the date, tag and type it booked with. At its start it takes back the wakes it booked
-//! before a restart from the system's queue. The program includes this file by path, beside the
-//! socket's message file, so it names nothing else in this crate and links only the power-event
-//! calls.
+//! The macOS wake helper's bookings, the root program launchd starts from a property list in
+//! `/Library/LaunchDaemons` when a connection reaches its socket: it books a wake from sleep one
+//! minute before a time the console user's service asks for, at most eight days ahead, through
+//! `IOPMSchedulePowerEvent` with `kIOPMAutoWake`, each wake tagged with the app's identifier, and
+//! cancels only a wake it booked, repeating the date, tag and type it booked with. At each start it
+//! takes back the wakes it booked before from the system's queue, which keeps them while the
+//! helper is not running. The program includes this file by path, beside the socket's message
+//! file, so it names nothing else in this crate and links only the power-event calls.
 
 // The program includes this file by path, which resolves a child module beside the file rather
 // than in its folder, so the path is spelled out for both builds.
@@ -13,7 +13,6 @@
 mod socket;
 
 use std::collections::BTreeSet;
-use std::io;
 use std::time::{Duration, SystemTime};
 
 use objc2_core_foundation::{CFArray, CFDate, CFDictionary, CFRetained, CFString, CFType};
@@ -30,9 +29,9 @@ pub use socket::answer_wake_connection;
 // them too, so `crate::` reaches them in both builds.
 use crate::{WakeRefusal, WakeReply, WakeRequest};
 
-/// The socket the helper serves, in a folder only root can write; the console user's service
-/// connects to it.
-pub const WAKE_HELPER_SOCKET_PATH: &str = "/var/run/sidekicks-wake-helper/wake.sock";
+/// The name the helper's property list gives the one socket launchd holds for it, which the helper
+/// asks launchd for at each start.
+pub(crate) const WAKE_HELPER_SOCKET_NAME: &str = "Listeners";
 
 // How long before the asked time the machine wakes.
 const WAKE_LEAD: Duration = Duration::from_mins(1);
@@ -229,13 +228,4 @@ fn returned(status: IOReturn) -> Result<(), IOReturn> {
     } else {
         Err(status)
     }
-}
-
-/// The helper program's whole run: makes the socket's root-only folder, binds the socket for the
-/// console user to reach, and answers one connection at a time, forever. Fails when the folder or
-/// the socket cannot be set up.
-pub fn serve_wake_helper() -> io::Result<()> {
-    let listener = socket::bind_wake_socket(std::path::Path::new(WAKE_HELPER_SOCKET_PATH))?;
-    let mut bookings = WakeBookings::new(SystemPowerEvents::new());
-    socket::serve_wake_connections(&listener, &mut bookings)
 }

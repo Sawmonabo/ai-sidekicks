@@ -265,9 +265,9 @@ pub use macos::session_child::{SessionChild, start_session_child};
 #[cfg(target_os = "macos")]
 pub use macos::sign_in_move::{SignInMove, sign_in_move};
 #[cfg(target_os = "macos")]
-pub use macos::wake_helper::program::{
-    PowerEvents, SystemPowerEvents, WAKE_HELPER_SOCKET_PATH, WakeBookings, answer_wake_connection,
-    serve_wake_helper,
+pub use macos::wake_helper::{
+    WAKE_HELPER_SOCKET_PATH,
+    program::{PowerEvents, SystemPowerEvents, WakeBookings, answer_wake_connection},
 };
 #[cfg(target_os = "macos")]
 pub use macos::wake_helper::{WakeHelper, wake_helper};

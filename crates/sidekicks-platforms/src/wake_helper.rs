@@ -1,17 +1,20 @@
 //! The machine's one wake helper, which wakes the computer from sleep a minute before a time the
 //! service asks for: its booking and cancel, its install and removal behind one administrator
 //! prompt, and its status. On macOS it is the root program `sidekicks-wake-helper`, installed at
-//! `/Library/PrivilegedHelperTools/sidekicks-wake-helper` and run by launchd from a legacy property
-//! list in `/Library/LaunchDaemons`, serving one line each way on the socket
-//! `/var/run/sidekicks-wake-helper/wake.sock` to the user at the Mac's screen. A system that has a
-//! wake helper supplies it in its own module; on any other system [`WakeHelper`] has no value, so
-//! [`wake_helper`] answers `None` there and nothing else is called.
+//! `/Library/PrivilegedHelperTools/sidekicks-wake-helper` and started by launchd, from a legacy
+//! property list in `/Library/LaunchDaemons`, when a connection reaches the socket
+//! `/var/run/sidekicks-wake-helper.sock` that launchd holds for it, serving one line each way to
+//! the user at the Mac's screen. A system that has a wake helper supplies it in its own module; on
+//! any other system [`WakeHelper`] has no value, so [`wake_helper`] answers `None` there and
+//! nothing else is called.
 
 pub(crate) mod message;
 
 use std::io;
 use std::path::PathBuf;
 use std::process::ExitStatus;
+
+use crate::code_signature::CodeSignatureError;
 
 /// Whether the wake helper is in place to wake the computer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,6 +84,10 @@ pub enum WakeHelperError {
         #[source]
         source: io::Error,
     },
+    /// This program's own signature, whose team the helper's install checks the helper against,
+    /// could not be read.
+    #[error("this program's signature, which the wake helper's is checked against, did not read")]
+    Signature(#[source] CodeSignatureError),
     /// The system answered a login item status this build does not know.
     #[error("the system answered the unknown login item status {value}")]
     UnknownStatus {
