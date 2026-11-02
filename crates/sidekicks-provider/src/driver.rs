@@ -81,6 +81,10 @@ pub(crate) mod unified_diff;
 
 /// The fixed facts a provider's driver declares about itself, the same for every installed build,
 /// account, model and session; what depends on those comes from the driver's methods.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is one independent fact a provider states about itself"
+)]
 pub struct ProviderDescriptor {
     /// The provider's id: a lowercase letter, then up to 31 lowercase letters, digits or hyphens.
     pub id: &'static str,
