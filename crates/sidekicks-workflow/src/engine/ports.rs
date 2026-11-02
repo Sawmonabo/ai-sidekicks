@@ -715,6 +715,13 @@ impl ScriptedAgentRunner {
     pub(crate) async fn wait_for_cancel(&self) {
         self.controls.canceled.notified().await;
     }
+
+    /// A run reading the controls, as each creation answers.
+    pub(crate) fn made_run(&self) -> Box<dyn AgentStepRun> {
+        Box::new(ScriptedAgentRun {
+            controls: Arc::clone(&self.controls),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -729,10 +736,7 @@ impl AgentStepRunner for ScriptedAgentRunner {
             if self.is_holding_creations {
                 self.creation_released.notified().await;
             }
-            let run: Box<dyn AgentStepRun> = Box::new(ScriptedAgentRun {
-                controls: Arc::clone(&self.controls),
-            });
-            Ok(run)
+            Ok(self.made_run())
         })
     }
 

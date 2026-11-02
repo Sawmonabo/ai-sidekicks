@@ -480,7 +480,10 @@ mod tests {
                 is_sibling_failure: false,
             }),
         };
-        let WaveSettle::Closed(closing) = wave.settle(settled) else {
+        let WaveSettle::Closed {
+            reports: closing, ..
+        } = wave.settle(settled)
+        else {
             panic!("the one member's settlement closes the wave");
         };
         let closing: Vec<(String, Option<bool>)> = closing

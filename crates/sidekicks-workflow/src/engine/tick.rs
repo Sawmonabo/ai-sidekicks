@@ -235,13 +235,6 @@ pub(crate) enum StepSettlement {
         /// The spent account.
         provider_account_id: ProviderAccountId,
         /// The step's agent run, kept to resume when the account is back.
-        #[cfg_attr(
-            test,
-            expect(
-                dead_code,
-                reason = "the account wait, which resumes the run when the account is back"
-            )
-        )]
         run: Box<dyn AgentStepRun>,
     },
     /// The step was canceled. A step canceled while the gate held it adds its hold to the step's
