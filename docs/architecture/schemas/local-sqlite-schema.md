@@ -716,6 +716,23 @@ CREATE TABLE approval_correction_uses (
 CREATE INDEX idx_approval_correction_uses_session ON approval_correction_uses(session_id);
 
 -- Owner: Plan-009
+CREATE TABLE approval_kept_answers (
+  approval_request_id  TEXT PRIMARY KEY,      -- a card answered while no live call held it, one row each, written in
+                                              -- the answer's own write; a card answered live has none. No REFERENCES:
+                                              -- the requests are rebuilt from the log, and this row outlives a rebuild;
+                                              -- a session purge deletes it
+  session_id           TEXT NOT NULL,
+  run_id               TEXT NOT NULL,
+  kept_at              TEXT NOT NULL,
+  call_handed_at       TEXT,                  -- claimed before the kept answer goes to the call made again, so it goes
+                                              -- once; NULL until then
+  continue_handed_at   TEXT                   -- claimed before the run's continue composes the answer; NULL until then,
+                                              -- and again once a continue that failed gives it back
+) STRICT;
+
+CREATE INDEX idx_approval_kept_answers_session ON approval_kept_answers(session_id);
+
+-- Owner: Plan-009
 CREATE TABLE reviewer_denials (
   denial_id        TEXT PRIMARY KEY,          -- the denialId its approval.reviewer.denied names
   session_id       TEXT NOT NULL,

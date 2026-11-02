@@ -74,7 +74,11 @@ pub(crate) fn register_approval_methods(
         let sources = Arc::clone(&resolve_sources);
         async move {
             let device_id = context.calling_device(ApprovalResolve::DESCRIPTOR.method)?;
-            Ok(sources.permission_asks.resolve(&request, device_id).await?)
+            Ok(sources
+                .permission_asks
+                .resolve(&request, device_id)
+                .await?
+                .response)
         }
         .boxed()
     })?;
