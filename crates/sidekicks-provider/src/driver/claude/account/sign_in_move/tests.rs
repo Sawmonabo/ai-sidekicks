@@ -31,7 +31,7 @@ use tracing_subscriber::layer::SubscriberExt as _;
 
 use super::{
     CLAUDE_SIGN_IN_MOVE_KEYCHAIN_WAIT, ClaudeSignInMoveBounds, ClaudeSignInMoveError,
-    call_keychain_within, remove_claude_sign_in_move_leftovers,
+    ClaudeUnmovableSignIns, call_keychain_within, remove_claude_sign_in_move_leftovers,
 };
 use crate::account::credential_home::CredentialHome;
 use crate::account::home_lock::AccountHomeLock;
@@ -173,6 +173,7 @@ struct Fixture {
     signing_in: Arc<AccountsSigningIn>,
     live_turns: LiveTurns,
     keychain: CredentialStore,
+    unmovable: ClaudeUnmovableSignIns,
 }
 
 impl Fixture {
@@ -219,6 +220,7 @@ impl Fixture {
             signing_in,
             live_turns: LiveTurns::default(),
             keychain,
+            unmovable: ClaudeUnmovableSignIns::default(),
         }
     }
 
@@ -230,6 +232,7 @@ impl Fixture {
             live_turns: &self.live_turns,
             keychain: &self.keychain,
             keychain_wait: CLAUDE_SIGN_IN_MOVE_KEYCHAIN_WAIT,
+            unmovable: &self.unmovable,
         }
     }
 
@@ -558,12 +561,14 @@ async fn while_moving<Answer>(
     }
 }
 
-// A keychain call under the home's hold that answers only past its bound keeps the hold until it
-// has answered, then stops the move with nothing written: no `.credentials.json`, the item where
-// it was. Killed by the hold let go when the bound passes, and by a move that carries on past a
-// call that outlasted its bound.
+// A move under the home's hold whose keychain call never answers within the bound stops naming
+// the account and lets the home go, so a prompt left open keeps no sign-in, observer or reset out;
+// the account stays unmovable, touching the keychain no more, until that call ends, and moves on
+// the next call after it, the stopped move having written nothing. Killed by the whole move
+// awaited with no bound (the move waits for the release), by the account not marked unmovable
+// (the second move calls the keychain again), and by the mark kept once the call ends.
 #[tokio::test]
-async fn a_keychain_call_past_its_bound_keeps_the_home_held_and_moves_nothing() {
+async fn a_move_past_its_bound_lets_the_home_go_and_stays_unmovable_until_its_call_ends() {
     if sign_in_move().is_none() {
         return;
     }
@@ -574,42 +579,52 @@ async fn a_keychain_call_past_its_bound_keeps_the_home_held_and_moves_nothing() 
     let planted = fixture.plant(&store_folder(&account));
     fixture.record(SecretsPlace::LoggedOutServiceFile).await;
     let keychain_wait = Duration::from_millis(50);
-    let observation = fixture.home_lock.hold(account.account_id.clone()).await;
-    let mut moving = std::pin::pin!(fixture.legs.move_sign_ins(ClaudeSignInMoveBounds {
+    let bounds = || ClaudeSignInMoveBounds {
         keychain_wait,
         ..fixture.bounds()
-    }));
+    };
+    let observation = fixture.home_lock.hold(account.account_id.clone()).await;
+    let mut moving = std::pin::pin!(fixture.legs.move_sign_ins(bounds()));
 
     // The read before the hold answers, and the move waits for the home.
     while_moving(&mut moving, blocking.wait_for_calls(2)).await;
     while_moving(&mut moving, tokio::time::sleep(Duration::from_millis(100))).await;
     blocking.hold_calls_for(&planted.service);
     drop(observation);
-    while_moving(&mut moving, blocking.wait_for_calls(3)).await;
-    while_moving(&mut moving, tokio::time::sleep(keychain_wait * 4)).await;
-    let is_held = while_moving(
-        &mut moving,
-        tokio::time::timeout(
-            Duration::from_millis(50),
-            fixture.home_lock.hold(account.account_id.clone()),
-        ),
+    let stopped = tokio::time::timeout(Duration::from_secs(5), moving)
+        .await
+        .expect("the move stops at its bound while its call still waits");
+    let is_home_free = tokio::time::timeout(
+        Duration::from_millis(50),
+        fixture.home_lock.hold(account.account_id.clone()),
     )
     .await
-    .is_err();
+    .is_ok();
+    let calls_before = blocking.calls();
+    let while_running = fixture.legs.move_sign_ins(bounds()).await;
+    let calls_while_running = blocking.calls() - calls_before;
     blocking.release();
-    let answer = moving.await;
+    while fixture.unmovable.contains(&account.account_id) {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let file_once_ended = planted.file();
+    let after = fixture.legs.move_sign_ins(bounds()).await;
 
-    assert!(is_held, "the home stays held while the keychain call runs");
-    assert!(
-        matches!(
-            &answer,
-            Err(ClaudeSignInMoveError::KeychainUnanswered { provider_account_id })
-                if *provider_account_id == account.account_id
-        ),
-        "{answer:?}"
-    );
-    assert_eq!(planted.file(), None);
-    assert_eq!(fixture.item(&planted), Some(planted.text()));
+    for answer in [&stopped, &while_running] {
+        assert!(
+            matches!(
+                answer,
+                Err(ClaudeSignInMoveError::KeychainUnanswered { provider_account_id })
+                    if *provider_account_id == account.account_id
+            ),
+            "{answer:?}"
+        );
+    }
+    assert!(is_home_free, "the home is let go at the bound");
+    assert_eq!(calls_while_running, 0);
+    assert_eq!(file_once_ended, None);
+    assert!(after.is_ok(), "{after:?}");
+    assert_eq!(planted.file(), Some(planted.text()));
 }
 
 // The start's sweep removes the leftover a move stopped mid-write left beside a Claude Code
