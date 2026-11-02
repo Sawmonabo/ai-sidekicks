@@ -1,13 +1,14 @@
-//! The rollback write over a test database holding one run: what it appends and leaves on the
-//! run's row, its companions in its one write, and a run moving under it.
+//! The rollback write over a test database holding a run: what it appends and leaves on the run's
+//! row, its companions in its one write, a run moving under it, and the runs a cut reaches written
+//! together and refused while one holds a turn with no end.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use rusqlite::params;
+use serde_json::json;
 use sidekicks_contracts::event::envelope::SourcePosition;
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::{
     AgentRunRecoveryResolvedPayload, AgentRunRolledBackEvent, RunRecoveryChoice,
 };
@@ -24,13 +25,12 @@ use sidekicks_store::events::session::appender::SessionEventDraft;
 use sidekicks_store::events::session::read::{SessionEventFilter, SessionEventReads};
 use tempfile::TempDir;
 
-use super::RunRollback;
+use super::{RunCut, RunRollback};
 use crate::interventions::store::run_at_version_statement;
 use crate::questions::schema::schema_parts;
 use crate::run::engine::RunEngine;
 use crate::run::engine::errors::RunEngineError;
-use crate::run::engine::test_fixture::{insert_running_run, stored_run_state, test_engine};
-use crate::run::epochs::ConfirmedCut;
+use crate::run::engine::test_fixture::{append, insert_running_run, stored_run_state, test_engine};
 use crate::run::projection::RunsProjection;
 use crate::run::read::RunRead;
 use crate::run::state_change::{RunEventDraft, RunStateChangeCompanions, RunStateChangeError};
@@ -76,10 +76,40 @@ impl Fixture {
         &self,
         companions: RunStateChangeCompanions,
     ) -> Result<RunRollback, RunEngineError> {
+        let mut rollbacks = self.roll_back_with(Vec::new(), companions).await?;
+        Ok(rollbacks.pop().expect("one cut writes one rollback"))
+    }
+
+    /// Rolls the run back to turn 3 and each of `later_cuts` with it under the session's append
+    /// lock, with `companions`.
+    async fn roll_back_with(
+        &self,
+        later_cuts: Vec<RunCut>,
+        companions: RunStateChangeCompanions,
+    ) -> Result<Vec<RunRollback>, RunEngineError> {
         let hold = SESSION_APPEND_LOCK.acquire(self.session_id).await;
+        let cut = RunCut {
+            run_id: self.run_id,
+            target_position: point(),
+        };
         self.engine
-            .roll_back(self.run_id, &cut(), companions, &hold)
+            .roll_back(cut, later_cuts, companions, &hold)
             .await
+    }
+
+    /// Appends the turn event `event_type` of `run_id`'s turn 1.
+    async fn append_turn_event(&self, run_id: RunId, event_type: &str) {
+        let event: SessionEvent = serde_json::from_value(json!({
+            "type": event_type,
+            "payload": {
+                "sessionId": self.session_id,
+                "runId": run_id,
+                "runVersion": 1,
+                "turnNumber": 1,
+            },
+        }))
+        .expect("the test writes a turn event");
+        append(&self.engine, self.session_id, &event).await;
     }
 
     /// The types of the session's stored events, in order.
@@ -101,11 +131,8 @@ impl Fixture {
     }
 }
 
-fn cut() -> ConfirmedCut {
-    ConfirmedCut::InPlace {
-        binding_id: RuntimeBindingId::new("binding".to_owned()).expect("a binding id"),
-        point: SourcePosition(SafeInt::new(3).expect("a small turn")),
-    }
+fn point() -> SourcePosition {
+    SourcePosition(SafeInt::new(3).expect("a small turn"))
 }
 
 fn recovery_resolved(session_id: SessionId, run_id: RunId) -> SessionEventDraft {
@@ -136,7 +163,7 @@ async fn a_rollback_advances_the_runs_version_and_leaves_its_state() {
         session_id: fixture.session_id,
         run_id: fixture.run_id,
         run_version: SafeInt::new(2).expect("a small version"),
-        target_position: cut().point(),
+        target_position: point(),
     };
     assert_eq!(
         rollback,
@@ -283,5 +310,85 @@ async fn a_rollback_of_a_run_that_moved_lands_past_its_new_version() {
     assert_eq!(
         stored_run_state(&fixture.database, &fixture.run_id),
         ("interrupted".to_owned(), 3)
+    );
+}
+
+// A cut reaching two runs writes both rollbacks in one write, refused whole while the later run
+// holds a turn with no end, and lands once that turn ended. Killed by a rollback written per run,
+// which leaves the earlier run cut, by the open-turn guard dropped, and by its refusal read as a
+// companion's.
+#[tokio::test]
+async fn a_cut_of_several_runs_lands_whole_once_no_turn_of_them_is_open() {
+    let fixture = Fixture::new(RunState::Completed).await;
+    let later_run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&fixture.database, fixture.session_id, later_run_id);
+    fixture
+        .append_turn_event(later_run_id, "agent.turn.started")
+        .await;
+    let later_cuts = || {
+        vec![RunCut {
+            run_id: later_run_id,
+            target_position: SourcePosition(SafeInt::ZERO),
+        }]
+    };
+
+    let refused = fixture
+        .roll_back_with(later_cuts(), RunStateChangeCompanions::default())
+        .await;
+    assert!(
+        matches!(
+            &refused,
+            Err(RunEngineError::Change(RunStateChangeError::TurnOpen { run_id, .. }))
+                if *run_id == later_run_id
+        ),
+        "{refused:?}"
+    );
+    assert!(
+        !fixture
+            .event_types()
+            .contains(&"agent.run.rolledBack".to_owned()),
+        "a refused cut writes no rollback"
+    );
+    assert_eq!(
+        stored_run_state(&fixture.database, &fixture.run_id),
+        ("completed".to_owned(), 1)
+    );
+    assert_eq!(
+        stored_run_state(&fixture.database, &later_run_id),
+        ("running".to_owned(), 1)
+    );
+
+    fixture
+        .append_turn_event(later_run_id, "agent.turn.completed")
+        .await;
+    let rollbacks = fixture
+        .roll_back_with(later_cuts(), RunStateChangeCompanions::default())
+        .await
+        .expect("the cut lands once the turn ended");
+
+    let landed: Vec<(RunId, i64, SourcePosition)> = rollbacks
+        .iter()
+        .map(|rollback| {
+            (
+                rollback.event.run_id,
+                i64::from(rollback.event.run_version),
+                rollback.event.target_position,
+            )
+        })
+        .collect();
+    assert_eq!(
+        landed,
+        [
+            (fixture.run_id, 2, point()),
+            (later_run_id, 2, SourcePosition(SafeInt::ZERO)),
+        ]
+    );
+    assert_eq!(
+        stored_run_state(&fixture.database, &fixture.run_id),
+        ("completed".to_owned(), 2)
+    );
+    assert_eq!(
+        stored_run_state(&fixture.database, &later_run_id),
+        ("running".to_owned(), 2)
     );
 }

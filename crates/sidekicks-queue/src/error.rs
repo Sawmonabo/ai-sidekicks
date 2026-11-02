@@ -1,6 +1,7 @@
 //! Why a call on the run queue failed: a refusal the caller reads by its code, or a fault inside
 //! the daemon, every cause kept.
 
+use sidekicks_contracts::event::session::SessionEventReadError;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
@@ -12,6 +13,7 @@ use sidekicks_session::run::refusals::RunRefusal;
 use sidekicks_std::port_registration::PortRegistrationError;
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 use sidekicks_store::database::writer::WriteError;
+use sidekicks_store::events::session::read::SessionLogReadError;
 
 use crate::delivery::DeliveryError;
 use crate::memory_gate::MemoryAdmissionError;
@@ -30,6 +32,12 @@ pub enum QueueError {
     /// The read pool did not run a read.
     #[error("the run queue's read did not reach the database")]
     Pool(#[from] DatabaseReadError),
+    /// A read of a session's log failed.
+    #[error("the session's log could not be read")]
+    EventRead(#[from] SessionLogReadError),
+    /// A stored event does not read as its type.
+    #[error("a stored session event does not read as its type")]
+    EventParse(#[from] SessionEventReadError),
     /// A hand, a withdraw or a settle of the delivery failed.
     #[error(transparent)]
     Delivery(#[from] DeliveryError),
@@ -89,6 +97,8 @@ impl From<QueueError> for HandlerError {
             QueueError::ProviderSession(provider_session) => provider_session.into(),
             fault @ (QueueError::Read(_)
             | QueueError::Pool(_)
+            | QueueError::EventRead(_)
+            | QueueError::EventParse(_)
             | QueueError::Delivery(_)
             | QueueError::Write(_)
             | QueueError::Record(_)

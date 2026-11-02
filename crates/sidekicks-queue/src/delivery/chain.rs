@@ -244,9 +244,9 @@ impl QueueDelivery {
         }
     }
 
-    // Steers `item` into `run_id`, unless an interrupt now holds the run: its choice then decides
-    // the message, which waits unhanded. The run is marked in flight for the driver call, which an
-    // interrupt's hold waits out.
+    // Steers `item` into `run_id`, unless an interrupt now holds the run, its choice then deciding
+    // the message, or an undo the session, the message then waiting for its release; either way it
+    // waits unhanded. The run is marked in flight for the driver call, which either hold waits out.
     async fn hand(
         &self,
         session_id: SessionId,
@@ -269,7 +269,9 @@ impl QueueDelivery {
         };
         {
             let mut state = self.lock_state();
-            if state.interrupt_holds.contains_key(&run_id) {
+            if state.interrupt_holds.contains_key(&run_id)
+                || state.undo_holds.contains_key(&session_id)
+            {
                 state.forget_hand(&item.id);
                 return Ok(());
             }
@@ -295,8 +297,9 @@ impl QueueDelivery {
     // Makes every steer in send order before any is awaited, then settles each that failed; one
     // the driver sent stays handed and waiting until the provider's record of it. An interrupt
     // that now holds the run decides the messages instead, which wait unhanded for its choice,
-    // since the provider drops a steer when its turn is aborted. The run is marked in flight for
-    // the driver calls, which an interrupt's hold waits out.
+    // since the provider drops a steer when its turn is aborted; an undo that now holds the session
+    // leaves them unhanded for its release. The run is marked in flight for the driver calls, which
+    // either hold waits out.
     async fn steer_at_boundary(
         &self,
         session_id: SessionId,
@@ -324,7 +327,9 @@ impl QueueDelivery {
         };
         {
             let mut state = self.lock_state();
-            if state.interrupt_holds.contains_key(&run_id) {
+            if state.interrupt_holds.contains_key(&run_id)
+                || state.undo_holds.contains_key(&session_id)
+            {
                 for item in items {
                     state.forget_hand(&item.id);
                 }

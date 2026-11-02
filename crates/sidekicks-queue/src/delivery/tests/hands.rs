@@ -476,7 +476,7 @@ fn steers_of(steers: &Mutex<Vec<(QueueItemId, bool)>>) -> Vec<(QueueItemId, bool
 
 /// A driver handing as `handing` that reports each steer's message and holds the first steer
 /// inside its call until the returned sender is sent.
-fn driver_holding_first_steer(
+pub(super) fn driver_holding_first_steer(
     handing: MessageHanding,
 ) -> (
     MockProviderDriver,

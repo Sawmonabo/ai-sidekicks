@@ -10,17 +10,13 @@ use sidekicks_contracts::session::id::SessionId;
 /// conversation. The driver maps it to its provider's own anchor, so no position crosses this seam.
 /// `binding_id` is the session's live binding, resolved by the daemon at dispatch.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[expect(
-    clippy::struct_field_names,
-    reason = "each member is an id, named for what it identifies"
-)]
 pub struct RewindConversationParams {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The session's live binding.
-    pub(crate) binding_id: RuntimeBindingId,
+    pub binding_id: RuntimeBindingId,
     /// The person's message the cut lands before.
-    pub(crate) target_message_id: String,
+    pub target_message_id: String,
 }
 
 /// What a rewind did: applied in place, or a fallback the driver took instead.
