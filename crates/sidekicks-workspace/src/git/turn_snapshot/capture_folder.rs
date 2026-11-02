@@ -11,7 +11,7 @@ use sha2::{Digest as _, Sha256};
 use sidekicks_contracts::place::Place;
 use sidekicks_platforms::{
     create_new_private_folder, create_private_folder, os_text_bytes, os_text_stable_bytes,
-    path_from_program_output, remove_tree, rename_replacing,
+    path_from_program_output, remove_tree_awaited, rename_replacing,
 };
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::random_hex::random_hex;
@@ -191,7 +191,7 @@ impl CaptureFolder {
         let Err(failure) = placed else {
             return Ok(());
         };
-        let removed = joined(tokio::task::spawn_blocking(move || remove_tree(&partial)).await);
+        let removed = remove_tree_awaited(&partial).await;
         // A folder another maker renamed in first is a whole one, so this maker only lost the
         // place to it.
         if removed.is_ok()
