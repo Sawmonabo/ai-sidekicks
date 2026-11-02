@@ -244,10 +244,10 @@ impl CodexSessionRouting {
         routed
     }
 
-    /// Registers again a helper of the session's conversation that a resume found loaded, beneath
-    /// the conversation, its usage based on `prior_emitted_cumulative`, what was already metered
-    /// on it, and delivers the frames that waited for it. Starts no child run: the helper's run
-    /// is the one it already holds.
+    /// Registers again a helper of the session's conversation that an adoption restored, running
+    /// or with its newest turn over, beneath the conversation, its usage based on
+    /// `prior_emitted_cumulative`, what was already metered on it, and delivers the frames that
+    /// waited for it. Starts no child run: the helper's run is the one it already holds.
     pub(crate) async fn restore_helper_thread(
         &mut self,
         delivery: &CodexFrameDelivery,
