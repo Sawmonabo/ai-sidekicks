@@ -1,13 +1,22 @@
 //! What the tests of the built program share: a home, temporary folder and runtime folder of a
-//! test's own, the built daemon program, and readers of a run's output.
+//! test's own, the built daemon program, the ending of the daemon a test started, and readers of a
+//! run's output.
 
 use std::env::consts::EXE_SUFFIX;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::time::Duration;
 
-use sidekicks_platforms::{LeftoverSweep, PathRules, replace_file_atomically};
+use serde::Deserialize;
+use sidekicks_contracts::process_identity::ProcessIdentity;
+use sidekicks_platforms::{
+    LeftoverSweep, PathRules, pin_identified_process, replace_file_atomically,
+};
 use tempfile::TempDir;
+
+/// How long a process the test ends has between the stop and the kill.
+pub(crate) const STOP_GRACE: Duration = Duration::from_secs(5);
 
 /// A home, temporary folder and runtime folder of the test's own, so nothing it starts reads or
 /// writes the person's.
@@ -59,6 +68,47 @@ impl PrivateFolders {
         .expect("the script is written");
         path
     }
+}
+
+/// Ends the daemon these folders run, the one `daemon status --json` names, when it drops, so the
+/// test leaves no daemon behind on any path.
+pub(crate) struct DaemonEnding<'a> {
+    folders: &'a PrivateFolders,
+}
+
+impl<'a> DaemonEnding<'a> {
+    /// The ending of whichever daemon `folders` run when it drops.
+    pub(crate) fn new(folders: &'a PrivateFolders) -> Self {
+        Self { folders }
+    }
+}
+
+impl Drop for DaemonEnding<'_> {
+    fn drop(&mut self) {
+        let Some(identity) = read_process_identity(self.folders) else {
+            return;
+        };
+        if let Some(process) =
+            pin_identified_process(&identity).expect("the daemon's process reads")
+        {
+            process.stop(STOP_GRACE).expect("the daemon is stopped");
+        }
+    }
+}
+
+/// The process the daemon these folders run names in `daemon status --json`, or `None` when no
+/// status reads.
+pub(crate) fn read_process_identity(folders: &PrivateFolders) -> Option<ProcessIdentity> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct StatusProcess {
+        process_identity: ProcessIdentity,
+    }
+
+    let status = folders.run_sidekicks(&["daemon", "status", "--json"]);
+    serde_json::from_slice::<StatusProcess>(&status.stdout)
+        .ok()
+        .map(|status| status.process_identity)
 }
 
 /// The built daemon program, found beside this test program as the build lays them out. Panics
