@@ -274,7 +274,7 @@ pub enum ProviderObservation {
     /// The answer is outside what this read judges for the account, as a pasted token's scope,
     /// which another read takes.
     OutOfScope,
-    /// The provider answered with neither the account's limits nor a judgement of its sign-in, as
+    /// The provider answered with neither the account's limits nor a judgment of its sign-in, as
     /// a read it does not serve where it ran.
     Unanswered,
 }
