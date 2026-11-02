@@ -36,7 +36,7 @@ pub(crate) enum ClaudeInboxReceipt {
     MessageStatus {
         /// The id of the message the status is about.
         orig_msg_id: String,
-        /// `delivered`, `held`, `dropped` or `expired`.
+        /// `delivered`, `held`, `dropped`, `expired` or `denied`.
         status: String,
         /// Why an `expired` message ended, where Claude Code says.
         status_detail: Option<String>,
@@ -52,7 +52,7 @@ pub(crate) enum ClaudeInboxReceipt {
     IdleNotice {
         /// The id of the message whose receiver went idle.
         orig_msg_id: String,
-        /// The receiver's state, `idle`.
+        /// The receiver's state: `idle`, `exited` or `unavailable`.
         state: String,
     },
     /// A session's message to the daemon's address, read from its `<cross-session-message>`
@@ -81,18 +81,25 @@ enum InboxFrame {
     Other,
 }
 
-/// A `control` frame's members a receipt reads.
+/// A `control` frame's members a receipt reads, each read leniently, so a member of another type
+/// reads as absent rather than failing the whole frame.
 #[derive(Deserialize)]
 struct ControlFrame {
-    action: String,
+    #[serde(default, deserialize_with = "read_lenient")]
+    action: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
     orig_msg_id: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
     status: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
     status_detail: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
     drop_reason: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     reason: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     dropped_msg_ids: Option<LenientList<String>>,
+    #[serde(default, deserialize_with = "read_lenient")]
     state: Option<String>,
 }
 
@@ -132,7 +139,7 @@ pub(crate) fn read_receipt(line: &[u8]) -> Option<ClaudeInboxReceipt> {
 
 fn read_control(control: ControlFrame) -> Option<ClaudeInboxReceipt> {
     let orig_msg_id = control.orig_msg_id?;
-    match control.action.as_str() {
+    match control.action?.as_str() {
         MESSAGE_STATUS_ACTION => Some(ClaudeInboxReceipt::MessageStatus {
             orig_msg_id,
             status: control.status?,
@@ -288,37 +295,27 @@ mod tests {
         read_receipt(frame.to_string().as_bytes())
     }
 
-    // Killed by a status read without its `orig_msg_id`, by `drop_reason`, `reason` or
-    // `dropped_msg_ids` left unread, by the hop chain kept as one string, by the body kept with its tags or newlines, and
-    // by an `auth` line or a plain forwarded frame read as a receipt.
+    // Killed by a status read without its `orig_msg_id`, by a member of another type failing the
+    // whole status (`status_detail` here), by the idle notice's `state` left unread, by the hop
+    // chain kept as one string, by the body kept with its tags or newlines, and by an `auth` line
+    // or a plain forwarded frame read as a receipt. The inbox's route proves the rest of a status.
     #[test]
     fn the_daemon_s_inbox_reads_each_receipt_claude_code_writes_and_nothing_else() {
-        let dropped = read(&json!({"type": "control", "action": "peer_message_status",
-            "status": "dropped", "reason": "dropped", "drop_reason": "hop-runaway",
-            "orig_msg_id": "m-1", "dropped_msg_ids": ["m-0", "m-1"],
-            "from": "uds:/tmp/cc-socks/4101.sock"}));
+        let delivered = read(&json!({"type": "control", "action": "peer_message_status",
+            "status": "delivered", "status_detail": 3, "orig_msg_id": "m-1"}));
         let Some(ClaudeInboxReceipt::MessageStatus {
             orig_msg_id,
             status,
             status_detail,
-            drop_reason,
-            reason,
-            dropped_msg_ids,
-        }) = dropped
+            ..
+        }) = delivered
         else {
-            panic!("a dropped status reads as a status: {dropped:?}");
+            panic!("a status with a member of another type reads as a status: {delivered:?}");
         };
         assert_eq!(
-            (
-                orig_msg_id.as_str(),
-                status.as_str(),
-                status_detail,
-                drop_reason.as_deref()
-            ),
-            ("m-1", "dropped", None, Some("hop-runaway"))
+            (orig_msg_id.as_str(), status.as_str(), status_detail),
+            ("m-1", "delivered", None)
         );
-        assert_eq!(reason.as_deref(), Some("dropped"));
-        assert_eq!(dropped_msg_ids, ["m-0", "m-1"]);
 
         let idle = read(&json!({"type": "control", "action": "peer_idle_notice",
             "orig_msg_id": "m-2", "state": "idle", "finished_at": 1_790_000_000_123_i64}));
