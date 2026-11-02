@@ -431,8 +431,10 @@ impl CodexSwitchingAccount {
     }
 
     // `login` ready to send. Codex refuses a key while handed tokens are active, so a key's
-    // service, read first, is signed out unless it is signed out already or on a key; the
-    // sign-out leaves the handed tokens unrevoked. Fails as the read or the sign-out does.
+    // service is signed out first where it carries an account on its tokens, and left as it is
+    // where it carries one on a key; only a service carrying none is read, since a read on a
+    // carried token Codex refuses asks for a refresh that waits on this hand. The sign-out leaves
+    // the handed tokens unrevoked. Fails as the read or the sign-out does.
     async fn prepare_login(
         &self,
         connection: &CodexAppServerConnection,
@@ -448,14 +450,12 @@ impl CodexSwitchingAccount {
                 is_signed_out: false,
             }),
             CodexHandedLogin::ApiKey(api_key) => {
-                let reading = self
-                    .settle_login(read_codex_account(connection, CODEX_AUTH_PROBE_TIMEOUT).await)?;
-                let is_clear = match reading {
-                    CodexAccountReading::SignedOut => true,
-                    CodexAccountReading::SignedIn { kind, .. } => {
-                        read_codex_auth_mode(&kind) == ProviderAuthMode::ApiKey
-                    }
-                    CodexAccountReading::Unreadable => false,
+                let is_clear = match self.carried_token() {
+                    Some((_, Some(_handed))) => false,
+                    Some((_, None)) => true,
+                    None => is_clear_for_key(
+                        read_codex_account(connection, CODEX_AUTH_PROBE_TIMEOUT).await?,
+                    ),
                 };
                 if !is_clear {
                     self.settle_login(connection.request(CODEX_ACCOUNT_LOGOUT_METHOD, &()).await)?;
@@ -611,6 +611,17 @@ async fn require_home_tokens(codex_home: &Path) -> Result<CodexAuthTokens, Codex
             RefusalCode::ProviderAccountNotAuthenticated,
         )))
     })
+}
+
+// Whether a service read as `reading` takes a key with no sign-out: signed out, or on a key.
+fn is_clear_for_key(reading: CodexAccountReading) -> bool {
+    match reading {
+        CodexAccountReading::SignedOut => true,
+        CodexAccountReading::SignedIn { kind, .. } => {
+            read_codex_auth_mode(&kind) == ProviderAuthMode::ApiKey
+        }
+        CodexAccountReading::Unreadable => false,
+    }
 }
 
 fn compose_login(tokens: CodexAuthTokens) -> CodexLoginAccountParams {

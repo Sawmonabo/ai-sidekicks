@@ -22,11 +22,12 @@ use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_account_service_for, start_scripted_switching_service,
 };
+use crate::driver::codex::service::switching::hand_back::CodexHandBack;
 use crate::driver::codex::service::switching::test_moves::{
     RecordedMoves, SessionQueue, switching_person,
 };
 use crate::driver::codex::service::switching::test_sign_in::{
-    AccountHomes, TEST_PLAN, compose_access_token, write_sign_in,
+    AccountHomes, TEST_PLAN, answer_through_login, compose_access_token, write_sign_in,
 };
 use crate::driver::contract::account::{FirstRequestAfterMove, SessionAccountMove, SessionToMove};
 use crate::driver::test_registry::new_session_id;
@@ -121,7 +122,7 @@ impl Fixture {
         let signed_out = json!({"account": null, "requiresOpenaiAuth": true});
         let (handed, _login) = tokio::join!(
             account.hand_at_start(&service, &connection),
-            answer_through_login(&mut switching, &signed_out)
+            answer_through_login(&mut switching, &signed_out, false)
         );
         handed.expect("the start's login is answered");
 
@@ -156,7 +157,7 @@ impl Fixture {
         let reading = signed_in();
         let (moved, _login) = tokio::join!(
             move_codex_sessions(&self.legs, self.to.clone(), vec![self.lead.clone()], person),
-            answer_through_login(&mut self.switching, &reading)
+            answer_through_login(&mut self.switching, &reading, false)
         );
         let mut moved = moved.into_iter();
         let named = moved
@@ -181,56 +182,6 @@ impl Fixture {
         std::iter::from_fn(|| self.switching.script.sent.try_recv().ok())
             .map(|text| serde_json::from_str(&text).expect("the connection sends JSON"))
             .collect()
-    }
-}
-
-/// What a hand sent the switching service up to its login, as [`answer_through_login`] met it.
-struct AnsweredHand {
-    /// The methods of the requests, in order.
-    methods: Vec<String>,
-    /// The login.
-    login: Value,
-    /// The account the service carried when the login came, before its answer.
-    carried_at_login: Option<ProviderAccountId>,
-    /// The answers the service wrote meanwhile to requests of Codex's, such as a refresh.
-    answers: Vec<Value>,
-}
-
-// Answers each request the switching service sends up to its login: an account read with
-// `reading`, a sign-out at once, and the login once it noted the account the service carried when
-// the login came. An answer the service writes to a request of Codex's is kept aside.
-async fn answer_through_login(
-    scripted: &mut ScriptedCodexService,
-    reading: &Value,
-) -> AnsweredHand {
-    let mut methods = Vec::new();
-    let mut answers = Vec::new();
-    loop {
-        let message = tokio::time::timeout(Duration::from_secs(5), scripted.script.next_sent())
-            .await
-            .expect("the service sends its next message");
-        let Some(method) = message["method"].as_str().map(str::to_owned) else {
-            answers.push(message);
-            continue;
-        };
-        methods.push(method.clone());
-        match method.as_str() {
-            "account/read" => scripted.script.answer(&message, reading),
-            "account/logout" => scripted.script.answer(&message, &json!({})),
-            _ => {
-                assert_eq!(method, CODEX_LOGIN_START_METHOD, "{message}");
-                let carried_at_login = scripted.service.provider_account_id();
-                scripted
-                    .script
-                    .answer(&message, &json!({"type": message["params"]["type"]}));
-                return AnsweredHand {
-                    methods,
-                    login: message,
-                    carried_at_login,
-                    answers,
-                };
-            }
-        }
     }
 }
 
@@ -366,29 +317,18 @@ async fn the_check_closes_the_window_without_a_hand_back(
 
 // Killed by the previous account's home tokens handed back over its key (a `chatgptAuthTokens`
 // login, or the refresh answered with them), by the sessions moved or the account carried before
-// the key's login is answered (the service already carries the account left at the login), and
-// by the sign-out skipped after a `ChatGPT` reading or sent over a key.
-#[rstest]
-#[case::on_chatgpt(
-    signed_in(),
-    vec!["account/read", "account/logout", CODEX_LOGIN_START_METHOD]
-)]
-#[case::on_a_key(
-    json!({"account": {"type": "apiKey"}, "requiresOpenaiAuth": true}),
-    vec!["account/read", CODEX_LOGIN_START_METHOD]
-)]
+// the key's login is answered (the service already carries the account left at the login), by the
+// sign-out skipped over the tokens carried, and by the account read under the hand, whose refused
+// token would ask for a refresh that waits on that hand.
 #[tokio::test]
-async fn a_hand_back_to_a_key_account_refuses_the_refresh_and_hands_the_key(
-    #[case] reading: Value,
-    #[case] expected: Vec<&str>,
-) {
+async fn a_hand_back_to_a_key_account_refuses_the_refresh_and_hands_the_key() {
     let mut fixture = Fixture::new(true).await;
     let person = switching_person();
     let named_move = fixture.switch(person.clone()).await;
     let check = fixture.switching.next_request("account/read").await;
 
     refuse_the_renewal(&mut fixture).await;
-    let mut handed = answer_through_login(&mut fixture.switching, &reading).await;
+    let mut handed = answer_through_login(&mut fixture.switching, &signed_in(), false).await;
     // The refusal is written as the refresh lets its hand go, so it may follow the key's login.
     if handed.answers.is_empty() {
         handed
@@ -415,7 +355,7 @@ async fn a_hand_back_to_a_key_account_refuses_the_refresh_and_hands_the_key(
         refusal.get("result").is_none() && refusal["error"].is_object(),
         "the refresh was answered: {refusal}"
     );
-    assert_eq!(handed.methods, expected);
+    assert_eq!(handed.methods, ["account/logout", CODEX_LOGIN_START_METHOD]);
     assert_eq!(
         handed.login["params"],
         json!({"type": "apiKey", "apiKey": TEST_KEY})
@@ -478,7 +418,7 @@ async fn a_key_hand_back_sends_nothing_once_another_switch_landed() {
             Vec::new(),
             None
         ),
-        answer_through_login(&mut fixture.switching, &reading)
+        answer_through_login(&mut fixture.switching, &reading, false)
     );
     switched.expect("the later switch's login is answered");
     drop(hand);
@@ -486,7 +426,10 @@ async fn a_key_hand_back_sends_nothing_once_another_switch_landed() {
         .await
         .expect("the window's watch settles");
 
-    assert!(refreshed.is_none(), "the refresh was answered");
+    assert!(
+        matches!(refreshed, CodexHandBack::NotHanded),
+        "the refresh was answered or a key hand-back was promised"
+    );
     assert_eq!(landed.methods, [CODEX_LOGIN_START_METHOD]);
     assert_eq!(named, FirstRequestAfterMove::Unobserved);
     assert_eq!(switching.carried_account(), Some(other.clone()));

@@ -22,6 +22,7 @@ use sidekicks_std::mutex_lock::lock;
 use crate::driver::codex::account::auth_file::{CodexAuthTokens, is_same_token};
 use crate::driver::codex::account::token_refresh::CodexRenewal;
 use crate::driver::codex::server_requests::CodexTokenRefresher;
+use crate::driver::codex::service::switching::hand_back::CodexHandBack;
 use crate::driver::codex::service::switching::{
     CarriedAccount, CarriedSignIn, CodexSwitchingAccount,
 };
@@ -80,7 +81,8 @@ impl CodexSwitchingAccount {
             Ok(CodexRenewal::Dead) => {
                 // Refused right after a switch moved onto it: the previous account goes back, its
                 // tokens the answer; a previous account on its key is handed back after a refusal.
-                if let Some(previous_tokens) = self.hand_back(&provider_account_id).await {
+                let hand_back = self.hand_back(&provider_account_id).await;
+                if let CodexHandBack::Tokens(previous_tokens) = hand_back {
                     return Some(previous_tokens);
                 }
                 if let Some(CarriedAccount {
@@ -90,7 +92,10 @@ impl CodexSwitchingAccount {
                 {
                     *dead_token = Some(refused);
                 }
-                tracing::warn!("a Codex token refresh was refused: its sign-in renews no more");
+                // A key handed back after the refusal recovers the sessions, so no end is logged.
+                if matches!(hand_back, CodexHandBack::NotHanded) {
+                    tracing::warn!("a Codex token refresh was refused: its sign-in renews no more");
+                }
                 None
             }
             Err(error) => {

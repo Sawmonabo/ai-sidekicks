@@ -18,7 +18,7 @@ use crate::driver::codex::service::switching::test_moves::{
     RecordedMoves, SessionQueue, switching_person,
 };
 use crate::driver::codex::service::switching::test_sign_in::{
-    AccountHomes, compose_access_token, write_sign_in,
+    AccountHomes, answer_through_login, compose_access_token, write_sign_in,
 };
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::test_registry::new_session_id;
@@ -109,19 +109,18 @@ impl Fixture {
         handed.expect("the start's login is answered");
     }
 
-    // The start's hand with nothing carried and the key account current, the read answering no
-    // account signed in. Answers the requests' methods in order and the login.
-    async fn hand_the_key_at_start(&mut self) -> (Vec<String>, Value) {
+    // The start's hand with nothing carried and the key account current, the read answering
+    // `reading`. Answers the requests' methods in order and the login.
+    async fn hand_the_key_at_start(&mut self, reading: &Value) -> (Vec<String>, Value) {
         let service = Arc::clone(&self.scripted.service);
         let connection = service.connection().expect("the service is up");
         let switching = Arc::clone(&self.scripted.dependencies.switching);
-        let signed_out = json!({"account": null, "requiresOpenaiAuth": true});
-        let (handed, (methods, login, _carried)) = tokio::join!(
+        let (handed, answered) = tokio::join!(
             switching.hand_at_start(&service, &connection),
-            answer_through_login(&mut self.scripted, &signed_out, false)
+            answer_through_login(&mut self.scripted, reading, false)
         );
         handed.expect("the key's login is answered");
-        (methods, login)
+        (answered.methods, answered.login)
     }
 
     // Every request the connection sent that the test has not read.
@@ -132,68 +131,13 @@ impl Fixture {
     }
 }
 
-// Answers each request a hand sends, the account read with `reading` and a sign-out at once, up
-// to the login, which it answers, or refuses where `is_login_refused`, once it noted the account
-// the service carried when the login came. Answers the methods in order, the login, and that
-// account.
-async fn answer_through_login(
-    scripted: &mut ScriptedCodexService,
-    reading: &Value,
-    is_login_refused: bool,
-) -> (Vec<String>, Value, Option<ProviderAccountId>) {
-    let mut methods = Vec::new();
-    loop {
-        let request = tokio::time::timeout(Duration::from_secs(5), scripted.script.next_sent())
-            .await
-            .expect("the hand sends its next request");
-        let method = request["method"]
-            .as_str()
-            .expect("a request names its method")
-            .to_owned();
-        methods.push(method.clone());
-        match method.as_str() {
-            "account/read" => scripted.script.answer(&request, reading),
-            "account/logout" => scripted.script.answer(&request, &json!({})),
-            _ => {
-                let carried = scripted.service.provider_account_id();
-                if is_login_refused {
-                    scripted.script.send(&json!({
-                        "jsonrpc": "2.0",
-                        "id": request["id"],
-                        "error": {"code": -32600, "message": "the API key is not valid"},
-                    }));
-                } else {
-                    scripted.script.answer(&request, &json!({"type": "apiKey"}));
-                }
-                return (methods, request, carried);
-            }
-        }
-    }
-}
-
-// Killed by a key login sent with no sign-out over a `ChatGPT` or unreadable reading (Codex would
-// refuse it), by a sign-out sent every time (over a key or no sign-in), by the switch's hook put
-// on the sign-out (the service would carry the key account before its login was sent), and by the
-// key read from the home (a tokens login, or the home's workspace, instead of the sealed key).
-#[rstest]
-#[case::on_chatgpt(
-    json!({"account": {"type": "chatgpt"}, "requiresOpenaiAuth": true}),
-    vec!["account/read", "account/logout", CODEX_LOGIN_START_METHOD]
-)]
-#[case::on_a_key(signed_in_on_a_key(), vec!["account/read", CODEX_LOGIN_START_METHOD])]
-#[case::signed_out(
-    json!({"account": null, "requiresOpenaiAuth": true}),
-    vec!["account/read", CODEX_LOGIN_START_METHOD]
-)]
-#[case::unreadable(
-    json!({}),
-    vec!["account/read", "account/logout", CODEX_LOGIN_START_METHOD]
-)]
+// Killed by a key login sent with no sign-out over the tokens carried (Codex would refuse it), by
+// an account read under the hand (its refused token asks for a refresh that waits on the hand),
+// by the switch's hook put on the sign-out (the service would carry the key account before its
+// login was sent), and by the key read from the home (a tokens login, or the home's workspace,
+// instead of the sealed key).
 #[tokio::test]
-async fn a_switch_onto_an_api_key_account_hands_the_key(
-    #[case] reading: Value,
-    #[case] expected: Vec<&str>,
-) {
+async fn a_switch_onto_an_api_key_account_hands_the_key() {
     let mut fixture = Fixture::new(false);
     fixture.sign_in_the_key_home();
     fixture.carry_the_account_left().await;
@@ -205,9 +149,9 @@ async fn a_switch_onto_an_api_key_account_hands_the_key(
     let service = Arc::clone(&fixture.scripted.service);
     let switching = Arc::clone(&fixture.scripted.dependencies.switching);
     let to = fixture.key_account.clone();
-    let (switched, (methods, login, carried_at_login)) = tokio::join!(
+    let (switched, answered) = tokio::join!(
         switching.hand_switch(&service, to.clone(), Vec::new(), switching_person()),
-        answer_through_login(&mut fixture.scripted, &reading, false)
+        answer_through_login(&mut fixture.scripted, &signed_in_on_a_key(), false)
     );
     switched.expect("the key's login is answered");
     // A switch off another account checks the new login once its hand is let go.
@@ -218,13 +162,16 @@ async fn a_switch_onto_an_api_key_account_hands_the_key(
         .answer(&check, &signed_in_on_a_key());
     queue.wait_until_seen(1).await;
 
-    assert_eq!(methods, expected);
     assert_eq!(
-        login["params"],
+        answered.methods,
+        ["account/logout", CODEX_LOGIN_START_METHOD]
+    );
+    assert_eq!(
+        answered.login["params"],
         json!({"type": "apiKey", "apiKey": TEST_KEY})
     );
     assert_eq!(
-        carried_at_login,
+        answered.carried_at_login,
         Some(fixture.left.clone()),
         "the service moved before the key's login was answered"
     );
@@ -247,7 +194,7 @@ async fn a_key_refused_after_the_sign_out_leaves_the_service_carrying_none() {
     let service = Arc::clone(&fixture.scripted.service);
     let switching = Arc::clone(&fixture.scripted.dependencies.switching);
     let on_chatgpt = json!({"account": {"type": "chatgpt"}, "requiresOpenaiAuth": true});
-    let (switched, (methods, _login, carried_at_login)) = tokio::join!(
+    let (switched, answered) = tokio::join!(
         switching.hand_switch(
             &service,
             fixture.key_account.clone(),
@@ -262,10 +209,10 @@ async fn a_key_refused_after_the_sign_out_leaves_the_service_carrying_none() {
         "the key's refusal is not the caller's answer"
     );
     assert_eq!(
-        methods,
-        ["account/read", "account/logout", CODEX_LOGIN_START_METHOD]
+        answered.methods,
+        ["account/logout", CODEX_LOGIN_START_METHOD]
     );
-    assert_eq!(carried_at_login, Some(fixture.left.clone()));
+    assert_eq!(answered.carried_at_login, Some(fixture.left.clone()));
     assert_eq!(switching.carried_account(), None);
     assert_eq!(service.provider_account_id(), None);
     assert_eq!(queue.seen(), Vec::<String>::new());
@@ -273,14 +220,32 @@ async fn a_key_refused_after_the_sign_out_leaves_the_service_carrying_none() {
 }
 
 // Killed by the refusal of an account whose home holds no `ChatGPT` sign-in, which a start on a
-// key account met before its key was handed.
+// key account met before its key was handed, by a key login sent with no sign-out over a `ChatGPT`
+// or unreadable reading (Codex would refuse it), and by a sign-out sent over a key or no sign-in.
+#[rstest]
+#[case::on_chatgpt(
+    json!({"account": {"type": "chatgpt"}, "requiresOpenaiAuth": true}),
+    vec!["account/read", "account/logout", CODEX_LOGIN_START_METHOD]
+)]
+#[case::on_a_key(signed_in_on_a_key(), vec!["account/read", CODEX_LOGIN_START_METHOD])]
+#[case::signed_out(
+    json!({"account": null, "requiresOpenaiAuth": true}),
+    vec!["account/read", CODEX_LOGIN_START_METHOD]
+)]
+#[case::unreadable(
+    json!({}),
+    vec!["account/read", "account/logout", CODEX_LOGIN_START_METHOD]
+)]
 #[tokio::test]
-async fn a_start_with_an_api_key_current_account_hands_the_key() {
+async fn a_start_with_an_api_key_current_account_hands_the_key(
+    #[case] reading: Value,
+    #[case] expected: Vec<&str>,
+) {
     let mut fixture = Fixture::new(true);
 
-    let (methods, login) = fixture.hand_the_key_at_start().await;
+    let (methods, login) = fixture.hand_the_key_at_start(&reading).await;
 
-    assert_eq!(methods, ["account/read", CODEX_LOGIN_START_METHOD]);
+    assert_eq!(methods, expected);
     assert_eq!(
         login["params"],
         json!({"type": "apiKey", "apiKey": TEST_KEY})
@@ -292,13 +257,39 @@ async fn a_start_with_an_api_key_current_account_hands_the_key() {
     assert_eq!(fixture.unread_requests(), Vec::<Value>::new());
 }
 
+// Killed by a sign-out or an account read sent where the service already carries an account on
+// its key: a key login over a key needs neither.
+#[tokio::test]
+async fn a_key_handed_over_a_key_carried_sends_only_the_login() {
+    let mut fixture = Fixture::new(true);
+    fixture.hand_the_key_at_start(&signed_in_on_a_key()).await;
+    let service = Arc::clone(&fixture.scripted.service);
+    let switching = Arc::clone(&fixture.scripted.dependencies.switching);
+
+    let (switched, answered) = tokio::join!(
+        switching.hand_switch(
+            &service,
+            fixture.key_account.clone(),
+            Vec::new(),
+            switching_person()
+        ),
+        answer_through_login(&mut fixture.scripted, &signed_in_on_a_key(), false)
+    );
+
+    switched.expect("the key's login is answered");
+    assert_eq!(answered.methods, [CODEX_LOGIN_START_METHOD]);
+    assert_eq!(fixture.unread_requests(), Vec::<Value>::new());
+}
+
 // Killed by a refresh answered from the key home's `auth.json` (its tokens, not a refusal), and by
 // the home's tokens handed over the key once they read as unlike any token last handed (a login
 // sent, or the call answering that it handed them).
 #[tokio::test]
 async fn a_key_account_carried_never_takes_its_homes_tokens() {
     let mut fixture = Fixture::new(true);
-    fixture.hand_the_key_at_start().await;
+    fixture
+        .hand_the_key_at_start(&json!({"account": null, "requiresOpenaiAuth": true}))
+        .await;
     fixture.sign_in_the_key_home();
     let switching = Arc::clone(&fixture.scripted.dependencies.switching);
     let connection = fixture

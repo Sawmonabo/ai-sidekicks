@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -15,6 +16,8 @@ use sidekicks_contracts::provider::account::record::{
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_std::port_registration::PortRegistration;
 
+use crate::driver::codex::account::login::CODEX_LOGIN_START_METHOD;
+use crate::driver::codex::service::supervisor::test_service::ScriptedCodexService;
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, ProviderAccountFolders, ProviderAccountReader,
 };
@@ -131,5 +134,65 @@ impl ProviderAccountReader for AccountHomes {
     ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn Error + Send + Sync>>> {
         let key = self.api_keys.get(&provider_account_id).cloned();
         async move { Ok(key) }.boxed()
+    }
+}
+
+/// What a hand sent the switching service up to its login, as [`answer_through_login`] met it.
+pub(crate) struct AnsweredHand {
+    /// The methods of the requests, in order.
+    pub(crate) methods: Vec<String>,
+    /// The login.
+    pub(crate) login: Value,
+    /// The account the service carried when the login came, before its answer.
+    pub(crate) carried_at_login: Option<ProviderAccountId>,
+    /// The answers the service wrote meanwhile to requests of Codex's, such as a refresh.
+    pub(crate) answers: Vec<Value>,
+}
+
+/// Answers each request the switching service sends up to its login: an account read with
+/// `reading`, a sign-out at once, and the login, answered or refused where `is_login_refused`,
+/// once it noted the account the service carried when the login came. An answer the service
+/// writes to a request of Codex's is kept aside.
+pub(crate) async fn answer_through_login(
+    scripted: &mut ScriptedCodexService,
+    reading: &Value,
+    is_login_refused: bool,
+) -> AnsweredHand {
+    let mut methods = Vec::new();
+    let mut answers = Vec::new();
+    loop {
+        let message = tokio::time::timeout(Duration::from_secs(5), scripted.script.next_sent())
+            .await
+            .expect("the service sends its next message");
+        let Some(method) = message["method"].as_str().map(str::to_owned) else {
+            answers.push(message);
+            continue;
+        };
+        methods.push(method.clone());
+        match method.as_str() {
+            "account/read" => scripted.script.answer(&message, reading),
+            "account/logout" => scripted.script.answer(&message, &json!({})),
+            _ => {
+                assert_eq!(method, CODEX_LOGIN_START_METHOD, "{message}");
+                let carried_at_login = scripted.service.provider_account_id();
+                if is_login_refused {
+                    scripted.script.send(&json!({
+                        "jsonrpc": "2.0",
+                        "id": message["id"],
+                        "error": {"code": -32600, "message": "the API key is not valid"},
+                    }));
+                } else {
+                    scripted
+                        .script
+                        .answer(&message, &json!({"type": message["params"]["type"]}));
+                }
+                return AnsweredHand {
+                    methods,
+                    login: message,
+                    carried_at_login,
+                    answers,
+                };
+            }
+        }
     }
 }
