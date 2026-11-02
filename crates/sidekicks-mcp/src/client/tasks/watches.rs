@@ -119,7 +119,7 @@ pub(in crate::client) struct TaskWatch<'watches> {
     key: WatchKey,
     pub(super) wake: Arc<Notify>,
     /// The task's contact, shared with every other writer of it.
-    pub(super) contact: TaskContact,
+    pub(in crate::client) contact: TaskContact,
     /// Whether the follow left its entry in place, so its drop removes nothing.
     is_left: bool,
 }

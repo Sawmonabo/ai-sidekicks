@@ -18,8 +18,9 @@
 //!
 //! The answered clock adds the time between two answered polls with no failed poll between them,
 //! a `-32602` counting as answered, so an outage never counts toward the grace. Lost's clock is
-//! wall time since the last poll that read the task or answered `-32602`, which resets it; once
-//! it reaches 300 s the cause that stands picks the contact: a sign-in not accepted, errors that
+//! wall time since the last poll that read the task or answered `-32602`, which resets it, kept
+//! on the task's contact so it runs on across a re-bind and the wait before it; once it reaches
+//! 300 s the cause that stands picks the contact: a sign-in not accepted, errors that
 //! persisted, or contact lost. The next poll that reads the task reads it reached again, or reads
 //! the task's standing arm, which says what the task did and so holds to the end, across a
 //! re-bind too.
@@ -222,14 +223,16 @@ impl AnsweredClock {
     }
 }
 
-/// A followed task's contact with its standing arm, kept on the task's watch, so every writer
-/// shares them and a follow re-bound after its connection's close shows the arm the last follow
-/// held. Every clone writes the same contact.
+/// A followed task's contact with its standing arm and Lost's clock, kept on the task's watch, so
+/// every writer shares them and a follow re-bound after its connection's close shows the arm the
+/// last follow held and counts from the poll it last answered. Every clone writes the same contact.
 #[derive(Clone)]
 pub(super) struct TaskContact {
     sender: watch::Sender<McpTaskContact>,
     /// The standing arm, which stands in for `Reached`; `Reached` while none stands.
     standing: Arc<Mutex<McpTaskContact>>,
+    /// Lost's clock: when a poll last read the task or answered `-32602`; `None` before any did.
+    answered_at: Arc<Mutex<Option<Instant>>>,
 }
 
 impl TaskContact {
@@ -244,7 +247,19 @@ impl TaskContact {
         Self {
             sender,
             standing: Arc::new(Mutex::new(standing)),
+            answered_at: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// When a poll last read the task or answered `-32602`, the time Lost's clock counts from;
+    /// `None` before any did.
+    pub(super) fn answered_at(&self) -> Option<Instant> {
+        *lock(&self.answered_at)
+    }
+
+    // Starts Lost's clock again at `now`, when a poll read the task or answered `-32602`.
+    fn mark_answered(&self, now: Instant) {
+        *lock(&self.answered_at) = Some(now);
     }
 
     /// The arm the contact shows.
@@ -315,8 +330,8 @@ where
     Poll: FnMut(AnsweredClock) -> Polled,
     Polled: Future<Output = Result<PollStep, Error>>,
 {
-    // Lost's clock: the last poll that read the task or answered `-32602`.
-    let mut last_answered = Instant::now();
+    // Lost's clock counts from the follow's start until a poll is answered.
+    let started = Instant::now();
     let mut answered = AnsweredClock::default();
     // The answered clock's reading at the first `-32602` since a poll last read the task.
     let mut grace_start: Option<Duration> = None;
@@ -335,7 +350,7 @@ where
                 suggested_interval_ms,
             }) => {
                 failure_episode.mark_succeeded();
-                last_answered = now;
+                contact.mark_answered(now);
                 answered.answer(now);
                 grace_start = None;
                 contact.write_reading(McpTaskContact::Reached);
@@ -349,7 +364,7 @@ where
                         return McpToolCallEnd::TaskUnknown { error };
                     }
                     PollFailure::TaskIdRejected { error } => {
-                        last_answered = now;
+                        contact.mark_answered(now);
                         answered.answer(now);
                         let started = *grace_start.get_or_insert(answered.counted());
                         if answered.counted().saturating_sub(started) >= TASK_ID_REJECTED_GRACE {
@@ -364,6 +379,7 @@ where
                 };
                 if let Some(cause) = cause {
                     answered.break_chain();
+                    let last_answered = contact.answered_at().unwrap_or(started);
                     let arm = if now - last_answered >= CONTACT_LOST_AFTER {
                         cause_at_contact_lost(cause)
                     } else {

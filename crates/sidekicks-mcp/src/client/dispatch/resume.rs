@@ -7,9 +7,10 @@
 //! - While it waits, the contact reads why no connection of the task's endpoint is live, read
 //!   again at each publication: none is (`NotConfigured`), or the live one reaches another address
 //!   (`Reconfigured`). While the connection that ended is still the one published, as when its
-//!   transport ended on its own, nothing reaches the server, so once the wait has lasted 300 s the
-//!   contact reads what a failed poll then reads: a sign-in not accepted, errors that persisted, or
-//!   `Lost`. The re-bind writes back the arm the contact held before.
+//!   transport ended on its own, nothing reaches the server, so 300 s after the task's last
+//!   answered poll, or after the wait's start when none was answered, the contact reads what a
+//!   failed poll then reads: a sign-in not accepted, errors that persisted, or `Lost`. The re-bind
+//!   writes back the arm the contact held before.
 //! - The wait never times out. The session's close ends it with the end unknown, which the
 //!   dispatch writes; the caller's cancel ends it unknown for the caller to write, as a live end,
 //!   so a backgrounded call's hand-off stays owed; the client's stop ends it writing nothing. A
@@ -75,7 +76,9 @@ impl McpToolDispatch {
         let connection = if let Ok(live) = standing.live(&task.endpoint) {
             live
         } else {
-            match wait_for_connection(standing, None, &task.endpoint, contact, cancellation).await {
+            let waited =
+                wait_for_connection(standing, None, None, &task.endpoint, contact, cancellation);
+            match waited.await {
                 Ok(joined) => joined,
                 Err(race) => return self.end_dispatch(standing, receipt.id, race).await,
             }
@@ -187,6 +190,7 @@ async fn wait_for_replacement(
     let replacement = wait_for_connection(
         standing,
         Some(closed),
+        task_watch.contact.answered_at(),
         &closed.endpoint,
         contact,
         cancellation,
@@ -205,18 +209,21 @@ async fn wait_for_replacement(
 
 /// Waits for a live connection other than `after` that reaches `endpoint`, `contact` reading
 /// meanwhile why none is, read again at each publication, the arm the cause it held picks once
-/// 300 s pass while `after` is still the one published, and, once one is, the arm it held before. A wait that ends otherwise
+/// 300 s pass from `answered_at`, the task's last answered poll, or from the wait's start when no
+/// poll was answered, while `after` is still the one published, and, once one is, the arm it held
+/// before. A wait that ends otherwise
 /// gives the race its end unknown: written by the dispatch at the session's close and by the
 /// caller at its cancel, and nothing written at the client's stop.
 async fn wait_for_connection(
     standing: &McpStandingConnection,
     after: Option<&Arc<McpServerConnection>>,
+    answered_at: Option<Instant>,
     endpoint: &McpServerEndpoint,
     contact: &watch::Sender<McpTaskContact>,
     cancellation: &CancellationToken,
 ) -> Result<Arc<McpServerConnection>, CallRace> {
     let held = *contact.borrow();
-    let lost_at = Instant::now() + CONTACT_LOST_AFTER;
+    let lost_at = answered_at.unwrap_or_else(Instant::now) + CONTACT_LOST_AFTER;
     let show_absence = |absence: Option<McpConnectionAbsence>| {
         let arm = match absence {
             Some(McpConnectionAbsence::NotConfigured) => McpTaskContact::NotConfigured,

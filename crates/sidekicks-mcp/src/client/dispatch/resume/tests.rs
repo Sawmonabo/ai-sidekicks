@@ -350,14 +350,22 @@ async fn a_task_whose_server_is_no_longer_configured_reads_so_and_waits_until_th
     assert_eq!(fixture.receipts(), [address_task_receipt("unknown", true)]);
 }
 
-// Mutation: in `wait_for_connection`, run no clock while the connection that ended is still the
-// one published, so the contact reads `Reached` with nothing polled.
+// Mutations: in `wait_for_connection`, run no clock while the connection that ended is still the
+// one published, so the contact reads `Reached` with nothing polled; or start Lost's clock at the
+// wait's start, so `Lost` shows 300 s after the close rather than after the last answered poll.
 #[tokio::test(start_paused = true)]
-async fn a_task_whose_connection_ends_with_no_reconnect_reads_lost_after_300_s() {
+async fn a_task_whose_connection_ends_with_no_reconnect_reads_lost_300_s_after_its_last_answer() {
     let fixture = fixture_at_address().await;
     let (standing, feed) = McpStandingConnection::new(CancellationToken::new());
     let (opened, server) = fixture
-        .open(working_task_server(), fixture.address.as_ref())
+        .open(
+            task_server(|method, earlier| match (method, earlier) {
+                ("tasks/get", 0) => v1_status_reply("working"),
+                ("tasks/get", _) => Reply::Silent,
+                _ => method_not_found(),
+            }),
+            fixture.address.as_ref(),
+        )
         .await;
     let connection = Arc::new(opened);
     feed.publish(Some(Arc::clone(&connection)));
@@ -369,22 +377,30 @@ async fn a_task_whose_connection_ends_with_no_reconnect_reads_lost_after_300_s()
             .dispatch
             .call(&standing, track_call(), &contact, &uncanceled),
         async {
-            until(|| !server.requests("tasks/get").is_empty()).await;
-            // Its transport ends on its own: the connection stays published, nothing replaces it.
+            // Every answer comes after this, so `Lost` is due no sooner than 300 s from here.
+            let started = Instant::now();
+            until(|| server.requests("tasks/get").len() > 1).await;
+            // Its polls go unanswered for 250 s, then its transport ends on its own: the
+            // connection stays published, nothing replaces it.
+            tokio::time::sleep_until(started + Duration::from_secs(250)).await;
+            assert_eq!(
+                *contact.borrow(),
+                Reached,
+                "unanswered polls under 300 s read reached"
+            );
             connection.close().await;
-            let closed_at = Instant::now();
             let mut seen = contact.subscribe();
             timeout(
-                Duration::from_secs(400),
+                Duration::from_secs(100),
                 seen.wait_for(|state| *state == Lost),
             )
             .await
-            .expect("the contact reads lost")
+            .expect("the contact reads lost 300 s after the last answered poll")
             .expect("the contact stays open");
             assert!(
-                closed_at.elapsed() >= Duration::from_secs(300),
-                "lost only after 300 s, not {:?}",
-                closed_at.elapsed()
+                started.elapsed() >= Duration::from_secs(300),
+                "lost only 300 s after the last answer, not {:?}",
+                started.elapsed()
             );
             feed.close().await;
         },
