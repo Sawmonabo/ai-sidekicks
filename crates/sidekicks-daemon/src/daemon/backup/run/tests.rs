@@ -7,10 +7,9 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use serde_json::json;
-use sidekicks_contracts::daemon::backup::BackupLastRun;
+use sidekicks_contracts::daemon::backup::{BackupLastRun, read_backup_manifest};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::{WallClockTimer, check_private_run_folder};
-use sidekicks_recovery::database_file::newest_backup::read_backup_manifest;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::budget::ProcessorMeter;

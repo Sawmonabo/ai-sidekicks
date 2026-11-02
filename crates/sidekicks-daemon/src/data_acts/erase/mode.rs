@@ -46,22 +46,22 @@ async fn erase_data_folder(data_folder: PathBuf) -> DaemonModeOutcome<()> {
     }
 
     let mut failures = Vec::new();
-    let mut not_ended = |failure: &(dyn Error + 'static)| {
-        failures.push(format!(
+    let not_ended = |failure: &(dyn Error + 'static)| {
+        format!(
             "a process the erase had to end did not end: {}",
             describe_error(failure)
-        ));
+        )
     };
     // The sweep empties the registry a stopped or crashed service left.
     match sweep_left_orphans(&data_folder).await {
         Ok(sweep) => failures.extend(describe_sweep_failures(sweep)),
-        Err(failure) => not_ended(&failure),
+        Err(failure) => failures.push(not_ended(&failure)),
     }
     let recorded_stops = PROVIDER_REGISTRATIONS
         .iter()
         .filter_map(|registration| registration.stop_recorded_services);
     for failure in stop_every_recorded_service(recorded_stops, &data_folder).await {
-        not_ended(&failure);
+        failures.push(not_ended(&failure));
     }
 
     // The lock file sits in the data folder, so it closes before the folder goes.
