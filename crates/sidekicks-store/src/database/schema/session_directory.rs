@@ -210,6 +210,9 @@ CREATE TABLE session_console_state (
   advisor_model       TEXT,                     -- the session's own advisor model; NULL when off
   -- Whether the session's advisor was ever set, so a row another column made reads as unset.
   advisor_set         INTEGER NOT NULL DEFAULT 0 CHECK (advisor_set IN (0, 1)),
+  -- The session's own Auto memory switch, 1 on and 0 off; NULL until the person first sets it,
+  -- while the provider's own settings decide.
+  auto_memory         INTEGER CHECK (auto_memory IS NULL OR auto_memory IN (0, 1)),
   -- The composer's mode the provider last took; a restart resumes in it.
   session_mode        TEXT NOT NULL DEFAULT '{build}'
                       CHECK (session_mode IN ({session_modes})),

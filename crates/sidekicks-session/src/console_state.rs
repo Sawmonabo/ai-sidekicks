@@ -1,9 +1,10 @@
 //! A session's own console settings, over the `session_console_state` table: the advisor a session
 //! on a provider that offers an advisor keeps from its creation or, where no one picked one, from
 //! what the provider resolved at its first start, changed only by the session's advisor command;
-//! the Build or Plan mode the session was last moved to; and the session's own bound on the steps
-//! one turn may take. Every process the daemon starts for the session reads the advisor at launch,
-//! opens in the mode, and `session.read` answers with the step bound.
+//! the Build or Plan mode the session was last moved to; the session's own bound on the steps one
+//! turn may take; and the `Auto memory` switch, unset until the person first sets it. Every process
+//! the daemon starts for the session reads the advisor at launch, opens in the mode and, once the
+//! switch is set, carries it, and `session.read` answers with the step bound.
 
 use std::borrow::Cow;
 use std::error::Error;
@@ -11,7 +12,7 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use rusqlite::types::Type;
+use rusqlite::types::{Type, Value};
 use rusqlite::{Connection, OptionalExtension};
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
@@ -52,6 +53,11 @@ const UPSERT_SESSION_MODE_SQL: &str = "INSERT INTO session_console_state
   (session_id, session_mode, updated_at) VALUES (@sessionId, @sessionMode, @updatedAt)
   ON CONFLICT(session_id) DO UPDATE
     SET session_mode = excluded.session_mode, updated_at = excluded.updated_at";
+
+const UPSERT_AUTO_MEMORY_SQL: &str = "INSERT INTO session_console_state
+  (session_id, auto_memory, updated_at) VALUES (@sessionId, @autoMemory, @updatedAt)
+  ON CONFLICT(session_id) DO UPDATE
+    SET auto_memory = excluded.auto_memory, updated_at = excluded.updated_at";
 
 /// The statement storing the advisor the session's advisor command set, `None` for off,
 /// committed in its event's own write.
@@ -150,6 +156,27 @@ pub fn session_mode_change_statement(
     }
 }
 
+/// The statement storing the session's own `Auto memory` switch, on or off, committed in the
+/// caller's own write; nothing sets the switch back to unset.
+pub fn auto_memory_change_statement(
+    session_id: &SessionId,
+    is_enabled: bool,
+    updated_at: &str,
+) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(UPSERT_AUTO_MEMORY_SQL),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@sessionId", session_id.text().as_str()),
+            (
+                Cow::Borrowed("@autoMemory"),
+                Value::Integer(i64::from(is_enabled)),
+            ),
+            text_binding("@updatedAt", updated_at),
+        ]),
+        expected_row_count: None,
+    }
+}
+
 /// The mode the session was last moved to, Build for a session never moved. Fails when the read
 /// fails or the stored text names no mode.
 pub fn read_session_mode(
@@ -188,6 +215,21 @@ pub fn read_session_max_steps_per_turn(
     Ok(max_steps_per_turn.flatten())
 }
 
+/// The session's own `Auto memory` switch, `None` where it was never set, so nothing is sent and
+/// the provider's own settings decide. Fails when the read fails.
+pub fn read_session_auto_memory(
+    reader: &Connection,
+    session_id: &SessionId,
+) -> rusqlite::Result<Option<bool>> {
+    let auto_memory = reader
+        .prepare_cached("SELECT auto_memory FROM session_console_state WHERE session_id = ?")?
+        .query_row([session_id.text().as_str()], |row| {
+            row.get::<_, Option<bool>>(0)
+        })
+        .optional()?;
+    Ok(auto_memory.flatten())
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -199,23 +241,28 @@ mod tests {
     use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
     use super::{
-        ConsoleStateAdvisors, advisor_model_change_statement, read_session_advisor_model,
+        ConsoleStateAdvisors, advisor_model_change_statement, auto_memory_change_statement,
+        read_session_advisor_model, read_session_auto_memory, read_session_mode,
         session_mode_change_statement,
     };
     use crate::questions::schema::schema_parts;
 
     const AT: &str = "2026-10-23T12:00:00.000Z";
 
+    async fn open_writer(database: &TestDatabase) -> Arc<DatabaseWriter> {
+        Arc::new(
+            DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+                .await
+                .expect("the writer opens"),
+        )
+    }
+
     // Killed by a read that takes a row the mode made for an advisor set off, and by a resolved
     // advisor that overwrites the one the person set off.
     #[tokio::test]
     async fn a_resolved_advisor_fills_only_an_advisor_no_one_set() {
         let database = TestDatabase::new(schema_parts());
-        let writer = Arc::new(
-            DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-                .await
-                .expect("the writer opens"),
-        );
+        let writer = open_writer(&database).await;
         let reader = database.reader();
         let (moved, off) = (test_session_id(), test_session_id());
         for session_id in [&moved, &off] {
@@ -242,5 +289,57 @@ mod tests {
 
         assert_eq!(read(&moved), Some(Some("opus".to_owned())));
         assert_eq!(read(&off), Some(None));
+    }
+
+    // Killed by an insert that replaces the row or an update that sets more than the switch (the
+    // mode reads Build and the advisor none), by `advisor_set = 1` in the switch's insert, by doing
+    // nothing on conflict, by an update with no insert, by an unset switch read as off, and by a
+    // flipped bind.
+    #[tokio::test]
+    async fn the_switch_keeps_the_rows_other_settings_and_reads_unset_until_set() {
+        let database = TestDatabase::new(schema_parts());
+        let writer = open_writer(&database).await;
+        let reader = database.reader();
+        let (set_up, bare) = (test_session_id(), test_session_id());
+        let read =
+            |session_id| read_session_auto_memory(&reader, session_id).expect("the switch reads");
+
+        writer
+            .write(vec![
+                session_mode_change_statement(&set_up, SessionMode::Plan, AT),
+                advisor_model_change_statement(&set_up, Some("opus"), AT),
+            ])
+            .await
+            .expect("the other settings are written");
+        assert_eq!(read(&set_up), None);
+        assert_eq!(read(&bare), None);
+
+        writer
+            .write(vec![
+                auto_memory_change_statement(&set_up, false, AT),
+                auto_memory_change_statement(&bare, true, AT),
+            ])
+            .await
+            .expect("the switches are written");
+        assert_eq!(read(&set_up), Some(false));
+        assert_eq!(read(&bare), Some(true));
+        assert_eq!(
+            read_session_mode(&reader, &set_up).expect("the mode reads"),
+            SessionMode::Plan
+        );
+        assert_eq!(
+            read_session_advisor_model(&reader, &set_up).expect("the advisor reads"),
+            Some(Some("opus".to_owned()))
+        );
+        assert_eq!(
+            read_session_advisor_model(&reader, &bare).expect("the advisor reads"),
+            None
+        );
+
+        writer
+            .write(vec![auto_memory_change_statement(&set_up, true, AT)])
+            .await
+            .expect("the switch is turned on");
+        assert_eq!(read(&set_up), Some(true));
     }
 }
