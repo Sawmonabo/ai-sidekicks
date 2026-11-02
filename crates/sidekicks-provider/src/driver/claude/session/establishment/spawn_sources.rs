@@ -83,21 +83,17 @@ impl ClaudeSpawnSources {
         .map_err(|error| DriverError::Internal(Box::new(error)))
     }
 
-    /// The environment a process on `provider_account_id`'s home starts with, its folders as
-    /// `folders` give them. Fails as the environment cannot be composed.
+    /// The environment a process on an account's folders starts with, as `folders` give them.
+    /// Fails as the environment cannot be composed.
     pub(crate) fn account_process_environment(
         &self,
         folders: &ProviderAccountFolders,
-        provider_account_id: &ProviderAccountId,
         every_project_rows: &[EnvironmentRow],
         project_rows: &[EnvironmentRow],
     ) -> Result<Vec<(String, String)>, DriverError> {
         let folders = ClaudeAccountFolders::from(folders);
         self.process_environment(
-            ClaudeProcessHome::Account {
-                folders: &folders,
-                provider_account_id,
-            },
+            ClaudeProcessHome::Account { folders: &folders },
             every_project_rows,
             project_rows,
         )
@@ -118,6 +114,6 @@ impl ClaudeSpawnSources {
             .map_err(|error| DriverError::Internal(Box::new(error)))?
             .resolve_account_folders(provider_account_id.clone())
             .await?;
-        self.account_process_environment(&folders, provider_account_id, &[], &[])
+        self.account_process_environment(&folders, &[], &[])
     }
 }

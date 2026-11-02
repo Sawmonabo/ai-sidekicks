@@ -13,6 +13,7 @@ use sidekicks_ipc::registry::HandlerError;
 use sidekicks_std::text_cut::cut_to_code_points;
 
 use crate::capability::probe::CapabilityProbeError;
+use crate::driver::contract::sign_in::{NoPersonServerEntry, ProviderSignInFailure};
 use crate::driver::error_causes::{
     ExecutableUnresolvable, ModelCatalogUnreadable, ProviderAxisInvalid, RequestUnanswered,
 };
@@ -61,6 +62,14 @@ pub enum DriverError {
     /// the send for it.
     #[error("the provider does not list skill {} in {}", .0.name.as_str(), .0.folder_path.as_str())]
     SkillNotListed(QueuedSkillPick),
+    /// An MCP sign-in through the provider's own client was asked for a binding with no entry of
+    /// the person's.
+    #[error(transparent)]
+    NoPersonServerEntry(Box<NoPersonServerEntry>),
+    /// An MCP sign-in through the provider's own client ended without a sign-in, for this kind of
+    /// reason.
+    #[error("the provider's own MCP sign-in did not sign in")]
+    SignInFailed(#[source] ProviderSignInFailure),
     /// The driver or its provider failed.
     #[error("the provider driver failed")]
     Internal(#[source] Box<dyn Error + Send + Sync>),
@@ -99,6 +108,18 @@ impl From<ProviderAxisInvalid> for DriverError {
     }
 }
 
+impl From<NoPersonServerEntry> for DriverError {
+    fn from(no_entry: NoPersonServerEntry) -> Self {
+        Self::NoPersonServerEntry(Box::new(no_entry))
+    }
+}
+
+impl From<ProviderSignInFailure> for DriverError {
+    fn from(failure: ProviderSignInFailure) -> Self {
+        Self::SignInFailed(failure)
+    }
+}
+
 impl From<RuntimeBindingStoreError> for DriverError {
     /// A driver's read of the daemon's stored bindings that failed is the driver's own failure.
     fn from(error: RuntimeBindingStoreError) -> Self {
@@ -113,8 +134,9 @@ impl From<DriverError> for HandlerError {
     /// command that names no runnable build as `ExecutableUnresolvable::into_refusal` says; a
     /// provider axis the provider does not offer answers `agent.providerAxisInvalid` naming the
     /// agent, the axis and the value; a steer whose turn ended, a refused run start, a rule the
-    /// provider could not keep or a skill pick it does not list, reaching a handler, is a fault in
-    /// the daemon, as is the driver's own failure.
+    /// provider could not keep, a skill pick it does not list, an MCP sign-in binding with no entry
+    /// of the person's or a provider's own MCP sign-in that did not sign in, reaching a handler, is
+    /// a fault in the daemon, as is the driver's own failure.
     fn from(error: DriverError) -> Self {
         match error {
             DriverError::Refused(refusal) => Self::Refused(*refusal),
@@ -156,6 +178,8 @@ impl From<DriverError> for HandlerError {
             DriverError::RuleNotKept(not_kept) => Self::Internal(Box::new(not_kept)),
             DriverError::RunRefused(refusal) => Self::Internal(Box::new(refusal)),
             error @ DriverError::SkillNotListed(_) => Self::Internal(Box::new(error)),
+            DriverError::NoPersonServerEntry(no_entry) => Self::Internal(no_entry),
+            DriverError::SignInFailed(failure) => Self::Internal(Box::new(failure)),
             DriverError::Internal(fault) => Self::Internal(fault),
         }
     }

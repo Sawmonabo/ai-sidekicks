@@ -24,6 +24,8 @@ use std::time::{Duration, Instant};
 use jiff::Timestamp;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_platforms::DaemonRunFolder;
+use sidekicks_provider::account::observer::window_store::usage_window_projection_statements;
+use sidekicks_provider::account::usage_turns::usage_turn_projection_statements;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_recovery::database_file::check::{DatabaseFileCheck, DatabaseFileCheckAnswer};
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
@@ -521,13 +523,15 @@ async fn open_writer(
 
 // The statements the projections kept in each event's own write take for `envelope`: the session's
 // directory row first, which the others' rows refer to, then the questions' queued answers, then
-// the attention entries.
+// the attention entries, then the provider accounts' metered turn and quota windows.
 fn session_projection_statements(
     envelope: &UnsequencedEventEnvelope,
 ) -> Result<Vec<WriteStatement>, ProjectionError> {
     let mut statements = directory_statements_for(&DirectoryEvent::from(envelope))?;
     statements.extend(question_projection_statements(envelope));
     statements.extend(attention_projection_statements(envelope)?);
+    statements.extend(usage_turn_projection_statements(envelope)?);
+    statements.extend(usage_window_projection_statements(envelope)?);
     Ok(statements)
 }
 

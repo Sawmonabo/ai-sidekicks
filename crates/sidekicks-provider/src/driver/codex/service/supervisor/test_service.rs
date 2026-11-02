@@ -15,6 +15,8 @@ use futures::{SinkExt as _, StreamExt as _};
 #[cfg(test)]
 use interprocess::local_socket::tokio::Listener;
 use serde_json::{Value, json};
+#[cfg(test)]
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
@@ -41,8 +43,8 @@ pub(crate) use self::stand_in::{
     REQUEST_RECORD_NAME, StandInLaunches,
 };
 pub use self::stand_in::{
-    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, serve_as_codex_service_stand_in,
-    stand_in_codex_service, write_codex_service_script,
+    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, RESUMED_TURN_NAME,
+    serve_as_codex_service_stand_in, stand_in_codex_service, write_codex_service_script,
 };
 use crate::command::askpass::command_askpass_program_path;
 use crate::command::channel::command_channel_root;
@@ -56,6 +58,7 @@ use crate::driver::codex::service::command_line::{
     TerminalServiceHooks, read_terminal_service_hooks,
 };
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
+use crate::driver::codex::service::registry::switching_home;
 use crate::driver::codex::service::supervisor::drain::LastingServiceDrains;
 use crate::driver::codex::service::supervisor::events::{
     CodexServiceEvents, CodexServiceRecoveryCause,
@@ -68,6 +71,7 @@ use crate::driver::codex::service::supervisor::transition::state::SupervisorStat
 use crate::driver::codex::service::supervisor::{
     CodexProgramResolver, CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
+use crate::driver::codex::service::switching::CodexSwitchingAccount;
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::shells::CodexShellKind;
@@ -251,6 +255,9 @@ pub(crate) fn test_codex_service_dependencies(
         drains: LastingServiceDrains::default(),
         tasks: TaskTracker::new(),
         exec_relay,
+        switching: Arc::new(CodexSwitchingAccount::new(Arc::new(PortRegistration::new(
+            "provider accounts",
+        )))),
     })
 }
 
@@ -299,6 +306,20 @@ pub(crate) fn start_scripted_account_service_reporting_to(
     )
 }
 
+/// Starts a service on `provider_account_id`'s home whose connection the test scripts. Must be
+/// called within a runtime.
+#[cfg(test)]
+pub(crate) fn start_scripted_account_service_for(
+    provider_account_id: ProviderAccountId,
+) -> ScriptedCodexService {
+    start_scripted_codex_service_on(
+        CodexHomeKind::Account(provider_account_id),
+        CodexServiceKind::Account,
+        Arc::new(UnstartedProgram),
+        Arc::new(UnheardEvents),
+    )
+}
+
 /// Starts a service on an account's home whose connection the test scripts and whose own start,
 /// once its supervisor begins one, never answers, so the test publishes the new process up. Must
 /// be called within a runtime.
@@ -326,6 +347,18 @@ pub(crate) fn start_scripted_terminal_service() -> ScriptedCodexService {
 
 // A service of `kind` on a home of `home_kind` whose connection the test scripts, a start of its
 // own running `program`, telling `events` what happens to it.
+/// Starts the switching service, on the switching home under its data folder, whose connection
+/// the test scripts. Must be called within a runtime.
+#[cfg(test)]
+pub(crate) fn start_scripted_switching_service() -> ScriptedCodexService {
+    start_scripted_codex_service_on(
+        CodexHomeKind::Switching,
+        CodexServiceKind::Account,
+        Arc::new(UnstartedProgram),
+        Arc::new(UnheardEvents),
+    )
+}
+
 fn start_scripted_codex_service_on(
     home_kind: CodexHomeKind,
     kind: CodexServiceKind,
@@ -340,9 +373,17 @@ fn start_scripted_codex_service_on(
         Arc::new(UnrecordedChildren),
     );
     let socket: PathBuf = folder.path().join("codex.sock");
+    // The switching service is found on its own home, as the registry names it.
+    let codex_home = match home_kind {
+        CodexHomeKind::Switching => switching_home(&dependencies.data_folder),
+        CodexHomeKind::Account(_)
+        | CodexHomeKind::PersonalFolder
+        | CodexHomeKind::CapabilityRead
+        | CodexHomeKind::McpSignIn => folder.path().join("home"),
+    };
     let (service, script) = script_codex_service(
         CodexServiceHome {
-            codex_home: folder.path().join("home"),
+            codex_home,
             kind: home_kind,
         },
         CodexServiceSocket {
@@ -470,21 +511,47 @@ impl CodexServiceEvents for ExitsHeard {
     fn planned_restart_requested(&self, _service: &Arc<CodexService>) {}
 }
 
+/// A Codex stand-in: as the executor it answers the relay's `initialize` and waits on its input;
+/// as the service it waits, the test's listener answering in its place.
+#[cfg(test)]
+pub(crate) const STAND_IN_CODEX: &str = r#"#!/bin/sh
+case " $* " in
+  *" exec-server "*)
+    IFS= read -r _initialize
+    printf '%s\n' '{"id":"sidekicks-relay-1","result":{}}'
+    exec cat >/dev/null
+    ;;
+esac
+exec sleep 30
+"#;
+
 /// The conversation a machine probe's ephemeral start opens on a test service.
 pub(crate) const PROBE_THREAD_ID: &str = "probe-thread";
 
 /// The one tool each server a test service lists for a machine probe has.
 pub(crate) const PROBE_TOOL_NAME: &str = "lookup";
 
+/// The answers a test gives a stand-in service in place of its own, each `None` to keep its own.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct StandInReplies {
+    /// The reply to a config read.
+    pub(crate) config_read: Option<Value>,
+    /// The one turn listed on every conversation the service resumes, which the resume answers as
+    /// running while the turn is in progress.
+    pub(crate) resumed_turn: Option<Value>,
+}
+
 /// Answers one connection's requests on `stream` as far as a start needs, telling `on_request`
 /// each request as it comes: the version, the hooks the daemon starts a terminal service with, as
 /// trusted, and no loaded conversation; a config write is refused, so a start that writes trust
 /// fails. A machine probe is answered too: its ephemeral start opens [`PROBE_THREAD_ID`], each
 /// server its config switches on or sends reports ready, and each listed server is connected with
-/// [`PROBE_TOOL_NAME`]. A config read is answered with `config_read_reply` where one is given.
+/// [`PROBE_TOOL_NAME`]. A config read is answered with `replies`' where one is given, and where a
+/// resumed turn is given, a resume is answered on the conversation it names, under the profile it
+/// asks for, and that conversation's turns are listed as that one turn.
 pub(crate) async fn answer_as_codex_service(
     stream: impl AsyncRead + AsyncWrite + Unpin,
-    config_read_reply: Option<Value>,
+    replies: StandInReplies,
     mut on_request: impl FnMut(&Value),
 ) {
     let hooks =
@@ -526,9 +593,14 @@ pub(crate) async fn answer_as_codex_service(
                 "resources": [],
                 "resourceTemplates": [],
             }], "nextCursor": null}}),
-            Some("config/read") if config_read_reply.is_some() => {
-                json!({"id": id, "result": config_read_reply})
+            Some("config/read") if replies.config_read.is_some() => {
+                json!({"id": id, "result": replies.config_read})
             }
+            Some("thread/resume") if replies.resumed_turn.is_some() => {
+                json!({"id": id, "result": resumed_thread(&request["params"], &replies)})
+            }
+            Some("thread/turns/list") if replies.resumed_turn.is_some() => json!({"id": id,
+                "result": {"data": [replies.resumed_turn], "nextCursor": null}}),
             Some("config/value/write") => json!({"id": id,
                 "error": {"code": -32603, "message": "the test service writes no config"}}),
             Some("initialize") => json!({"id": id,
@@ -547,6 +619,19 @@ pub(crate) async fn answer_as_codex_service(
             }
         }
     }
+}
+
+// A resume's reply on the conversation `params` names, under the profile they ask for, running
+// while `replies`' resumed turn is in progress and idle otherwise.
+fn resumed_thread(params: &Value, replies: &StandInReplies) -> Value {
+    let status = match replies.resumed_turn.as_ref().map(|turn| &turn["status"]) {
+        Some(status) if status == "inProgress" => "active",
+        _ => "idle",
+    };
+    json!({
+        "thread": {"id": params["threadId"], "sessionId": "codex-session", "status": {"type": status}},
+        "activePermissionProfile": {"id": params["permissions"]},
+    })
 }
 
 // The ready notice of each server a probe's start switches on or sends, by its config's server

@@ -3,7 +3,7 @@
 //! resume, close and naming, the helper policy and tool servers it opens with, the level and mode a
 //! new session starts at, the live permission-level and mode moves, a revoked rule's removal, the
 //! session's goal, the commands the daemon answers itself, the side question and the review, the
-//! live command list, the move onto a fork or a new provider build, the sign-in probe, and the
+//! hand-over brief's summary, the live command list, the move onto a fork or a new provider build, the sign-in probe, and the
 //! purge of the provider's own copy of its conversations.
 
 use std::path::PathBuf;
@@ -22,6 +22,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::ProviderOptionSetting;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
+use sidekicks_contracts::provider::driver::declared_loss::DeclaredLossKind;
 use sidekicks_contracts::provider::driver::length_limits::{
     PROVIDER_FAILURE_DETAIL_MAX_LEN, PROVIDER_FALLBACK_ACTION_MAX_LEN,
 };
@@ -104,9 +105,21 @@ pub struct CreateSessionParams {
     /// The account the leg is admitted against, resolved by the daemon before the spawn. The spawn
     /// path pins the account's credential home, so the driver only carries it.
     pub provider_account_id: ProviderAccountId,
+    /// Whether the session follows its provider's current account, `provider_account_id` now, or
+    /// stays on that account whatever becomes current.
+    pub account_pin: SessionAccountPin,
     /// The MCP server-status sink, bound to this leg's session and binding at spawn, so a driver
     /// cannot report for another leg and needs no id for the census it reports while opening.
     pub on_mcp_server_status: Option<McpServerStatusProducer>,
+}
+
+/// Whether a session moves with its provider's current account or stays on its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionAccountPin {
+    /// It runs on the provider's current account and moves onto each account made current.
+    FollowsCurrent,
+    /// It stays on the account it was started on, as its agent definition or workflow step names.
+    Pinned,
 }
 
 /// What the daemon hands a driver to resume a session in a fresh process. A resume is a fresh
@@ -420,14 +433,17 @@ pub struct ProviderBuildChange {
     pub(crate) to_version: String,
 }
 
-/// One provider conversation a session opened, by the handle it was resumed from, and the account
-/// home it ran in.
+/// One provider conversation a session opened, by the handle it was resumed from, the account it
+/// ran on, and the recovery data its binding kept, which names the home holding it where the
+/// provider keeps that apart from the account's.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PurgedConversation {
     /// The handle the conversation was resumed from.
     pub resume_handle: String,
-    /// The account whose home it ran in.
+    /// The account it ran on.
     pub provider_account_id: ProviderAccountId,
+    /// The provider's own recovery data its binding kept, handed over as stored.
+    pub runtime_metadata: Map<String, Value>,
 }
 
 /// Params of `purge_session`: every conversation the session's own bindings opened, newest first,
@@ -469,6 +485,55 @@ pub struct AskSideQuestionParams {
     /// The session's newest resume material, composed as a resume's is, which the copy is forked
     /// from when no live process runs the session; `None` for a session with no conversation yet.
     pub resume: Option<ResumeSessionParams>,
+}
+
+/// Params of `export_handover_brief`: the session's summary taken on a throwaway copy of its
+/// conversation, leaving the session's own conversation as it was.
+#[derive(Clone)]
+pub struct ExportHandoverBriefParams {
+    /// The session.
+    pub session_id: SessionId,
+    /// The session's binding, which the copy's usage is recorded on.
+    pub binding_id: RuntimeBindingId,
+    /// The session's newest resume material, composed as a resume's is, which the copy is forked
+    /// from where the driver forks the stored conversation.
+    pub resume: ResumeSessionParams,
+}
+
+/// Which summary a hand-over brief carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HandoverSummaryKind {
+    /// The provider's own summary of the conversation, its own framing taken out.
+    ProviderSummary,
+    /// The copy's answer to the fixed template.
+    Template,
+}
+
+/// What `export_handover_brief` answers: the summary, which kind it is, and what it could not
+/// carry. It is never the brief's message, which the daemon composes around it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DriverHandoverBriefResult {
+    /// The summary's text, never blank.
+    pub summary: String,
+    /// Which summary it is.
+    pub kind: HandoverSummaryKind,
+    /// What the summary could not carry, never empty.
+    pub declared_losses: Vec<DeclaredLossKind>,
+}
+
+impl DriverHandoverBriefResult {
+    /// `summary` as a brief's summary of `kind`, declaring the conversation summarized and the
+    /// provider's private reasoning left behind, which no summary carries.
+    pub(crate) fn summarized(summary: String, kind: HandoverSummaryKind) -> Self {
+        Self {
+            summary,
+            kind,
+            declared_losses: vec![
+                DeclaredLossKind::ProviderPrivateReasoning,
+                DeclaredLossKind::ConversationHistorySummarized,
+            ],
+        }
+    }
 }
 
 /// Params of `answer_session_command`: the text the person sent, before any run is made for it.

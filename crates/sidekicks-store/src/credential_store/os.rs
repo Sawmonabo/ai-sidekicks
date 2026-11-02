@@ -136,15 +136,15 @@ impl OsCredentialStore {
         .await
     }
 
-    /// Removes every item filed under `service`, each through its own handle. Fails with
-    /// [`KeychainRefusal`] when the store is locked or cannot be used, the items before the failure
-    /// already gone.
+    /// Removes every item filed under `service`, each through its own handle, the pieces of a
+    /// value larger than one entry included. Fails with [`KeychainRefusal`] when the store is
+    /// locked or cannot be used, the items before the failure already gone.
     pub(crate) async fn erase_items(
         self: &Arc<Self>,
         service: &str,
     ) -> Result<(), KeychainRefusal> {
         self.call(service, "", |credentials, service, _| {
-            for item in credentials.accounts(service)? {
+            for item in credentials.entries(service)? {
                 item.remove()?;
             }
             Ok(())

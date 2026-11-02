@@ -14,7 +14,9 @@
 //!   standard error, which carries the log alone until the file takes a line again: the next line
 //!   reopens the file, or begins the next one once the day has turned. Every failure of standard
 //!   error says so once in the file, which carries it alone. Neither stops the daemon.
-//! - Lines from the daemon's own crates are kept from info up, every other crate's from warn up.
+//! - Lines from the daemon's own crates and from `rmcp`'s sign-in are kept from info up, every
+//!   other crate's from warn up. The sign-in's debug lines carry the authorization code and the
+//!   tokens it redeems, so they are never kept.
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -54,6 +56,10 @@ const SERVICE_LOG_FILE_NAME_TEMPLATES: [&[u8]; 2] = [
 
 // The target prefix of the daemon's own crates, whose info lines the log keeps.
 const OWN_CRATES_TARGET_PREFIX: &str = "sidekicks_";
+
+// The target of `rmcp`'s sign-in, whose renewal lines the log keeps from info up; its debug lines
+// print the authorization code and the token response, so it never goes below info.
+const RMCP_SIGN_IN_TARGET: &str = "rmcp::transport::auth";
 
 // The line the file gets once, when standard error fails.
 const STANDARD_ERROR_GONE_NOTICE: &str =
@@ -278,19 +284,26 @@ fn open_service_log_file(
 }
 
 // One fmt layer, built with `fmt::layer()`, which drops a failed write rather than printing it as
-// the `fmt()` builder does with `eprintln!`; the writer itself never fails. The daemon's own crates
-// keep info lines; every other crate, whose info lines come in bulk, keeps warn and error.
+// the `fmt()` builder does with `eprintln!`; the writer itself never fails.
 fn service_log_dispatch(sides: Arc<ServiceLogSides>) -> Dispatch {
-    let filter = Targets::new()
-        .with_target(OWN_CRATES_TARGET_PREFIX, LevelFilter::INFO)
-        .with_default(LevelFilter::WARN);
     Dispatch::new(
-        tracing_subscriber::registry().with(filter).with(
-            tracing_subscriber::fmt::layer()
-                .with_ansi(false)
-                .with_writer(ServiceLogWriter(sides)),
-        ),
+        tracing_subscriber::registry()
+            .with(service_log_filter())
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_ansi(false)
+                    .with_writer(ServiceLogWriter(sides)),
+            ),
     )
+}
+
+// The daemon's own crates keep info lines, and so does `rmcp`'s sign-in, whose renewals are worth
+// a line; every other crate, whose info lines come in bulk, keeps warn and error.
+fn service_log_filter() -> Targets {
+    Targets::new()
+        .with_target(OWN_CRATES_TARGET_PREFIX, LevelFilter::INFO)
+        .with_target(RMCP_SIGN_IN_TARGET, LevelFilter::INFO)
+        .with_default(LevelFilter::WARN)
 }
 
 // Both sides of the log, each behind its own lock; neither lock is held while the other is taken.
@@ -524,11 +537,29 @@ mod tests {
 
     use flexi_logger::writers::ArcFileLogWriter;
     use sidekicks_store::data_folder::service_log_folder;
+    use tracing::Level;
 
     use super::{
         FILE_FAILED_NOTICE, STANDARD_ERROR_GONE_NOTICE, ServiceLogFiles, is_service_log_file_name,
-        open_service_log,
+        open_service_log, service_log_filter,
     };
+
+    // `rmcp`'s sign-in, and the modules under it, log no debug line, where the authorization code
+    // and the redeemed tokens are printed, and keep their info lines. Killed by the sign-in's
+    // directive removed, which leaves its info lines to the warn default, and by a directive at
+    // debug or below.
+    #[test]
+    fn the_filter_keeps_the_rmcp_sign_in_above_debug() {
+        let filter = service_log_filter();
+        // The module paths `rmcp` 3.8.0's sign-in logs under, its events' default targets.
+        for target in [
+            "rmcp::transport::auth",
+            "rmcp::transport::auth::metadata_resolver",
+        ] {
+            assert!(!filter.would_enable(target, &Level::DEBUG), "{target}");
+            assert!(filter.would_enable(target, &Level::INFO), "{target}");
+        }
+    }
 
     // Each run of failed writes to the file, two in a row, says so once on standard error, and the
     // next line lands in the file again: on a line of its own after a write that failed halfway,

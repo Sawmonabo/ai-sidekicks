@@ -14,11 +14,10 @@
 
 mod plugin_load;
 pub(crate) mod sent_entry;
-mod variables;
+pub(super) mod variables;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
@@ -34,6 +33,7 @@ use tokio::time::Instant;
 use self::plugin_load::{PluginLoad, PluginLoadReport};
 use self::sent_entry::{SentEntry, compose_sent_entry};
 use self::variables::expand_entry_variables;
+use crate::driver::claude::mcp::ClaudeMcpProcess;
 use crate::driver::claude::mcp::config::{
     ClaudeMcpRootConfig, ClaudePersonConfigFiles, ClaudePluginRoot, ClaudeServerEntryReader,
     is_kept_out_server,
@@ -41,11 +41,11 @@ use crate::driver::claude::mcp::config::{
 use crate::driver::claude::mcp::precedence::claude_reported_server_name;
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::process::ClaudeStreamFrame;
-use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeMcpSetServersReply, ClaudeToolServerEntry,
 };
 use crate::driver::claude::session::transport::mcp_status::ClaudeMcpStatusReply;
+use crate::driver::claude::spawn::arguments::CLAUDE_NO_MCP_SERVERS;
 use crate::driver::claude::spawn::launch::control_only::{
     ClaudeShortProcessArrival, compose_claude_control_only_arguments,
 };
@@ -88,15 +88,6 @@ pub(crate) struct ClaudeMcpProbeProcessRequest {
     pub(crate) working_folder: Option<PathBuf>,
     /// The account it runs under.
     pub(crate) provider_account_id: ProviderAccountId,
-}
-
-/// The probe's process once its `initialize` is answered: the process to send the probe's
-/// requests on and close, and what the process writes, in order.
-pub(crate) struct ClaudeMcpProbeProcess {
-    /// The process.
-    pub(crate) channel: Arc<dyn ClaudeProcessChannel>,
-    /// What the process writes, its `system/init` frame among them.
-    pub(crate) arrivals: mpsc::UnboundedReceiver<ClaudeShortProcessArrival>,
 }
 
 /// What the probe starts its processes from and re-reads each declaration from.
@@ -312,7 +303,7 @@ pub(crate) async fn probe_claude_mcp_servers(
         }
         let mut arguments = compose_claude_control_only_arguments(None);
         if !sources.has_managed_mcp_file {
-            arguments.push("--strict-mcp-config".to_owned());
+            arguments.push(CLAUDE_NO_MCP_SERVERS.to_owned());
         }
         let mut plugin_folders: Vec<&Path> = Vec::new();
         for server in &plugin_servers {
@@ -506,7 +497,7 @@ fn target_root(binding: &McpServerBindingRef) -> Option<PlacedPath> {
 // server no answer has named yet. A sent server no answer names by then reads `failed`. Fails as a
 // request does.
 async fn read_probe_statuses(
-    probe: &mut ClaudeMcpProbeProcess,
+    probe: &mut ClaudeMcpProcess,
     mut servers: BTreeMap<String, ClaudeToolServerEntry>,
     plugin_servers: Vec<ProbePluginServer<'_>>,
     names: &[&str],

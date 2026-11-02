@@ -1,6 +1,7 @@
-//! The service on an account home the app manages: a lasting service kept in its home's record,
-//! so a daemon restart leaves it running with every turn it runs and the next start joins that
-//! same process again; with none kept running, a fresh one is launched on the home's socket.
+//! The service on an account home the app manages, or on the switching home: a lasting service
+//! kept in its home's record, so a daemon restart leaves it running with every turn it runs and
+//! the next start joins that same process again; with none kept running, a fresh one is launched
+//! on the home's socket.
 
 use std::path::PathBuf;
 use std::sync::Arc;

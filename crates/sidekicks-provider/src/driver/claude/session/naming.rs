@@ -3,6 +3,7 @@
 //! nothing; and the name the session goes by, told to its live process with `rename_session` or,
 //! at rest, appended to its conversation file as the entry Claude Code's own rename writes.
 
+use std::path::Path;
 use std::time::Duration;
 
 use sidekicks_contracts::machine::settings::ProviderRowValues;
@@ -105,7 +106,7 @@ async fn draw_claude_title(
         let legs = super::controls::one_turn_legs(live, None, None);
         run_naming_turn(starts, &legs, account, text, stop).await
     } else {
-        let legs = compose_naming_legs(sources, params.session_id, account.clone()).await?;
+        let legs = compose_naming_legs(sources, params.session_id, account.clone(), None).await?;
         run_naming_turn(starts, &legs, account, text, stop).await
     };
     match reply {
@@ -156,14 +157,17 @@ pub(crate) async fn tell_claude_session_name(
 
 /// The conversation `provider_session_id` a session's stored leg names, at rest on
 /// `provider_account_id`'s account, where its file is found: the environment that account's
-/// process runs in. Fails as the session's folder or stored settings cannot be read.
+/// process runs in, in `conversation_home` where the leg names the home a switch left the
+/// conversation in. Fails as the session's folder or stored settings cannot be read.
 pub(crate) async fn stored_claude_conversation(
     sources: &ClaudeSpawnSources,
     session_id: SessionId,
     provider_account_id: ProviderAccountId,
     provider_session_id: String,
+    conversation_home: Option<&Path>,
 ) -> Result<ClaudeEndedConversation, DriverError> {
-    let legs = compose_naming_legs(sources, session_id, provider_account_id).await?;
+    let legs =
+        compose_naming_legs(sources, session_id, provider_account_id, conversation_home).await?;
     Ok(ClaudeEndedConversation {
         provider_session_id,
         spawn_environment: legs.spawn_environment,
@@ -171,23 +175,25 @@ pub(crate) async fn stored_claude_conversation(
 }
 
 // The legs of a naming pass on a session with no live process: its folder and the home of
-// `provider_account_id`'s account, the small model, no tools and no level, since the pass's one
-// turn asks for nothing.
+// `provider_account_id`'s account, or `conversation_home` where one is given, the small model, no
+// tools and no level, since the pass's one turn asks for nothing.
 async fn compose_naming_legs(
     sources: &ClaudeSpawnSources,
     session_id: SessionId,
     provider_account_id: ProviderAccountId,
+    conversation_home: Option<&Path>,
 ) -> Result<ClaudeSpawnBoundLegs, DriverError> {
     let no_rows: ProviderRowValues = Record::default();
     let context = resolve_claude_spawn_context(
         &sources.ports.spawn_contexts,
         &sources.pool,
         session_id,
-        provider_account_id.clone(),
+        provider_account_id,
         &no_rows,
     )
     .await
-    .map_err(|error| DriverError::Internal(Box::new(error)))?;
+    .map_err(|error| DriverError::Internal(Box::new(error)))?
+    .in_conversation_home(conversation_home);
     build_claude_spawn_bound_legs(
         ClaudeSpawnLegsRequest {
             session_id,
@@ -197,7 +203,6 @@ async fn compose_naming_legs(
             tool_servers: None,
             output_schema: None,
             on_mcp_server_status: None,
-            provider_account_id,
             command_channel: None,
             context,
             continues_interrupted_turn: false,
@@ -224,12 +229,12 @@ async fn run_naming_turn(
         .run_one_turn(ClaudeOneTurnRequest {
             spawn: ClaudeSessionSpawn {
                 legs,
-                provider_account_id,
                 session_rules: &[],
                 step_bound: None,
                 in_process_servers: None,
                 path_rules: PathRules::NATIVE,
             },
+            provider_account_id,
             resume_handle: None,
             permission_mode: None,
             text,

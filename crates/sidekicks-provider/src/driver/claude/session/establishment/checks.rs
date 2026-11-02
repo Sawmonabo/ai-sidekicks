@@ -5,7 +5,8 @@
 
 use sidekicks_contracts::agent::definition::AgentId;
 
-use super::{ClaudeEstablishmentError, ClaudeModelCheck, ClaudeSessionEstablishment};
+use super::errors::ClaudeEstablishmentError;
+use super::{ClaudeModelCheck, ClaudeSessionEstablishment};
 use crate::driver::claude::output_speed::apply_claude_output_speed;
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::permission_level::{

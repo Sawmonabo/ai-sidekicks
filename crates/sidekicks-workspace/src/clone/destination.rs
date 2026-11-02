@@ -296,8 +296,7 @@ pub(crate) async fn remove_staged_clone(folder: &StagedClone) -> Result<(), Stag
         return Ok(());
     }
     // A path gone already is what the removal wanted, which the removal answers `Ok`.
-    let path = folder.path.clone();
-    tokio::task::spawn_blocking(move || sidekicks_platforms::remove_tree(&path)).await??;
+    sidekicks_platforms::remove_tree_awaited(&folder.path).await?;
     Ok(())
 }
 

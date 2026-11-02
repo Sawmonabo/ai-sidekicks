@@ -16,6 +16,9 @@ pub(crate) const DESCRIPTION: &str = "the login keychain";
 /// The settings every entry is built with: the login keychain's own.
 pub(crate) const ENTRY_MODIFIERS: &[(&str, &str)] = &[];
 
+/// The most bytes one entry holds: none, since the keychain sets no cap.
+pub(crate) const ENTRY_CAPACITY: Option<usize> = None;
+
 /// The login keychain. Fails only when the store cannot be built.
 pub(crate) fn open_store() -> keyring_core::Result<Arc<keyring_core::CredentialStore>> {
     let store: Arc<keyring_core::CredentialStore> =

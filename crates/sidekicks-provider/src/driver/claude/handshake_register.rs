@@ -245,7 +245,7 @@ impl ClaudeHandshakeRegister {
     ) -> Result<ProviderCommandBindingGroup, ClaudeSessionError> {
         let provider_account_id = resolve_stamped_account(
             session_id,
-            &live.admitted_provider_account_id,
+            &live.admitted_provider_account_id(),
             binding.provider_account_id,
         )?;
         let binding = ProviderCommandBinding {

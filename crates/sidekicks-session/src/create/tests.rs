@@ -11,7 +11,6 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::machine::settings::{MachineSettings, ProviderRowValue};
 use sidekicks_contracts::project::ProjectId;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::ProviderDeclarationId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::ExecutionMode;
@@ -406,13 +405,16 @@ async fn a_create_runs_the_lead_on_the_account_made_current_on_its_way() {
     let (created, ()) = tokio::join!(create, move_current);
 
     let created = created.expect("the create lands");
-    let second = ProviderAccountId::new(SECOND_ACCOUNT.to_owned()).expect("an account id");
-    assert_eq!(created.lead.provider_account_id, Some(second));
+    assert_eq!(created.lead.provider_account_id, None, "the lead follows");
     assert_eq!(
         fixture.text(
             "SELECT json_extract(payload, '$.mainAgent.binding.providerAccountId') \
              FROM session_events WHERE type = 'session.created'"
         ),
+        None
+    );
+    assert_eq!(
+        fixture.text("SELECT provider_account_id FROM session_create_requests"),
         Some(SECOND_ACCOUNT.to_owned())
     );
 }
@@ -494,8 +496,9 @@ async fn a_chat_not_born_leaves_no_workspace_and_the_start_keeps_one_being_made(
     let key = new_key();
     let orphan = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
     fixture.execute(&format!(
-        "INSERT INTO session_create_requests (client_idempotency_key, session_id, execution_mode) \
-         VALUES ('{}', '{orphan}', 'boundRoot')",
+        "INSERT INTO session_create_requests \
+         (client_idempotency_key, session_id, execution_mode, provider_account_id) \
+         VALUES ('{}', '{orphan}', 'boundRoot', '{FIRST_ACCOUNT}')",
         key.as_str()
     ));
     fixture

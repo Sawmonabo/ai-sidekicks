@@ -16,15 +16,17 @@ use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistrationError;
 
+use super::errors::ClaudeEstablishmentError;
 use super::{
-    ClaudeEstablishmentError, ClaudeResumeAnswer, ClaudeSessionEstablishment, ClaudeSessionStart,
-    ClaudeSpawnRequest,
+    ClaudeResumeAnswer, ClaudeSessionEstablishment, ClaudeSessionStart, ClaudeSpawnRequest,
 };
 use crate::driver::claude::output_speed::resolve_claude_output_speed;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoute, ClaudeRunRoutes};
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::conversation_file::read_turn_count;
+use crate::driver::claude::session::conversation_home::read_claude_conversation_home;
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionSlotState, ClaudeSessionUnavailableReason,
 };
@@ -32,7 +34,7 @@ use crate::driver::claude::session::slots::ClaudeResumeSlot;
 use crate::driver::claude::session::state::{ClaudeUsageEstablishment, LiveClaudeSession};
 use crate::driver::claude::session::ultracode::requested_claude_ultracode;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
-use crate::driver::contract::error::bound_failure_detail;
+use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::driver::session_control::{
@@ -55,12 +57,22 @@ impl ClaudeSessionEstablishment {
     /// Resumes the conversation `params` names in a fresh process under the binding the caller
     /// minted into it, or answers the session's live process when it runs that conversation at the
     /// settings `params` asks for, on the binding the resume that brought it up answered, else on
-    /// the minted one; every failure answers the `Failed` arm, nothing left running.
-    pub(crate) async fn resume(&self, mut params: ResumeSessionParams) -> ClaudeResumeAnswer {
+    /// the minted one; every failure answers the `Failed` arm, nothing left running, but a
+    /// service the daemon has not registered yet, which refuses `provider.unavailable` with its
+    /// words and leaves the session needing no recovery.
+    pub(crate) async fn resume(
+        &self,
+        mut params: ResumeSessionParams,
+    ) -> Result<ClaudeResumeAnswer, DriverError> {
         let session_id = params.session_id;
         let schedules = std::mem::take(&mut params.kept_schedules);
         let answer = match self.try_resume(params).await {
             Ok(answer) => answer,
+            Err(
+                error @ ClaudeEstablishmentError::Port(PortRegistrationError::NotRegistered(_)),
+            ) => {
+                return Err(error.into());
+            }
             Err(error) => ClaudeResumeAnswer {
                 result: resume_failure(error.recovery_condition(), &error),
                 has_started_process: false,
@@ -73,7 +85,7 @@ impl ClaudeSessionEstablishment {
                 .idle_sleep
                 .seed_schedules(session_id, schedules, Timestamp::now());
         }
-        answer
+        Ok(answer)
     }
 
     // A resume's bring-up; its failures are the caller's to answer through the `Failed` arm.
@@ -141,6 +153,7 @@ impl ClaudeSessionEstablishment {
             // The create's start checked the lead's effort.
             effort: None,
             continued_turn,
+            conversation_home: read_claude_conversation_home(&params.runtime_metadata),
         };
         let output_speed = params.output_speed.map(FreeFormText::into_string);
         let (started, session_position) = self
@@ -240,7 +253,7 @@ fn runs_as_asked(live: &LiveClaudeSession, params: &ResumeSessionParams) -> bool
     let requested = &live.requested_spawn;
     let settings = lock(&live.settings);
     live.agent_id == params.agent_id
-        && live.admitted_provider_account_id == params.provider_account_id
+        && live.admitted_provider_account_id() == params.provider_account_id
         && legs.tool_servers.as_slice() == params.tool_servers.as_deref().unwrap_or_default()
         && requested.callback_tools.as_deref().unwrap_or_default()
             == params.callback_tools.as_deref().unwrap_or_default()

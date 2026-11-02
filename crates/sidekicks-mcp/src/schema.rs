@@ -199,15 +199,17 @@ CREATE TABLE mcp_project_server_switches (
 ) STRICT;
 
 -- ---------------------------------------------------------------------------
--- mcp_server_admitted_clients: which sign-in client each server admitted at its last sign-in, kept
--- through a sign-out. Not a credential.
+-- mcp_server_admitted_clients: which sign-in client each server admitted, one row per server
+-- address however many bindings name it, kept through a sign-out. Not a credential.
 -- ---------------------------------------------------------------------------
 CREATE TABLE mcp_server_admitted_clients (
-  provider               TEXT NOT NULL,
-  server_name            TEXT NOT NULL,
-  -- 'daemon', or the open id of the provider whose own client the server admits.
-  admitted_oauth_client  TEXT NOT NULL,
-  PRIMARY KEY (provider, server_name)
+  -- The server's canonical address, the account its sign-in is kept under.
+  server_address            TEXT NOT NULL PRIMARY KEY,
+  -- The open id of the provider whose own client the server admitted; NULL until one has.
+  admitted_oauth_client     TEXT,
+  -- When the daemon's own client last ended an attempt with no callback; NULL otherwise.
+  own_client_unfinished_at  TEXT,
+  CHECK(admitted_oauth_client IS NOT NULL OR own_client_unfinished_at IS NOT NULL)
 ) STRICT;
 "
     )

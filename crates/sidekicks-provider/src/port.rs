@@ -15,6 +15,7 @@ pub mod run_pause;
 pub mod run_state_publisher;
 pub(crate) mod running_command_publisher;
 pub mod server_prompts;
+pub mod session_account_move;
 pub mod session_advisor_store;
 pub mod session_inbox_address;
 pub mod session_level_follower;

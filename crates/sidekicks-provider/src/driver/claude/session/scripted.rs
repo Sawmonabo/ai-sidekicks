@@ -50,6 +50,7 @@ use crate::driver::claude::session::answered_commands::{
 use crate::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
 use crate::driver::claude::session::permission_level::claude_permission_mode_for;
 use crate::driver::claude::session::permission_mode::ClaudePermissionModeRecord;
+use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{ClaudeProcessListener, ClaudeStreamFrame};
 use crate::driver::claude::session::state::{
     ClaudeLiveSettings, ClaudeRequestedSpawn, ClaudeSpawnBinding, LiveClaudeSession,
@@ -126,7 +127,7 @@ pub(crate) fn scripted_live_session(
         },
         initialize: ClaudeInitializeDeclaration::default(),
         command_choices: async move { choices }.boxed().shared(),
-        admitted_provider_account_id: test_provider_account_id(),
+        account: ClaudeProcessAccount::new(Some(test_provider_account_id())),
         settings: Mutex::new(ClaudeLiveSettings {
             execution_posture: Some(execution_posture),
             session_mode: SessionMode::Build,
@@ -247,7 +248,10 @@ impl ScriptedSession {
             .streams
             .get(session_id)
             .expect("the created session has a stream");
-        let control_frames = ClaudeControlFrameReader::new(None, live.provider_session_id.clone());
+        let control_frames = ClaudeControlFrameReader::new(
+            ClaudeProcessAccount::default(),
+            live.provider_session_id.clone(),
+        );
         Self {
             session_id,
             channel,

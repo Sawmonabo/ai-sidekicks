@@ -96,7 +96,9 @@ impl ConversationPurge {
 
 // Each provider's conversations, newest first, in one read snapshot: the ones the bindings name,
 // latest write first, then the ones the session left, latest left first. A conversation is listed
-// once, and the providers keep the order each was first met in.
+// once, and the providers keep the order each was first met in. A bound conversation carries its
+// binding's recovery data, and a left one its provider's latest binding's, the session's leg it
+// was left from.
 fn read_conversations(
     reader: &Connection,
     session_id: SessionId,
@@ -111,32 +113,49 @@ fn read_conversations(
                 binding.provider_name,
                 resume_handle,
                 binding.spawn_config.provider_account_id,
+                binding.runtime_metadata,
             ))
         })
         .collect();
     bound.sort_by(|first, second| second.0.cmp(&first.0));
+    let latest_recovery_data = |provider: &ProviderId| {
+        bound
+            .iter()
+            .find(|(_, bound_provider, ..)| bound_provider == provider)
+            .map(|(.., runtime_metadata)| runtime_metadata.clone())
+            .unwrap_or_default()
+    };
     let mut left = read_left_conversations(&snapshot, &session_id)?;
     left.reverse();
+    let left: Vec<_> = left
+        .into_iter()
+        .map(|record| {
+            let runtime_metadata = latest_recovery_data(&record.provider_name);
+            (
+                record.provider_name,
+                record.conversation.conversation_id,
+                record.conversation.provider_account_id,
+                runtime_metadata,
+            )
+        })
+        .collect();
 
     let mut by_provider: Vec<(ProviderId, Vec<PurgedConversation>)> = Vec::new();
     let mut listed: HashSet<(ProviderId, String)> = HashSet::new();
     let conversations = bound
         .into_iter()
-        .map(|(_, provider, resume_handle, account)| (provider, resume_handle, account))
-        .chain(left.into_iter().map(|record| {
-            (
-                record.provider_name,
-                record.conversation.conversation_id,
-                record.conversation.provider_account_id,
-            )
-        }));
-    for (provider, resume_handle, provider_account_id) in conversations {
+        .map(|(_, provider, resume_handle, account, runtime_metadata)| {
+            (provider, resume_handle, account, runtime_metadata)
+        })
+        .chain(left);
+    for (provider, resume_handle, provider_account_id, runtime_metadata) in conversations {
         if !listed.insert((provider.clone(), resume_handle.clone())) {
             continue;
         }
         let conversation = PurgedConversation {
             resume_handle,
             provider_account_id,
+            runtime_metadata,
         };
         match by_provider
             .iter_mut()
