@@ -198,8 +198,8 @@ pub(crate) enum CommandFailure {
     /// leaves it off.
     #[error("{}", TURNED_OFF_IN_LOGIN_ITEMS)]
     TurnedOffInLoginItems,
-    /// The start was given `--daemon-path`, and the login agent or system service that starts the
-    /// service runs another program, so nothing was started.
+    /// The start was given `--daemon-path`, and the login agent that starts the service runs
+    /// another program, so nothing was started.
     #[error(
         "The background service starts at login with its own program, so --daemon-path is not \
          used. Run the command again without --daemon-path."
@@ -284,6 +284,13 @@ pub(crate) enum CommandFailure {
          daemon restart."
     )]
     SystemServiceRestartNeedsRoot,
+    /// A start under `sudo` was given `--daemon-path`, and this account's system service runs
+    /// another program, so nothing was started or stopped.
+    #[error(
+        "The background service runs while you are logged out with its own program. Run the \
+         command again without --daemon-path."
+    )]
+    SystemServiceRunsOtherProgram,
 }
 
 impl CommandFailure {
@@ -304,6 +311,7 @@ impl CommandFailure {
             | Self::DataFolderHeld
             | Self::NotAccountHome
             | Self::AgentRunsOtherProgram
+            | Self::SystemServiceRunsOtherProgram
             | Self::HomeUnreadable => ExitCode::Configuration,
             Self::RegistrationRefused(_) => ExitCode::Software,
             Self::BackupUnreadable { .. } => ExitCode::NoInput,
@@ -700,6 +708,10 @@ mod tests {
     #[case::system_service_restart_needs_root(
         CommandFailure::SystemServiceRestartNeedsRoot.into(),
         ProcessEnding::Exit(ExitCode::NoPermission)
+    )]
+    #[case::system_service_runs_other_program(
+        CommandFailure::SystemServiceRunsOtherProgram.into(),
+        ProcessEnding::Exit(ExitCode::Configuration)
     )]
     #[case::anything_else(anyhow!("failed"), ProcessEnding::Exit(ExitCode::Software))]
     fn a_failure_ends_the_run_as_its_cause_names(
