@@ -647,6 +647,7 @@ fn session_row_statements(row: &SessionScopedRow) -> Vec<WriteStatement> {
         )],
         SessionScopedRow::SideQuestionAnswered(_)
         | SessionScopedRow::UsageTokenCountRecorded(_)
+        | SessionScopedRow::UsageCostUpdated(_)
         | SessionScopedRow::OutputStyleChanged(_) => Vec::new(),
     }
 }

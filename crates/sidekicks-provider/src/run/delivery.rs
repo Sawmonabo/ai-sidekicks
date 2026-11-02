@@ -261,7 +261,7 @@ pub struct RunSetupRefusal {
 
 impl InboundOutcome {
     /// The id of the event a delivery was written as; `None` where nothing was written.
-    pub(crate) fn event_id(&self) -> Option<&FreeFormText<EVENT_FIELD_MAX_LEN>> {
+    pub fn event_id(&self) -> Option<&FreeFormText<EVENT_FIELD_MAX_LEN>> {
         match self {
             Self::Appended { event_id } | Self::AppendedStamped { event_id, .. } => Some(event_id),
             Self::TurnOpened
@@ -358,11 +358,9 @@ late_appendable_rows! {
         SessionEvent::SessionProviderStatusReported,
     /// `agent.command.ended`.
     AgentCommandEnded(AgentCommandEndedPayload) => SessionEvent::AgentCommandEnded,
-    /// `usage.tokenCount.recorded`.
-    UsageTokenCountRecorded(UsageTokenCountRecordedPayload) =>
-        SessionEvent::UsageTokenCountRecorded,
-    /// `usage.cost.updated`.
-    UsageCostUpdated(UsageCostUpdatedPayload) => SessionEvent::UsageCostUpdated,
+    /// `usage.tokenCount.recorded`, boxed since its selectors make it the largest row.
+    UsageTokenCountRecorded(Box<UsageTokenCountRecordedPayload>) =>
+        |payload: Box<_>| SessionEvent::UsageTokenCountRecorded(*payload),
     /// `usage.contextWindow.updated`.
     UsageContextWindowUpdated(UsageContextWindowUpdatedPayload) =>
         SessionEvent::UsageContextWindowUpdated,
@@ -422,14 +420,17 @@ unstamped_rows! {
 }
 
 /// A row about the session as a whole, on no binding: a side question's answer, which never
-/// enters the conversation, and its usage, which no run counts, and a change of the session's own
-/// advisor or output style.
+/// enters the conversation, and its usage, which no run counts, a priced request's cost, which may
+/// come after its run's binding closed, and a change of the session's own advisor or output style.
 #[derive(Debug)]
 pub enum SessionScopedRow {
     /// `session.sideQuestion.answered`.
     SideQuestionAnswered(SessionSideQuestionAnsweredPayload),
-    /// `usage.tokenCount.recorded` of a side question, naming no run.
-    UsageTokenCountRecorded(UsageTokenCountRecordedPayload),
+    /// `usage.tokenCount.recorded` of a side question, naming no run, boxed since its selectors
+    /// make it the largest row.
+    UsageTokenCountRecorded(Box<UsageTokenCountRecordedPayload>),
+    /// `usage.cost.updated` of one priced request on one account.
+    UsageCostUpdated(UsageCostUpdatedPayload),
     /// `session.advisor.changed`.
     AdvisorChanged(SessionAdvisorChangedPayload),
     /// `session.outputStyle.changed`.
@@ -446,8 +447,11 @@ impl SessionScopedRow {
             ),
             Self::UsageTokenCountRecorded(payload) => (
                 payload.session_id,
-                SessionEvent::UsageTokenCountRecorded(payload),
+                SessionEvent::UsageTokenCountRecorded(*payload),
             ),
+            Self::UsageCostUpdated(payload) => {
+                (payload.session_id, SessionEvent::UsageCostUpdated(payload))
+            }
             Self::AdvisorChanged(payload) => (
                 payload.session_id,
                 SessionEvent::SessionAdvisorChanged(payload),

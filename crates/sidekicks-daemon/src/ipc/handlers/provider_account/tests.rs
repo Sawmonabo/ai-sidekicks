@@ -75,7 +75,9 @@ use sidekicks_provider::driver::contract::account::{
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
 use sidekicks_provider::driver::{PROVIDERS, ProviderAccountFolders, ProviderAccountReader};
-use sidekicks_provider::port::usage_sink::{MeteredUsage, ProviderQuotaWindow, UsageSink};
+use sidekicks_provider::port::usage_sink::{
+    MeteredUsage, PricedRequest, ProviderQuotaWindow, RecordedUsage, UsageSink,
+};
 use sidekicks_provider::usage_delta_accountant::UsageAxisCounts;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
@@ -273,8 +275,15 @@ impl UsageSink for UnreadUsage {
     fn record_metered(
         &self,
         _metered: MeteredUsage,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<Option<RecordedUsage>, Box<dyn Error + Send + Sync>>> {
         async { Err("no turn is metered here".into()) }.boxed()
+    }
+
+    fn record_cost(
+        &self,
+        _request: PricedRequest,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async { Err("no request is priced here".into()) }.boxed()
     }
 
     fn record_quota_windows(

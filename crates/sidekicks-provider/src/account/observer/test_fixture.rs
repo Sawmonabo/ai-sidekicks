@@ -50,7 +50,9 @@ use crate::driver::test_registry::new_session_id;
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, ProviderAccountFolders, ProviderAccountReader,
 };
-use crate::port::usage_sink::{MeteredUsage, ProviderQuotaWindow, UsageSink};
+use crate::port::usage_sink::{
+    MeteredUsage, PricedRequest, ProviderQuotaWindow, RecordedUsage, UsageSink,
+};
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 // A wall clock the test sets; nothing here arms its timer.
@@ -227,8 +229,15 @@ impl UsageSink for RecordedWholeSets {
     fn record_metered(
         &self,
         _metered: MeteredUsage,
+    ) -> BoxFuture<'_, Result<Option<RecordedUsage>, Box<dyn Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
+    }
+
+    fn record_cost(
+        &self,
+        _request: PricedRequest,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        async { Ok(()) }.boxed()
+        async { Err("the recorded whole sets price no request".into()) }.boxed()
     }
 
     fn record_quota_windows(

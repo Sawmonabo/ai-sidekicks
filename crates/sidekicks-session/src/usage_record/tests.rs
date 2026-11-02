@@ -6,10 +6,11 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rstest::rstest;
 use rusqlite::params;
+use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::event::usage::UsageContainment;
+use sidekicks_contracts::event::usage::{UsageContainment, UsageCostSource};
 use sidekicks_contracts::orchestration::OrchestrationRunConfig;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -20,7 +21,7 @@ use sidekicks_contracts::run::queued::{
     AgentRunQueuedNewState, AgentRunQueuedPayload, ChildRunProvenance, RunQueuedSessionAgentPayload,
 };
 use sidekicks_contracts::run::subagent::{SubagentId, SubagentLifecyclePayload};
-use sidekicks_contracts::session::cost::TokensPerRun;
+use sidekicks_contracts::session::cost::{TokensPerRun, UsdMicros};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::{
     EpochPosition, RUN_START_POSITION, SupersededTurns, add_superseding_cut,
@@ -30,10 +31,12 @@ use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::registry::test_provider;
 use sidekicks_provider::driver::test_registry::new_run_id;
 use sidekicks_provider::port::usage_sink::{
-    MeteredUsage, MeteredUsageOwner, ProviderQuotaWindow, UsageSink,
+    MeteredUsage, MeteredUsageOwner, PricedRequest, PricedUsageRow, ProviderQuotaWindow,
+    RecordedUsage, UsageSink,
 };
 use sidekicks_provider::usage_delta_accountant::{
     MeteredUsageDelta, UsageAxisCounts, UsageDiagnosticBand,
@@ -237,7 +240,7 @@ impl Harness {
         input: u64,
         output: u64,
         cache_read: u64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<RecordedUsage>, Box<dyn std::error::Error + Send + Sync>> {
         self.record
             .record_metered(MeteredUsage {
                 session_id: self.session_id,
@@ -294,6 +297,57 @@ impl Harness {
             .collect::<Result<_, _>>()
             .expect("each event reads")
     }
+
+    // Each stored event of `event_type`: its id, its run and its payload.
+    fn stored_events(&self, event_type: &str) -> Vec<(String, Option<String>, Value)> {
+        self.database
+            .reader()
+            .prepare(
+                "SELECT id, run_id, payload FROM session_events
+                 WHERE session_id = ?1 AND type = ?2 ORDER BY sequence",
+            )
+            .expect("the test reads the session's events")
+            .query_map(
+                params![self.session_id.text().as_str(), event_type],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, String>(2)?)),
+            )
+            .expect("the events read")
+            .map(|row| {
+                let (id, run_id, payload) = row.expect("each event reads");
+                (
+                    id,
+                    run_id,
+                    serde_json::from_str(&payload).expect("a payload is JSON"),
+                )
+            })
+            .collect()
+    }
+
+    // `rows` priced at the test's model from the price list's exact rates.
+    fn priced_request(&self, rows: Vec<PricedUsageRow>) -> PricedRequest {
+        PricedRequest {
+            session_id: self.session_id,
+            model_id: FreeFormText::new(MODEL.to_owned()).expect("the test's model is an id"),
+            cost_source: UsageCostSource::DerivedExact,
+            rows,
+        }
+    }
+
+    // The `usage.cost.updated` payload of `run_id`'s request at `total` micro-dollars, naming
+    // each of `priced_events`' ids at its figure.
+    fn cost_payload(&self, run_id: RunId, total: u64, priced_events: &[(&str, u64)]) -> Value {
+        json!({
+            "sessionId": self.session_id.text().as_str(),
+            "runId": run_id.text().as_str(),
+            "costUsdMicros": total,
+            "modelId": MODEL,
+            "costSource": "derivedExact",
+            "pricedEvents": priced_events
+                .iter()
+                .map(|(event_id, figure)| json!({"eventId": event_id, "costUsdMicros": figure}))
+                .collect::<Vec<_>>(),
+        })
+    }
 }
 
 fn account() -> ProviderAccountId {
@@ -330,10 +384,32 @@ fn queued(
 }
 
 const THREAD: &str = "thread-1";
+const MODEL: &str = "model-1";
 // How long a report is given to return while its stop is held.
 const STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 const RECORDED: &str = "usage.tokenCount.recorded";
 const REACHED: &str = "agent.run.tokenLimit.reached";
+const COST: &str = "usage.cost.updated";
+
+// A token row on `account_id`'s account charged to `run_id`, which the record never wrote.
+fn hand_built_row(run_id: RunId, account_id: &str) -> RecordedUsage {
+    RecordedUsage {
+        event_id: FreeFormText::new(mint_uuid_v7().to_string())
+            .expect("a minted UUID is an event id"),
+        run_id: Some(run_id),
+        provider_account_id: ProviderAccountId::new(account_id.to_owned())
+            .expect("the test's account id is one"),
+        subagent_id: None,
+    }
+}
+
+// `row`'s share of a priced request: `figure` micro-dollars.
+fn priced(row: RecordedUsage, figure: u64) -> PricedUsageRow {
+    PricedUsageRow {
+        row,
+        cost_usd_micros: UsdMicros(SafeInt::new(figure).expect("a test figure is a safe integer")),
+    }
+}
 
 // Killed by a generation read once and kept: the second row would carry the first generation.
 #[tokio::test]
@@ -662,4 +738,99 @@ async fn a_whole_set_files_rows_only_when_it_moved_from_the_stored_windows(
         .expect("the set is recorded");
 
     assert_eq!(rate_limit_rows(&harness.database), rows);
+}
+
+// Each answer names the event its reading became, and a request whose rows sit on two accounts
+// writes one cost per account, each naming its own rows and their sum. Killed by an id minted in
+// the record rather than taken from the dispatch's outcome (the answers would name no stored
+// event), by one event across the accounts (one event of 15), and by the first figure taken as the
+// total (account-1's would read 6).
+#[tokio::test]
+async fn a_request_priced_across_two_accounts_writes_one_cost_per_account_naming_its_rows() {
+    let harness = Harness::new(None, true).await;
+    let mut written = Vec::new();
+    for _ in 0..2 {
+        written.push(
+            harness
+                .record(MeteredUsageOwner::Run, None, 10, 5, 0)
+                .await
+                .expect("the lead's reading is recorded")
+                .expect("the reading's row is written"),
+        );
+    }
+    let lead = Some(harness.lead_run_id.text().as_str().to_owned());
+    let tokens = harness.stored_events(RECORDED);
+    let account_1 = account();
+    assert_eq!(
+        written
+            .iter()
+            .map(|row| (row.event_id.as_str(), row.run_id, &row.provider_account_id))
+            .collect::<Vec<_>>(),
+        tokens
+            .iter()
+            .map(|(id, _, _)| (id.as_str(), Some(harness.lead_run_id), &account_1))
+            .collect::<Vec<_>>()
+    );
+    let elsewhere = hand_built_row(harness.lead_run_id, "account-2");
+
+    harness
+        .record
+        .record_cost(harness.priced_request(vec![
+            priced(written[0].clone(), 6),
+            priced(written[1].clone(), 5),
+            priced(elsewhere.clone(), 4),
+        ]))
+        .await
+        .expect("the request's cost is recorded");
+
+    assert_eq!(
+        harness
+            .stored_events(COST)
+            .into_iter()
+            .map(|(_, run_id, payload)| (run_id, payload))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                lead.clone(),
+                harness.cost_payload(
+                    harness.lead_run_id,
+                    11,
+                    &[
+                        (written[0].event_id.as_str(), 6),
+                        (written[1].event_id.as_str(), 5)
+                    ]
+                )
+            ),
+            (
+                lead,
+                harness.cost_payload(harness.lead_run_id, 4, &[(elsewhere.event_id.as_str(), 4)])
+            ),
+        ]
+    );
+}
+
+// A request priced after its run's binding closed is still recorded, on the session. Killed by the
+// cost routed through the binding's cursor, which fails with none open.
+#[tokio::test]
+async fn a_cost_is_recorded_with_the_bindings_cursor_closed() {
+    let harness = Harness::new(None, false).await;
+    let row = hand_built_row(harness.lead_run_id, ACCOUNT);
+
+    harness
+        .record
+        .record_cost(harness.priced_request(vec![priced(row.clone(), 7)]))
+        .await
+        .expect("the cost is recorded with no cursor open");
+
+    assert_eq!(
+        harness
+            .stored_events(COST)
+            .into_iter()
+            .map(|(_, run_id, payload)| (run_id, payload))
+            .collect::<Vec<_>>(),
+        vec![(
+            Some(harness.lead_run_id.text().as_str().to_owned()),
+            harness.cost_payload(harness.lead_run_id, 7, &[(row.event_id.as_str(), 7)])
+        )]
+    );
 }

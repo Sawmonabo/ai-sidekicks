@@ -466,6 +466,7 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
             recorded.payload = Some(match row {
                 SessionScopedRow::SideQuestionAnswered(payload) => payload_of(payload),
                 SessionScopedRow::UsageTokenCountRecorded(payload) => payload_of(payload),
+                SessionScopedRow::UsageCostUpdated(payload) => payload_of(payload),
                 SessionScopedRow::AdvisorChanged(payload) => payload_of(payload),
                 SessionScopedRow::OutputStyleChanged(payload) => payload_of(payload),
             });
