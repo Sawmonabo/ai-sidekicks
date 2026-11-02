@@ -9,7 +9,8 @@ use crate::driver::codex::session::test_fixture::TEST_THREAD;
 use crate::port::question::test_card::QuestionCard;
 use crate::port::question::{ProviderQuestion, QuestionPort};
 
-// A reply frame of `method` carrying `item_id`'s whole item, delivered `delivery` with one question.
+// A reply frame of `method` carrying `item_id`'s whole item, delivered `delivery` with one
+// question.
 fn reply_frame(method: &str, item_id: &str, delivery: &Value) -> Value {
     json!({
         "jsonrpc": "2.0",
@@ -23,7 +24,10 @@ fn reply_frame(method: &str, item_id: &str, delivery: &Value) -> Value {
                 "text": "Which environment?\n- Staging\n- Production",
                 "phase": "final_answer",
                 "delivery": delivery,
-                "questions": [{"title": "Which environment?", "options": ["Staging", "Production"]}],
+                "questions": [{
+                    "title": "Which environment?",
+                    "options": ["Staging", "Production"],
+                }],
             },
         },
     })
