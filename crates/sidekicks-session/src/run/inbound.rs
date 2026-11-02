@@ -294,6 +294,7 @@ impl RunInboundDispatch {
                 let event = SessionEvent::SessionNoticePosted(notice);
                 return Ok(appended(
                     session_id,
+                    Vec::new(),
                     event,
                     SessionEventLinkage::default(),
                     None,
@@ -302,25 +303,17 @@ impl RunInboundDispatch {
             InboundDelivery::SessionEvent { row } => {
                 let transactional_prelude = session_row_statements(&row);
                 let (session_id, preceding, event) = row.into_events();
-                return Ok(Attributed::Append(Box::new(PendingAppend {
-                    session_id,
-                    event,
-                    linkage: SessionEventLinkage {
-                        transactional_prelude,
-                        ..SessionEventLinkage::default()
-                    },
-                    source: None,
-                    preceding_events: preceding
-                        .into_iter()
-                        .map(|preceding| (preceding, None))
-                        .collect(),
-                    piece_of: None,
-                })));
+                let linkage = SessionEventLinkage {
+                    transactional_prelude,
+                    ..SessionEventLinkage::default()
+                };
+                return Ok(appended(session_id, preceding, event, linkage, None));
             }
             InboundDelivery::MachineEvent { row } => {
                 let (session_id, event) = row.into_event();
                 return Ok(appended(
                     session_id,
+                    Vec::new(),
                     event,
                     SessionEventLinkage::default(),
                     None,
@@ -458,7 +451,13 @@ impl RunInboundDispatch {
             }
             Absorbable::UnstampedRow(row) => {
                 let (session_id, event) = row.into_event();
-                appended(session_id, event, SessionEventLinkage::default(), None)
+                appended(
+                    session_id,
+                    Vec::new(),
+                    event,
+                    SessionEventLinkage::default(),
+                    None,
+                )
             }
             Absorbable::Run(work) => Attributed::Run {
                 binding: epoch_binding,
@@ -674,9 +673,11 @@ fn possible_source(attribution: DeliveryAttribution) -> Option<EpochPosition> {
     }
 }
 
-// A row to append as it was attributed.
+// A row to append as it was attributed, after `preceding`, events with no body written before it
+// in the same write.
 fn appended(
     session_id: SessionId,
+    preceding: Vec<SessionEvent>,
     event: SessionEvent,
     linkage: SessionEventLinkage,
     source: Option<EpochPosition>,
@@ -686,7 +687,10 @@ fn appended(
         event,
         linkage,
         source,
-        preceding_events: Vec::new(),
+        preceding_events: preceding
+            .into_iter()
+            .map(|preceding| (preceding, None))
+            .collect(),
         piece_of: None,
     }))
 }
