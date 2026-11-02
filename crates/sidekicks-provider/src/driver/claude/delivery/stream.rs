@@ -595,7 +595,7 @@ impl ClaudeDeliveryStream {
             let rows = read_claude_assistant_rows(
                 frame,
                 session.session_id,
-                lead.run_id,
+                lead,
                 &mut readings.open_tool_calls,
                 Instant::now(),
             );

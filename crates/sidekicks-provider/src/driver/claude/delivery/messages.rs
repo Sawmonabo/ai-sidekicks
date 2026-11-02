@@ -8,7 +8,9 @@ use std::collections::{HashMap, HashSet};
 use serde::Deserialize;
 use serde::de::IgnoredAny;
 use serde_json::value::RawValue;
-use sidekicks_contracts::event::declared_variants::{RunAgentOutputPayload, ToolActivityPayload};
+use sidekicks_contracts::event::declared_variants::{
+    RunAgentOutputPayload, ToolActivityPayload, ToolCallEndCause,
+};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::failure_cause::{RunFailureCause, RunRefusedOrigin};
@@ -24,6 +26,7 @@ use crate::driver::claude::delivery::patches::{
     is_claude_file_changing_tool, read_claude_patch_file,
 };
 use crate::driver::claude::delivery::system::read_provider_words;
+use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::reorder_buffer::ReorderPairingRole;
 use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
 use crate::run::delivery::{DeliveryOperation, LateAppendableRow};
@@ -111,10 +114,41 @@ lenient_object!(
     ClaudeResultTextBlock
 );
 
-/// A tool call the session's lead started and has not yet answered, by its `tool_use_id`.
+/// A tool call the session's lead started and has not yet answered, by its `tool_use_id`, with
+/// the run that started it, whose route may be forgotten before a held call ends.
+#[derive(Clone, Debug)]
 pub(crate) struct ClaudeOpenToolCall {
     tool_name: EventText,
+    run: ClaudeBoundRun,
     started_at: Instant,
+}
+
+impl ClaudeOpenToolCall {
+    /// A call of `tool_name` that `run` started at `started_at`.
+    pub(crate) fn new(tool_name: EventText, run: ClaudeBoundRun, started_at: Instant) -> Self {
+        Self {
+            tool_name,
+            run,
+            started_at,
+        }
+    }
+
+    /// The run that started the call, and its binding.
+    pub(crate) fn run(&self) -> &ClaudeBoundRun {
+        &self.run
+    }
+}
+
+/// How a tool call ended: with its result, or failed, with why when no result came.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClaudeToolCallOutcome {
+    /// It answered.
+    Completed,
+    /// It failed.
+    Failed {
+        /// Why it ended with no result, where none came.
+        end_cause: Option<ToolCallEndCause>,
+    },
 }
 
 /// One row read off a message frame, with how it pairs in the reorder buffer.
@@ -274,16 +308,17 @@ impl ClaudeMessageFrame {
     }
 }
 
-/// The rows of one `assistant` frame of the lead: each thinking block's summary and each text
-/// block under the message's id, a fresh one where the frame names none, and each tool call as
-/// `agent.toolCall.invoked`, which opens the call in `open_tool_calls` at `now`.
+/// The rows of one `assistant` frame of the lead on `run`: each thinking block's summary and each
+/// text block under the message's id, a fresh one where the frame names none, and each tool call
+/// as `agent.toolCall.invoked`, which opens the call in `open_tool_calls` on `run` at `now`.
 pub(crate) fn read_claude_assistant_rows(
     frame: &ClaudeMessageFrame,
     session_id: SessionId,
-    run_id: RunId,
+    run: &ClaudeBoundRun,
     open_tool_calls: &mut HashMap<String, ClaudeOpenToolCall>,
     now: Instant,
 ) -> Vec<ClaudeMessageRow> {
+    let run_id = run.run_id;
     let mut rows = Vec::new();
     let provider_message_id = frame
         .provider_message_id()
@@ -341,10 +376,7 @@ pub(crate) fn read_claude_assistant_rows(
         let call_id = tool_call_id.as_str().to_owned();
         open_tool_calls.insert(
             call_id.clone(),
-            ClaudeOpenToolCall {
-                tool_name: tool_name.clone(),
-                started_at: now,
-            },
+            ClaudeOpenToolCall::new(tool_name.clone(), run.clone(), now),
         );
         let input = block.input.as_ref().map_or("{}", |input| input.get());
         rows.push(ClaudeMessageRow {
@@ -445,28 +477,55 @@ pub(crate) fn close_claude_tool_call(
     now: Instant,
 ) -> Option<ClaudeMessageRow> {
     let opened = open_tool_calls.remove(call_id)?;
+    let outcome = if closed.is_error {
+        ClaudeToolCallOutcome::Failed { end_cause: None }
+    } else {
+        ClaudeToolCallOutcome::Completed
+    };
+    let row = close_opened_call(
+        opened,
+        call_id,
+        closed.session_id,
+        closed.run_id,
+        outcome,
+        now,
+    )?;
+    Some(ClaudeMessageRow {
+        tool_call_id: Some(call_id.to_owned()),
+        pairing_role: ReorderPairingRole::Completion,
+        row: ClaudeMessageRowKind::Session {
+            row,
+            body: closed.body,
+        },
+    })
+}
+
+/// The row that closes `opened`, the call `call_id`, on `run_id` with `outcome`, timed from its
+/// start to `now` and carrying no body; `None` for an id no row can carry.
+pub(crate) fn close_opened_call(
+    opened: ClaudeOpenToolCall,
+    call_id: &str,
+    session_id: SessionId,
+    run_id: RunId,
+    outcome: ClaudeToolCallOutcome,
+    now: Instant,
+) -> Option<LateAppendableRow> {
     let tool_call_id = ToolCallId::new(call_id.to_owned()).ok()?;
     let duration_ms = u64::try_from(now.duration_since(opened.started_at).as_millis())
         .ok()
         .and_then(SafeInt::new);
     let activity = tool_activity(
-        closed.session_id,
-        closed.run_id,
+        session_id,
+        run_id,
         opened.tool_name,
         tool_call_id,
         duration_ms,
     );
-    Some(ClaudeMessageRow {
-        tool_call_id: Some(call_id.to_owned()),
-        pairing_role: ReorderPairingRole::Completion,
-        row: ClaudeMessageRowKind::Session {
-            row: if closed.is_error {
-                LateAppendableRow::AgentToolCallFailed(activity.into_failed(None))
-            } else {
-                LateAppendableRow::AgentToolCallCompleted(activity)
-            },
-            body: closed.body,
-        },
+    Some(match outcome {
+        ClaudeToolCallOutcome::Completed => LateAppendableRow::AgentToolCallCompleted(activity),
+        ClaudeToolCallOutcome::Failed { end_cause } => {
+            LateAppendableRow::AgentToolCallFailed(activity.into_failed(end_cause))
+        }
     })
 }
 
