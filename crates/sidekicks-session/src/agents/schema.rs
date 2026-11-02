@@ -17,7 +17,7 @@ CREATE TABLE agents (
   name                        TEXT NOT NULL,
   provider_name               TEXT NOT NULL,
   model_id                    TEXT NOT NULL,
-  -- The account its last switch landed on, or the binding's own; NULL follows the provider's
+  -- The account the binding pins, never the one a switch landed on; NULL follows the provider's
   -- current account.
   provider_account_id         TEXT,
   effort                      TEXT,  -- the reasoning effort; NULL for the driver's default

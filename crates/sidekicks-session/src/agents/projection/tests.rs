@@ -110,7 +110,7 @@ fn the_lead_and_a_minted_agent_fold_to_one_row_each() {
 }
 
 // Killed by the binding columns moved on a failed switch, by the pending switch left standing
-// after either settlement, and by the landed account dropped for the switch's own.
+// after either settlement, and by the account a switch landed on written as the one it pins.
 #[test]
 fn a_landed_switch_moves_the_binding_and_a_failed_one_only_clears() {
     let agents = Agents::new();
@@ -148,7 +148,6 @@ fn a_landed_switch_moves_the_binding_and_a_failed_one_only_clears() {
         ),
     );
     let switched = agents.row(&lead);
-    landed["providerAccountId"] = json!("account-1");
     assert_eq!(
         serde_json::to_value(&switched.binding).expect("a binding writes as JSON"),
         landed

@@ -149,7 +149,8 @@ pub struct AgentRow {
     pub session_id: SessionId,
     /// Its name.
     pub name: ToolName,
-    /// The binding it runs on now, its account the one its last switch landed on.
+    /// The binding it runs on now, its account the one the binding pins, `None` for one that
+    /// follows the provider's current account.
     pub binding: AgentProviderBinding,
     /// The instructions as applied, from the saved definition it was resolved from.
     pub instructions: Option<String>,
@@ -378,10 +379,7 @@ fn event_statements(
         text_binding("@createdAt", birth.created_at),
         text_binding("@updatedAt", occurred_at),
     ];
-    bindings.extend(binding_columns(
-        birth.binding,
-        birth.binding.provider_account_id.as_ref(),
-    ));
+    bindings.extend(binding_columns(birth.binding));
     vec![WriteStatement {
         sql: Cow::Borrowed(sql),
         bindings: StatementBindings::Named(bindings),
@@ -389,8 +387,9 @@ fn event_statements(
     }]
 }
 
-// The binding an applied switch lands, its account the one it landed on, clearing the pending
-// switch it settles. A session born before the table has no row to move.
+// The binding an applied switch lands, with the account its `to` pins and never the one it landed
+// on, so an agent that follows the current account still follows it; clearing the pending switch
+// it settles. A session born before the table has no row to move.
 fn land_binding_statement(
     changed: &AgentProviderBindingChangedPayload,
     occurred_at: &str,
@@ -400,10 +399,7 @@ fn land_binding_statement(
         text_binding("@switchId", changed.switch_id.as_str()),
         text_binding("@updatedAt", occurred_at),
     ];
-    bindings.extend(binding_columns(
-        &changed.to,
-        Some(&changed.landed_provider_account_id),
-    ));
+    bindings.extend(binding_columns(&changed.to));
     WriteStatement {
         sql: Cow::Borrowed(LAND_BINDING_SQL),
         bindings: StatementBindings::Named(bindings),
@@ -424,15 +420,18 @@ fn clear_statement(agent_id: &AgentId, switch_id: &SwitchId, updated_at: &str) -
     }
 }
 
-// The binding's columns, its account `account`.
-fn binding_columns(
-    binding: &AgentProviderBinding,
-    account: Option<&ProviderAccountId>,
-) -> [(Cow<'static, str>, SqlValue); 7] {
+// The binding's columns.
+fn binding_columns(binding: &AgentProviderBinding) -> [(Cow<'static, str>, SqlValue); 7] {
     [
         text_binding("@providerName", binding.provider_name.as_str()),
         text_binding("@modelId", binding.model_id.as_str()),
-        nullable_text_binding("@providerAccountId", account.map(ProviderAccountId::as_str)),
+        nullable_text_binding(
+            "@providerAccountId",
+            binding
+                .provider_account_id
+                .as_ref()
+                .map(ProviderAccountId::as_str),
+        ),
         nullable_text_binding(
             "@effort",
             binding.effort.as_ref().map(ProviderToken::as_str),
