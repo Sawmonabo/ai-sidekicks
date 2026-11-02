@@ -51,6 +51,7 @@ use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::groups::service::SessionGroupService;
 use sidekicks_session::plan_holds::PlanHolds;
 use sidekicks_session::run::folders::SessionLiveRunFolders;
+use sidekicks_session::run::held_tool_calls::StoredHeldToolCalls;
 use sidekicks_session::search::index::live::LiveIndex;
 use sidekicks_shell::orphan::guard::OrphanGuard;
 use sidekicks_std::error_description::describe_error;
@@ -515,6 +516,8 @@ pub(crate) async fn register_method_inputs(
             running_commands: Arc::clone(&session.running_commands),
             turn_readings: Arc::clone(&session.turn_readings),
             context_readings: Arc::clone(&session.context_readings),
+            tool_call_statuses: Arc::clone(&session.tool_call_statuses),
+            held_tool_calls: Arc::new(StoredHeldToolCalls::new(Arc::clone(&reads))),
             idle_sleep: Arc::clone(&session.idle_sleep),
             session_resumes: Arc::clone(&session.stored_resumes),
             provider_sessions: Arc::clone(&session.provider_sessions),
