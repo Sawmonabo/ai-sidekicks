@@ -22,7 +22,9 @@ use crate::driver::claude::account_credentials::{
 };
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
 use crate::driver::claude::session::scripted::driver::{ScriptedDriver, sandbox_cannot_run};
-use crate::driver::claude::session::scripted::starts::{ScriptedProcessWrite, ScriptedSignInPlace};
+use crate::driver::claude::session::scripted::starts::{
+    ScriptedProcessWrite, ScriptedSignInPlace, ScriptedStarts,
+};
 use crate::driver::claude::{ClaudeDriver, DESCRIPTOR};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
@@ -31,6 +33,7 @@ use crate::driver::contract::sign_in::{
 };
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
+use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The server signed in to.
@@ -131,6 +134,25 @@ fn request(
         },
     };
     (request, opened, returned)
+}
+
+// A driver on `services`, whose base environment a test sets, over a fixture's starts and engine.
+fn driver_on_environment(
+    services: &DriverServices,
+    starts: &Arc<ScriptedStarts>,
+    engine: &Arc<RecordingRunEngine>,
+) -> ClaudeDriver {
+    let host: Arc<dyn RunHost> = engine.clone();
+    let dispatch: Arc<dyn InboundDispatch> = engine.clone();
+    ClaudeDriver::with_engine(
+        services,
+        starts.clone(),
+        starts.keychain.clone(),
+        &host,
+        &dispatch,
+        sandbox_cannot_run,
+    )
+    .expect("the session pieces compose")
 }
 
 // Runs `binding`'s sign-in on `scripted`'s driver to its end, the browser opened and returned.
@@ -407,27 +429,20 @@ async fn a_user_entry_is_read_from_the_config_folder_the_persons_environment_nam
             .to_string(),
     )
     .expect("a config the person's environment does not read is written");
-    let services = DriverServices {
-        base_environment: Arc::from([
-            ("HOME".to_owned(), scripted.home.display().to_string()),
-            (
-                "CLAUDE_CONFIG_DIR".to_owned(),
-                config_folder.display().to_string(),
-            ),
-        ]),
-        ..scripted.services
-    };
-    let host: Arc<dyn RunHost> = scripted.engine.clone();
-    let dispatch: Arc<dyn InboundDispatch> = scripted.engine.clone();
-    let driver = ClaudeDriver::with_engine(
-        &services,
-        scripted.starts.clone(),
-        scripted.starts.keychain.clone(),
-        &host,
-        &dispatch,
-        sandbox_cannot_run,
-    )
-    .expect("the session pieces compose");
+    let driver = driver_on_environment(
+        &DriverServices {
+            base_environment: Arc::from([
+                ("HOME".to_owned(), scripted.home.display().to_string()),
+                (
+                    "CLAUDE_CONFIG_DIR".to_owned(),
+                    config_folder.display().to_string(),
+                ),
+            ]),
+            ..scripted.services
+        },
+        &scripted.starts,
+        &scripted.engine,
+    );
     scripted.starts.script_mcp_sign_in(
         custom_scheme_channel(),
         json!({"mcpOAuth": {"docs|key": saved(SERVER_NAME, SERVER_ADDRESS, "access-one")}}),
@@ -457,6 +472,93 @@ async fn a_user_entry_is_read_from_the_config_folder_the_persons_environment_nam
     assert_eq!(
         start.servers,
         json!({"mcpServers": {SERVER_NAME: {"type": "http", "url": SERVER_ADDRESS}}})
+    );
+}
+
+// An entry whose `url` names variables matches the request at the address Claude Code connects
+// to, each variable filled from the sign-in process's own environment: a default where the
+// variable is unset, the variable's value where it is set, and a covered credential name read as
+// empty though set. The entry still goes to the process as declared. Killed by matching the `url`
+// as written, which names no server, by filling it from no environment, and by expanding a
+// covered credential name.
+#[rstest]
+#[case::a_default_where_unset(
+    &[],
+    "${API_BASE_URL:-https://docs.example.test}/mcp",
+    SERVER_ADDRESS
+)]
+#[case::the_value_where_set(
+    &[("API_BASE_URL", "https://set.example.test")],
+    "${API_BASE_URL:-https://docs.example.test}/mcp",
+    "https://set.example.test/mcp"
+)]
+#[case::a_credential_read_empty(
+    &[("NPM_TOKEN", "/npm-secret")],
+    "https://docs.example.test${NPM_TOKEN}/mcp",
+    SERVER_ADDRESS
+)]
+#[tokio::test]
+async fn an_entry_address_with_variables_matches_as_the_sign_in_process_fills_it(
+    #[case] variables: &[(&str, &str)],
+    #[case] declared_url: &str,
+    #[case] requested_address: &str,
+) {
+    let scripted = ScriptedDriver::new();
+    std::fs::create_dir_all(&scripted.home).expect("the person's home is made");
+    let declared = json!({"type": "http", "url": declared_url});
+    std::fs::write(
+        scripted.home.join(".claude.json"),
+        json!({"mcpServers": {SERVER_NAME: declared}}).to_string(),
+    )
+    .expect("the person's config is written");
+    let base_environment: Vec<(String, String)> =
+        std::iter::once(("HOME".to_owned(), scripted.home.display().to_string()))
+            .chain(
+                variables
+                    .iter()
+                    .map(|(variable, value)| ((*variable).to_owned(), (*value).to_owned())),
+            )
+            .collect();
+    let driver = driver_on_environment(
+        &DriverServices {
+            base_environment: Arc::from(base_environment),
+            ..scripted.services
+        },
+        &scripted.starts,
+        &scripted.engine,
+    );
+    scripted.starts.script_mcp_sign_in(
+        custom_scheme_channel(),
+        json!({"mcpOAuth": {"docs|key": saved(SERVER_NAME, requested_address, "access-one")}}),
+        ScriptedSignInPlace::File,
+        Vec::new(),
+    );
+    let (mut request, opened, returned) = request(user_binding());
+    request.server_address =
+        McpServerAddress::new(requested_address).expect("a test address is a web address");
+    let signing_in = tokio::spawn(async move { driver.sign_in_with_own_client(request).await });
+    opened
+        .await
+        .expect("the authorization address is handed out");
+    returned
+        .send(Url::parse(RETURNED_URL).expect("an address"))
+        .expect("the sign-in waits for the browser");
+
+    let signed_in = signing_in
+        .await
+        .expect("the sign-in runs")
+        .expect("the entry matches and the sign-in reads back");
+
+    assert_eq!(signed_in.access_token, "access-one");
+    let [start] = scripted
+        .starts
+        .take_sign_in_starts()
+        .try_into()
+        .ok()
+        .expect("one");
+    assert_eq!(
+        start.servers,
+        json!({"mcpServers": {SERVER_NAME: declared}})
     );
 }
 

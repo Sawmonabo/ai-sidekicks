@@ -44,7 +44,7 @@ use crate::driver::claude::mcp::config::{
     ClaudeDeclaredEntry, ClaudePersonConfigFiles, ClaudeServerEntryReader,
 };
 use crate::driver::claude::mcp::machine_probe::variables::{
-    ClaudePluginPlaceholders, fill_entry_plugin_placeholders,
+    ClaudePluginPlaceholders, expand_remote_address, fill_entry_plugin_placeholders,
 };
 use crate::driver::claude::mcp::organization::has_readable_managed_mcp_file;
 use crate::driver::claude::session::account_servers::{
@@ -218,8 +218,9 @@ pub(crate) struct ClaudeSignInSources<'sources> {
 }
 
 /// Signs in to `request`'s server through Claude Code's own client, in one process `starts`
-/// brings up with the environment `environment_on` composes for the sign-in's own folder. Fails
-/// with [`DriverError::NoPersonServerEntry`] for a connector or a binding whose entry is gone or
+/// brings up with the environment `environment_on` composes for the sign-in's own folder, the
+/// entry's address read with its variables filled from that environment. Fails with
+/// [`DriverError::NoPersonServerEntry`] for a connector or a binding whose entry is gone or
 /// declares another address, as the entry's read, the environment, the start or a control request
 /// fails, and with [`ClaudeSignInError`] for every other failure; the process is closed and the
 /// folder removed either way.
@@ -241,7 +242,6 @@ pub(crate) async fn sign_in_with_claude_client(
     let entry = read_sign_in_entry(
         &sources,
         &request.binding,
-        &request.server_address,
         &request.provider_account_id,
         has_managed_mcp_file,
     )
@@ -252,7 +252,9 @@ pub(crate) async fn sign_in_with_claude_client(
         .and_then(|oauth| oauth.get(OAUTH_CLIENT_ID_MEMBER))
         .and_then(Value::as_str)
         .map(str::to_owned);
+    // The entry goes to the folder as declared, since Claude Code fills its variables itself.
     let servers: Map<String, Value> = entry
+        .clone()
         .map(|entry| (name.as_str().to_owned(), Value::Object(entry)))
         .into_iter()
         .collect();
@@ -266,6 +268,13 @@ pub(crate) async fn sign_in_with_claude_client(
     .map_err(ClaudeSignInError::FolderUnmade)?;
     let signed_in = async {
         let environment = environment_on(folder.path())?;
+        if let Some(entry) = &entry
+            && !declares_server_at(entry, &request.server_address, &environment)
+        {
+            return Err(DriverError::from(NoPersonServerEntry {
+                binding: request.binding.clone(),
+            }));
+        }
         let mut keychain_item = KeychainItemRemoval {
             credentials: sources.credentials.clone(),
             environment: environment.clone(),
@@ -402,12 +411,10 @@ fn sign_in_parent(data_folder: &Path) -> PathBuf {
 // since Claude Code fills them only in the plugin's own files; an organization's as `account`'s
 // managed settings declare it; and none for a server of an administrator's MCP file, which the
 // process then loads itself. Fails with `NoPersonServerEntry` for a connector, whose sign-in is
-// the account's own, and where no entry declares the server at `address`, so another provider's
-// flow is asked.
+// the account's own, and where no entry declares the server, so another provider's flow is asked.
 async fn read_sign_in_entry(
     sources: &ClaudeSignInSources<'_>,
     binding: &McpServerBindingRef,
-    address: &McpServerAddress,
     account: &ProviderAccountId,
     has_managed_mcp_file: bool,
 ) -> Result<Option<Map<String, Value>>, DriverError> {
@@ -456,24 +463,25 @@ async fn read_sign_in_entry(
         }
     };
     match entry {
-        Some(Value::Object(entry))
-            if entry
-                .get(URL_MEMBER)
-                .and_then(Value::as_str)
-                .is_some_and(|url| names_server_at(url, address)) =>
-        {
-            Ok(Some(entry))
-        }
+        Some(Value::Object(entry)) => Ok(Some(entry)),
         Some(
-            Value::Object(_)
-            | Value::Null
-            | Value::Bool(_)
-            | Value::Number(_)
-            | Value::String(_)
-            | Value::Array(_),
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_),
         )
         | None => Err(no_entry()),
     }
+}
+
+// Whether `entry` declares its server at `address`, its `url` read with its variables filled from
+// `environment`, the sign-in process's own, as Claude Code fills them before it connects.
+fn declares_server_at(
+    entry: &Map<String, Value>,
+    address: &McpServerAddress,
+    environment: &[(String, String)],
+) -> bool {
+    entry
+        .get(URL_MEMBER)
+        .and_then(Value::as_str)
+        .is_some_and(|url| names_server_at(&expand_remote_address(url, environment), address))
 }
 
 // Removes, when dropped armed, the keychain item named for the sign-in's credential folder on a

@@ -323,6 +323,13 @@ pub(super) fn expand_entry_variables(
     }
 }
 
+/// A remote server's `url` with each `${VAR}` and `${VAR:-default}` filled from `environment` as
+/// Claude Code fills it before connecting, a covered credential name read as empty whether set or
+/// not; a variable with no value and no default is left as written.
+pub(crate) fn expand_remote_address(url: &str, environment: &[(String, String)]) -> String {
+    expand_variables(url, environment, ValueSink::Remote)
+}
+
 /// `entry` with a plugin's placeholders filled in every text it holds, its member names left as
 /// written, for an entry Claude Code loads from a file of the daemon's.
 pub(crate) fn fill_entry_plugin_placeholders(
