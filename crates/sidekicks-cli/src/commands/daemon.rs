@@ -1,5 +1,6 @@
 //! The `daemon` commands, which read and drive the background service itself. Its install and
-//! uninstall join them only on a system whose service manager registers the service.
+//! uninstall join them only on a system whose service manager registers the service, and refuse
+//! under a `HOME` other than the account's own.
 
 mod ending;
 pub(crate) mod install;
@@ -18,6 +19,7 @@ use sidekicks_platforms::ServiceRegistration;
 
 use crate::command_context::CommandContext;
 use crate::commands::daemon::install::{InstallArgs, install};
+use crate::commands::daemon::registration::refuse_other_home;
 use crate::commands::daemon::restart::{RestartArgs, restart};
 use crate::commands::daemon::start::{STARTED_LINE, StartArgs, start_and_report};
 use crate::commands::daemon::status::{StatusArgs, show_status};
@@ -62,9 +64,11 @@ pub(crate) fn run_daemon_command<Output: Write, ErrorOutput: Write>(
         DaemonCommand::Status(args) => show_status(args, context),
         DaemonCommand::Stop(args) => stop(args, context),
         DaemonCommand::Registration(registration, ServiceRegistrationCommand::Install(args)) => {
+            refuse_other_home(registration)?;
             install(args, *registration, context)
         }
         DaemonCommand::Registration(registration, ServiceRegistrationCommand::Uninstall) => {
+            refuse_other_home(registration)?;
             uninstall(registration, context)
         }
     }

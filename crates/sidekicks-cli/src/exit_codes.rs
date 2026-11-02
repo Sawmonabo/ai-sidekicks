@@ -160,6 +160,13 @@ pub(crate) enum CommandFailure {
         #[source]
         last_failure: ClientError,
     },
+    /// `$HOME` is not the account's home in the user database, so an install or uninstall, which
+    /// acts on the account's own login session, changed nothing.
+    #[error(
+        "HOME is not set to your home folder, so the background service was left as it is. Set \
+         HOME to your home folder and run the command again."
+    )]
+    NotAccountHome,
     /// The app's own registration runs the service, so the command line has nothing of its own to
     /// remove.
     #[error(
@@ -249,7 +256,8 @@ impl CommandFailure {
             | Self::TurnedOffInLoginItems
             | Self::AppServiceTurnedOff
             | Self::ServiceRunning { .. }
-            | Self::DataFolderHeld => ExitCode::Configuration,
+            | Self::DataFolderHeld
+            | Self::NotAccountHome => ExitCode::Configuration,
             Self::RegistrationRefused(_) => ExitCode::Software,
             Self::BackupUnreadable { .. } => ExitCode::NoInput,
             Self::LoggedOutServiceRefused { cause, .. } => cause.exit_code(),

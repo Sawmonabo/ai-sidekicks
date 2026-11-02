@@ -17,6 +17,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use anyhow::{Context as _, bail};
+use sidekicks_client::daemon_connection::HANDSHAKE_DEADLINE;
 use sidekicks_client::daemon_ending::DaemonEndingVerb;
 use sidekicks_client::error::ClientError;
 use sidekicks_contracts::daemon::secrets_place::{
@@ -258,7 +259,7 @@ pub(crate) fn put_agent_back(
             })?;
             match installed {
                 ServiceInstall::Loaded => {
-                    wait_for_installed_daemon(stderr)?;
+                    wait_for_installed_daemon(stderr, HANDSHAKE_DEADLINE)?;
                     return Ok(REMOVED_RUNNING_LINE);
                 }
                 ServiceInstall::AtNextLogin => return Ok(REMOVED_AT_NEXT_LOGIN_LINE),
@@ -277,7 +278,7 @@ pub(crate) fn put_agent_back(
         .map_err(|failure| registration_failure(failure, "could not start the login agent"))?;
     // Root cannot pass the service's own-account check, so only the account's own run waits.
     if !registration.runs_as_root() {
-        wait_for_installed_daemon(stderr)?;
+        wait_for_installed_daemon(stderr, HANDSHAKE_DEADLINE)?;
     }
     Ok(REMOVED_RUNNING_LINE)
 }

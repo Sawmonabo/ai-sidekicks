@@ -9,6 +9,7 @@ pub(crate) mod system_service;
 use std::convert::Infallible;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::Context as _;
 use clap::Args;
@@ -37,6 +38,10 @@ pub(crate) struct InstallArgs {
     /// Keep the background service running while you are logged out (macOS).
     #[arg(long)]
     while_signed_out: bool,
+    /// How long to wait for the installed background service to answer, in milliseconds
+    /// [default: 10000].
+    #[arg(long, value_name = "MS")]
+    timeout: Option<u64>,
 }
 
 /// Installs the background service on this computer through `registration`, to start at login
@@ -47,20 +52,34 @@ pub(crate) fn install<Output: Write, ErrorOutput: Write>(
     registration: ServiceRegistration,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> anyhow::Result<ExitCode> {
+    let deadline = args
+        .timeout
+        .map_or(HANDSHAKE_DEADLINE, Duration::from_millis);
     if args.while_signed_out {
-        return install_while_signed_out(registration, args.daemon_path.as_deref(), context);
+        return install_while_signed_out(
+            registration,
+            args.daemon_path.as_deref(),
+            deadline,
+            context,
+        );
     }
-    install_with(&registration, args.daemon_path.as_deref(), context)
+    install_with(
+        &registration,
+        args.daemon_path.as_deref(),
+        deadline,
+        context,
+    )
 }
 
 /// Installs through `registration`, its owner read first: the app's registration leaves
-/// everything as it is. Fails as the owner's read, the program's resolution, the install or the
-/// wait for the started service fails, a step the service manager refused as
-/// [`CommandFailure::RegistrationRefused`] and a service that never answers as
-/// [`CommandFailure::InstalledNotAnswering`].
+/// everything as it is, and a started service is waited for within `deadline`. Fails as the
+/// owner's read, the program's resolution, the install or the wait for the started service fails,
+/// a step the service manager refused as [`CommandFailure::RegistrationRefused`] and a service that
+/// never answers as [`CommandFailure::InstalledNotAnswering`].
 fn install_with<Output: Write, ErrorOutput: Write>(
     registration: &impl LoginRegistration,
     daemon_path: Option<&Path>,
+    deadline: Duration,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> anyhow::Result<ExitCode> {
     let owner = read_owner(registration)?;
@@ -79,7 +98,7 @@ fn install_with<Output: Write, ErrorOutput: Write>(
                     "The background service is already installed. It starts at login.\n"
                 }
                 ServiceInstall::Loaded => {
-                    wait_for_installed_daemon(&mut context.stderr)?;
+                    wait_for_installed_daemon(&mut context.stderr, deadline)?;
                     "Installed the background service. It starts at login and is running now.\n"
                 }
                 ServiceInstall::AtNextLogin => {
@@ -93,12 +112,15 @@ fn install_with<Output: Write, ErrorOutput: Write>(
     Ok(ExitCode::Success)
 }
 
-/// Waits for the service the registration's load started to answer the handshake, the repair's
-/// line on `stderr` while it repairs its database file. Fails with
+/// Waits up to `deadline` for the service the registration's load started to answer the
+/// handshake, the repair's line on `stderr` while it repairs its database file. Fails with
 /// [`CommandFailure::InstalledNotAnswering`] when it does not answer in time,
 /// `ClientError::Canceled` after a Ctrl-C, and as a handshake that fails other than as a starting
 /// daemon's does.
-pub(crate) fn wait_for_installed_daemon(stderr: &mut impl Write) -> anyhow::Result<()> {
+pub(crate) fn wait_for_installed_daemon(
+    stderr: &mut impl Write,
+    deadline: Duration,
+) -> anyhow::Result<()> {
     let mut repair_line = RepairLine::new(stderr);
     let waited = run_listening_for_ctrl_c(async |ctrl_c| {
         let endpoint = DaemonEndpoint::this_machine()
@@ -106,7 +128,7 @@ pub(crate) fn wait_for_installed_daemon(stderr: &mut impl Write) -> anyhow::Resu
         // The service manager owns the started process, so nothing here ends the wait early.
         let waiting = wait_for_handshake(
             endpoint,
-            HANDSHAKE_DEADLINE,
+            deadline,
             |details| repair_line.show(details),
             std::future::pending::<Infallible>(),
         );
@@ -119,7 +141,7 @@ pub(crate) fn wait_for_installed_daemon(stderr: &mut impl Write) -> anyhow::Resu
                 Ok(HandshakeWaitEnd::Ended(never)) => match never {},
                 Err(failure) if is_not_ready_yet(&failure) => {
                     Err(CommandFailure::InstalledNotAnswering {
-                        waited: HANDSHAKE_DEADLINE,
+                        waited: deadline,
                         last_failure: failure,
                     }
                     .into())
@@ -138,6 +160,7 @@ mod tests {
     use std::cell::Cell;
     use std::path::Path;
 
+    use sidekicks_client::daemon_connection::HANDSHAKE_DEADLINE;
     use sidekicks_platforms::{ServiceInstall, ServiceOwner, ServiceRegistrationError};
 
     use super::install_with;
@@ -179,7 +202,8 @@ mod tests {
             is_stderr_styled: false,
         };
 
-        let code = install_with(&registration, None, &mut context).expect("the install succeeds");
+        let code = install_with(&registration, None, HANDSHAKE_DEADLINE, &mut context)
+            .expect("the install succeeds");
 
         assert_eq!(code, ExitCode::Success);
         assert!(

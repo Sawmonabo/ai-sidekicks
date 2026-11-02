@@ -18,6 +18,7 @@ use std::fmt;
 use std::fs::{File, TryLockError};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::Context as _;
 use sidekicks_client::daemon_ending::DaemonEndingVerb;
@@ -200,10 +201,11 @@ impl LoggedOutServiceRegistration for ServiceRegistration {
 /// it refuses, with what it changed put back first; with the moves mode's refusal when the secrets
 /// cannot move; `ClientError::Canceled` after a Ctrl-C while the service stops; and as a read of
 /// the registration, the service's stop, the login agent's removal or the wait for the installed
-/// service fails.
+/// service, within `deadline`, fails.
 pub(crate) fn install_while_signed_out<Output: Write, ErrorOutput: Write>(
     registration: ServiceRegistration,
     daemon_path: Option<&Path>,
+    deadline: Duration,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> anyhow::Result<ExitCode> {
     if let Some(cause) = registration.system_service_refusal() {
@@ -237,7 +239,7 @@ pub(crate) fn install_while_signed_out<Output: Write, ErrorOutput: Write>(
     };
     run_listening_for_ctrl_c(async |ctrl_c| takeover.run(ctrl_c).await)?;
     remove_replaced_agent(&registration, owner)?;
-    wait_for_installed_daemon(&mut context.stderr)?;
+    wait_for_installed_daemon(&mut context.stderr, deadline)?;
     write_line(context, INSTALLED_LINE)
 }
 

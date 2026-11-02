@@ -43,6 +43,20 @@ impl LoginRegistration for ServiceRegistration {
     }
 }
 
+/// Refuses an install or uninstall through `registration` with
+/// [`CommandFailure::NotAccountHome`] when `$HOME` is not the account's home, since the account's
+/// login session it acts on would then serve a home its service never answers in. Fails too when
+/// the home cannot be read.
+pub(crate) fn refuse_other_home(registration: &ServiceRegistration) -> anyhow::Result<()> {
+    let is_account_home = registration.is_account_home().map_err(|failure| {
+        registration_failure(failure, "could not read whether HOME is your home folder")
+    })?;
+    if !is_account_home {
+        return Err(CommandFailure::NotAccountHome.into());
+    }
+    Ok(())
+}
+
 /// `failure` as the run's failure: a step the service manager refused as
 /// [`CommandFailure::RegistrationRefused`], with its message as the cause; any other with `doing`
 /// as its context.

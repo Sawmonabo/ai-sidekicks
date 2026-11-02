@@ -216,6 +216,11 @@ impl ServiceRegistration {
         match *self {}
     }
 
+    /// Whether `$HOME` is the account's home; never called, since no value exists.
+    pub fn is_account_home(&self) -> Result<bool, ServiceRegistrationError> {
+        match *self {}
+    }
+
     /// Which account has the system service installed; never called, since no value exists.
     pub fn system_service_owner(
         &self,

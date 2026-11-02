@@ -296,10 +296,11 @@ impl ServiceRegistration {
         Ok(self.user_id)
     }
 
-    // Whether `$HOME` is this account's home in the user database, so a run under a private home
-    // never reads or starts the account's own agent, whose service could never answer it there.
-    // Under root's rights the home is the account's own by construction.
-    fn is_account_home(self) -> Result<bool, ServiceRegistrationError> {
+    /// Whether `$HOME` is this account's home in the user database, so a run under a private home
+    /// never reads, starts, writes or removes the account's own agent, whose service could never
+    /// answer it there. Under root's rights the home is the account's own by construction. Fails
+    /// when `$HOME` or the user database cannot be read.
+    pub fn is_account_home(&self) -> Result<bool, ServiceRegistrationError> {
         if self.runs_as_root {
             return Ok(true);
         }

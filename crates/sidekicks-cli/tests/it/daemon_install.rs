@@ -1,7 +1,8 @@
-//! `sidekicks daemon install` and `uninstall` against the system's real service manager: the login
-//! agent under a home of the test's own, so the registration and the data folder are the test's;
-//! the system service that runs while the person is logged out under this account's own home,
-//! since that service runs the daemon there and its secrets sit in this account's login keychain.
+//! `sidekicks daemon install` and `uninstall` against the system's real service manager: both
+//! refused under a home of the test's own, which is not the account's; the login agent's install
+//! and removal under this account's own home, since the agent's service runs there; and the system
+//! service that runs while the person is logged out under this account's own home too, since that
+//! service runs the daemon there and its secrets sit in this account's login keychain.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -9,7 +10,7 @@ use std::process::{Command, Output};
 use serde::Deserialize;
 use sidekicks_contracts::app_identity::DAEMON_LAUNCHD_LABEL;
 use sidekicks_contracts::daemon::data::DAEMON_DATA_FOLDER_NAME;
-use sidekicks_platforms::has_file_mode;
+use sidekicks_platforms::{has_file_mode, service_registration};
 
 use crate::helpers::{PrivateFolders, built_daemon_program, path_text, text};
 
@@ -18,45 +19,67 @@ const FILES_LINE: &str = "With this on, sign-ins and secrets are kept in files r
                           account alone, because a service that runs while you are logged out \
                           cannot reach the login keychain.\n";
 
-/// Removes the registration these folders' install wrote when it drops, so a failed assert leaves
-/// no login agent behind.
-struct RegistrationRemoval<'a> {
-    folders: &'a PrivateFolders,
-}
+/// The line an install or uninstall under a home that is not the account's is refused with.
+const NOT_ACCOUNT_HOME_LINE: &str = "error: HOME is not set to your home folder, so the background \
+                                     service was left as it is. Set HOME to your home folder and \
+                                     run the command again.\n";
 
-impl Drop for RegistrationRemoval<'_> {
+/// Boots the login agent out of this account's login session and removes its list through the
+/// system's registration itself when it drops, not through the command line, so a failed assert or
+/// a broken uninstall leaves no login agent behind.
+struct AgentBootOut;
+
+impl Drop for AgentBootOut {
     fn drop(&mut self) {
-        self.folders.run_sidekicks(&["daemon", "uninstall"]);
+        let registration = service_registration().expect("macOS registers the service");
+        if let Err(error) = registration.uninstall() {
+            eprintln!("the test's login agent could not be removed: {error}");
+        }
     }
 }
 
-/// The registration the install writes under the private home.
+/// The login agent's list in `home`.
 fn agent_list(home: &Path) -> PathBuf {
     home.join("Library/LaunchAgents")
         .join(format!("{DAEMON_LAUNCHD_LABEL}.plist"))
 }
 
+// Fails when an install or uninstall under a home that is not the account's goes on, since the
+// install then loads an agent into the account's login session whose service serves another home,
+// and the uninstall reads that agent as not installed and leaves it loaded.
+#[test]
+#[cfg_attr(
+    not(target_os = "macos"),
+    ignore = "only macOS offers the install and uninstall"
+)]
+fn an_install_or_uninstall_under_another_home_is_refused_with_78_and_changes_nothing() {
+    let folders = PrivateFolders::new();
+
+    for command in ["install", "uninstall"] {
+        let refused = folders.run_sidekicks(&["daemon", command]);
+
+        assert_eq!(refused.status.code(), Some(78), "{}", text(&refused.stderr));
+        assert_eq!(text(&refused.stdout), "");
+        assert_eq!(text(&refused.stderr), NOT_ACCOUNT_HOME_LINE);
+    }
+    assert!(
+        !agent_list(&folders.path().join("h")).exists(),
+        "the install wrote a registration"
+    );
+}
+
 // Fails when the uninstall leaves the registration in place, or removes the data folder with it.
 #[test]
-#[ignore = "it loads a real login agent into this account's login session, under the service's \
-            own label, which a person's own install or the app would hold"]
+#[ignore = "it loads a real login agent into this account's login session under this account's \
+            own home, running the built daemon on this account's data folder, which a person's \
+            own install or the app would hold"]
 fn an_uninstall_removes_what_the_install_wrote_and_keeps_the_data_folder() {
-    let folders = PrivateFolders::new();
-    let home = folders.path().join("h");
-    // The service manager starts the program with the account's own home; this one keeps the
-    // daemon on the test's.
-    let daemon = folders.write_script(
-        "daemon-in-private-home",
-        &format!(
-            "HOME='{}' exec '{}'",
-            path_text(&home),
-            path_text(&built_daemon_program())
-        ),
-    );
-    let _removal = RegistrationRemoval { folders: &folders };
+    let home = std::env::home_dir().expect("this account has a home");
+    let daemon = built_daemon_program();
+    let _boot_out = AgentBootOut;
 
     let installed =
-        folders.run_sidekicks(&["daemon", "install", "--daemon-path", path_text(&daemon)]);
+        run_sidekicks_as_this_account(&["daemon", "install", "--daemon-path", path_text(&daemon)]);
     assert_eq!(
         installed.status.code(),
         Some(0),
@@ -77,7 +100,7 @@ fn an_uninstall_removes_what_the_install_wrote_and_keeps_the_data_folder() {
         "the started service made no data folder"
     );
 
-    let removed = folders.run_sidekicks(&["daemon", "uninstall"]);
+    let removed = run_sidekicks_as_this_account(&["daemon", "uninstall"]);
     assert_eq!(removed.status.code(), Some(0), "{}", text(&removed.stderr));
     assert_eq!(
         text(&removed.stdout),
@@ -91,7 +114,7 @@ fn an_uninstall_removes_what_the_install_wrote_and_keeps_the_data_folder() {
         data_folder.is_dir(),
         "the uninstall removed the data folder"
     );
-    let status = folders.run_sidekicks(&["daemon", "status"]);
+    let status = run_sidekicks_as_this_account(&["daemon", "status"]);
     assert_eq!(status.status.code(), Some(69), "{}", text(&status.stdout));
 }
 
