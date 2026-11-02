@@ -49,7 +49,7 @@ impl StepDispatch {
                 }
             }
         };
-        let records = context.take_records();
+        let records = context.finish_records();
         log_lines.extend(records.log_lines);
         run_variables.extend(records.run_variables);
         if !is_reporting {

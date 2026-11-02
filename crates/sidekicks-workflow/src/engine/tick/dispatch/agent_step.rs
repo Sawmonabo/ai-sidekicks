@@ -57,7 +57,7 @@ impl StepDispatch {
         let answer = execute(node, kind, &context, ready.inputs).await;
         // Taken once: a progress mark made while the params evaluate sends nothing, since nothing
         // may come before `Started`.
-        let records = context.take_records();
+        let records = context.finish_records();
         // Closes the step's expressions before anything waits, so nothing of the evaluator stays
         // open for the run's life.
         drop(context);
