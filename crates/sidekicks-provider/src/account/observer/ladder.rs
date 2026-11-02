@@ -9,7 +9,8 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::wire::instant::WireInstant;
 
 use crate::account::errors::ProviderAccountRegistryError;
-use crate::account::registry::{ProviderAccountRegistry, ReadHold};
+use crate::account::registry::ProviderAccountRegistry;
+use crate::account::registry::read_hold::ReadHold;
 
 // How long each rung holds, the last one for every rung past it.
 const READ_HOLD_STEPS: [Duration; 4] = [

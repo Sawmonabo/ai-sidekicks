@@ -55,12 +55,15 @@ fn generation(value: u64) -> CredentialGeneration {
     serde_json::from_value(value.into()).expect("a test generation")
 }
 
-// A probe crossing into or out of being signed in raises the generation by one, a same-state
-// probe leaves it, a background crossing either way stores the reading and leaves it, and a write
-// that fails keeps neither the reading nor the rise. Killed by the rise applied to the background
-// observer, and by the rise and the reading split across writes.
+// A probe crossing into or out of being signed in raises the generation by one, judged against
+// the last reading that could tell, so a probe that cannot tell crosses nothing and the signed-in
+// reading after it, like the one before it, leaves the generation; a same-state probe leaves it, a
+// background crossing either way stores the reading and leaves it, and a write that fails keeps
+// neither the reading nor the rise. Killed by the rise applied to the background observer, by a
+// reading that cannot tell counted as signed out, by the crossing judged against the stored state
+// rather than the last one that told, and by the rise and the reading split across writes.
 #[tokio::test]
-async fn only_a_probe_crossing_moves_the_generation_and_a_failed_write_keeps_nothing() {
+async fn only_a_probe_crossing_from_the_last_told_state_moves_the_generation() {
     let database = TestDatabase::new(schema_parts());
     let data_folder = tempfile::tempdir().expect("a data folder");
     let (registry, writer) = open_test_registry(&database, data_folder.path()).await;
@@ -93,6 +96,16 @@ async fn only_a_probe_crossing_moves_the_generation_and_a_failed_write_keeps_not
             ProviderAccountHealthState::Indeterminate,
             HealthObserver::Probe,
             2,
+        ),
+        (
+            ProviderAccountHealthState::Authenticated,
+            HealthObserver::Probe,
+            3,
+        ),
+        (
+            ProviderAccountHealthState::Indeterminate,
+            HealthObserver::Probe,
+            3,
         ),
         (
             ProviderAccountHealthState::Authenticated,

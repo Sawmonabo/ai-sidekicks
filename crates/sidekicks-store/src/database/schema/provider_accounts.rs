@@ -16,6 +16,7 @@ use crate::database::sql_list::{sql_list_of, sql_list_of_every};
 pub(super) fn provider_accounts_schema_sql() -> String {
     let billing_modes = sql_list_of_every::<BillingMode>();
     let health_states = sql_list_of_every::<ProviderAccountHealthState>();
+    let indeterminate = <&'static str>::from(ProviderAccountHealthState::Indeterminate);
     let auth_modes = sql_list_of_every::<ProviderAuthMode>();
     let imported = <&'static str>::from(MemoryImportOutcomeKind::Imported);
     let memory_import_outcomes =
@@ -54,6 +55,13 @@ CREATE TABLE provider_accounts (
                             CHECK(health_state IS NULL OR health_state IN ({health_states})),
   -- When health_state was observed; not updated_at, which a relabel moves.
   health_observed_at        TEXT,
+  -- The state of the last reading that could tell, never indeterminate: what a probe's crossing
+  -- into or out of being signed in is judged against, so a reading that could not tell between
+  -- two that could never reads as a crossing. NULL until a reading told.
+  known_health_state        TEXT
+                            CHECK(known_health_state IS NULL
+                              OR (known_health_state IN ({health_states})
+                                  AND known_health_state != '{indeterminate}')),
   -- The mode the provider's own status surface reports, never assumed; unknown is a mode this
   -- daemon does not recognize.
   observed_auth_mode        TEXT

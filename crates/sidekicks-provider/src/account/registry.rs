@@ -7,9 +7,10 @@
 //!   always the one minted under the data folder: no act takes a path from a caller.
 //! - Making an account current clears the provider's mark, then sets it, in one write, so no
 //!   reader sees two current accounts or none.
-//! - The generation rises when a probe sees the account cross into or out of being signed in, in
-//!   the same statement that stores the reading; the background observer stores its reading and
-//!   never moves the generation. A home reset always raises it, with the sign-in stored as gone.
+//! - The generation rises when a probe sees the account cross into or out of being signed in from
+//!   the last reading that could tell, in the same statement that stores the reading; a reading
+//!   that cannot tell crosses nothing, and the background observer stores its reading and never
+//!   moves the generation. A home reset always raises it, with the sign-in stored as gone.
 //! - An account's place on the limits read's throttle ladder is kept on its row, so a restart
 //!   resumes a hold where it stood.
 //! - The limit resets an account can redeem are kept from its last limits read, none where that
@@ -20,8 +21,8 @@ use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
+use rusqlite::ErrorCode;
 use rusqlite::types::{Type, Value};
-use rusqlite::{ErrorCode, OptionalExtension, Row};
 use serde_json::Value as JsonValue;
 use sidekicks_contracts::name_fold::fold_name;
 use sidekicks_contracts::provider::account::record::{
@@ -38,7 +39,6 @@ use sidekicks_store::database::statement::{
     DATABASE_NOW_SQL, StatementBindings, StatementResult, WriteStatement, nullable_text_binding,
     text_binding,
 };
-use sidekicks_store::database::stored_column::optional_text_column;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 use crate::account::credential_home::{
@@ -47,6 +47,7 @@ use crate::account::credential_home::{
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::driver::contract::account::ObservedAccountIdentity;
 
+pub(crate) mod read_hold;
 pub mod record;
 pub mod removal;
 
@@ -66,13 +67,13 @@ static INSERT_ACCOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO provider_accounts (account_id, provider, display_label, display_label_folded,
                                        credential_home_path, billing_mode, is_default,
-                                       health_state, health_observed_at, observed_auth_mode,
-                                       created_at, updated_at)
+                                       health_state, health_observed_at, known_health_state,
+                                       observed_auth_mode, created_at, updated_at)
   SELECT @account_id, @provider, @display_label, @display_label_folded, @credential_home_path,
          @billing_mode,
          NOT EXISTS (SELECT 1 FROM provider_accounts WHERE provider = @provider AND is_default = 1),
-         @health_state, @health_observed_at, @observed_auth_mode, {DATABASE_NOW_SQL},
-         {DATABASE_NOW_SQL}"
+         @health_state, @health_observed_at, {KNOWN_HEALTH_STATE_SQL}, @observed_auth_mode,
+         {DATABASE_NOW_SQL}, {DATABASE_NOW_SQL}"
     )
 });
 
@@ -94,15 +95,23 @@ static SET_CURRENT_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// `IS` compares a never-observed NULL as not signed in, so a first signed-in reading crosses in.
+// The state a reading leaves as the last one that told: its own, unless it could not tell.
+const KNOWN_HEALTH_STATE_SQL: &str =
+    "CASE WHEN @health_state IS @indeterminate THEN NULL ELSE @health_state END";
+
+// A crossing is judged against the last reading that told, never against one that could not, and
+// a reading that cannot tell crosses nothing. `IS` compares a never-told NULL as not signed in, so
+// a first signed-in reading crosses in.
 static RECORD_HEALTH_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE provider_accounts
      SET credential_generation = credential_generation
            + (@bumps_generation
-              AND ((health_state IS @authenticated) != (@health_state IS @authenticated))),
+              AND @health_state IS NOT @indeterminate
+              AND ((known_health_state IS @authenticated) != (@health_state IS @authenticated))),
          health_state = @health_state,
          health_observed_at = @health_observed_at,
+         known_health_state = COALESCE({KNOWN_HEALTH_STATE_SQL}, known_health_state),
          updated_at = {DATABASE_NOW_SQL}
    WHERE account_id = @account_id AND removal_intent = 0
   RETURNING credential_generation"
@@ -116,6 +125,7 @@ static RECORD_HOME_RESET_SQL: LazyLock<String> = LazyLock::new(|| {
      SET credential_generation = credential_generation + 1,
          health_state = @health_state,
          health_observed_at = @health_observed_at,
+         known_health_state = @health_state,
          updated_at = {DATABASE_NOW_SQL}
    WHERE account_id = @account_id AND removal_intent = 0
   RETURNING credential_generation"
@@ -130,42 +140,10 @@ static RECORD_TOKEN_REPLACEMENT_SQL: LazyLock<String> = LazyLock::new(|| {
      SET credential_generation = credential_generation + 1,
          health_state = @health_state,
          health_observed_at = @health_observed_at,
+         known_health_state = COALESCE({KNOWN_HEALTH_STATE_SQL}, known_health_state),
          observed_auth_mode = @observed_auth_mode,
          updated_at = {DATABASE_NOW_SQL}
    WHERE account_id = @account_id AND removal_intent = 0"
-    )
-});
-
-const SELECT_READ_HOLD_SQL: &str = "
-  SELECT read_hold_rung, read_held_until
-    FROM provider_accounts
-   WHERE account_id = ? AND removal_intent = 0";
-
-// One rung up; each `@hold_<n>` is when a hold that puts the account on rung `n` ends, the last
-// one standing for every rung past it. SQLite reads the old rung on both sides of the `SET`.
-static CLIMB_READ_HOLD_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "UPDATE provider_accounts
-     SET read_hold_rung = read_hold_rung + 1,
-         read_held_until = CASE read_hold_rung
-                             WHEN 0 THEN @hold_1
-                             WHEN 1 THEN @hold_2
-                             WHEN 2 THEN @hold_3
-                             ELSE @hold_4
-                           END,
-         updated_at = {DATABASE_NOW_SQL}
-   WHERE account_id = @account_id AND removal_intent = 0
-  RETURNING read_hold_rung, read_held_until"
-    )
-});
-
-// Writes only an account that is on the ladder, so an answered read most often writes nothing.
-static CLEAR_READ_HOLD_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "UPDATE provider_accounts
-     SET read_hold_rung = 0, read_held_until = NULL, updated_at = {DATABASE_NOW_SQL}
-   WHERE account_id = @account_id
-     AND (read_hold_rung != 0 OR read_held_until IS NOT NULL)"
     )
 });
 
@@ -276,16 +254,6 @@ pub struct AccountSettingsChange {
     pub window_start_enabled: Option<bool>,
     /// Wake the machine for a window that resets while it sleeps.
     pub wake_for_window_start_enabled: Option<bool>,
-}
-
-/// An account's place on the limits read's throttle ladder: how many reads in a row the provider
-/// refused, and when the latest hold ends.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ReadHold {
-    /// 0 once a read answered, one more for each refused read since.
-    pub(crate) rung: u32,
-    /// When the latest hold ends; `None` until one is set.
-    pub(crate) held_until: Option<WireInstant>,
 }
 
 /// The name the person typed for an account added from a pasted token or API key.
@@ -412,6 +380,10 @@ impl ProviderAccountRegistry {
                         "@observed_auth_mode",
                         admission.observed_auth_mode.map(<&'static str>::from),
                     ),
+                    text_binding(
+                        "@indeterminate",
+                        ProviderAccountHealthState::Indeterminate.into(),
+                    ),
                 ]),
                 expected_row_count: Some(1),
             }])
@@ -492,8 +464,9 @@ impl ProviderAccountRegistry {
     }
 
     /// Stores `observation` as `account_id`'s health pair and answers its generation after it: a
-    /// [`HealthObserver::Probe`] observation crossing into or out of being signed in raises it by
-    /// one in the same statement, and a background one never moves it. Fails with
+    /// [`HealthObserver::Probe`] observation crossing into or out of being signed in from the last
+    /// reading that could tell raises it by one in the same statement, while one that cannot tell
+    /// and a background one never move it. Fails with
     /// [`ProviderAccountRegistryError::NotFound`] for an account not registered or being removed;
     /// a failed write keeps neither the reading nor the rise.
     pub async fn record_health(
@@ -512,6 +485,10 @@ impl ProviderAccountRegistry {
                     text_binding(
                         "@authenticated",
                         ProviderAccountHealthState::Authenticated.into(),
+                    ),
+                    text_binding(
+                        "@indeterminate",
+                        ProviderAccountHealthState::Indeterminate.into(),
                     ),
                     (
                         Cow::Borrowed("@bumps_generation"),
@@ -567,72 +544,15 @@ impl ProviderAccountRegistry {
                 text_binding("@health_state", health.state.into()),
                 text_binding("@health_observed_at", health.observed_at.as_str()),
                 text_binding("@observed_auth_mode", observed_auth_mode.into()),
+                text_binding(
+                    "@indeterminate",
+                    ProviderAccountHealthState::Indeterminate.into(),
+                ),
             ]),
             expected_row_count: Some(1),
         }])
         .await?;
         self.read(account_id).await
-    }
-
-    /// `account_id`'s place on the read's throttle ladder. Fails with
-    /// [`ProviderAccountRegistryError::NotFound`] for an account not registered or being removed.
-    pub(super) async fn read_hold(
-        &self,
-        account_id: ProviderAccountId,
-    ) -> Result<ReadHold, ProviderAccountRegistryError> {
-        self.reads
-            .read(ReadLength::Short, move |connection| {
-                connection
-                    .prepare_cached(SELECT_READ_HOLD_SQL)?
-                    .query_row([account_id.as_str()], read_hold)
-                    .optional()?
-                    .ok_or(ProviderAccountRegistryError::NotFound)
-            })
-            .await
-    }
-
-    /// Puts `account_id` one rung up the read's throttle ladder, held until `hold_ends[n - 1]`
-    /// where `n` is its new rung, the last entry for every rung past the fourth, in one statement,
-    /// and answers its new place. Fails with [`ProviderAccountRegistryError::NotFound`] for an
-    /// account not registered or being removed.
-    pub(super) async fn climb_read_hold(
-        &self,
-        account_id: &ProviderAccountId,
-        hold_ends: &[WireInstant; 4],
-    ) -> Result<ReadHold, ProviderAccountRegistryError> {
-        let [first, second, third, fourth] = hold_ends;
-        let results = self
-            .write(vec![WriteStatement {
-                sql: Cow::Borrowed(CLIMB_READ_HOLD_SQL.as_str()),
-                bindings: StatementBindings::Named(vec![
-                    text_binding("@account_id", account_id.as_str()),
-                    text_binding("@hold_1", first.as_str()),
-                    text_binding("@hold_2", second.as_str()),
-                    text_binding("@hold_3", third.as_str()),
-                    text_binding("@hold_4", fourth.as_str()),
-                ]),
-                expected_row_count: Some(1),
-            }])
-            .await?;
-        returned_read_hold(&results).map_err(ProviderAccountRegistryError::Query)
-    }
-
-    /// Takes `account_id` off the read's throttle ladder, a write only where it was on it. An
-    /// account not registered is left as it is. Fails when the write is not kept.
-    pub(super) async fn clear_read_hold(
-        &self,
-        account_id: &ProviderAccountId,
-    ) -> Result<(), ProviderAccountRegistryError> {
-        self.write(vec![WriteStatement {
-            sql: Cow::Borrowed(CLEAR_READ_HOLD_SQL.as_str()),
-            bindings: StatementBindings::Named(vec![text_binding(
-                "@account_id",
-                account_id.as_str(),
-            )]),
-            expected_row_count: None,
-        }])
-        .await?;
-        Ok(())
     }
 
     /// Stores `available`, the limit resets `account_id` can redeem as its last limits read
@@ -787,45 +707,6 @@ fn returned_generation(
         )),
     }
     .map_err(ProviderAccountRegistryError::Query)
-}
-
-// The ladder place the write's one statement returned.
-fn returned_read_hold(results: &[StatementResult]) -> rusqlite::Result<ReadHold> {
-    let row = results.first().and_then(|result| result.rows.first());
-    match row.map(Vec::as_slice) {
-        Some([Value::Integer(rung), held_until]) => Ok(ReadHold {
-            rung: u32::try_from(*rung).map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(0, Type::Integer, Box::new(error))
-            })?,
-            held_until: match held_until {
-                Value::Text(text) => {
-                    Some(WireInstant::try_from(text.clone()).map_err(|error| {
-                        rusqlite::Error::FromSqlConversionFailure(1, Type::Text, Box::new(error))
-                    })?)
-                }
-                Value::Null => None,
-                other @ (Value::Integer(_) | Value::Real(_) | Value::Blob(_)) => {
-                    return Err(rusqlite::Error::FromSqlConversionFailure(
-                        1,
-                        other.data_type(),
-                        "the stored hold end is no text".into(),
-                    ));
-                }
-            },
-        }),
-        _ => Err(rusqlite::Error::FromSqlConversionFailure(
-            0,
-            Type::Null,
-            "the stored ladder place is not a rung and a hold end".into(),
-        )),
-    }
-}
-
-fn read_hold(row: &Row<'_>) -> rusqlite::Result<ReadHold> {
-    Ok(ReadHold {
-        rung: row.get(0)?,
-        held_until: optional_text_column(row, 1, WireInstant::try_from)?,
-    })
 }
 
 fn switch_binding(name: &'static str, switch: Option<bool>) -> (Cow<'static, str>, Value) {
