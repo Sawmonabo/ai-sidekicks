@@ -467,8 +467,8 @@ pub enum ResumedRunMove {
     /// Left as it is: queued, resting, waiting on its provider's own end of the turn or of its
     /// ask, or held on the person, whose answer continues it.
     Left,
-    /// Left as it is with its provider running its turn again, so the limits it owes and a
-    /// person's pending interrupts go again.
+    /// Left as it is with its provider running its turn again, so the limits it owes and its
+    /// pending interrupts, a person's or a limit's, go again.
     Running,
     /// `pausing → paused`; its open turns end interrupted with `daemonRestart` where the turn is
     /// gone, and are otherwise left to the provider's own end.
@@ -485,7 +485,7 @@ pub enum ResumedRunMove {
 /// child where `is_child` and one a pending stop waits on where `is_stopping`, from what its
 /// provider holds of its turn. A queued run is left whatever the answer. A stop wins over the
 /// resume before any pause: a stopping run whose turn still runs, `paused` aside, goes on with the
-/// limits it owes and the person's pending interrupts handed again, and any other stopping run
+/// limits it owes and its pending interrupts handed again, and any other stopping run
 /// settles by its stops. A run held on the person is left as it is, its card or question kept. A
 /// turn still running leaves the run as it is, the provider going on; a turn its provider ended
 /// leaves the run to that end, except that `pausing` reaches its boundary. A gone turn interrupts

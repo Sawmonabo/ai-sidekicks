@@ -545,6 +545,26 @@ impl RunEngine {
         Ok(())
     }
 
+    /// The cut the engine holds of `run_id`'s turn `turn_number` at `limit` that a restart's re-arm
+    /// restored from a limit's row: the turn's first cut at that limit, or `None` where it holds
+    /// none.
+    pub(crate) fn restored_cut(
+        &self,
+        run_id: RunId,
+        turn_number: SafeInt<1>,
+        limit: RunLimit,
+    ) -> Option<HandedCut> {
+        lock(&self.live)
+            .cut_turns
+            .get(&(run_id, turn_number))?
+            .iter()
+            .find(|cut| cut.limit == limit)
+            .map(|cut| HandedCut {
+                turn_number,
+                stop_id: cut.stop_id,
+            })
+    }
+
     /// Hands the interventions service again, on a task of its own carrying the caller's span, the
     /// interrupt of each limit `run_id` owes, once its provider runs again after a wait or a
     /// pause, where no step or usage report comes to hand it; a failure is logged, the next step,

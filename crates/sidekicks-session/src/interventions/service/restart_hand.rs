@@ -1,8 +1,9 @@
-//! A person's interrupt a restart found pending on a run whose provider kept its turn, handed
-//! again through the live path once the run's conversation is resumed: the queue's hold, which
-//! lived in memory and ended with the old process, is taken again, a `requested` row is accepted
-//! against the run as a live request is, and an `accepted` row is dispatched as its accept left
-//! it. A row the hand leaves pending is settled by the run's end.
+//! The interrupts a restart found pending on a run whose provider kept its turn, handed again
+//! through the live path once the run's conversation is resumed. For a person's, the queue's hold,
+//! which lived in memory and ended with the old process, is taken again, a `requested` row is
+//! accepted against the run as a live request is, and an `accepted` row is dispatched as its
+//! accept left it; a limit's `accepted` row, whose hand ended with the old process, is carried out
+//! once as its live hand would. A row the hand leaves pending is settled by the run's end.
 
 use std::error::Error;
 
@@ -22,8 +23,8 @@ use crate::interventions::store::UnresolvedInterventionState;
 use crate::run::restart::{PendingInterrupt, read_pending_interrupts};
 
 impl InterventionService {
-    /// Hands again, on a task of its own carrying the caller's span, each of the person's
-    /// interrupts pending on `run_id`, whose provider runs its turn again after a restart; a
+    /// Hands again, on a task of its own carrying the caller's span, each interrupt pending on
+    /// `run_id`, a person's or a limit's, whose provider runs its turn again after a restart; a
     /// failure is logged, and a row left pending is settled by the run's end. Spawned, since the
     /// resume that calls it holds the session while the run's end goes through the run queue.
     pub fn hand_pending_interrupts_again(&self, run_id: RunId) {
@@ -34,7 +35,7 @@ impl InterventionService {
                     tracing::warn!(
                         run_id = %run_id,
                         error = &error as &(dyn Error + 'static),
-                        "a person's interrupt pending at the restart could not be handed again; \
+                        "an interrupt pending at the restart could not be handed again; \
                          the run's end settles it"
                     );
                 }
@@ -43,9 +44,10 @@ impl InterventionService {
         );
     }
 
-    /// Carries out each of the person's interrupts pending on `run_id`, oldest first, each under
-    /// the run's interrupt lock, through the live path; a limit's row is left to the engine's own
-    /// hand. Every row is tried, and the failures are returned together.
+    /// Carries out each interrupt pending on `run_id`, oldest first, each under the run's interrupt
+    /// lock, through the live path: a person's as its request would go, a limit's as its live hand
+    /// would, recording its own failure. Every row is tried, and the person's failures are returned
+    /// together.
     pub(super) async fn carry_out_pending_interrupts(
         &self,
         run_id: RunId,
@@ -70,10 +72,6 @@ impl InterventionService {
             client_idempotency_key,
         } in pending
         {
-            // A limit's row is the engine's own hand.
-            let InterruptInterventionRecord::Person(record) = record else {
-                continue;
-            };
             let target = InterventionTarget {
                 session_id,
                 intervention_id,
@@ -81,12 +79,29 @@ impl InterventionService {
                 intervention_type: InterventionType::Interrupt,
                 actor,
             };
-            let interrupt =
-                person_request_of(run_id, expected_run_version, client_idempotency_key, record);
             let _hold = self.interrupt_lock.acquire(run_id).await;
-            handed.push(self.hand_again(&target, state, interrupt).await);
+            match record {
+                InterruptInterventionRecord::Person(record) => {
+                    let interrupt = person_request_of(
+                        run_id,
+                        expected_run_version,
+                        client_idempotency_key,
+                        record,
+                    );
+                    handed.push(self.hand_again(&target, state, interrupt).await);
+                }
+                // A limit's row is only ever written `accepted`, so its state is not read.
+                InterruptInterventionRecord::Limit(record) => {
+                    self.hand_limit_interrupt_again(
+                        target,
+                        record,
+                        i64::from(expected_run_version),
+                    )
+                    .await;
+                }
+            }
         }
-        match settle_all(handed, "handing a person's pending interrupts again") {
+        match settle_all(handed, "handing the pending interrupts again") {
             Ok(_) => Ok(()),
             Err(SettleFailures::One(failure)) => Err(failure),
             Err(many @ SettleFailures::Many { .. }) => {
