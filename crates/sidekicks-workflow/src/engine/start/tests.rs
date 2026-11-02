@@ -1,4 +1,7 @@
+mod unstarted;
+
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures::future::BoxFuture;
@@ -51,8 +54,10 @@ use super::{
 use crate::definitions::kept_values::{
     WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY, WorkflowKeptValueStore,
 };
+use crate::engine::event_record::EngineRecorder;
 use crate::engine::ports::{
-    ChainAskAfterReader, PortError, REFUSED_PORT_CALL, RunProviderReader, StepPayloadArtifacts,
+    ChainAskAfterReader, EngineRecordSink, KeptEngineRecords, PortError, REFUSED_PORT_CALL,
+    RunProviderReader, StepPayloadArtifacts,
 };
 use crate::schema::schema_parts;
 use crate::test_rows::{TEST_SESSION_ID, insert_run, insert_workflow_version_body};
@@ -76,11 +81,12 @@ struct KeptPayload {
 }
 
 /// A payload store that keeps what each write was given and answers a fresh artifact, and keeps
-/// each artifact deleted.
+/// each artifact deleted, or refuses every delete once told to.
 #[derive(Default)]
 struct KeptPayloads {
     writes: Mutex<Vec<KeptPayload>>,
     deletes: Mutex<Vec<ArtifactId>>,
+    is_refusing_deletes: AtomicBool,
 }
 
 impl KeptPayloads {
@@ -96,6 +102,10 @@ impl KeptPayloads {
             .lock()
             .expect("the test's payloads lock")
             .clone()
+    }
+
+    fn refuse_deletes(&self) {
+        self.is_refusing_deletes.store(true, Ordering::SeqCst);
     }
 }
 
@@ -133,6 +143,9 @@ impl StepPayloadArtifacts for KeptPayloads {
         &'call self,
         artifact_id: &'call ArtifactId,
     ) -> BoxFuture<'call, Result<(), PortError>> {
+        if self.is_refusing_deletes.load(Ordering::SeqCst) {
+            return Box::pin(async { Err(REFUSED_PORT_CALL.into()) });
+        }
         self.deletes
             .lock()
             .expect("the test's payloads lock")
@@ -191,6 +204,7 @@ struct Fixture {
     rows: Connection,
     starter: WorkflowRunStarter,
     payloads: Arc<KeptPayloads>,
+    records: Arc<KeptEngineRecords>,
     machine_id: MachineId,
 }
 
@@ -237,6 +251,7 @@ impl Fixture {
             },
         ));
         let payloads = Arc::new(KeptPayloads::default());
+        let records = Arc::new(KeptEngineRecords::default());
         let starter = WorkflowRunStarter::new(WorkflowRunStarterDependencies {
             pool,
             event_log,
@@ -247,6 +262,9 @@ impl Fixture {
             provider: Arc::new(TestRunProvider(provider)),
             kept_values,
             data_folder: test_folder(&database).join("data"),
+            recorder: Arc::new(EngineRecorder::new(
+                Arc::clone(&records) as Arc<dyn EngineRecordSink>
+            )),
         });
         let rows = database.reader();
         insert_workflow_version_body(&rows, DEFINITION_ID, VERSION_ID, body);
@@ -256,6 +274,7 @@ impl Fixture {
             rows,
             starter,
             payloads,
+            records,
             machine_id,
         }
     }
@@ -520,114 +539,6 @@ async fn a_trigger_start_passes_the_rules_and_a_persons_or_agents_does_not(
         assert_eq!(fixture.count("SELECT COUNT(*) FROM session_events"), 0);
         assert_eq!(run_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
     }
-}
-
-/// How a start that writes nothing ends.
-#[derive(Clone, Copy, Debug)]
-enum NothingWritten {
-    UnknownSession,
-    UnknownVersion,
-    InputLeftOut,
-    HeldOnChain,
-}
-
-/// Mutations: a refusal checked after the write (a run row or an event is kept); a wrong code; the
-/// inputs left unchecked (the run starts); the count's refusal read as an error; a held start's
-/// own folder left behind; a held start's stored input, above the inline cap, left undeleted.
-#[rstest]
-#[case::unknown_session(NothingWritten::UnknownSession)]
-#[case::unknown_version(NothingWritten::UnknownVersion)]
-#[case::input_left_out(NothingWritten::InputLeftOut)]
-#[case::held_on_chain(NothingWritten::HeldOnChain)]
-#[tokio::test]
-async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
-    let declared = json!([{ "type": "string", "name": "ticket", "required": true, "default": "" }]);
-    let session = match case {
-        NothingWritten::UnknownSession => TestSession::Unknown,
-        NothingWritten::UnknownVersion
-        | NothingWritten::InputLeftOut
-        | NothingWritten::HeldOnChain => TestSession::WithoutFolder,
-    };
-    let fixture = Fixture::new(
-        &body(Some(declared)),
-        session,
-        WorkflowChainAskAfterRuns::new(25),
-        Some(test_provider()),
-    )
-    .await;
-    let input = match case {
-        NothingWritten::InputLeftOut => Vec::new(),
-        NothingWritten::UnknownSession | NothingWritten::UnknownVersion => {
-            vec![item(json!({ "ticket": "T-1" }))]
-        }
-        NothingWritten::HeldOnChain => vec![item(json!({ "ticket": "x".repeat(70 * 1024) }))],
-    };
-    let mut request = start(
-        WorkflowStartArrival::Person,
-        WorkflowRunChainPlace::Starts {},
-        input,
-    );
-    if let NothingWritten::UnknownVersion = case {
-        request.workflow_version_id =
-            WorkflowVersionId::new(UNKNOWN_VERSION_ID).expect("a version id");
-    }
-    if let NothingWritten::HeldOnChain = case {
-        fixture.store_chain_root(25);
-        request.chain = joins_root();
-    }
-    let stored_runs = fixture.count("SELECT COUNT(*) FROM workflow_runs");
-
-    let outcome = fixture.starter.start(request).await;
-
-    match case {
-        NothingWritten::HeldOnChain => {
-            let held_on = match outcome.expect("a held start is no failure") {
-                WorkflowStartOutcome::HeldOnChain { chain_root_run_id } => Some(chain_root_run_id),
-                WorkflowStartOutcome::Started(_) => None,
-            };
-            assert_eq!(
-                held_on,
-                Some(WorkflowRunId::new(ROOT_RUN_ID).expect("the root's id"))
-            );
-            assert_eq!(
-                fixture.count(&format!(
-                    "SELECT chain_run_count FROM workflow_runs WHERE id = '{ROOT_RUN_ID}'"
-                )),
-                25
-            );
-        }
-        NothingWritten::UnknownSession => {
-            let refusal = refusal(outcome.expect_err("the start is refused"));
-            assert_eq!(refusal.code, RefusalCode::SessionNotFound);
-        }
-        NothingWritten::UnknownVersion => {
-            let refusal = refusal(outcome.expect_err("the start is refused"));
-            assert_eq!(refusal.code, RefusalCode::WorkflowVersionNotFound);
-        }
-        NothingWritten::InputLeftOut => {
-            let refusal = refusal(outcome.expect_err("the start is refused"));
-            assert_eq!(refusal.code, RefusalCode::WorkflowRunInputRequired);
-            assert_eq!(
-                refusal.detail.map(|detail| detail["inputNames"].clone()),
-                Some(json!(["ticket"]))
-            );
-        }
-    }
-    assert_eq!(
-        fixture.count("SELECT COUNT(*) FROM workflow_runs"),
-        stored_runs
-    );
-    assert_eq!(fixture.count("SELECT COUNT(*) FROM session_events"), 0);
-    assert_eq!(run_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
-    let written: Vec<ArtifactId> = fixture
-        .payloads
-        .writes()
-        .iter()
-        .map(|kept| kept.artifact_id)
-        .collect();
-    let stored_count = usize::from(matches!(case, NothingWritten::HeldOnChain));
-    assert_eq!(written.len(), stored_count);
-    assert_eq!(fixture.payloads.deletes(), written);
 }
 
 /// A start that is written, by where it works and how large its input is.

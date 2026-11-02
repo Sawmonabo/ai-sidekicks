@@ -82,6 +82,7 @@ use crate::definitions::stored_document::{
     StoredDocumentError, parse_stored_pin_data, parse_stored_workflow_body,
 };
 use crate::definitions::versions::history::{WorkflowVersions, WorkflowVersionsError};
+use crate::engine::event_record::{EngineFault, EngineRecorder};
 use crate::engine::ports::{
     ChainAskAfterReader, PortError, RunProviderReader, StepPayloadArtifacts,
 };
@@ -231,26 +232,26 @@ pub(crate) enum WorkflowRunStartError {
         /// The first run the start named.
         chain_root_run_id: WorkflowRunId,
     },
-    /// The start ended without a run and the run's own folder it made could not be removed;
-    /// `ended` is how it ended.
+    /// The start failed and the run's own folder it made could not be removed; `ended` is how it
+    /// failed.
     #[error("the run's own folder at {} was left behind", .folder.display())]
     FolderLeft {
         /// The folder.
         folder: PathBuf,
-        /// How the start ended.
-        ended: Box<Result<WorkflowStartOutcome, WorkflowRunStartError>>,
+        /// How the start failed.
+        ended: Box<WorkflowRunStartError>,
         /// Why the removal failed.
         #[source]
         removal: io::Error,
     },
-    /// The start ended without a run and the trigger step's input it stored could not be deleted;
-    /// `ended` is how it ended.
+    /// The start failed and the trigger step's input it stored could not be deleted; `ended` is how
+    /// it failed.
     #[error("the trigger step's stored input {artifact_id} was left behind")]
     PayloadLeft {
         /// The stored input.
         artifact_id: ArtifactId,
-        /// How the start ended.
-        ended: Box<Result<WorkflowStartOutcome, WorkflowRunStartError>>,
+        /// How the start failed.
+        ended: Box<WorkflowRunStartError>,
         /// Why the deletion failed.
         #[source]
         removal: PortError,
@@ -353,6 +354,8 @@ pub(crate) struct WorkflowRunStarterDependencies {
     pub(crate) kept_values: Arc<WorkflowKeptValueStore>,
     /// The data folder a run's own folder is made in.
     pub(crate) data_folder: PathBuf,
+    /// The engine's record, which takes what a held start could not clean up.
+    pub(crate) recorder: Arc<EngineRecorder>,
 }
 
 /// Starts workflow runs: checks each start, prepares the run's folder, reads the scope its steps
@@ -367,6 +370,7 @@ pub(crate) struct WorkflowRunStarter {
     provider: Arc<dyn RunProviderReader>,
     kept_values: Arc<WorkflowKeptValueStore>,
     data_folder: PathBuf,
+    recorder: Arc<EngineRecorder>,
 }
 
 impl WorkflowRunStarter {
@@ -382,6 +386,7 @@ impl WorkflowRunStarter {
             provider,
             kept_values,
             data_folder,
+            recorder,
         } = dependencies;
         Self {
             pool,
@@ -393,6 +398,7 @@ impl WorkflowRunStarter {
             provider,
             kept_values,
             data_folder,
+            recorder,
         }
     }
 
@@ -405,19 +411,65 @@ impl WorkflowRunStarter {
     /// (`workflow.version.notFound`) or [`WorkflowRunStartError::Session`] (`session.notFound`)
     /// before anything is made, and with the other variants when a read, the provider, the folder,
     /// the payload store or the write fails; the run's own folder and its stored trigger input go
-    /// with every outcome but a start.
+    /// with every outcome but a start. A held start whose folder or stored input cannot be removed
+    /// is still answered held, the removal's failure going to the engine's record.
     pub(crate) async fn start(
         &self,
         start: WorkflowRunStart,
     ) -> Result<WorkflowStartOutcome, WorkflowRunStartError> {
         let checked = self.check(&start).await?;
         let prepared = self.prepare(&checked).await?;
-        let ended = self.write(start, checked, &prepared).await;
-        let is_started = matches!(ended, Ok(WorkflowStartOutcome::Started(_)));
-        match prepared.folder {
-            RunFolder::Own(folder) if !is_started => remove_own_folder(folder, ended).await,
-            RunFolder::Own(_) | RunFolder::Session(_) => ended,
+        let mut stored_input = None;
+        let mut ended = self
+            .write(start, checked, &prepared, &mut stored_input)
+            .await;
+        if matches!(ended, Ok(WorkflowStartOutcome::Started(_))) {
+            return ended;
         }
+        let run_id = prepared.workflow_run_id;
+        if let Some(artifact_id) = stored_input
+            && let Err(removal) = self.payloads.delete(&artifact_id).await
+        {
+            ended = match ended {
+                Ok(held) => {
+                    self.record_left_behind(run_id, &*removal).await;
+                    Ok(held)
+                }
+                Err(error) => Err(WorkflowRunStartError::PayloadLeft {
+                    artifact_id,
+                    ended: Box::new(error),
+                    removal,
+                }),
+            };
+        }
+        if let RunFolder::Own(folder) = prepared.folder
+            && let Err(removal) = tokio::fs::remove_dir_all(&folder).await
+        {
+            ended = match ended {
+                Ok(held) => {
+                    self.record_left_behind(run_id, &removal).await;
+                    Ok(held)
+                }
+                Err(error) => Err(WorkflowRunStartError::FolderLeft {
+                    folder,
+                    ended: Box::new(error),
+                    removal,
+                }),
+            };
+        }
+        ended
+    }
+
+    // Records what a held start could not remove, under the run id it minted.
+    async fn record_left_behind(
+        &self,
+        run_id: WorkflowRunId,
+        removal: &(dyn std::error::Error + Send + Sync + 'static),
+    ) {
+        self.recorder
+            .for_run(run_id, Arc::new(RunRedaction::new(&[])))
+            .fault(None, EngineFault::HeldStartLeftBehind, removal)
+            .await;
     }
 
     // The checks, in order, before anything is made: a trigger's fire under the workflow start
@@ -607,13 +659,14 @@ impl WorkflowRunStarter {
 
     // Reads the run's scope and builds the trigger step's input, then commits the run's row, with
     // its chain's count for a joining run, and its started event, whose instant is the row's start.
-    // The scope is read first, so a failed read leaves no stored input behind, and a stored input
-    // is deleted again when the commit makes no run.
+    // The scope is read first, so a failed read leaves no stored input behind; an input it stores
+    // is named in `stored_input`, for the start to delete when no run is made.
     async fn write(
         &self,
         start: WorkflowRunStart,
         checked: CheckedStart,
         prepared: &PreparedStart,
+        stored_input: &mut Option<ArtifactId>,
     ) -> Result<WorkflowStartOutcome, WorkflowRunStartError> {
         let WorkflowRunStart {
             workflow_version_id,
@@ -634,10 +687,9 @@ impl WorkflowRunStarter {
         let trigger_input = self
             .trigger_input(session_id, &trigger_step, &checked.start_items)
             .await?;
-        let stored_input = match &trigger_input {
-            WorkflowPayloadRef::Artifact { artifact_id, .. } => Some(*artifact_id),
-            WorkflowPayloadRef::Inline { .. } => None,
-        };
+        if let WorkflowPayloadRef::Artifact { artifact_id, .. } = &trigger_input {
+            *stored_input = Some(*artifact_id);
+        }
         // The limit is read at each joining start, so a changed setting holds the next one.
         let chain_ask_after = match chain {
             WorkflowRunChainPlace::Joins { .. } => self.chain_ask_after.chain_ask_after_runs(),
@@ -682,7 +734,7 @@ impl WorkflowRunStarter {
                 },
             )
             .await;
-        let ended = match (appended, chain) {
+        match (appended, chain) {
             (Ok(_receipt), _) => {
                 let node_params = checked
                     .nodes
@@ -736,19 +788,6 @@ impl WorkflowRunStarter {
                 Err(WorkflowRunStartError::ChainRootMissing { chain_root_run_id })
             }
             (Err(error), _) => Err(WorkflowRunStartError::Append(error)),
-        };
-        match stored_input {
-            Some(artifact_id) if !matches!(ended, Ok(WorkflowStartOutcome::Started(_))) => {
-                match self.payloads.delete(&artifact_id).await {
-                    Ok(()) => ended,
-                    Err(removal) => Err(WorkflowRunStartError::PayloadLeft {
-                        artifact_id,
-                        ended: Box::new(ended),
-                        removal,
-                    }),
-                }
-            }
-            Some(_) | None => ended,
         }
     }
 }
@@ -806,21 +845,5 @@ async fn make_own_folder(folder: &Path) -> io::Result<()> {
             tokio::fs::create_dir(folder).await
         }
         made => made,
-    }
-}
-
-// Removes the run's own `folder` after a start that ended without a run, and answers how it
-// ended; a folder that cannot be removed is a failure that keeps how it ended.
-async fn remove_own_folder(
-    folder: PathBuf,
-    ended: Result<WorkflowStartOutcome, WorkflowRunStartError>,
-) -> Result<WorkflowStartOutcome, WorkflowRunStartError> {
-    match tokio::fs::remove_dir_all(&folder).await {
-        Ok(()) => ended,
-        Err(removal) => Err(WorkflowRunStartError::FolderLeft {
-            folder,
-            ended: Box::new(ended),
-            removal,
-        }),
     }
 }

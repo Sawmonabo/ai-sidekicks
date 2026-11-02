@@ -182,6 +182,8 @@ pub(crate) enum EngineFault {
     AgentRunStopFailed,
     /// A step's secret could not be read: the keychain failed, or the read of a secret's record.
     SecretReadFailed,
+    /// A start held on its chain could not remove the run's own folder or its stored trigger input.
+    HeldStartLeftBehind,
 }
 
 /// An intent recorded and not yet answered; its outcome names it by `sequence`.
@@ -378,6 +380,11 @@ impl RunEngineRecord {
                 &mut line,
                 "secretReadFailed",
                 "A secret of the step could not be read.",
+            ),
+            EngineFault::HeldStartLeftBehind => says(
+                &mut line,
+                "heldStartLeftBehind",
+                "A start held on its chain left its folder or its stored input behind.",
             ),
         }
         line.insert("error".to_owned(), json!(error_chain(error)));
