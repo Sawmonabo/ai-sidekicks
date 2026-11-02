@@ -10,6 +10,8 @@
 //! the value, then remove the record, so a crash in between is finished at the next start instead
 //! of leaving a value with no record.
 
+pub mod redaction;
+
 use std::sync::Arc;
 
 use secrecy::SecretString;

@@ -30,15 +30,19 @@ ignored = [
 doctest = false
 
 [dependencies]
+aho-corasick.workspace = true
+base64.workspace = true
 blake3.workspace = true
 croner.workspace = true
 csv.workspace = true
 dugong.workspace = true
 flate2.workspace = true
+form_urlencoded.workspace = true
 futures.workspace = true
 garde.workspace = true
 jiff.workspace = true
 jsonata-core.workspace = true
+percent-encoding.workspace = true
 rquickjs.workspace = true
 rusqlite.workspace = true
 schemars.workspace = true
