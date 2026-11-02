@@ -135,7 +135,9 @@ pub(crate) fn restart_system_service<Output: Write, ErrorOutput: Write>(
     // The stop half returns once the process ended, which launchd may not have read yet, so the
     // start ends whatever it still counts as running.
     kickstart_system_service(registration, SystemServiceKickstart::Restart)?;
-    wait_for_system_service(registration, &args.start)?;
+    run_listening_for_ctrl_c(async |ctrl_c| {
+        wait_for_system_service(registration, &args.start, ctrl_c).await
+    })?;
     write_line(context, RESTARTED_LINE)
 }
 

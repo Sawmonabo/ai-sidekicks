@@ -16,8 +16,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::ExitStatus;
-use std::thread::sleep;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::Context as _;
 use clap::Args;
@@ -32,10 +31,12 @@ use sidekicks_client::error::ClientError;
 use sidekicks_contracts::daemon::recovery::DaemonRepairingDetails;
 use sidekicks_contracts::daemon::service_status::DaemonCannotStart;
 use sidekicks_platforms::{
-    LastingChild, LastingCommand, NULL_DEVICE_PATH, PinnedProcess, ServiceOwner,
+    CtrlCListener, LastingChild, LastingCommand, NULL_DEVICE_PATH, PinnedProcess, ServiceOwner,
     ServiceRegistration, SystemServiceKickstart, SystemServiceOwner, SystemServiceState,
     leave_daemon_scope, read_child_exit, service_registration, spawn_lasting_child,
 };
+
+use tokio::time::{Instant, sleep};
 
 use crate::command_context::CommandContext;
 use crate::commands::daemon::install::system_service::{read_system_service_owner, write_line};
@@ -299,28 +300,51 @@ pub(crate) fn start_system_service<Output: Write, ErrorOutput: Write>(
         return write_line(context, ALREADY_RUNNING_LINE);
     }
     kickstart_system_service(registration, SystemServiceKickstart::Start)?;
-    wait_for_system_service(registration, args)?;
+    run_listening_for_ctrl_c(async |ctrl_c| {
+        wait_for_system_service(registration, args, ctrl_c).await
+    })?;
     write_line(context, STARTED_LINE)
 }
 
-/// Reads whether launchd runs this account's system service, every
-/// [`SYSTEM_SERVICE_READ_INTERVAL`] until it does or `args`' wait ends. Fails with
-/// [`CommandFailure::SystemServiceNotRunning`] where the wait ends first, and as a read fails.
-pub(crate) fn wait_for_system_service(
+/// Waits until launchd runs this account's system service, as [`wait_until_running`] waits, for
+/// `args`' wait or until the person's Ctrl-C on `ctrl_c`. Fails as that wait does.
+pub(crate) async fn wait_for_system_service(
     registration: ServiceRegistration,
     args: &StartArgs,
+    ctrl_c: &mut CtrlCListener,
 ) -> anyhow::Result<()> {
-    let waited = args.deadline();
+    wait_until_running(
+        || read_system_service_state(registration),
+        args.deadline(),
+        ctrl_c.recv(),
+    )
+    .await
+}
+
+/// Reads the state with `read_state` every [`SYSTEM_SERVICE_READ_INTERVAL`] until it is running,
+/// `waited` passes or `ctrl_c` arrives. Fails with [`CommandFailure::SystemServiceNotRunning`]
+/// where the wait ends first, `ClientError::Canceled` on Ctrl-C, and as a read fails.
+async fn wait_until_running(
+    mut read_state: impl FnMut() -> anyhow::Result<SystemServiceState>,
+    waited: Duration,
+    ctrl_c: impl Future,
+) -> anyhow::Result<()> {
     let deadline = Instant::now() + waited;
-    loop {
-        if read_system_service_state(registration)? == SystemServiceState::Running {
-            return Ok(());
+    let running = async {
+        loop {
+            if read_state()? == SystemServiceState::Running {
+                return Ok(());
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return Err(CommandFailure::SystemServiceNotRunning { waited }.into());
+            }
+            sleep(SYSTEM_SERVICE_READ_INTERVAL.min(deadline - now)).await;
         }
-        let now = Instant::now();
-        if now >= deadline {
-            return Err(CommandFailure::SystemServiceNotRunning { waited }.into());
-        }
-        sleep(SYSTEM_SERVICE_READ_INTERVAL.min(deadline - now));
+    };
+    tokio::select! {
+        waited = running => waited,
+        _ = ctrl_c => Err(ClientError::Canceled.into()),
     }
 }
 
@@ -539,4 +563,32 @@ async fn end_unanswered_daemon(process: PinnedProcess, exit: DaemonExit) -> anyh
     exit.await
         .context("could not read how the background service's process ended")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use sidekicks_client::error::ClientError;
+    use sidekicks_platforms::SystemServiceState;
+    use tokio::time::sleep;
+
+    use super::wait_until_running;
+
+    // Fails when a Ctrl-C during the wait for launchd is not listened for: the wait would then run
+    // to its end and answer that the service did not start, instead of ending as canceled.
+    #[tokio::test]
+    async fn a_ctrl_c_before_the_service_runs_ends_the_wait_as_canceled() {
+        let waited = wait_until_running(
+            || Ok(SystemServiceState::NotRunning),
+            Duration::from_secs(10),
+            sleep(Duration::from_millis(50)),
+        )
+        .await;
+        let failure = waited.expect_err("the Ctrl-C ends the wait");
+        assert!(
+            matches!(failure.downcast_ref(), Some(ClientError::Canceled)),
+            "{failure:?}"
+        );
+    }
 }
