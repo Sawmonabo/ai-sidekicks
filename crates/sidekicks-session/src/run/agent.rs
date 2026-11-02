@@ -12,14 +12,22 @@ use sidekicks_contracts::agent::definition::binding::{AgentProviderBinding, Prov
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::usage::ModelRerouteScope;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::IdError;
+use sidekicks_provider::runtime_binding::store::read_newest_resumable_binding_of_runs;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::stored_column::{StoredJsonFault, text_column};
-use sidekicks_store::events::session::read::readable_event_sql;
+use sidekicks_store::events::session::read::{
+    DamagedFromSequenceReader, readable_event_sql, session_read_bound,
+};
+
+use crate::run::ids::read_session_run_ids;
 
 static SELECT_RUN_AGENT_SQL: LazyLock<String> = LazyLock::new(|| {
     let session_created = SessionEventType::SessionCreated.as_str();
@@ -113,6 +121,13 @@ SELECT lead.agent_id,
     )
 });
 
+static SELECT_ACTIVE_SESSIONS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT id FROM sessions WHERE state = '{}' ORDER BY id",
+        <&'static str>::from(SessionState::Active)
+    )
+});
+
 // Whether the session's readable log names the agent: as its lead, or on a run queued for it.
 static SELECT_AGENT_NAMED_SQL: LazyLock<String> = LazyLock::new(|| {
     let session_created = SessionEventType::SessionCreated.as_str();
@@ -173,6 +188,55 @@ pub fn read_session_lead(
             },
         )
         .optional()
+}
+
+/// An active session whose lead runs on a provider: its lead as its log leaves it, and the binding
+/// of its newest conversation, `None` for a session that has not run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProviderSessionLead {
+    /// The session.
+    pub session_id: SessionId,
+    /// Its lead, the account it runs on the one its last switch landed on.
+    pub lead: SessionLead,
+    /// The binding of its newest conversation, which moves with it.
+    pub binding_id: Option<RuntimeBindingId>,
+}
+
+/// Every active session whose lead runs on `provider`, in id order, each lead read from its log
+/// outside the skipped ranges `read_damaged_from_sequence` answers. No session is pinned to an
+/// account yet, since nothing an agent definition or a workflow step names reaches a session, so
+/// each one follows its provider's current account. Fails as SQLite fails or a stored id, binding
+/// or model does not read.
+pub fn read_provider_session_leads(
+    reader: &Connection,
+    provider: &ProviderId,
+    read_damaged_from_sequence: &DamagedFromSequenceReader,
+) -> rusqlite::Result<Vec<ProviderSessionLead>> {
+    let session_ids = reader
+        .prepare_cached(&SELECT_ACTIVE_SESSIONS_SQL)?
+        .query_map([], |row| text_column(row, 0, |text| SessionId::new(&text)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut leads = Vec::new();
+    for session_id in session_ids {
+        let read_bound = session_read_bound(read_damaged_from_sequence, &session_id, None);
+        let Some(lead) = read_session_lead(reader, &session_id, read_bound)? else {
+            continue;
+        };
+        if lead.binding.provider_name != *provider {
+            continue;
+        }
+        let binding_id = read_newest_resumable_binding_of_runs(
+            reader,
+            &read_session_run_ids(reader, &session_id)?,
+        )?
+        .map(|binding| binding.id);
+        leads.push(ProviderSessionLead {
+            session_id,
+            lead,
+            binding_id,
+        });
+    }
+    Ok(leads)
 }
 
 /// Whether the session's log names `agent_id`, as its lead or on a run queued for it, in its

@@ -158,6 +158,10 @@ impl ProviderAccountLegs for CodexAccountLegs {
     fn memory_import_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderMemoryImportLegs>> {
         Some(self)
     }
+
+    fn switch_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderSwitchLegs>> {
+        Some(self)
+    }
 }
 
 impl ProviderObserveLegs for CodexAccountLegs {

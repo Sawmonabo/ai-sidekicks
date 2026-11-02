@@ -52,6 +52,11 @@ pub trait ProviderAccountLegs: Send + Sync {
     /// These legs as the provider's memory import, which `provider.account.memory.import` runs;
     /// `None` for a provider that keeps no memory of the person's own.
     fn memory_import_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderMemoryImportLegs>>;
+
+    /// These legs as the provider's move of its running sessions onto another account, which
+    /// `provider.account.current.update` runs; `None` for a provider whose sessions never run on an
+    /// account of the plane's.
+    fn switch_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderSwitchLegs>>;
 }
 
 /// A provider's own interactive sign-in, run in one account's home: the flow's start, and the

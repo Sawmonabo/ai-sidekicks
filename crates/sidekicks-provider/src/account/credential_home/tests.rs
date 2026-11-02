@@ -24,7 +24,7 @@ use crate::account::registry::{
 };
 use crate::driver::ProviderAccountFolders;
 use crate::driver::contract::account::{
-    ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObserveLegs,
+    ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObserveLegs, ProviderSwitchLegs,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
@@ -55,6 +55,10 @@ impl ProviderAccountLegs for RecordedSignOuts {
     }
 
     fn memory_import_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderMemoryImportLegs>> {
+        None
+    }
+
+    fn switch_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderSwitchLegs>> {
         None
     }
 }

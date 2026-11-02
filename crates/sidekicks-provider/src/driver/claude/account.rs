@@ -142,6 +142,10 @@ impl ProviderAccountLegs for ClaudeAccountLegs {
     fn memory_import_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderMemoryImportLegs>> {
         Some(self)
     }
+
+    fn switch_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderSwitchLegs>> {
+        Some(self)
+    }
 }
 
 impl ProviderMemoryImportLegs for ClaudeAccountLegs {
