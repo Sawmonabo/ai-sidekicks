@@ -277,6 +277,13 @@ pub(crate) enum CommandFailure {
          daemon start."
     )]
     SystemServiceStartNeedsRoot,
+    /// This account's system service runs the background service while the person is logged
+    /// out, and only root's rights can start it again, so the restart asked and stopped nothing.
+    #[error(
+        "The background service runs while you are logged out. Restart it with sudo sidekicks \
+         daemon restart."
+    )]
+    SystemServiceRestartNeedsRoot,
 }
 
 impl CommandFailure {
@@ -301,9 +308,9 @@ impl CommandFailure {
             Self::RegistrationRefused(_) => ExitCode::Software,
             Self::BackupUnreadable { .. } => ExitCode::NoInput,
             Self::LoggedOutServiceRefused { cause, .. } => cause.exit_code(),
-            Self::SystemServiceNeedsRoot | Self::SystemServiceStartNeedsRoot => {
-                ExitCode::NoPermission
-            }
+            Self::SystemServiceNeedsRoot
+            | Self::SystemServiceStartNeedsRoot
+            | Self::SystemServiceRestartNeedsRoot => ExitCode::NoPermission,
             Self::SystemServiceKept(cause) => cause.exit_code(),
         }
     }
@@ -688,6 +695,10 @@ mod tests {
     )]
     #[case::system_service_start_needs_root(
         CommandFailure::SystemServiceStartNeedsRoot.into(),
+        ProcessEnding::Exit(ExitCode::NoPermission)
+    )]
+    #[case::system_service_restart_needs_root(
+        CommandFailure::SystemServiceRestartNeedsRoot.into(),
         ProcessEnding::Exit(ExitCode::NoPermission)
     )]
     #[case::anything_else(anyhow!("failed"), ProcessEnding::Exit(ExitCode::Software))]

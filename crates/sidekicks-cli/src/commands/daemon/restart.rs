@@ -57,7 +57,7 @@ enum RestartEnding {
 
 /// Restarts the background service once the person confirms, and answers 0 once the new one
 /// answers, its line on stdout; a service not running is started with no question, and a no
-/// prints nothing. Fails with [`CommandFailure::SystemServiceStartNeedsRoot`] where this
+/// prints nothing. Fails with [`CommandFailure::SystemServiceRestartNeedsRoot`] where this
 /// account's system service runs the service, as [`has_system_service_to_start`] fails, both with
 /// nothing asked or stopped, with `CommandFailure::ConfirmationUnavailable` with no terminal and no
 /// `--yes`, `ClientError::Canceled` after a Ctrl-C, as the handshake fails other than as a stopped
@@ -69,7 +69,7 @@ pub(crate) fn restart<Output: Write, ErrorOutput: Write>(
     if let Some(registration) = service_registration()
         && has_system_service_to_start(registration)?
     {
-        return Err(CommandFailure::SystemServiceStartNeedsRoot.into());
+        return Err(CommandFailure::SystemServiceRestartNeedsRoot.into());
     }
     let prompt = &mut context.stderr;
     // Its own runtime, ended before the start, which runs on a runtime of its own.
