@@ -149,13 +149,13 @@ pub(crate) struct AnsweredHand {
     pub(crate) answers: Vec<Value>,
 }
 
-/// Answers each request the switching service sends up to its login: an account read with
-/// `reading`, a sign-out at once, and the login, answered or refused where `is_login_refused`,
-/// once it noted the account the service carried when the login came. An answer the service
-/// writes to a request of Codex's is kept aside.
+/// Answers each request the switching service sends up to its login: a sign-out at once, and the
+/// login, answered or refused where `is_login_refused`, once it noted the account the service
+/// carried when the login came. Any other request before the login fails the test, an account
+/// read under the hand among them. An answer the service writes to a request of Codex's is kept
+/// aside.
 pub(crate) async fn answer_through_login(
     scripted: &mut ScriptedCodexService,
-    reading: &Value,
     is_login_refused: bool,
 ) -> AnsweredHand {
     let mut methods = Vec::new();
@@ -170,7 +170,6 @@ pub(crate) async fn answer_through_login(
         };
         methods.push(method.clone());
         match method.as_str() {
-            "account/read" => scripted.script.answer(&message, reading),
             "account/logout" => scripted.script.answer(&message, &json!({})),
             _ => {
                 assert_eq!(method, CODEX_LOGIN_START_METHOD, "{message}");

@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rstest::rstest;
 use secrecy::SecretString;
 use serde_json::{Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -109,15 +108,15 @@ impl Fixture {
         handed.expect("the start's login is answered");
     }
 
-    // The start's hand with nothing carried and the key account current, the read answering
-    // `reading`. Answers the requests' methods in order and the login.
-    async fn hand_the_key_at_start(&mut self, reading: &Value) -> (Vec<String>, Value) {
+    // The start's hand with nothing carried and the key account current. Answers the requests'
+    // methods in order and the login.
+    async fn hand_the_key_at_start(&mut self) -> (Vec<String>, Value) {
         let service = Arc::clone(&self.scripted.service);
         let connection = service.connection().expect("the service is up");
         let switching = Arc::clone(&self.scripted.dependencies.switching);
         let (handed, answered) = tokio::join!(
             switching.hand_at_start(&service, &connection),
-            answer_through_login(&mut self.scripted, reading, false)
+            answer_through_login(&mut self.scripted, false)
         );
         handed.expect("the key's login is answered");
         (answered.methods, answered.login)
@@ -149,10 +148,9 @@ async fn a_switch_onto_an_api_key_account_hands_the_key() {
     let service = Arc::clone(&fixture.scripted.service);
     let switching = Arc::clone(&fixture.scripted.dependencies.switching);
     let to = fixture.key_account.clone();
-    let key_login = signed_in_on_a_key();
     let (switched, answered) = tokio::join!(
         switching.hand_switch(&service, to.clone(), Vec::new(), switching_person()),
-        answer_through_login(&mut fixture.scripted, &key_login, false)
+        answer_through_login(&mut fixture.scripted, false)
     );
     switched.expect("the key's login is answered");
     // A switch off another account checks the new login once its hand is let go.
@@ -194,7 +192,6 @@ async fn a_key_refused_after_the_sign_out_leaves_the_service_carrying_none() {
 
     let service = Arc::clone(&fixture.scripted.service);
     let switching = Arc::clone(&fixture.scripted.dependencies.switching);
-    let on_chatgpt = json!({"account": {"type": "chatgpt"}, "requiresOpenaiAuth": true});
     let (switched, answered) = tokio::join!(
         switching.hand_switch(
             &service,
@@ -202,7 +199,7 @@ async fn a_key_refused_after_the_sign_out_leaves_the_service_carrying_none() {
             Vec::new(),
             switching_person()
         ),
-        answer_through_login(&mut fixture.scripted, &on_chatgpt, true)
+        answer_through_login(&mut fixture.scripted, true)
     );
 
     assert!(
@@ -221,32 +218,16 @@ async fn a_key_refused_after_the_sign_out_leaves_the_service_carrying_none() {
 }
 
 // Killed by the refusal of an account whose home holds no `ChatGPT` sign-in, which a start on a
-// key account met before its key was handed, by a key login sent with no sign-out over a `ChatGPT`
-// or unreadable reading (Codex would refuse it), and by a sign-out sent over a key or no sign-in.
-#[rstest]
-#[case::on_chatgpt(
-    json!({"account": {"type": "chatgpt"}, "requiresOpenaiAuth": true}),
-    vec!["account/read", "account/logout", CODEX_LOGIN_START_METHOD]
-)]
-#[case::on_a_key(signed_in_on_a_key(), vec!["account/read", CODEX_LOGIN_START_METHOD])]
-#[case::signed_out(
-    json!({"account": null, "requiresOpenaiAuth": true}),
-    vec!["account/read", CODEX_LOGIN_START_METHOD]
-)]
-#[case::unreadable(
-    json!({}),
-    vec!["account/read", "account/logout", CODEX_LOGIN_START_METHOD]
-)]
+// key account met before its key was handed, by a key login sent with no sign-out over a service
+// carrying none (it may hold tokens Codex refuses a key over), and by an account read under the
+// hand (a token Codex refuses asks for a refresh that waits on the hand).
 #[tokio::test]
-async fn a_start_with_an_api_key_current_account_hands_the_key(
-    #[case] reading: Value,
-    #[case] expected: Vec<&str>,
-) {
+async fn a_start_with_an_api_key_current_account_hands_the_key() {
     let mut fixture = Fixture::new(true);
 
-    let (methods, login) = fixture.hand_the_key_at_start(&reading).await;
+    let (methods, login) = fixture.hand_the_key_at_start().await;
 
-    assert_eq!(methods, expected);
+    assert_eq!(methods, ["account/logout", CODEX_LOGIN_START_METHOD]);
     assert_eq!(
         login["params"],
         json!({"type": "apiKey", "apiKey": TEST_KEY})
@@ -263,8 +244,7 @@ async fn a_start_with_an_api_key_current_account_hands_the_key(
 #[tokio::test]
 async fn a_key_handed_over_a_key_carried_sends_only_the_login() {
     let mut fixture = Fixture::new(true);
-    let key_login = signed_in_on_a_key();
-    fixture.hand_the_key_at_start(&key_login).await;
+    fixture.hand_the_key_at_start().await;
     let service = Arc::clone(&fixture.scripted.service);
     let switching = Arc::clone(&fixture.scripted.dependencies.switching);
 
@@ -275,7 +255,7 @@ async fn a_key_handed_over_a_key_carried_sends_only_the_login() {
             Vec::new(),
             switching_person()
         ),
-        answer_through_login(&mut fixture.scripted, &key_login, false)
+        answer_through_login(&mut fixture.scripted, false)
     );
 
     switched.expect("the key's login is answered");
@@ -289,9 +269,7 @@ async fn a_key_handed_over_a_key_carried_sends_only_the_login() {
 #[tokio::test]
 async fn a_key_account_carried_never_takes_its_homes_tokens() {
     let mut fixture = Fixture::new(true);
-    fixture
-        .hand_the_key_at_start(&json!({"account": null, "requiresOpenaiAuth": true}))
-        .await;
+    fixture.hand_the_key_at_start().await;
     fixture.sign_in_the_key_home();
     let switching = Arc::clone(&fixture.scripted.dependencies.switching);
     let connection = fixture

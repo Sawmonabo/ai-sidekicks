@@ -52,9 +52,6 @@ use crate::driver::codex::account::login::{
     CODEX_ACCOUNT_LOGOUT_METHOD, CODEX_LOGIN_START_METHOD, CodexLoginAccountParams,
 };
 use crate::driver::codex::account::token_refresh::CodexTokenRenewer;
-use crate::driver::codex::auth_status::{
-    CODEX_AUTH_PROBE_TIMEOUT, CodexAccountReading, read_codex_account, read_codex_auth_mode,
-};
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::switching::hand_back::{
     FirstRequestWatch, HandBackWindows, WatchedSession,
@@ -163,8 +160,7 @@ impl CodexSwitchingAccount {
     /// An API-key account's key is handed once the service is signed out of any other kind of
     /// sign-in; a key refused after that sign-out leaves it carrying none. Fails with the refusal
     /// of an account with no current one, no `ChatGPT` sign-in in its home or no key sealed, as
-    /// its home or key cannot be read, and with Codex's refusal of the read, the sign-out or the
-    /// login.
+    /// its home or key cannot be read, and with Codex's refusal of the sign-out or the login.
     pub(crate) async fn hand_at_start(
         &self,
         service: &Arc<CodexService>,
@@ -425,10 +421,10 @@ impl CodexSwitchingAccount {
     }
 
     // `login` ready to send. Codex refuses a key while handed tokens are active, so a key's
-    // service is signed out first where it carries an account on its tokens, and left as it is
-    // where it carries one on a key; only a service carrying none is read, since a read on a
-    // carried token Codex refuses asks for a refresh that waits on this hand. The sign-out leaves
-    // the handed tokens unrevoked. Fails as the read or the sign-out does.
+    // service is signed out first unless it carries an account on a key. A service carrying none
+    // is signed out unread, a sign-out of a signed-out service changing nothing, since a read on a
+    // token Codex refuses asks for a refresh that waits on this hand. The sign-out leaves the
+    // handed tokens unrevoked. Fails as the sign-out does.
     async fn prepare_login(
         &self,
         connection: &CodexAppServerConnection,
@@ -444,13 +440,7 @@ impl CodexSwitchingAccount {
                 is_signed_out: false,
             }),
             CodexHandedLogin::ApiKey(api_key) => {
-                let is_clear = match self.carried_token() {
-                    Some((_, Some(_handed))) => false,
-                    Some((_, None)) => true,
-                    None => is_clear_for_key(
-                        read_codex_account(connection, CODEX_AUTH_PROBE_TIMEOUT).await?,
-                    ),
-                };
+                let is_clear = matches!(self.carried_token(), Some((_, None)));
                 if !is_clear {
                     self.settle_login(connection.request(CODEX_ACCOUNT_LOGOUT_METHOD, &()).await)?;
                 }
@@ -605,17 +595,6 @@ async fn require_home_tokens(codex_home: &Path) -> Result<CodexAuthTokens, Codex
             RefusalCode::ProviderAccountNotAuthenticated,
         )))
     })
-}
-
-// Whether a service read as `reading` takes a key with no sign-out: signed out, or on a key.
-fn is_clear_for_key(reading: CodexAccountReading) -> bool {
-    match reading {
-        CodexAccountReading::SignedOut => true,
-        CodexAccountReading::SignedIn { kind, .. } => {
-            read_codex_auth_mode(&kind) == ProviderAuthMode::ApiKey
-        }
-        CodexAccountReading::Unreadable => false,
-    }
 }
 
 fn compose_login(tokens: CodexAuthTokens) -> CodexLoginAccountParams {

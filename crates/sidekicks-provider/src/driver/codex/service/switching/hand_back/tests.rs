@@ -119,10 +119,9 @@ impl Fixture {
         let service = Arc::clone(&switching.service);
         let connection = service.connection().expect("the service is up");
         let account = Arc::clone(&switching.dependencies.switching);
-        let signed_out = json!({"account": null, "requiresOpenaiAuth": true});
         let (handed, _login) = tokio::join!(
             account.hand_at_start(&service, &connection),
-            answer_through_login(&mut switching, &signed_out, false)
+            answer_through_login(&mut switching, false)
         );
         handed.expect("the start's login is answered");
 
@@ -154,10 +153,9 @@ impl Fixture {
     // Switches from the account left onto the other for `person`, naming the lead's session, and
     // answers the named session's move once it landed.
     async fn switch(&mut self, person: DeviceId) -> SessionAccountMove {
-        let reading = signed_in();
         let (moved, _login) = tokio::join!(
             move_codex_sessions(&self.legs, self.to.clone(), vec![self.lead.clone()], person),
-            answer_through_login(&mut self.switching, &reading, false)
+            answer_through_login(&mut self.switching, false)
         );
         let mut moved = moved.into_iter();
         let named = moved
@@ -328,7 +326,7 @@ async fn a_hand_back_to_a_key_account_refuses_the_refresh_and_hands_the_key() {
     let check = fixture.switching.next_request("account/read").await;
 
     refuse_the_renewal(&mut fixture).await;
-    let mut handed = answer_through_login(&mut fixture.switching, &signed_in(), false).await;
+    let mut handed = answer_through_login(&mut fixture.switching, false).await;
     // The refusal is written as the refresh lets its hand go, so it may follow the key's login.
     if handed.answers.is_empty() {
         handed
@@ -406,7 +404,6 @@ async fn a_key_hand_back_sends_nothing_once_another_switch_landed() {
     let other = fixture.other.clone();
 
     // The refresh hands back under the hand, as its answer does, so the key's task waits for it.
-    let reading = signed_in();
     let hand = switching.hands.lock().await;
     let refreshed = switching.hand_back(&fixture.to).await;
     let (switched, landed) = tokio::join!(
@@ -418,7 +415,7 @@ async fn a_key_hand_back_sends_nothing_once_another_switch_landed() {
             Vec::new(),
             None
         ),
-        answer_through_login(&mut fixture.switching, &reading, false)
+        answer_through_login(&mut fixture.switching, false)
     );
     switched.expect("the later switch's login is answered");
     drop(hand);
