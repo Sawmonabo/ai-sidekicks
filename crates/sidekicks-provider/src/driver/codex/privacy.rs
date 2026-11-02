@@ -3,7 +3,9 @@
 
 use std::path::Path;
 
-use crate::driver::codex::config_read::{CODEX_CONFIG_FILE_NAME, read_codex_config_file};
+use crate::driver::codex::config_read::{
+    CODEX_CONFIG_FILE_NAME, CodexConfigFileError, read_codex_config_file,
+};
 use crate::driver::codex::session::errors::CodexError;
 
 // The two tables the read takes, and the switch each holds; every other table and key is left
@@ -35,10 +37,10 @@ impl CodexPrivacyReading {
     }
 }
 
-/// Reads the privacy choices in `config.toml` under `personal_home`, the person's own Codex
-/// folder; a file that is absent sets none, and a switch that is not a boolean sets none, as
-/// Codex then refuses the file itself. Fails with `CodexError::ConfigUnreadable` naming the file,
-/// never its text, when it cannot be read or does not parse.
+/// Reads the privacy choices in `config.toml` under `personal_home`, the person's own Codex folder;
+/// a file that is absent sets none. Fails with `CodexError::ConfigUnreadable` naming the file,
+/// never its text, when it cannot be read or does not parse, or when a privacy table or switch
+/// holds a value of a type Codex refuses there.
 pub(crate) async fn read_codex_privacy(
     personal_home: &Path,
 ) -> Result<CodexPrivacyReading, CodexError> {
@@ -49,15 +51,29 @@ pub(crate) async fn read_codex_privacy(
     else {
         return Ok(CodexPrivacyReading::default());
     };
-    let switch = |table: &str| {
-        config
-            .get(table)
-            .and_then(|table| table.get(ENABLED_KEY))
-            .and_then(toml::Value::as_bool)
+    let mistyped = |key: String| {
+        CodexError::ConfigUnreadable(CodexConfigFileError::Mistyped {
+            path: path.clone(),
+            key,
+        })
+    };
+    let switch = |table_name: &str| -> Result<Option<bool>, CodexError> {
+        let Some(table) = config.get(table_name) else {
+            return Ok(None);
+        };
+        let Some(table) = table.as_table() else {
+            return Err(mistyped(table_name.to_owned()));
+        };
+        table.get(ENABLED_KEY).map_or(Ok(None), |value| {
+            value
+                .as_bool()
+                .map(Some)
+                .ok_or_else(|| mistyped(format!("{table_name}.{ENABLED_KEY}")))
+        })
     };
     Ok(CodexPrivacyReading {
-        analytics_enabled: switch(ANALYTICS_TABLE),
-        feedback_enabled: switch(FEEDBACK_TABLE),
+        analytics_enabled: switch(ANALYTICS_TABLE)?,
+        feedback_enabled: switch(FEEDBACK_TABLE)?,
     })
 }
 

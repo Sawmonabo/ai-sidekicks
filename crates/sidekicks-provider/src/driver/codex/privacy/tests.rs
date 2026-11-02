@@ -60,3 +60,27 @@ async fn a_file_that_does_not_parse_fails_naming_its_path_and_never_its_text() {
     assert!(detail.contains(message.as_str()), "{detail}");
     assert!(!detail.contains("kept-private"), "{detail}");
 }
+
+// Killed by a privacy switch or table of another type read as unset, which starts a managed account
+// with Codex's default where the person's own Codex refuses the file, or by a failure that shows
+// the value or names another key.
+#[rstest]
+#[case::switch_as_text("[analytics]\nenabled = \"kept-off\"\n", "analytics.enabled")]
+#[case::table_as_number("feedback = 1\n", "feedback")]
+#[tokio::test]
+async fn a_privacy_switch_of_another_type_fails_naming_its_key(
+    #[case] file: &str,
+    #[case] mistyped_key: &str,
+) {
+    let personal_home = tempfile::tempdir().expect("a scratch folder is made");
+    std::fs::write(personal_home.path().join("config.toml"), file).expect("the file is made");
+
+    let reading = read_codex_privacy(personal_home.path()).await;
+
+    let Err(CodexError::ConfigUnreadable(CodexConfigFileError::Mistyped { key, .. })) = &reading
+    else {
+        panic!("the read did not fail on the mistyped key: {reading:?}");
+    };
+    assert_eq!(key, mistyped_key);
+    assert!(!format!("{reading:?}").contains("kept-off"));
+}

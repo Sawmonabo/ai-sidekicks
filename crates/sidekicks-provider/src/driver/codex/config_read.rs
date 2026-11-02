@@ -49,6 +49,14 @@ pub(crate) enum CodexConfigFileError {
         /// The TOML reader's words for the failure, which hold none of the file's text.
         message: String,
     },
+    /// A key holds a value of another type than Codex reads there, so Codex does not start on it.
+    #[error("Codex's configuration {} sets `{key}` to a value of the wrong type", path.display())]
+    Mistyped {
+        /// The config file.
+        path: PathBuf,
+        /// The dotted key whose value has the wrong type.
+        key: String,
+    },
 }
 
 /// The table of the `config.toml` at `path`, `None` where there is no file. Fails with
