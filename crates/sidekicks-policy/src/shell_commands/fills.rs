@@ -9,8 +9,10 @@
 //! shell's alone.
 //!
 //! Accepted as they stand, never refused: a variable an earlier statement gave bash's integer
-//! attribute, as `declare -i n` before `n={{ x }}`; a fill in an `eval`, `source` or `-c` argument,
-//! which the author's own line runs as code; cmd.exe's own re-parsing forms, a nested `cmd /c`, a
+//! attribute, as `declare -i n` before `n={{ x }}`; a fill in a word a program the author named
+//! runs as code: an `eval`, `source` or `-c` argument, `trap`'s action, `mapfile -C`'s callback,
+//! PowerShell's `iex` or `Invoke-Expression`, `watch`'s command and `ssh`'s remote command;
+//! cmd.exe's own re-parsing forms, a nested `cmd /c`, a
 //! `for /f` command set and a `call` whose batch file splices its arguments into its lines; a
 //! fill standing as the command name, which picks the program the line runs; and under csh a fill
 //! in `@` or a name word of `set`, `setenv` or `unset`, whose `:q` reference quotes every character
@@ -103,9 +105,22 @@ pub enum FillRefusal {
     /// Inside bash's `${ …; }` or `${| …; }`, which runs a command in the shell itself.
     #[error("sits in bash's `${{ …; }}`, which runs a command in the shell itself")]
     CommandInExpansion,
-    /// Right after an escape character, which would quote the reference's first character.
-    #[error("sits right after an escape character, which would quote the reference")]
+    /// Right after an escape character, which would quote the reference's first character: a
+    /// backslash, PowerShell's backquote or cmd.exe's `^`.
+    #[error(
+        "sits right after an escape character, which would quote the reference; to end a folder \
+         before it, write `/` or `\\\\`"
+    )]
     Escaped,
+    /// Right after a variable's name, which reads the placeholder as more of that name.
+    #[error(
+        "sits right after `${name}`, which reads it as part of that variable's name; write \
+         `${{{name}}}` to end the name"
+    )]
+    JoinedToVariable {
+        /// The variable's name.
+        name: String,
+    },
     /// A csh here-document's body, whose substituted text csh reads again.
     #[error("sits in a csh here-document, whose substituted text csh reads again")]
     CshHereDocumentBody,
@@ -178,17 +193,21 @@ impl CommandLineFills {
         self.line.len()
     }
 
-    /// Each fill's verdict at save, in line order: accepted only where the bash reading, the
-    /// PowerShell reading and the csh scan all place it, else refused with the first refusal
+    /// Each fill's verdict at save, in line order: accepted only where the bash reading, its
+    /// cmd.exe form, the PowerShell reading and the csh scan all place it, else refused with the first refusal
     /// among them. Runs inside one read of the reading bound.
     pub fn check_for_save(&self, reader: &mut ShellLineReader) -> Vec<Result<(), FillRefusal>> {
         let bash = bash::place_fills(reader, self);
+        let cmd = self.refuse_after_cmd_escapes(bash.clone());
         let powershell = powershell::place_fills(reader, self);
         let csh = csh::place_fills(reader, self);
         bash.into_iter()
+            .zip(cmd)
             .zip(powershell)
             .zip(csh)
-            .map(|((bash, powershell), csh)| bash.and(powershell).and(csh).map(|_| ()))
+            .map(|(((bash, cmd), powershell), csh)| {
+                bash.and(cmd).and(powershell).and(csh).map(|_| ())
+            })
             .collect()
     }
 
@@ -203,7 +222,8 @@ impl CommandLineFills {
         shell: ShellGrammar,
     ) -> Result<String, RefusedFill> {
         let placings = match shell {
-            ShellGrammar::Posix(_) | ShellGrammar::Cmd => bash::place_fills(reader, self),
+            ShellGrammar::Posix(_) => bash::place_fills(reader, self),
+            ShellGrammar::Cmd => self.refuse_after_cmd_escapes(bash::place_fills(reader, self)),
             ShellGrammar::PowerShell => powershell::place_fills(reader, self),
             ShellGrammar::Csh => csh::place_fills(reader, self),
             ShellGrammar::Fish => vec![Ok(FillPlace::Bare); self.placeholders.len()],
@@ -234,6 +254,22 @@ impl CommandLineFills {
         }
         filled.push_str(&self.line[kept_from..]);
         Ok(filled)
+    }
+
+    /// The bash reading's `placings` as cmd.exe takes them: a fill after an odd run of `^`, which
+    /// cmd.exe reads as quoting the reference's first character, refused.
+    fn refuse_after_cmd_escapes(&self, placings: Vec<FillPlacing>) -> Vec<FillPlacing> {
+        placings
+            .into_iter()
+            .zip(&self.placeholders)
+            .map(|(placing, placeholder)| {
+                if is_escaped(&self.line, placeholder.start, b'^') {
+                    Err(FillRefusal::Escaped)
+                } else {
+                    placing
+                }
+            })
+            .collect()
     }
 
     /// The line every reading reads.
@@ -314,6 +350,21 @@ fn is_escaped(text: &str, at: usize, escape: u8) -> bool {
     run % 2 == 1
 }
 
+/// The name of the variable `$NAME` the text before `at` ends with, which reads the placeholder
+/// as more of that name; `None` when it ends with none.
+fn variable_before(text: &str, at: usize) -> Option<&str> {
+    let before = &text[..at];
+    let start = before
+        .rfind(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
+        .map_or(0, |found| found + 1);
+    let name = &before[start..];
+    let starts_a_name = name
+        .chars()
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_');
+    (starts_a_name && before[..start].ends_with('$')).then_some(name)
+}
+
 /// Whether the text before `at` ends with `$` or `${`, which reads the placeholder as a variable's
 /// name.
 fn follows_a_dollar(text: &str, at: usize) -> bool {
@@ -384,7 +435,10 @@ mod tests {
     #[case::a_comment("echo a # {{ x }}", FillRefusal::Comment)]
     #[case::a_braced_variable("echo ${p:-{{ x }}}", FillRefusal::BracedVariable)]
     #[case::a_variable_name("echo ${{ x }}", FillRefusal::UnreadPlace)]
-    #[case::a_syntax_error("echo \"{{ x }}", FillRefusal::NotWhole)]
+    #[case::a_variable_joined_before("echo \"$HOME{{ x }}\"", FillRefusal::JoinedToVariable {
+        name: "HOME".to_owned()
+    })]
+    #[case::a_cmd_escape("echo ^{{ x }}", FillRefusal::Escaped)]
     #[case::arithmetic_expansion("echo $(( {{ x }} ))", FillRefusal::Arithmetic)]
     #[case::arithmetic_expansion_quoted("echo $(( \"{{ x }}\" ))", FillRefusal::Arithmetic)]
     #[case::arithmetic_command("(( {{ x }} ))", FillRefusal::Arithmetic)]
@@ -449,17 +503,6 @@ mod tests {
         #[case] refusal: FillRefusal,
     ) {
         assert_eq!(save(line, LIMIT), vec![Err(refusal)]);
-    }
-
-    // Places whose refusal rests on how the parser reads an unusual form: bash 5.3's command forms of
-    // `${…}`, and an offset written as a bare fill.
-    #[rstest]
-    #[case::a_command_in_an_expansion("echo ${ echo {{ x }}; }")]
-    #[case::a_value_command_in_an_expansion("echo ${| echo {{ x }}; }")]
-    #[case::a_bare_offset("echo ${p:{{ x }}}")]
-    #[case::a_bare_offset_quoted("echo \"${p:{{ x }}}\"")]
-    fn a_save_refuses_a_fill_in_a_form_no_reading_shows_expanding(#[case] line: &str) {
-        assert!(save(line, LIMIT).iter().all(Result::is_err));
     }
 
     // A line past the reader's limit is read by none of the readings, so every fill is refused.
@@ -559,6 +602,19 @@ mod tests {
         "bash",
         FillRefusal::NotExpanding
     )]
+    // The bash reading's own refusals, which the PowerShell reading would also give at save: a
+    // string left open, bash 5.3's command forms of `${…}`, which the grammar does not read, and
+    // an offset written as a bare fill.
+    #[case::a_syntax_error("echo \"{{ x }}", "bash", FillRefusal::NotWhole)]
+    #[case::a_command_in_an_expansion("echo ${ echo {{ x }}; }", "bash", FillRefusal::NotWhole)]
+    #[case::a_value_command_in_an_expansion(
+        "echo ${| echo {{ x }}; }",
+        "bash",
+        FillRefusal::NotWhole
+    )]
+    #[case::a_bare_offset("echo ${p:{{ x }}}", "bash", FillRefusal::Arithmetic)]
+    #[case::a_bare_offset_quoted("echo \"${p:{{ x }}}\"", "bash", FillRefusal::Arithmetic)]
+    #[case::a_cmd_escape("echo ^{{ x }}", "cmd", FillRefusal::Escaped)]
     #[case::a_body_after_a_partly_quoted_start(
         "cat <<E'O'F\n{{ x }}\nEOF",
         "bash",

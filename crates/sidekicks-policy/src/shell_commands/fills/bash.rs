@@ -7,7 +7,7 @@ use std::ops::Range;
 
 use tree_sitter::{Node, Tree};
 
-use super::{CommandLineFills, FillPlace, FillPlacing, FillRefusal, is_escaped};
+use super::{CommandLineFills, FillPlace, FillPlacing, FillRefusal, is_escaped, variable_before};
 use crate::shell_commands::listed_programs::{command_wrapper, folded_program_name};
 use crate::shell_commands::reading_forms::{
     ARITHMETIC_TEST_OPERATORS, HereDocumentParts, is_reading_expanded_body,
@@ -215,6 +215,14 @@ fn place_fill(root: Node<'_>, text: &str, placeholder: Range<usize>) -> FillPlac
                 .is_some_and(|parent| parent.kind() == "expansion") => {}
         "raw_string" | "ansi_c_string" => return Err(FillRefusal::NotExpanding),
         "comment" => return Err(FillRefusal::Comment),
+        "variable_name" => {
+            return Err(variable_before(text, walk.placeholder.start).map_or(
+                FillRefusal::UnreadPlace,
+                |name| FillRefusal::JoinedToVariable {
+                    name: name.to_owned(),
+                },
+            ));
+        }
         _ => return Err(FillRefusal::UnreadPlace),
     }
     Ok(walk.place.unwrap_or(FillPlace::Bare))
