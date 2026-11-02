@@ -366,7 +366,8 @@ interface McpLiveApplicationResult {
 // It deletes the daemon's refresh token for the server, and its signing key where the server
 // demands proof-of-possession tokens, and ends the access tokens it handed out, so each provider's
 // next call to that server carries no token and the server reads `needsAuth` in every session on
-// every provider until the next sign-in
+// every provider until the next sign-in; a credential store that refuses the deletion is refused
+// with mcp.server.signOutFailed, the sign-in then still held and in use
 //   mcp.server.reconnect         McpServerBindingRef & {sessionId?: SessionId, bindingId?: string}
 // → {legs: McpServerLegStatus[]} // operational: restarts the binding's live provider leg(s),
 // LEG-ADDRESSABLE — exactly one leg when bindingId is given (with sessionId, both must name the
