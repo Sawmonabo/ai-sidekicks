@@ -232,6 +232,7 @@ impl CodexDriver {
             switching: Arc::new(CodexSwitchingAccount::new(Arc::clone(
                 &services.ports.provider_accounts,
             ))),
+            provider_accounts: Arc::clone(&services.ports.provider_accounts),
         });
         let registry = Arc::new(CodexServiceRegistry::new(
             Arc::clone(&homes) as _,

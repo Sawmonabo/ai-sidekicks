@@ -23,6 +23,7 @@ use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::CodexAccountLegs;
 use crate::driver::codex::account::auth_file::read_codex_auth_tokens;
+use crate::driver::codex::account::login::CODEX_LOGIN_START_METHOD;
 use crate::driver::codex::auth_status::read_codex_auth_status;
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::server_requests::{
@@ -36,7 +37,6 @@ use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, TestCodexProgram, UnheardEvents, start_scripted_account_service_for,
     start_scripted_switching_service, test_codex_service_dependencies,
 };
-use crate::driver::codex::service::switching::CODEX_LOGIN_START_METHOD;
 use crate::driver::codex::service::switching::test_sign_in::{
     AccountHomes, TEST_PLAN, compose_access_token, write_sign_in,
 };

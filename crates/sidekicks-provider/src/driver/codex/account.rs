@@ -2,6 +2,7 @@
 //! service that home's own Codex runs, or on a short-lived one started there for the act, and
 //! where its memory import reads and lands.
 
+pub(crate) mod api_key;
 pub(crate) mod auth_file;
 mod limits;
 pub(crate) mod login;
@@ -333,6 +334,7 @@ fn compose_short_lived_dependencies(
         tasks: shared.tasks.clone(),
         exec_relay: Arc::clone(&shared.exec_relay),
         switching: Arc::clone(&shared.switching),
+        provider_accounts: Arc::clone(&shared.provider_accounts),
     })
 }
 

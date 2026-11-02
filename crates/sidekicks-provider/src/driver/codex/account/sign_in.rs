@@ -23,11 +23,11 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
 use crate::account::credential_home::CredentialHome;
-use crate::driver::codex::account::login::CodexLoginAccountParams;
+use crate::driver::codex::account::login::{CODEX_LOGIN_START_METHOD, CodexLoginAccountParams};
 use crate::driver::codex::account::{CodexAccountLegs, HomeService};
 use crate::driver::codex::app_server_protocol::CancelLoginAccountParams;
 use crate::driver::codex::auth_status::{
-    CODEX_AUTH_PROBE_TIMEOUT, CodexAccountReading, read_codex_account,
+    CODEX_AUTH_PROBE_TIMEOUT, CodexAccountReading, read_codex_account, read_codex_auth_mode,
 };
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
@@ -38,9 +38,6 @@ use crate::driver::contract::account::{
     SignInOrigin, read_sign_in_address,
 };
 use crate::driver::contract::error::DriverError;
-
-/// The request that starts a sign-in.
-const LOGIN_START_METHOD: &str = "account/login/start";
 
 /// The request that cancels a sign-in by its id.
 const LOGIN_CANCEL_METHOD: &str = "account/login/cancel";
@@ -222,12 +219,11 @@ async fn read_signed_in_account(
     let connection = service.connection()?;
     let reading = read_codex_account(&connection, CODEX_AUTH_PROBE_TIMEOUT).await?;
     let (mode, is_named) = match reading {
-        CodexAccountReading::SignedIn { kind, has_email } => match kind.as_str() {
-            "chatgpt" => (Some(ProviderAuthMode::OauthSubscription), has_email),
-            "apiKey" => (Some(ProviderAuthMode::ApiKey), false),
-            "amazonBedrock" => (Some(ProviderAuthMode::External), false),
-            _ => (Some(ProviderAuthMode::Unknown), false),
-        },
+        CodexAccountReading::SignedIn { kind, has_email } => {
+            let mode = read_codex_auth_mode(&kind);
+            let is_named = mode == ProviderAuthMode::OauthSubscription && has_email;
+            (Some(mode), is_named)
+        }
         CodexAccountReading::SignedOut => (None, false),
         CodexAccountReading::Unreadable => {
             return Err(CodexAccountSignInError::StatusUnreadable.into());
@@ -253,7 +249,9 @@ async fn start_login(
         LoginArm::Browser => CodexLoginAccountParams::Chatgpt {},
         LoginArm::DeviceCode => CodexLoginAccountParams::ChatgptDeviceCode {},
     };
-    let reply = connection.request(LOGIN_START_METHOD, &params).await?;
+    let reply = connection
+        .request(CODEX_LOGIN_START_METHOD, &params)
+        .await?;
     let reply = read_codex_object::<LoginStartReply>(reply.get())
         .ok_or(CodexAccountSignInError::ReplyUnreadable)?;
     let (login_id, address, user_code) = match reply {

@@ -7,6 +7,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
+use sidekicks_contracts::provider::account::record::ProviderAuthMode;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 
 use crate::driver::codex::app_server_protocol::GetAccountParams;
@@ -66,6 +67,18 @@ pub(crate) enum CodexAccountReading {
     SignedOut,
     /// The reply could not be read, so it says nothing of the sign-in.
     Unreadable,
+}
+
+/// How an account Codex names by the sign-in `kind` signs in: a `ChatGPT` sign-in is a
+/// subscription, an API key is one, a Bedrock sign-in comes from elsewhere, and any other kind is
+/// unknown.
+pub(crate) fn read_codex_auth_mode(kind: &str) -> ProviderAuthMode {
+    match kind {
+        "chatgpt" => ProviderAuthMode::OauthSubscription,
+        "apiKey" => ProviderAuthMode::ApiKey,
+        "amazonBedrock" => ProviderAuthMode::External,
+        _ => ProviderAuthMode::Unknown,
+    }
 }
 
 /// Asks `connection` for the account signed in, without a refresh, waiting at most `timeout`.

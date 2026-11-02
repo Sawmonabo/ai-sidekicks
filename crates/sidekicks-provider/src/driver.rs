@@ -609,16 +609,17 @@ pub trait ProviderAccountReader: Send + Sync {
     ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>>;
 
     /// How `provider_account_id`'s account signs in, as the provider last reported it; `None` where
-    /// no reading was stored. A pasted token's account reads `OauthToken`, and only that account
-    /// has a token sealed to read. Fails when the account is not registered or cannot be read.
+    /// no reading was stored. A pasted token's account reads `OauthToken` and a pasted API key's
+    /// `ApiKey`, and only those accounts have a credential sealed to read. Fails when the account
+    /// is not registered or cannot be read.
     fn read_observed_auth_mode(
         &self,
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>>;
 
-    /// The token sealed for `provider_account_id`'s account, which only the provider's own child
-    /// is handed; `None` where the account signs in through its home instead. Fails when the
-    /// keychain refuses the read.
+    /// The token or API key sealed for `provider_account_id`'s account, which only the provider's
+    /// own process is handed; `None` where the account signs in through its home instead. Fails
+    /// when the keychain refuses the read.
     fn read_sealed_token(
         &self,
         provider_account_id: ProviderAccountId,

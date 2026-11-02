@@ -23,6 +23,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::driver::ReportedVersionReading;
 use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::account::api_key::{log_in_with_api_key, read_codex_api_key};
 use crate::driver::codex::app_server_protocol::ThreadLoadedListParams;
 use crate::driver::codex::exec_relay::{CODEX_EXECUTOR_ARGUMENTS, CodexExecRelay, RelayedThread};
 use crate::driver::codex::native_program::resolve_codex_native_program;
@@ -188,8 +189,9 @@ pub(super) async fn start_codex_service(
 // service, and the relay's environment added on its connection before the start answers, so it
 // precedes any resume of a conversation there; a joined service takes the new relay's environment
 // in place of the one its former daemon's relay served. The switching service is handed its
-// account's tokens there too, after the environment, so a start, a crash's restart and a rejoin
-// all carry the account before any conversation resumes or any run is admitted on it.
+// account's tokens there too, and an API-key account's service its key, after the environment, so
+// a start, a crash's restart and a rejoin all carry the account before any conversation resumes or
+// any run is admitted on it.
 async fn start_relayed_service(
     service: &Arc<CodexService>,
     launch: u64,
@@ -213,7 +215,7 @@ async fn start_relayed_service(
             .connection
             .request(ENVIRONMENT_ADD_METHOD, &environment_add)
             .await?;
-        match service.home().kind {
+        match &service.home().kind {
             CodexHomeKind::Switching => {
                 service
                     .dependencies()
@@ -221,8 +223,15 @@ async fn start_relayed_service(
                     .hand_at_start(service, &started.connection)
                     .await
             }
+            CodexHomeKind::ApiKeyAccount(provider_account_id) => {
+                let api_key = read_codex_api_key(
+                    &service.dependencies().provider_accounts,
+                    provider_account_id,
+                )
+                .await?;
+                log_in_with_api_key(&started.connection, api_key).await
+            }
             CodexHomeKind::Account(_)
-            | CodexHomeKind::ApiKeyAccount(_)
             | CodexHomeKind::PersonalFolder
             | CodexHomeKind::CapabilityRead
             | CodexHomeKind::McpSignIn => Ok(()),

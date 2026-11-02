@@ -6,6 +6,9 @@ use serde::Serialize;
 
 use crate::driver::codex::account::auth_file::serialize_secret;
 
+/// Codex's request that signs a service in.
+pub(crate) const CODEX_LOGIN_START_METHOD: &str = "account/login/start";
+
 /// One `account/login/start` request, its arm named by `type`.
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -26,5 +29,13 @@ pub(crate) enum CodexLoginAccountParams {
         /// The plan the sign-in's identity token names; `None` lets Codex read it from the access
         /// token's claims.
         chatgpt_plan_type: Option<String>,
+    },
+    /// A pasted API key the daemon read from where it seals its secrets and hands the service of
+    /// the key's account; Codex holds it in its memory alone.
+    #[serde(rename_all = "camelCase")]
+    ApiKey {
+        /// The key.
+        #[serde(serialize_with = "serialize_secret")]
+        api_key: SecretString,
     },
 }

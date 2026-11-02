@@ -12,6 +12,7 @@ use tempfile::TempDir;
 
 use crate::account::home_lock::AccountHomeLock;
 use crate::driver::codex::account::CodexAccountLegs;
+use crate::driver::codex::account::login::CODEX_LOGIN_START_METHOD;
 use crate::driver::codex::account::switch::move_codex_sessions;
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::server_requests::CODEX_TOKEN_REFRESH_METHOD;
@@ -19,7 +20,6 @@ use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_account_service_for, start_scripted_switching_service,
 };
-use crate::driver::codex::service::switching::CODEX_LOGIN_START_METHOD;
 use crate::driver::codex::service::switching::test_moves::{
     RecordedMoves, SessionQueue, switching_person,
 };

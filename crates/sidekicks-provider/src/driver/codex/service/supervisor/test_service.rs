@@ -238,6 +238,7 @@ pub(crate) fn test_codex_service_dependencies(
         wrapper_program: command_wrapper_program_path(&link_folder),
         askpass_program: command_askpass_program_path(&link_folder),
     });
+    let provider_accounts = Arc::new(PortRegistration::new("provider accounts"));
     Arc::new(CodexServiceDependencies {
         spawner,
         provider_services: Arc::new(ProviderServiceProcesses::default()),
@@ -255,9 +256,8 @@ pub(crate) fn test_codex_service_dependencies(
         drains: LastingServiceDrains::default(),
         tasks: TaskTracker::new(),
         exec_relay,
-        switching: Arc::new(CodexSwitchingAccount::new(Arc::new(PortRegistration::new(
-            "provider accounts",
-        )))),
+        switching: Arc::new(CodexSwitchingAccount::new(Arc::clone(&provider_accounts))),
+        provider_accounts,
     })
 }
 

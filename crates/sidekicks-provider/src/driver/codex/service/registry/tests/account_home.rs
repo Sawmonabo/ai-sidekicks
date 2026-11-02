@@ -3,13 +3,15 @@ use std::sync::Arc;
 
 use rstest::rstest;
 use secrecy::SecretString;
+use serde_json::json;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, short_socket_folder};
 use sidekicks_std::port_registration::PortRegistration;
 
 use super::stand_in::{
-    account_stand_in_services, another_daemon, is_running, last_launch_arguments, services_on,
-    this_daemon, wait_for_end_and_record_removal,
+    account_stand_in_services, another_daemon, is_running, last_launch_arguments,
+    per_home_services, recorded_requests, services_on, this_daemon,
+    wait_for_end_and_record_removal,
 };
 use crate::driver::ProviderAccountReader;
 use crate::driver::codex::account::{
@@ -26,6 +28,9 @@ const KEY_ACCOUNT: &str = "account-with-a-key";
 
 /// The account the test signs in through `ChatGPT`.
 const CHATGPT_ACCOUNT: &str = "account-with-chatgpt";
+
+/// The API key sealed for the test's account, which its service is handed at each start.
+const TEST_KEY: &str = "sk-the-key-each-start-hands-the-service";
 
 // The account named `name`.
 fn account(name: &str) -> ProviderAccountId {
@@ -162,4 +167,70 @@ async fn a_restart_keeps_an_account_homes_service_and_the_next_stop_ends_it() {
         is_stopped,
         "the stop left the account's service or its record"
     );
+}
+
+// Fails when an API-key account's service is never handed its key, so it runs signed out; when
+// only its first start hands it, so the next daemon's rejoin runs on whatever the service held; or
+// when the key goes before the relay's environment, as no other start's hand does.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_api_key_accounts_service_is_handed_its_key_at_each_start() {
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let services = per_home_services(CodexHomeKind::ApiKeyAccount(test_provider_account_id()));
+    let startup_timeout = services.dependencies.startup_timeout;
+    let codex_home = services.home.codex_home.clone();
+    let seal_key = |provider_accounts: &PortRegistration<Arc<dyn ProviderAccountReader>>| {
+        AccountHomes {
+            homes: HashMap::from([(test_provider_account_id(), codex_home.clone())]),
+            current: test_provider_account_id(),
+            api_keys: HashMap::from([(test_provider_account_id(), SecretString::from(TEST_KEY))]),
+        }
+        .register_on(provider_accounts);
+    };
+    seal_key(&services.dependencies.provider_accounts);
+
+    let first = this_daemon(&services);
+    let kept = first
+        .service_for(&test_provider_account_id())
+        .await
+        .expect("the home resolves");
+    let started = kept.ensure_started(startup_timeout).await;
+    first.shutdown(DaemonStopIntent::Restart).await;
+
+    let next = another_daemon(&services);
+    let joined = next
+        .service_for(&test_provider_account_id())
+        .await
+        .expect("the home resolves");
+    seal_key(&joined.dependencies().provider_accounts);
+    let rejoined = joined.ensure_started(startup_timeout).await;
+    // Read as the start answered: anything sent after, a resume among it, comes later.
+    let sent = recorded_requests(&services, &codex_home);
+    next.shutdown(DaemonStopIntent::Stop).await;
+
+    assert!(started.is_ok(), "{started:?}");
+    assert!(rejoined.is_ok(), "{rejoined:?}");
+    let handed: Vec<_> = sent
+        .iter()
+        .filter(|request| request["method"] != "initialize")
+        .collect();
+    let methods: Vec<&str> = handed
+        .iter()
+        .map(|request| request["method"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        methods,
+        [
+            "environment/add",
+            "account/login/start",
+            "environment/add",
+            "account/login/start"
+        ],
+        "each start hands the key after the relay's environment"
+    );
+    let login = json!({"type": "apiKey", "apiKey": TEST_KEY});
+    assert_eq!(handed[1]["params"], login);
+    assert_eq!(handed[3]["params"], login);
+    assert!(!codex_home.join("auth.json").exists());
 }

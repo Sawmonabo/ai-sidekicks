@@ -44,7 +44,7 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::auth_file::{
     CodexAuthTokens, is_same_token, read_codex_auth_tokens,
 };
-use crate::driver::codex::account::login::CodexLoginAccountParams;
+use crate::driver::codex::account::login::{CODEX_LOGIN_START_METHOD, CodexLoginAccountParams};
 use crate::driver::codex::account::token_refresh::CodexTokenRenewer;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::switching::hand_back::{
@@ -58,9 +58,6 @@ use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::contract::account::FirstRequestAfterMove;
 use crate::driver::contract::error::DriverError;
 use crate::driver::{ProviderAccountReader, read_current_account};
-
-/// Codex's request that signs a service in.
-pub(crate) const CODEX_LOGIN_START_METHOD: &str = "account/login/start";
 
 /// A session a switch names, moved at the switch's acknowledgment with its lead's binding, and
 /// where the switch waits on that move.

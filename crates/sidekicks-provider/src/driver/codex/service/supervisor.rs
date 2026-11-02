@@ -34,10 +34,12 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_platforms::Spawner;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+use crate::driver::ProviderAccountReader;
 use crate::driver::child_records::DaemonChildRecords;
 use crate::driver::codex::exec_relay::{CodexExecRelay, CodexExecRelayDependencies};
 use crate::driver::codex::server_requests::{CodexServerRequestResponder, CodexTokenRefresher};
@@ -136,6 +138,8 @@ pub(crate) struct CodexServiceDependencies {
     pub(crate) exec_relay: Arc<CodexExecRelayDependencies>,
     /// The account the switching service carries and how its tokens are found and handed.
     pub(crate) switching: Arc<CodexSwitchingAccount>,
+    /// The accounts reader, which an API-key account's key is read through at each start.
+    pub(crate) provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
 }
 
 /// The socket one service listens on.

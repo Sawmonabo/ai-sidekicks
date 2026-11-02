@@ -9,8 +9,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
+use serde_json::Value;
 use sidekicks_contracts::run::control::ProcessExit;
-use sidekicks_platforms::{pin_running_process, short_socket_folder};
+use sidekicks_platforms::{ProgramStart, pin_running_process, short_socket_folder};
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 
@@ -20,9 +21,9 @@ use crate::driver::codex::service::record::LastingServiceRecordFile;
 use crate::driver::codex::service::registry::OneHome;
 use crate::driver::codex::service::registry::{CodexServiceRegistry, home_socket_path};
 use crate::driver::codex::service::supervisor::test_service::{
-    CODEX_HOME_NAME, CodexServiceScript, ExitsHeard, LAUNCH_ARGUMENTS_FILE, TestCodexProgram,
-    UnheardEvents, serve_as_codex_service_stand_in, test_codex_service_dependencies,
-    write_codex_service_script,
+    CODEX_HOME_NAME, CodexServiceScript, ExitsHeard, LAUNCH_ARGUMENTS_FILE, REQUEST_RECORD_NAME,
+    TestCodexProgram, UnheardEvents, serve_as_codex_service_stand_in,
+    test_codex_service_dependencies, write_codex_service_script,
 };
 use crate::driver::codex::service::supervisor::{CodexProgramResolver, CodexServiceDependencies};
 use crate::driver::contract::error::DriverError;
@@ -102,13 +103,105 @@ pub(super) fn stand_in_services_in(
 /// paths fit the system's bound on them, the stand-in resolved as it is.
 pub(super) fn account_stand_in_services() -> StandInServices {
     let folder = short_socket_folder().expect("a scratch folder is made");
-    let codex_home = folder.path().join("account");
-    std::fs::create_dir_all(&codex_home).expect("the home is made");
-    let home = CodexServiceHome {
-        codex_home,
-        kind: CodexHomeKind::Account(test_provider_account_id()),
-    };
+    let home = account_home(
+        folder.path(),
+        CodexHomeKind::Account(test_provider_account_id()),
+    );
     services_on(home, folder, |program| Arc::new(program))
+}
+
+/// The services of one test on an account's home of `kind` in a scratch folder of their own whose
+/// socket paths fit the system's bound on them, each home's stand-in on its own home and recording
+/// its requests.
+pub(super) fn per_home_services(kind: CodexHomeKind) -> StandInServices {
+    let folder = short_socket_folder().expect("a scratch folder is made");
+    let home = account_home(folder.path(), kind);
+    let records_folder = folder.path().to_owned();
+    services_on(home, folder, move |program| {
+        Arc::new(ProgramPerHome {
+            program,
+            records_folder,
+        })
+    })
+}
+
+// The account's home of `kind` under `folder`, made.
+fn account_home(folder: &Path, kind: CodexHomeKind) -> CodexServiceHome {
+    let codex_home = folder.join("account");
+    std::fs::create_dir_all(&codex_home).expect("the home is made");
+    CodexServiceHome { codex_home, kind }
+}
+
+// The test's stand-in run with each home as its `CODEX_HOME`, as the daemon's own resolver runs
+// Codex, recording each home's requests in a file of its own beside the homes.
+struct ProgramPerHome {
+    program: TestCodexProgram,
+    records_folder: PathBuf,
+}
+
+impl CodexProgramResolver for ProgramPerHome {
+    fn resolve<'call>(
+        &'call self,
+        home: &'call CodexServiceHome,
+    ) -> BoxFuture<'call, Result<ResolvedProviderExecutable, DriverError>> {
+        let mut environment: Vec<(String, String)> = self
+            .program
+            .environment
+            .iter()
+            .filter(|(name, _)| name != CODEX_HOME_NAME)
+            .cloned()
+            .collect();
+        environment.extend([
+            (
+                CODEX_HOME_NAME.to_owned(),
+                home.codex_home.display().to_string(),
+            ),
+            (
+                REQUEST_RECORD_NAME.to_owned(),
+                request_record(&self.records_folder, &home.codex_home)
+                    .display()
+                    .to_string(),
+            ),
+        ]);
+        let resolved = ResolvedProviderExecutable {
+            requested_command: "codex".to_owned(),
+            resolved_executable_path: self.program.program.clone(),
+            start: ProgramStart {
+                program: self.program.program.clone(),
+                leading_arguments: Vec::new(),
+            },
+            environment,
+        };
+        Box::pin(async move { Ok(resolved) })
+    }
+}
+
+// The file the requests of the service on `codex_home` are recorded in, under `records_folder`.
+fn request_record(records_folder: &Path, codex_home: &Path) -> PathBuf {
+    let name = codex_home
+        .file_name()
+        .expect("a home names a folder")
+        .to_string_lossy();
+    records_folder.join(format!("{name}-requests"))
+}
+
+/// The requests the service on `codex_home` under [`per_home_services`] was sent, whole and in
+/// order.
+pub(super) fn recorded_requests(services: &StandInServices, codex_home: &Path) -> Vec<Value> {
+    std::fs::read_to_string(request_record(services.folder.path(), codex_home))
+        .expect("the service's requests were recorded")
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("a request is JSON"))
+        .collect()
+}
+
+/// The methods of the requests the service on `codex_home` under [`per_home_services`] was sent,
+/// in order.
+pub(super) fn recorded_methods(services: &StandInServices, codex_home: &Path) -> Vec<String> {
+    recorded_requests(services, codex_home)
+        .iter()
+        .map(|request| request["method"].as_str().unwrap_or_default().to_owned())
+        .collect()
 }
 
 /// The services of one test on `home` in `folder`, which they own, the stand-in resolved through

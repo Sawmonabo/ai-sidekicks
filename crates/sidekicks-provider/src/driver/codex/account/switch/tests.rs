@@ -21,12 +21,12 @@ use super::{hand_switching_service_again, move_codex_sessions};
 use crate::account::registry::{AccountAdmission, HealthObservation, open_test_registry};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::CodexAccountLegs;
+use crate::driver::codex::account::login::CODEX_LOGIN_START_METHOD;
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_switching_service,
 };
-use crate::driver::codex::service::switching::CODEX_LOGIN_START_METHOD;
 use crate::driver::codex::service::switching::test_moves::{
     RecordedMoves, SessionQueue, switching_person,
 };
