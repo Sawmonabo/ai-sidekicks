@@ -242,13 +242,13 @@ async fn first_request(moved: SessionAccountMove) -> FirstRequestAfterMove {
 }
 
 // Fails when a switch sends anything but one login carrying the new account's tokens and one
-// account read checking it, when a check answered with an account settles the move's first
-// request as anything but run, when the move reaches the session at another place among its
-// frames than the login's answer, when the service keeps carrying the account left or its limit
-// readings, when those readings are lost to a frame of the account left that the session reads after the switch, when the credential
-// generation moves, when a token reaches a log line, a reply or an error, when a login follows
-// on a timer, or when the named session's move is reported, which the daemon records itself at
-// the move's acknowledgment.
+// account read checking it, when a check answered with an account settles the move's first request
+// as anything but run, when the move reaches the session at another place among its frames than the
+// login's answer, when the service keeps carrying the account left or its limit readings, when
+// those readings are lost to a frame of the account left that the session reads after the switch,
+// when the credential generation moves, when a token reaches a log line, a reply or an error, when
+// a login follows on a timer, or when the named session's move is reported, which the daemon
+// records itself at the move's acknowledgment.
 #[tokio::test]
 async fn a_switch_is_one_login_whose_answer_moves_each_session_in_its_place() {
     let mut fixture = Fixture::new().await;
