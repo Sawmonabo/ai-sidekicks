@@ -1,6 +1,7 @@
 //! What the delivery remembers between calls, all behind its one mutex: the messages handed to a
 //! provider and not yet settled, the messages kept for a run's next turn, the runs holding a
-//! credits choice or held for an interrupt, and each session's chain; with the rules that read it.
+//! credits choice or held for an interrupt, the sessions held for an undo, and each session's
+//! chain; with the rules that read it.
 
 use std::collections::{HashMap, HashSet};
 
@@ -9,6 +10,7 @@ use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_provider::driver::message_handing::MessageHanding;
 use sidekicks_provider::process_identity::ProviderProcessIdentity;
 use sidekicks_session::queue_store::QueueItemRecord;
@@ -59,6 +61,9 @@ pub(super) struct DeliveryState {
     /// Runs an interrupt is under way on, with each interrupt holding it; a run is handed nothing
     /// until every one of them settles.
     pub(super) interrupt_holds: HashMap<RunId, HashSet<InterventionId>>,
+    /// Sessions an undo is under way on, with the key of each undo holding it; nothing of the
+    /// session is handed until every one of them lets go.
+    pub(super) undo_holds: HashMap<SessionId, HashSet<ClientUuid>>,
     /// Each session's chain, present only while its drain runs.
     pub(super) chains: HashMap<SessionId, SessionChain>,
     next_hand_number: u64,
@@ -126,8 +131,8 @@ impl DeliveryState {
     }
 
     /// The messages of `lead_waiting` that go now: not handed, except by a continue no resume
-    /// keeps when `rereads_continue` (a continue that did not go delivered nothing), and not kept
-    /// for a next turn.
+    /// keeps when `rereads_continue` (a continue that did not go delivered nothing), not kept for
+    /// a next turn, and none of a session an undo holds.
     pub(super) fn unhanded_of(
         &self,
         lead_waiting: Vec<QueueItemRecord>,
@@ -143,7 +148,9 @@ impl DeliveryState {
                         HandRoute::Driver(_) => false,
                     },
                 };
-                is_free && !self.next_turn_runs.contains_key(&item.id)
+                is_free
+                    && !self.next_turn_runs.contains_key(&item.id)
+                    && !self.undo_holds.contains_key(&item.session_id)
             })
             .collect()
     }
