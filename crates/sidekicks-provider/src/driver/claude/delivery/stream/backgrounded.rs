@@ -22,8 +22,9 @@ const RUNS_ON_THE_SERVER: &str = "started server-side task";
 
 impl ClaudeDeliveryStream {
     /// Sends each held call's stand-in in `stand_ins`, by the call's id with its words, as the
-    /// call's `backgrounded` row on the run that opened it and that run's binding, unpaired, the
-    /// call's seen start forgotten so its later close never waits on it. What Claude Code keeps
+    /// call's `backgrounded` row on the run that opened it and that run's binding, appended after
+    /// its run, so it lands even once a newer binding has dropped that one's cursor, and unpaired,
+    /// the call's seen start forgotten so its later close never waits on it. What Claude Code keeps
     /// is read once; a failed read is logged and each call's survival read off its stand-in.
     pub(super) async fn send_backgrounded(
         &self,
@@ -53,14 +54,20 @@ impl ClaudeDeliveryStream {
                 else {
                     continue;
                 };
+                readings.buffer.forget_initiation(&tool_use_id);
                 let survives_restart = survives(kept.as_ref(), (&tool_use_id, &task_id), &stand_in);
                 let (Ok(tool_call_id), Ok(task_id)) = (
                     ToolCallId::new(tool_use_id.clone()),
                     FreeFormText::new(task_id),
                 ) else {
+                    tracing::warn!(
+                        session_id = %session.session_id,
+                        tool_use_id = %tool_use_id,
+                        "a Claude Code call moved to the background has an id or task id no row can \
+                         carry, so its move is not recorded"
+                    );
                     continue;
                 };
-                readings.buffer.forget_initiation(&tool_use_id);
                 let run = opened.run();
                 let payload = ToolCallBackgroundedPayload {
                     session_id: session.session_id,
@@ -81,7 +88,9 @@ impl ClaudeDeliveryStream {
                     event: ClaudeRowDelivery {
                         binding_id: run.binding_id.clone(),
                         operation: None,
-                        row: ClaudeRow::Late(LateAppendableRow::AgentToolCallBackgrounded(payload)),
+                        row: ClaudeRow::AfterRun(LateAppendableRow::AgentToolCallBackgrounded(
+                            payload,
+                        )),
                         body: Some(stand_in),
                         message_key: None,
                     },

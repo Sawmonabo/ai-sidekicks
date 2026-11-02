@@ -60,10 +60,10 @@ fn closes(
 
 // Fails when a held call's stand-in is not its `backgrounded` row, when its survival is not read
 // from what Claude Code kept before its words, or when a process that ends unasked leaves its held
-// calls unsettled or settles them other than by what Claude Code kept. Mutations: the record read
-// before the saved ending (call-1 left open, no `stopped` close); survival inverted or read off the
-// words alone (call-1 and call-2 read `false`); the settle skipped in `end()`, or `end_session`
-// answering no held calls (no close for call-3, the wait times out).
+// calls unsettled or settles them other than by what Claude Code kept. Mutations: the saved ending
+// ignored (call-1 left open, no `stopped` close); survival inverted or read off the words alone
+// (call-1 and call-2 read `false`); the settle skipped in `end()`, or `end_session` answering no
+// held calls (no close for call-3, the wait times out).
 #[tokio::test(start_paused = true)]
 async fn an_unmarked_exit_settles_each_held_call_by_what_claude_code_kept() {
     let session = ScriptedSession::new().await;
@@ -89,10 +89,6 @@ async fn an_unmarked_exit_settles_each_held_call_by_what_claude_code_kept() {
                 "serverName": "files",
                 "toolName": "export",
             }),
-        ),
-        (
-            "mcp-task-task-1.meta.json",
-            json!({"toolUseId": "call-1", "serverName": "files", "toolName": "export"}),
         ),
         (
             "mcp-task-task-2.meta.json",
@@ -167,21 +163,21 @@ async fn an_unmarked_exit_settles_each_held_call_by_what_claude_code_kept() {
             (
                 "call-1".to_owned(),
                 true,
-                "sessionRow",
+                "afterRunRow",
                 lead.clone(),
                 Some(running.to_owned())
             ),
             (
                 "call-2".to_owned(),
                 true,
-                "sessionRow",
+                "afterRunRow",
                 lead.clone(),
                 Some(running.to_owned())
             ),
             (
                 "call-3".to_owned(),
                 false,
-                "sessionRow",
+                "afterRunRow",
                 lead,
                 Some(ending.to_owned())
             ),

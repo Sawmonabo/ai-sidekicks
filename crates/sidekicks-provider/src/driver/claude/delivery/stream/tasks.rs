@@ -98,14 +98,22 @@ impl ClaudeDeliveryStream {
         self.close_held_calls(session, ends, frame_kind).await;
         if let (Some((tool_use_id, summary)), Some(statuses)) =
             (progress, self.dependencies.tool_call_statuses.port())
-            && let (Ok(tool_call_id), Ok(status)) = (
-                ToolCallId::new(tool_use_id),
+        {
+            if let (Ok(tool_call_id), Ok(status)) = (
+                ToolCallId::new(tool_use_id.clone()),
                 FreeFormText::<TOOL_CALL_STATUS_MAX_LEN>::new(
                     cut_to_code_points(&summary, TOOL_CALL_STATUS_MAX_LEN).to_owned(),
                 ),
-            )
-        {
-            statuses.publish_tool_call_status(session.session_id, tool_call_id, status);
+            ) {
+                statuses.publish_tool_call_status(session.session_id, tool_call_id, status);
+            } else {
+                tracing::warn!(
+                    session_id = %session.session_id,
+                    tool_use_id = %tool_use_id,
+                    "a Claude Code background call's id or progress line is not one a status \
+                     line can carry, so the line is not published"
+                );
+            }
         }
         let fact =
             session
@@ -268,6 +276,9 @@ impl ClaudeDeliveryStream {
         ends: Vec<ClaudeHeldCallEnd>,
         wire: &str,
     ) {
+        if ends.is_empty() {
+            return;
+        }
         let statuses = self.dependencies.tool_call_statuses.port();
         let mut rows = Vec::with_capacity(ends.len());
         for end in ends {
@@ -282,15 +293,20 @@ impl ClaudeDeliveryStream {
             {
                 statuses.clear_tool_call_status(session.session_id, tool_call_id);
             }
-            let ClaudeBoundRun { run_id, binding_id } = opened.run().clone();
+            let binding_id = opened.run().binding_id.clone();
             let Some(row) = close_opened_call(
                 opened,
                 &tool_use_id,
                 session.session_id,
-                run_id,
                 outcome,
                 Timestamp::now(),
             ) else {
+                tracing::warn!(
+                    session_id = %session.session_id,
+                    tool_use_id = %tool_use_id,
+                    "a Claude Code background call's id is not one a row can carry, so its close \
+                     is not recorded"
+                );
                 continue;
             };
             rows.push(ReorderBufferedEvent {

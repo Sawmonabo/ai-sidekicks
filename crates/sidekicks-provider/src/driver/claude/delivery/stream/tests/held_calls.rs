@@ -36,13 +36,16 @@ fn stand_in(call_id: &str) -> Value {
     })
 }
 
-// Fails when a held call's close lands anywhere but after the run that opened the call, on that
-// run's binding, as a row no cursor stamps, or when its progress is not its status line or the
-// line outlives the close. Mutations: the close reading the opening from the open calls, which
-// B's turn end cleared (no close); `observe_start` holding the call on `task_run`'s run (run B,
-// binding-b) or the close on it (binding-c); the close on the session's newest binding
-// (binding-c); the close as `ClaudeRow::Late` (kind `sessionRow`); `SystemTaskProgress` left out
-// of `is_task` or no `progress_call` arm (no status); the clear skipped (no `None`).
+// Fails when a held call's move to the background, read once its opening run ended and a newer
+// binding holds the turn, or its close lands anywhere but after the run that opened the call, on
+// that run's binding, as a row no cursor stamps, or when its progress is not its status line or
+// the line outlives the close. Mutations: the background row as `ClaudeRow::Late` (kind
+// `sessionRow`, which needs the dropped cursor of binding-a) or on the turn's binding
+// (binding-b); the close reading the opening from the open calls, which B's turn end cleared (no
+// close); `observe_start` holding the call on `task_run`'s run (run B, binding-b) or the close on
+// it (binding-c); the close on the session's newest binding (binding-c); the close as
+// `ClaudeRow::Late` (kind `sessionRow`); `SystemTaskProgress` left out of `is_task` or no
+// `progress_call` arm (no status); the clear skipped (no `None`).
 #[tokio::test(start_paused = true)]
 async fn a_held_call_ending_after_its_turn_lands_after_its_run_on_its_own_binding() {
     let session = ScriptedSession::new().await;
@@ -77,6 +80,21 @@ async fn a_held_call_ending_after_its_turn_lands_after_its_run_on_its_own_bindin
     }));
     settle().await;
 
+    let backgrounded: Vec<_> = session
+        .engine
+        .deliveries()
+        .into_iter()
+        .filter_map(|delivery| {
+            let Some(LateAppendableRow::AgentToolCallBackgrounded(payload)) = delivery.row else {
+                return None;
+            };
+            Some((delivery.kind, delivery.binding_id, payload.run_id))
+        })
+        .collect();
+    assert_eq!(
+        backgrounded,
+        [("afterRunRow", Some(binding_id("binding-a")), run_a)]
+    );
     let closes: Vec<_> = session
         .engine
         .deliveries()

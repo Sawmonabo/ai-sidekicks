@@ -488,13 +488,12 @@ pub(crate) fn close_claude_tool_call(
     now: Timestamp,
 ) -> Option<ClaudeMessageRow> {
     let opened = open_tool_calls.remove(call_id)?;
-    let run_id = opened.run().run_id;
     let outcome = if closed.is_error {
         ClaudeToolCallOutcome::Failed { end_cause: None }
     } else {
         ClaudeToolCallOutcome::Completed
     };
-    let row = close_opened_call(opened, call_id, closed.session_id, run_id, outcome, now)?;
+    let row = close_opened_call(opened, call_id, closed.session_id, outcome, now)?;
     Some(ClaudeMessageRow {
         tool_call_id: Some(call_id.to_owned()),
         pairing_role: ReorderPairingRole::Completion,
@@ -505,13 +504,12 @@ pub(crate) fn close_claude_tool_call(
     })
 }
 
-/// The row that closes `opened`, the call `call_id`, on `run_id` with `outcome`, timed from its
-/// start to `now` and carrying no body; `None` for an id no row can carry.
+/// The row that closes `opened`, the call `call_id`, on the run that started it with `outcome`,
+/// timed from its start to `now` and carrying no body; `None` for an id no row can carry.
 pub(crate) fn close_opened_call(
     opened: ClaudeOpenToolCall,
     call_id: &str,
     session_id: SessionId,
-    run_id: RunId,
     outcome: ClaudeToolCallOutcome,
     now: Timestamp,
 ) -> Option<LateAppendableRow> {
@@ -521,7 +519,7 @@ pub(crate) fn close_opened_call(
         .and_then(SafeInt::new);
     let activity = tool_activity(
         session_id,
-        run_id,
+        opened.run().run_id,
         opened.tool_name,
         tool_call_id,
         duration_ms,

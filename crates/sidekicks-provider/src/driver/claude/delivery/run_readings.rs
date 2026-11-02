@@ -70,7 +70,8 @@ pub(crate) struct ClaudeOpenTurn {
 pub(crate) enum ClaudeRow {
     /// A row the run engine stamps when it is late.
     Late(LateAppendableRow),
-    /// A row appended after its run, never attributed: a held call's close.
+    /// A row appended after its run, never attributed: a held call's move to the background and
+    /// its close.
     AfterRun(LateAppendableRow),
     /// An assistant's reasoning, whose text is the row's body.
     Thinking(RunAgentOutputPayload),
