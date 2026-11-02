@@ -8,12 +8,12 @@ use sidekicks_platforms::{
     ServiceInstall, ServiceOwner, ServiceRegistration, ServiceRegistrationError,
 };
 
+use crate::exit_codes::CommandFailure;
+
 /// The line for a login agent the person turned off in Login Items, which `daemon status` prints
 /// and a start fails with.
 pub(crate) const TURNED_OFF_IN_LOGIN_ITEMS: &str = "The background service is installed but turned \
      off in System Settings › General › Login Items & Extensions.";
-
-use crate::exit_codes::CommandFailure;
 
 /// The steps of the service's registration the install and uninstall commands take.
 pub(crate) trait LoginRegistration {
