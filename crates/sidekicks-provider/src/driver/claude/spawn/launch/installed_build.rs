@@ -18,11 +18,10 @@ use crate::command_search::{ProviderCommandSearch, list_command_folders};
 use crate::driver::ReportedVersionReading;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::capabilities::read_claude_capabilities;
+use crate::driver::claude::mcp::ClaudeMcpProcess;
 use crate::driver::claude::mcp::connectors::ClaudeAccountServersReadRequest;
-use crate::driver::claude::mcp::machine_probe::{
-    ClaudeMcpProbeProcess, ClaudeMcpProbeProcessRequest,
-};
-use crate::driver::claude::mcp::sign_in::{ClaudeMcpSignInChannel, ClaudeMcpSignInStart};
+use crate::driver::claude::mcp::machine_probe::ClaudeMcpProbeProcessRequest;
+use crate::driver::claude::mcp::sign_in::ClaudeMcpSignInStart;
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::ClaudeControlRequest;
@@ -128,11 +127,12 @@ pub(crate) trait ClaudeProcessStarts: Send + Sync {
 
     /// Brings up, initialized, the one process that keeps nothing of an MCP server's sign-in,
     /// started as `start` names and loading the server its file declares, that one alone where
-    /// `start` says so; the caller drives it and closes it.
+    /// `start` says so, handing back the process with what it writes; the caller drives it, reads
+    /// what it writes and closes it.
     fn start_mcp_sign_in(
         &self,
         start: ClaudeMcpSignInStart,
-    ) -> BoxFuture<'_, Result<ClaudeMcpSignInChannel, ClaudeLaunchError>>;
+    ) -> BoxFuture<'_, Result<ClaudeMcpProcess, ClaudeLaunchError>>;
 
     /// Starts the MCP server probe's process as `request` names and sends its `initialize`,
     /// handing back the process with what it writes. Fails as the start or `initialize` does, the
@@ -140,7 +140,7 @@ pub(crate) trait ClaudeProcessStarts: Send + Sync {
     fn start_mcp_probe(
         &self,
         request: ClaudeMcpProbeProcessRequest,
-    ) -> BoxFuture<'_, Result<ClaudeMcpProbeProcess, ClaudeLaunchError>>;
+    ) -> BoxFuture<'_, Result<ClaudeMcpProcess, ClaudeLaunchError>>;
 
     /// Stops every live process and starts none after.
     fn stop_every_process(&self) -> BoxFuture<'_, ()>;
@@ -406,7 +406,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
     fn start_mcp_sign_in(
         &self,
         start: ClaudeMcpSignInStart,
-    ) -> BoxFuture<'_, Result<ClaudeMcpSignInChannel, ClaudeLaunchError>> {
+    ) -> BoxFuture<'_, Result<ClaudeMcpProcess, ClaudeLaunchError>> {
         async move {
             let executable =
                 Self::resolve(&self.command_search, &self.home_folder, start.environment).await?;
@@ -430,8 +430,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
                     start.provider_account_id,
                 )
                 .await?;
-            let process: ClaudeMcpSignInChannel = short.process;
-            Ok(process)
+            Ok(ClaudeMcpProcess::from(short))
         }
         .boxed()
     }
@@ -439,7 +438,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
     fn start_mcp_probe(
         &self,
         request: ClaudeMcpProbeProcessRequest,
-    ) -> BoxFuture<'_, Result<ClaudeMcpProbeProcess, ClaudeLaunchError>> {
+    ) -> BoxFuture<'_, Result<ClaudeMcpProcess, ClaudeLaunchError>> {
         async move {
             let executable =
                 Self::resolve(&self.command_search, &self.home_folder, request.environment).await?;
@@ -455,11 +454,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
                     request.provider_account_id,
                 )
                 .await?;
-            let ClaudeShortProcess { process, arrivals } = short;
-            Ok(ClaudeMcpProbeProcess {
-                channel: process,
-                arrivals: arrivals.into_inner(),
-            })
+            Ok(ClaudeMcpProcess::from(short))
         }
         .boxed()
     }

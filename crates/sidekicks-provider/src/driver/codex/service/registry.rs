@@ -12,13 +12,14 @@ pub(crate) mod personal_folder_read;
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::io::{self, ErrorKind};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::{BoxFuture, join_all};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::{CAN_LINK_A_SOCKET, read_socket_link};
+use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::mutex_lock::lock;
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
@@ -158,7 +159,11 @@ impl CodexServiceRegistry {
     /// Removes the capability read's folder and everything its service wrote there; a folder
     /// already gone is removed. Fails as the removal fails.
     pub(crate) async fn remove_capability_read_home(&self) -> Result<(), DriverError> {
-        remove_own_folder(&capability_read_home(&self.dependencies.data_folder)).await
+        tokio::fs::remove_dir_all(capability_read_home(&self.dependencies.data_folder))
+            .await
+            .none_if_missing()
+            .map(drop)
+            .map_err(|error| DriverError::Internal(Box::new(error)))
     }
 
     /// A service of its own for one MCP server's sign-in, on `codex_home`, a folder of the
@@ -567,16 +572,6 @@ async fn retire_service(services: &Mutex<RegisteredServices>, service: &Arc<Code
 // Whether `home` is the person's own folder, which only the terminal service runs on.
 fn is_terminal_reach_home(home: &CodexServiceHome) -> bool {
     home.kind == CodexHomeKind::PersonalFolder
-}
-
-/// Removes `folder`, one of the daemon's own folders a short-lived service ran in, with everything
-/// its service wrote there; a folder already gone is removed. Fails as the removal fails.
-async fn remove_own_folder(folder: &Path) -> Result<(), DriverError> {
-    match tokio::fs::remove_dir_all(folder).await {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(DriverError::Internal(Box::new(error))),
-    }
 }
 
 /// The capability read's home: its folder under the daemon's `data_folder`.

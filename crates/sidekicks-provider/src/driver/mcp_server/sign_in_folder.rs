@@ -4,10 +4,11 @@
 //! left.
 
 use std::error::Error;
-use std::io::{self, ErrorKind};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use sidekicks_platforms::{LeftoverSweep, create_private_folder, replace_file_atomically};
+use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::random_hex::random_hex;
 
 /// One sign-in's own folder, removed when dropped unless [`SignInFolder::remove`] removed it
@@ -55,7 +56,9 @@ impl SignInFolder {
     /// Removes the folder now; a folder already gone counts as removed. Fails with the system's
     /// error, the folder then still removed when this drops.
     pub(crate) async fn remove(mut self) -> io::Result<()> {
-        remove_folder(tokio::fs::remove_dir_all(&self.path).await)?;
+        tokio::fs::remove_dir_all(&self.path)
+            .await
+            .none_if_missing()?;
         self.is_removed = true;
         Ok(())
     }
@@ -67,7 +70,7 @@ impl Drop for SignInFolder {
         if self.is_removed {
             return;
         }
-        if let Err(error) = remove_folder(std::fs::remove_dir_all(&self.path)) {
+        if let Err(error) = std::fs::remove_dir_all(&self.path).none_if_missing() {
             tracing::warn!(
                 error = &error as &(dyn Error + 'static),
                 folder = %self.path.display(),
@@ -80,13 +83,8 @@ impl Drop for SignInFolder {
 /// Removes `parent`, the folder each sign-in makes its own in, with every folder a stopped daemon
 /// left there; none there counts as removed. Fails with the system's error.
 pub(crate) async fn remove_left_sign_in_folders(parent: &Path) -> io::Result<()> {
-    remove_folder(tokio::fs::remove_dir_all(parent).await)
-}
-
-// A removal's outcome, a folder already gone counted as removed.
-fn remove_folder(removed: io::Result<()>) -> io::Result<()> {
-    match removed {
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-        removed => removed,
-    }
+    tokio::fs::remove_dir_all(parent)
+        .await
+        .none_if_missing()
+        .map(drop)
 }

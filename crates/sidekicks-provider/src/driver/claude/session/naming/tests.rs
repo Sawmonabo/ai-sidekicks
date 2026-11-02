@@ -12,11 +12,10 @@ use tokio_util::sync::CancellationToken;
 
 use super::CLAUDE_NAMING_DEADLINE;
 use crate::driver::claude::lifecycle::ClaudeDriver;
+use crate::driver::claude::mcp::ClaudeMcpProcess;
 use crate::driver::claude::mcp::connectors::ClaudeAccountServersReadRequest;
-use crate::driver::claude::mcp::machine_probe::{
-    ClaudeMcpProbeProcess, ClaudeMcpProbeProcessRequest,
-};
-use crate::driver::claude::mcp::sign_in::{ClaudeMcpSignInChannel, ClaudeMcpSignInStart};
+use crate::driver::claude::mcp::machine_probe::ClaudeMcpProbeProcessRequest;
+use crate::driver::claude::mcp::sign_in::ClaudeMcpSignInStart;
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::readings::{
@@ -111,14 +110,14 @@ impl ClaudeProcessStarts for UnansweredOneTurn {
     fn start_mcp_sign_in(
         &self,
         _start: ClaudeMcpSignInStart,
-    ) -> BoxFuture<'_, Result<ClaudeMcpSignInChannel, ClaudeLaunchError>> {
+    ) -> BoxFuture<'_, Result<ClaudeMcpProcess, ClaudeLaunchError>> {
         unreachable!("{ONLY_THE_ONE_TURN}")
     }
 
     fn start_mcp_probe(
         &self,
         _request: ClaudeMcpProbeProcessRequest,
-    ) -> BoxFuture<'_, Result<ClaudeMcpProbeProcess, ClaudeLaunchError>> {
+    ) -> BoxFuture<'_, Result<ClaudeMcpProcess, ClaudeLaunchError>> {
         unreachable!("{ONLY_THE_ONE_TURN}")
     }
 

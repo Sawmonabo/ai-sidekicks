@@ -252,7 +252,7 @@ fn read_lead_frame(frame: &ClaudeStreamFrame, reading: &mut OneTurnReading) {
 /// The answer of a process no one watches to a request it holds: a tool ask is denied, since no one
 /// can approve it, and every other request passes; a process that names no tool server sends no
 /// message for one.
-pub(super) fn compose_unwatched_answer(body: &ClaudeInboundRequestBody) -> Value {
+pub(crate) fn compose_unwatched_answer(body: &ClaudeInboundRequestBody) -> Value {
     match body {
         ClaudeInboundRequestBody::CanUseTool(_) => {
             json!({"behavior": "deny", "message": CLAUDE_ONE_TURN_ASK_DENIAL})
