@@ -250,7 +250,6 @@ impl ProviderSessions {
         } = self
             .compose_resume(session_id, &leg, minted_id.clone())
             .await?;
-        params.on_mcp_server_status = function_legs_for(&minted_id).on_mcp_server_status;
         let driver = self.deps.providers.lookup(&leg.provider_name)?;
         let (held_run_continue, claims) = self
             .claim_held_run_continue(session_id, &params.live_runs, &params.kept_schedules)
@@ -259,6 +258,8 @@ impl ProviderSessions {
             return Ok((None, ResumedSession::default()));
         }
         params.held_run_continue = held_run_continue;
+        // Status legs open only once the driver will run, so a continue that runs none opens none.
+        params.on_mcp_server_status = function_legs_for(&minted_id).on_mcp_server_status;
         if let Err(unopened) = self
             .deps
             .binding_cursors
