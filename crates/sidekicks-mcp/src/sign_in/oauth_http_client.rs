@@ -87,6 +87,7 @@ const PROXY_VARIABLES: [&str; 6] = [
         reason = "the daemon's start builds the one set the sign-ins share"
     )
 )]
+#[derive(Clone)]
 pub(crate) struct OAuthHttpPools {
     public: reqwest::Client,
     loopback: reqwest::Client,

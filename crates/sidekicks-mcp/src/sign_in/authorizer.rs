@@ -4,14 +4,18 @@
 //! or the server refuses it.
 //!
 //! - One renewal per server at a time: every authorizer of a server reads its token under the
-//!   server's renewal hold, which the custody keeps and a sign-out takes too, so a caller that
-//!   waited reads the token the first one renewed and renews nothing.
+//!   server's renewal hold, which the custody keeps, so a caller that waited reads the token the
+//!   first one renewed and renews nothing. A sign-out takes no hold: a renewal it overtakes has
+//!   its save refused, and the authorizer revokes the refresh token that renewal received, on a
+//!   task the daemon's stop ends, where the authorization server publishes a revocation endpoint.
 //! - A 401 `invalid_token` renews only while the held token is still the refused one; when another
 //!   request has replaced it, the request is sent again with the held token.
-//! - Before each read or renewal the authorizer sets its manager to renew as the client the held
-//!   sign-in names, its secret included, and to sign with the sign-in's proof key for a `DPoP`
-//!   sign-in, since a sign-in kept since the authorizer was made may hold another client or key;
-//!   it renews against the server's metadata, through the server's filtered OAuth client. A
+//! - Before a read or renewal of a sign-in it has not renewed as yet, the authorizer sets its
+//!   manager to renew as the client that sign-in names, its secret included, and to sign with the
+//!   sign-in's proof key for a `DPoP` sign-in, since a sign-in kept since the authorizer was made
+//!   may hold another client or key; a request that finds the server needs a sign-in while another
+//!   sign-in was kept since its read is tried once more as that sign-in. It renews against the
+//!   server's metadata, through the server's filtered OAuth client. A
 //!   sign-in another authorization server issued is forgotten when the authorizer is made, its
 //!   issuer compared equal but for a slash ending either, so a slash alone never forgets a sign-in.
 //! - A request that finds the server needs a sign-in marks it signed out, under the server's
@@ -31,7 +35,7 @@
     )
 )]
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 use futures::future::BoxFuture;
 use oauth2::TokenResponse as _;
@@ -45,6 +49,8 @@ use sidekicks_contracts::dpop::{DPOP_AUTHORIZATION_SCHEME, DPOP_PROOF_HEADER_NAM
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_std::mutex_lock::lock;
 use subtle::ConstantTimeEq as _;
+use tokio::sync::{MappedMutexGuard, MutexGuard};
+use tokio_util::sync::CancellationToken;
 
 use crate::client::http::{
     AuthorizationResult, BEARER_AUTHORIZATION_SCHEME, McpRequestAuthorizer, RefusalAnswer,
@@ -55,6 +61,7 @@ use crate::sign_in::credential_store::{
     DpopKeyScalar, HeldSignIn, McpCredentialStore, SignInCustody, SignInCustodyError,
 };
 use crate::sign_in::oauth_http_client::{OAuthHttpPools, ServerOAuthHttpClient};
+use crate::sign_in::sign_out::revoke_on_task;
 
 /// The `error` a server's challenge names for a token it no longer takes (RFC 6750 §3.1).
 const INVALID_TOKEN: &str = "invalid_token";
@@ -107,9 +114,13 @@ pub(crate) enum SignInAuthorizationError {
 pub(crate) struct SignInAuthorizer {
     /// rmcp's manager of the server's sign-in, which reads and renews its token, set to the held
     /// sign-in's client under the server's renewal hold.
-    manager: tokio::sync::Mutex<AuthorizationManager>,
+    manager: tokio::sync::Mutex<RenewingManager>,
     /// The manager's filtered OAuth client, whose key slot signs a `DPoP` sign-in's renewal.
     http_client: Arc<ServerOAuthHttpClient>,
+    /// The filtered pools a refused renewal's revocation takes its own client from.
+    pools: OAuthHttpPools,
+    /// Ends a refused renewal's revocation at the daemon's stop.
+    stop: CancellationToken,
     /// Every server's custody, which keeps each server's renewal hold.
     custody: Arc<SignInCustody>,
     /// The server's custody, for the held token type and proof key.
@@ -122,11 +133,21 @@ pub(crate) struct SignInAuthorizer {
     dpop_key: Mutex<Option<(Arc<DpopKeyScalar>, Arc<DpopKey>)>>,
 }
 
+/// rmcp's manager and the sign-in it was last set to renew as, held weakly so a sign-in forgotten
+/// since leaves no token in memory, and compared by identity.
+struct RenewingManager {
+    /// The manager.
+    manager: AuthorizationManager,
+    /// The sign-in the manager's client and the OAuth client's key slot were last set from.
+    configured_for: Weak<HeldSignIn>,
+}
+
 impl SignInAuthorizer {
     /// The authorizer of the server at `address` under the sign-in `custody` holds for it,
     /// renewing against the server's `metadata` as the client the held sign-in names, its secret
     /// included, through a client of `pools` that signs with the held proof key, under the
-    /// server's renewal hold `custody` keeps. Fails with
+    /// server's renewal hold `custody` keeps; `stop` ends the revocation of a refused renewal's
+    /// refresh token. Fails with
     /// [`SignInAuthorizationError::SignInRequired`], the server marked signed out, when no
     /// sign-in is held, or the held one was issued by another authorization server than
     /// `metadata` names and is forgotten.
@@ -135,6 +156,7 @@ impl SignInAuthorizer {
         pools: &OAuthHttpPools,
         address: &McpServerAddress,
         metadata: AuthorizationMetadata,
+        stop: CancellationToken,
     ) -> Result<Self, SignInAuthorizationError> {
         let store = custody.credential_store(address);
         let account = canonical_server_address(address);
@@ -166,8 +188,13 @@ impl SignInAuthorizer {
         manager.set_metadata(metadata);
         manager.set_credential_store(custody.credential_store(address));
         Ok(Self {
-            manager: tokio::sync::Mutex::new(manager),
+            manager: tokio::sync::Mutex::new(RenewingManager {
+                manager,
+                configured_for: Weak::new(),
+            }),
             http_client,
+            pools: pools.clone(),
+            stop,
             custody: Arc::clone(custody),
             store,
             address: address.clone(),
@@ -179,11 +206,23 @@ impl SignInAuthorizer {
 
 impl SignInAuthorizer {
     // The held access token, renewed first when it runs out, and the sign-in it was read with,
-    // both read under the server's renewal hold; a server found to need a sign-in is marked so.
+    // both read under the server's renewal hold. rmcp reads the sign-in held when it renews, so a
+    // sign-in kept since the first read, which found the server needs a sign-in, is tried once
+    // more; a server still found to need one is marked so.
     async fn current_token(&self) -> Result<(String, Arc<HeldSignIn>), SignInAuthorizationError> {
         let _hold = self.custody.renewals.acquire(self.account.clone()).await;
-        let found = self.store.held().await?;
-        let token = self.token_of(found.as_ref()).await;
+        let mut found = self.store.held().await?;
+        let mut token = self.token_of(found.as_ref()).await;
+        if matches!(token, Err(SignInAuthorizationError::SignInRequired))
+            && let Some(kept_since) = self
+                .store
+                .held()
+                .await?
+                .filter(|held| found.as_ref().is_none_or(|found| !Arc::ptr_eq(found, held)))
+        {
+            token = self.token_of(Some(&kept_since)).await;
+            found = Some(kept_since);
+        }
         if matches!(token, Err(SignInAuthorizationError::SignInRequired)) {
             self.store.mark_needs_sign_in(found.as_ref()).await?;
         }
@@ -198,7 +237,10 @@ impl SignInAuthorizer {
     ) -> Result<(String, Arc<HeldSignIn>), SignInAuthorizationError> {
         let found = found.ok_or(SignInAuthorizationError::SignInRequired)?;
         let manager = self.renewing_as(found).await?;
-        let access_token = retry_refused_proof(|| manager.get_access_token()).await?;
+        let access_token = retry_refused_proof(|| manager.get_access_token()).await;
+        drop(manager);
+        self.revoke_refused_renewal();
+        let access_token = access_token?;
         let held = self
             .store
             .held()
@@ -254,24 +296,43 @@ impl SignInAuthorizer {
 
     // The manager, set under the server's renewal hold to renew as the client `held` names, its
     // secret included, and to sign its renewals with the proof key `held` keeps, or none for a
-    // bearer sign-in: a sign-in kept since the authorizer was made may hold another client or key.
+    // bearer sign-in, unless it was last set from `held` itself: a sign-in kept since the
+    // authorizer was made may hold another client or key.
     async fn renewing_as(
         &self,
-        held: &HeldSignIn,
-    ) -> Result<tokio::sync::MutexGuard<'_, AuthorizationManager>, SignInAuthorizationError> {
-        let mut manager = self.manager.lock().await;
-        // rmcp configures a client only with a redirect address, and a renewal sends none, so the
-        // server's address stands in, as rmcp's own `configure_client_id` does.
-        let mut client =
-            OAuthClientConfig::new(held.credentials.client_id.clone(), self.address.as_str());
-        if let Some(client_secret) = &held.client_secret {
-            client = client.with_client_secret(client_secret.expose_secret());
+        held: &Arc<HeldSignIn>,
+    ) -> Result<MappedMutexGuard<'_, AuthorizationManager>, SignInAuthorizationError> {
+        let mut renewing = self.manager.lock().await;
+        if !std::ptr::eq(renewing.configured_for.as_ptr(), Arc::as_ptr(held)) {
+            // rmcp configures a client only with a redirect address, and a renewal sends none, so
+            // the server's address stands in, as rmcp's own `configure_client_id` does.
+            let mut client =
+                OAuthClientConfig::new(held.credentials.client_id.clone(), self.address.as_str());
+            if let Some(client_secret) = &held.client_secret {
+                client = client.with_client_secret(client_secret.expose_secret());
+            }
+            renewing
+                .manager
+                .configure_client(client)
+                .map_err(SignInAuthorizationError::Metadata)?;
+            self.http_client.set_dpop_key(held.dpop_key.clone());
+            renewing.configured_for = Arc::downgrade(held);
         }
-        manager
-            .configure_client(client)
-            .map_err(SignInAuthorizationError::Metadata)?;
-        self.http_client.set_dpop_key(held.dpop_key.clone());
-        Ok(manager)
+        Ok(MutexGuard::map(renewing, |renewing| &mut renewing.manager))
+    }
+
+    // Revokes the refresh token a renewal whose save was refused received, a sign-out or a new
+    // sign-in having replaced the sign-in it renewed, on a task `stop` ends, through a client of
+    // its own so the manager's key slot is left alone.
+    fn revoke_refused_renewal(&self) {
+        if let Some(refused) = self.store.take_refused_renewal() {
+            revoke_on_task(
+                Arc::new(self.pools.server_client(&self.address)),
+                self.address.clone(),
+                refused,
+                self.stop.clone(),
+            );
+        }
     }
 
     // The proof key `held` keeps, made from its scalar only when it differs from the last one.
@@ -323,7 +384,10 @@ impl SignInAuthorizer {
             return Ok(true);
         }
         let manager = self.renewing_as(&held).await?;
-        match retry_refused_proof(|| manager.refresh_token()).await {
+        let renewed = retry_refused_proof(|| manager.refresh_token()).await;
+        drop(manager);
+        self.revoke_refused_renewal();
+        match renewed {
             Ok(_) => Ok(true),
             Err(SignInAuthorizationError::SignInRequired) => {
                 self.store.mark_needs_sign_in(Some(&held)).await?;

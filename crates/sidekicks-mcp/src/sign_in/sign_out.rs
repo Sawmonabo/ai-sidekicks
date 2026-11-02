@@ -1,18 +1,19 @@
-//! The sign-out of an MCP server: once a renewal under way has landed, under one hold of the
+//! The sign-out of an MCP server, at once, a renewal under way or not: under one hold of the
 //! server's custody its held sign-in is read, its keychain item removed, the sign-out counted and
-//! its address marked signed out, so the refresh token revoked is the newest; then its
-//! waiting attempt or provider's flow is ended, and after the reply its refresh token is revoked
-//! where the authorization server publishes a revocation endpoint (RFC 7009), a confidential
-//! client authenticating by the method the revocation endpoint's metadata names.
+//! its address marked signed out; then its waiting attempt or provider's flow is ended, and after
+//! the reply its refresh token is revoked where the authorization server publishes a revocation
+//! endpoint (RFC 7009), a confidential client authenticating by the method the revocation
+//! endpoint's metadata names.
 //!
 //! - A removal the keychain refuses refuses the sign-out, and the sign-in stays held and in use:
 //!   nothing after the removal runs.
 //! - The removal also forgets the sign-in the custody keeps in memory, so the next request to the
 //!   server carries no token; an authorizer's manager reads its token from that custody on every
 //!   request, and the waiting attempt's manager ends with the attempt.
-//! - The revocation runs on a task the service owns, within the OAuth call bound, and ends at the
-//!   daemon's stop; a failure is logged with no token and never returned, since the sign-in is
-//!   already forgotten.
+//! - A renewal the sign-out overtook has its save refused, and the authorizer revokes the refresh
+//!   token that renewal received the same way, so the newest token is revoked with no wait.
+//! - A revocation runs on a task the daemon's stop ends, within the OAuth call bound; a failure is
+//!   logged with no token and never returned, since the sign-in is already forgotten.
 
 use std::sync::Arc;
 
@@ -21,6 +22,7 @@ use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use reqwest::{Method, StatusCode, Url};
 use rmcp::transport::auth::{AuthError, AuthorizationManager, OAuthHttpClient};
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
+use tokio_util::sync::CancellationToken;
 
 use crate::errors::McpRefusal;
 use crate::oauth::client_authentication::{
@@ -38,7 +40,7 @@ const REVOCATION_ENDPOINT: &str = "revocation_endpoint";
 /// The `token_type_hint` (RFC 7009 §2.1) a revocation of a refresh token names.
 const REFRESH_TOKEN_HINT: &str = "refresh_token";
 
-/// Why a refresh token was not revoked at sign-out.
+/// Why a refresh token was not revoked.
 #[derive(Debug, thiserror::Error)]
 enum RevocationError {
     /// The server's authorization metadata could not be read.
@@ -63,10 +65,9 @@ enum RevocationError {
     expect(dead_code, reason = "the mcp.server.signOut handler calls it")
 )]
 impl SignInService {
-    /// Signs out of `target`'s server: once a renewal under way has landed, which may take up to
-    /// the OAuth call bound, forgets its sign-in, ends its waiting attempt or provider's flow and
-    /// marks it signed out, then revokes its refresh token after the reply. A server with no
-    /// sign-in held signs out at once. Refuses with `mcp.server.signOutFailed`, carrying the
+    /// Signs out of `target`'s server at once, a renewal under way or not: forgets its sign-in,
+    /// ends its waiting attempt or provider's flow and marks it signed out, then revokes its
+    /// refresh token after the reply. Refuses with `mcp.server.signOutFailed`, carrying the
     /// keychain's cause, when the keychain refuses to read or delete the sign-in, which then stays
     /// held and in use.
     pub(crate) async fn sign_out(&self, target: &SignInTarget) -> Result<(), McpRefusal> {
@@ -88,33 +89,41 @@ impl SignInService {
         }
         self.end_provider_flow(&server.canonical_address, None);
         if let Some(held) = held {
-            self.revoke_after_reply(server.address.clone(), held);
+            revoke_on_task(
+                Arc::new(self.pools.server_client(&server.address)),
+                server.address.clone(),
+                held,
+                self.revocations.token().clone(),
+            );
         }
         Ok(())
     }
+}
 
-    // Revokes `held`'s refresh token at `address`'s authorization server on a task the service
-    // ends at its stop, logging a revocation that fails or runs past the OAuth call bound.
-    fn revoke_after_reply(&self, address: McpServerAddress, held: Arc<HeldSignIn>) {
-        let client = Arc::new(self.pools.server_client(&address));
-        let stop = self.revocations.token().clone();
-        tokio::spawn(async move {
-            tokio::select! {
-                () = stop.cancelled() => {}
-                revoked = tokio::time::timeout(CALL_TIMEOUT, revoke(client, &address, &held)) => {
-                    let failure = match revoked {
-                        Ok(Ok(())) => return,
-                        Ok(Err(failure)) => failure,
-                        Err(_elapsed) => RevocationError::TimedOut,
-                    };
-                    tracing::warn!(
-                        error = &failure as &(dyn std::error::Error + 'static),
-                        "an MCP server's refresh token was not revoked at sign-out"
-                    );
-                }
+/// Revokes `held`'s refresh token at `address`'s authorization server through `client`, on a task
+/// `stop` ends, logging a revocation that fails or runs past the OAuth call bound.
+pub(super) fn revoke_on_task(
+    client: Arc<ServerOAuthHttpClient>,
+    address: McpServerAddress,
+    held: Arc<HeldSignIn>,
+    stop: CancellationToken,
+) {
+    tokio::spawn(async move {
+        tokio::select! {
+            () = stop.cancelled() => {}
+            revoked = tokio::time::timeout(CALL_TIMEOUT, revoke(client, &address, &held)) => {
+                let failure = match revoked {
+                    Ok(Ok(())) => return,
+                    Ok(Err(failure)) => failure,
+                    Err(_elapsed) => RevocationError::TimedOut,
+                };
+                tracing::warn!(
+                    error = &failure as &(dyn std::error::Error + 'static),
+                    "an MCP server's refresh token was not revoked"
+                );
             }
-        });
-    }
+        }
+    });
 }
 
 // Posts `held`'s refresh token to the revocation endpoint `address`'s metadata publishes, through

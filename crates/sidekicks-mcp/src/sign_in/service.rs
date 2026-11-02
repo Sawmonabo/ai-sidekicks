@@ -170,8 +170,8 @@ pub(crate) struct SignInService {
     attempts: Mutex<Attempts>,
     /// Where each settled sign-in appends its completion event.
     pub(super) events: Arc<SessionEventAppender>,
-    /// Stops every sign-out's revocation and every provider's flow still running, at `close` or
-    /// when the service drops.
+    /// Stops every revocation still running, a sign-out's or a refused renewal's, and every
+    /// provider's flow, at `close` or when the service drops.
     pub(super) revocations: DropGuard,
 }
 
@@ -479,9 +479,9 @@ impl SignInService {
         Ok(browser_url)
     }
 
-    /// Ends every open attempt, every provider's flow and every sign-out's revocation still running
-    /// for the daemon's stop, each attempt closing its listener and appending nothing, and opens
-    /// none after. A mark that does not keep is logged, since the stop goes on.
+    /// Ends every open attempt, every provider's flow and every revocation still running for the
+    /// daemon's stop, each attempt closing its listener and appending nothing, and opens none
+    /// after. A mark that does not keep is logged, since the stop goes on.
     #[cfg_attr(test, expect(dead_code, reason = "the daemon's stop calls it"))]
     pub(crate) async fn close(&self) {
         self.revocations.token().cancel();

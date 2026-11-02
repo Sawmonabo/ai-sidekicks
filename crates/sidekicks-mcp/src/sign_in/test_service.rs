@@ -145,6 +145,7 @@ impl Harness {
             &self.service.pools,
             &address,
             metadata,
+            self.service.revocations.token().clone(),
         )
         .await
         .expect("the authorizer is made")
