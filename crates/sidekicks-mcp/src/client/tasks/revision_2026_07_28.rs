@@ -26,7 +26,7 @@ use rmcp::service::ServiceError;
 use serde_json::{Value, json};
 use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_provider::mcp::elicitation_form::compose_elicitation_content;
-use sidekicks_provider::port::question::ToolServerQuestionAnswer;
+use sidekicks_provider::port::question::{ToolServerAnswerDelivery, ToolServerQuestionAnswer};
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
 
@@ -338,7 +338,7 @@ impl ToolServerQuestionAnswer for V2TaskAnswer {
     fn answer(
         &self,
         answers: Vec<QuestionAnswer>,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<ToolServerAnswerDelivery, Box<dyn Error + Send + Sync>>> {
         let content = compose_elicitation_content(&self.params, &answers);
         let response = json!({ "action": "accept", "content": Value::Object(content) });
         let params = input_response(&self.mcp_task_id, &self.key, response);
@@ -348,19 +348,24 @@ impl ToolServerQuestionAnswer for V2TaskAnswer {
 
 impl V2TaskAnswer {
     /// Sends `params` over the live connection of the task's endpoint, and once more over a
-    /// connection a Reconnect put in place of one that closed under it. Fails at once, sending
-    /// nothing, when no connection of the endpoint is live, and as the request fails otherwise.
-    async fn send(&self, params: UpdateTaskParams) -> Result<(), Box<dyn Error + Send + Sync>> {
+    /// connection a Reconnect put in place of one that closed under it; a sent answer is
+    /// delivered. Fails at once, sending nothing, when no connection of the endpoint is live, and
+    /// as the request fails otherwise.
+    async fn send(
+        &self,
+        params: UpdateTaskParams,
+    ) -> Result<ToolServerAnswerDelivery, Box<dyn Error + Send + Sync>> {
         let connection = self.standing.live(&self.endpoint)?;
         let sent = connection.requests.update_task(params.clone()).await;
-        if !matches!(sent, Err(ServiceError::TransportClosed)) {
-            return Ok(sent?);
+        if matches!(sent, Err(ServiceError::TransportClosed)) {
+            let replacement = self.standing.live(&self.endpoint)?;
+            if !Arc::ptr_eq(&replacement, &connection) {
+                replacement.requests.update_task(params).await?;
+                return Ok(ToolServerAnswerDelivery::Delivered);
+            }
         }
-        let replacement = self.standing.live(&self.endpoint)?;
-        if Arc::ptr_eq(&replacement, &connection) {
-            return Ok(sent?);
-        }
-        Ok(replacement.requests.update_task(params).await?)
+        sent?;
+        Ok(ToolServerAnswerDelivery::Delivered)
     }
 }
 

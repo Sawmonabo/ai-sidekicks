@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::question::{QuestionAnswer, QuestionId, QuestionResolveState};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::port::question::ToolServerAnswerDelivery;
 use sidekicks_store::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
 
 use super::{RecordingTaskAnswer, SECRET, form_field_page, refusal_of, secret_page};
@@ -30,9 +31,10 @@ async fn a_held_questions_answer_goes_to_its_asker_then_settles_it_in_one_write(
     let fixture = Fixture::new().await;
     let sent_to_task = HandedAnswers::default();
     let answered_by = if is_asked_by_a_task {
-        HeldRequestAnswerer::ToolServerTask(Arc::new(RecordingTaskAnswer(Arc::clone(
-            &sent_to_task,
-        ))))
+        HeldRequestAnswerer::ToolServerTask(Arc::new(RecordingTaskAnswer(
+            Arc::clone(&sent_to_task),
+            ToolServerAnswerDelivery::Delivered,
+        )))
     } else {
         HeldRequestAnswerer::Driver
     };

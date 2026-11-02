@@ -72,15 +72,25 @@ pub struct ProviderQuestionWithdrawal {
     pub request_id: String,
 }
 
+/// Where a tool server's answer went: to the request that waits on it, or kept for the server's
+/// next ask.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToolServerAnswerDelivery {
+    /// Sent to the request that waits on it.
+    Delivered,
+    /// No request waits; the answer is kept for the server's next ask of the same form.
+    Kept,
+}
+
 /// Where the person's answers to a tool server task's question go: the tool-server client, which
 /// sends them to the server that asked.
 pub trait ToolServerQuestionAnswer: Send + Sync {
-    /// Sends `answers`, one per question in the question's order. An error when the server could
-    /// not be sent them.
+    /// Sends `answers`, one per question in the question's order, or keeps them for the server's
+    /// next ask, and answers which. An error when the server could not be sent them.
     fn answer(
         &self,
         answers: Vec<QuestionAnswer>,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+    ) -> BoxFuture<'_, Result<ToolServerAnswerDelivery, Box<dyn Error + Send + Sync>>>;
 }
 
 /// What an attempt to open a question that waits for its run came to.
@@ -192,6 +202,16 @@ pub trait QuestionPort: Send + Sync {
     fn withdraw_question(
         &self,
         withdrawal: ProviderQuestionWithdrawal,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+
+    /// Settles answered the open question of `session_id` asked under `request_id`, whose answer
+    /// was kept, once the server's next ask has taken it: the person's turn, the settle and the
+    /// run's move back to `running` in one write. A question settled meanwhile is left as it is;
+    /// an error when the write fails, or when no answer was kept.
+    fn settle_kept_answer(
+        &self,
+        session_id: SessionId,
+        request_id: String,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
 }
 

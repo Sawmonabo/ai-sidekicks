@@ -18,7 +18,7 @@ use sidekicks_provider::mcp::elicitation_form::{
 };
 use sidekicks_provider::port::question::{
     ProviderQuestion, ProviderQuestionWithdrawal, QuestionLinePlace, QuestionPort, QuestionTurnEnd,
-    QuestionTurnError, ToolServerQuestionAnswer, take_question_in_turn,
+    QuestionTurnError, ToolServerAnswerDelivery, ToolServerQuestionAnswer, take_question_in_turn,
 };
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
@@ -496,12 +496,13 @@ impl ToolServerQuestionAnswer for ElicitationAnswer {
     fn answer(
         &self,
         answers: Vec<QuestionAnswer>,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<ToolServerAnswerDelivery, Box<dyn Error + Send + Sync>>> {
         let content = compose_elicitation_content(&self.params, &answers);
         let sender = lock(&self.sender).take();
         let sent = match sender {
             Some(sender) => sender
                 .send(content)
+                .map(|()| ToolServerAnswerDelivery::Delivered)
                 .map_err(|_unsent| "the tool server's request no longer waits".into()),
             None => Err("the question was answered already".into()),
         };

@@ -16,8 +16,8 @@ use tokio::sync::{Notify, Semaphore};
 use tokio::time::{Duration, timeout};
 
 use crate::port::question::{
-    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, ToolServerQuestionAnswer,
-    WaitingQuestionOpening,
+    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, ToolServerAnswerDelivery,
+    ToolServerQuestionAnswer, WaitingQuestionOpening,
 };
 
 /// One question on the card with its answerer, a tool server's, or none for a driver's.
@@ -25,15 +25,17 @@ type CardQuestion = (ProviderQuestion, Option<Arc<dyn ToolServerQuestionAnswer>>
 
 /// A questions card that holds one open question per run, as a run waiting on one refuses a
 /// second, its run reading running again once none is open: each question opened, those still
-/// open with their answerers until answered or withdrawn, and those waiting for their run. A
-/// withdrawal of a question it does not hold leaves the card as it is.
+/// open with their answerers until answered, settled once their kept answer is taken, or
+/// withdrawn, and those waiting for their run. A withdrawal of a question it does not hold leaves
+/// the card as it is.
 #[derive(Default)]
 pub struct QuestionCard {
     taken: Mutex<Vec<ProviderQuestion>>,
     open: Mutex<Vec<CardQuestion>>,
     waiting: Mutex<Vec<CardQuestion>>,
     asked: Notify,
-    /// Notified whenever an open question is answered or withdrawn, as its run reads running.
+    /// Notified whenever an open question is answered, settled or withdrawn, as its run reads
+    /// running.
     closed: Notify,
     take_gate: Mutex<Option<Arc<Notify>>>,
     withdraw_gate: Mutex<Option<Arc<Notify>>>,
@@ -236,8 +238,9 @@ impl QuestionCard {
         gate
     }
 
-    /// Waits for an open question, answers the oldest with `answers` through its answerer and
-    /// closes it.
+    /// Waits for an open question and answers the oldest with `answers` through its answerer: a
+    /// delivered answer closes it, and a kept one leaves it open at the front of the card, as the
+    /// questions service keeps a kept answer's question open until its settle.
     pub async fn answer_open(&self, answers: Vec<QuestionAnswer>) -> ProviderQuestion {
         loop {
             let asked = self.asked.notified();
@@ -246,12 +249,17 @@ impl QuestionCard {
                 (!open.is_empty()).then(|| open.remove(0))
             };
             if let Some((question, answer)) = open {
-                answer
-                    .expect("a question answered on the card has a tool server's answerer")
-                    .answer(answers)
-                    .await
-                    .expect("the answer is sent");
-                self.closed.notify_waiters();
+                let answer =
+                    answer.expect("a question answered on the card has a tool server's answerer");
+                let delivery = answer.answer(answers).await.expect("the answer is sent");
+                match delivery {
+                    ToolServerAnswerDelivery::Delivered => self.closed.notify_waiters(),
+                    ToolServerAnswerDelivery::Kept => self
+                        .open
+                        .lock()
+                        .expect("never poisoned")
+                        .insert(0, (question.clone(), Some(answer))),
+                }
                 return question;
             }
             asked.await;
@@ -397,5 +405,18 @@ impl QuestionPort for QuestionCard {
             Ok(())
         }
         .boxed()
+    }
+
+    fn settle_kept_answer(
+        &self,
+        _session_id: SessionId,
+        request_id: String,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        self.open
+            .lock()
+            .expect("never poisoned")
+            .retain(|(held, _)| held.request_id != request_id);
+        self.closed.notify_waiters();
+        async { Ok(()) }.boxed()
     }
 }

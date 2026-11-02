@@ -20,8 +20,10 @@ use sidekicks_contracts::question::{
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{InterventionState, InterventionType};
+use sidekicks_contracts::run::queue::MessageContent;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
@@ -94,6 +96,18 @@ pub(super) struct HeldRequest {
     /// Whether its question's record is written; until then a read of the settled questions
     /// keeps it.
     pub(super) is_recorded: bool,
+    /// The answer a tool server kept for its next ask, until its settle.
+    pub(super) kept_answer: Option<KeptAnswer>,
+}
+
+/// An answer a tool server kept for its next ask: the person's turn as it was composed before the
+/// answer went out, and the device that answered.
+#[derive(Clone)]
+pub(super) struct KeptAnswer {
+    /// The person's turn.
+    pub(super) message: MessageContent,
+    /// The device that answered.
+    pub(super) device_id: DeviceId,
 }
 
 /// Who sends a held question's answer to whoever asked it.
@@ -135,6 +149,12 @@ pub enum QuestionError {
     /// No provider request is held for an open question its run waits on.
     #[error("no provider request is held for question {question_id}")]
     RequestNotHeld {
+        /// The question.
+        question_id: QuestionId,
+    },
+    /// A settle of a kept answer found none kept.
+    #[error("no answer is kept for question {question_id}")]
+    AnswerNotKept {
         /// The question.
         question_id: QuestionId,
     },
@@ -295,6 +315,7 @@ impl QuestionsService {
             request_id,
             answered_by,
             is_recorded: false,
+            kept_answer: None,
         };
         let _question_hold = self.question_lock.acquire(question_id).await;
         // Taken before the read of settled holds, which keeps a hold whose record is unwritten.
@@ -415,6 +436,7 @@ impl QuestionsService {
                 request_id: request_id.to_owned(),
                 answered_by: answered_by.clone(),
                 is_recorded: true,
+                kept_answer: None,
             },
         );
         Ok(Some(question_id))
@@ -559,6 +581,15 @@ impl QuestionsService {
         lock(&self.held_requests).get(question_id).cloned()
     }
 
+    /// Keeps `kept`, the answer a tool server kept for its next ask, with `question_id`'s held
+    /// request until its settle; the caller holds the question's lock.
+    pub(super) fn keep_answer(&self, question_id: &QuestionId, kept: KeptAnswer) {
+        lock(&self.held_requests)
+            .get_mut(question_id)
+            .expect("the question's lock keeps its held request")
+            .kept_answer = Some(kept);
+    }
+
     /// Lets go the request `question_id` was held under, once the question is settled.
     pub(super) fn forget_held_request(&self, question_id: &QuestionId) {
         lock(&self.held_requests).remove(question_id);
@@ -652,6 +683,19 @@ impl QuestionPort for QuestionsService {
         QuestionsService::withdraw_question(self, withdrawal)
             .map(|withdrawn| withdrawn.map_err(Into::into))
             .boxed()
+    }
+
+    fn settle_kept_answer(
+        &self,
+        session_id: SessionId,
+        request_id: String,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async move {
+            QuestionsService::settle_kept_answer(self, session_id, &request_id)
+                .await
+                .map_err(Into::into)
+        }
+        .boxed()
     }
 }
 
