@@ -55,7 +55,7 @@ pub(super) async fn read_claude_token_status(
 #[cfg(test)]
 mod tests {
     use std::path::Path;
-    use std::sync::Arc;
+    use std::sync::{Arc, Weak};
 
     use rstest::rstest;
     use secrecy::SecretString;
@@ -123,7 +123,7 @@ cat > /dev/null
             "PATH".to_owned(),
             format!("{}:/usr/bin:/bin", programs.display()),
         )]);
-        let legs = test_account_legs(&services);
+        let legs = test_account_legs(&services, Weak::new());
         let folders = ProviderAccountFolders {
             configuration_folder: root.path().join("account"),
             credential_store_folder: root.path().join("account").join("store"),

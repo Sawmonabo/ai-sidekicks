@@ -36,7 +36,8 @@ use tokio::time::Instant;
 
 use self::body::{ClaudeFrameBody, read_frame_members};
 use self::daemon_ends::ClaudeStreamDialogPorts;
-pub(crate) use self::session::{ClaudeSessionStream, ClaudeSessionStreams};
+use self::session::CLAUDE_LOGIN_REFUSAL;
+pub(crate) use self::session::{ClaudeFirstRequest, ClaudeSessionStream, ClaudeSessionStreams};
 use crate::command::running_set::RunningCommandSets;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
@@ -361,6 +362,9 @@ impl ClaudeDeliveryStream {
                     .await;
             }
             ClaudeWireFrameKind::SystemApiRetry => {
+                if members.get("error").and_then(Value::as_str) == Some(CLAUDE_LOGIN_REFUSAL) {
+                    session.settle_first_request(ClaudeFirstRequest::LoginRefused);
+                }
                 let retried = read_claude_api_retry(&members, session.session_id, lead.run_id);
                 let row = LateAppendableRow::UsageApiRequestRetried(retried);
                 self.send_row(session, &lead, row, frame_kind).await;
@@ -416,6 +420,11 @@ impl ClaudeDeliveryStream {
             ClaudeWireFrameKind::StreamEvent => self.stream_event(session, &lead, &frame.text),
             ClaudeWireFrameKind::Assistant => {
                 if let Some(message) = message {
+                    session.settle_first_request(if message.error() == Some(CLAUDE_LOGIN_REFUSAL) {
+                        ClaudeFirstRequest::LoginRefused
+                    } else {
+                        ClaudeFirstRequest::Answered
+                    });
                     let usage = frame.observation.message_usage.as_ref();
                     self.assistant(session, &lead, &message, usage).await;
                 }

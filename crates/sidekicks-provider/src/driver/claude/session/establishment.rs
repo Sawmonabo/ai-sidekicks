@@ -694,7 +694,7 @@ impl ClaudeSessionEstablishment {
             spawn_binding,
             initialize: started.initialize.clone(),
             command_choices,
-            admitted_provider_account_id: provider_account_id,
+            admitted_account: Mutex::new(provider_account_id),
             settings: Mutex::new(ClaudeLiveSettings {
                 execution_posture: legs.execution_posture.clone(),
                 session_mode,
@@ -751,7 +751,7 @@ impl ClaudeSessionEstablishment {
         }
         self.adopt(&live, stream, band, receiver, level_reports, &started);
         self.account_servers
-            .read_at_session_start(&live.admitted_provider_account_id);
+            .read_at_session_start(&live.admitted_provider_account_id());
         Ok(started.spawned_version)
     }
 
@@ -801,7 +801,7 @@ impl ClaudeSessionEstablishment {
             Arc::clone(live),
             Arc::clone(&stream),
         );
-        let account = live.admitted_provider_account_id.clone();
+        let account = live.admitted_provider_account_id();
         tokio::spawn(async move {
             drain_claude_session_arrivals(receiver, &mut task, account).await;
         });

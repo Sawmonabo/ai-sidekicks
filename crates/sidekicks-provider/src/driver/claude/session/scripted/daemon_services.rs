@@ -360,8 +360,19 @@ impl CallbackToolActivitySink for NoCallbackTools {
     }
 }
 
-/// A binding store that takes every write, so a rewind's fork is adopted.
-pub(crate) struct TakenBindingWrites;
+/// A binding store that takes every write, so a rewind's fork is adopted, and keeps each account
+/// move in the order made.
+#[derive(Default)]
+pub(crate) struct TakenBindingWrites {
+    moves: Mutex<Vec<(RuntimeBindingId, ProviderAccountId)>>,
+}
+
+impl TakenBindingWrites {
+    /// Every account move so far: the binding, and the account it moved onto.
+    pub(crate) fn moves(&self) -> Vec<(RuntimeBindingId, ProviderAccountId)> {
+        lock(&self.moves).clone()
+    }
+}
 
 impl RuntimeBindingWriter for TakenBindingWrites {
     fn rebind(
@@ -380,9 +391,10 @@ impl RuntimeBindingWriter for TakenBindingWrites {
     }
     fn move_account(
         &self,
-        _binding_id: RuntimeBindingId,
-        _provider_account_id: ProviderAccountId,
+        binding_id: RuntimeBindingId,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        lock(&self.moves).push((binding_id, provider_account_id));
         ready(Ok(())).boxed()
     }
 }

@@ -18,6 +18,8 @@ use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, PROVIDER_SIGN_IN_USER_CODE_MAX_LEN,
     PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN,
 };
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::web_address::HttpsAddress;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -315,4 +317,51 @@ pub trait ProviderWindowTurnLegs: Send + Sync {
         folders: &'call ProviderAccountFolders,
         token: &'call SecretString,
     ) -> BoxFuture<'call, Result<TokenLimitsReading, DriverError>>;
+}
+
+/// One running session a switch moves: the session, and the binding its lead runs on, which moves
+/// with it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionToMove {
+    /// The session.
+    pub session_id: SessionId,
+    /// The binding its lead runs on.
+    pub binding_id: RuntimeBindingId,
+}
+
+/// How a moved session's first request on the account it moved to went.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FirstRequestAfterMove {
+    /// The provider answered it on the new account.
+    Ran,
+    /// The provider refused it for the new account's login, so the session was handed its
+    /// previous account back, bindings included.
+    HandedBack,
+    /// No request was seen: the session ran no process, or its process ended first.
+    Unobserved,
+}
+
+/// One session's move onto another account, settled once the move landed.
+pub struct SessionAccountMove {
+    /// The session.
+    pub session_id: SessionId,
+    /// Settles once the session's first request after the move is answered, refused for its
+    /// login or no longer to come; fails with the driver's error where a hand-back could not be
+    /// made, the session then left on the account it moved to.
+    pub first_request: BoxFuture<'static, Result<FirstRequestAfterMove, DriverError>>,
+}
+
+/// A provider's move of its running sessions from one account to another, each in place where
+/// the provider can and else between turns, its bindings moving with it.
+pub trait ProviderSwitchLegs: Send + Sync {
+    /// Moves each of `sessions` from account `from` onto `to`, answering once every move landed:
+    /// at the provider's acknowledgment, at a restart between turns, or at once for a session
+    /// running no process. A session's move fails with the driver's error, leaving it on `from`,
+    /// where the provider refused it or the session could not be moved; the other moves go on.
+    fn move_sessions(
+        &self,
+        from: ProviderAccountId,
+        to: ProviderAccountId,
+        sessions: Vec<SessionToMove>,
+    ) -> BoxFuture<'_, Vec<Result<SessionAccountMove, (SessionId, DriverError)>>>;
 }

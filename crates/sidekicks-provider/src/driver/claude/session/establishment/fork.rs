@@ -99,7 +99,7 @@ impl ClaudeSessionEstablishment {
             callback_tools: ClaudeCallbackBinding::Shared(Arc::clone(
                 &predecessor.callback_tool_binding,
             )),
-            provider_account_id: predecessor.admitted_provider_account_id.clone(),
+            provider_account_id: predecessor.admitted_provider_account_id(),
             session_mode: settings.session_mode,
             output_speed: settings.applied_output_speed.clone(),
             // Metered on from the predecessor's thread, the only one its usage was reported under.
@@ -127,7 +127,7 @@ impl ClaudeSessionEstablishment {
                     &forked_provider_session_id,
                     vec![LeftConversation {
                         session_id,
-                        provider_account_id: predecessor.admitted_provider_account_id.clone(),
+                        provider_account_id: predecessor.admitted_provider_account_id(),
                         conversation_id: predecessor.provider_session_id.clone(),
                     }],
                 ))
@@ -149,7 +149,7 @@ impl ClaudeSessionEstablishment {
                         &predecessor.provider_session_id,
                         vec![LeftConversation {
                             session_id,
-                            provider_account_id: predecessor.admitted_provider_account_id.clone(),
+                            provider_account_id: predecessor.admitted_provider_account_id(),
                             conversation_id: forked_provider_session_id.clone(),
                         }],
                     ))
@@ -199,7 +199,7 @@ impl ClaudeSessionEstablishment {
             .require_port()?
             .resolve_spawn_context(
                 predecessor.session_id,
-                predecessor.admitted_provider_account_id.clone(),
+                predecessor.admitted_provider_account_id(),
             )
             .await
             .map_err(ClaudeSpawnContextError::Place)?;

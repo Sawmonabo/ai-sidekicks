@@ -503,7 +503,7 @@ fn compose_command_list_reader(
         let live = slots.live_session(session_id)?;
         let binding = ProviderCommandBinding {
             provider_name: DESCRIPTOR.provider_id(),
-            provider_account_id: live.admitted_provider_account_id.clone(),
+            provider_account_id: live.admitted_provider_account_id(),
         };
         let run_id = routes.lead_run_on(session_id).map(|lead| lead.run_id);
         let group = handshakes

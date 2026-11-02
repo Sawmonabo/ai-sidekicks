@@ -205,9 +205,10 @@ pub(crate) struct LiveClaudeSession {
     pub(crate) initialize: ClaudeInitializeDeclaration,
     /// The style descriptions and advisors Claude Code offers, kept across a rewind.
     pub(crate) command_choices: ClaudeHeldCommandChoices,
-    /// The account the process was admitted against, captured when it came up, since the
-    /// registry can move; a rewind inherits it.
-    pub(crate) admitted_provider_account_id: ProviderAccountId,
+    /// The account the process runs on: the one it was admitted against when it came up, since
+    /// the registry can move, until an account switch moves it; a rewind inherits it. Read and
+    /// moved through its methods.
+    pub(crate) admitted_account: Mutex<ProviderAccountId>,
     /// What the session runs with now.
     pub(crate) settings: Mutex<ClaudeLiveSettings>,
     /// The process's permission mode, shared with the stream that takes its reports.
@@ -240,6 +241,17 @@ pub(crate) struct LiveClaudeSession {
 }
 
 impl LiveClaudeSession {
+    /// The account the process runs on now.
+    pub(crate) fn admitted_provider_account_id(&self) -> ProviderAccountId {
+        lock(&self.admitted_account).clone()
+    }
+
+    /// Moves the session onto `provider_account_id`'s account, with its bindings, once the
+    /// process runs on it: what is read from here on, a relaunch among them, is that account's.
+    pub(crate) fn move_admitted_account(&self, provider_account_id: ProviderAccountId) {
+        *lock(&self.admitted_account) = provider_account_id;
+    }
+
     /// Records that a run on `binding_id` took the session's turn on this process.
     pub(crate) fn record_served_binding(&self, binding_id: RuntimeBindingId) {
         lock(&self.served_bindings).insert(binding_id);

@@ -156,7 +156,7 @@ pub(super) fn compose_claude_relaunch(live: &LiveClaudeSession) -> Option<Resume
         subagent_policy: legs.subagent_policy.clone(),
         tool_servers: Some(legs.tool_servers.clone()),
         output_schema: legs.output_schema.clone(),
-        provider_account_id: live.admitted_provider_account_id.clone(),
+        provider_account_id: live.admitted_provider_account_id(),
         on_mcp_server_status: None,
         // This daemon's idle sleep still holds the session's jobs across the relaunch.
         kept_schedules: Vec::new(),

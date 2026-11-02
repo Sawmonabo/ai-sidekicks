@@ -414,7 +414,12 @@ done
             &services.data_folder,
         );
         ScriptedRead {
-            legs: ClaudeAccountLegs::new(&services, Arc::new(launcher), Arc::default()),
+            legs: ClaudeAccountLegs::new(
+                &services,
+                Arc::new(launcher),
+                Arc::default(),
+                Weak::new(),
+            ),
             folders: ProviderAccountFolders {
                 configuration_folder: root.path().join("account"),
                 credential_store_folder: root.path().join("account").join("store"),

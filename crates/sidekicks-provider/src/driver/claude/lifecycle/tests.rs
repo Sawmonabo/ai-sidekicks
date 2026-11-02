@@ -17,6 +17,7 @@ use crate::driver::session_control::ResumeSessionParams;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
+mod account_switch;
 mod bring_up;
 mod hand_over;
 mod level_moves;

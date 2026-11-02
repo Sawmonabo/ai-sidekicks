@@ -409,7 +409,7 @@ impl ClaudeDriver {
                 params
                     .provider_account_id
                     .as_ref()
-                    .is_none_or(|named| *named == live.admitted_provider_account_id)
+                    .is_none_or(|named| *named == live.admitted_provider_account_id())
             });
         let offered = if let Some(live) = live {
             let legs = &live.spawn_bound_legs;

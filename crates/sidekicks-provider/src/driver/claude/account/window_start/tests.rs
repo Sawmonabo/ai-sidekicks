@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use rstest::rstest;
 use secrecy::SecretString;
@@ -98,7 +98,7 @@ async fn the_smallest_turn_runs_its_one_command_line_on_the_account_s_store_and_
                 as Arc<dyn ProviderAccountReader>,
         )
         .expect("the accounts port is registered once");
-    let legs = test_account_legs(&services);
+    let legs = test_account_legs(&services, Weak::new());
     let folders = ProviderAccountFolders {
         configuration_folder: root.join("account"),
         credential_store_folder: root.join("account").join("store"),

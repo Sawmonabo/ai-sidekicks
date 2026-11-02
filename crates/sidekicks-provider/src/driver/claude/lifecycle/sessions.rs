@@ -247,7 +247,7 @@ impl ClaudeDriver {
             .composed_parts()
             .and_then(|parts| parts.slots().live_session(params.session_id));
         let account = if let Some(live) = &live {
-            live.admitted_provider_account_id.clone()
+            live.admitted_provider_account_id()
         } else {
             let Some(leg) = self.read_session_leg(params.session_id).await? else {
                 return Ok(None);

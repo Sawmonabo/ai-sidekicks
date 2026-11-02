@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use sidekicks_store::data_folder::agent_memory_folder;
 
@@ -20,7 +20,7 @@ fn claude_legs(fixture: &Fixture) -> Arc<dyn ProviderMemoryImportLegs> {
         "CLAUDE_CONFIG_DIR".to_owned(),
         claude_folder(fixture).display().to_string(),
     )]);
-    Arc::new(test_account_legs(&services))
+    Arc::new(test_account_legs(&services, Weak::new()))
 }
 
 fn claude_folder(fixture: &Fixture) -> PathBuf {

@@ -105,7 +105,7 @@ pub(crate) struct ClaudeDialogSession<'a> {
     /// The models its process offers, in its order.
     pub(crate) offered_models: &'a [ClaudeOfferedModel],
     /// The account the process runs on.
-    pub(crate) provider_account_id: &'a ProviderAccountId,
+    pub(crate) provider_account_id: ProviderAccountId,
 }
 
 // One choice Claude Code holds a run on, under the request id its answer goes back with.
@@ -208,7 +208,7 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
             answer_claude_request(
                 session.channel,
                 &session.session_id,
-                session.provider_account_id,
+                &session.provider_account_id,
                 request_id,
                 &json!({"behavior": "cancelled"}),
             )
@@ -248,7 +248,7 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
                     answer_claude_request(
                         session.channel,
                         &session.session_id,
-                        session.provider_account_id,
+                        &session.provider_account_id,
                         held.request_id.clone(),
                         &json!({"behavior": "cancelled"}),
                     )

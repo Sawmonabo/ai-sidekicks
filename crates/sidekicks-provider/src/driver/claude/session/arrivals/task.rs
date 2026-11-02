@@ -183,7 +183,7 @@ impl ClaudeSessionTask {
             answer_claude_request(
                 &*live.channel,
                 &session_id,
-                &live.admitted_provider_account_id,
+                &live.admitted_provider_account_id(),
                 request_id,
                 &ClaudeHookAnswer::Pass,
             )
@@ -231,7 +231,7 @@ impl ClaudeSessionTask {
         let services = Arc::clone(&self.services);
         let live = &self.live;
         let session_id = live.session_id;
-        let account = &live.admitted_provider_account_id;
+        let account = &live.admitted_provider_account_id();
         match route {
             ClaudeRequestRoute::CheckHelperStart {
                 request_id,
