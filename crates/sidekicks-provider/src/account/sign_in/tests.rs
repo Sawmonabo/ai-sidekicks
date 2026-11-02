@@ -33,7 +33,8 @@ use crate::account::credential_home::CredentialHome;
 use crate::account::home_lock::AccountHomeLock;
 use crate::account::registry::tests::register;
 use crate::account::registry::{
-    HealthObservation, ProviderAccountRegistry, RegisteredAccount, open_test_registry,
+    AccountAdmission, HealthObservation, ProviderAccountRegistry, RegisteredAccount,
+    open_test_registry,
 };
 use crate::driver::contract::account::{
     ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs,
@@ -56,6 +57,9 @@ const HELD_HOME_WAIT: Duration = Duration::from_millis(50);
 
 /// The kind of sign-in the scripted status read reports.
 const OBSERVED_AUTH_MODE: ProviderAuthMode = ProviderAuthMode::OauthSubscription;
+
+/// The kind of sign-in a registered account holds before it signs in again.
+const EARLIER_AUTH_MODE: ProviderAuthMode = ProviderAuthMode::ApiKey;
 
 type Code = FreeFormText<PROVIDER_SIGN_IN_CODE_MAX_LEN>;
 
@@ -235,6 +239,29 @@ async fn account_ids(registry: &ProviderAccountRegistry) -> Vec<ProviderAccountI
         .collect()
 }
 
+// Mints a Claude Code account and admits it signed in with `kind`.
+async fn register_with_kind(
+    registry: &ProviderAccountRegistry,
+    kind: ProviderAuthMode,
+) -> RegisteredAccount {
+    let minted = registry
+        .mint(provider("claude"))
+        .expect("the account is minted");
+    let admission = AccountAdmission {
+        display_label: None,
+        billing_mode: BillingMode::Subscription,
+        health: Some(HealthObservation {
+            state: ProviderAccountHealthState::Authenticated,
+            observed_at: WireInstant::now(),
+        }),
+        observed_auth_mode: Some(kind),
+    };
+    registry
+        .admit(&minted, &admission)
+        .await
+        .expect("the account is admitted")
+}
+
 fn code(text: &str) -> Code {
     Code::new(text.to_owned()).expect("a test code")
 }
@@ -251,7 +278,7 @@ fn provider(id: &str) -> ProviderId {
 // event is appended. Killed by a row inserted at the start, by a raw line forwarded as the failure
 // text, by a code written before the prompt or twice, by a failed new account keeping its home, by
 // the home held across the flow or after it, by a written row not published, and by the reported
-// kind not written, a registered account's included.
+// kind not written or an earlier kind kept over it, a registered account's included.
 #[rstest]
 #[case::new_named(false, Status::Read { is_account_named: true }, ProviderSignInEnd::Finished,
     Some(ProviderSignInOutcome::Succeeded))]
@@ -288,7 +315,7 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
     let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
     let registry = Arc::new(registry);
     let existing = if is_registered {
-        Some(register(&registry, "claude").await)
+        Some(register_with_kind(&registry, EARLIER_AUTH_MODE).await)
     } else {
         None
     };
@@ -468,10 +495,14 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
                 vec![account.account_id.clone()]
             );
             assert!(flow.home.is_dir(), "a registered account keeps its home");
-            // Registered with no kind; a finished re-sign-in stores the kind its read reported.
-            let expected_mode =
-                (outcome == ProviderSignInOutcome::Succeeded).then_some(OBSERVED_AUTH_MODE);
-            assert_eq!(accounts[0].observed_auth_mode, expected_mode);
+            // Registered with another kind; a finished re-sign-in replaces it with the kind its
+            // read reported, and any other end keeps it.
+            let expected_mode = if outcome == ProviderSignInOutcome::Succeeded {
+                OBSERVED_AUTH_MODE
+            } else {
+                EARLIER_AUTH_MODE
+            };
+            assert_eq!(accounts[0].observed_auth_mode, Some(expected_mode));
         }
     }
     assert_eq!(session_event_count(&database.path()), events_before);
