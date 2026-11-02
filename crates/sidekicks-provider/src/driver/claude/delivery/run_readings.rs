@@ -21,7 +21,7 @@ use sidekicks_store::transcript::whole_patch::stored_patch_files_body;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::ClaudeCommandTasks;
 use crate::driver::claude::delivery::mcp_tasks::ClaudeToolServerTasks;
-use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeRestoredCalls;
+use crate::driver::claude::delivery::mcp_tasks::restored_calls::ClaudeRestoredCalls;
 use crate::driver::claude::delivery::messages::{
     ClaudeMessageBody, ClaudeMessageRow, ClaudeMessageRowKind, ClaudeOpenToolCall,
 };

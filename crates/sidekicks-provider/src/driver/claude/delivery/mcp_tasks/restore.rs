@@ -4,7 +4,7 @@
 //! written as it ends, both naming the call by `toolUseId`. Claude Code deletes the record at the
 //! ending and the saved ending once the model reads it, so a call with neither is not kept. Also
 //! the store's entries a resume rebuilds the held calls through, from the session's log and these
-//! files, and the calls a resumed process has yet to restore.
+//! files.
 
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -115,20 +115,24 @@ impl ClaudeKeptCall {
     }
 }
 
-/// What Claude Code keeps of one conversation's background calls, by call.
+/// What Claude Code keeps of one conversation's background calls, by call, and the tasks whose
+/// kept file could not be read as one, as while Claude Code still writes it.
 #[derive(Default)]
 pub(crate) struct ClaudeKeptCalls {
     endings: HashMap<String, ClaudeKeptCall>,
     recorded: HashSet<String>,
+    unreadable_task_ids: HashSet<String>,
 }
 
 impl ClaudeKeptCalls {
-    /// What is kept of the call `tool_use_id`: its saved ending first, then its record.
-    pub(crate) fn call(&self, tool_use_id: &str) -> ClaudeKeptCall {
+    /// What is kept of the call `tool_use_id` of the task `task_id`: its saved ending first, then
+    /// its record; a task with a kept file that could not be read reads as recorded, so its call
+    /// stays open until a later read.
+    pub(crate) fn call(&self, tool_use_id: &str, task_id: &str) -> ClaudeKeptCall {
         if let Some(ending) = self.endings.get(tool_use_id) {
             return ending.clone();
         }
-        if self.recorded.contains(tool_use_id) {
+        if self.recorded.contains(tool_use_id) || self.unreadable_task_ids.contains(task_id) {
             return ClaudeKeptCall::Recorded;
         }
         ClaudeKeptCall::Unkept
@@ -171,7 +175,6 @@ impl ClaudeToolServerTasks {
         tool_use_id: String,
         opened: ClaudeOpenToolCall,
     ) {
-        self.held_call_ids.insert(tool_use_id.clone());
         self.held.insert(
             task_id,
             ClaudeHeldCall {
@@ -210,7 +213,6 @@ impl ClaudeToolServerTasks {
         task_ids
             .filter_map(|task_id| {
                 let call = self.held.remove(task_id)?;
-                self.held_call_ids.remove(&call.tool_use_id);
                 let outcome = ClaudeToolCallOutcome::Failed {
                     end_cause: Some(ToolCallEndCause::ProcessExit),
                 };
@@ -220,59 +222,11 @@ impl ClaudeToolServerTasks {
     }
 }
 
-/// The tasks of the calls a resume held again from the log, awaiting their restored start: the
-/// resumed process's first background list ends those it leaves out, and its first finished reply
-/// ends every one left.
-#[derive(Default)]
-pub(crate) struct ClaudeRestoredCalls {
-    awaiting: HashSet<String>,
-    is_listed: bool,
-}
-
-impl ClaudeRestoredCalls {
-    /// Awaits the restored start of the task `task_id`.
-    pub(crate) fn await_restore(&mut self, task_id: String) {
-        self.awaiting.insert(task_id);
-    }
-
-    /// Takes the task `task_id`'s restored start: its call is held as any other.
-    pub(crate) fn confirm(&mut self, task_id: &str) {
-        self.awaiting.remove(task_id);
-    }
-
-    /// Takes the tasks the resumed process's first background list leaves out of `listed`; nothing
-    /// at any later list.
-    pub(crate) fn take_unlisted<'a>(
-        &mut self,
-        listed: impl Iterator<Item = &'a str>,
-    ) -> Vec<String> {
-        if self.is_listed {
-            return Vec::new();
-        }
-        self.is_listed = true;
-        let listed: HashSet<&str> = listed.collect();
-        let unlisted: Vec<String> = self
-            .awaiting
-            .iter()
-            .filter(|task_id| !listed.contains(task_id.as_str()))
-            .cloned()
-            .collect();
-        for task_id in &unlisted {
-            self.awaiting.remove(task_id);
-        }
-        unlisted
-    }
-
-    /// Takes every task still awaiting its restore, at the resumed process's first finished reply.
-    pub(crate) fn take_all(&mut self) -> Vec<String> {
-        self.awaiting.drain().collect()
-    }
-}
-
 /// Reads what Claude Code keeps of the conversation `provider_session_id`'s background calls
 /// under `config_folder`; nothing for a conversation or folder that is missing. A file gone
-/// before its read, or that is no JSON object, is passed over. Fails with `InvalidData` for a file
-/// past the output line ceiling, and with any other read failure.
+/// before its read is passed over; one that is no JSON object naming its call is logged and its
+/// task, named in the file's name, read as recorded. Fails with `InvalidData` for a file past the
+/// output line ceiling, and with any other read failure.
 pub(crate) async fn read_claude_kept_calls(
     config_folder: &Path,
     provider_session_id: &str,
@@ -293,18 +247,35 @@ pub(crate) async fn read_claude_kept_calls(
         let file_name = entry.file_name();
         let Some(name) = file_name
             .to_str()
-            .filter(|name| name.starts_with(KEPT_FILE_PREFIX))
+            .and_then(|name| name.strip_prefix(KEPT_FILE_PREFIX))
         else {
             continue;
         };
-        let is_saved_ending = name.ends_with(SAVED_ENDING_SUFFIX);
-        if !is_saved_ending && !name.ends_with(RECORD_SUFFIX) {
+        let (task_id, is_saved_ending) = match (
+            name.strip_suffix(SAVED_ENDING_SUFFIX),
+            name.strip_suffix(RECORD_SUFFIX),
+        ) {
+            (Some(task_id), _) => (task_id, true),
+            (None, Some(task_id)) => (task_id, false),
+            (None, None) => continue,
+        };
+        if task_id.is_empty() {
             continue;
         }
-        let Some(mut file) = read_kept_file(&entry.path()).await? else {
+        let path = entry.path();
+        let Some(file) = read_kept_file(&path).await? else {
             continue;
         };
-        let Some(tool_use_id) = file.tool_use_id.take().filter(|id| !id.is_empty()) else {
+        let Some((tool_use_id, file)) = file.and_then(|mut file| {
+            let tool_use_id = file.tool_use_id.take().filter(|id| !id.is_empty())?;
+            Some((tool_use_id, file))
+        }) else {
+            tracing::warn!(
+                path = %path.display(),
+                "a kept file of a Claude Code background call names no call, so its task reads as \
+                 still running"
+            );
+            kept.unreadable_task_ids.insert(task_id.to_owned());
             continue;
         };
         if !is_saved_ending {
@@ -316,8 +287,9 @@ pub(crate) async fn read_claude_kept_calls(
     Ok(kept)
 }
 
-// One kept file, read whole; `None` for one gone before its read or that is no JSON object.
-async fn read_kept_file(path: &Path) -> io::Result<Option<ClaudeKeptCallFile>> {
+// One kept file, read whole; `None` for one gone before its read, and `Some(None)` for one that
+// is no JSON object.
+async fn read_kept_file(path: &Path) -> io::Result<Option<Option<ClaudeKeptCallFile>>> {
     let Some(file) = tokio::fs::File::open(path).await.none_if_missing()? else {
         return Ok(None);
     };
@@ -336,11 +308,11 @@ async fn read_kept_file(path: &Path) -> io::Result<Option<ClaudeKeptCallFile>> {
         ));
     }
     let text = decode_inbound_json(&bytes);
-    Ok(
+    Ok(Some(
         <ClaudeKeptCallFile as Lenient>::read(&mut serde_json::Deserializer::from_str(&text))
             .ok()
             .flatten(),
-    )
+    ))
 }
 
 #[cfg(test)]
@@ -352,9 +324,11 @@ mod tests {
     use crate::driver::claude::delivery::messages::ClaudeToolCallOutcome;
 
     // Fails when the record is read before the saved ending, when a cancelled call reads as
-    // plainly failed, or when a saved ending with no message loses its call's name. Mutations:
-    // `call` checking `recorded` first; the `cancelled` arm's end cause dropped; `into_ending`
-    // dropping the call's name.
+    // plainly failed, when a saved ending with no message loses its call's name, or when a record
+    // still being written closes its call. Mutations: `call` checking `recorded` first; the
+    // `cancelled` arm's end cause dropped; `into_ending` dropping the call's name; an unreadable
+    // file passed over (call-5 reads `Unkept`) or read as recorded under another task (call-6
+    // reads `Recorded`).
     #[tokio::test]
     async fn the_saved_ending_is_read_before_the_record() {
         let config_folder = tempfile::tempdir().expect("a scratch config folder");
@@ -396,6 +370,11 @@ mod tests {
         for (name, contents) in files {
             std::fs::write(kept.join(name), contents.to_string()).expect("a kept file is written");
         }
+        std::fs::write(
+            kept.join("mcp-task-task-5.meta.json"),
+            r#"{"toolUseId": "ca"#,
+        )
+        .expect("a record cut off mid-write is written");
 
         let source = ClaudeKeptCallsSource::new(
             Some(config_folder.path().to_owned()),
@@ -404,7 +383,7 @@ mod tests {
         let calls = source.read().await.expect("the kept files are read");
 
         assert_eq!(
-            calls.call("call-1"),
+            calls.call("call-1", "task-1"),
             ClaudeKeptCall::Ended {
                 outcome: ClaudeToolCallOutcome::Failed {
                     end_cause: Some(ToolCallEndCause::Stopped),
@@ -412,10 +391,12 @@ mod tests {
                 text: Some("server cancelled the export".to_owned()),
             }
         );
-        assert_eq!(calls.call("call-2"), ClaudeKeptCall::Recorded);
-        assert_eq!(calls.call("call-3"), ClaudeKeptCall::Unkept);
+        assert_eq!(calls.call("call-2", "task-2"), ClaudeKeptCall::Recorded);
+        assert_eq!(calls.call("call-3", "task-3"), ClaudeKeptCall::Unkept);
+        assert_eq!(calls.call("call-5", "task-5"), ClaudeKeptCall::Recorded);
+        assert_eq!(calls.call("call-6", "task-6"), ClaudeKeptCall::Unkept);
         assert_eq!(
-            calls.call("call-4"),
+            calls.call("call-4", "task-4"),
             ClaudeKeptCall::Ended {
                 outcome: ClaudeToolCallOutcome::Completed,
                 text: Some("files/export completed".to_owned()),

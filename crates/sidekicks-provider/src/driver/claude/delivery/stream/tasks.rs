@@ -88,7 +88,7 @@ impl ClaudeDeliveryStream {
                         .map(|listed| readings.restored_calls.take_unlisted(listed))
                         .unwrap_or_default();
                     let mut ends = held.end_unrestored(unrestored.iter().map(String::as_str));
-                    ends.extend(held.settle_unlisted(&task));
+                    ends.extend(held.settle_unlisted(&task, &readings.restored_calls));
                     (ends, None)
                 }
                 ClaudeWireFrameKind::SystemTaskProgress => (Vec::new(), held.progress_call(&task)),

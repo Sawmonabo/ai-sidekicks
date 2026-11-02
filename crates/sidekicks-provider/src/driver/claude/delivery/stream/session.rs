@@ -221,7 +221,7 @@ impl ClaudeSessionStream {
     pub(crate) fn background_work(&self) -> usize {
         let readings = self.lock();
         let tool_server_tasks = &readings.tool_server_tasks;
-        tool_server_tasks.held_call_ids().len()
+        tool_server_tasks.held_count()
             + readings
                 .command_tasks
                 .listed_other_tasks()

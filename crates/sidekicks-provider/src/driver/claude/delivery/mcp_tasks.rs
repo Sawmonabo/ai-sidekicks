@@ -5,6 +5,7 @@
 //! closes it again. Such a task is no running command.
 
 pub(crate) mod restore;
+pub(crate) mod restored_calls;
 
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
@@ -15,6 +16,7 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::event::declared_variants::ToolCallEndCause;
 
 use crate::driver::claude::delivery::commands::{CLAUDE_TOOL_SERVER_TASK_TYPE, ClaudeTaskFrame};
+use crate::driver::claude::delivery::mcp_tasks::restored_calls::ClaudeRestoredCalls;
 use crate::driver::claude::delivery::messages::{ClaudeOpenToolCall, ClaudeToolCallOutcome};
 use crate::lenient_json::{LenientElement, lenient_object, read_lenient};
 
@@ -51,11 +53,13 @@ pub(crate) struct ClaudeHeldCallEnd {
     pub(crate) text: Option<String>,
 }
 
-// One held or settled call, by its task, with the newest task run a frame of it named.
+/// One held or settled call, kept by its task, with the newest task run a frame of it named.
 #[derive(Clone)]
-struct ClaudeHeldCall {
-    tool_use_id: String,
-    opened: ClaudeOpenToolCall,
+pub(crate) struct ClaudeHeldCall {
+    /// The call.
+    pub(crate) tool_use_id: String,
+    /// Its opening, on the run that started it.
+    pub(crate) opened: ClaudeOpenToolCall,
     newest_run_id: Option<String>,
 }
 
@@ -82,7 +86,6 @@ impl ClaudeHeldCall {
 /// and the calls settled failed or stopped, kept until the process ends.
 pub(crate) struct ClaudeToolServerTasks {
     held: HashMap<String, ClaudeHeldCall>,
-    held_call_ids: HashSet<String>,
     settled: LruCache<String, ClaudeHeldCall>,
 }
 
@@ -90,7 +93,6 @@ impl Default for ClaudeToolServerTasks {
     fn default() -> Self {
         Self {
             held: HashMap::new(),
-            held_call_ids: HashSet::new(),
             settled: LruCache::new(CLAUDE_SETTLED_CALLS_MAX),
         }
     }
@@ -134,13 +136,19 @@ impl ClaudeToolServerTasks {
                 newest_run_id: run_id.map(str::to_owned),
             }
         };
-        self.held_call_ids.insert(call.tool_use_id.clone());
         self.held.insert(task_id.to_owned(), call);
     }
 
-    /// The calls held open, whose stand-in results close nothing.
-    pub(crate) fn held_call_ids(&self) -> &HashSet<String> {
-        &self.held_call_ids
+    /// Whether the call `tool_use_id` is held open, so its stand-in result closes nothing.
+    pub(crate) fn holds_call(&self, tool_use_id: &str) -> bool {
+        self.held
+            .values()
+            .any(|held| held.tool_use_id == tool_use_id)
+    }
+
+    /// How many calls are held open.
+    pub(crate) fn held_count(&self) -> usize {
+        self.held.len()
     }
 
     /// The task the held call `tool_use_id` runs as, and the call's opening; `None` for a call not
@@ -152,14 +160,10 @@ impl ClaudeToolServerTasks {
             .map(|(task_id, held)| (task_id.clone(), held.opened.clone()))
     }
 
-    /// Takes every held call out, each by its `tool_use_id` with its opening, as the process
-    /// ends with them still running; the settled calls are left.
-    pub(crate) fn take_held(&mut self) -> Vec<(String, ClaudeOpenToolCall)> {
-        self.held_call_ids.clear();
-        self.held
-            .drain()
-            .map(|(_, held)| (held.tool_use_id, held.opened))
-            .collect()
+    /// Takes every held call out, each by its task, as the process ends with them still running;
+    /// the settled calls are left.
+    pub(crate) fn take_held(&mut self) -> Vec<(String, ClaudeHeldCall)> {
+        self.held.drain().collect()
     }
 
     /// Whether the call the tool server's task `task_id` runs is held open.
@@ -178,9 +182,7 @@ impl ClaudeToolServerTasks {
             if !held.take_run(run_id) {
                 return None;
             }
-            let held = self.held.remove(task_id)?;
-            self.held_call_ids.remove(&held.tool_use_id);
-            held
+            self.held.remove(task_id)?
         } else {
             if !self.settled.peek_mut(task_id)?.take_run(run_id) {
                 return None;
@@ -212,8 +214,14 @@ impl ClaudeToolServerTasks {
     }
 
     /// The ends of the held calls a background list `frame` leaves out, each failed as stopped
-    /// with no body and settled; none for a frame that carries no list.
-    pub(crate) fn settle_unlisted(&mut self, frame: &ClaudeTaskFrame) -> Vec<ClaudeHeldCallEnd> {
+    /// with no body and settled; none for a frame that carries no list. A call `restored` still
+    /// awaits the restore of is kept: only its restored start or the first finished reply decides
+    /// it.
+    pub(crate) fn settle_unlisted(
+        &mut self,
+        frame: &ClaudeTaskFrame,
+        restored: &ClaudeRestoredCalls,
+    ) -> Vec<ClaudeHeldCallEnd> {
         let Some(listed) = frame.listed_task_ids() else {
             return Vec::new();
         };
@@ -221,14 +229,15 @@ impl ClaudeToolServerTasks {
         let unlisted: Vec<String> = self
             .held
             .keys()
-            .filter(|task_id| !listed.contains(task_id.as_str()))
+            .filter(|task_id| {
+                !listed.contains(task_id.as_str()) && !restored.is_awaiting(task_id.as_str())
+            })
             .cloned()
             .collect();
         unlisted
             .into_iter()
             .filter_map(|task_id| {
                 let call = self.held.remove(&task_id)?;
-                self.held_call_ids.remove(&call.tool_use_id);
                 let outcome = ClaudeToolCallOutcome::Failed {
                     end_cause: Some(ToolCallEndCause::Stopped),
                 };
@@ -251,7 +260,6 @@ impl ClaudeToolServerTasks {
     /// Forgets every held and settled call: the session's process is gone.
     pub(crate) fn forget(&mut self) {
         self.held.clear();
-        self.held_call_ids.clear();
         self.settled.clear();
     }
 

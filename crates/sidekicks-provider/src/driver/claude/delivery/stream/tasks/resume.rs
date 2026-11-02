@@ -74,9 +74,9 @@ impl ClaudeDeliveryStream {
                         .keep_settled(task_id, tool_use_id, opened);
                     continue;
                 }
-                let kept_call = kept
-                    .as_ref()
-                    .map_or(ClaudeKeptCall::Recorded, |kept| kept.call(&tool_use_id));
+                let kept_call = kept.as_ref().map_or(ClaudeKeptCall::Recorded, |kept| {
+                    kept.call(&tool_use_id, &task_id)
+                });
                 if let Some((outcome, text)) = kept_call.into_process_end() {
                     ends.push(ClaudeHeldCallEnd {
                         tool_use_id,

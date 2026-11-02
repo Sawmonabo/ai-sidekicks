@@ -3,7 +3,7 @@
 //! The frames are untrusted, so each is read into structs that name only the members read, each
 //! member read leniently, and a block that reads as nothing known is left out.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use jiff::Timestamp;
 use serde::Deserialize;
@@ -22,6 +22,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::transcript::whole_patch::WholePatchFile;
 
+use crate::driver::claude::delivery::mcp_tasks::ClaudeToolServerTasks;
 use crate::driver::claude::delivery::patches::{
     is_claude_file_changing_tool, read_claude_patch_file,
 };
@@ -410,13 +411,13 @@ pub(crate) fn read_claude_assistant_rows(
 /// The tool results one `user` frame carries, each as `agent.toolCall.completed` or, when Claude
 /// Code marks it an error, `agent.toolCall.failed`, closing its call in `open_tool_calls` and
 /// timed from its start to `now` and closed on the run that started it. A file-changing call's
-/// lone result carries its patch. A call in `held_calls` stays open: its result is a stand-in,
-/// kept with its words, and the real one comes later.
+/// lone result carries its patch. A call `tool_server_tasks` holds stays open: its result is a
+/// stand-in, kept with its words, and the real one comes later.
 pub(crate) fn read_claude_user_rows(
     frame: &ClaudeMessageFrame,
     session_id: SessionId,
     open_tool_calls: &mut HashMap<String, ClaudeOpenToolCall>,
-    held_calls: &HashSet<String>,
+    tool_server_tasks: &ClaudeToolServerTasks,
     now: Timestamp,
 ) -> ClaudeUserFrameReading {
     let mut reading = ClaudeUserFrameReading {
@@ -435,7 +436,7 @@ pub(crate) fn read_claude_user_rows(
             continue;
         };
         let text = read_tool_result_text(block.content.as_deref());
-        if held_calls.contains(call_id) {
+        if tool_server_tasks.holds_call(call_id) {
             reading.held_stand_ins.push((call_id.clone(), text));
             continue;
         }

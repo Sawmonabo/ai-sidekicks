@@ -43,9 +43,10 @@ pub(crate) use self::session::{ClaudeFirstRequest, ClaudeSessionStream, ClaudeSe
 use crate::command::running_set::RunningCommandSets;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
+use crate::driver::claude::delivery::mcp_tasks::ClaudeHeldCall;
 use crate::driver::claude::delivery::messages::{
-    ClaudeMessageFrame, ClaudeMessageRow, ClaudeMessageRowKind, ClaudeOpenToolCall,
-    read_claude_assistant_rows, read_claude_user_rows,
+    ClaudeMessageFrame, ClaudeMessageRow, ClaudeMessageRowKind, read_claude_assistant_rows,
+    read_claude_user_rows,
 };
 use crate::driver::claude::delivery::reviewer::ClaudeReviewerCapture;
 use crate::driver::claude::delivery::run_readings::{ClaudeMessageKey, ClaudeRowDelivery};
@@ -506,11 +507,11 @@ impl ClaudeDeliveryStream {
 
     /// Releases what the session streamed and buffered, as its process is gone, and forgets its
     /// readings; the exit path ends the run its turn was on. Answers the tool-server calls still
-    /// held, each by its `tool_use_id` with its opening, which the caller settles.
+    /// held, each by its task, which the caller settles.
     pub(crate) async fn end_session(
         &self,
         session: &ClaudeSessionStream,
-    ) -> Vec<(String, ClaudeOpenToolCall)> {
+    ) -> Vec<(String, ClaudeHeldCall)> {
         let (pieces, released, turn) = {
             let mut readings = session.lock();
             (
@@ -660,7 +661,7 @@ impl ClaudeDeliveryStream {
                 frame,
                 session.session_id,
                 &mut readings.open_tool_calls,
-                readings.tool_server_tasks.held_call_ids(),
+                &readings.tool_server_tasks,
                 Timestamp::now(),
             );
             readings.failed_call_words.extend(reading.failed_results);

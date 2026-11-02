@@ -53,6 +53,7 @@ impl ClaudeDeliveryStream {
                 else {
                     continue;
                 };
+                let survives_restart = survives(kept.as_ref(), (&tool_use_id, &task_id), &stand_in);
                 let (Ok(tool_call_id), Ok(task_id)) = (
                     ToolCallId::new(tool_use_id.clone()),
                     FreeFormText::new(task_id),
@@ -67,7 +68,7 @@ impl ClaudeDeliveryStream {
                     tool_name: opened.tool_name().clone(),
                     tool_call_id,
                     task_id,
-                    survives_restart: survives(kept.as_ref(), &tool_use_id, &stand_in),
+                    survives_restart,
                     source_epoch: None,
                     source_position: None,
                     content_length: None,
@@ -92,10 +93,15 @@ impl ClaudeDeliveryStream {
     }
 }
 
-// Whether the held call `tool_use_id` outlives its process: a saved ending or a record says so,
-// else its stand-in's words do, a task that names neither reading as one that ends.
-fn survives(kept: Option<&ClaudeKeptCalls>, tool_use_id: &str, stand_in: &str) -> bool {
-    match kept.map(|kept| kept.call(tool_use_id)) {
+// Whether the held call `tool_use_id` of the task `task_id` outlives its process: a saved ending
+// or a record says so, else its stand-in's words do, a task that names neither reading as one that
+// ends.
+fn survives(
+    kept: Option<&ClaudeKeptCalls>,
+    (tool_use_id, task_id): (&str, &str),
+    stand_in: &str,
+) -> bool {
+    match kept.map(|kept| kept.call(tool_use_id, task_id)) {
         Some(ClaudeKeptCall::Ended { .. } | ClaudeKeptCall::Recorded) => true,
         Some(ClaudeKeptCall::Unkept) | None => {
             !stand_in.contains(ENDS_WITH_THE_PROCESS) && stand_in.contains(RUNS_ON_THE_SERVER)

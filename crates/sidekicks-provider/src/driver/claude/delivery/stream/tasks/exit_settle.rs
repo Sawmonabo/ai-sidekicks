@@ -5,20 +5,19 @@
 
 use std::error::Error;
 
-use crate::driver::claude::delivery::mcp_tasks::ClaudeHeldCallEnd;
-use crate::driver::claude::delivery::messages::ClaudeOpenToolCall;
+use crate::driver::claude::delivery::mcp_tasks::{ClaudeHeldCall, ClaudeHeldCallEnd};
 use crate::driver::claude::delivery::stream::{ClaudeDeliveryStream, ClaudeSessionStream};
 
 impl ClaudeDeliveryStream {
-    /// Settles the calls in `held`, each by its `tool_use_id` with its opening, that the
-    /// session's process held as it ended: a saved ending gives its close, a record
+    /// Settles the calls in `held`, each by its task, that the session's process held as it
+    /// ended: a saved ending gives its close, a record
     /// writes nothing and keeps its status line, and neither closes it failed as ended with the
     /// process. What Claude Code keeps is read once; a failed read is logged and every call stays
     /// open, so the next resume or the session's close reads again.
     pub(crate) async fn settle_exit(
         &self,
         session: &ClaudeSessionStream,
-        held: Vec<(String, ClaudeOpenToolCall)>,
+        held: Vec<(String, ClaudeHeldCall)>,
     ) {
         if held.is_empty() {
             return;
@@ -37,11 +36,11 @@ impl ClaudeDeliveryStream {
         };
         let ends = held
             .into_iter()
-            .filter_map(|(tool_use_id, opened)| {
-                let (outcome, text) = kept.call(&tool_use_id).into_process_end()?;
+            .filter_map(|(task_id, held)| {
+                let (outcome, text) = kept.call(&held.tool_use_id, &task_id).into_process_end()?;
                 Some(ClaudeHeldCallEnd {
-                    tool_use_id,
-                    opened,
+                    tool_use_id: held.tool_use_id,
+                    opened: held.opened,
                     outcome,
                     text,
                 })

@@ -312,31 +312,41 @@ async fn a_restored_call_and_a_daemon_settled_one_land_their_endings() {
     );
 }
 
-// Fails when a call held again from its record and never restored outlives the resumed process's
-// first background list that leaves it out or, where that list names it, the first finished reply,
-// or when either stop ends a call opened in the resumed turn. Mutations: the level arm's
-// `end_unrestored` dropped (the list settles call-4 `stopped`); `end_turn`'s dropped (no close at
-// the reply); `take_unlisted` ending the calls the list names (a close before the reply); either
-// stop ending every open call (a row for call-9).
-#[rstest]
-#[case::left_out_of_the_first_list(None, json!({
-    "type": "system",
-    "subtype": "background_tasks_changed",
-    "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-    "tasks": [],
-}))]
-#[case::named_by_the_first_list_then_the_first_reply(
-    Some(json!({
+// A background list naming the tasks `task_ids`.
+fn background_list(task_ids: &[&str]) -> Value {
+    let tasks: Vec<Value> = task_ids
+        .iter()
+        .map(|task_id| json!({"task_id": task_id, "task_type": "mcp_task"}))
+        .collect();
+    json!({
         "type": "system",
         "subtype": "background_tasks_changed",
         "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "tasks": [{"task_id": "task-4", "task_type": "mcp_task"}],
-    })),
+        "tasks": tasks,
+    })
+}
+
+// Fails when a call held again from its record and never restored outlives the resumed process's
+// first background list that leaves it out or, where that list names it, the first finished reply,
+// when a later list that leaves it out before its restore closes it, or when either stop ends a
+// call opened in the resumed turn. Mutations: the level arm's `end_unrestored` dropped (the list
+// settles call-4 `stopped`); `end_turn`'s dropped (no close at the reply); `take_unlisted` ending
+// the calls the list names (a close before the reply); `settle_unlisted` settling a call still
+// awaiting its restore (the second list closes call-4 `stopped`); either stop ending every open
+// call (a row for call-9).
+#[rstest]
+#[case::left_out_of_the_first_list(Vec::new(), background_list(&[]))]
+#[case::named_by_the_first_list_then_the_first_reply(
+    vec![background_list(&["task-4"])],
+    result(&json!({})),
+)]
+#[case::named_by_the_first_list_left_out_of_the_second_then_the_first_reply(
+    vec![background_list(&["task-4"]), background_list(&[])],
     result(&json!({})),
 )]
 #[tokio::test(start_paused = true)]
 async fn a_restored_call_waits_until_the_first_list_or_reply(
-    #[case] first_list: Option<Value>,
+    #[case] lists: Vec<Value>,
     #[case] stop: Value,
 ) {
     let session = ScriptedSession::new().await;
@@ -376,8 +386,8 @@ async fn a_restored_call_waits_until_the_first_list_or_reply(
             ],
         },
     }));
-    if let Some(first_list) = first_list {
-        session.frame(&first_list);
+    for list in lists {
+        session.frame(&list);
         settle().await;
         assert_eq!(closes(session.engine.deliveries()), []);
     }

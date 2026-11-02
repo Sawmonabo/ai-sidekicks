@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use jiff::Timestamp;
 use rstest::rstest;
@@ -9,6 +9,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::ClaudeToolServerTasks;
+use super::restored_calls::ClaudeRestoredCalls;
 use crate::driver::claude::delivery::commands::ClaudeTaskFrame;
 use crate::driver::claude::delivery::messages::{ClaudeOpenToolCall, ClaudeToolCallOutcome};
 use crate::driver::claude::run::routes::ClaudeBoundRun;
@@ -110,18 +111,22 @@ fn a_level_that_omits_a_held_call_settles_it_stopped_and_its_later_ending_append
     tasks.observe_start(&start("task-2", "call-2", None), &mut open_tool_calls);
 
     assert!(open_tool_calls.is_empty());
-    let held: HashSet<String> = ["call-1".to_owned(), "call-2".to_owned()].into();
-    assert_eq!(tasks.held_call_ids(), &held);
+    assert!(tasks.holds_call("call-1") && tasks.holds_call("call-2"));
+    assert_eq!(tasks.held_count(), 2);
 
     let level = frame(&json!({"tasks": [{"task_id": "task-2", "task_type": "mcp_task"}]}));
-    let ends = tasks.settle_unlisted(&level);
+    let ends = tasks.settle_unlisted(&level, &ClaudeRestoredCalls::default());
     assert_eq!(ends.len(), 1);
     let end = ends.first().expect("one held call is settled");
     assert_eq!(end.tool_use_id, "call-1");
     assert_eq!(end.outcome, STOPPED);
     assert_eq!(end.text, None);
     assert_eq!(end.opened.run(), &run);
-    assert!(tasks.settle_unlisted(&level).is_empty());
+    assert!(
+        tasks
+            .settle_unlisted(&level, &ClaudeRestoredCalls::default())
+            .is_empty()
+    );
 
     let end = tasks
         .release(&notification("task-1", "completed", "Exported", None))
@@ -161,7 +166,7 @@ fn a_failed_or_stopped_notification_closes_its_call_and_a_later_completion_appen
     assert_eq!(end.tool_use_id, "call-1");
     assert_eq!(end.outcome, outcome);
     assert_eq!(end.text.as_deref(), text);
-    assert!(tasks.held_call_ids().is_empty());
+    assert_eq!(tasks.held_count(), 0);
 
     let end = tasks
         .release(&notification("task-1", "completed", "Exported", None))
@@ -197,7 +202,7 @@ fn a_frame_of_an_earlier_task_run_is_ignored() {
             ))
             .is_none()
     );
-    assert!(tasks.held_call_ids().contains("call-1"));
+    assert!(tasks.holds_call("call-1"));
     let end = tasks
         .release(&notification(
             "task-1",
