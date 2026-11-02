@@ -228,6 +228,15 @@ impl CodexSessionEstablishment {
         let service = self
             .start_service(&params.provider_account_id, home)
             .await?;
+        // A switch with no session to move left the switching service where it was, so the new
+        // session's account is handed to it here, before its conversation starts.
+        if matches!(home, CodexConversationHome::Switching) {
+            service
+                .dependencies()
+                .switching
+                .carry_for_session(&service, &params.provider_account_id)
+                .await?;
+        }
         service.check_takes_new_work(THREAD_START_METHOD)?;
         if let Some(larger_window) = params.larger_window {
             confirm_larger_window(&service, &settings.model, larger_window.get()).await?;

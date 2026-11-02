@@ -5,7 +5,8 @@
 //! read that answers no figures reads as a lost sign-in when the home's own account read finds none
 //! signed in, or when it needed a renewal (an expired access token) and left the home's `auth.json`
 //! unchanged, twice in a row. A read in the home of the account the switching service carries
-//! hands that service the home's tokens again when the read left them renewed.
+//! hands that service the home's tokens again when the read left them renewed, and fails when that
+//! hand fails.
 
 use std::path::Path;
 
@@ -36,7 +37,8 @@ const DEAD_RENEWALS_FOR_SIGN_IN_GONE: u8 = 2;
 /// sign-in reads as gone when the home's account read finds none signed in, or on the second read
 /// in a row that needed a renewal and left the home's `auth.json` unchanged. Fails when the
 /// account cannot be read from the registry, the home's `auth.json` cannot be read, the service
-/// cannot start, the read gets no answer, or its reset credits cannot be kept.
+/// cannot start, the read gets no answer, its reset credits cannot be kept, or the switching
+/// service carrying the account refuses or never answers the renewed sign-in handed to it.
 pub(super) async fn observe_codex_limits(
     legs: &CodexAccountLegs,
     provider_account_id: ProviderAccountId,
@@ -61,16 +63,6 @@ pub(super) async fn observe_codex_limits(
             async |service| read_limits(&legs.rate_limits, service).await,
         )
         .await?;
-    // The read may have renewed the sign-in, which the switching service then takes again.
-    if let Err(error) =
-        switch::hand_switching_service_again(legs, &provider_account_id, &codex_home).await
-    {
-        tracing::warn!(
-            error = &error as &(dyn std::error::Error + 'static),
-            "the codex switching service could not be handed its account's renewed sign-in; its \
-             next refresh request asks for it"
-        );
-    }
     let (observation, reset_credits) = match read {
         LimitsRead::Read(read) if !read.windows.is_empty() => (
             ProviderObservation::Figures(ProviderAccountFigures {
@@ -95,6 +87,10 @@ pub(super) async fn observe_codex_limits(
             .await
             .map_err(|error| DriverError::Internal(Box::new(error)))?;
     }
+    // The read may have renewed the sign-in, which the switching service then takes again. A
+    // hand that fails fails the read, so the account's status says so; the token it did not take
+    // still reads as renewed, so the next read hands it again.
+    switch::hand_switching_service_again(legs, &provider_account_id, &codex_home).await?;
     match observation {
         ProviderObservation::Figures(_) => {
             lock(&legs.dead_renewals).remove(&provider_account_id);

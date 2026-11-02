@@ -44,9 +44,9 @@ pub(crate) const CODEX_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 const JSON_RPC_VERSION: &str = "2.0";
 
 /// What runs on the connection's reader as a request's answer arrives, before any frame after it is
-/// handed on, told whether the service answered with a result rather than an error. It never runs
-/// for a request that went unanswered.
-pub(crate) type CodexAnswerHook = Box<dyn FnOnce(bool) + Send>;
+/// handed on, handed the answer's `result` where the service answered with one, `None` where it
+/// answered with an error. It never runs for a request that went unanswered.
+pub(crate) type CodexAnswerHook = Box<dyn FnOnce(Option<&RawValue>) + Send>;
 
 /// A held ask the connection let go of, so its card is withdrawn.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -679,7 +679,7 @@ impl ConnectionShared {
             None => Ok(frame.result.unwrap_or_else(|| RawValue::NULL.to_owned())),
         };
         if let Some(on_answered) = on_answered {
-            on_answered(answer.is_ok());
+            on_answered(answer.as_deref().ok());
         }
         if answer_sender.send(answer).is_err() {
             // The request stopped waiting between its answer's arrival and its delivery.

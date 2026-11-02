@@ -5,11 +5,15 @@
 //! there; at a switch, its answer the acknowledgment for every conversation on the service; and
 //! when a limits read in the carried account's home finds its access token renewed. Never on a
 //! timer, since each such login refreshes the tool servers of every conversation loaded there.
+//! One hand at a time: each holds the switching service's hand through its login's answer, so a
+//! renewal never hands an account back over a switch that landed meanwhile. A login written and
+//! never answered leaves the service's account unknown, carried as none until the next hand.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use secrecy::{ExposeSecret as _, SecretString};
+use serde_json::value::RawValue;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_ipc::domain_error::DomainError;
@@ -20,6 +24,7 @@ use subtle::ConstantTimeEq as _;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::auth_file::{CodexAuthTokens, read_codex_auth_tokens};
 use crate::driver::codex::account::login::CodexLoginAccountParams;
+use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::contract::error::DriverError;
@@ -33,6 +38,8 @@ pub(crate) struct CodexSwitchingAccount {
     provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     // Shared with the hook a switch's answer runs on the connection's reader.
     carried: Arc<Mutex<Option<CarriedAccount>>>,
+    // Held by each hand from its tokens' read through its login's answer.
+    hands: tokio::sync::Mutex<()>,
 }
 
 // The account the service carries and the access token last handed for it.
@@ -50,10 +57,12 @@ impl CodexSwitchingAccount {
         Self {
             provider_accounts,
             carried: Arc::default(),
+            hands: tokio::sync::Mutex::default(),
         }
     }
 
-    /// The account the switching service carries; `None` before its first hand.
+    /// The account the switching service carries; `None` before its first hand and after a login
+    /// that went unanswered.
     pub(crate) fn carried_account(&self) -> Option<ProviderAccountId> {
         lock(&self.carried)
             .as_ref()
@@ -68,6 +77,7 @@ impl CodexSwitchingAccount {
         &self,
         connection: &CodexAppServerConnection,
     ) -> Result<(), CodexError> {
+        let _hand = self.hands.lock().await;
         let provider_account_id = match self.carried_account() {
             Some(carried) => carried,
             None => read_current_account(&self.provider_accounts, DESCRIPTOR.provider_id())
@@ -76,9 +86,11 @@ impl CodexSwitchingAccount {
         };
         let tokens = self.read_tokens(&provider_account_id).await?;
         let access_token = tokens.access_token.clone();
-        connection
-            .request(CODEX_LOGIN_START_METHOD, &compose_login(tokens))
-            .await?;
+        self.settle_login(
+            connection
+                .request(CODEX_LOGIN_START_METHOD, &compose_login(tokens))
+                .await,
+        )?;
         *lock(&self.carried) = Some(CarriedAccount {
             provider_account_id,
             access_token,
@@ -86,48 +98,86 @@ impl CodexSwitchingAccount {
         Ok(())
     }
 
-    /// Hands the switching service on `connection` the tokens of `to`'s account, the switch's one
-    /// call: at its answer's place among the service's frames the service carries `to`, and
+    /// Hands the switching `service` the tokens of `to`'s account, the switch's one call: at its
+    /// answer's place among the service's frames its readings start afresh, it carries `to`, and
     /// `on_acknowledged` runs there; a refused login leaves it carrying what it did and runs
     /// nothing. Fails as [`Self::hand_at_start`] does, before anything is sent where `to`'s home
-    /// holds no sign-in.
+    /// holds no sign-in, and while the service has no connection.
     pub(crate) async fn hand_switch(
         &self,
-        connection: &CodexAppServerConnection,
+        service: &Arc<CodexService>,
+        to: ProviderAccountId,
+        on_acknowledged: impl FnOnce() + Send + 'static,
+    ) -> Result<(), CodexError> {
+        let hand = self.hands.lock().await;
+        self.hand_switch_holding(&hand, service, to, on_acknowledged)
+            .await
+    }
+
+    /// Hands the switching `service` `to`'s tokens as a switch does where it carries another
+    /// account or none, so a session following the current account starts on `to` though no
+    /// session was live to move the service there; a service carrying `to` is handed nothing.
+    /// Fails as [`Self::hand_switch`] does.
+    pub(crate) async fn carry_for_session(
+        &self,
+        service: &Arc<CodexService>,
+        to: &ProviderAccountId,
+    ) -> Result<(), CodexError> {
+        let hand = self.hands.lock().await;
+        if self.carried_account().as_ref() == Some(to) {
+            return Ok(());
+        }
+        self.hand_switch_holding(&hand, service, to.clone(), || {})
+            .await
+    }
+
+    // The switch's login, sent under `_hand`.
+    async fn hand_switch_holding(
+        &self,
+        _hand: &tokio::sync::MutexGuard<'_, ()>,
+        service: &Arc<CodexService>,
         to: ProviderAccountId,
         on_acknowledged: impl FnOnce() + Send + 'static,
     ) -> Result<(), CodexError> {
         let tokens = self.read_tokens(&to).await?;
+        let connection = service.connection()?;
         let access_token = tokens.access_token.clone();
         let carried = Arc::clone(&self.carried);
-        connection
+        let acknowledged = Arc::downgrade(service);
+        let answer = connection
             .request_ordered(
                 CODEX_LOGIN_START_METHOD,
                 &compose_login(tokens),
-                Box::new(move |is_answered| {
-                    if is_answered {
+                Box::new(move |answer: Option<&RawValue>| {
+                    let Some(service) = answer.and(acknowledged.upgrade()) else {
+                        return;
+                    };
+                    service.restart_rate_limits(|| {
                         *lock(&carried) = Some(CarriedAccount {
                             provider_account_id: to,
                             access_token,
                         });
-                        on_acknowledged();
-                    }
+                    });
+                    on_acknowledged();
                 }),
             )
-            .await?;
+            .await;
+        self.settle_login(answer)?;
         Ok(())
     }
 
     /// Hands the switching service on `connection` the tokens in `codex_home` again where that
     /// home is the carried `provider_account_id`'s and its access token is no longer the one last
-    /// handed, as a renewal there leaves it. Answers whether it handed them. Fails as the home's
-    /// `auth.json` cannot be read and with Codex's refusal of the login.
+    /// handed, as a renewal there leaves it; the carried account is checked under the hand, so a
+    /// switch that landed first is never undone. Answers whether it handed them. Fails as the
+    /// home's `auth.json` cannot be read and with Codex's refusal of the login.
     pub(crate) async fn hand_again_if_renewed(
         &self,
         connection: &CodexAppServerConnection,
         provider_account_id: &ProviderAccountId,
         codex_home: &Path,
     ) -> Result<bool, CodexError> {
+        let _hand = self.hands.lock().await;
         if self.carried_account().as_ref() != Some(provider_account_id) {
             return Ok(false);
         }
@@ -142,9 +192,11 @@ impl CodexSwitchingAccount {
             return Ok(false);
         }
         let access_token = tokens.access_token.clone();
-        connection
-            .request(CODEX_LOGIN_START_METHOD, &compose_login(tokens))
-            .await?;
+        self.settle_login(
+            connection
+                .request(CODEX_LOGIN_START_METHOD, &compose_login(tokens))
+                .await,
+        )?;
         if let Some(carried) = lock(&self.carried)
             .as_mut()
             .filter(|carried| carried.provider_account_id == *provider_account_id)
@@ -159,6 +211,19 @@ impl CodexSwitchingAccount {
     #[cfg(test)]
     pub(crate) fn provider_accounts(&self) -> &PortRegistration<Arc<dyn ProviderAccountReader>> {
         &self.provider_accounts
+    }
+
+    // A login's answer: one written and never answered may have landed or not, so the service's
+    // account is unknown and carried as none, which the next hand at a start or session start
+    // replaces; any other failure leaves the account carried as it was.
+    fn settle_login<Answer>(
+        &self,
+        answer: Result<Answer, CodexError>,
+    ) -> Result<Answer, CodexError> {
+        if let Err(CodexError::Unanswered { .. }) = &answer {
+            *lock(&self.carried) = None;
+        }
+        answer
     }
 
     // The ChatGPT sign-in's tokens in `provider_account_id`'s home. Refuses

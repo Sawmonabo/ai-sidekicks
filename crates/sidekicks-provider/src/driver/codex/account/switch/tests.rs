@@ -307,7 +307,8 @@ async fn first_request(moved: SessionAccountMove) -> FirstRequestAfterMove {
 
 // Fails when a switch sends anything but one login carrying the new account's tokens, when the
 // move reaches the session at another place among its frames than the login's answer, when the
-// service keeps carrying the account left or its limit readings, when the credential generation
+// service keeps carrying the account left or its limit readings, when those readings are lost to
+// a frame of the account left that the session reads after the switch, when the credential generation
 // moves, when a token reaches a log line, a reply or an error, or when a login follows on a timer.
 #[tokio::test]
 async fn a_switch_is_one_login_whose_answer_moves_each_session_in_its_place() {
@@ -354,7 +355,11 @@ async fn a_switch_is_one_login_whose_answer_moves_each_session_in_its_place() {
     fixture.wait_until_seen(3).await;
     let after = fixture.unread_requests();
     let carried = fixture.scripted.service.provider_account_id();
-    let readings = fixture.scripted.service.rate_limit_observation();
+    let readings = fixture.scripted.service.rate_limit_reading().observation;
+    let readings_left = fixture
+        .scripted
+        .service
+        .rate_limit_observation_of(&fixture.left);
     let generation_after = fixture.credential_generation();
     let to = fixture.to.clone();
     let token = fixture.tokens[&to].clone();
@@ -378,6 +383,11 @@ async fn a_switch_is_one_login_whose_answer_moves_each_session_in_its_place() {
     );
     assert_eq!(carried, Some(to));
     assert_eq!(readings, CodexRateLimitObservation::default());
+    assert_eq!(
+        readings_left,
+        reached_on_the_account_left(),
+        "a frame queued before the switch still reads the limit of the account it ran on"
+    );
     assert_eq!(generation_before, generation_after);
     for written in recorded.texts().iter().chain([&replies]) {
         for secret in [&token, &left_token] {
@@ -416,7 +426,7 @@ async fn a_refused_login_moves_nothing_and_fails_every_move_with_the_refusal() {
     let (moved, ()) = tokio::join!(move_codex_sessions(&fixture.legs, to, sessions), script);
 
     let carried = fixture.scripted.service.provider_account_id();
-    let readings = fixture.scripted.service.rate_limit_observation();
+    let readings = fixture.scripted.service.rate_limit_reading().observation;
     let left = fixture.left.clone();
     let token = fixture.tokens[&fixture.to].clone();
     let session_id = fixture.session.session_id;
@@ -507,4 +517,133 @@ async fn a_renewed_token_is_handed_once_and_the_running_command_is_left_running(
         "the renewal sent more than its login"
     );
     assert_eq!(seen, ["item/started", "item/completed"]);
+}
+
+// Fails when a session following the current account starts on the switching service while it
+// still carries the account a switch with no live session left, so its usage would land on the
+// wrong account, or when a service already carrying the session's account is handed it again.
+#[tokio::test]
+async fn a_session_start_moves_the_switching_service_onto_its_account_once() {
+    let mut fixture = Fixture::new().await;
+    let to = fixture.to.clone();
+    let service = Arc::clone(&fixture.scripted.service);
+    let switching = Arc::clone(&fixture.scripted.dependencies.switching);
+
+    let (carried, login) = tokio::join!(
+        switching.carry_for_session(&service, &to),
+        answer_login(&mut fixture.scripted)
+    );
+    let again = switching.carry_for_session(&service, &to).await;
+    let after = fixture.unread_requests();
+    let token = fixture.tokens[&to].clone();
+
+    assert!(carried.is_ok() && again.is_ok());
+    assert_eq!(login["params"], login_params(&token, WORKSPACE_TO));
+    assert_eq!(service.provider_account_id(), Some(to));
+    assert_eq!(
+        after,
+        Vec::<Value>::new(),
+        "a carried account was handed again"
+    );
+}
+
+// Fails when a renewal of the account a switch is leaving is handed while the switch's login
+// waits for its answer, which would put the service back on the account left once the switch
+// lands.
+#[tokio::test]
+async fn a_renewal_waiting_on_a_switch_hands_nothing_once_the_switch_lands() {
+    let mut fixture = Fixture::new().await;
+    let left = fixture.left.clone();
+    let left_home = fixture.homes[&left].clone();
+    write_sign_in(&left_home, WORKSPACE_LEFT, &compose_access_token("renewed"));
+    let to = fixture.to.clone();
+    let sessions = vec![fixture.session.clone()];
+    let (login_sent, renewal_starts) = oneshot::channel();
+    let legs = &fixture.legs;
+    let scripted = &mut fixture.scripted;
+    let renewal = async {
+        renewal_starts.await.expect("the switch's login is sent");
+        hand_switching_service_again(legs, &left, &left_home).await
+    };
+    let script = async {
+        let login = scripted.next_request(CODEX_LOGIN_START_METHOD).await;
+        login_sent.send(()).expect("the renewal waits");
+        let renewal_login =
+            tokio::time::timeout(Duration::from_millis(200), scripted.script.next_sent()).await;
+        scripted
+            .script
+            .answer(&login, &json!({"type": "chatgptAuthTokens"}));
+        renewal_login.ok()
+    };
+    let (moved, renewed, renewal_login) = tokio::join!(
+        move_codex_sessions(legs, to.clone(), sessions),
+        renewal,
+        script
+    );
+    let after = fixture.unread_requests();
+
+    assert!(moved.iter().all(Result::is_ok));
+    assert!(renewed.is_ok());
+    assert_eq!(
+        renewal_login, None,
+        "the renewal was handed under the switch"
+    );
+    assert_eq!(
+        after,
+        Vec::<Value>::new(),
+        "the renewal was handed over the switch"
+    );
+    assert_eq!(fixture.scripted.service.provider_account_id(), Some(to));
+}
+
+// Fails when a switch's login that was written and never answered leaves the service carrying the
+// account left, which the next start or session start would then never hand again.
+#[tokio::test]
+async fn a_switch_login_never_answered_leaves_the_carried_account_unknown() {
+    let mut fixture = Fixture::new().await;
+    let to = fixture.to.clone();
+    let sessions = vec![fixture.session.clone()];
+    tokio::time::pause();
+    let scripted = &mut fixture.scripted;
+    let (moved, _login) = tokio::join!(
+        move_codex_sessions(&fixture.legs, to, sessions),
+        scripted.next_request(CODEX_LOGIN_START_METHOD)
+    );
+    tokio::time::resume();
+
+    assert!(moved.iter().all(Result::is_err));
+    assert_eq!(fixture.scripted.service.provider_account_id(), None);
+}
+
+// Fails when a renewed token the switching service refused is answered as handed, which hides
+// the failure from the read that found it, or when the next read does not hand it again.
+#[tokio::test]
+async fn a_refused_renewal_fails_and_the_next_read_hands_it_again() {
+    let mut fixture = Fixture::new().await;
+    let left = fixture.left.clone();
+    let left_home = fixture.homes[&left].clone();
+    let renewed = compose_access_token("renewed");
+    write_sign_in(&left_home, WORKSPACE_LEFT, &renewed);
+    let legs = &fixture.legs;
+    let scripted = &mut fixture.scripted;
+    let refuse = async {
+        let login = scripted.next_request(CODEX_LOGIN_START_METHOD).await;
+        scripted.script.send(&json!({
+            "jsonrpc": "2.0",
+            "id": login["id"],
+            "error": {"code": -32603, "message": "the login failed"},
+        }));
+    };
+    let (refused, ()) = tokio::join!(
+        hand_switching_service_again(legs, &left, &left_home),
+        refuse
+    );
+    let (handed, login) = tokio::join!(
+        hand_switching_service_again(legs, &left, &left_home),
+        answer_login(scripted)
+    );
+
+    assert!(refused.is_err(), "a refused hand was answered as handed");
+    assert!(handed.is_ok());
+    assert_eq!(login["params"], login_params(&renewed, WORKSPACE_LEFT));
 }
