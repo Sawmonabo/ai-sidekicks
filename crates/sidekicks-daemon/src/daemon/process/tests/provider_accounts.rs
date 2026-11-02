@@ -1,16 +1,21 @@
 use std::collections::HashSet;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use rusqlite::params;
+use serde_json::json;
 use sidekicks_client::daemon_connection::{DaemonConnection, DaemonEndpoint};
+use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::event::usage::UsageRateLimitUpdatedPayload;
 use sidekicks_contracts::provider::account::methods::ProviderAccountList;
 use sidekicks_contracts::provider::account::record::{
     ProviderAccountId, ProviderAccountListRequest, ProviderAccountNotification,
 };
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::integer::SafeSignedInt;
+use sidekicks_contracts::wire::integer::{SafeInt, SafeSignedInt};
 use sidekicks_contracts::wire::number::{NonNegativeNumber, Number};
 use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, create_missing_private_folders};
@@ -25,11 +30,14 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, open_database,
 };
+use sidekicks_store::database::writer::test_file::test_envelope;
+use sidekicks_store::events::session::followers::CommittedEvent;
+use tokio::runtime::Handle;
 use tokio_util::sync::CancellationToken;
 
 use super::TestHome;
 use crate::daemon::process::provider_accounts::{
-    collect_provider_account_legs, publish_usage_window,
+    AccountTurnObserver, collect_provider_account_legs, hand_turn_end, publish_usage_window,
 };
 use crate::daemon::schema::schema_parts;
 
@@ -196,4 +204,55 @@ async fn a_quota_reading_publishes_the_window_the_projection_keeps() {
         window.used_percent,
         NonNegativeNumber::new(40.0).expect("a share")
     );
+}
+
+// Each turn-end hand the observer was given: an account's turn ended, or a run closed.
+#[derive(Default)]
+struct RecordedTurnEnds {
+    ended: Mutex<Vec<ProviderAccountId>>,
+    closed: Mutex<usize>,
+}
+
+impl AccountTurnObserver for RecordedTurnEnds {
+    fn turn_ended(&self, provider_account_id: ProviderAccountId) {
+        lock(&self.ended).push(provider_account_id);
+    }
+
+    fn turn_closed(&self) {
+        *lock(&self.closed) += 1;
+    }
+}
+
+// A run's terminal state reaches the observer as a run closed, which asks again each turn-end read
+// a live turn turned away. Killed by the follow's turn-close call removed, where those reads stay
+// owed until another turn on the account ends.
+#[tokio::test]
+async fn a_run_end_hands_the_observer_a_closed_run() {
+    let session_id = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+    let event: SessionEvent = serde_json::from_value(json!({
+        "type": SessionEventType::AgentRunCompleted.as_str(),
+        "payload": {
+            "sessionId": session_id,
+            "runId": mint_uuid_v7().to_string(),
+            "runVersion": 2,
+            "previousState": "running",
+            "newState": "completed",
+        },
+    }))
+    .expect("the test writes a session event");
+    let observer = RecordedTurnEnds::default();
+
+    let is_handed = hand_turn_end(
+        &observer,
+        &CommittedEvent {
+            envelope: Arc::new(test_envelope(session_id, &event)),
+            sequence: SafeInt::new(1).expect("a sequence"),
+        },
+        &Handle::current(),
+    )
+    .expect("the run's end reads");
+
+    assert!(is_handed);
+    assert_eq!(*lock(&observer.closed), 1);
+    assert_eq!(*lock(&observer.ended), []);
 }

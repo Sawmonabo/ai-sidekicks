@@ -275,16 +275,24 @@ impl ProviderAccountNotificationPublisher for RecordedNotifications {
     }
 }
 
+// Whether a turn reads as live on every account, and a run's end a test has happen once, inside
+// the next check that finds a turn live, after that check read it as live.
 #[derive(Default)]
-pub(super) struct TestLiveTurns(pub(super) AtomicBool);
+pub(super) struct TestLiveTurns {
+    pub(super) is_live: AtomicBool,
+    pub(super) run_end_during_check: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+}
 
 impl AccountLiveTurns for TestLiveTurns {
     fn sessions_with_live_turns(&self, _provider_account_id: &ProviderAccountId) -> Vec<SessionId> {
-        if self.0.load(Ordering::SeqCst) {
-            vec![new_session_id()]
-        } else {
-            Vec::new()
+        if !self.is_live.load(Ordering::SeqCst) {
+            return Vec::new();
         }
+        let run_end = lock(&self.run_end_during_check).take();
+        if let Some(run_end) = run_end {
+            run_end();
+        }
+        vec![new_session_id()]
     }
 }
 

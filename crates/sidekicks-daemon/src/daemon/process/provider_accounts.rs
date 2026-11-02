@@ -16,7 +16,9 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::usage::{
     DEFAULT_RATE_LIMIT_ID, UsageRateLimitUpdatedPayload, UsageTokenCountRecordedPayload,
 };
-use sidekicks_contracts::provider::account::record::ProviderAccountNotification;
+use sidekicks_contracts::provider::account::record::{
+    ProviderAccountId, ProviderAccountNotification,
+};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::transcript::run_facts::RunStateEventType;
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -49,7 +51,9 @@ use sidekicks_store::credential_store::SecretKeychain;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::events::session::appender::SessionEventAppender;
-use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
+use sidekicks_store::events::session::followers::{
+    CommittedEvent, FollowerAttachment, SessionEventFollowers,
+};
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use tokio::runtime::Handle;
 
@@ -364,18 +368,10 @@ impl ProviderAccountObservation {
         // cursors' follow, attached before this one, has marked an ended run by the time this hears
         // it, so the run's turn no longer reads as live.
         self.usage_events = Some(followers.follow_all(move |event| {
-            let event_type = event.envelope.event_type();
-            if event_type == SessionEventType::UsageTokenCountRecorded {
-                let recorded =
-                    UsageTokenCountRecordedPayload::deserialize(event.envelope.payload())?;
-                let _runtime = runtime.enter();
-                observer.turn_ended(recorded.provider_account_id);
-            } else if RunStateEventType::try_from(event_type)
-                .is_ok_and(|run_state| run_state.state().is_terminal())
-            {
-                let _runtime = runtime.enter();
-                observer.turn_closed();
-            } else if event_type == SessionEventType::UsageRateLimitUpdated {
+            if hand_turn_end(&*observer, event, &runtime)? {
+                return Ok(());
+            }
+            if event.envelope.event_type() == SessionEventType::UsageRateLimitUpdated {
                 let updated = UsageRateLimitUpdatedPayload::deserialize(event.envelope.payload())?;
                 // A limits read's whole set goes out from the observer once the read's time is on
                 // the account's row; only what a turn pushed goes out from here.
@@ -403,6 +399,49 @@ impl ProviderAccountObservation {
         self.usage_events = None;
         self.observer.stop();
     }
+}
+
+/// What a metered turn's end and a run's end are handed to: the background observer.
+pub(super) trait AccountTurnObserver {
+    /// A turn metered on `provider_account_id`'s account ended.
+    fn turn_ended(&self, provider_account_id: ProviderAccountId);
+    /// A run ended on some account.
+    fn turn_closed(&self);
+}
+
+impl AccountTurnObserver for ProviderAccountObserver {
+    fn turn_ended(&self, provider_account_id: ProviderAccountId) {
+        Self::turn_ended(self, provider_account_id);
+    }
+
+    fn turn_closed(&self) {
+        Self::turn_closed(self);
+    }
+}
+
+/// Hands `observer`, inside `runtime`, the turn `event` metered as ended on its account, or the
+/// run whose terminal state it records as closed; answers whether `event` was either. Fails as a
+/// metered turn's payload does not read.
+pub(super) fn hand_turn_end(
+    observer: &dyn AccountTurnObserver,
+    event: &CommittedEvent,
+    runtime: &Handle,
+) -> Result<bool, serde_json::Error> {
+    let event_type = event.envelope.event_type();
+    if event_type == SessionEventType::UsageTokenCountRecorded {
+        let recorded = UsageTokenCountRecordedPayload::deserialize(event.envelope.payload())?;
+        let _runtime = runtime.enter();
+        observer.turn_ended(recorded.provider_account_id);
+        return Ok(true);
+    }
+    if RunStateEventType::try_from(event_type)
+        .is_ok_and(|run_state| run_state.state().is_terminal())
+    {
+        let _runtime = runtime.enter();
+        observer.turn_closed();
+        return Ok(true);
+    }
+    Ok(false)
 }
 
 /// Publishes the window `updated` names as the window projection now keeps it, the newest reading

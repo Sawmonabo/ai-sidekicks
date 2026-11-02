@@ -16,12 +16,14 @@ use sidekicks_contracts::provider::account::sign_in::{
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::WallClock as _;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
+use tokio::runtime::Handle;
 use tokio::sync::{Notify, Semaphore};
 
 use super::test_fixture::{Fixture, ScriptedLegs, claude, figures, new_clock, read_reading};
 use super::window_store::read_usage_windows;
-use super::{AccountReadAnswer, ReadAsker};
+use super::{AccountReadAnswer, ProviderAccountObserver, ReadAsker};
 use crate::account::registry::{HealthObservation, HealthObserver};
 use crate::account::sign_in::ProviderSignInBroker;
 use crate::account::sign_in::tests::{
@@ -222,10 +224,10 @@ async fn no_read_runs_while_a_turn_is_live_or_a_sign_in_holds_the_home() {
     let account = fixture.register().await;
     let not_yet = AccountReadAnswer::NotNow { last: None };
 
-    fixture.live_turns.0.store(true, Ordering::SeqCst);
+    fixture.live_turns.is_live.store(true, Ordering::SeqCst);
     assert_eq!(fixture.read(&account, ReadAsker::CheckNow).await, not_yet);
     assert_eq!(fixture.read(&account, ReadAsker::Cadence).await, not_yet);
-    fixture.live_turns.0.store(false, Ordering::SeqCst);
+    fixture.live_turns.is_live.store(false, Ordering::SeqCst);
 
     // A sign-in holds the account's home while its flow starts and while its end is stored.
     let sign_in = fixture.home_lock.hold(account.account_id.clone()).await;
@@ -358,7 +360,7 @@ async fn a_turn_end_read_asked_before_its_turn_closed_runs_once_the_turn_closes(
     .await;
     let account = fixture.register().await;
 
-    fixture.live_turns.0.store(true, Ordering::SeqCst);
+    fixture.live_turns.is_live.store(true, Ordering::SeqCst);
     fixture
         .observer
         .shared
@@ -367,11 +369,60 @@ async fn a_turn_end_read_asked_before_its_turn_closed_runs_once_the_turn_closes(
         .expect("the turn-end read is owed");
     assert_eq!(fixture.legs.reads(), 0);
 
-    fixture.live_turns.0.store(false, Ordering::SeqCst);
+    fixture.live_turns.is_live.store(false, Ordering::SeqCst);
     fixture.observer.shared.read_owed_turn_end_reads().await;
     assert_eq!(fixture.legs.reads(), 1);
 
     fixture.observer.shared.read_owed_turn_end_reads().await;
+    assert_eq!(fixture.legs.reads(), 1);
+}
+
+// A run that ends after a turn-end read found its turn live but before the read is marked owed
+// still has that read asked: the run's end waits on the check's lock, so it finds the mark. Killed
+// by the lock taken only for the mark, where the run's end finds nothing owed and the read is
+// never asked, the run's end being given a tenth of a second to slip in between.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_run_ending_between_the_live_check_and_the_owed_mark_still_has_the_read_asked() {
+    let database = TestDatabase::new(schema_parts());
+    let data_folder = tempfile::tempdir().expect("a data folder");
+    let fixture = Fixture::open(
+        &database,
+        data_folder.path(),
+        new_clock(),
+        ScriptedLegs::default(),
+    )
+    .await;
+    let account = fixture.register().await;
+    let shared = Arc::clone(&fixture.observer.shared);
+    let live_turns = Arc::clone(&fixture.live_turns);
+    let runtime = Handle::current();
+    *lock(&fixture.live_turns.run_end_during_check) = Some(Box::new(move || {
+        live_turns.is_live.store(false, Ordering::SeqCst);
+        let (closed, closed_heard) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _runtime = runtime.enter();
+            ProviderAccountObserver { shared }.turn_closed();
+            let _unheard = closed.send(());
+        });
+        // Held off by the check's lock, the run's end cannot finish here.
+        let _waited = closed_heard.recv_timeout(Duration::from_millis(100));
+    }));
+    fixture.live_turns.is_live.store(true, Ordering::SeqCst);
+
+    fixture
+        .observer
+        .shared
+        .read_at_turn_end(account.account_id.clone())
+        .await
+        .expect("the turn-end read is owed");
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while fixture.legs.reads() == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the run's end asks the owed read");
     assert_eq!(fixture.legs.reads(), 1);
 }
 
