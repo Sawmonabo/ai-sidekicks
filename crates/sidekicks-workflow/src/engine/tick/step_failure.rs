@@ -7,7 +7,7 @@ use std::time::Duration;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::{WorkflowNode, WorkflowNodeOnError};
 use sidekicks_contracts::workflow::definition::item::{
-    WorkflowItem, WorkflowPairedItem, WorkflowPairedItems, WorkflowStepError,
+    WorkflowItem, WorkflowPairedItem, WorkflowPairedItems,
 };
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
@@ -17,6 +17,7 @@ use crate::engine::tick::StepReport;
 use crate::engine::tick::branch_cancellation::{
     BranchCancelReason, BranchLoser, BranchWave, cancel_branches,
 };
+use crate::engine::tick::dispatch::error_members;
 use crate::engine::tick::node_settings::{
     index, main_inputs, main_output_count, place_on_first_output,
 };
@@ -116,14 +117,15 @@ fn passed_on_items(
     failure: &StepFailure,
     inputs: &[Vec<WorkflowItem>],
 ) -> Vec<WorkflowItem> {
-    let error = match failure {
+    let mut error = match failure {
         StepFailure::Failed(error) => (**error).clone(),
         StepFailure::Declined { words, .. } => uncoded_step_error(match words {
             Some(words) => format!("The step was declined: {}", words.as_str()),
             None => "The step was declined".to_owned(),
         }),
     };
-    let failed_item = error_item_index(&error).map(SafeInt::get);
+    let (_message, _node_id, item_index) = error_members(&mut error);
+    let failed_item = item_index.map(SafeInt::get);
     main_inputs(spec, inputs)
         .enumerate()
         .flat_map(|(input_index, items)| {
@@ -146,15 +148,6 @@ fn passed_on_items(
             }
         })
         .collect()
-}
-
-/// The input item a step failure names, whichever arm it is.
-fn error_item_index(error: &WorkflowStepError) -> Option<SafeInt<0>> {
-    match error {
-        WorkflowStepError::Uncoded(arm) => arm.item_index,
-        WorkflowStepError::Coded(arm) => arm.item_index,
-        WorkflowStepError::AgentResolution(arm) => arm.item_index,
-    }
 }
 
 /// How a failure stops its run.

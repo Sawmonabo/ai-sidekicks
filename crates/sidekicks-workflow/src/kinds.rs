@@ -145,9 +145,12 @@ pub(crate) enum PersonAsk {
 }
 
 /// Why a step's run failed.
-#[expect(
-    dead_code,
-    reason = "the tick's dispatch, which routes a failed step by its onError"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the tick's dispatch, which routes a failed step by its onError"
+    )
 )]
 #[derive(Debug)]
 pub(crate) enum StepFailure {

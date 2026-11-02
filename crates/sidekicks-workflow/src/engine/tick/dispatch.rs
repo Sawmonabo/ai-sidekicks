@@ -424,7 +424,7 @@ fn settle_launch_failure(
 }
 
 /// The members every arm of a step failure carries: its message, its node and its item.
-fn error_members(
+pub(super) fn error_members(
     error: &mut WorkflowStepError,
 ) -> (
     &mut NonEmptyText,
