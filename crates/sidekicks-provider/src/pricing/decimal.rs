@@ -137,3 +137,101 @@ fn parse_exponent(text: &str) -> Option<i64> {
 fn is_digits(text: &str) -> bool {
     !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
 }
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::ExactDecimal;
+
+    // A significand, small ones often so equal values and short texts come up.
+    fn significand() -> impl Strategy<Value = u128> {
+        prop_oneof![any::<u128>(), 0_u128..1_000]
+    }
+
+    fn scale() -> impl Strategy<Value = u8> {
+        0..=ExactDecimal::MAX_SCALE
+    }
+
+    // `text` read, as its significand and scale.
+    fn read(text: &str) -> (u128, u8) {
+        let decimal = ExactDecimal::parse_json_number(text).expect("the text is a number");
+        (decimal.significand(), decimal.scale())
+    }
+
+    // `significand × 10^-scale` with its trailing zeros moved out of the fraction.
+    fn normalized(mut significand: u128, mut scale: u8) -> (u128, u8) {
+        if significand == 0 {
+            return (0, 0);
+        }
+        while scale > 0 && significand.is_multiple_of(10) {
+            significand /= 10;
+            scale -= 1;
+        }
+        (significand, scale)
+    }
+
+    // `significand × 10^-scale`'s integer digits and its `scale` fraction digits.
+    fn split_digits(significand: u128, scale: u8) -> (String, String) {
+        let digits = format!("{significand:0>width$}", width = usize::from(scale) + 1);
+        let (integer, fraction) = digits.split_at(digits.len() - usize::from(scale));
+        (integer.to_owned(), fraction.to_owned())
+    }
+
+    // `significand × 10^-scale` as plain decimal text, `trailing_zeros` zeros after its last digit.
+    fn plain_text(significand: u128, scale: u8, trailing_zeros: usize) -> String {
+        let (integer, fraction) = split_digits(significand, scale);
+        if fraction.is_empty() && trailing_zeros == 0 {
+            return integer;
+        }
+        format!("{integer}.{fraction}{}", "0".repeat(trailing_zeros))
+    }
+
+    // The value at a fixed width, 39 integer digits and 38 fraction digits, so text order is the
+    // value's order.
+    fn fixed_width(significand: u128, scale: u8) -> String {
+        let (integer, fraction) = split_digits(significand, scale);
+        format!("{integer:0>39}.{fraction:0<38}")
+    }
+
+    proptest! {
+        // Killed by a read through `f64`, by trailing zeros left in the significand, and by an
+        // exponent applied with the wrong sign.
+        #[test]
+        fn a_number_reads_as_its_normalized_value_in_every_form(
+            significand in significand(),
+            scale in scale(),
+            trailing_zeros in 0_usize..4,
+        ) {
+            let expected = normalized(significand, scale);
+            let zeros = "0".repeat(trailing_zeros);
+            let shifted_scale = usize::from(scale) + trailing_zeros;
+            for text in [
+                plain_text(significand, scale, 0),
+                plain_text(significand, scale, trailing_zeros),
+                format!("{significand}e-{scale}"),
+                format!("{significand}{zeros}E-{shifted_scale}"),
+                format!("{}e+0", plain_text(significand, scale, trailing_zeros)),
+            ] {
+                prop_assert_eq!(read(&text), expected, "{}", text);
+            }
+        }
+
+        // Killed by comparing significands without aligning their scales, by an overflowing
+        // alignment read as the smaller side, and by a comparison left unreversed.
+        #[test]
+        fn decimals_order_as_their_values(
+            left in (significand(), scale()),
+            right in (significand(), scale()),
+        ) {
+            let decimal = |(significand, scale): (u128, u8)| {
+                ExactDecimal::parse_json_number(&format!("{significand}e-{scale}"))
+                    .expect("the text is a number")
+            };
+            prop_assert_eq!(
+                decimal(left).cmp(&decimal(right)),
+                fixed_width(left.0, left.1).cmp(&fixed_width(right.0, right.1))
+            );
+        }
+    }
+}

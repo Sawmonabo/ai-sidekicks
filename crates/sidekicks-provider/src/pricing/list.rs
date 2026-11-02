@@ -135,7 +135,8 @@ pub enum RegionPricing {
 }
 
 /// One model's rates, multipliers and per-search rates, each field refused alone kept as carried
-/// with no value, so a request needing it is unpriced rather than priced at another rate.
+/// with no value, so a request needing it is unpriced rather than priced at another rate. A field
+/// the row repeats takes its last value, as a JSON reader does.
 #[derive(Debug)]
 pub struct PriceRow {
     rate_fields: Vec<(RateKey, Option<ExactDecimal>)>,
@@ -249,26 +250,28 @@ impl PriceRow {
         for (name, value) in fields {
             if let Some(key) = RateKey::parse(&name) {
                 match FieldValue::read(value) {
-                    FieldValue::Absent => {}
-                    FieldValue::Kept(rate) => row.rate_fields.push((key, Some(rate))),
+                    FieldValue::Absent => remove_entry(&mut row.rate_fields, &key),
+                    FieldValue::Kept(rate) => set_entry(&mut row.rate_fields, key, Some(rate)),
                     FieldValue::Refused => {
                         refuse(name.into_owned());
-                        row.rate_fields.push((key, None));
+                        set_entry(&mut row.rate_fields, key, None);
                     }
                 }
             } else if let Some(region) = name.strip_prefix(REGIONAL_MULTIPLIER_PREFIX) {
+                let region = region.to_owned();
                 match FieldValue::read(value) {
-                    FieldValue::Absent => {}
+                    FieldValue::Absent => remove_entry(&mut row.regional_multipliers, &region),
                     FieldValue::Kept(multiplier) => {
-                        row.regional_multipliers
-                            .push((region.to_owned(), Some(multiplier)));
+                        set_entry(&mut row.regional_multipliers, region, Some(multiplier));
                     }
                     FieldValue::Refused => {
-                        row.regional_multipliers.push((region.to_owned(), None));
+                        set_entry(&mut row.regional_multipliers, region, None);
                         refuse(name.into_owned());
                     }
                 }
             } else if name == PROVIDER_SPECIFIC_ENTRY_FIELD {
+                row.multipliers.clear();
+                row.is_provider_specific_entry_refused = false;
                 if is_null(value) {
                     continue;
                 }
@@ -279,17 +282,18 @@ impl PriceRow {
                 };
                 for (key, value) in entries {
                     match FieldValue::read(value) {
-                        FieldValue::Absent => {}
+                        FieldValue::Absent => remove_entry(&mut row.multipliers, &*key),
                         FieldValue::Kept(multiplier) => {
-                            row.multipliers.push((key.into_owned(), Some(multiplier)));
+                            set_entry(&mut row.multipliers, key.into_owned(), Some(multiplier));
                         }
                         FieldValue::Refused => {
                             refuse(format!("{PROVIDER_SPECIFIC_ENTRY_FIELD}.{key}"));
-                            row.multipliers.push((key.into_owned(), None));
+                            set_entry(&mut row.multipliers, key.into_owned(), None);
                         }
                     }
                 }
             } else if name == SEARCH_RATES_FIELD {
+                row.search_rates.clear();
                 if is_null(value) {
                     continue;
                 }
@@ -301,16 +305,33 @@ impl PriceRow {
                     let Some(size) = key.strip_prefix(SEARCH_SIZE_PREFIX) else {
                         continue;
                     };
+                    let size = size.to_owned();
                     match FieldValue::read(value) {
-                        FieldValue::Absent => {}
-                        FieldValue::Kept(rate) => row.search_rates.push((size.to_owned(), rate)),
-                        FieldValue::Refused => refuse(format!("{SEARCH_RATES_FIELD}.{key}")),
+                        FieldValue::Absent => remove_entry(&mut row.search_rates, &size),
+                        FieldValue::Kept(rate) => set_entry(&mut row.search_rates, size, rate),
+                        FieldValue::Refused => {
+                            remove_entry(&mut row.search_rates, &size);
+                            refuse(format!("{SEARCH_RATES_FIELD}.{key}"));
+                        }
                     }
                 }
             }
         }
         row
     }
+}
+
+// Sets `key`'s value in `entries`, over an earlier value of the same key.
+fn set_entry<K: PartialEq, V>(entries: &mut Vec<(K, V)>, key: K, value: V) {
+    match entries.iter_mut().find(|(entry_key, _)| *entry_key == key) {
+        Some((_, entry_value)) => *entry_value = value,
+        None => entries.push((key, value)),
+    }
+}
+
+// Drops an earlier value of `key` from `entries`, for a later `null` or unread one.
+fn remove_entry<K: PartialEq<Q>, Q: ?Sized, V>(entries: &mut Vec<(K, V)>, key: &Q) {
+    entries.retain(|(entry_key, _)| *entry_key != *key);
 }
 
 // The carried multiplier of this name, its value `None` when it was refused.
@@ -325,7 +346,7 @@ fn named_multiplier<'a>(
 
 // Where a rate field sits in the suffix grammar: its base, then `_above_<H>hr`, then
 // `_above_<N>k_tokens`, then `_<speed>`, each optional and in that order.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct RateKey {
     base: RateBase,
     cache_lifetime_hours: Option<u32>,
@@ -478,13 +499,23 @@ mod tests {
 
     type RateLookup = (RateBase, Option<u32>, Option<u32>, Option<&'static str>);
 
+    // Killed by a read through `f64` (it reads 1e-06), by the first of a repeated row or rate
+    // field kept, and by a rate looked up at a neighboring key.
     #[rstest]
     #[case::exact_past_a_float(
-        r#"{"m": {"input_cost_per_token": 5.0000000000000004e-08}}"#,
+        r#"{"m": {"input_cost_per_token": 1.00000000000000000001e-06}}"#,
         (RateBase::Input, None, None, None),
-        (50_000_000_000_000_004, 24),
+        (100_000_000_000_000_000_001, 26),
         &[],
         &[]
+    )]
+    #[case::a_repeated_row_and_field_take_their_last(
+        r#"{"m": {"input_cost_per_token": 3e-06},
+            "m": {"input_cost_per_token": "abc", "input_cost_per_token": 1e-06}}"#,
+        (RateBase::Input, None, None, None),
+        (1, 6),
+        &[],
+        &["input_cost_per_token"]
     )]
     #[case::a_bad_rate_refused_alone(
         r#"{"m": {"input_cost_per_token": "abc", "output_cost_per_token": 1e-06}}"#,
