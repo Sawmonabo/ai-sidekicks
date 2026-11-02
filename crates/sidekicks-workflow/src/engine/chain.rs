@@ -31,7 +31,7 @@ use sidekicks_contracts::workflow::run::gate_resolution::WorkflowGateKind;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
-use sidekicks_platforms::HourCycle;
+use sidekicks_platforms::{HourCycle, HourField};
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::{safe_int_column, text_column};
 
@@ -171,13 +171,13 @@ pub(crate) fn read_chain_question(
 struct StoredNameOutOfBounds;
 
 /// The question's words: the workflow's name, the runs counted with thousands separators and the
-/// first run's start in `time_zone`, written in `hour_cycle`, both the machine's.
+/// first run's start in `time_zone`, its hour written as `hour_field` says, both the machine's.
 pub(crate) fn chain_question_prompt(
     question: &ChainQuestion,
     time_zone: &TimeZone,
-    hour_cycle: HourCycle,
+    hour_field: HourField,
 ) -> ComposedText {
-    let start = clock_time(&question.started_at.to_zoned(time_zone.clone()), hour_cycle);
+    let start = clock_time(&question.started_at.to_zoned(time_zone.clone()), hour_field);
     ComposedText::new(format!(
         "{name} has started {count} runs from its {start} start. Keep going?",
         name = question.workflow_name.as_str(),
@@ -186,23 +186,26 @@ pub(crate) fn chain_question_prompt(
     .expect("the question holds its fixed words")
 }
 
-// `time`'s hour and minute as `hour_cycle` writes them: `3:00 AM` on the 12-hour clock, `0:00 AM`
-// for the hour after midnight on its 0–11 form, and `03:00` on the 24-hour clock.
+// `time`'s hour and minute as `hour_field` writes them: `3:00 AM` on the 12-hour clock, `0:00 AM`
+// for the hour after midnight on its 0–11 form, and `3:00` on the 24-hour clock, each hour with a
+// leading zero when the field is padded (`03:00`).
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "the hour cycle is an open union, and a cycle added to it reads as the 12-hour clock"
 )]
-fn clock_time(time: &Zoned, hour_cycle: HourCycle) -> String {
-    match hour_cycle {
-        HourCycle::H23 | HourCycle::Clock24 => time.strftime("%H:%M").to_string(),
-        HourCycle::H11 => format!(
-            "{hour}:{minute:02} {period}",
-            hour = time.hour() % 12,
-            minute = time.minute(),
-            period = if time.hour() < 12 { "AM" } else { "PM" },
-        ),
-        _ => time.strftime("%-I:%M %p").to_string(),
-    }
+fn clock_time(time: &Zoned, hour_field: HourField) -> String {
+    let (hour, has_period) = match hour_field.cycle {
+        HourCycle::H23 | HourCycle::Clock24 => (time.hour(), false),
+        HourCycle::H11 => (time.hour() % 12, true),
+        _ => ((time.hour() + 11) % 12 + 1, true),
+    };
+    let width = if hour_field.is_padded { 2 } else { 1 };
+    let period = match (has_period, time.hour() < 12) {
+        (false, _) => "",
+        (true, true) => " AM",
+        (true, false) => " PM",
+    };
+    format!("{hour:0width$}:{minute:02}{period}", minute = time.minute())
 }
 
 // `count` with a comma between each group of three digits: 2,000.
@@ -286,7 +289,7 @@ mod tests {
         WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
     };
     use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
-    use sidekicks_platforms::HourCycle;
+    use sidekicks_platforms::{HourCycle, HourField};
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
 
@@ -513,19 +516,28 @@ mod tests {
         );
     }
 
-    /// Mutations: write the start in UTC, on one clock whatever the hour cycle, drop the thousands
-    /// separator, or ask under a wait id other than the first run's own.
+    /// Mutations: write the start in UTC, on one clock whatever the hour cycle, pad the hour
+    /// whatever the field says, drop the thousands separator, or ask under a wait id other than the
+    /// first run's own.
     #[rstest]
     #[case::twelve_hour(
         HourCycle::H12,
+        false,
         "Nightly sync has started 2,000 runs from its 3:00 AM start. Keep going?"
     )]
     #[case::twenty_four_hour(
         HourCycle::H23,
+        true,
         "Nightly sync has started 2,000 runs from its 03:00 start. Keep going?"
     )]
+    #[case::unpadded_twenty_four_hour(
+        HourCycle::H23,
+        false,
+        "Nightly sync has started 2,000 runs from its 3:00 start. Keep going?"
+    )]
     fn the_chain_question_names_the_first_run_and_its_start_in_the_machines_clock(
-        #[case] hour_cycle: HourCycle,
+        #[case] cycle: HourCycle,
+        #[case] is_padded: bool,
         #[case] expected_prompt: &str,
     ) {
         let rows = workflow_tables();
@@ -544,7 +556,7 @@ mod tests {
             .expect("the first run asks");
         let request = chain_card_request(
             &question,
-            chain_question_prompt(&question, &time_zone, hour_cycle),
+            chain_question_prompt(&question, &time_zone, HourField { cycle, is_padded }),
         );
 
         assert_eq!(request.prompt.as_str(), expected_prompt);

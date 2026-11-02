@@ -2,7 +2,7 @@
 //! (`LC_ALL`, then the category's own variable, then `LANG`, the first that is set and not empty)
 //! without calling `setlocale`; `C`, `POSIX` and a value ICU cannot read are the POSIX locale. When
 //! none of the three is set, macOS answers the Region setting the person chose, which a program
-//! the system starts sees with no `LANG`, and Linux the POSIX locale. The hour cycle is the one the
+//! the system starts sees with no `LANG`, and Linux the POSIX locale. The hour field is the one the
 //! locale's CLDR time pattern names.
 
 use std::ffi::OsString;
@@ -14,7 +14,7 @@ use icu_datetime::input::Time;
 use icu_locale_core::Locale;
 use icu_locale_core::preferences::extensions::unicode::keywords::HourCycle;
 
-use crate::system_locale::{LocaleCategory, hour_cycle_in_pattern};
+use crate::system_locale::{HourField, LocaleCategory, hour_field_in_pattern};
 
 /// The person's locale for `category`; `None` for the POSIX locale, whose numbers are plain
 /// digits.
@@ -29,17 +29,17 @@ pub fn system_locale(category: LocaleCategory) -> Option<Locale> {
     }
 }
 
-/// The hour cycle of the person's times: the one the CLDR time pattern of their `Time` locale
-/// names, and the 24-hour clock for the POSIX locale. Fails when the locale's time pattern cannot
-/// be loaded or names no hour.
-pub fn system_hour_cycle() -> io::Result<HourCycle> {
+/// How the person's times write the hour: as the CLDR time pattern of their `Time` locale does,
+/// and on the padded 24-hour clock for the POSIX locale. Fails when the locale's time pattern
+/// cannot be loaded or names no hour.
+pub fn system_hour_field() -> io::Result<HourField> {
     match environment_locale(|name| std::env::var_os(name), LocaleCategory::Time) {
-        EnvironmentLocale::Named(locale) => hour_cycle_of(Some(&locale)),
-        EnvironmentLocale::Posix => hour_cycle_of(None),
+        EnvironmentLocale::Named(locale) => hour_field_of(Some(&locale)),
+        EnvironmentLocale::Posix => hour_field_of(None),
         #[cfg(target_os = "macos")]
-        EnvironmentLocale::Unset => crate::macos::system_locale::region_hour_cycle(),
+        EnvironmentLocale::Unset => crate::macos::system_locale::region_hour_field(),
         #[cfg(target_os = "linux")]
-        EnvironmentLocale::Unset => hour_cycle_of(None),
+        EnvironmentLocale::Unset => hour_field_of(None),
     }
 }
 
@@ -90,17 +90,20 @@ fn is_posix_locale_name(name: &str) -> bool {
     matches!(name.split(['.', '@']).next(), Some("C" | "POSIX"))
 }
 
-/// The hour cycle the CLDR time pattern of `locale` names, the 24-hour clock for the POSIX
+/// The hour field the CLDR time pattern of `locale` names, the padded 24-hour clock for the POSIX
 /// locale (`None`).
-pub(crate) fn hour_cycle_of(locale: Option<&Locale>) -> io::Result<HourCycle> {
+pub(crate) fn hour_field_of(locale: Option<&Locale>) -> io::Result<HourField> {
     let Some(locale) = locale else {
-        return Ok(HourCycle::H23);
+        return Ok(HourField {
+            cycle: HourCycle::H23,
+            is_padded: true,
+        });
     };
     let formatter =
         NoCalendarFormatter::try_new(locale.into(), T::hm()).map_err(io::Error::other)?;
     let noon = Time::try_new(12, 0, 0, 0).map_err(io::Error::other)?;
     let pattern = formatter.format(&noon).pattern().to_string();
-    hour_cycle_in_pattern(&pattern).ok_or_else(|| {
+    hour_field_in_pattern(&pattern).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidData,
             format!("the time pattern {pattern:?} of {locale} names no hour"),
@@ -115,8 +118,8 @@ mod tests {
     use icu_locale_core::preferences::extensions::unicode::keywords::HourCycle;
     use rstest::rstest;
 
-    use super::{EnvironmentLocale, environment_locale, hour_cycle_of};
-    use crate::system_locale::LocaleCategory;
+    use super::{EnvironmentLocale, environment_locale, hour_field_of};
+    use crate::system_locale::{HourField, LocaleCategory};
 
     // `Some(tag)` for a named locale, `Some("")` for the POSIX locale, `None` for no setting.
     #[rstest]
@@ -186,17 +189,18 @@ mod tests {
     }
 
     #[rstest]
-    #[case::the_us_twelve_hour_clock(Some("en-US"), HourCycle::H12)]
-    #[case::germany_s_twenty_four_hour_clock(Some("de-DE"), HourCycle::H23)]
-    #[case::the_posix_locale(None, HourCycle::H23)]
-    fn the_hour_cycle_is_the_locale_time_pattern_s(
+    #[case::the_us_twelve_hour_clock(Some("en-US"), HourCycle::H12, false)]
+    #[case::germany_s_twenty_four_hour_clock(Some("de-DE"), HourCycle::H23, true)]
+    #[case::the_posix_locale(None, HourCycle::H23, true)]
+    fn the_hour_field_is_the_locale_time_pattern_s(
         #[case] locale: Option<&str>,
-        #[case] expected: HourCycle,
+        #[case] cycle: HourCycle,
+        #[case] is_padded: bool,
     ) {
         let locale = locale.map(|tag| tag.parse().expect("a locale"));
 
-        let hour_cycle = hour_cycle_of(locale.as_ref()).expect("the pattern loads");
+        let hour_field = hour_field_of(locale.as_ref()).expect("the pattern loads");
 
-        assert_eq!(hour_cycle, expected);
+        assert_eq!(hour_field, HourField { cycle, is_padded });
     }
 }
