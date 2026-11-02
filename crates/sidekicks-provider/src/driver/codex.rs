@@ -97,6 +97,7 @@ mod native_program;
 mod notification_routing;
 mod output_speed;
 mod permission_level;
+mod privacy;
 mod rate_limits;
 mod release_notes;
 mod rules;
