@@ -1,7 +1,7 @@
 //! The opening tests open a session's provider session with: the table's first provider at a
-//! read-only posture over the root, an idle sleep standing in that records each opening, and a
-//! resumed runs' ingress standing in that records each resume's runs; the queue's own tests also
-//! record that provider's contract version.
+//! read-only posture over the root, an idle sleep standing in that records each opening, a resumed
+//! runs' ingress standing in that records each resume's runs, and kept answers standing in that
+//! owe what a test gives them; the queue's own tests also record that provider's contract version.
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -34,9 +34,11 @@ use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 
+use crate::provider_session::held_run_continue::{KeptAnswerFuture, KeptAnswerSource, OwedAnswer};
 use crate::provider_session::resumed_runs::{ResumedRuns, ResumedRunsIngress};
 use crate::provider_session::{
-    ProviderSessionGitFolderReader, ProviderSessionOpening, ProviderSessionOpeningComposer,
+    OpenedSession, ProviderSessionGitFolderReader, ProviderSessionOpening,
+    ProviderSessionOpeningComposer, ProviderSessions,
 };
 
 /// The table's first provider.
@@ -82,6 +84,25 @@ pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
         }
         .boxed()
     })
+}
+
+impl ProviderSessions {
+    /// Records `session_id`'s process opened in this daemon on the table's first provider,
+    /// read-only over the root, as a test's live lead stands once its process opened.
+    pub fn record_test_opening(&self, session_id: SessionId) {
+        let root = FilesystemPath::new("/".to_owned()).expect("the root is a path");
+        self.record_opened(
+            session_id,
+            OpenedSession {
+                provider: first_provider(),
+                execution_posture: compose_execution_posture(
+                    PermissionLevel::Readonly,
+                    root.clone(),
+                ),
+                git_folder: root,
+            },
+        );
+    }
 }
 
 /// Reads every session's git folder as the root, as [`test_opening_composer`] composes it.
@@ -187,4 +208,53 @@ pub(crate) fn record_first_provider_capabilities(providers: &ProviderRegistry, i
             },
         )
         .expect("the first provider is registered");
+}
+
+/// Kept answers standing in for the provider sessions' tests: they owe each answer a test gives
+/// them until a continue claims it, and owe it again once that continue gives it back.
+pub struct KeptAnswersStandIn<Id> {
+    owed: Mutex<Vec<OwedAnswer<Id>>>,
+    claimed: Mutex<Vec<Id>>,
+}
+
+impl<Id> KeptAnswersStandIn<Id> {
+    /// Owes `answer` after every answer owed before it.
+    pub fn owe(&self, answer: OwedAnswer<Id>) {
+        lock(&self.owed).push(answer);
+    }
+}
+
+impl<Id> Default for KeptAnswersStandIn<Id> {
+    fn default() -> Self {
+        Self {
+            owed: Mutex::new(Vec::new()),
+            claimed: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+impl<Id: Clone + PartialEq + Send + Sync> KeptAnswerSource<Id> for KeptAnswersStandIn<Id> {
+    fn owed_continues(&self, _session_id: SessionId) -> KeptAnswerFuture<'_, Vec<OwedAnswer<Id>>> {
+        let claimed = lock(&self.claimed).clone();
+        let owed = lock(&self.owed)
+            .iter()
+            .filter(|owed| !claimed.contains(&owed.id))
+            .cloned()
+            .collect();
+        async { Ok(owed) }.boxed()
+    }
+
+    fn claim_continue(&self, id: Id) -> KeptAnswerFuture<'_, bool> {
+        let mut claimed = lock(&self.claimed);
+        let is_claimed = !claimed.contains(&id);
+        if is_claimed {
+            claimed.push(id);
+        }
+        async move { Ok(is_claimed) }.boxed()
+    }
+
+    fn release_continue(&self, id: Id) -> KeptAnswerFuture<'_, ()> {
+        lock(&self.claimed).retain(|claimed| *claimed != id);
+        async { Ok(()) }.boxed()
+    }
 }

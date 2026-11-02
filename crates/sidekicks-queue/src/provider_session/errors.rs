@@ -112,6 +112,31 @@ pub enum ProviderSessionError {
         #[source]
         cause: Box<dyn Error + Send + Sync>,
     },
+    /// The answers kept for the session's held lead could not be read, or a continue mark of one
+    /// could not be claimed.
+    #[error("the answers kept for session {session_id}'s continue could not be read or claimed")]
+    KeptAnswers {
+        /// The session.
+        session_id: SessionId,
+        /// Why.
+        #[source]
+        cause: Box<dyn Error + Send + Sync>,
+    },
+    /// A relaunch that carried a held lead's continue failed, and a continue mark it claimed could
+    /// not be given back, so the next continue misses that answer.
+    #[error(
+        "the relaunch of session {session_id} failed ({failed}), and a continue mark it claimed \
+             could not be given back"
+    )]
+    ContinueNotReleased {
+        /// The session.
+        session_id: SessionId,
+        /// Why the relaunch failed.
+        failed: Box<ProviderSessionError>,
+        /// Why the mark was not given back.
+        #[source]
+        released: Box<dyn Error + Send + Sync>,
+    },
     /// A port the provider sessions call is not registered yet.
     #[error(transparent)]
     Port(#[from] PortRegistrationError),
@@ -248,6 +273,8 @@ impl From<ProviderSessionError> for HandlerError {
             | ProviderSessionError::NoConversation { .. }
             | ProviderSessionError::Cursor(_)
             | ProviderSessionError::ResumedRuns { .. }
+            | ProviderSessionError::KeptAnswers { .. }
+            | ProviderSessionError::ContinueNotReleased { .. }
             | ProviderSessionError::Port(_)
             | ProviderSessionError::UnrecordedNotClosed { .. }
             | ProviderSessionError::Store(_)

@@ -19,11 +19,13 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::Map;
+use sidekicks_contracts::approval::ApprovalRequestId;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
@@ -57,10 +59,12 @@ use sidekicks_store::database::schema::session_directory::read_session_state_thr
 use sidekicks_store::events::session::appender::SessionEventAppender;
 
 use crate::provider_session::errors::ProviderSessionError;
+use crate::provider_session::held_run_continue::KeptAnswerSource;
 use crate::provider_session::resumed_runs::ResumedRunsIngress;
 
 pub mod controls;
 pub mod errors;
+pub mod held_run_continue;
 mod kept_turns;
 pub mod resume;
 pub mod resumed_runs;
@@ -149,6 +153,12 @@ pub struct ProviderSessionsDeps {
     /// Settles each run a resume named as the provider answered for it, before the resumed
     /// binding is recorded.
     pub resumed_runs: Arc<PortRegistration<Arc<dyn ResumedRunsIngress>>>,
+    /// The answers to approval cards kept while no process held their session, which a held
+    /// lead's continue carries.
+    pub kept_approvals: Arc<dyn KeptAnswerSource<ApprovalRequestId>>,
+    /// The answers to questions kept while no process held their session, which a held lead's
+    /// continue carries.
+    pub kept_questions: Arc<dyn KeptAnswerSource<QuestionId>>,
 }
 
 // Closes the process `driver` opened for `session_id` whose binding was not recorded, so none runs
@@ -292,6 +302,12 @@ impl ProviderSessions {
         self.lock_opened().remove(&session_id);
         self.deps.execution_postures.forget_session(&session_id);
         self.deps.process_follower.forget_closed(session_id);
+    }
+
+    /// Whether this daemon opened `session_id`'s process: created, resumed or joined, and not
+    /// deferred, closed or forgotten since.
+    pub(crate) fn is_opened(&self, session_id: SessionId) -> bool {
+        self.lock_opened().contains_key(&session_id)
     }
 
     // Records `session_id`'s process as opened in this daemon, and the idle sleep follows it awake.
@@ -590,6 +606,8 @@ impl StoredSessionPosture for ProviderSessions {
                 | ProviderSessionError::NoConversation { .. }
                 | ProviderSessionError::Cursor(_)
                 | ProviderSessionError::ResumedRuns { .. }
+                | ProviderSessionError::KeptAnswers { .. }
+                | ProviderSessionError::ContinueNotReleased { .. }
                 | ProviderSessionError::Port(_)
                 | ProviderSessionError::UnrecordedNotClosed { .. }
                 | ProviderSessionError::Store(_)

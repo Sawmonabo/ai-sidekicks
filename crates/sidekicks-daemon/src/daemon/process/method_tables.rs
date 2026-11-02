@@ -263,7 +263,11 @@ pub(crate) fn register_method_tables(
     register_session_links(builder, services.links, services.related_ranking)?;
     register_session_recovery_methods(builder, services.damaged_history)?;
     register_attention_methods(builder, services.attention, services.web_address_sender)?;
-    register_question_resolve(builder, services.questions)?;
+    register_question_resolve(
+        builder,
+        services.questions,
+        Arc::clone(&services.run_queue.queue),
+    )?;
     register_highlight_read(builder, services.highlighter)?;
     register_terminal_write(builder, services.shells.input_lookup())?;
     register_terminal_methods(builder, services.shells)?;

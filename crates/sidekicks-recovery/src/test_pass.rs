@@ -21,12 +21,14 @@ use sidekicks_approval::service::test_fixture::test_approval_service;
 use sidekicks_artifact::plans::service::PlansService;
 use sidekicks_artifact::plans::store::StoredPlanHolds;
 use sidekicks_artifact::test_store::ArtifactTestStore;
+use sidekicks_contracts::approval::ApprovalRequestId;
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -42,7 +44,7 @@ use sidekicks_provider::runtime_binding::test_store::bind_resumable;
 use sidekicks_queue::delivery::test_fixture::test_delivery;
 use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
 use sidekicks_queue::provider_session::test_opening::{
-    RecordedProcessFollowing, test_execution_postures, test_git_folder_reader,
+    KeptAnswersStandIn, RecordedProcessFollowing, test_execution_postures, test_git_folder_reader,
     test_opening_composer,
 };
 use sidekicks_queue::provider_session::{ProviderSessions, ProviderSessionsDeps};
@@ -668,6 +670,8 @@ fn resuming_provider_sessions(
         process_follower: Arc::new(RecordedProcessFollowing::default()),
         execution_postures: test_execution_postures(),
         resumed_runs: Arc::new(resumed_runs),
+        kept_approvals: Arc::new(KeptAnswersStandIn::<ApprovalRequestId>::default()),
+        kept_questions: Arc::new(KeptAnswersStandIn::<QuestionId>::default()),
     }))
 }
 

@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
 
 use futures::future::BoxFuture;
+use sidekicks_approval::kept_answers::KeptAnswers;
 use sidekicks_artifact::chat_file_versions::ChatFileVersions;
 use sidekicks_artifact::payload_store::PayloadStore;
 use sidekicks_artifact::plans::service::PlansService;
@@ -415,6 +416,13 @@ pub(crate) fn build_session_services(
         scheduler,
     });
     let resumed_runs = Arc::new(PortRegistration::new("resumed runs"));
+    let questions = Arc::new(QuestionsService::new(
+        Arc::clone(&appender),
+        Arc::clone(&reads),
+        Arc::clone(&writer),
+        Arc::clone(&engine),
+        Arc::clone(&providers),
+    ));
     let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
         pool: Arc::clone(&reads),
         appender: Arc::clone(&appender),
@@ -426,6 +434,8 @@ pub(crate) fn build_session_services(
         process_follower: Arc::clone(&idle_sleep) as Arc<dyn SessionProcessFollower>,
         execution_postures: Arc::clone(&execution_postures),
         resumed_runs: Arc::clone(&resumed_runs),
+        kept_approvals: Arc::new(KeptAnswers::new(Arc::clone(&reads), Arc::clone(&writer))),
+        kept_questions: Arc::clone(&questions) as Arc<_>,
     }));
     execution_postures
         .set_stored_postures(Arc::downgrade(&provider_sessions) as Weak<_>)
@@ -529,23 +539,17 @@ pub(crate) fn build_session_services(
         )),
         links: Arc::new(SessionLinkService::new(
             Arc::clone(&reads),
-            Arc::clone(&writer),
+            writer,
             Arc::clone(&related_ranking),
         )),
         related_ranking,
         auto_title: Arc::new(SessionAutoTitle::new(
             Arc::clone(&reads),
             Arc::clone(&changes),
-            Arc::clone(&providers),
-        )),
-        changes,
-        questions: Arc::new(QuestionsService::new(
-            Arc::clone(&appender),
-            Arc::clone(&reads),
-            writer,
-            Arc::clone(&engine),
             providers,
         )),
+        changes,
+        questions,
         plans: Arc::new(PlansService::new(publisher, Arc::clone(&appender), reads)),
         appender,
         engine,

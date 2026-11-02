@@ -727,6 +727,7 @@ pub(crate) async fn register_method_inputs(
                 permission_asks: Arc::clone(&session.approvals.asks),
                 rules: Arc::clone(&session.approvals.rules),
                 reviewer_denials: Arc::clone(&session.approvals.denials),
+                queue: Arc::clone(&session.queue),
             }),
             run_control: RunControlServices {
                 interventions: Arc::clone(&session.interventions),

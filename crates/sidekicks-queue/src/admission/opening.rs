@@ -246,6 +246,8 @@ impl DaemonTurnBindingResolver for QueueAdmission {
                     | ProviderSessionError::BeingDeleted { .. }
                     | ProviderSessionError::Cursor(_)
                     | ProviderSessionError::ResumedRuns { .. }
+                    | ProviderSessionError::KeptAnswers { .. }
+                    | ProviderSessionError::ContinueNotReleased { .. }
                     | ProviderSessionError::Port(_)
                     | ProviderSessionError::UnrecordedNotClosed { .. }
                     | ProviderSessionError::Store(_)

@@ -19,8 +19,10 @@ use futures::future::{self, BoxFuture};
 use rstest::rstest;
 use rusqlite::params;
 use serde_json::{Value, json};
+use sidekicks_contracts::approval::ApprovalRequestId;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{
     AgentQueueItemCancelRequest, AgentQueueItemCreateRequest, QueueItemId, QueuedSkillPick,
@@ -80,8 +82,9 @@ use crate::changes::QueueChangeSignals;
 use crate::error::QueueError;
 use crate::memory_gate::{MemoryGate, MemoryGateFigures};
 use crate::provider_session::test_opening::{
-    RecordedProcessFollowing, RecordedResumedRuns, record_first_provider_capabilities,
-    test_execution_postures, test_git_folder_reader, test_opening_composer,
+    KeptAnswersStandIn, RecordedProcessFollowing, RecordedResumedRuns,
+    record_first_provider_capabilities, test_execution_postures, test_git_folder_reader,
+    test_opening_composer,
 };
 use crate::provider_session::{ProviderSessions, ProviderSessionsDeps};
 use crate::run_token_limit::RunTokenLimitReader;
@@ -326,6 +329,8 @@ fn queue_over(
         process_follower: Arc::new(RecordedProcessFollowing::default()),
         execution_postures: test_execution_postures(),
         resumed_runs: Arc::new(RecordedResumedRuns::default()).registered(),
+        kept_approvals: Arc::new(KeptAnswersStandIn::<ApprovalRequestId>::default()),
+        kept_questions: Arc::new(KeptAnswersStandIn::<QuestionId>::default()),
     }));
     let memory_gate = Arc::new(MemoryGate::new(
         MemoryGateFigures {
@@ -385,7 +390,7 @@ fn client_key() -> ClientUuid {
 
 impl Fixture {
     /// Writes a lead run of the session in `state`, at version 1, queued on the test's account,
-    /// and answers its id.
+    /// and answers its id; a running one has its session's process opened, as a live lead's is.
     fn insert_run(&self, state: &str) -> RunId {
         let run_id = new_run_id();
         insert_running_run(&self.database, self.session_id, run_id);
@@ -398,6 +403,11 @@ impl Fixture {
             }),
         );
         self.set_run_state(run_id, state);
+        if state == "running" {
+            self.queue
+                .provider_sessions
+                .record_test_opening(self.session_id);
+        }
         run_id
     }
 

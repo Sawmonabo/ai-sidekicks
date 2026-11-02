@@ -2,7 +2,7 @@
 //! continue, move them to the run before it, to the live run or to a next run; rest until a send
 //! when a limit ended it; a start that failed; a process gone for good after its restart; and the
 //! queue's stop waiting for a start a run's end made meanwhile and the hand that start's drain made
-//! after it.
+//! after it; and a lead running before its session's process opened, which is handed nothing.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -132,7 +132,11 @@ async fn a_runs_end_moves_its_waiting_message_on(#[case] ended: EndedRun) {
 async fn a_message_a_gone_process_kept_moves_on_once_a_driver_tells_of_it() {
     let calls = Arc::new(DriverCalls::default());
     calls.is_kept_by_process.store(true, Ordering::SeqCst);
-    let fixture = fixture(recording_driver(&calls)).await;
+    let mut driver = recording_driver(&calls);
+    driver
+        .expect_session_process_state()
+        .returning(|_session_id| SessionProcessState::Down);
+    let fixture = fixture(driver).await;
     fixture.process.set(Some(TEST_PROVIDER_PROCESS));
     let run_id = fixture.insert_run("running");
     bind_run_to_first_provider(&fixture.database, run_id);
@@ -351,4 +355,31 @@ async fn stop_waits_for_the_work_a_runs_end_starts_during_the_stop() {
         .expect("the opening went to a run");
     assert_eq!(calls.starts(), [(next_run_id, opening)]);
     assert_eq!(calls.steers(), [(rest, false)]);
+}
+
+// A lead the restart held on the person runs again once answered, before any process of its
+// session is open in this daemon: the reconcile hands it nothing, so its message waits for the
+// continue that opens one rather than reaching a process that is not there. Killed by the hand's
+// gate dropped (the message is steered or started).
+#[tokio::test]
+async fn a_running_lead_in_an_unopened_session_is_handed_nothing() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let run_id = fixture.insert_run("waitingForApproval");
+    fixture.set_run_state(run_id, "running");
+    bind_run_to_first_provider(&fixture.database, run_id);
+    let item_id = fixture.queue_message(run_id).await;
+
+    timeout(WAIT, fixture.queue.lifecycle.reconcile(fixture.session_id))
+        .await
+        .expect("the reconcile answers")
+        .expect("the reconcile is heard")
+        .expect("the reconcile hands nothing");
+
+    assert_eq!(
+        fixture.stored_item(item_id).state,
+        RecordedQueueItemState::Queued
+    );
+    assert!(calls.steers().is_empty(), "the message was steered");
+    assert!(calls.starts().is_empty(), "the message was started");
 }

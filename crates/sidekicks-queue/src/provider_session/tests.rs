@@ -19,15 +19,18 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use rusqlite::params;
 use serde_json::json;
+use sidekicks_contracts::approval::ApprovalRequestId;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::session_control::{
     DriverResumeResult, ProviderTurnAnswer, ResumeSessionParams, ResumedRunAnswer,
@@ -61,8 +64,8 @@ use sidekicks_store::events::session::followers::SessionEventFollowers;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use super::test_opening::{
-    RecordedProcessFollowing, RecordedResumedRuns, record_first_provider_capabilities,
-    test_execution_postures, test_opening_composer,
+    KeptAnswersStandIn, RecordedProcessFollowing, RecordedResumedRuns,
+    record_first_provider_capabilities, test_execution_postures, test_opening_composer,
 };
 use super::{
     GitFolderReadError, ProviderSessionGitFolderReader, ProviderSessionOpeningComposer,
@@ -91,8 +94,9 @@ type ClosedAppendHook = Box<dyn Fn() + Send + Sync>;
 // leaves the session reading closed. Once a test sets `is_row_taken`, a resume first records a row
 // under the binding it runs on, so the queue's own record of it fails; once it sets `is_deferred`,
 // a resume starts no process and answers every run waiting; once it sets `git_folder`, an opening
-// names that git folder. The resumed runs' stand-in records each resume's runs, and whether the
-// binding last handed out had a row as they reached it.
+// names that git folder; once it sets `is_refused`, a resume fails. The resumed runs' stand-in
+// records each resume's runs, and whether the binding last handed out had a row as they reached
+// it; the kept answers' stand-ins owe what a test gives them.
 struct Opening {
     database: TestDatabase,
     session_id: SessionId,
@@ -104,6 +108,7 @@ struct Opening {
     came_up_on: Arc<Mutex<Option<RuntimeBindingId>>>,
     is_row_taken: Arc<AtomicBool>,
     is_deferred: Arc<AtomicBool>,
+    is_refused: Arc<AtomicBool>,
     git_folder: Arc<Mutex<Option<FilesystemPath>>>,
     closes: Arc<AtomicUsize>,
     sessions: Arc<ProviderSessions>,
@@ -112,6 +117,7 @@ struct Opening {
     following: Arc<RecordedProcessFollowing>,
     resumed_runs: Arc<RecordedResumedRuns>,
     handed_rows_at_take: Arc<Mutex<Vec<bool>>>,
+    kept_approvals: Arc<KeptAnswersStandIn<ApprovalRequestId>>,
 }
 
 impl Opening {
@@ -190,6 +196,7 @@ impl Opening {
         let came_up_on = Arc::new(Mutex::new(None::<RuntimeBindingId>));
         let is_row_taken = Arc::new(AtomicBool::new(false));
         let is_deferred = Arc::new(AtomicBool::new(false));
+        let is_refused = Arc::new(AtomicBool::new(false));
         let closes = Arc::new(AtomicUsize::new(0));
         let git_folder = Arc::new(Mutex::new(None));
         let execution_postures = test_execution_postures();
@@ -199,6 +206,7 @@ impl Opening {
             let (epochs, store) = (Arc::clone(&epochs), Arc::clone(&store));
             let (came_up_on, is_row_taken) = (Arc::clone(&came_up_on), Arc::clone(&is_row_taken));
             let (on_resume, is_deferred) = (Arc::clone(&on_resume), Arc::clone(&is_deferred));
+            let is_refused = Arc::clone(&is_refused);
             move |params: ResumeSessionParams| {
                 assert_eq!(params.resume_handle, "conversation-1");
                 assert!(
@@ -206,6 +214,18 @@ impl Opening {
                     "the resume's cursor is open before the process runs"
                 );
                 on_resume(&params);
+                if is_refused.load(Ordering::SeqCst) {
+                    return async {
+                        Ok(DriverResumeResult::Failed {
+                            recovery_condition: RecoveryCondition::RecoveryNeeded,
+                            provider_failure_detail: FreeFormText::new(
+                                "the conversation could not be read".to_owned(),
+                            )
+                            .expect("a failure detail"),
+                        })
+                    }
+                    .boxed();
+                }
                 if is_deferred.load(Ordering::SeqCst) {
                     let runs = params
                         .live_runs
@@ -290,6 +310,7 @@ impl Opening {
                 lock(&handed_rows_at_take).push(has_row);
             }
         })));
+        let kept_approvals = Arc::new(KeptAnswersStandIn::default());
         let sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
             pool,
             appender: Arc::new(SessionEventAppender::new(
@@ -304,6 +325,8 @@ impl Opening {
             process_follower: Arc::clone(&following) as Arc<dyn SessionProcessFollower>,
             execution_postures: Arc::clone(&execution_postures),
             resumed_runs: resumed_runs.registered(),
+            kept_approvals: Arc::clone(&kept_approvals) as Arc<_>,
+            kept_questions: Arc::new(KeptAnswersStandIn::<QuestionId>::default()),
         }));
         execution_postures
             .set_stored_postures(Arc::downgrade(&sessions) as Weak<_>)
@@ -319,6 +342,7 @@ impl Opening {
             came_up_on,
             is_row_taken,
             is_deferred,
+            is_refused,
             git_folder,
             closes,
             sessions,
@@ -327,6 +351,7 @@ impl Opening {
             following,
             resumed_runs,
             handed_rows_at_take,
+            kept_approvals,
         }
     }
 

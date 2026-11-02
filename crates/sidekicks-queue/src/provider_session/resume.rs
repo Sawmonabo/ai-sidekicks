@@ -1,8 +1,10 @@
 //! A session's conversation resumed from its stored leg: composed from the session's lead, handed
-//! to the driver's resume at its first admission, the idle sleep's wake or the start's recovery
-//! pass, or to its restart after the process ended and stayed down, under a binding minted here
-//! whose cursor opens before the driver runs, and recorded as the session's opening, so the next
-//! message opens nothing again; a resume the provider deferred, starting no process, opens nothing.
+//! to the driver's resume at its first admission, the idle sleep's wake, the start's recovery pass
+//! or the person's answer to a lead the restart held, or to its restart after the process ended
+//! and stayed down, under a binding minted here whose cursor opens before the driver runs, and
+//! recorded as the session's opening, so the next message opens nothing again; a resume the
+//! provider deferred, starting no process, opens nothing. Each relaunch carries the held lead's
+//! continue where the person's answers are owed it.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -70,11 +72,13 @@ pub struct ResumedSession {
 }
 
 // Which of the driver's verbs brings a session's conversation back in a fresh process: the resume
-// of a session's first admission or wake, or the restart of a process that ended and stayed down.
+// of a session's first admission or wake, the restart of a process that ended and stayed down, or
+// the resume of a person's answer, which runs only with a held lead's continue to carry.
 #[derive(Clone, Copy)]
 enum Relaunch {
     Resume,
     Restart,
+    Continue,
 }
 
 impl ProviderSessions {
@@ -181,6 +185,33 @@ impl ProviderSessions {
         self.resume_leg(session_id, leg).await
     }
 
+    /// Continues `session_id`'s lead with the answers the person gave while the daemon's restart
+    /// held it, once none is still owed it: its conversation is resumed under the session's
+    /// transition lock even where this process opened it, so the resume carries the continue. A
+    /// driver holding the session live lets its record go and takes it again; one holding nothing
+    /// brings a process up. Nothing is resumed while the lead is still held or nothing is owed.
+    /// Fails with [`ProviderSessionError::Closed`] or [`ProviderSessionError::BeingDeleted`] for
+    /// an ended session, [`ProviderSessionError::NoConversation`] for one with none to resume,
+    /// [`ProviderSessionError::ResumeRefused`] for a resume the provider refused, its answers then
+    /// owed to the next resume, and as the composition, the driver or the binding's record fails.
+    pub async fn resume_after_answer(
+        &self,
+        session_id: SessionId,
+    ) -> Result<(), ProviderSessionError> {
+        let _hold = self.deps.transition_lock.acquire(session_id).await;
+        self.refuse_ended(session_id).await?;
+        let leg = read_session_leg(&self.deps.pool, session_id)
+            .await?
+            .ok_or(ProviderSessionError::NoConversation { session_id })?;
+        let (opened, _resumed) = self.relaunch(session_id, leg, Relaunch::Continue).await?;
+        // The opening it replaces holds the provider, the posture and the git folder, each composed
+        // again from the stored leg and level, which every level move stores under this lock.
+        if let Some(opened) = opened {
+            self.record_opened(session_id, opened);
+        }
+        Ok(())
+    }
+
     // The session's conversation is resumed in a fresh process from its stored `leg` and recorded
     // as its opening, unless the provider deferred it; answers what the resume brought back.
     pub(super) async fn resume_leg(
@@ -200,8 +231,10 @@ impl ProviderSessions {
     // since the provider delivers under it at once, and recorded once the driver answers and the
     // runs the resume named are settled as it answered for them; a process whose runs or record
     // fail is closed. A process already up that answers on its own binding records nothing, and
-    // stays up when its runs fail; a deferred resume started none and records nothing. Answers the
-    // opening, `None` for a deferred resume, beside what the resume brought back.
+    // stays up when its runs fail; a deferred resume started none and records nothing. The held
+    // lead's continue is claimed before the driver runs and given back when it fails or defers; a
+    // `Continue` with none to carry calls no driver. Answers the opening, `None` for a deferred
+    // resume or a continue not run, beside what the resume brought back.
     async fn relaunch(
         &self,
         session_id: SessionId,
@@ -219,19 +252,34 @@ impl ProviderSessions {
             .await?;
         params.on_mcp_server_status = function_legs_for(&minted_id).on_mcp_server_status;
         let driver = self.deps.providers.lookup(&leg.provider_name)?;
-        self.deps
+        let (held_run_continue, claims) = self
+            .claim_held_run_continue(session_id, &params.live_runs, &params.kept_schedules)
+            .await?;
+        if matches!(relaunch, Relaunch::Continue) && held_run_continue.is_none() {
+            return Ok((None, ResumedSession::default()));
+        }
+        params.held_run_continue = held_run_continue;
+        if let Err(unopened) = self
+            .deps
             .binding_cursors
             .open_relaunch(session_id, &leg, minted_id.clone())
-            .await?;
+            .await
+        {
+            return Err(self
+                .release_marks_after(session_id, claims, unopened.into())
+                .await);
+        }
         let answered = match relaunch {
-            Relaunch::Resume => driver.resume_session(params).await,
+            Relaunch::Resume | Relaunch::Continue => driver.resume_session(params).await,
             Relaunch::Restart => driver.restart_session(params).await,
         };
         let answer = match answered {
             Ok(answer) => answer,
             Err(error) => {
                 self.deps.binding_cursors.forget_binding(&minted_id);
-                return Err(error.into());
+                return Err(self
+                    .release_marks_after(session_id, claims, error.into())
+                    .await);
             }
         };
         let (binding_id, resume_handle, spawned_version, runs) = match answer {
@@ -247,12 +295,13 @@ impl ProviderSessions {
                 provider_failure_detail,
             } => {
                 self.deps.binding_cursors.forget_binding(&minted_id);
-                return Err(ProviderSessionError::ResumeRefused {
+                let refused = ProviderSessionError::ResumeRefused {
                     session_id,
                     provider: leg.provider_name,
                     recovery_condition,
                     provider_failure_detail,
-                });
+                };
+                return Err(self.release_marks_after(session_id, claims, refused).await);
             }
             // An admission never meets this arm: with a live lead a send goes to that lead, a
             // queued lead is made only at the last lead's end, and the run being admitted is
@@ -261,6 +310,10 @@ impl ProviderSessions {
             // write.
             DriverResumeResult::Deferred { runs } => {
                 self.deps.binding_cursors.forget_binding(&minted_id);
+                // The continue reached no process, so the next relaunch carries it.
+                self.release_marks(claims)
+                    .await
+                    .map_err(|cause| ProviderSessionError::KeptAnswers { session_id, cause })?;
                 let named_run_ids = runs.iter().map(|run| run.run_id).collect();
                 // No process was started, so an untaken run has none to close.
                 self.take_resumed_runs(session_id, runs).await?;

@@ -135,6 +135,7 @@ pub struct RunQueue {
     writer: Arc<DatabaseWriter>,
     pauses: Arc<RunPauseControl>,
     engine: Arc<RunEngine>,
+    provider_sessions: Arc<ProviderSessions>,
     recorder: Arc<QueueRecorder>,
     delivery: QueueDelivery,
     admission: Arc<QueueAdmission>,
@@ -208,7 +209,7 @@ impl RunQueue {
                 recorder: Arc::clone(&recorder),
                 admission,
                 delivery,
-                provider_sessions,
+                provider_sessions: Arc::clone(&provider_sessions),
                 memory_gate,
                 pauses: Arc::clone(&pauses),
                 session_lock: Arc::clone(&session_lock),
@@ -234,6 +235,7 @@ impl RunQueue {
                 writer,
                 pauses,
                 engine,
+                provider_sessions,
                 recorder,
                 delivery,
                 admission,
@@ -605,6 +607,20 @@ impl RunQueue {
             }
         }
         Ok(failures)
+    }
+
+    /// Continues `session_id`'s lead with the answers the person gave while the daemon's restart
+    /// held it, once none is still owed it, then hands it the messages that waited while no
+    /// process held its session. Fails as the continue's resume fails, its answers then owed to
+    /// the next resume, or as the hand's read fails.
+    pub async fn continue_after_answer(&self, session_id: SessionId) -> Result<(), QueueError> {
+        self.provider_sessions
+            .resume_after_answer(session_id)
+            .await?;
+        match self.lifecycle.reconcile(session_id).await {
+            Ok(reconciled) => reconciled,
+            Err(_dropped) => Err(QueueError::DrainEnded),
+        }
     }
 
     /// Waits until no start, drain, release or hand of the queue runs, so a hand in flight

@@ -1,7 +1,9 @@
 //! A session's conversation resumed: the live runs it names to the provider, the provider's answer
 //! for them handed on before the binding is recorded, a run bound on it after the resume, the idle
 //! sleep's wake of a session no process holds, and a resume the provider deferred, which opens
-//! nothing.
+//! nothing. A held lead's continue is tested in `answer`.
+
+mod answer;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};

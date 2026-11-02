@@ -1,5 +1,5 @@
-//! The `approval.*` methods a client calls: a card's answer, from the calling device; the
-//! session's asks; the rules in force on a session and the revoke of one; and `Allow once` on a
+//! The `approval.*` methods a client calls: a card's answer, from the calling device, an answer
+//! kept while no process held the card's session continuing its held lead; the session's asks; the rules in force on a session and the revoke of one; and `Allow once` on a
 //! block by the provider's own reviewer.
 
 use std::sync::Arc;
@@ -18,6 +18,7 @@ use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
+use sidekicks_queue::service::RunQueue;
 use sidekicks_session::directory::lookups::session_exists;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -40,6 +41,8 @@ pub(crate) struct ApprovalMethodSources {
     pub(crate) rules: Arc<ApprovalRules>,
     /// Allows a reviewer's block once.
     pub(crate) reviewer_denials: Arc<ReviewerDenials>,
+    /// Continues a lead the restart held once its answers are kept.
+    pub(crate) queue: Arc<RunQueue>,
 }
 
 /// A read of the session's asks did not run: a fault in the daemon.
@@ -64,7 +67,9 @@ impl From<ApprovalListReadError> for HandlerError {
 
 /// Registers `approval.resolve`, `approval.list`, `approval.rule.list`, `approval.rule.revoke` and
 /// `approval.denial.override` over `sources`. An answer with no calling device is a fault in the
-/// daemon, answered as an internal error. Fails the start when one is already registered.
+/// daemon, answered as an internal error; a kept answer whose continue fails answers that failure,
+/// the answer recorded and owed to the next resume. Fails the start when one is already
+/// registered.
 pub(crate) fn register_approval_methods(
     registry: &mut MethodRegistryBuilder,
     sources: &Arc<ApprovalMethodSources>,
@@ -74,11 +79,11 @@ pub(crate) fn register_approval_methods(
         let sources = Arc::clone(&resolve_sources);
         async move {
             let device_id = context.calling_device(ApprovalResolve::DESCRIPTOR.method)?;
-            Ok(sources
-                .permission_asks
-                .resolve(&request, device_id)
-                .await?
-                .response)
+            let resolved = sources.permission_asks.resolve(&request, device_id).await?;
+            if let Some((session_id, _run_id)) = resolved.kept {
+                sources.queue.continue_after_answer(session_id).await?;
+            }
+            Ok(resolved.response)
         }
         .boxed()
     })?;
