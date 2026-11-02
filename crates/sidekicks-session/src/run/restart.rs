@@ -516,9 +516,6 @@ pub(crate) fn decide_resumed_move(
             ProviderTurnAnswer::StillRunning,
         ) if is_stopping => ResumedRunMove::Running,
         _ if is_stopping => ResumedRunMove::TurnGone,
-        // A run held on the person keeps its card or question; a pausing or paused lead answers
-        // `Waiting` only when its state moved after the driver read it, and is left as it now is.
-        (_, ProviderTurnAnswer::Waiting) => ResumedRunMove::Left,
         (_, ProviderTurnAnswer::Gone) if is_child => ResumedRunMove::TurnGone,
         (RunState::Starting | RunState::Running, ProviderTurnAnswer::StillRunning) => {
             ResumedRunMove::Running
@@ -545,7 +542,10 @@ pub(crate) fn decide_resumed_move(
             | RunState::Paused,
             ProviderTurnAnswer::StillRunning | ProviderTurnAnswer::EndedByProvider,
         )
-        | (RunState::Paused, ProviderTurnAnswer::Gone) => ResumedRunMove::Left,
+        | (RunState::Paused, ProviderTurnAnswer::Gone)
+        // A run held on the person keeps its card or question; a pausing or paused lead answers
+        // `Waiting` only when its state moved after the driver read it, and is left as it now is.
+        | (_, ProviderTurnAnswer::Waiting) => ResumedRunMove::Left,
     }
 }
 
