@@ -17,7 +17,9 @@ use tokio::sync::watch;
 use super::super::intake::USAGE_RECORDER_QUEUE;
 use super::{LiveCodexSession, TEST_TURN};
 use crate::driver::codex::session::test_fixture::TEST_THREAD;
-use crate::port::usage_sink::{MeteredUsage, ProviderQuotaWindow, UsageSink};
+use crate::port::usage_sink::{
+    MeteredUsage, PricedRequest, ProviderQuotaWindow, RecordedUsage, UsageSink,
+};
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// A usage sink that records nothing until its gate opens, then records each delta in arrival
@@ -32,7 +34,7 @@ impl UsageSink for GatedUsage {
     fn record_metered(
         &self,
         metered: MeteredUsage,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<Option<RecordedUsage>, Box<dyn Error + Send + Sync>>> {
         async move {
             self.handed.fetch_add(1, Ordering::Relaxed);
             let mut gate = self.gate.clone();
@@ -40,9 +42,16 @@ impl UsageSink for GatedUsage {
                 .await
                 .expect("the test holds the gate open");
             lock(&self.input_deltas).push(metered.delta.axis_deltas.input);
-            Ok(())
+            Ok(None)
         }
         .boxed()
+    }
+
+    fn record_cost(
+        &self,
+        _request: PricedRequest,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async { Err("the gated usage record prices no request".into()) }.boxed()
     }
 
     fn record_quota_windows(
