@@ -33,10 +33,6 @@ use sidekicks_store::data_folder::lock::{DataFolderLock, DataFolderLockError};
 
 use crate::data_acts::erase::{DataEraseOutcome, erase_data, stop_every_recorded_service};
 
-/// The arguments the daemon's own program is started with to erase everything with the service
-/// stopped.
-pub(crate) const DATA_ERASE_MODE: [&str; 2] = ["data", "erase"];
-
 /// Runs the `data erase` mode. Writes its outcome on standard output and exits 0 once everything
 /// is erased; exits 1 with `daemon.dataFolder.held` while the data folder is held,
 /// `daemon.data.storeUnavailable` when the keychain cannot be emptied, both with nothing changed,

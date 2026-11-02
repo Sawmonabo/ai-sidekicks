@@ -11,10 +11,12 @@ use std::io;
 use std::path::Path;
 use std::process::ExitCode;
 
+use sidekicks_contracts::daemon::backup::DATABASE_RESTORE_MODE;
+use sidekicks_contracts::daemon::data::DATA_ERASE_MODE;
 use sidekicks_provider::command::askpass::{COMMAND_ASKPASS_PROGRAM_NAME, run_command_askpass};
 use sidekicks_provider::command::wrapper::{COMMAND_WRAPPER_PROGRAM_NAME, run_command_wrapper};
 use sidekicks_recovery::database_file::copy::{DATABASE_COPY_MODE, run_database_copy};
-use sidekicks_recovery::database_file::restore::{DATABASE_RESTORE_MODE, run_database_restore};
+use sidekicks_recovery::database_file::restore::run_database_restore;
 use sidekicks_recovery::database_file::sqlite_shell::DATABASE_SHELL_MODE;
 use sidekicks_session::search::index::build_mode::{
     SEARCH_INDEX_BUILD_MODE, run_search_index_build,
@@ -29,7 +31,7 @@ use crate::daemon::login_shell_environment::printing::{ENVIRONMENT_MODE, run_env
 use crate::daemon::release_version::this_build_release_version;
 use crate::daemon::schema::schema_parts;
 use crate::daemon::start::run_service;
-use crate::data_acts::erase::mode::{DATA_ERASE_MODE, run_data_erase_mode};
+use crate::data_acts::erase::mode::run_data_erase_mode;
 
 /// SQLite's own shell, run with C arguments, its first the program's name; it answers the shell's
 /// exit code. `main` supplies it, since the shell is a C function only `main` may call.
