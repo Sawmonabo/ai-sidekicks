@@ -219,16 +219,20 @@ async fn wait_for_drained_end(
 
 // Ends what the drained service `ended` left running, then removes its record from `record_file`
 // while the record still names it. Blocking. Fails as the removal does; a failed end of what it
-// left is logged.
+// left, and each process it could not end, is logged.
 fn retire_drained_service(
     ended: &ProcessRecord,
     record_file: &LastingServiceRecordFile,
 ) -> io::Result<()> {
-    if let Err(error) = ended.end_survivors(&codex_lasting_service_environment_entry()) {
+    let warn = |error: &(dyn std::error::Error + 'static)| {
         tracing::warn!(
-            error = &error as &(dyn std::error::Error + 'static),
+            error,
             "what a drained Codex service left running could not be ended"
         );
+    };
+    match ended.end_survivors(&codex_lasting_service_environment_entry()) {
+        Ok(end) => end.unended.iter().for_each(|process| warn(process)),
+        Err(error) => warn(&error),
     }
     record_file.remove_if_naming(ended)
 }

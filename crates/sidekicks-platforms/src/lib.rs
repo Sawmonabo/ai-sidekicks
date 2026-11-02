@@ -303,7 +303,7 @@ pub use path::program_output::path_from_program_output;
 pub use path::relative::relative_path;
 pub use path::resolution::{resolve_path, resolve_path_against};
 pub use path::rules::{PathRules, ShellWordRefused};
-pub use pinned_process::ProcessRecord;
+pub use pinned_process::{ProcessRecord, SurvivorsEnd, UnendedProcess};
 pub use pipe_reader::async_pipe_reader;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub use posix::allocator::{

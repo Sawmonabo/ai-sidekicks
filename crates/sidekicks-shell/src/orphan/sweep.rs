@@ -5,14 +5,16 @@
 //! pinned by its boot, id and start, or the child's nonce in its environment, which a descendant
 //! that left the child's tree, and each survivor of the child's group, still carries, read again
 //! once the process is pinned. A pinned process is signaled through its pin, so the sweep never
-//! kills a stranger. A process that cannot be read, pinned or killed is logged and skipped, so one
-//! process exiting mid-read never fails the start.
+//! kills a stranger. A process that cannot be read, pinned or killed is skipped and answered, so
+//! one process exiting mid-read never fails the start.
 
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::time::Duration;
 
-use sidekicks_platforms::{PinnedProcess, end_leftover_shell_containments, pin_running_process};
+use sidekicks_platforms::{
+    PinnedProcess, UnendedProcess, end_leftover_shell_containments, pin_running_process,
+};
 use tokio::task::JoinError;
 
 use crate::orphan::nonce_search::{
@@ -20,20 +22,29 @@ use crate::orphan::nonce_search::{
 };
 use crate::orphan::registry::OrphanRegistryLeftover;
 
-/// What the sweep did, counted in registry entries.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub(crate) struct OrphanSweepResult {
+/// What the sweep did, counted in registry entries, and what it could not end.
+#[derive(Debug, Default)]
+pub struct OrphanSweepResult {
     /// Entries whose child or a carrier of its nonce was still running and was killed.
-    pub(crate) killed: usize,
+    pub killed: usize,
     /// Entries discarded with nothing signaled.
-    pub(crate) discarded: usize,
+    pub discarded: usize,
     /// Why the registry file could not be trusted, when it could not; then nothing was signaled.
-    pub(crate) unreadable_cause: Option<String>,
+    pub unreadable_cause: Option<String>,
+    /// The processes that could not be read or killed, each skipped, so it may still run.
+    pub skipped: Vec<UnendedProcess>,
 }
 
 impl OrphanSweepResult {
     /// Writes what the sweep did to the service log.
     pub(crate) fn log(&self) {
+        for process in &self.skipped {
+            tracing::warn!(
+                error = process as &(dyn std::error::Error + 'static),
+                "A child a previous run of the daemon left could not be read or killed, so it was \
+                 skipped."
+            );
+        }
         match &self.unreadable_cause {
             None => tracing::info!(
                 killed = self.killed,
@@ -55,8 +66,8 @@ impl OrphanSweepResult {
 pub struct OrphanSweepInterrupted(#[source] JoinError);
 
 /// Ends the shells' holds a previous run left, kills each child it left running in the boot
-/// `boot_id` and discards every other entry. A process that cannot be read or killed is logged and
-/// skipped; fails only when the sweep's task ends early.
+/// `boot_id` and discards every other entry. A process that cannot be read or killed is skipped
+/// and answered; fails only when the sweep's task ends early.
 pub(crate) async fn sweep_orphans(
     leftover: OrphanRegistryLeftover,
     boot_id: String,
@@ -79,23 +90,29 @@ fn sweep(leftover: OrphanRegistryLeftover, boot_id: &str) -> OrphanSweepResult {
     let nonces: HashSet<&str> = entries.iter().map(|entry| entry.nonce.as_str()).collect();
     let carriers: HashMap<u32, String> = find_processes_carrying_nonces(&nonces);
     let mut killed = 0;
+    let mut skipped = Vec::new();
     for entry in &entries {
         let mut is_killed = false;
         if let Some(record) = &entry.child {
             let ended = match record.pin() {
                 Ok(Some(child)) => kill(&child),
                 // What the child started may still run in the group it led.
-                Ok(None) => record.end_survivors(&carried_nonce_entry(&entry.nonce)),
+                Ok(None) => record
+                    .end_survivors(&carried_nonce_entry(&entry.nonce))
+                    .map(|end| {
+                        skipped.extend(end.unended);
+                        end.is_any_ended
+                    }),
                 Err(error) => Err(error),
             };
-            is_killed = ended.unwrap_or_else(|error| skip(record.id(), &error));
+            is_killed = ended.unwrap_or_else(|error| skip(&mut skipped, record.id(), error));
         }
         for (process_id, nonce) in &carriers {
             if *nonce != entry.nonce {
                 continue;
             }
             let ended = kill_carrier(*process_id, &entry.nonce);
-            is_killed |= ended.unwrap_or_else(|error| skip(*process_id, &error));
+            is_killed |= ended.unwrap_or_else(|error| skip(&mut skipped, *process_id, error));
         }
         killed += usize::from(is_killed);
     }
@@ -103,6 +120,7 @@ fn sweep(leftover: OrphanRegistryLeftover, boot_id: &str) -> OrphanSweepResult {
         killed,
         discarded: total - killed,
         unreadable_cause: leftover.unreadable_cause,
+        skipped,
     }
 }
 
@@ -124,15 +142,10 @@ fn kill(process: &PinnedProcess) -> io::Result<bool> {
     Ok(true)
 }
 
-// Logs that process `process_id` could not be read or killed and is skipped; answers that nothing
-// was killed.
-fn skip(process_id: u32, error: &io::Error) -> bool {
-    tracing::warn!(
-        process_id,
-        error = error as &(dyn std::error::Error + 'static),
-        "A child a previous run of the daemon left could not be read or killed, so it was \
-         skipped."
-    );
+// Adds process `process_id`, which could not be read or killed for `error`, to `skipped`; answers
+// that nothing was killed.
+fn skip(skipped: &mut Vec<UnendedProcess>, process_id: u32, error: io::Error) -> bool {
+    skipped.push(UnendedProcess { process_id, error });
     false
 }
 
@@ -207,13 +220,16 @@ mod tests {
             .expect("the sweep runs");
         let ended = child.wait().await.expect("the child is reaped");
 
-        let discarded = OrphanSweepResult {
-            killed: 0,
-            discarded: 1,
-            unreadable_cause: None,
+        let discarded = |result: &OrphanSweepResult| {
+            (
+                result.killed,
+                result.discarded,
+                result.unreadable_cause.is_none(),
+                result.skipped.len(),
+            )
         };
-        assert_eq!(other_boot, discarded);
-        assert_eq!(stranger, discarded);
+        assert_eq!(discarded(&other_boot), (0, 1, true, 0));
+        assert_eq!(discarded(&stranger), (0, 1, true, 0));
         assert!(
             is_running_after_both,
             "a discarded entry signaled its process"

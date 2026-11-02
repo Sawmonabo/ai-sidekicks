@@ -20,7 +20,7 @@ use tokio::io::unix::AsyncFd;
 use crate::child_command::ChildEnd;
 use crate::macos::process_start::read_process_start;
 use crate::macos::processes::{list_child_process_ids, list_group_process_ids};
-use crate::pinned_process::ProcessRecord;
+use crate::pinned_process::{ProcessRecord, SurvivorsEnd, UnendedProcess};
 use crate::posix::process::group::signal_group;
 use crate::posix::process::id::system_process_id;
 use crate::posix::process::stop::{stop_pinned_process, wait_for_event};
@@ -403,33 +403,32 @@ pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedPr
 /// Ends what is left of the group the process `record` names led, once that process has ended: on
 /// the boot it was recorded in and while no process holds its id, each member of the group that is
 /// in its session, started after it, its unique id above the recorded one, and carries
-/// `environment_entry`, killed by its id version; `false` when nothing was ended. A member that
-/// cannot be read or killed is logged and left. Fails with the system's error when the boot or the
-/// group cannot be read, and with `Unsupported` on a macOS without the checked read.
+/// `environment_entry`, killed by its id version; a member that cannot be read or killed is left
+/// and answered. Fails with the system's error when the boot or the group cannot be read, and with
+/// `Unsupported` on a macOS without the checked read.
 pub(crate) fn end_recorded_survivors(
     record: &ProcessRecord,
     environment_entry: &str,
-) -> io::Result<bool> {
+) -> io::Result<SurvivorsEnd> {
+    let mut end = SurvivorsEnd::default();
     if record.boot != current_boot()? {
-        return Ok(false);
+        return Ok(end);
     }
     // A process holding the id is the recorded one, or a later one, which took the id only once
     // the group's last member had ended.
     if pin_running_process(record.id)?.is_some() {
-        return Ok(false);
+        return Ok(end);
     }
-    let mut is_any_ended = false;
     for member_id in list_group_process_ids(record.id)? {
         match end_survivor(record, member_id, environment_entry) {
-            Ok(is_ended) => is_any_ended |= is_ended,
-            Err(error) => tracing::warn!(
-                error = &error as &(dyn std::error::Error + 'static),
-                process_id = member_id,
-                "a process left in an ended child's group could not be read or killed"
-            ),
+            Ok(is_ended) => end.is_any_ended |= is_ended,
+            Err(error) => end.unended.push(UnendedProcess {
+                process_id: member_id,
+                error,
+            }),
         }
     }
-    Ok(is_any_ended)
+    Ok(end)
 }
 
 // Kills group member `member_id` when it is a survivor of `record`'s group carrying

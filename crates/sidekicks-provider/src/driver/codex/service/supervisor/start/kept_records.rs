@@ -107,10 +107,10 @@ async fn repin(record: ProcessRecord) -> Result<Option<LastingCodexService>, Sta
         .map_err(|error| start_failed("The Codex service could not be found again.", error))
 }
 
-// What one kept record's end came to: the failure that left its service, or what a gone one left,
-// running though its record goes, and the record's own outcome.
+// What one kept record's end came to: each failure that left its service, or a process a gone one
+// left, running though its record goes, and the record's own outcome.
 struct KeptRecordEnd {
-    unended: Option<CodexError>,
+    unended: Vec<CodexError>,
     settled: Result<(), StartFailure>,
 }
 
@@ -118,15 +118,15 @@ impl KeptRecordEnd {
     // An end that stopped nothing: the record's outcome alone.
     fn settled_only(settled: Result<(), StartFailure>) -> Self {
         Self {
-            unended: None,
+            unended: Vec::new(),
             settled,
         }
     }
 
-    // The record's outcome, with a service it could not end logged, as a start and the daemon's
-    // stop do, since the service runs on with no record to answer for it.
+    // The record's outcome, with each service or process it could not end logged, as a start and
+    // the daemon's stop do, since it runs on with no record to answer for it.
     fn reported(self) -> Result<(), StartFailure> {
-        if let Some(error) = &self.unended {
+        for error in &self.unended {
             tracing::warn!(
                 error = error as &(dyn std::error::Error + 'static),
                 "a former Codex service, or what it left running, could not be ended"
@@ -164,14 +164,17 @@ async fn end_former_service(
         .await
         .map_err(io::Error::other)
         .and_then(|ended| ended);
+    const LEFT_RUNNING: &str = "What a former Codex service left running could not be ended.";
+    let unended = match ended {
+        Ok(end) => end
+            .unended
+            .into_iter()
+            .map(|process| start_failed(LEFT_RUNNING, process).error)
+            .collect(),
+        Err(error) => vec![start_failed(LEFT_RUNNING, error).error],
+    };
     KeptRecordEnd {
-        unended: ended.err().map(|error| {
-            start_failed(
-                "What a former Codex service left running could not be ended.",
-                error,
-            )
-            .error
-        }),
+        unended,
         settled: remove_record(locked).await,
     }
 }
@@ -213,7 +216,9 @@ async fn end_recorded_service(
     KeptRecordEnd {
         unended: stopped
             .err()
-            .map(|error| start_failed("A former Codex service could not be stopped.", error).error),
+            .map(|error| start_failed("A former Codex service could not be stopped.", error).error)
+            .into_iter()
+            .collect(),
         settled: remove_record(locked).await,
     }
 }

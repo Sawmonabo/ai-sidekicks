@@ -13,7 +13,8 @@ use std::process::ExitCode;
 use futures::FutureExt as _;
 use sidekicks_contracts::daemon::mode_outcome::DaemonModeOutcome;
 use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
-use sidekicks_shell::orphan::guard::open_orphan_guard;
+use sidekicks_shell::orphan::guard::sweep_left_orphans;
+use sidekicks_shell::orphan::sweep::OrphanSweepResult;
 use sidekicks_std::error_description::describe_error;
 
 use crate::data_acts::erase::{DataEraseOutcome, erase_data, stop_every_recorded_service};
@@ -51,9 +52,9 @@ async fn erase_data_folder(data_folder: PathBuf) -> DaemonModeOutcome<()> {
             describe_error(failure)
         ));
     };
-    // Opening the guard sweeps and empties the registry a stopped or crashed service left.
-    match open_orphan_guard(&data_folder).await {
-        Ok(guard) => drop(guard),
+    // The sweep empties the registry a stopped or crashed service left.
+    match sweep_left_orphans(&data_folder).await {
+        Ok(sweep) => failures.extend(describe_sweep_failures(sweep)),
         Err(failure) => not_ended(&failure),
     }
     let recorded_stops = PROVIDER_REGISTRATIONS
@@ -90,4 +91,55 @@ async fn erase_data_folder(data_folder: PathBuf) -> DaemonModeOutcome<()> {
         return DaemonModeOutcome::Result(());
     }
     DaemonModeOutcome::failed(failures.join("; "))
+}
+
+// What the sweep of the orphan registry could not do, each as one of the erase's failures: the
+// registry it discarded unread, and each process it could not read or kill.
+fn describe_sweep_failures(sweep: OrphanSweepResult) -> impl Iterator<Item = String> {
+    let unread = sweep.unreadable_cause.map(|cause| {
+        format!(
+            "the children a stopped service left were not ended: their registry was discarded \
+             unread because {cause}"
+        )
+    });
+    let skipped = sweep.skipped.into_iter().map(|process| {
+        format!(
+            "a process the erase had to end did not end: {}",
+            describe_error(&process)
+        )
+    });
+    unread.into_iter().chain(skipped)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+
+    use sidekicks_platforms::UnendedProcess;
+    use sidekicks_shell::orphan::sweep::OrphanSweepResult;
+
+    use super::describe_sweep_failures;
+
+    // Fails when the erase drops the orphan registry's unread cause or a process the sweep could
+    // not end, so it answers success while a crashed run's child may still run.
+    #[test]
+    fn the_erase_answers_an_unread_registry_and_each_skipped_process() {
+        let sweep = OrphanSweepResult {
+            unreadable_cause: Some("its contents are invalid".to_owned()),
+            skipped: vec![UnendedProcess {
+                process_id: 4242,
+                error: io::Error::from(io::ErrorKind::PermissionDenied),
+            }],
+            ..OrphanSweepResult::default()
+        };
+
+        let failures: Vec<String> = describe_sweep_failures(sweep).collect();
+
+        assert_eq!(failures.len(), 2, "{failures:?}");
+        assert!(
+            failures[0].ends_with("its contents are invalid"),
+            "{failures:?}"
+        );
+        assert!(failures[1].contains("4242"), "{failures:?}");
+    }
 }
