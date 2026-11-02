@@ -73,6 +73,8 @@ pub(crate) struct ClaudeTaskFrame {
     #[serde(default, deserialize_with = "read_lenient")]
     parent_task_id: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
+    run_id: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
     description: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     is_backgrounded: Option<bool>,
@@ -145,6 +147,30 @@ impl ClaudeTaskFrame {
     /// The helper's task that started this one, where a helper did.
     pub(crate) fn parent_task_id(&self) -> Option<&str> {
         non_empty(self.parent_task_id.as_deref())
+    }
+
+    /// The run of the task the frame reports, where it names one; a task's runs sort, in plain
+    /// string order, in the order they opened.
+    pub(crate) fn run_id(&self) -> Option<&str> {
+        non_empty(self.run_id.as_deref())
+    }
+
+    /// The tasks a background list names, by id; `None` for a frame that carries no list.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the stream hands each background list to the store"
+        )
+    )]
+    pub(crate) fn listed_task_ids(&self) -> Option<impl Iterator<Item = &str>> {
+        let tasks = self.tasks.as_ref()?;
+        Some(
+            tasks
+                .0
+                .iter()
+                .filter_map(|entry| non_empty(entry.task_id.as_deref())),
+        )
     }
 
     /// How a finished task ended: `completed`, `failed` or `stopped`.
