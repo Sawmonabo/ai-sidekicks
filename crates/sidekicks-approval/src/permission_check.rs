@@ -34,6 +34,7 @@ use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use sidekicks_policy::authorizer::{Authorizer, PolicyDecision};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_policy::workflow_start::{WorkflowStart, check_workflow_start};
 use sidekicks_provider::background_work::{BackgroundWorkForms, refuse_background_work};
 use sidekicks_provider::callback_tools::host::{
     CallbackToolApprovalBasis, CallbackToolApprovalOutcome,
@@ -63,7 +64,6 @@ use crate::request_create::{
 };
 use crate::rules::{ApprovalRuleError, ApprovalRules};
 use crate::service::{ApprovalService, ApprovalServiceError, RaisedCard};
-use crate::workflow_start::{WorkflowStart, check_workflow_start};
 
 // A tool's name stands within a card's scope, so a tool call's card always reads it.
 const _: () = assert!(PROVIDER_TOOL_NAME_MAX_LEN <= FILE_PATH_MAX_LEN);
@@ -512,28 +512,26 @@ impl PermissionCheck {
         Ok(ToolCallVerdict::CardRaised(card))
     }
 
-    /// Decides one workflow start under the machine's workflow rules, as its owner, under the
-    /// posture of `asking_run_id`, the run whose agent asked, or none for a trigger's. Refused when
-    /// the asking run is not running. Fails when the owner cannot be read.
+    /// Decides one workflow start an agent's tool asks for under the machine's workflow rules, as
+    /// its owner, under the posture of `asking_run_id`, the run whose agent asked. Refused when the
+    /// asking run is not running. Fails when the owner cannot be read.
     pub(crate) async fn check_workflow_start(
         &self,
         workflow_id: &WorkflowDefinitionId,
-        asking_run_id: Option<RunId>,
+        asking_run_id: RunId,
     ) -> Result<WorkflowStartVerdict, PermissionCheckError> {
-        let posture =
-            asking_run_id.and_then(|run_id| self.deps.postures.resolved_posture_for(&run_id));
-        if asking_run_id.is_some() && posture.is_none() {
+        let Some(posture) = self.deps.postures.resolved_posture_for(&asking_run_id) else {
             return Ok(WorkflowStartVerdict::Denied {
                 refusal: NO_LEVEL_REFUSAL,
             });
-        }
+        };
         let owner = self.deps.machine.read_owner().await?;
         let decision = check_workflow_start(
             &self.deps.authorizer,
             WorkflowStart {
                 owner: owner.as_ref(),
                 workflow_id,
-                posture: posture.as_ref(),
+                posture: Some(&posture),
             },
         );
         Ok(match decision {

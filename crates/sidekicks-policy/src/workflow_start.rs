@@ -5,28 +5,26 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::session::id::UserId;
 use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
-use sidekicks_policy::authorizer::{Authorizer, PolicyDecision, PolicyRequest, PolicyResource};
+
+use crate::authorizer::{Authorizer, PolicyDecision, PolicyRequest, PolicyResource};
 
 /// One start to check: the machine's owning user as the daemon resolved it, the workflow, and the
 /// asking run's posture, which a trigger's start has none of.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct WorkflowStart<'a> {
+pub struct WorkflowStart<'a> {
     /// The machine's owning user; `None` when it did not resolve.
-    pub(crate) owner: Option<&'a UserId>,
+    pub owner: Option<&'a UserId>,
     /// The workflow the run starts.
-    pub(crate) workflow_id: &'a WorkflowDefinitionId,
+    pub workflow_id: &'a WorkflowDefinitionId,
     /// The asking run's posture, which the rules read.
-    pub(crate) posture: Option<&'a ExecutionPosture>,
+    pub posture: Option<&'a ExecutionPosture>,
 }
 
 /// Decides whether a start an agent made through its workflow tools, or a run a trigger fired, may
 /// begin under the `workflow::start` rules. Each start is evaluated afresh, so a rule changed after
 /// a trigger was armed still stops its next run; a start whose owner did not resolve is denied
 /// without evaluation, and a posture that does not convert to the rules' context is a deny.
-pub(crate) fn check_workflow_start(
-    authorizer: &Authorizer,
-    start: WorkflowStart<'_>,
-) -> PolicyDecision {
+pub fn check_workflow_start(authorizer: &Authorizer, start: WorkflowStart<'_>) -> PolicyDecision {
     let Some(owner) = start.owner else {
         return PolicyDecision::Deny {
             errors: vec!["the machine's owning user did not resolve".to_owned()],
@@ -56,7 +54,6 @@ pub(crate) fn check_workflow_start(
 #[cfg(test)]
 mod tests {
     use sidekicks_contracts::provider::driver::capabilities::CredentialPolicyRef;
-    use sidekicks_provider::run::posture::CURATED_CREDENTIAL_POLICY_REF;
 
     use super::*;
 
@@ -72,10 +69,8 @@ mod tests {
             .expect("the text is a version 7 UUID");
         let workflow_id = workflow_id();
         let ask = ExecutionPosture::Ask {
-            credential_policy_ref: CredentialPolicyRef::new(
-                CURATED_CREDENTIAL_POLICY_REF.to_owned(),
-            )
-            .expect("a short name is a valid reference"),
+            credential_policy_ref: CredentialPolicyRef::new("credentials".to_owned())
+                .expect("a short name is a valid reference"),
             writable_roots: Vec::new(),
         };
 

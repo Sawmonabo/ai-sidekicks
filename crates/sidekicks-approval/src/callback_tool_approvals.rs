@@ -140,7 +140,7 @@ impl CallbackToolApprovals {
         Ok(
             match self
                 .check
-                .check_workflow_start(&workflow_id, Some(invocation.run_id))
+                .check_workflow_start(&workflow_id, invocation.run_id)
                 .await?
             {
                 WorkflowStartVerdict::Allowed => level_outcome,

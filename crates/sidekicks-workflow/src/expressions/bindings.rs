@@ -34,12 +34,12 @@ use sidekicks_contracts::workflow::definition::document::{
 };
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::workflow::run::trigger::WorkflowRunTrigger;
 use tokio::sync::oneshot::error::RecvError;
 
 use crate::definitions::kept_values::WorkflowKeptValue;
 use crate::expressions::lineage::{LineageError, StepKey, StepOutputs, walk_paired_item};
 use crate::expressions::syntax_tree::find_in_syntax_tree;
-use crate::runs::creation::WorkflowRunTrigger;
 
 /// The call `$now` formats the run's instant with, so a picture and a time zone read exactly as
 /// `$fromMillis` reads them.

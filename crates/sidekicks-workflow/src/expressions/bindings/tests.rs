@@ -11,12 +11,11 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_contracts::workflow::run::trigger::WorkflowTriggerKind;
+use sidekicks_contracts::workflow::run::trigger::{WorkflowRunTrigger, WorkflowTriggerKind};
 
 use super::{ExpressionBindings, ExpressionError, StepBindings, test_expression_bindings};
 use crate::definitions::kept_values::WorkflowKeptValue;
 use crate::expressions::lineage::{LineageError, StepKey, StepOutput, StepOutputs};
-use crate::runs::creation::WorkflowRunTrigger;
 
 const RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e62";
 const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e60";

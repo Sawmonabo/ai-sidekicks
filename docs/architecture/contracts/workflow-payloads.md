@@ -507,11 +507,22 @@ interface WorkflowRunEventPayload {
   definitionId: WorkflowDefinitionId;
   workflowVersionId: string;
 }
-// workflow.run.started — how the run was started and by whom, so the run row rebuilds from events.
+// workflow.run.started — how the run was started and by whom, the trigger node that started it, its
+// place in its chain and the input its trigger step starts on, so the run row rebuilds from events.
 interface WorkflowRunStartedPayload extends WorkflowRunEventPayload {
   mode: WorkflowRunMode;
   startedBy: WorkflowStartedBy;
+  trigger: WorkflowRunTrigger;
+  chain: WorkflowRunChainPlace;
+  inputRef: WorkflowPayloadRef;
 }
+// The trigger node that started a run, as its row's trigger record keeps it.
+type WorkflowRunTrigger = { kind: WorkflowTriggerKind; nodeId: WorkflowNodeId };
+// A run starts a chain of its own, or joins the chain whose first run is `chainRootRunId`, through an
+// error trigger when `isFromError`.
+type WorkflowRunChainPlace =
+  | { kind: "starts" }
+  | { kind: "joins"; chainRootRunId: WorkflowRunId; isFromError: boolean };
 // workflow.results.posted — a finished run's results landed as the results row in `sessionId`, the
 // session that asked. It follows the run's final status.
 interface WorkflowResultsPostedPayload {
