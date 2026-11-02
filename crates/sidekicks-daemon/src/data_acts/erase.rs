@@ -5,7 +5,9 @@
 //! homes in it, and the process ends so its caller starts it again, empty. The default `backups/`
 //! folder stays, since a backup taken earlier keeps its copy, and no project folder is touched.
 //! An item the store refuses to delete leaves the data folder whole, so the erase can run again.
-//! One erase runs at a time: a second sent while it runs is refused and starts nothing.
+//! One erase runs at a time: a second sent while it runs is refused and starts nothing. The
+//! program's `data erase` mode, run with the service stopped, shares the end of each provider's
+//! recorded services and the last steps, the secrets' delete and then the data folder's.
 
 use std::error::Error;
 use std::fs;
@@ -16,10 +18,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::daemon::backup::BACKUP_DEFAULT_FOLDER_NAME;
-use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_provider::driver::contract::error::DriverError;
+use sidekicks_provider::driver::daemon_stop::{DaemonStopIntent, RecordedServicesStop};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_store::credential_store::KeychainRefusal;
 use sidekicks_store::credential_store::items::SecretItems;
+
+pub(crate) mod mode;
 
 /// One step of the erase that the running daemon carries out.
 pub(crate) type EraseStep = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
@@ -51,6 +56,36 @@ pub(crate) enum DataEraseRefusal {
     /// The keychain the erase must empty is locked or cannot be used.
     #[error(transparent)]
     Keychain(#[from] KeychainRefusal),
+}
+
+/// What the erase's last steps left: everything gone, or what stayed and why.
+pub(crate) enum DataEraseOutcome {
+    /// Every secret and the data folder but its backups are gone.
+    Erased,
+    /// The keychain refused an item, so the data folder stays whole and the erase can run again.
+    SecretsKept(KeychainRefusal),
+    /// The secrets are gone, but these entries of the data folder are not.
+    FolderNotDeletedWhole(DataFolderLeft),
+}
+
+/// The entries of the data folder the erase could not delete, each with its failure.
+#[derive(Debug, thiserror::Error)]
+#[error("the data folder was not deleted whole (entries left: {})", .entries.len())]
+pub(crate) struct DataFolderLeft {
+    /// Each entry left, in the order it was tried.
+    pub(crate) entries: Vec<DataFolderEntryLeft>,
+}
+
+/// One entry of the data folder the erase could not delete; an entry that could not be listed,
+/// and the folder itself, are named by the folder.
+#[derive(Debug, thiserror::Error)]
+#[error("{} was not deleted", .path.display())]
+pub(crate) struct DataFolderEntryLeft {
+    /// The entry.
+    pub(crate) path: PathBuf,
+    /// The system's failure.
+    #[source]
+    pub(crate) source: io::Error,
 }
 
 /// The erase of everything the service keeps.
@@ -102,40 +137,98 @@ impl DataErase {
                 );
             }
         }
-        let erased = self.deps.secret_items.erase_all().await;
-        (self.deps.close_data_folder)().await;
+        // A draining service outlives its driver's stop, so its record ends it.
+        let recorded_stops = self.deps.providers.recorded_service_stops();
+        for failure in stop_every_recorded_service(recorded_stops, &self.deps.data_folder).await {
+            tracing::warn!(
+                error = &failure as &(dyn Error + 'static),
+                "a provider's recorded service did not end before the erase"
+            );
+        }
+        let erased = erase_data(&self.deps.secret_items, &self.deps.data_folder, || {
+            (self.deps.close_data_folder)()
+        })
+        .await;
         match erased {
-            Ok(()) => {
-                let data_folder = self.deps.data_folder.clone();
-                let deleted = tokio::task::spawn_blocking(move || delete_data_folder(&data_folder))
-                    .await
-                    .map_err(io::Error::other)
-                    .and_then(|deleted| deleted);
-                if let Err(failure) = deleted {
-                    tracing::warn!(
-                        folder = %self.deps.data_folder.display(),
-                        error = &failure as &(dyn Error + 'static),
-                        "the data folder was not deleted whole"
-                    );
-                }
-            }
-            Err(refusal) => tracing::warn!(
+            DataEraseOutcome::Erased => {}
+            DataEraseOutcome::SecretsKept(refusal) => tracing::warn!(
                 error = &refusal as &(dyn Error + 'static),
                 "the secrets could not all be deleted, so the data folder stays and the erase can \
                  run again"
             ),
+            DataEraseOutcome::FolderNotDeletedWhole(left) => {
+                for entry in &left.entries {
+                    tracing::warn!(
+                        entry = %entry.path.display(),
+                        error = &entry.source as &(dyn Error + 'static),
+                        "an entry of the data folder was not deleted"
+                    );
+                }
+            }
         }
         (self.deps.end_process)();
     }
 }
 
+/// Ends, with `data_folder` the data folder, the lasting services each provider's records name,
+/// one provider after another, and answers every failure met; an empty list when all ended.
+pub(crate) async fn stop_every_recorded_service(
+    stops: impl IntoIterator<Item = RecordedServicesStop>,
+    data_folder: &Path,
+) -> Vec<DriverError> {
+    let mut failures = Vec::new();
+    for stop in stops {
+        if let Err(stopped) = stop(data_folder).await {
+            failures.extend(stopped.failures);
+        }
+    }
+    failures
+}
+
+/// The erase's last steps: deletes every credential-store item the app made, runs
+/// `close_data_folder` whatever that answered, and only once every item is gone deletes the data
+/// folder but its backups. Never fails: what stayed is the outcome.
+pub(crate) async fn erase_data(
+    secret_items: &SecretItems,
+    data_folder: &Path,
+    close_data_folder: impl FnOnce() -> BoxFuture<'static, ()>,
+) -> DataEraseOutcome {
+    let erased = secret_items.erase_all().await;
+    close_data_folder().await;
+    if let Err(refusal) = erased {
+        return DataEraseOutcome::SecretsKept(refusal);
+    }
+    let folder = data_folder.to_path_buf();
+    let deleted = tokio::task::spawn_blocking(move || delete_data_folder(&folder))
+        .await
+        .unwrap_or_else(|ended| {
+            Err(DataFolderLeft {
+                entries: vec![DataFolderEntryLeft {
+                    path: data_folder.to_path_buf(),
+                    source: io::Error::other(ended),
+                }],
+            })
+        });
+    match deleted {
+        Ok(()) => DataEraseOutcome::Erased,
+        Err(left) => DataEraseOutcome::FolderNotDeletedWhole(left),
+    }
+}
+
 // Deletes every entry of `data_folder` but the default backups folder, then the folder itself
 // once nothing is left in it. A link is deleted as a link, never followed. Each entry is tried,
-// one that cannot be listed or read among them; each failure is written to the service log with
-// its entry, and the first is answered once all were tried.
-fn delete_data_folder(data_folder: &Path) -> io::Result<()> {
-    let mut first_failure = None;
-    for entry in fs::read_dir(data_folder)? {
+// one that cannot be listed or read among them, and every entry left is answered once all were
+// tried; a listing that fails and a folder that cannot be removed are named by the folder.
+fn delete_data_folder(data_folder: &Path) -> Result<(), DataFolderLeft> {
+    let folder_left = |source| DataFolderEntryLeft {
+        path: data_folder.to_path_buf(),
+        source,
+    };
+    let listing = fs::read_dir(data_folder).map_err(|source| DataFolderLeft {
+        entries: vec![folder_left(source)],
+    })?;
+    let mut entries = Vec::new();
+    for entry in listing {
         let (path, deleted) = match entry {
             Ok(entry) if entry.file_name() == BACKUP_DEFAULT_FOLDER_NAME => continue,
             Ok(entry) => {
@@ -152,22 +245,24 @@ fn delete_data_folder(data_folder: &Path) -> io::Result<()> {
             // An entry that cannot be listed is named by its folder.
             Err(failure) => (data_folder.to_path_buf(), Err(failure)),
         };
-        if let Err(failure) = deleted {
-            tracing::warn!(
-                entry = %path.display(),
-                error = &failure as &(dyn Error + 'static),
-                "an entry of the data folder was not deleted"
-            );
-            first_failure.get_or_insert(failure);
+        if let Err(source) = deleted {
+            entries.push(DataFolderEntryLeft { path, source });
         }
     }
-    if let Some(failure) = first_failure {
-        return Err(failure);
+    if entries.is_empty() {
+        // The backups folder, when there is one, keeps the folder.
+        let removed = fs::read_dir(data_folder).and_then(|mut rest| match rest.next() {
+            None => fs::remove_dir(data_folder),
+            Some(_) => Ok(()),
+        });
+        if let Err(source) = removed {
+            entries.push(folder_left(source));
+        }
     }
-    if fs::read_dir(data_folder)?.next().is_none() {
-        fs::remove_dir(data_folder)?;
+    if entries.is_empty() {
+        return Ok(());
     }
-    Ok(())
+    Err(DataFolderLeft { entries })
 }
 
 #[cfg(test)]

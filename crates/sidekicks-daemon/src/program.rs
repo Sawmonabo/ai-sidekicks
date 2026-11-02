@@ -2,9 +2,9 @@
 //! was started by and then from its arguments. A link named for the clone's askpass, the command
 //! wrapper or the command askpass runs that, before any runtime starts; otherwise the first words
 //! choose a helper mode, `shell <daemon pid>`, `console <pid>`, `console input <pid>`, `environment
-//! <marker>`, `index`, `minidump <socket>`, `database copy`, `database restore <backup folder>` or
-//! `database shell`; with no words it is the service. The `hook`, `wsl` and `banners` modes are
-//! their own features' to add here.
+//! <marker>`, `index`, `minidump <socket>`, `database copy`, `database restore <backup folder>`,
+//! `data erase` or `database shell`; with no words it is the service. The `hook`, `wsl` and
+//! `banners` modes are their own features' to add here.
 
 use std::ffi::{CString, OsString, c_int};
 use std::io;
@@ -29,6 +29,7 @@ use crate::daemon::login_shell_environment::printing::{ENVIRONMENT_MODE, run_env
 use crate::daemon::release_version::this_build_release_version;
 use crate::daemon::schema::schema_parts;
 use crate::daemon::start::run_service;
+use crate::data_acts::erase::mode::{DATA_ERASE_MODE, run_data_erase_mode};
 
 /// SQLite's own shell, run with C arguments, its first the program's name; it answers the shell's
 /// exit code. `main` supplies it, since the shell is a C function only `main` may call.
@@ -69,6 +70,7 @@ pub fn run_daemon_program(run_sqlite_shell: SqliteShell) -> ExitCode {
             &schema_parts().into_schema(),
             &this_build_release_version(),
         ),
+        [first, second] if [*first, *second] == DATA_ERASE_MODE => run_data_erase_mode(),
         [first, second, ..] if [*first, *second] == DATABASE_SHELL_MODE => {
             run_database_shell(run_sqlite_shell, &program_name, &arguments[2..])
         }
