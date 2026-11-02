@@ -12,6 +12,7 @@ pub mod callback_tools;
 pub mod capability;
 #[cfg(test)]
 pub(crate) mod captured_logs;
+pub(crate) mod child_ending;
 pub mod command;
 pub mod command_search;
 pub mod compaction_wait;

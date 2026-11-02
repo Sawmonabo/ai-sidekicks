@@ -12,18 +12,19 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use futures::channel::mpsc as prompt_channel;
 use futures::future::BoxFuture;
+use memchr::memmem;
 use process_wrap::tokio::ChildWrapper;
 use sidekicks_contracts::provider::account::record::ProviderAuthMode;
 use sidekicks_contracts::provider::account::sign_in::PROVIDER_SIGN_IN_CODE_MAX_LEN;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_platforms::{ask_child_to_stop, wrap_child_command};
-use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader};
+use sidekicks_platforms::{ChildEnd, wrap_child_command};
+use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader, Take};
 use tokio::process::{ChildStderr, ChildStdin, ChildStdout, Command};
 use tokio::sync::{mpsc, oneshot};
-use tokio::time::Instant;
 
 use crate::account::credential_home::CredentialHome;
 use crate::account::resolver::credential_home_folders;
+use crate::child_ending::{ChildEnding, stop_child};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::ClaudeAccountLegs;
 use crate::driver::claude::account::credentials::{
@@ -74,6 +75,10 @@ const BROWSER_VARIABLE: &str = "BROWSER";
 /// A program that opens nothing and succeeds, so a sign-in finished on another device opens no
 /// browser on this machine.
 const NO_BROWSER: &str = "/usr/bin/true";
+
+/// The most of one error output line held, far above the refusal line's length; a longer line is
+/// read in pieces of this length.
+const ERROR_LINE_CAP: u64 = 4 * 1024;
 
 /// The most output held while the address line is still unread, far above its length.
 const ADDRESS_OUTPUT_CAP: usize = 64 * 1024;
@@ -271,7 +276,7 @@ async fn start_flow(
     let verification_uri = match address {
         Ok(address) => address,
         Err(error) => {
-            stop_child(&mut *child).await;
+            stop_child(&mut *child, STOP_GRACE).await;
             return Err(error);
         }
     };
@@ -282,7 +287,8 @@ async fn start_flow(
         child,
         input,
         output,
-        errors: BufReader::new(errors),
+        errors: BufReader::new(errors).take(ERROR_LINE_CAP),
+        ending: ChildEnding::new(STOP_GRACE),
         scan,
         prompts,
         inputs: received,
@@ -326,26 +332,6 @@ async fn read_address_line(
     }
 }
 
-// Asks a flow to stop and waits out the grace, killing it past that.
-async fn stop_child(child: &mut dyn ChildWrapper) {
-    if let Err(error) = ask_child_to_stop(child) {
-        tracing::debug!(
-            error = &error as &(dyn std::error::Error + 'static),
-            "Claude Code's sign-in could not be asked to stop"
-        );
-    }
-    if tokio::time::timeout(STOP_GRACE, child.wait())
-        .await
-        .is_err()
-        && let Err(error) = child.start_kill()
-    {
-        tracing::debug!(
-            error = &error as &(dyn std::error::Error + 'static),
-            "Claude Code's sign-in could not be killed past its stop's grace"
-        );
-    }
-}
-
 /// The flow's output as read so far, scanned as bytes, never as lines, since the code prompt ends
 /// no line.
 #[derive(Default)]
@@ -357,7 +343,7 @@ impl OutputScan {
     // The address line's text once it has ended, the output up to its end taken; else what could
     // still start the marker is kept.
     fn take_address_line(&mut self) -> Option<Vec<u8>> {
-        let Some(start) = find(&self.pending, VISIT_MARKER) else {
+        let Some(start) = memmem::find(&self.pending, VISIT_MARKER) else {
             self.keep_tail(VISIT_MARKER.len());
             return None;
         };
@@ -374,7 +360,7 @@ impl OutputScan {
     // How many code prompts the output read so far holds, each taken.
     fn take_prompts(&mut self) -> usize {
         let mut count = 0;
-        while let Some(start) = find(&self.pending, CODE_PROMPT) {
+        while let Some(start) = memmem::find(&self.pending, CODE_PROMPT) {
             self.pending.drain(..start + CODE_PROMPT.len());
             count += 1;
         }
@@ -390,37 +376,21 @@ impl OutputScan {
     }
 }
 
-fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
+// The text of `line` as a terminal shows it: its printed characters, every control sequence and
+// operating-system command (the link wrapper among them) left out, then trimmed.
+fn strip_terminal_controls(line: &[u8]) -> String {
+    let mut shown = ShownText(String::with_capacity(line.len()));
+    vte::Parser::new().advance(&mut shown, line);
+    shown.0.trim().to_owned()
 }
 
-// The text of `line` as a terminal shows it: every operating-system command, the link wrapper
-// among them, taken out, then trimmed. A command runs from `ESC ]` to a bell or `ESC \`.
-fn strip_terminal_controls(line: &[u8]) -> String {
-    let mut shown = Vec::with_capacity(line.len());
-    let mut index = 0;
-    while index < line.len() {
-        if line[index] == 0x1b && line.get(index + 1) == Some(&b']') {
-            index += 2;
-            while index < line.len() {
-                if line[index] == 0x07 {
-                    index += 1;
-                    break;
-                }
-                if line[index] == 0x1b && line.get(index + 1) == Some(&b'\\') {
-                    index += 2;
-                    break;
-                }
-                index += 1;
-            }
-        } else {
-            shown.push(line[index]);
-            index += 1;
-        }
+/// The characters a terminal prints, gathered as the parser hands them over.
+struct ShownText(String);
+
+impl vte::Perform for ShownText {
+    fn print(&mut self, character: char) {
+        self.0.push(character);
     }
-    String::from_utf8_lossy(&shown).trim().to_owned()
 }
 
 // One input to a running flow, each answered on its own channel.
@@ -448,7 +418,8 @@ struct Flow {
     child: Box<dyn ChildWrapper>,
     input: ChildStdin,
     output: ChildStdout,
-    errors: BufReader<ChildStderr>,
+    errors: Take<BufReader<ChildStderr>>,
+    ending: ChildEnding,
     scan: OutputScan,
     prompts: prompt_channel::Sender<()>,
     inputs: mpsc::Receiver<FlowInput>,
@@ -466,7 +437,6 @@ impl Flow {
         let mut error_line = Vec::new();
         let (mut is_output_open, mut is_errors_open, mut is_input_open) = (true, true, true);
         let mut asked_end: Option<ProviderSignInEnd> = None;
-        let mut kill_at: Option<Instant> = None;
         let status = loop {
             let event = tokio::select! {
                 status = self.child.wait() => FlowEvent::Exited(status),
@@ -477,10 +447,9 @@ impl Flow {
                 input = self.inputs.recv(), if is_input_open => FlowEvent::Input(input),
                 () = &mut bound, if asked_end.is_none() => FlowEvent::Bound,
                 () = self.end.closed(), if asked_end.is_none() => FlowEvent::Abandoned,
-                () = tokio::time::sleep_until(kill_at.unwrap_or_else(Instant::now)),
-                    if kill_at.is_some() => FlowEvent::KillDue,
+                () = self.ending.kill_due() => FlowEvent::KillDue,
             };
-            // The end a stop asks for, and whether the flow was already asked to stop.
+            // The end a stop asks for.
             let stop = match event {
                 FlowEvent::Exited(status) => break status,
                 FlowEvent::Output(Ok(read)) if read > 0 => {
@@ -498,6 +467,7 @@ impl Flow {
                         self.report_prompt();
                     }
                     error_line.clear();
+                    self.errors.set_limit(ERROR_LINE_CAP);
                     None
                 }
                 FlowEvent::ErrorLine(_) => {
@@ -513,23 +483,22 @@ impl Flow {
                     None
                 }
                 FlowEvent::Input(Some(FlowInput::Cancel(answer))) => {
-                    let asked = ask_child_to_stop(&mut *self.child);
+                    let asked = self.ending.ask(&mut *self.child, ChildEnd::Stop);
                     let is_asked = asked.is_ok();
                     if answer.send(asked).is_err() {
                         tracing::debug!("a sign-in's cancel stopped waiting for its answer");
                     }
-                    is_asked.then_some((ProviderSignInEnd::Canceled, true))
+                    is_asked.then_some(ProviderSignInEnd::Canceled)
                 }
                 FlowEvent::Input(None) => {
                     is_input_open = false;
                     None
                 }
-                FlowEvent::Bound => Some((ProviderSignInEnd::Expired, false)),
+                FlowEvent::Bound => Some(ProviderSignInEnd::Expired),
                 // No one waits for the end: the flow is stopped as a cancel stops it.
-                FlowEvent::Abandoned => Some((ProviderSignInEnd::Canceled, false)),
+                FlowEvent::Abandoned => Some(ProviderSignInEnd::Canceled),
                 FlowEvent::KillDue => {
-                    kill_at = None;
-                    if let Err(error) = self.child.start_kill() {
+                    if let Err(error) = self.ending.ask(&mut *self.child, ChildEnd::Kill) {
                         tracing::debug!(
                             error = &error as &(dyn std::error::Error + 'static),
                             "Claude Code's sign-in could not be killed past its stop's grace"
@@ -538,17 +507,17 @@ impl Flow {
                     None
                 }
             };
-            if let Some((end, is_asked)) = stop
+            if let Some(end) = stop
                 && asked_end.is_none()
             {
-                if !is_asked && let Err(error) = ask_child_to_stop(&mut *self.child) {
+                // A cancel asked the stop already, which this asks no second time.
+                if let Err(error) = self.ending.ask(&mut *self.child, ChildEnd::Stop) {
                     tracing::debug!(
                         error = &error as &(dyn std::error::Error + 'static),
                         "Claude Code's sign-in could not be asked to stop"
                     );
                 }
                 asked_end = Some(end);
-                kill_at = Some(Instant::now() + STOP_GRACE);
             }
         };
         let end = asked_end.unwrap_or(match status {

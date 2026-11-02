@@ -8911,6 +8911,7 @@ dependencies = [
  "typify",
  "unicode-normalization",
  "url",
+ "vte",
  "zeroize",
  "zstd",
 ]

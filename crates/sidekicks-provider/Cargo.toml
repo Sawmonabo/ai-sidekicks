@@ -76,6 +76,8 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, optional = true }
 unicode-normalization.workspace = true
 url.workspace = true
+# The terminal parser a sign-in's address line is read through.
+vte.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
