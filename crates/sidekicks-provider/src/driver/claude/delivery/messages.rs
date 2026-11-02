@@ -139,6 +139,11 @@ impl ClaudeOpenToolCall {
     pub(crate) fn run(&self) -> &ClaudeBoundRun {
         &self.run
     }
+
+    /// The called tool's name.
+    pub(crate) fn tool_name(&self) -> &EventText {
+        &self.tool_name
+    }
 }
 
 /// How a tool call ended: with its result, or failed, with why when no result came.
@@ -202,13 +207,16 @@ pub(crate) enum ClaudeMessageBody {
     Patch(WholePatchFile),
 }
 
-/// The rows of one `user` frame of the lead and the tool calls it answered with an error. A
-/// result naming a call the lead never started carries no row, since no tool is named.
+/// The rows of one `user` frame of the lead, the tool calls it answered with an error and the
+/// held calls it answered with a stand-in. A result naming a call the lead never started carries
+/// no row, since no tool is named.
 pub(crate) struct ClaudeUserFrameReading {
     /// The rows.
     pub(crate) rows: Vec<ClaudeMessageRow>,
     /// Each call Claude Code answered with an error, by its id, with the words it sent the model.
     pub(crate) failed_results: Vec<(String, String)>,
+    /// Each held call's stand-in result, by the call's id, with the stand-in's words.
+    pub(crate) held_stand_ins: Vec<(String, String)>,
 }
 
 impl ClaudeMessageFrame {
@@ -401,12 +409,12 @@ pub(crate) fn read_claude_assistant_rows(
 
 /// The tool results one `user` frame carries, each as `agent.toolCall.completed` or, when Claude
 /// Code marks it an error, `agent.toolCall.failed`, closing its call in `open_tool_calls` and
-/// timed from its start to `now`. A file-changing call's lone result carries its patch. A call in
-/// `held_calls` stays open: its result is a stand-in, and the real one comes later.
+/// timed from its start to `now` and closed on the run that started it. A file-changing call's
+/// lone result carries its patch. A call in `held_calls` stays open: its result is a stand-in,
+/// kept with its words, and the real one comes later.
 pub(crate) fn read_claude_user_rows(
     frame: &ClaudeMessageFrame,
     session_id: SessionId,
-    run_id: RunId,
     open_tool_calls: &mut HashMap<String, ClaudeOpenToolCall>,
     held_calls: &HashSet<String>,
     now: Timestamp,
@@ -414,6 +422,7 @@ pub(crate) fn read_claude_user_rows(
     let mut reading = ClaudeUserFrameReading {
         rows: Vec::new(),
         failed_results: Vec::new(),
+        held_stand_ins: Vec::new(),
     };
     let results: Vec<&ClaudeContentBlock> = frame
         .blocks()
@@ -425,10 +434,11 @@ pub(crate) fn read_claude_user_rows(
         let Some(call_id) = block.tool_use_id.as_ref().filter(|id| !id.is_empty()) else {
             continue;
         };
+        let text = read_tool_result_text(block.content.as_deref());
         if held_calls.contains(call_id) {
+            reading.held_stand_ins.push((call_id.clone(), text));
             continue;
         }
-        let text = read_tool_result_text(block.content.as_deref());
         let is_error = block.is_error == Some(true);
         if is_error {
             reading.failed_results.push((call_id.clone(), text.clone()));
@@ -444,7 +454,6 @@ pub(crate) fn read_claude_user_rows(
             .and_then(|result| read_claude_patch_file(&result));
         let closed = ClaudeToolCallClose {
             session_id,
-            run_id,
             is_error,
             body: patch.map_or(ClaudeMessageBody::Text(text), ClaudeMessageBody::Patch),
         };
@@ -458,20 +467,19 @@ pub(crate) fn read_claude_user_rows(
     reading
 }
 
-/// How one tool call closes: on its session's run, failed or completed, with its stored body.
+/// How one tool call closes in its session, failed or completed, with its stored body.
 pub(crate) struct ClaudeToolCallClose {
     /// The session.
     pub(crate) session_id: SessionId,
-    /// The run the call is on.
-    pub(crate) run_id: RunId,
     /// Whether the call failed.
     pub(crate) is_error: bool,
     /// The result's words or patch.
     pub(crate) body: ClaudeMessageBody,
 }
 
-/// The row that closes the open call `call_id`, removing it from `open_tool_calls` and timing it
-/// from its start to `now`; `None` for a call not open, or an id no row can carry.
+/// The row that closes the open call `call_id` on the run that started it, removing it from
+/// `open_tool_calls` and timing it from its start to `now`; `None` for a call not open, or an id
+/// no row can carry.
 pub(crate) fn close_claude_tool_call(
     open_tool_calls: &mut HashMap<String, ClaudeOpenToolCall>,
     call_id: &str,
@@ -479,19 +487,13 @@ pub(crate) fn close_claude_tool_call(
     now: Timestamp,
 ) -> Option<ClaudeMessageRow> {
     let opened = open_tool_calls.remove(call_id)?;
+    let run_id = opened.run().run_id;
     let outcome = if closed.is_error {
         ClaudeToolCallOutcome::Failed { end_cause: None }
     } else {
         ClaudeToolCallOutcome::Completed
     };
-    let row = close_opened_call(
-        opened,
-        call_id,
-        closed.session_id,
-        closed.run_id,
-        outcome,
-        now,
-    )?;
+    let row = close_opened_call(opened, call_id, closed.session_id, run_id, outcome, now)?;
     Some(ClaudeMessageRow {
         tool_call_id: Some(call_id.to_owned()),
         pairing_role: ReorderPairingRole::Completion,

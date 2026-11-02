@@ -6,6 +6,7 @@
 //! spent, and what the working line and the context ring read. A frame of a turn no daemon run
 //! holds is recorded and dropped.
 
+mod backgrounded;
 mod body;
 pub(crate) mod daemon_ends;
 mod helper_runs;
@@ -43,8 +44,8 @@ use crate::command::running_set::RunningCommandSets;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
 use crate::driver::claude::delivery::messages::{
-    ClaudeMessageFrame, ClaudeMessageRow, ClaudeMessageRowKind, read_claude_assistant_rows,
-    read_claude_user_rows,
+    ClaudeMessageFrame, ClaudeMessageRow, ClaudeMessageRowKind, ClaudeOpenToolCall,
+    read_claude_assistant_rows, read_claude_user_rows,
 };
 use crate::driver::claude::delivery::reviewer::ClaudeReviewerCapture;
 use crate::driver::claude::delivery::run_readings::{ClaudeMessageKey, ClaudeRowDelivery};
@@ -504,8 +505,12 @@ impl ClaudeDeliveryStream {
     }
 
     /// Releases what the session streamed and buffered, as its process is gone, and forgets its
-    /// readings; the exit path ends the run its turn was on.
-    pub(crate) async fn end_session(&self, session: &ClaudeSessionStream) {
+    /// readings; the exit path ends the run its turn was on. Answers the tool-server calls still
+    /// held, each by its `tool_use_id` with its opening, which the caller settles.
+    pub(crate) async fn end_session(
+        &self,
+        session: &ClaudeSessionStream,
+    ) -> Vec<(String, ClaudeOpenToolCall)> {
         let (pieces, released, turn) = {
             let mut readings = session.lock();
             (
@@ -518,20 +523,23 @@ impl ClaudeDeliveryStream {
             self.send_pieces(session, &turn.binding_id, pieces).await;
         }
         self.send_rows(session, released, None).await;
-        {
+        let held = {
             let mut readings = session.lock();
             readings.daemon_ended.clear();
             readings.carried_ends.clear();
             readings.now_steers.clear();
             readings.turn = None;
             readings.command_tasks.forget();
+            let held = readings.tool_server_tasks.take_held();
             readings.tool_server_tasks.forget();
-        }
+            held
+        };
         // The process's commands ended with it.
         if let Some(sets) = self.dependencies.command_output.port() {
             sets.provider_exited(session.session_id);
         }
         self.dependencies.context.forget_session(session.session_id);
+        held
     }
 
     async fn mark_initialized(
@@ -645,13 +653,12 @@ impl ClaudeDeliveryStream {
         lead: &ClaudeBoundRun,
         frame: &ClaudeMessageFrame,
     ) {
-        let (rows, tasks) = {
+        let (rows, tasks, stand_ins) = {
             let mut guard = session.lock();
             let readings = &mut *guard;
             let reading = read_claude_user_rows(
                 frame,
                 session.session_id,
-                lead.run_id,
                 &mut readings.open_tool_calls,
                 readings.tool_server_tasks.held_call_ids(),
                 Timestamp::now(),
@@ -666,7 +673,7 @@ impl ClaudeDeliveryStream {
                 .into_iter()
                 .map(|row| ClaudeRowDelivery::of_message(&lead.binding_id, row, key.clone()))
                 .collect::<Vec<_>>();
-            (rows, tasks)
+            (rows, tasks, reading.held_stand_ins)
         };
         if let Some(tasks) = tasks {
             self.publish_turn_tasks(session, tasks);
@@ -678,6 +685,7 @@ impl ClaudeDeliveryStream {
             self.report_taken(session, uuid);
         }
         self.admit_rows(session, rows, "user").await;
+        self.send_backgrounded(session, stand_ins).await;
     }
 
     // A streamed piece waits for its interval, which the session's timer sends; the tokens the

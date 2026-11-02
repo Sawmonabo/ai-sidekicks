@@ -369,6 +369,11 @@ impl ClaudeSessionRestarts {
         table.pending_account_moves.clear();
     }
 
+    /// Whether the daemon stops, so a process ending now was ended by the stop.
+    pub(crate) fn is_stopped(&self) -> bool {
+        lock(&self.table).is_stopped
+    }
+
     /// Waits until the session's process no longer comes back on its own: a restart held for its
     /// crash window's wait, a relaunch or a bring-up in flight each waited out. Answers once the
     /// process is live; fails `provider.unavailable` once none serves the session.

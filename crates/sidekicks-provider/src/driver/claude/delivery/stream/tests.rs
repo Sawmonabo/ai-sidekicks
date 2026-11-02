@@ -24,6 +24,7 @@ use crate::run::state_entry::RunStateEntry;
 use crate::run::turn_end::TurnOutcome;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
+mod exit;
 mod held_calls;
 
 fn init() -> Value {

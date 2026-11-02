@@ -4,13 +4,6 @@
 //! failed or stopped is kept settled until the process ends, so a later ending of its task still
 //! closes it again. Such a task is no running command.
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "an exit, a close, a resume and the start read a held call's kept files"
-    )
-)]
 pub(crate) mod restore;
 
 use std::collections::{HashMap, HashSet};
@@ -148,6 +141,25 @@ impl ClaudeToolServerTasks {
     /// The calls held open, whose stand-in results close nothing.
     pub(crate) fn held_call_ids(&self) -> &HashSet<String> {
         &self.held_call_ids
+    }
+
+    /// The task the held call `tool_use_id` runs as, and the call's opening; `None` for a call not
+    /// held.
+    pub(crate) fn held_call(&self, tool_use_id: &str) -> Option<(String, ClaudeOpenToolCall)> {
+        self.held
+            .iter()
+            .find(|(_, held)| held.tool_use_id == tool_use_id)
+            .map(|(task_id, held)| (task_id.clone(), held.opened.clone()))
+    }
+
+    /// Takes every held call out, each by its `tool_use_id` with its opening, as the process
+    /// ends with them still running; the settled calls are left.
+    pub(crate) fn take_held(&mut self) -> Vec<(String, ClaudeOpenToolCall)> {
+        self.held_call_ids.clear();
+        self.held
+            .drain()
+            .map(|(_, held)| (held.tool_use_id, held.opened))
+            .collect()
     }
 
     /// Whether the call the tool server's task `task_id` runs is held open.

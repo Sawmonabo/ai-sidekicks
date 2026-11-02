@@ -95,10 +95,6 @@ impl ClaudeSessionStream {
     }
 
     /// Where the process keeps its tool servers' background calls.
-    #[expect(
-        dead_code,
-        reason = "a stand-in and the exit read the call's kept files"
-    )]
     pub(super) fn kept_calls(&self) -> &ClaudeKeptCallsSource {
         &self.kept_calls
     }

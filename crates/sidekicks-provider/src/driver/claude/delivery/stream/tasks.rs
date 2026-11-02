@@ -5,6 +5,8 @@
 //! recorded on the run whose thread spent it, and the move of the session's bindings onto another
 //! account, made in its place among those frames.
 
+mod exit_settle;
+
 use std::collections::HashSet;
 
 use jiff::Timestamp;

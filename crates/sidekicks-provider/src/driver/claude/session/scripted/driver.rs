@@ -40,7 +40,8 @@ use super::daemon_services::{
 };
 use super::starts::{ScriptedStartRecord, ScriptedStarts};
 use super::{
-    SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, scripted_staged_changes,
+    SCRIPTED_PROVIDER_SESSION_ID, binding_id, exit_scripted_process, hand_scripted_frame,
+    scripted_staged_changes,
 };
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::lifecycle::ClaudeDriver;
@@ -574,9 +575,7 @@ impl ScriptedDriver {
 
     /// Ends the process `start` brought up, as its reader would on an exit nothing asked for.
     pub(crate) fn exit(start: &ScriptedStartRecord) {
-        start
-            .listener
-            .take_exit(Err(Arc::new(io::Error::other("the process ended"))));
+        exit_scripted_process(&*start.listener);
     }
 
     /// Hands the lead `result` that ends the session's turn to the process `start` brought up.

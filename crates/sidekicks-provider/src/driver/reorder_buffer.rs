@@ -151,6 +151,12 @@ impl<Event> NormalizedEventReorderBuffer<Event> {
         self.release_held(now, |_held_for| true)
     }
 
+    /// Forgets that the call `tool_call_id`'s initiation was seen, so a completion of it later
+    /// waits for an initiation again; for a call whose own result already answered its start.
+    pub(crate) fn forget_initiation(&mut self, tool_call_id: &str) {
+        self.seen_initiation_tool_call_ids.pop(tool_call_id);
+    }
+
     fn admit_seen_initiation(&mut self, tool_call_id: &str) {
         // Pushed only when absent, so a repeat keeps its place in the eviction order.
         if self.seen_initiation_tool_call_ids.contains(tool_call_id) {
