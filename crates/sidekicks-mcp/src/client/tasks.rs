@@ -3,8 +3,8 @@
 //! to its end, its questions asked on the questions card and answered back to the server.
 //!
 //! - A 2025-11-25 server takes a task only on a tool whose `execution.taskSupport` allows it, and
-//!   its replies are read raw ([`v1`]); a 2026-07-28 server decides per call and is read through
-//!   rmcp's own types ([`v2`]).
+//!   its replies are read raw ([`revision_2025_11_25`]); a 2026-07-28 server decides per call
+//!   and is read through rmcp's own types ([`revision_2026_07_28`]).
 //! - A task's question is held under its own request id, and its answer goes back to the server
 //!   that asked, never to the run's driver.
 //! - A question a server's request waits on is taken in its run's turn: asked while its run waits
@@ -16,8 +16,8 @@
 //!   servers mint the same id never share a watch.
 
 pub(crate) mod recorder;
-mod v1;
-mod v2;
+mod revision_2025_11_25;
+mod revision_2026_07_28;
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -246,9 +246,9 @@ impl McpServerConnection {
         let ended = if self.task_generation == Some(McpTaskGeneration::V1)
             && self.is_task_tool(&call.dispatch.tool_name).await?
         {
-            v1::call_task_tool(self, call, sink, contact).await
+            revision_2025_11_25::call_task_tool(self, call, sink, contact).await
         } else {
-            v2::call_tool(self, &in_flight, call, sink, contact).await
+            revision_2026_07_28::call_tool(self, &in_flight, call, sink, contact).await
         };
         in_flight.finish().await;
         ended
@@ -271,8 +271,12 @@ impl McpServerConnection {
         contact: &watch::Sender<McpTaskContact>,
     ) -> McpToolCallEnd {
         match mcp_task_generation {
-            McpTaskGeneration::V1 => v1::follow_task(self, &call, mcp_task_id, contact).await,
-            McpTaskGeneration::V2 => v2::follow_task(self, &call, mcp_task_id, contact).await,
+            McpTaskGeneration::V1 => {
+                revision_2025_11_25::follow_task(self, &call, mcp_task_id, contact).await
+            }
+            McpTaskGeneration::V2 => {
+                revision_2026_07_28::follow_task(self, &call, mcp_task_id, contact).await
+            }
         }
     }
 

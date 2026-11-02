@@ -233,8 +233,8 @@ mod tests {
     }
 
     // Mutations: in `connection.rs`'s `create_elicitation`, answer `cancel` instead of asking
-    // `ask_newest_call`; in `CallsInFlight::track`, record another run; or in `v2::call_tool`,
-    // fail an `InputRequired` round instead of answering it.
+    // `ask_newest_call`; in `CallsInFlight::track`, record another run; or in
+    // `revision_2026_07_28::call_tool`, fail an `InputRequired` round instead of answering it.
     #[rstest]
     #[case::a_2025_11_25_request(eliciting_v1_server(), v1_answer)]
     #[case::a_2026_07_28_input_round(eliciting_v2_server(), v2_answer)]
