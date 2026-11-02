@@ -33,7 +33,7 @@ use sidekicks_contracts::wire::integer::{SafeInt, SafeSignedInt};
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::number::Number;
 use sidekicks_contracts::wire::text::BoundedText;
-use sidekicks_provider::driver::run_control::HelperTokenLimitParams;
+use sidekicks_provider::driver::run_control::HelperStopParams;
 use sidekicks_provider::port::usage_sink::{
     MeteredUsage, MeteredUsageOwner, ProviderQuotaWindow, UsageSink,
 };
@@ -305,7 +305,7 @@ impl UsageRecord {
                 let stopped = match helper {
                     None => engine.stop_at_token_limit(run_id, token_limit).await,
                     Some(subagent_id) => {
-                        let params = HelperTokenLimitParams {
+                        let params = HelperStopParams {
                             session_id,
                             run_id,
                             subagent_id,

@@ -8,12 +8,12 @@ use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, Scripted
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
 };
-use crate::driver::run_control::{HelperStopOutcome, HelperStopReason, HelperTokenLimitParams};
+use crate::driver::run_control::{HelperStopOutcome, HelperStopParams, HelperStopReason};
 use crate::run::state_entry::RunStateEntry;
 
 // The stop of the helper `helper` whose own run is `run_id`.
-fn helper_stop(session: &ScriptedSession, run_id: RunId) -> HelperTokenLimitParams {
-    HelperTokenLimitParams {
+fn helper_stop(session: &ScriptedSession, run_id: RunId) -> HelperStopParams {
+    HelperStopParams {
         session_id: session.session_id,
         run_id,
         subagent_id: SubagentId::new("helper".to_owned()).expect("a subagent id"),

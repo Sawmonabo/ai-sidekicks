@@ -53,7 +53,7 @@ use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
-    FindTakenMessagesParams, HelperTokenLimitParams, InterruptRunRequest, OverrideDenialParams,
+    FindTakenMessagesParams, HelperStopParams, InterruptRunRequest, OverrideDenialParams,
     PauseRunParams, PickedSkill, ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams,
     WithdrawQueuedMessageResult,
 };
@@ -600,7 +600,7 @@ impl ProviderDriver for CodexDriver {
 
     fn stop_helper_at_token_limit(
         &self,
-        params: HelperTokenLimitParams,
+        params: HelperStopParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
         self.stop_helper_at_token_limit(params).boxed()
     }

@@ -23,7 +23,7 @@ use sidekicks_contracts::session::controls::events::{
 };
 use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_provider::driver::run_control::HelperTokenLimitParams;
+use sidekicks_provider::driver::run_control::HelperStopParams;
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::ReadLength;
@@ -190,7 +190,7 @@ impl RunEngine {
     /// second event.
     pub(crate) async fn stop_helper_at_token_limit(
         &self,
-        params: HelperTokenLimitParams,
+        params: HelperStopParams,
         token_limit: TokensPerRun,
     ) -> Result<(), RunEngineError> {
         let run_id = params.run_id;

@@ -10,14 +10,14 @@ use crate::driver::claude::run::controls::ClaudeRunControls;
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::transport::control::ClaudeControlRequest;
 use crate::driver::contract::error::DriverError;
-use crate::driver::run_control::{HelperStopOutcome, HelperStopReason, HelperTokenLimitParams};
+use crate::driver::run_control::{HelperStopOutcome, HelperStopParams, HelperStopReason};
 
 impl ClaudeRunControls {
     /// Stops a helper at its token limit: its next tool use, and each after, is denied with the
     /// reason it reads, so it reports and finishes while its lead goes on. Fails `NoLiveSession`.
     pub(crate) fn stop_helper_at_token_limit(
         &self,
-        params: &HelperTokenLimitParams,
+        params: &HelperStopParams,
     ) -> Result<(), DriverError> {
         self.start.live_session(params.session_id)?;
         lock(&self.pauses).stop_helper(
@@ -35,7 +35,7 @@ impl ClaudeRunControls {
     /// included, the mark and any pause kept.
     pub(crate) async fn stop_child_run(
         &self,
-        params: &HelperTokenLimitParams,
+        params: &HelperStopParams,
     ) -> Result<HelperStopOutcome, DriverError> {
         let session_id = params.session_id;
         // Claude Code's helpers end with its process.
@@ -77,7 +77,7 @@ impl ClaudeDriver {
     /// `NoLiveSession`.
     pub(crate) fn stop_helper_at_token_limit(
         &self,
-        params: &HelperTokenLimitParams,
+        params: &HelperStopParams,
     ) -> Result<(), DriverError> {
         self.live_run_controls(params.session_id)?
             .stop_helper_at_token_limit(params)
@@ -88,7 +88,7 @@ impl ClaudeDriver {
     #[expect(dead_code, reason = "the driver trait's per-helper stop calls it")]
     pub(crate) async fn stop_child_run(
         &self,
-        params: &HelperTokenLimitParams,
+        params: &HelperStopParams,
     ) -> Result<HelperStopOutcome, DriverError> {
         // No part is composed before a session is live, so no helper runs.
         let Ok(controls) = self.live_run_controls(params.session_id) else {

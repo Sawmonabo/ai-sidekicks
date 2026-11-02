@@ -22,7 +22,7 @@ use crate::driver::codex::run::turn_interrupt::{
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::contract::error::DriverError;
-use crate::driver::run_control::{HelperStopReason, HelperTokenLimitParams};
+use crate::driver::run_control::{HelperStopParams, HelperStopReason};
 
 /// The helper conversations stopped alone, whose every later turn is interrupted at its start and
 /// whose every pre-tool call is denied.
@@ -174,7 +174,7 @@ impl CodexDriver {
     /// is left as it is. Fails as the service's requests do.
     pub(crate) async fn stop_helper_at_token_limit(
         &self,
-        params: HelperTokenLimitParams,
+        params: HelperStopParams,
     ) -> Result<(), DriverError> {
         self.stopped_helpers.stop(
             params.session_id,

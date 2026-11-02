@@ -40,7 +40,7 @@ use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
-    FindTakenMessagesParams, HelperTokenLimitParams, InterruptRunRequest, OverrideDenialParams,
+    FindTakenMessagesParams, HelperStopParams, InterruptRunRequest, OverrideDenialParams,
     PauseRunParams, PickedSkill, ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams,
     WithdrawQueuedMessageResult,
 };
@@ -435,7 +435,7 @@ pub trait ProviderDriver: Send + Sync {
     /// [`HelperStopReason::TokenLimit`]: crate::driver::run_control::HelperStopReason::TokenLimit
     fn stop_helper_at_token_limit(
         &self,
-        params: HelperTokenLimitParams,
+        params: HelperStopParams,
     ) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// The output-speed state the provider last declared for the session's live binding, as sent;
