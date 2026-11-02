@@ -176,7 +176,7 @@ mod tests {
     use super::{ClaudePurgePlace, purge_claude_conversations};
     use crate::driver::claude::session::conversation_home::claude_conversation_home_metadata;
     use crate::driver::claude::session::rules::ClaudeProjectFolder;
-    use crate::driver::session_control::{PurgeSessionParams, PurgedConversation};
+    use crate::driver::session_control::{PurgeSessionParams, SessionConversation};
 
     const CONVERSATION: &str = "3f1c0d4e-0000-4000-8000-000000000001";
 
@@ -209,7 +209,7 @@ mod tests {
         let params = PurgeSessionParams {
             session_id: SessionId::try_from(sidekicks_contracts::wire::id::mint_uuid_v7())
                 .expect("a minted UUID is a session id"),
-            conversations: vec![PurgedConversation {
+            conversations: vec![SessionConversation {
                 resume_handle: CONVERSATION.to_owned(),
                 provider_account_id: to,
                 runtime_metadata: claude_conversation_home_metadata(&home_a),

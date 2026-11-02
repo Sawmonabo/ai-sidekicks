@@ -7,7 +7,6 @@ use std::collections::HashSet;
 use std::io;
 use std::path::Path;
 
-use serde_json::Value;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::capabilities::ProviderMode;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
@@ -17,24 +16,19 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_platforms::PathRules;
 use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::settle_all::{SettleFailures, settle_all};
+use sidekicks_std::settle_all::SettleFailures;
 use strum::VariantArray;
 
 use crate::driver::CommandSandboxAvailability;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::session::errors::{ClaudeSessionError, record_unheard_claude_failure};
 use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
-use crate::driver::claude::session::ignored_settings::{
-    ClaudeSettingsReadError, find_claude_setting, read_claude_managed_setting,
-};
 use crate::driver::claude::session::permissions::{
     ClaudePermissionsError, compose_live_claude_permissions,
 };
-use crate::driver::claude::session::rules::{
-    CLAUDE_SHARED_SETTINGS_FILE, ClaudeProjectFolder, local_settings_path,
-    resolve_claude_local_settings_file, settings_path,
+use crate::driver::claude::session::settings_file::{
+    ClaudeSettingsReadError, ClaudeSettingsSource, ClaudeSettingsSources, read_claude_setting,
 };
-use crate::driver::claude::session::settings_file::read_claude_settings_file;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeFlagSettings, ClaudePermissionMode,
@@ -47,18 +41,6 @@ use crate::driver::session_control::{UpdatePermissionLevelParams, permission_lev
 // The key a session's starting mode is read from.
 const DEFAULT_MODE_KEY_PATH: [&str; 2] = ["permissions", "defaultMode"];
 
-/// Which settings file set the session's starting mode: Claude Code takes some modes only from a
-/// file the person or an administrator controls, never from the project's own.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ClaudeSettingsSource {
-    /// An administrator's managed file.
-    Managed,
-    /// The project's local or shared file.
-    Project,
-    /// The person's own file.
-    Person,
-}
-
 /// The level and mode a new session starts at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ClaudeStartingLevel {
@@ -66,21 +48,6 @@ pub(crate) struct ClaudeStartingLevel {
     pub(crate) level: PermissionLevel,
     /// Plan where Claude Code itself would start planning, else Build.
     pub(crate) session_mode: SessionMode,
-}
-
-/// Where a new session's starting mode is read from: the managed folder, the session's working
-/// folder and the person's own home, never an account home the daemon made.
-pub(crate) struct ClaudeStartingLevelSources<'a> {
-    /// The folder Claude Code reads an administrator's settings from; `None` where it names none.
-    pub(crate) managed_settings_folder: Option<&'a Path>,
-    /// The session's working folder, with what Claude Code reads to place its local settings.
-    pub(crate) project_folder: &'a ClaudeProjectFolder<'a>,
-    /// The person's own home folder.
-    pub(crate) home_folder: &'a Path,
-    /// The account home's own settings file, `settings.json` in its config folder.
-    pub(crate) account_settings_file: &'a Path,
-    /// How the place the session runs in spells paths.
-    pub(crate) path_rules: PathRules,
 }
 
 /// Why a live level move was refused or failed.
@@ -320,67 +287,19 @@ fn level_request_failure(error: ClaudeSessionError) -> ClaudeLevelMoveError {
 /// own; `can_run` answers whether the session's provider, account and model run a level. Fails
 /// with every settings file that could not be read, since it may have set the mode.
 pub(crate) async fn read_claude_starting_level(
-    sources: &ClaudeStartingLevelSources<'_>,
+    sources: &ClaudeSettingsSources<'_>,
     can_run: impl Fn(PermissionLevel) -> bool,
 ) -> Result<ClaudeStartingLevel, SettleFailures<ClaudeSettingsReadError>> {
-    if let Some(managed_settings_folder) = sources.managed_settings_folder {
-        let managed =
-            read_claude_managed_setting(managed_settings_folder, &DEFAULT_MODE_KEY_PATH, |value| {
-                value.as_str().map(str::to_owned)
-            })
-            .await;
-        settle_all(
-            managed
-                .failures
-                .into_iter()
-                .map(Err)
-                .collect::<Vec<Result<(), _>>>(),
-            "reading Claude Code's managed settings",
-        )?;
-        if let Some(setting) = managed.deciding {
-            return Ok(claude_starting_level(
-                Some((ClaudeSettingsSource::Managed, &setting.value)),
-                can_run,
-            ));
-        }
-    }
-    let working_folder = sources.project_folder.working_folder;
-    let local_settings = resolve_claude_local_settings_file(
-        sources.project_folder,
-        sources.home_folder,
-        sources.path_rules,
-    )
-    .path;
-    let working_local_settings = local_settings_path(working_folder);
-    let mut files = vec![(ClaudeSettingsSource::Project, local_settings.clone())];
-    // Claude Code reads the folder's own local file too where it keeps the project's elsewhere.
-    if working_local_settings != local_settings {
-        files.push((ClaudeSettingsSource::Project, working_local_settings));
-    }
-    files.push((
-        ClaudeSettingsSource::Project,
-        settings_path(working_folder, CLAUDE_SHARED_SETTINGS_FILE),
-    ));
-    files.push((
-        ClaudeSettingsSource::Person,
-        sources.account_settings_file.to_path_buf(),
-    ));
-    for (source, file) in files {
-        let settings = read_claude_settings_file(&file).await.map_err(|failure| {
-            SettleFailures::One(ClaudeSettingsReadError {
-                path: file.clone(),
-                failure,
-            })
-        })?;
-        let mode = settings
+    let default_mode = read_claude_setting(sources, &DEFAULT_MODE_KEY_PATH, |value| {
+        value.as_str().map(str::to_owned)
+    })
+    .await?;
+    Ok(claude_starting_level(
+        default_mode
             .as_ref()
-            .and_then(|settings| find_claude_setting(settings, &DEFAULT_MODE_KEY_PATH))
-            .and_then(Value::as_str);
-        if let Some(mode) = mode {
-            return Ok(claude_starting_level(Some((source, mode)), can_run));
-        }
-    }
-    Ok(claude_starting_level(None, can_run))
+            .map(|(source, mode)| (*source, mode.as_str())),
+        can_run,
+    ))
 }
 
 // The level and mode `default_mode` starts a session at, from the file that set it, moved to the
@@ -435,7 +354,8 @@ mod tests {
     use rstest::rstest;
     use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 
-    use super::{ClaudeSettingsSource, claude_starting_level};
+    use super::claude_starting_level;
+    use crate::driver::claude::session::settings_file::ClaudeSettingsSource;
 
     // Killed by honoring `bypassPermissions` or `auto` from a project's own files, which would
     // let a cloned repository start a session unasked, by dropping plan mode, by moving to a less

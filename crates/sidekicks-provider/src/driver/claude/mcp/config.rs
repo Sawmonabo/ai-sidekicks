@@ -31,12 +31,10 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::credentials::{
     CONFIG_FOLDER_VARIABLE, CUSTOM_SIGN_IN_HOST_VARIABLE,
 };
-use crate::driver::claude::session::ignored_settings::{
-    ClaudeSettingsReadError, find_claude_setting, list_managed_settings_files,
-};
 use crate::driver::claude::session::rules::compose_claude_tool_server_name;
 use crate::driver::claude::session::settings_file::{
-    is_unreadable_path, read_claude_settings_file,
+    ClaudeSettingsReadError, find_claude_setting, is_unreadable_path, list_managed_settings_files,
+    read_claude_settings_file,
 };
 use crate::driver::mcp_server::address::{ServerAddressIdentity, read_server_address};
 use crate::driver::mcp_server::read::McpServerPolicy;
