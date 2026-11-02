@@ -1,13 +1,15 @@
 //! The wake helper's install and removal: its program copied to one fixed path, its legacy property
 //! list in `/Library/LaunchDaemons` naming that path and keeping the helper's standard error in a
 //! log, both put in place and loaded into launchd's system domain, or unloaded and removed, as
-//! root behind one administrator prompt.
+//! root behind one administrator prompt. Root installs only what it staged in a folder of its own:
+//! the program copied there and checked against the hash the service took of it, and the list
+//! written there from its text, so no file the user can still change is what root installs.
 
 use std::ffi::{OsStr, OsString};
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
+use sha2::{Digest as _, Sha256};
 use sidekicks_contracts::app_identity::APP_BUNDLE_IDENTIFIER;
 
 use super::program::WAKE_HELPER_SOCKET_PATH;
@@ -29,13 +31,30 @@ const SYSTEM_LIST_FOLDER: &str = "/Library/LaunchDaemons";
 // The shell each root step runs in, its values passed as the shell's own arguments.
 const SHELL_PROGRAM: &str = "/bin/sh";
 
-// The install's root step: the program's folder made (`$1`), the program (`$2`) copied into place
-// (`$3`) and the list from its private temporary file (`$4`) into place (`$5`), each owned by root
-// as launchd requires, any helper loaded before (`$6`) unloaded, waiting for it to exit, an exit
-// status of `$7` meaning none was loaded, then the list loaded into the system domain.
+// The install's staging, its first part: a folder only its owner (root) can reach made in the
+// system's temporary folder and removed when the step ends, the program (`$2`) copied into it and
+// its SHA-256 checked against `$8`, the hash the service took, and the list's text (`$4`) written
+// into it.
+macro_rules! stage_step {
+    () => {
+        concat!(
+            r#"staging="$(/usr/bin/mktemp -d /private/tmp/sidekicks-wake-helper.XXXXXXXX)" && "#,
+            r#"trap '/bin/rm -rf "$staging"' EXIT && /bin/cp "$2" "$staging/program" && "#,
+            r#"/usr/bin/printf '%s  %s\n' "$8" "$staging/program" | "#,
+            r#"/usr/bin/shasum -a 256 -c -s && /usr/bin/printf '%s' "$4" > "$staging/list" && "#,
+        )
+    };
+}
+
+// The install's root step: the staging, then the program's folder made (`$1`), the staged program
+// put in place (`$3`) and the staged list in place (`$5`), each owned by root as launchd requires,
+// any helper loaded before (`$6`) unloaded, waiting for it to exit, an exit status of `$7` meaning
+// none was loaded, then the list loaded into the system domain.
 const INSTALL_STEP: &str = concat!(
-    r#"/bin/mkdir -p "$1" && /usr/bin/install -o root -g wheel -m 755 "$2" "$3" && "#,
-    r#"/usr/bin/install -o root -g wheel -m 644 "$4" "$5" && "#,
+    stage_step!(),
+    r#"/bin/mkdir -p "$1" && "#,
+    r#"/usr/bin/install -o root -g wheel -m 755 "$staging/program" "$3" && "#,
+    r#"/usr/bin/install -o root -g wheel -m 644 "$staging/list" "$5" && "#,
     r#"{ /bin/launchctl bootout --wait "$6" || test $? -eq "$7"; } && "#,
     r#"/bin/launchctl bootstrap system "$5""#,
 );
@@ -71,9 +90,10 @@ fn wake_helper_label() -> String {
     format!("{APP_BUNDLE_IDENTIFIER}.wake-helper")
 }
 
-/// Installs `helper_program` at the helper's path with its property list and loads it, as root
-/// behind the administrator prompt. Fails as the prompt fails, and with [`WakeHelperError::File`]
-/// when the list's temporary file cannot be written.
+/// Installs `helper_program`, as it reads now, at the helper's path with its property list and
+/// loads it, as root behind the administrator prompt; a program changed after that read is refused
+/// by the prompt's step. Fails as the prompt fails, and with [`WakeHelperError::File`] when the
+/// program cannot be read or the list cannot be written.
 pub(crate) async fn install(
     spawner: &Spawner,
     helper_program: &Path,
@@ -86,7 +106,15 @@ pub(crate) async fn install(
         keep_alive: true,
         standard_error_path: WAKE_HELPER_LOG_PATH,
     };
-    let list_file = write_private_list(&list)?;
+    let list_contents = list_text(&list)?;
+    let program =
+        tokio::fs::read(helper_program)
+            .await
+            .map_err(|source| WakeHelperError::File {
+                path: helper_program.to_owned(),
+                source,
+            })?;
+    let program_hash = OsString::from(sha256_hex(&program));
     let program_folder = Path::new(WAKE_HELPER_PROGRAM_PATH)
         .parent()
         .expect("the helper's path names its folder");
@@ -101,10 +129,11 @@ pub(crate) async fn install(
         program_folder.as_os_str(),
         helper_program.as_os_str(),
         OsStr::new(WAKE_HELPER_PROGRAM_PATH),
-        list_file.path().as_os_str(),
+        OsStr::new(&list_contents),
         list_path.as_os_str(),
         &service_target,
         &not_loaded_status,
+        &program_hash,
     ];
     run_behind_administrator_prompt(spawner, "install the wake helper", &command)
         .await
@@ -148,22 +177,70 @@ fn not_loaded_status() -> OsString {
     OsString::from(libc::ESRCH.to_string())
 }
 
-// Writes `list` to a new temporary file readable by this account alone, removed when dropped.
-fn write_private_list(list: &WakeHelperList) -> Result<tempfile::NamedTempFile, WakeHelperError> {
-    let write_failure = |path: PathBuf| move |source| WakeHelperError::File { path, source };
+// The text of `list` as its property list file holds it.
+fn list_text(list: &WakeHelperList) -> Result<String, WakeHelperError> {
     let mut contents = Vec::new();
-    plist::to_writer_xml(&mut contents, list).map_err(|source| WakeHelperError::File {
+    plist::to_writer_xml(&mut contents, list).map_err(unwritable_list)?;
+    String::from_utf8(contents).map_err(unwritable_list)
+}
+
+// The list's file failure for `source`, why its text could not be made.
+fn unwritable_list(source: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> WakeHelperError {
+    WakeHelperError::File {
         path: wake_helper_list_path(),
         source: std::io::Error::new(std::io::ErrorKind::InvalidInput, source),
-    })?;
-    let mut list_file = tempfile::Builder::new()
-        .prefix(&wake_helper_label())
-        .suffix(".plist")
-        .tempfile()
-        .map_err(write_failure(std::env::temp_dir()))?;
-    list_file
-        .write_all(&contents)
-        .and_then(|()| list_file.flush())
-        .map_err(write_failure(list_file.path().to_owned()))?;
-    Ok(list_file)
+    }
+}
+
+// The SHA-256 of `bytes` in lowercase hex, as `shasum` writes it.
+fn sha256_hex(bytes: &[u8]) -> String {
+    base16ct::lower::encode_string(&Sha256::digest(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use std::process::{Command, Output};
+
+    use super::sha256_hex;
+
+    // Runs the install's staging over `program` with `hash` as the hash the service took, then
+    // prints what it staged: the program, then the list.
+    fn stage(program: &Path, hash: &str) -> Output {
+        Command::new("/bin/sh")
+            .arg("-c")
+            .arg(concat!(
+                stage_step!(),
+                r#"/bin/cat "$staging/program" "$staging/list""#
+            ))
+            .arg("sh")
+            .arg("/unused")
+            .arg(program)
+            .arg("/unused")
+            .arg("<plist/>")
+            .args(["/unused", "/unused", "/unused", hash])
+            .output()
+            .expect("the shell runs")
+    }
+
+    /// Root goes on only with the staged copy whose hash is the one the service took, so a program
+    /// changed after the service read it stops the install before anything is placed. Mutation:
+    /// drop the hash check from the staging.
+    #[test]
+    fn the_staging_refuses_a_program_changed_after_its_hash_was_taken() {
+        let folder = tempfile::tempdir().expect("the test's temporary folder is made");
+        let program = folder.path().join("sidekicks-wake-helper");
+        let read = b"the helper the service read";
+        std::fs::write(&program, read).expect("the test writes the program");
+        let hash = sha256_hex(read);
+
+        let staged = stage(&program, &hash);
+        assert!(staged.status.success(), "{staged:?}");
+        assert_eq!(staged.stdout, b"the helper the service read<plist/>");
+
+        std::fs::write(&program, b"a program put in its place").expect("the test swaps it");
+        let refused = stage(&program, &hash);
+        assert!(!refused.status.success(), "the changed program was staged");
+        assert!(refused.stdout.is_empty(), "the step went on: {refused:?}");
+    }
 }
