@@ -54,6 +54,19 @@ static SUPERSEDE_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// Puts a handed-off plan whose fresh session went before its first turn back up to wait, holding
+// no request, its verdict cleared.
+static WAIT_AGAIN_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE plans
+  SET state = '{waiting}', holds_request = 0, fresh_session_id = NULL, resolved_by = NULL,
+      resolved_at = NULL
+  WHERE id = @planId AND state = '{handed_off}'",
+        waiting = <&'static str>::from(PlanState::Waiting),
+        handed_off = <&'static str>::from(PlanState::HandedOff)
+    )
+});
+
 // Settles a waiting plan with a verdict.
 static SETTLE_VERDICT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -117,16 +130,17 @@ pub(crate) fn insert_plan_statement(
     }
 }
 
-/// Reopens `plan_id` as its hold ended for `reason`: a newer plan's supersede reopens it whether or
-/// not it holds a request, every other end only while it waits on a request its driver holds.
-/// Refused unless the plan waits as its reason needs.
+/// Ends `plan_id`'s hold for `reason`: a newer plan's supersede reopens it whether or not it holds
+/// a request, a fresh session gone puts the handed-off plan back up to wait, and every other end
+/// reopens it only while it waits on a request its driver holds. Refused unless the plan stands as
+/// its reason needs.
 pub(crate) fn hold_end_statement(plan_id: &PlanId, reason: PlanHoldEndedReason) -> WriteStatement {
     let sql = match reason {
         PlanHoldEndedReason::Superseded => SUPERSEDE_SQL.as_str(),
+        PlanHoldEndedReason::FreshSessionGone => WAIT_AGAIN_SQL.as_str(),
         PlanHoldEndedReason::Interrupted
         | PlanHoldEndedReason::Withdrawn
-        | PlanHoldEndedReason::RunEnded
-        | PlanHoldEndedReason::FreshSessionGone => END_HOLD_SQL.as_str(),
+        | PlanHoldEndedReason::RunEnded => END_HOLD_SQL.as_str(),
     };
     WriteStatement {
         sql: Cow::Borrowed(sql),

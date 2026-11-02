@@ -1,6 +1,6 @@
 //! The plan record over the artifact test store: a plan's one write, its place in the artifact
-//! list, the newer plan's supersede of the older, and each way a held request ends with no
-//! verdict.
+//! list, the newer plan's supersede of the older, each way a held request ends with no verdict,
+//! and a hand-off whose fresh session went putting its plan back up.
 
 use std::sync::Arc;
 
@@ -8,9 +8,11 @@ use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::artifacts::operations::ArtifactListEntry;
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::plan::{PlanHoldEndedReason, PlanId, PlanState};
+use sidekicks_contracts::plan::{PlanHandedOffPayload, PlanHoldEndedReason, PlanId, PlanState};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_provider::port::plan::{ProviderPlan, ProviderPlanHoldEnd};
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_session::directory::run_activity::session_activity_sql;
@@ -20,12 +22,13 @@ use sidekicks_session::run::state_change::{RunStateChange, RunStateChangeCompani
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::events::log_service::EventReadAfterCursorRequest;
 use sidekicks_store::events::projection::SessionProjection as _;
+use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventLinkage};
 use tempfile::TempDir;
 
 use super::test_fixture::Fixture;
 use crate::list::list_artifacts;
 use crate::plans::projection::PlansProjection;
-use crate::plans::store::StoredPlanHolds;
+use crate::plans::store::{StoredPlanHolds, hold_end_write, settle_verdict_statement};
 use crate::test_store::ArtifactTestStore;
 
 // A plan is kept as a `summary` artifact naming it, and `artifact.published` and the
@@ -325,6 +328,65 @@ async fn a_newer_plan_supersedes_the_older_waiting_one_in_its_own_write() {
         fixture
             .store
             .read_rows(plan_states_sql, fixture.store.session_id.text().as_str()),
+        live
+    );
+}
+
+// A handed-off plan whose fresh session went before its first turn waits again, holding no
+// request, live and on rebuild. Killed by every hold's end read through the held request's
+// statement, which reopens a plan only while it waits.
+#[tokio::test]
+async fn a_hand_off_whose_fresh_session_went_puts_its_plan_back_up() {
+    let fixture = Fixture::new().await;
+    let session_id = fixture.store.session_id;
+    let plan_id = fixture.take(true).await;
+    let fresh_session_id = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID");
+    let device_id = DeviceId::new("device-1".to_owned()).expect("a test device id");
+    let handed_off = SessionEventDraft::of_session(
+        session_id,
+        &SessionEvent::PlanHandedOff(PlanHandedOffPayload {
+            plan_id,
+            session_id,
+            fresh_session_id,
+            device_id: device_id.clone(),
+        }),
+    )
+    .expect("a plan.handedOff payload names only checked ids");
+    let verdict = settle_verdict_statement(
+        &plan_id,
+        PlanState::HandedOff,
+        Some(&fresh_session_id),
+        &device_id,
+        &WireInstant::now(),
+    );
+    let (statement, ended) =
+        hold_end_write(session_id, plan_id, PlanHoldEndedReason::FreshSessionGone);
+    for (event, statement) in [(handed_off, verdict), (ended, statement)] {
+        fixture
+            .store
+            .appender
+            .append(
+                event,
+                SessionEventLinkage {
+                    transactional_prelude: vec![statement],
+                    ..SessionEventLinkage::default()
+                },
+            )
+            .await
+            .expect("the plan's event is written");
+    }
+    let plan_row_sql = "SELECT state || ' ' || holds_request || ' ' || \
+        coalesce(fresh_session_id, '-') FROM plans WHERE id = ?1";
+
+    let live = fixture
+        .store
+        .read_rows(plan_row_sql, plan_id.text().as_str());
+    assert_eq!(live, ["waiting 0 -"]);
+    rebuild_plans(&fixture).await;
+    assert_eq!(
+        fixture
+            .store
+            .read_rows(plan_row_sql, plan_id.text().as_str()),
         live
     );
 }
