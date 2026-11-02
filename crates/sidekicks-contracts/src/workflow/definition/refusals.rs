@@ -143,6 +143,23 @@ pub struct WorkflowNodeHandles {
     pub outputs: Vec<WorkflowOutputHandleSpec>,
 }
 
+impl WorkflowNodeHandles {
+    /// Where the handle an edge names `handle_id` sits among the node's handles on `mode`'s side,
+    /// tool handles included, or `None` when the node declares no such handle there.
+    pub fn declared_position(&self, handle_id: &str, mode: WorkflowHandleMode) -> Option<usize> {
+        match mode {
+            WorkflowHandleMode::Inputs => self
+                .inputs
+                .iter()
+                .position(|spec| spec.id_text() == handle_id),
+            WorkflowHandleMode::Outputs => self
+                .outputs
+                .iter()
+                .position(|spec| spec.id_text() == handle_id),
+        }
+    }
+}
+
 /// The graph check's arguments as the builder sends them: the document's trigger, its other nodes
 /// and edges, and each node's handles by node id, built from the kinds table.
 #[derive(Clone, Debug, PartialEq, Deserialize, JsonSchema)]
@@ -639,16 +656,8 @@ fn is_declared_handle(
     mode: WorkflowHandleMode,
     handles: Option<&WorkflowNodeHandles>,
 ) -> bool {
-    let is_listed = handles.is_none_or(|handles| match mode {
-        WorkflowHandleMode::Inputs => handles
-            .inputs
-            .iter()
-            .any(|spec| spec.id_text() == handle_id),
-        WorkflowHandleMode::Outputs => handles
-            .outputs
-            .iter()
-            .any(|spec| spec.id_text() == handle_id),
-    });
+    let is_listed =
+        handles.is_none_or(|handles| handles.declared_position(handle_id, mode).is_some());
     handle.is_type_known && handle.mode == mode && is_listed
 }
 
