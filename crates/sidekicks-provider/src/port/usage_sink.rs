@@ -112,9 +112,8 @@ pub trait UsageSink: Send + Sync {
     /// Records one priced request: one `usage.cost.updated` per account its rows name, in the
     /// order the accounts first appear, each naming that account's rows and their sum, on the
     /// session with no binding, so a request priced after its run ended is still recorded. The
-    /// request's events are written together or not at all, so a failed request is retried whole.
-    /// A request with no rows records nothing. Fails as a sum passes the wire's integer or the
-    /// events cannot be written.
+    /// request's events are written together or not at all. A request with no rows records
+    /// nothing. Fails as a sum passes the wire's integer or the events cannot be written.
     fn record_cost(
         &self,
         request: PricedRequest,

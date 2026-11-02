@@ -1,3 +1,5 @@
+mod cost;
+
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -53,8 +55,6 @@ use crate::run::epochs::{EpochBinding, ExecutionEpochs};
 use crate::run::inbound::tests::UnreadRunStates;
 use crate::run::inbound::{InboundDispatchError, RunInboundDispatch};
 use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
-
-mod cost;
 
 const ACCOUNT: &str = "account-1";
 

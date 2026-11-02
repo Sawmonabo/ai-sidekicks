@@ -70,7 +70,8 @@ pub struct RefusedPriceField {
 pub struct DecodedPriceTable {
     /// The selected rows' exact rates.
     pub table: PriceTable,
-    /// The fields whose values were refused, each absent from its row.
+    /// The fields whose values were refused, each absent from its row unless a later repeat of
+    /// the field in that row was kept.
     pub refused_fields: Vec<RefusedPriceField>,
 }
 
