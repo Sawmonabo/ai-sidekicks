@@ -421,6 +421,7 @@ impl ClaudeDriver {
                 Arc::clone(&dialogs),
                 Arc::clone(&requests),
                 Arc::clone(&helper_steers),
+                Arc::clone(&pauses),
             ));
             let session_controls = Arc::new(ClaudeSessionControls::new(
                 run_start.clone(),

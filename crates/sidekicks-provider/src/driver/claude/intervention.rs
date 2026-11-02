@@ -10,6 +10,9 @@
 //! answers, then delivered `interrupted`. An interrupt whose choice takes waiting messages back
 //! asks Claude Code to drop the ones it holds and answers their ids, on a build that can; one that
 //! cannot answers `Degraded` with the plain interrupt as its fallback.
+//!
+//! An interrupt on a helper's run holds that helper at its next tool call and stops the commands it
+//! runs, its lead going on.
 
 mod held_steers;
 mod steers;
@@ -29,7 +32,9 @@ use crate::driver::claude::delivery::requests::ClaudeInboundRequests;
 use crate::driver::claude::delivery::stream::ClaudeSessionStream;
 use crate::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
+use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::run::controls::{ClaudeChoiceSettling, settle_claude_choice};
+use crate::driver::claude::run::routes::{ClaudeChildRunRoute, ClaudeRunRoute};
 use crate::driver::claude::run::start::{ClaudeRunStart, claude_session_unavailable};
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, ClaudeUnansweredCause,
@@ -149,17 +154,21 @@ pub(crate) struct ClaudeInterventions {
     // Each session's steers, in the order handed over: a fair lock, which waiters take in the
     // order they first asked.
     steer_order: Mutex<HashMap<SessionId, Arc<tokio::sync::Mutex<()>>>>,
+    // Every session's pauses, which hold a helper an interrupt names.
+    pauses: Arc<Mutex<ClaudeRunPauses>>,
 }
 
 impl ClaudeInterventions {
     /// Interventions starting next turns through `start`, settling choices through `dialogs`,
-    /// holding a `Send now` while `requests` holds an ask open, and reaching helpers through
-    /// `helper_steers`, which the session's hooks fill.
+    /// holding a `Send now` while `requests` holds an ask open, reaching helpers through
+    /// `helper_steers`, which the session's hooks fill, and holding an interrupted helper through
+    /// `pauses`.
     pub(crate) fn new(
         start: ClaudeRunStart,
         dialogs: Arc<ClaudeProviderDialogs<ClaudeStreamDialogPorts>>,
         requests: Arc<ClaudeInboundRequests>,
         helper_steers: Arc<Mutex<ClaudeHelperSteers>>,
+        pauses: Arc<Mutex<ClaudeRunPauses>>,
     ) -> Self {
         Self {
             writer: ClaudeSteerWriter {
@@ -171,6 +180,7 @@ impl ClaudeInterventions {
             helper_steers,
             routing_bands: Mutex::new(HashMap::new()),
             steer_order: Mutex::new(HashMap::new()),
+            pauses,
         }
     }
 
@@ -259,6 +269,9 @@ impl ClaudeInterventions {
         if routes.stop_apart_run(run_id, true) {
             return Ok(applied());
         }
+        if let Some(ClaudeRunRoute::Child(route)) = routes.route_of(run_id) {
+            return self.interrupt_helper(run_id, &route).await;
+        }
         let live = self.writer.start.live_session_for_run(run_id)?;
         let session_id = live.session_id;
         let stream = self.writer.start.streams.get(session_id);
@@ -329,6 +342,69 @@ impl ClaudeInterventions {
             self.writer.write_released(&live, held, false).await;
         }
         Ok(response)
+    }
+
+    // Interrupts a helper's run alone: the helper is held at its next tool call, as a pause holds
+    // it, and each command it runs is stopped, all at once; the lead's turn goes on. Claude Code's
+    // refusal of a stop names a task it no longer holds, so that command no longer runs; any other
+    // failed stop answers `Degraded`, since not every command could be stopped.
+    async fn interrupt_helper(
+        &self,
+        run_id: RunId,
+        route: &ClaudeChildRunRoute,
+    ) -> Result<ApplyInterventionResponse, DriverError> {
+        let live = self.writer.start.live_session(route.session_id)?;
+        if settle_claude_choice(
+            &self.writer.dialogs,
+            &live,
+            run_id,
+            ClaudeChoiceSettling::Interrupt,
+        )
+        .await?
+        {
+            return Ok(applied());
+        }
+        lock(&self.pauses).hold_interrupted_helper(&route.session_id, &route.agent_id);
+        let command_ids = self
+            .writer
+            .start
+            .streams
+            .get(route.session_id)
+            .map_or_else(Vec::new, |stream| stream.command_ids_of_run(run_id));
+        let stops = command_ids.into_iter().map(|task_id| {
+            let live = &live;
+            async move {
+                let stopped = live
+                    .channel
+                    .send_control_request(ClaudeControlRequest::StopTask {
+                        task_id: task_id.clone(),
+                    })
+                    .await;
+                match stopped {
+                    Ok(_) | Err(ClaudeSessionError::ControlRequestRefused { .. }) => true,
+                    Err(error) => {
+                        tracing::warn!(
+                            session_id = %live.session_id,
+                            task_id,
+                            error = &error as &(dyn std::error::Error + 'static),
+                            "a command of an interrupted Claude Code helper could not be stopped"
+                        );
+                        false
+                    }
+                }
+            }
+        });
+        let is_every_command_stopped = futures::future::join_all(stops)
+            .await
+            .into_iter()
+            .all(|is_stopped| is_stopped);
+        if is_every_command_stopped {
+            return Ok(applied());
+        }
+        Ok(ApplyInterventionResponse {
+            status: InterventionResultStatus::Degraded,
+            ..applied()
+        })
     }
 
     // Moves each helper the session's own thread waits on to the background, one request per

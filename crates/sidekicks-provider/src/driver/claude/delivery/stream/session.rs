@@ -178,6 +178,11 @@ impl ClaudeSessionStream {
         self.lock().command_tasks.held_command(task_id)
     }
 
+    /// The ids of the session's own running command tasks that belong to `run_id`.
+    pub(crate) fn command_ids_of_run(&self, run_id: RunId) -> Vec<String> {
+        self.lock().command_tasks.command_ids_of_run(run_id)
+    }
+
     /// Whether the lead `result` in `text` ends the session's turn, read on the process's reader.
     /// A `result` naming no steer written `now` while one waits is Claude Code's abort for that
     /// steer and ends nothing; one naming it ends the turn and settles the steer. A run with a
