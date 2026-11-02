@@ -70,7 +70,7 @@ pub enum TokenCustodyError {
     /// The keychain holds no token for the account.
     #[error("no token is sealed for the account")]
     NotSealed,
-    /// A re-supply named an account that signs in another way, which holds no sealed token.
+    /// A re-supply named an account that signs in another way than a pasted token or key.
     #[error("the account takes no pasted token")]
     NotTokenAccount,
     /// The keychain could not destroy the account's sealed token.
@@ -188,9 +188,10 @@ impl ProviderTokenCustody {
 
     /// Replaces `account_id`'s sealed token with `token` once the status read in `folders`
     /// accepts it, destroying the prior one, and raises the account's generation with that
-    /// reading. Fails with [`TokenCustodyError::NotTokenAccount`] for an account with no token
-    /// sealed, which signs in another way, before any read, so a re-supply never turns a sign-in
-    /// into a token under the services that run on it; with [`TokenCustodyError::NotAccepted`]
+    /// reading; a token account whose sealed token was lost takes the new one. Fails with
+    /// [`TokenCustodyError::NotTokenAccount`] for an account whose sign-in is no pasted token or
+    /// key, before any read, so a re-supply never turns a sign-in into a token under the services
+    /// that run on it; with [`TokenCustodyError::NotAccepted`]
     /// when the provider reports no signed-in mode, leaving the prior token and the row as they
     /// were; with [`TokenCustodyError::Sealing`] when the keychain refuses; and when the account
     /// is not registered or cannot be read or written.
@@ -201,10 +202,12 @@ impl ProviderTokenCustody {
         token: &SecretString,
     ) -> Result<RegisteredAccount, TokenCustodyError> {
         let account = self.registry.read(account_id).await?;
-        read_sealed_token(self.keychain.as_ref(), &account.account_id)
-            .await
-            .map_err(TokenCustodyError::Unsealing)?
-            .ok_or(TokenCustodyError::NotTokenAccount)?;
+        if !matches!(
+            account.observed_auth_mode,
+            Some(ProviderAuthMode::OauthToken | ProviderAuthMode::ApiKey)
+        ) {
+            return Err(TokenCustodyError::NotTokenAccount);
+        }
         let status_legs = self.status_legs(&account.provider)?;
         let (health, observed_auth_mode) =
             read_token_status(status_legs, &account.account_id, folders, token).await?;

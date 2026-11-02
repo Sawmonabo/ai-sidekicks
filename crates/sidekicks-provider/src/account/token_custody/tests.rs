@@ -465,12 +465,11 @@ async fn a_resupply_replaces_the_sealed_token_and_never_touches_the_home() {
     assert_eq!(snapshot(minted.home().path()), home_before);
 }
 
-/// A re-supply naming an account that signs in another way, with no token sealed, is refused
-/// `provider.account.notFound` before the provider reads the token: nothing is sealed and the
-/// account's generation and mode stay. Fails when the re-supply seals the pasted token over the
-/// account's own sign-in.
+/// A re-supply naming an account that signs in another way is refused `provider.account.notFound`
+/// before the provider reads the token: nothing is sealed and the account's generation and mode
+/// stay. Fails when the re-supply seals the pasted token over the account's own sign-in.
 #[tokio::test]
-async fn a_resupply_of_an_account_with_no_sealed_token_is_refused() {
+async fn a_resupply_of_an_account_that_signs_in_another_way_is_refused() {
     let fixture = Fixture::new().await;
     let minted = fixture.mint();
     let signed_in = fixture
@@ -514,4 +513,47 @@ async fn a_resupply_of_an_account_with_no_sealed_token_is_refused() {
         after.observed_auth_mode,
         Some(ProviderAuthMode::OauthSubscription)
     );
+}
+
+/// A token or key account whose sealed token was lost takes the re-supplied one, its only repair,
+/// and its generation rises. Fails when the re-supply is decided by whether a token is sealed
+/// rather than by the account's kind of sign-in.
+#[rstest]
+#[case::token(ProviderAuthMode::OauthToken)]
+#[case::key(ProviderAuthMode::ApiKey)]
+#[tokio::test]
+async fn a_token_account_with_no_sealed_token_takes_a_resupply(#[case] mode: ProviderAuthMode) {
+    let fixture = Fixture::new().await;
+    fixture.answer(StatusAnswer::Accepts(mode));
+    let minted = fixture.mint();
+    let account = fixture
+        .registry
+        .admit(
+            &minted,
+            &AccountAdmission {
+                display_label: Some(registration("Pasted").display_label),
+                billing_mode: BillingMode::Subscription,
+                health: None,
+                observed_auth_mode: Some(mode),
+            },
+        )
+        .await
+        .expect("the token account is admitted");
+
+    let replaced = fixture
+        .custody
+        .replace(
+            account.account_id.clone(),
+            &folders(&minted),
+            &secret("again"),
+        )
+        .await
+        .expect("the lost token is replaced");
+
+    assert_eq!(
+        fixture.keychain.held(),
+        BTreeMap::from([(account.account_id.as_str().to_owned(), "again".to_owned())])
+    );
+    assert_eq!(replaced.credential_generation.get(), 2);
+    assert_eq!(replaced.observed_auth_mode, Some(mode));
 }
