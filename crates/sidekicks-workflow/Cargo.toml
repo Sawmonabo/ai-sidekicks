@@ -54,6 +54,8 @@ sidekicks-store.workspace = true
 sidekicks-workspace.workspace = true
 tar.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
@@ -63,7 +65,6 @@ rstest.workspace = true
 sidekicks-store = { workspace = true, features = ["test-support"] }
 # The worktree rows the tests build on.
 sidekicks-workspace = { workspace = true, features = ["test-support"] }
-tokio.workspace = true
 uuid.workspace = true
 
 [features]

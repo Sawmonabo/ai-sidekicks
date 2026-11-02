@@ -4430,9 +4430,9 @@ dependencies = [
 
 [[package]]
 name = "jsonata-core"
-version = "2.2.11"
+version = "2.2.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44d9946b968389079628b69b33cdb7e9b63fa646a28a90c824e25f7abef2a1e8"
+checksum = "6de701a62371e0c409ebcd8ca21d17420a05bc547efd37aa750c32b64be14d98"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -9110,6 +9110,7 @@ dependencies = [
  "tar",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-util",
  "uuid",
  "zip",
 ]

@@ -256,7 +256,7 @@ image = { version = "0.25.10", default-features = false, features = ["gif", "jpe
 # A WebP's header read with its metadata bounded: `image`'s WebP decoder passes no memory limit.
 image-webp = "0.2.4"
 jiff = { version = "0.2.38", features = ["tzdb-bundle-always"] }
-jsonata-core = { version = "2.2.11", default-features = false }
+jsonata-core = { version = "2.2.13", default-features = false }
 jsonc-parser = { version = "0.34.0", features = ["cst"] }
 lettre.version = "0.11.23"
 lettre.default-features = false

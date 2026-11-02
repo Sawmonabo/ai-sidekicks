@@ -1,8 +1,8 @@
-//! The names a workflow expression reads, bound for one evaluation: the current item, the step's
-//! own input and each earlier node's items by label, the loop and item indexes, the run's one
-//! instant, the environment rows, the run's variables, and the run and workflow it belongs to.
-//! `jsonata-core` binds a value only into the `Context` an `Evaluator` is built with, so the
-//! bindings build the evaluator for each evaluation.
+//! The names a workflow expression reads: the current item, the step's own input and each earlier
+//! node's items by label, the loop and item indexes, the run's one instant, the environment rows,
+//! the run's variables, and the run and workflow it belongs to. What does not change per item is
+//! built once per step on the evaluator thread; `jsonata-core` binds a value only into the
+//! `Context` an `Evaluator` is built with, so each evaluation builds its own evaluator over it.
 
 #![cfg_attr(
     not(test),
@@ -12,16 +12,17 @@
     )
 )]
 
-use std::cell::RefCell;
+use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use jsonata_core::ast::{AstNode, PathStep, Stage};
 use jsonata_core::evaluator::{Context, Evaluator, EvaluatorError, EvaluatorOptions, HostFnResult};
-use jsonata_core::parser::parse;
-use jsonata_core::value::JValue;
+use jsonata_core::parser::{ParserError, parse};
+use jsonata_core::value::{JArray, JValue};
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::machine::settings::{
     EnvironmentNameRefusalReason, EnvironmentRow, environment_name_refusal,
@@ -33,6 +34,7 @@ use sidekicks_contracts::workflow::definition::document::{
 };
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use tokio::sync::oneshot::error::RecvError;
 
 use crate::definitions::kept_values::WorkflowKeptValue;
 use crate::expressions::key_order::to_jsonata_value;
@@ -43,36 +45,33 @@ use crate::runs::creation::WorkflowRunTrigger;
 /// `$fromMillis` reads them.
 const INSTANT_TEXT_CALL: &str = "$fromMillis($instantMillis, $picture, $timezone)";
 
-/// What one evaluation of an expression reads. The run's shared data is held by `Rc`, so the
-/// bindings of each item share it; nothing here outlives the run.
+/// What a step's expressions read, handed to the evaluator thread once when the step is
+/// dispatched. The run's shared data is held by `Arc`, so the steps of one run share it.
 pub(crate) struct ExpressionBindings {
-    /// The step the expression belongs to.
+    /// The step the expressions belong to.
     pub(crate) step: StepKey,
     /// The step's own input items.
-    pub(crate) input_items: Rc<[WorkflowItem]>,
+    pub(crate) input_items: Arc<[WorkflowItem]>,
     /// The run's steps so far and the index from each label to its node.
-    pub(crate) steps: Rc<StepOutputs>,
+    pub(crate) steps: Arc<StepOutputs>,
     /// Each node's params as the document stores them, by node id.
-    pub(crate) node_params: Rc<HashMap<WorkflowNodeId, JsonRecord>>,
+    pub(crate) node_params: Arc<HashMap<WorkflowNodeId, JsonRecord>>,
     /// The loop's run index, `$runIndex`.
     pub(crate) run_index: u64,
-    /// The current input item's index, `$itemIndex`.
-    pub(crate) item_index: usize,
-    /// The run's one instant, which `$now` and `$millis()` answer.
-    pub(crate) instant: Timestamp,
+    /// When the run started, the run's one instant: `$run.startedAt`, `$now`, `$millis()` and
+    /// `$today` all read it.
+    pub(crate) run_started_at: Timestamp,
     /// The machine's time zone, which dates `$today`.
     pub(crate) time_zone: TimeZone,
     /// The environment rows of the project the run works in; none when it works in no project's
     /// repository.
-    pub(crate) environment_rows: Rc<[EnvironmentRow]>,
+    pub(crate) environment_rows: Arc<[EnvironmentRow]>,
     /// The values this run set with `Set variables`.
-    pub(crate) run_variables: Rc<Map<String, Value>>,
+    pub(crate) run_variables: Arc<Map<String, Value>>,
     /// The values earlier runs kept, read where this run set none.
-    pub(crate) kept_values: Rc<[WorkflowKeptValue]>,
+    pub(crate) kept_values: Arc<[WorkflowKeptValue]>,
     /// The run's id.
     pub(crate) run_id: WorkflowRunId,
-    /// When the run started.
-    pub(crate) run_started_at: WireInstant,
     /// The trigger node that started the run.
     pub(crate) run_trigger: WorkflowRunTrigger,
     /// The workflow's id.
@@ -82,7 +81,8 @@ pub(crate) struct ExpressionBindings {
 }
 
 /// Why an expression has no value: a lineage or label failure of an item binding, a read of a
-/// credential's name through `$env`, or the evaluator's own failure.
+/// credential's name through `$env`, a part the parser refuses, the evaluator's own failure, the
+/// step's cancel, or the evaluator thread too busy or stopped to take the evaluation.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ExpressionError {
     /// `$item('<label>')`, or another binding naming a label, found no item.
@@ -96,46 +96,59 @@ pub(crate) enum ExpressionError {
         /// The name the expression read.
         name: String,
     },
+    /// A template's part does not parse, which the save check refuses before a run.
+    #[error("The expression {{{{ {part} }}}} doesn't parse: {error}")]
+    TemplateUnparsable {
+        /// The part's text, between its braces.
+        part: String,
+        /// The parser's refusal.
+        #[source]
+        error: ParserError,
+    },
     /// The evaluator refused or failed the expression.
     #[error(transparent)]
     Evaluation(#[from] EvaluatorError),
+    /// The step was canceled while this evaluation ran, or before it began.
+    #[error("The step was canceled while its expression was evaluated.")]
+    Canceled,
+    /// The evaluator thread already holds as many jobs waiting as its channel takes.
+    #[error("The expression thread has too many evaluations waiting.")]
+    EvaluatorBusy,
+    /// The evaluator thread stopped, which only a panic on it does, before it answered.
+    #[error("The expression thread stopped before it answered.")]
+    EvaluatorStopped(#[from] RecvError),
 }
 
-impl ExpressionBindings {
-    /// `expression`'s value against these bindings, evaluated under `options`. Fails with
-    /// [`ExpressionError::CredentialEnvironmentName`] before evaluating when the expression reads
-    /// `$env` by a credential's name, with [`ExpressionError::Lineage`] when an item binding found
-    /// no item, and with [`ExpressionError::Evaluation`] when the evaluator fails.
-    pub(crate) fn evaluate(
-        &self,
-        expression: &AstNode,
-        options: EvaluatorOptions,
-    ) -> Result<JValue, ExpressionError> {
-        if let Some(name) = credential_environment_name(expression) {
-            return Err(ExpressionError::CredentialEnvironmentName {
-                name: name.to_owned(),
-            });
-        }
-        let lineage_error = Rc::new(RefCell::new(None));
-        let mut evaluator = Evaluator::with_options(self.context(), options);
-        self.register(&mut evaluator, &lineage_error);
-        evaluator
-            .evaluate(expression, &JValue::Undefined)
-            .map_err(|error| match lineage_error.take() {
-                Some(lineage) => ExpressionError::Lineage(lineage),
-                None => ExpressionError::Evaluation(error),
-            })
-    }
+/// A step's bindings on the evaluator thread: every value that does not change per item, built
+/// once from the step's [`ExpressionBindings`], and its items converted once on first use.
+pub(crate) struct StepBindings {
+    /// What the item readers and `$params` read, shared by every evaluation of the step.
+    items: Rc<StepItems>,
+    /// `$runIndex`.
+    run_index: JValue,
+    /// `$now` read as a value: the run's instant in ISO 8601.
+    now: JValue,
+    /// `$today`.
+    today: JValue,
+    /// `$env`, credential-shaped rows left out.
+    environment: JValue,
+    /// `$vars`.
+    variables: JValue,
+    /// `$run`.
+    run: JValue,
+    /// `$workflow`.
+    workflow: JValue,
+    /// The run's instant in milliseconds, which `$millis()` answers.
+    instant_millis: i64,
+    /// [`INSTANT_TEXT_CALL`], parsed once for every `$now(...)` call of the step.
+    instant_text_call: Rc<AstNode>,
+}
 
-    /// The bindings read as values: `$json`, the indexes, `$now`, `$today`, `$env`, `$vars`,
-    /// `$run` and `$workflow`.
-    fn context(&self) -> Context {
-        // A step with no input item, such as one that always outputs data, reads `$json` as `{}`.
-        let item_json = self.input_items.get(self.item_index).map_or_else(
-            || to_jsonata_value(&json!({})),
-            |item| to_jsonata_value(&item.json.0),
-        );
-        let environment = self
+impl StepBindings {
+    /// The step's bindings, each constant value converted and [`INSTANT_TEXT_CALL`] parsed here,
+    /// once for all its items.
+    pub(crate) fn new(bindings: ExpressionBindings) -> Self {
+        let environment = bindings
             .environment_rows
             .iter()
             .filter(|row| !is_credential_name(row.name.as_str()))
@@ -146,49 +159,106 @@ impl ExpressionBindings {
                 )
             })
             .collect();
-        let mut variables: Map<String, Value> = self
+        let mut variables: Map<String, Value> = bindings
             .kept_values
             .iter()
             .map(|kept| (kept.name.clone(), kept.value.clone()))
             .collect();
         variables.extend(
-            self.run_variables
+            bindings
+                .run_variables
                 .iter()
                 .map(|(name, value)| (name.clone(), value.clone())),
         );
-        let today = self
-            .instant
-            .to_zoned(self.time_zone.clone())
+        let today = bindings
+            .run_started_at
+            .to_zoned(bindings.time_zone.clone())
             .date()
             .strftime("%Y-%m-%d")
             .to_string();
+        let instant_millis = bindings.run_started_at.as_millisecond();
+        let instant_text_call = parse(INSTANT_TEXT_CALL).expect("the instant's call is JSONata");
+        let now = instant_text(&instant_text_call, instant_millis, &[])
+            .expect("an instant formats with no picture");
+        Self {
+            run_index: JValue::from(bindings.run_index),
+            now,
+            today: JValue::string(today),
+            environment: JValue::object(environment),
+            variables: to_jsonata_value(&Value::Object(variables)),
+            run: to_jsonata_value(&json!({
+                "id": bindings.run_id,
+                "startedAt": WireInstant::from_timestamp(bindings.run_started_at),
+                "trigger": bindings.run_trigger,
+            })),
+            workflow: to_jsonata_value(
+                &json!({ "id": bindings.workflow_id, "name": bindings.workflow_name }),
+            ),
+            instant_millis,
+            instant_text_call: Rc::new(instant_text_call),
+            items: Rc::new(StepItems {
+                step: bindings.step,
+                input_items: bindings.input_items,
+                steps: bindings.steps,
+                node_params: bindings.node_params,
+                input_values: OnceCell::new(),
+                node_values: RefCell::new(HashMap::new()),
+            }),
+        }
+    }
 
+    /// `expression`'s value for input item `item_index`, evaluated under `options`. Fails with
+    /// [`ExpressionError::CredentialEnvironmentName`] before evaluating when the expression reads
+    /// `$env` by a credential's name, with [`ExpressionError::Lineage`] when an item binding found
+    /// no item, and with [`ExpressionError::Evaluation`] when the evaluator fails.
+    pub(crate) fn evaluate(
+        &self,
+        expression: &AstNode,
+        item_index: usize,
+        options: EvaluatorOptions,
+    ) -> Result<JValue, ExpressionError> {
+        if let Some(name) = credential_environment_name(expression) {
+            return Err(ExpressionError::CredentialEnvironmentName {
+                name: name.to_owned(),
+            });
+        }
+        let lineage_error = Rc::new(RefCell::new(None));
+        let mut evaluator = Evaluator::with_options(self.context(item_index), options);
+        self.register(&mut evaluator, item_index, &lineage_error);
+        evaluator
+            .evaluate(expression, &JValue::Undefined)
+            .map_err(|error| match lineage_error.take() {
+                Some(lineage) => ExpressionError::Lineage(lineage),
+                None => ExpressionError::Evaluation(error),
+            })
+    }
+
+    /// The bindings read as values for input item `item_index`: the step's constants cloned,
+    /// which shares them, and the item's `json` and index.
+    fn context(&self, item_index: usize) -> Context {
+        // A step with no input item, such as one that always outputs data, reads `$json` as `{}`.
+        let item_json = self
+            .items
+            .input_values()
+            .get(item_index)
+            .and_then(|item| {
+                if let JValue::Object(members) = item {
+                    members.get("json").cloned()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| to_jsonata_value(&json!({})));
         let mut context = Context::new();
         context.bind("json".to_owned(), item_json);
-        context.bind("runIndex".to_owned(), JValue::from(self.run_index));
-        context.bind("itemIndex".to_owned(), JValue::from(self.item_index));
-        context.bind(
-            "now".to_owned(),
-            instant_text(self.instant, &[]).expect("an instant formats with no picture"),
-        );
-        context.bind("today".to_owned(), JValue::string(today));
-        context.bind("env".to_owned(), JValue::object(environment));
-        context.bind(
-            "vars".to_owned(),
-            to_jsonata_value(&Value::Object(variables)),
-        );
-        context.bind(
-            "run".to_owned(),
-            to_jsonata_value(&json!({
-                "id": self.run_id,
-                "startedAt": self.run_started_at,
-                "trigger": self.run_trigger,
-            })),
-        );
-        context.bind(
-            "workflow".to_owned(),
-            to_jsonata_value(&json!({ "id": self.workflow_id, "name": self.workflow_name })),
-        );
+        context.bind("runIndex".to_owned(), self.run_index.clone());
+        context.bind("itemIndex".to_owned(), JValue::from(item_index));
+        context.bind("now".to_owned(), self.now.clone());
+        context.bind("today".to_owned(), self.today.clone());
+        context.bind("env".to_owned(), self.environment.clone());
+        context.bind("vars".to_owned(), self.variables.clone());
+        context.bind("run".to_owned(), self.run.clone());
+        context.bind("workflow".to_owned(), self.workflow.clone());
         context
     }
 
@@ -198,14 +268,12 @@ impl ExpressionBindings {
     fn register(
         &self,
         evaluator: &mut Evaluator,
+        item_index: usize,
         lineage_error: &Rc<RefCell<Option<LineageError>>>,
     ) {
         let reader = Rc::new(ItemReader {
-            step: self.step.clone(),
-            item_index: self.item_index,
-            input_items: Rc::clone(&self.input_items),
-            steps: Rc::clone(&self.steps),
-            node_params: Rc::clone(&self.node_params),
+            items: Rc::clone(&self.items),
+            item_index,
             lineage_error: Rc::clone(lineage_error),
         });
         for pick in [
@@ -222,11 +290,13 @@ impl ExpressionBindings {
         evaluator
             .register_fn("params", move |args: &[JValue]| reader.params(args))
             .expect("params is no built-in's name");
-        let instant = self.instant;
+        let call = Rc::clone(&self.instant_text_call);
+        let millis = self.instant_millis;
         evaluator
-            .register_fn_override("now", move |args: &[JValue]| instant_text(instant, args))
+            .register_fn_override("now", move |args: &[JValue]| {
+                instant_text(&call, millis, args)
+            })
             .expect("$now is a built-in the evaluator lets a host replace");
-        let millis = instant.as_millisecond();
         evaluator
             .register_fn_override("millis", move |args: &[JValue]| {
                 if args.is_empty() {
@@ -266,57 +336,96 @@ impl ItemPick {
     }
 }
 
-/// What the item readers and `$params` read, shared by the functions registered for one
-/// evaluation.
-struct ItemReader {
-    /// The step the expression belongs to.
+/// The items a step's expressions read, each set converted to evaluator values once, on first
+/// use, and shared by every later evaluation of the step.
+struct StepItems {
+    /// The step the expressions belong to.
     step: StepKey,
+    /// The step's own input items.
+    input_items: Arc<[WorkflowItem]>,
+    /// The run's steps so far.
+    steps: Arc<StepOutputs>,
+    /// Each node's params by id.
+    node_params: Arc<HashMap<WorkflowNodeId, JsonRecord>>,
+    /// The step's input items as evaluator values.
+    input_values: OnceCell<JArray>,
+    /// Each labeled node's items, as `$all('<label>')` reads them, as evaluator values.
+    node_values: RefCell<HashMap<WorkflowNodeId, JArray>>,
+}
+
+impl StepItems {
+    /// The step's input items as evaluator values, converted on the first call.
+    fn input_values(&self) -> &JArray {
+        self.input_values
+            .get_or_init(|| items_array(&self.input_items))
+    }
+
+    /// The items `$all('<label>')` reads of `node_id`: its latest execution's first output, as a
+    /// node read by label defaults to; empty while it has not run. Converted on the first call.
+    fn node_values(&self, node_id: &WorkflowNodeId) -> JArray {
+        self.node_values
+            .borrow_mut()
+            .entry(node_id.clone())
+            .or_insert_with(|| {
+                self.steps
+                    .latest_step(node_id)
+                    .and_then(|step| step.outputs.first())
+                    .map(Vec::as_slice)
+                    .map_or_else(JArray::default, items_array)
+            })
+            .clone()
+    }
+}
+
+/// What the item readers and `$params` of one evaluation read.
+struct ItemReader {
+    /// The step's items.
+    items: Rc<StepItems>,
     /// The current input item's index.
     item_index: usize,
-    /// The step's own input items.
-    input_items: Rc<[WorkflowItem]>,
-    /// The run's steps so far.
-    steps: Rc<StepOutputs>,
-    /// Each node's params by id.
-    node_params: Rc<HashMap<WorkflowNodeId, JsonRecord>>,
     /// Where a lineage or label failure is written for the caller.
     lineage_error: Rc<RefCell<Option<LineageError>>>,
 }
 
 impl ItemReader {
     /// `pick` over the step's own input when `args` is empty, else over the node `args` labels:
-    /// that node's latest execution, every output in handle order, and for `$item` the item the
-    /// current one came from. An absent first or last item is undefined.
+    /// that node's latest execution's first output, and for `$item` the item the current one
+    /// came from. An absent first or last item is undefined.
     fn items(&self, pick: ItemPick, args: &[JValue]) -> HostFnResult {
         let label = label_argument(pick.name(), args)?;
-        let items: Vec<&WorkflowItem> = match (label, pick) {
-            (None, ItemPick::Linked) => self.input_items.get(self.item_index).into_iter().collect(),
-            (None, ItemPick::All | ItemPick::First | ItemPick::Last) => {
-                self.input_items.iter().collect()
+        let items = match (label, pick) {
+            (None, ItemPick::Linked) => {
+                return Ok(self
+                    .items
+                    .input_values()
+                    .get(self.item_index)
+                    .cloned()
+                    .unwrap_or(JValue::Undefined));
             }
             (Some(label), ItemPick::Linked) => {
-                vec![
-                    walk_paired_item(&self.steps, &self.step, self.item_index, label)
-                        .map_err(|error| self.refuse(error))?,
-                ]
+                let item =
+                    walk_paired_item(&self.items.steps, &self.items.step, self.item_index, label)
+                        .map_err(|error| self.refuse(error))?;
+                return Ok(item_value(item));
+            }
+            (None, ItemPick::All | ItemPick::First | ItemPick::Last) => {
+                self.items.input_values().clone()
             }
             (Some(label), ItemPick::All | ItemPick::First | ItemPick::Last) => {
                 let node_id = self
+                    .items
                     .steps
                     .node_id(label)
                     .map_err(|error| self.refuse(error))?;
-                self.steps
-                    .latest_step(node_id)
-                    .map(|step| step.outputs.iter().flatten().collect())
-                    .unwrap_or_default()
+                self.items.node_values(node_id)
             }
         };
         let picked = match pick {
-            ItemPick::All => return Ok(JValue::array(items.into_iter().map(item_value).collect())),
+            ItemPick::All => return Ok(JValue::Array(items)),
             ItemPick::First | ItemPick::Linked => items.first(),
             ItemPick::Last => items.last(),
         };
-        Ok(picked.map_or(JValue::Undefined, |item| item_value(item)))
+        Ok(picked.cloned().unwrap_or(JValue::Undefined))
     }
 
     /// The params of the node `args` labels, as the document stores them.
@@ -327,10 +436,12 @@ impl ItemReader {
             ));
         };
         let node_id = self
+            .items
             .steps
             .node_id(label)
             .map_err(|error| self.refuse(error))?;
         Ok(self
+            .items
             .node_params
             .get(node_id)
             .map_or(JValue::Undefined, |params| {
@@ -361,29 +472,31 @@ fn label_argument<'args>(
     }
 }
 
+/// `items` as an evaluator array of [`item_value`]s.
+fn items_array(items: &[WorkflowItem]) -> JArray {
+    JArray::new(items.iter().map(item_value).collect())
+}
+
 /// `item` as the evaluator reads it: its `json`, `binary`, `pairedItem` and `error`.
 fn item_value(item: &WorkflowItem) -> JValue {
     to_jsonata_value(&serde_json::to_value(item).expect("an item writes as JSON"))
 }
 
-/// `instant` as `$fromMillis` writes it under `picture_and_zone`, jsonata's `$now(picture,
-/// timezone)`: ISO 8601 in UTC when both are absent.
-fn instant_text(instant: Timestamp, picture_and_zone: &[JValue]) -> HostFnResult {
+/// The instant `instant_millis` as `$fromMillis` writes it under `picture_and_zone`, jsonata's
+/// `$now(picture, timezone)`, through `call`, the parsed [`INSTANT_TEXT_CALL`]: ISO 8601 in UTC
+/// when both are absent.
+fn instant_text(call: &AstNode, instant_millis: i64, picture_and_zone: &[JValue]) -> HostFnResult {
     if picture_and_zone.len() > 2 {
         return Err(EvaluatorError::EvaluationError(
             "T0410: now() takes at most a picture and a timezone".to_owned(),
         ));
     }
     let mut context = Context::new();
-    context.bind(
-        "instantMillis".to_owned(),
-        JValue::from(instant.as_millisecond()),
-    );
+    context.bind("instantMillis".to_owned(), JValue::from(instant_millis));
     for (name, value) in ["picture", "timezone"].into_iter().zip(picture_and_zone) {
         context.bind(name.to_owned(), value.clone());
     }
-    let call = parse(INSTANT_TEXT_CALL).expect("the instant's call is JSONata");
-    Evaluator::with_context(context).evaluate(&call, &JValue::Undefined)
+    Evaluator::with_context(context).evaluate(call, &JValue::Undefined)
 }
 
 /// Whether `name` is shaped like a credential's, the rule a project's environment rows are saved
@@ -411,7 +524,6 @@ fn credential_environment_name(node: &AstNode) -> Option<&str> {
         | AstNode::ParentVariable(_)
         | AstNode::Wildcard
         | AstNode::Descendant
-        | AstNode::KeepArray
         | AstNode::Parent(_) => None,
         AstNode::Path { steps } => steps.iter().find_map(step_credential_environment_name),
         AstNode::Binary { lhs, rhs, .. } => {
@@ -442,9 +554,7 @@ fn credential_environment_name(node: &AstNode) -> Option<&str> {
         } => credential_environment_name(condition)
             .or_else(|| credential_environment_name(then_branch))
             .or_else(|| else_branch.as_deref().and_then(credential_environment_name)),
-        AstNode::Predicate(inner) | AstNode::FunctionApplication(inner) => {
-            credential_environment_name(inner)
-        }
+        AstNode::FunctionApplication(inner) => credential_environment_name(inner),
         AstNode::Sort { input, terms } => credential_environment_name(input).or_else(|| {
             terms
                 .iter()

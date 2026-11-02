@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
@@ -15,7 +15,7 @@ use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::trigger::WorkflowTriggerKind;
 
-use super::{ExpressionBindings, ExpressionError};
+use super::{ExpressionBindings, ExpressionError, StepBindings};
 use crate::definitions::kept_values::WorkflowKeptValue;
 use crate::expressions::lineage::{LineageError, StepKey, StepOutput, StepOutputs};
 use crate::runs::creation::WorkflowRunTrigger;
@@ -38,8 +38,7 @@ fn from_json<T: serde::de::DeserializeOwned>(json: Value) -> T {
     serde_json::from_value(json).expect("the fixture reads")
 }
 
-/// The step `current`, fed by `source`'s two items and evaluating its input item 1 in loop run 2,
-/// in a run whose instant is 15:00 UTC on 4 March 2025, which is already 5 March on Kiritimati.
+/// The step `current`, fed by `source`'s two items, in loop run 2 of a run whose instant is 15:00 UTC on 4 March 2025, which is already 5 March on Kiritimati.
 /// `empty` ran with no items; the project holds a plain row and a credential-shaped one.
 fn bindings() -> ExpressionBindings {
     let source_items: Vec<WorkflowItem> = vec![
@@ -86,21 +85,20 @@ fn bindings() -> ExpressionBindings {
     ExpressionBindings {
         step: step_key("current"),
         input_items: source_items.into(),
-        steps: Rc::new(steps),
-        node_params: Rc::new(HashMap::from([(
+        steps: Arc::new(steps),
+        node_params: Arc::new(HashMap::from([(
             node_id("source"),
             from_json(json!({ "mode": "fast" })),
         )])),
         run_index: 2,
-        item_index: 1,
-        instant,
+        run_started_at: instant,
         time_zone: TimeZone::get("Pacific/Kiritimati").expect("a zone"),
         environment_rows: vec![
             from_json(json!({ "name": "REGION", "value": "eu" })),
             from_json(json!({ "name": "GITHUB_TOKEN", "value": "leaked-value" })),
         ]
         .into(),
-        run_variables: Rc::new(
+        run_variables: Arc::new(
             [("both".to_owned(), json!("this run's"))]
                 .into_iter()
                 .collect::<Map<String, Value>>(),
@@ -121,7 +119,6 @@ fn bindings() -> ExpressionBindings {
         ]
         .into(),
         run_id,
-        run_started_at: WireInstant::from_timestamp(instant).expect("an instant"),
         run_trigger: WorkflowRunTrigger {
             kind: WorkflowTriggerKind::Manual,
             node_id: node_id("trigger"),
@@ -131,11 +128,12 @@ fn bindings() -> ExpressionBindings {
     }
 }
 
-/// `expression`'s value against [`bindings`], read back as JSON.
+/// `expression`'s value against [`bindings`] for input item 1, read back as JSON.
 fn evaluated(expression: &str) -> Result<Value, ExpressionError> {
-    bindings()
+    StepBindings::new(bindings())
         .evaluate(
             &parse(expression).expect("the expression parses"),
+            1,
             EvaluatorOptions::default(),
         )
         .map(|value| Value::from(&value))
