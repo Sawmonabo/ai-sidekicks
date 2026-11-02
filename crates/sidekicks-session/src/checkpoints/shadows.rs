@@ -57,7 +57,8 @@ pub enum ShadowTaken {
     Taken {
         /// The shadow, for the capture's write to record.
         shadow: Shadow,
-        /// The session's folder on another volume this take made, which the write records too.
+        /// The session's folder on another volume this take made, whether or not the clone into
+        /// it was kept, which the write records too so the purge removes it.
         new_folder: Option<VolumeFolder>,
     },
 }
