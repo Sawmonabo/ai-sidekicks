@@ -26,9 +26,6 @@ use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::session_control::EndKeptTurnsParams;
 
-/// The start of Codex's refusal of an interrupt on a conversation it does not hold loaded.
-const THREAD_NOT_FOUND_MESSAGE: &str = "thread not found";
-
 /// The start of Codex's refusal of an interrupt of a turn that is not the one running, which goes
 /// on with the turn named and the one running.
 const EXPECTED_TURN_PREFIX: &str = "expected active turn id ";
@@ -220,15 +217,12 @@ fn read_kept_turn_interrupt(
     match interrupted {
         Ok(CodexTurnInterrupt::Stopped) => Ok(KeptTurnInterrupt::Stopped),
         Ok(CodexTurnInterrupt::AlreadyEnded) => Ok(KeptTurnInterrupt::AlreadyEnded),
+        Err(error) if error.is_thread_not_found() => Ok(KeptTurnInterrupt::ThreadGone),
         Err(CodexError::ProviderRequest {
             code: CODEX_INVALID_REQUEST_CODE,
             message,
             ..
-        }) => Ok(if message.starts_with(THREAD_NOT_FOUND_MESSAGE) {
-            KeptTurnInterrupt::ThreadGone
-        } else {
-            KeptTurnInterrupt::Refused { message }
-        }),
+        }) => Ok(KeptTurnInterrupt::Refused { message }),
         Err(error) => Err(error),
     }
 }

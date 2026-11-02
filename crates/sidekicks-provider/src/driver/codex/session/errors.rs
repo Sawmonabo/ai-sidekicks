@@ -54,6 +54,10 @@ const CODEX_CLOSING_MESSAGE: &str = "is closing; retry thread/resume";
 /// The words of Codex's refusal of a catalog read that asks for the service to restart first.
 const CODEX_RESTART_REQUESTED_MESSAGE: &str = "Restart Codex";
 
+/// The words of Codex's refusal of a request on a conversation it does not hold loaded and cannot
+/// find.
+const CODEX_THREAD_NOT_FOUND_MESSAGE: &str = "thread not found";
+
 /// The `data.reason` a turn refused while another of the session's turns is in flight carries.
 const SESSION_TURN_IN_FLIGHT_REASON: &str = "sessionTurnInFlight";
 
@@ -276,6 +280,12 @@ impl CodexError {
     /// before it answers.
     pub(crate) fn asks_for_restart(&self) -> bool {
         self.is_invalid_request_saying(CODEX_RESTART_REQUESTED_MESSAGE)
+    }
+
+    /// Whether this is Codex's refusal of a request on a conversation it does not hold, `thread
+    /// not found: <id>`.
+    pub(crate) fn is_thread_not_found(&self) -> bool {
+        self.is_invalid_request_saying(CODEX_THREAD_NOT_FOUND_MESSAGE)
     }
 
     // A `-32600` answer whose message holds `words`.

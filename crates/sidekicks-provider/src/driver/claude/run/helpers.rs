@@ -85,7 +85,6 @@ impl ClaudeDriver {
 
     /// Stops a helper for good from the console, answering how Claude Code took it. Fails as the
     /// stop request fails.
-    #[expect(dead_code, reason = "the driver trait's per-helper stop calls it")]
     pub(crate) async fn stop_child_run(
         &self,
         params: &HelperStopParams,
