@@ -240,27 +240,41 @@ impl ProviderSignInBroker {
             ProviderAccountSignInRequest::Registered(registered) => {
                 let account = self.attempt.registry.read(registered.account_id).await?;
                 let legs = self.legs_of(&account.provider)?;
-                let reservation = self.attempt.reserve(
-                    attempt_id,
-                    account.provider,
-                    legs.is_one_per_machine(origin),
-                    account.account_id,
-                    account.credential_home,
-                    None,
-                )?;
+                let reservation = self
+                    .attempt
+                    .reserve(
+                        attempt_id,
+                        account.provider,
+                        legs.is_one_per_machine(origin),
+                        account.account_id,
+                        account.credential_home,
+                        None,
+                    )
+                    .await?;
                 (legs, reservation)
             }
             ProviderAccountSignInRequest::New(new) => {
                 let legs = self.legs_of(&new.provider)?;
+                let is_one_per_machine = legs.is_one_per_machine(origin);
+                // The machine's one slot is checked before a home is minted, so a start it
+                // refuses makes none; the reservation checks it again in the same hold it lists.
+                if let Some(refusal) = lock(&self.attempt.attempts)
+                    .open_attempt_on_machine(&new.provider, is_one_per_machine)
+                {
+                    return Err(refusal);
+                }
                 let minted = self.attempt.registry.mint(new.provider.clone())?;
-                let reservation = self.attempt.reserve(
-                    attempt_id,
-                    new.provider,
-                    legs.is_one_per_machine(origin),
-                    minted.account_id().clone(),
-                    minted.home().clone(),
-                    Some(minted),
-                )?;
+                let reservation = self
+                    .attempt
+                    .reserve(
+                        attempt_id,
+                        new.provider,
+                        is_one_per_machine,
+                        minted.account_id().clone(),
+                        minted.home().clone(),
+                        Some(minted),
+                    )
+                    .await?;
                 (legs, reservation)
             }
         };
@@ -344,7 +358,7 @@ impl AttemptServices {
     // while an open attempt is on the account, or while this start `is_one_per_machine` and an
     // open one of the provider is too, and while a switch or a reset holds the account. A refused
     // start's minted home is removed once the hold is let go.
-    fn reserve(
+    async fn reserve(
         &self,
         attempt_id: AttemptId,
         provider: ProviderId,
@@ -379,7 +393,7 @@ impl AttemptServices {
             Ok(in_flight_guard) => in_flight_guard,
             Err(refusal) => {
                 if let Some(minted) = minted {
-                    abandon(&self.registry, minted);
+                    abandon(Arc::clone(&self.registry), minted).await;
                 }
                 return Err(refusal);
             }
@@ -412,22 +426,34 @@ impl LiveAttempts {
         provider: &ProviderId,
         is_one_per_machine: bool,
     ) -> Option<ProviderSignInError> {
-        let on_account = || {
-            self.attempts
-                .iter()
-                .find(|(_, attempt)| attempt.account_id == *account_id)
-        };
-        let on_machine = || {
-            self.attempts.iter().find(|(_, attempt)| {
+        self.attempts
+            .iter()
+            .find(|(_, attempt)| attempt.account_id == *account_id)
+            .map(attempt_open)
+            .or_else(|| self.open_attempt_on_machine(provider, is_one_per_machine))
+    }
+
+    // The provider's open attempt holding what the machine has only one of, as the refusal naming
+    // it, for a start that `is_one_per_machine`.
+    fn open_attempt_on_machine(
+        &self,
+        provider: &ProviderId,
+        is_one_per_machine: bool,
+    ) -> Option<ProviderSignInError> {
+        self.attempts
+            .iter()
+            .find(|(_, attempt)| {
                 is_one_per_machine && attempt.is_one_per_machine && attempt.provider == *provider
             })
-        };
-        on_account()
-            .or_else(on_machine)
-            .map(|(attempt_id, attempt)| ProviderSignInError::AttemptOpen {
-                account_id: attempt.account_id.clone(),
-                attempt_id: attempt_id.clone(),
-            })
+            .map(attempt_open)
+    }
+}
+
+// The refusal naming the open attempt a start meets.
+fn attempt_open((attempt_id, attempt): (&AttemptId, &LiveAttempt)) -> ProviderSignInError {
+    ProviderSignInError::AttemptOpen {
+        account_id: attempt.account_id.clone(),
+        attempt_id: attempt_id.clone(),
     }
 }
 
@@ -478,7 +504,7 @@ impl Reservation {
             match read {
                 Ok(account) => self.started_generation = Some(account.credential_generation),
                 Err(error) => {
-                    drop(self);
+                    self.release().await;
                     drop(hold);
                     let _unheard = answer.send(Err(error.into()));
                     return;
@@ -501,7 +527,7 @@ impl Reservation {
             Ok(handle) => handle,
             Err(error) => {
                 // Freed first, so the caller finds no slot and no minted home left.
-                drop(self);
+                self.release().await;
                 let _unheard = answer.send(Err(error.into()));
                 return;
             }
@@ -517,6 +543,13 @@ impl Reservation {
         }));
         let ended = attempt.run(legs, code_prompts, completion).await;
         publisher.publish(ended);
+    }
+
+    // Removes the minted home no row took, then unlists the attempt and frees the slot.
+    async fn release(mut self) {
+        if let Some(minted) = self.minted.take() {
+            abandon(Arc::clone(&self.services.registry), minted).await;
+        }
     }
 
     // Hands the listed attempt its flow's input, so a code submit and a cancel reach it.
@@ -536,7 +569,7 @@ impl Drop for Reservation {
             .attempts
             .remove(&self.attempt_id);
         if let Some(minted) = self.minted.take() {
-            abandon(&self.services.registry, minted);
+            tokio::spawn(abandon(Arc::clone(&self.services.registry), minted));
         }
     }
 }
@@ -619,15 +652,7 @@ impl Attempt {
             ProviderSignInEnd::Canceled => (ProviderSignInOutcome::Canceled, None),
         };
         if let Some(minted) = self.reservation.minted.take() {
-            let registry = Arc::clone(&self.reservation.services.registry);
-            if let Err(error) =
-                tokio::task::spawn_blocking(move || abandon(&registry, minted)).await
-            {
-                tracing::warn!(
-                    error = &error as &(dyn Error + 'static),
-                    "a sign-in's minted home was not removed"
-                );
-            }
+            abandon(Arc::clone(&self.reservation.services.registry), minted).await;
         }
         settled
     }
@@ -762,14 +787,19 @@ impl Attempt {
     }
 }
 
-// Removes the home of an account no sign-in admitted, keeping the failure in the service log.
-fn abandon(registry: &ProviderAccountRegistry, minted: MintedAccount) {
-    if let Err(error) = registry.abandon(minted) {
-        tracing::warn!(
-            error = &error as &(dyn Error + 'static),
-            "a sign-in's minted home was not removed"
-        );
-    }
+// Removes, on a blocking thread, the home of an account no sign-in admitted, keeping the failure
+// in the service log.
+async fn abandon(registry: Arc<ProviderAccountRegistry>, minted: MintedAccount) {
+    let removed = tokio::task::spawn_blocking(move || registry.abandon(minted)).await;
+    let error: Box<dyn Error + Send + Sync> = match removed {
+        Ok(Ok(())) => return,
+        Ok(Err(error)) => Box::new(error),
+        Err(error) => Box::new(error),
+    };
+    tracing::warn!(
+        error = &*error as &(dyn Error + 'static),
+        "a sign-in's minted home was not removed"
+    );
 }
 
 fn mint_attempt_id() -> Result<AttemptId, ProviderSignInError> {

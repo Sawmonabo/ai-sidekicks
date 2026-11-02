@@ -733,10 +733,11 @@ fn new_codex_account() -> ProviderAccountSignInRequest {
 }
 
 // While one account's sign-in at this machine holds the machine's one slot, another account's
-// start there is refused naming the open attempt and leaves no minted home, while a start from
+// start there is refused naming the open attempt before it mints a home, while a start from
 // another device runs; the open flow stays cancelable, and once it has ended a start at this
 // machine runs. Killed by no slot (the second start runs), by the slot not freed at the flow's
-// end (the last start is refused), by a refused start's minted home left behind, and by the slot
+// end (the last start is refused), by the slot checked only after the mint (the homes folder is
+// read-only, so the mint fails first), by a refused start's home left behind, and by the slot
 // applied to a start from another device.
 #[tokio::test]
 async fn one_sign_in_at_this_machine_holds_the_machine_s_slot_until_it_ends() {
@@ -748,20 +749,27 @@ async fn one_sign_in_at_this_machine_holds_the_machine_s_slot_until_it_ends() {
         .await
         .expect("the first sign-in at this machine starts");
     let open_flow = flows.next().await.expect("the first flow started");
+    let homes_folder = open_flow
+        .home
+        .parent()
+        .expect("a home sits in the homes folder");
+    let writable = std::fs::metadata(homes_folder)
+        .expect("the homes folder's permissions read")
+        .permissions();
+    let mut read_only = writable.clone();
+    read_only.set_readonly(true);
+    std::fs::set_permissions(homes_folder, read_only).expect("the homes folder is made read-only");
 
     let refused = broker
         .start(new_codex_account(), SignInOrigin::ThisMachine)
         .await
         .expect_err("a second sign-in at this machine is refused");
+    std::fs::set_permissions(homes_folder, writable).expect("the homes folder is writable again");
     assert!(
         matches!(&refused, ProviderSignInError::AttemptOpen { account_id, attempt_id }
             if *account_id == open_flow.account_id && *attempt_id == open.attempt_id),
         "{refused:?}"
     );
-    let homes_folder = open_flow
-        .home
-        .parent()
-        .expect("a home sits in the homes folder");
     let homes: Vec<PathBuf> = std::fs::read_dir(homes_folder)
         .expect("the homes folder reads")
         .map(|entry| entry.expect("a home entry reads").path())
