@@ -10,6 +10,7 @@
 )]
 
 mod admission;
+mod branch_cancellation;
 mod dispatch;
 mod node_settings;
 
@@ -189,16 +190,8 @@ pub(crate) enum StepReportKind {
     /// The step passed a turn end or a tool call.
     Progressed,
     /// The step was asked to stop and is winding down.
-    #[cfg_attr(
-        test,
-        expect(dead_code, reason = "the branch wind-down, which reports it")
-    )]
     Canceling,
     /// The wave the step belongs to had its other branches canceled.
-    #[cfg_attr(
-        test,
-        expect(dead_code, reason = "the branch wind-down, which reports it")
-    )]
     BranchesCanceled,
     /// The step ended.
     Settled(StepSettlement),

@@ -146,15 +146,6 @@ pub(crate) struct StepRecords {
     pub(crate) has_progressed: bool,
     /// The run variables the step set, by name, the latest value of each.
     pub(crate) run_variables: BTreeMap<String, StepRunVariable>,
-    /// Whether the step asked for its node's other inputs' branches to be canceled.
-    #[cfg_attr(
-        test,
-        expect(
-            dead_code,
-            reason = "the step's driver, which takes what a step recorded"
-        )
-    )]
-    pub(crate) cancels_other_inputs: bool,
 }
 
 /// What a running step reads and records. The step's driver holds it while the executor runs, and
@@ -204,7 +195,7 @@ pub(crate) struct StepContext {
     item_call_offset: AtomicUsize,
     /// What the step recorded since the step's driver last took it.
     records: Mutex<StepRecords>,
-    /// Woken when the step marks progress or asks to cancel its node's other inputs.
+    /// Woken when the step marks progress.
     recorded: Notify,
 }
 
@@ -351,15 +342,7 @@ impl StepContext {
         }
     }
 
-    /// Asks the engine to cancel the branches still running into the node's other inputs.
-    #[expect(dead_code, reason = "the kinds' executors")]
-    pub(crate) fn cancel_other_inputs(&self) {
-        lock(&self.records).cancels_other_inputs = true;
-        self.recorded.notify_one();
-    }
-
-    /// Waits until the step marks progress or asks to cancel its node's other inputs; returns at
-    /// once when it did either since the last wait ended.
+    /// Waits until the step marks progress; returns at once when it did since the last wait ended.
     pub(crate) async fn wait_for_records(&self) {
         self.recorded.notified().await;
     }
