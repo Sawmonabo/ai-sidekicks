@@ -111,7 +111,7 @@ pub struct InterventionServiceDeps {
     pub pool: Arc<DatabaseReadPool>,
     /// The event log every intervention event is appended to.
     pub event_log: Arc<EventLogService>,
-    /// The run engine, which routes an interrupt and forgets a limit's late hand.
+    /// The run engine, which routes an interrupt and forgets a limit's hand no stop awaits.
     pub engine: Arc<RunEngine>,
     /// The registered drivers, which carry out a dispatch.
     pub providers: Arc<ProviderRegistry>,

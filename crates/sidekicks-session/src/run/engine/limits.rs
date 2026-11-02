@@ -513,12 +513,13 @@ impl RunEngine {
         Ok(true)
     }
 
-    /// Forgets what the engine kept for the interrupt of `run_id` at `limit` whose hand answered
-    /// with its row pending and then failed late, leaving no row pending: the stop's own `cut` is
-    /// withdrawn, as a hand that failed in time withdraws it, and a step or token limit is owed
-    /// again on a live run, so its next step, usage report or return from a wait hands the
-    /// interrupt again; the spend limit is never owed, the budget accountant's next call sending
-    /// it. Fails as the run's read fails, the cut withdrawn and the limit left owed.
+    /// Forgets what the engine kept for the interrupt of `run_id` at `limit` whose hand no stop
+    /// awaits, one that answered with its row pending and then failed late or one a restart sent
+    /// again, failed leaving no row pending: its `cut` is withdrawn, as a hand that failed in time
+    /// withdraws it, and a step or token limit is owed again on a live run, so its next step, usage
+    /// report or return from a wait hands the interrupt again; the spend limit is never owed, the
+    /// budget accountant's next call sending it. Fails as the run's read fails, the cut withdrawn
+    /// and the limit left owed.
     pub(crate) async fn forget_late_limit_hand(
         &self,
         run_id: RunId,
