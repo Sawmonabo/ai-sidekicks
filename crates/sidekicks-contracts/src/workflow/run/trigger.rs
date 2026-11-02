@@ -1,5 +1,5 @@
-//! How a workflow run was started and by whom: the run mode, the trigger node's kind, and the
-//! person, device, message or parent run that started it.
+//! How a workflow run was started and by whom: the run mode, the trigger node's kind, the trigger
+//! node that started it, and the person, device, message or parent run that started it.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -10,6 +10,7 @@ use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::workflow::definition::document::WorkflowNodeId;
 use crate::workflow::run::id::WorkflowRunId;
 
 ts_constants! {
@@ -86,6 +87,16 @@ pub enum WorkflowTriggerKind {
     Error,
 }
 
+/// Which trigger node started a run, as its row's trigger record and its started event carry it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkflowRunTrigger {
+    /// The trigger node's kind.
+    pub kind: WorkflowTriggerKind,
+    /// The trigger node.
+    pub node_id: WorkflowNodeId,
+}
+
 /// Who or what started a run, as its row and its header name it. A person's start records the
 /// device of the connection that made it, never a person; a chat start carries the message it came
 /// from, so the run links back to that message.
@@ -136,11 +147,13 @@ pub enum WorkflowStartedBy {
 /// The TypeScript module of a run's start.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "workflow/run/trigger",
-    doc: "How a workflow run was started and by whom: the run mode, the trigger node's kind, and \
-          the person, device, message or parent run that started it.",
+    doc: "How a workflow run was started and by whom: the run mode, the trigger node's kind, the \
+          trigger node that started it, and the person, device, message or parent run that started \
+          it.",
     definitions: &[
         Definition::read::<WorkflowRunMode>().checked(),
         Definition::read::<WorkflowTriggerKind>().checked(),
+        Definition::read::<WorkflowRunTrigger>().checked(),
         Definition::read::<WorkflowStartedBy>().checked(),
     ],
     constants: TS_CONSTANTS,

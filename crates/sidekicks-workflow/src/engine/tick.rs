@@ -38,7 +38,7 @@ use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::step::record::{
     WorkflowCost, WorkflowPayloadRef, WorkflowStepKey,
 };
-use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
+use sidekicks_contracts::workflow::run::trigger::{WorkflowRunMode, WorkflowRunTrigger};
 use tokio_util::sync::CancellationToken;
 
 use crate::definitions::kept_values::WorkflowKeptValue;
@@ -46,7 +46,6 @@ use crate::engine::ports::{AgentStepRun, StepAdmissionTicket};
 use crate::expressions::lineage::StepOutputs;
 use crate::kinds::step_context::StepRunVariable;
 use crate::kinds::{PersonWait, StepFailure};
-use crate::runs::creation::WorkflowRunTrigger;
 use crate::secrets::redaction::RunRedaction;
 
 /// What one run's steps share, built once by the run's start or its restart and held as an `Arc`
