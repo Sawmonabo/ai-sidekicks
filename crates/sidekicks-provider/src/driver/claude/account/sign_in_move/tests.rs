@@ -512,8 +512,8 @@ async fn a_keychain_call_that_never_answers_stops_the_move_naming_the_account() 
     let (_never_answered, answer) = std::sync::mpsc::channel::<()>();
 
     let called = call_keychain_within(Duration::from_secs(5), &account, move || {
-        // Ends once the test lets the sender go.
-        drop(answer.recv());
+        // Ends once the test lets the sender go, which sends nothing.
+        answer.recv().unwrap_or(());
         Ok(())
     })
     .await;
