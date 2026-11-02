@@ -1,9 +1,9 @@
 //! The daemon's program, at the top of the daemon's crates: the start, the jobs on its one
 //! scheduler, every IPC handler on the local socket, the data acts, the service log, code
 //! highlighting, the planning transcript a hand-off writes, observability, orchestration, the
-//! control-plane credential, Remote Control on this machine, and the helper modes it starts by
-//! name. It sits over std, store, ipc, workspace, policy, workflow, provider, shell, session,
-//! approval, queue, artifact and recovery.
+//! control-plane credential, Remote Control on this machine, the helper modes it starts by name,
+//! and the redial a provider's hook makes to a daemon that is away. It sits over std, store, ipc,
+//! workspace, policy, workflow, provider, shell, session, approval, queue, artifact and recovery.
 
 pub(crate) mod bootstrap;
 pub(crate) mod control_plane_credential;
@@ -16,4 +16,12 @@ pub(crate) mod observability;
 pub(crate) mod orchestration;
 pub(crate) mod plan_verdict;
 pub mod program;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the hook provider mode, which dials the daemon through it"
+    )
+)]
+pub(crate) mod provider_hook_redial;
 pub(crate) mod remote;
