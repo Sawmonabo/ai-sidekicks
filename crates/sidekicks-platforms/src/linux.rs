@@ -13,6 +13,7 @@ pub(crate) mod caller_process;
 pub(crate) mod descriptor_path;
 pub(crate) mod input_wait;
 pub(crate) mod memory;
+pub(crate) mod mount_info;
 pub(crate) mod pinned_process;
 pub(crate) mod power_source;
 pub(crate) mod process_containment;

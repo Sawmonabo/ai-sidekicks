@@ -13,7 +13,7 @@
 //! until none is left; it is removed whatever the kill did, and the start's sweep removes every
 //! `shell-*` cgroup a previous run left, killing what still runs in one.
 
-use std::ffi::{CStr, CString, OsStr};
+use std::ffi::{CStr, CString};
 use std::fs::{self, File};
 use std::io::{self, Read as _, Seek as _, SeekFrom, Write as _};
 use std::os::fd::AsRawFd as _;
@@ -25,11 +25,8 @@ use std::time::{Duration, Instant};
 use nix::sys::prctl::{set_child_subreaper, set_dumpable};
 use nix::sys::signal::Signal;
 
+use crate::linux::mount_info::{MOUNT_INFO_PATH, MountEntry, mount_entries};
 use crate::linux::pinned_process::{PinnedProcess, pin_running_process};
-use crate::linux::unescape_mount_point;
-
-// The mount table of this process's mount namespace, one mount per line with its root.
-const MOUNT_INFO_PATH: &str = "/proc/self/mountinfo";
 
 // The cgroups this process runs in, one line per hierarchy.
 const OWN_CGROUP_PATH: &str = "/proc/self/cgroup";
@@ -166,37 +163,15 @@ fn take_delegated_cgroup(
     Ok(Some(own))
 }
 
-// Where the unified hierarchy is mounted, with the cgroup its mount shows as its root.
-struct UnifiedMount {
-    root: PathBuf,
-    mount_point: PathBuf,
-}
-
-// The first unified hierarchy's mount in `mount_info`, each line's fourth and fifth fields its root
-// and mount point and the first field after the ` - ` separator its file system type.
-fn unified_mount(mount_info: &str) -> Option<UnifiedMount> {
-    mount_info.lines().find_map(|line| {
-        let (fields, after_separator) = line.split_once(" - ")?;
-        if after_separator.split(' ').next()? != UNIFIED_FILE_SYSTEM {
-            return None;
-        }
-        let mut fields = fields.split(' ').skip(3);
-        let decode = |field: Option<&str>| {
-            field.map(|field| {
-                PathBuf::from(OsStr::from_bytes(&unescape_mount_point(field.as_bytes())))
-            })
-        };
-        Some(UnifiedMount {
-            root: decode(fields.next())?,
-            mount_point: decode(fields.next())?,
-        })
-    })
+// The first unified hierarchy's mount in `mount_info`, whose root is the cgroup it shows.
+fn unified_mount(mount_info: &str) -> Option<MountEntry<'_>> {
+    mount_entries(mount_info).find(|entry| entry.file_system_type == UNIFIED_FILE_SYSTEM)
 }
 
 // The folder of the cgroup `own_cgroup` names in the unified hierarchy under `mount`; `None` for
 // the root cgroup, which is no cgroup of the daemon's own, a cgroup outside the mount's root, or a
 // file naming none.
-fn own_cgroup_folder(mount: &UnifiedMount, own_cgroup: &str) -> Option<PathBuf> {
+fn own_cgroup_folder(mount: &MountEntry<'_>, own_cgroup: &str) -> Option<PathBuf> {
     let own = Path::new(
         own_cgroup
             .lines()
@@ -423,7 +398,7 @@ mod tests {
     use std::process::{Child, Command};
 
     use super::{
-        UnifiedMount, end_cgroup, end_leftover_shell_cgroups_in, own_cgroup_folder,
+        MountEntry, end_cgroup, end_leftover_shell_cgroups_in, own_cgroup_folder,
         take_delegated_cgroup, unified_mount,
     };
 
@@ -498,7 +473,9 @@ mod tests {
     fn a_cgroup_under_a_mount_s_own_root_is_found_below_its_mount_point() {
         let mount = unified_mount("40 30 0:30 /outer /mnt/cg rw - cgroup2 cgroup2 rw\n")
             .expect("the unified hierarchy is found");
-        let UnifiedMount { root, mount_point } = &mount;
+        let MountEntry {
+            root, mount_point, ..
+        } = &mount;
 
         assert_eq!(root, Path::new("/outer"));
         assert_eq!(mount_point, Path::new("/mnt/cg"));
