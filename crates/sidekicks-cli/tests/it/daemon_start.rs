@@ -32,9 +32,8 @@ fn read_pid(pid_file: &Path) -> Option<u32> {
     Some(text.trim().parse().expect("the stand-in wrote its id"))
 }
 
-// Fails when the start reports success at the spawn rather than at the handshake, since the status
-// read right after it then finds no daemon; and when the already-running check is dropped, since
-// the second start then runs the stand-in, which leaves its mark, and reports a start.
+// Fails when the already-running check is dropped, since the second start then runs the stand-in,
+// which leaves its mark, and reports a start.
 #[test]
 fn a_start_reports_success_once_the_daemon_answers_and_a_second_start_spawns_nothing() {
     let folders = PrivateFolders::new();
@@ -67,8 +66,9 @@ fn a_start_reports_success_once_the_daemon_answers_and_a_second_start_spawns_not
     assert!(!mark.exists(), "the second start ran a program");
 }
 
-// Fails when a start whose program never answers leaves it running, which would hold the socket
-// against every later start.
+// Fails when the start reports success at the spawn rather than at the handshake, since a program
+// that never answers then exits 0; and when a start whose program never answers leaves it running,
+// which would hold the socket against every later start.
 #[test]
 fn a_started_program_that_never_answers_is_ended_and_the_start_exits_69() {
     let folders = PrivateFolders::new();
