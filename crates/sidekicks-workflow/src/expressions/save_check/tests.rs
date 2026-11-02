@@ -41,17 +41,43 @@ fn step_ids() -> Vec<WorkflowNodeId> {
     vec![WorkflowNodeId::new("step".to_owned()).expect("the id is well formed")]
 }
 
-/// Each expression rule marks the step whose param breaks it, nested params included: a template
-/// left open, a part that does not parse, a reader called as a method, a label no node is named
-/// (a node's id is no label), and a pattern the evaluator cannot build; a label a node is named
-/// passes. Mutations: drop any one check; compare labels with node ids; read only top-level
-/// params; check patterns with a builder other than the evaluator's.
+/// An expression that does not parse marks the step whose param holds it, nested params included,
+/// with why its first such expression fails: a template left open, a part the parser refuses with
+/// the parser's words, and a reader called as a method with the spellings that read a node.
+/// Mutations: drop any one check; read only top-level params; keep a later reason over the first;
+/// leave the method-call reason without `$all('<label>')`.
 #[rstest]
-#[case::an_open_template(json!("={{ a"), vec![WorkflowDefinitionFinding::ExpressionUnparsable { node_ids: step_ids() }])]
-#[case::a_part_that_does_not_parse(json!("={{ $json. }}"), vec![WorkflowDefinitionFinding::ExpressionUnparsable { node_ids: step_ids() }])]
-#[case::a_method_on_the_input(json!("={{ $input.all() }}"), vec![WorkflowDefinitionFinding::ExpressionUnparsable { node_ids: step_ids() }])]
-#[case::a_method_on_a_label(json!("={{ $('Fetch').first() }}"), vec![WorkflowDefinitionFinding::ExpressionUnparsable { node_ids: step_ids() }])]
-#[case::a_nested_param(json!({ "rows": ["={{ a"] }), vec![WorkflowDefinitionFinding::ExpressionUnparsable { node_ids: step_ids() }])]
+#[case::an_open_template(json!("={{ a"), "A template opens {{ and never closes it.")]
+#[case::a_part_that_does_not_parse(json!("={{ $json. }}"), "An expression does not parse: ")]
+#[case::a_method_on_the_input(json!("={{ $input.all() }}"), "A node is read as $all('<label>')")]
+#[case::a_method_on_a_label(json!("={{ $('Fetch').first() }}"), "A node is read as $all('<label>')")]
+#[case::a_nested_param(json!({ "rows": ["={{ a"] }), "A template opens {{")]
+#[case::the_first_reason(
+    json!({ "rows": ["={{ $input.all() }}", "={{ a"] }),
+    "A node is read as $all('<label>')"
+)]
+#[tokio::test]
+async fn an_unparsable_expression_marks_its_step_with_why(
+    #[case] value: Value,
+    #[case] reason_start: &str,
+) {
+    let step = node("step", "files.write", "Write", &json!({ "content": value }));
+
+    let findings = findings_beside_fetch(step).await;
+    let [WorkflowDefinitionFinding::ExpressionUnparsable { node_ids, detail }] =
+        findings.as_slice()
+    else {
+        panic!("one unparsable finding, not {findings:?}");
+    };
+    assert_eq!(node_ids, &step_ids());
+    assert!(detail.as_str().starts_with(reason_start), "{detail:?}");
+}
+
+/// Each other expression rule marks the step whose param breaks it: a label no node is named (a
+/// node's id is no label) and a pattern the evaluator cannot build; a label a node is named passes.
+/// Mutations: drop either check; compare labels with node ids; check patterns with a builder other
+/// than the evaluator's.
+#[rstest]
 #[case::an_unknown_label(json!("={{ $all('Nope') }}"), vec![WorkflowDefinitionFinding::ExpressionUnknownNode { node_ids: step_ids() }])]
 #[case::a_node_id_as_label(json!("={{ $first('fetch') }}"), vec![WorkflowDefinitionFinding::ExpressionUnknownNode { node_ids: step_ids() }])]
 #[case::a_known_label(json!("={{ $all('Fetch') }}"), Vec::new())]
