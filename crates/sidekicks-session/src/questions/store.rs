@@ -1,6 +1,6 @@
 //! The question rows' writes, each the statement its event's live write and a rebuild's fold share,
-//! with the guards the live write keeps, and the reads of a record, its pages and the questions a
-//! run's end settles.
+//! with the guards the live write keeps, and the reads of a record, its pages, the questions a
+//! run's end settles and the open question a request sent again returns to.
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -11,8 +11,9 @@ use rusqlite::{Connection, OptionalExtension as _, named_params};
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::question::{
-    QuestionAskedPayload, QuestionAskedState, QuestionId, QuestionSettledState,
+    QuestionAskedPayload, QuestionAskedState, QuestionId, QuestionPrompt, QuestionSettledState,
 };
+use sidekicks_contracts::release_manifest::Sha256Hex;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::{UuidText, UuidTextForm};
@@ -21,12 +22,14 @@ use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::events::canonicalizer::digest_canonical_json;
 
 use crate::questions::schema::QuestionState;
 
 const INSERT_QUESTION_SQL: &str = "INSERT INTO questions
-  (id, session_id, run_id, wait_id, provider_request_id, is_agent_waiting, state)
-  VALUES (@id, @sessionId, @runId, @waitId, @providerRequestId, @isAgentWaiting, @state)";
+  (id, session_id, run_id, wait_id, provider_request_id, input_digest, is_agent_waiting, state)
+  VALUES (@id, @sessionId, @runId, @waitId, @providerRequestId, @inputDigest, @isAgentWaiting,
+          @state)";
 
 // Settles an open question, or cancels one waiting for its run; refused once it is settled.
 static SETTLE_QUESTION_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -98,14 +101,14 @@ static UNSETTLED_HELD_OF_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The run's open question its agent waits on that came on the provider's request, oldest first.
-static OPEN_OF_PROVIDER_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
+// The run's open questions its agent waits on that came on the provider's request, then those
+// asking the same pages, oldest first; a NULL digest matches nothing.
+static OPEN_ASKED_AGAIN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT id FROM questions
-  WHERE run_id = @runId AND provider_request_id = @providerRequestId AND state = '{open}'
-    AND is_agent_waiting = 1
-  ORDER BY rowid
-  LIMIT 1",
+  WHERE run_id = @runId AND state = '{open}' AND is_agent_waiting = 1
+    AND (provider_request_id = @providerRequestId OR input_digest = @inputDigest)
+  ORDER BY CASE WHEN provider_request_id = @providerRequestId THEN 0 ELSE 1 END, rowid",
         open = <&'static str>::from(QuestionState::Open)
     )
 });
@@ -158,33 +161,57 @@ pub(crate) struct HeldQuestion {
     pub(crate) session_id: SessionId,
 }
 
-/// The record's row as `asked` writes it, open or waiting for its run. Refused when the record is
-/// already kept.
+/// The SHA-256 of `questions` as canonical JSON, by which the same pages asked again under another
+/// request find their record; `None`, logged, where the canonicalizer refuses them.
+pub(crate) fn question_input_digest(questions: &[QuestionPrompt]) -> Option<Sha256Hex> {
+    let pages = serde_json::to_value(questions).expect("a question's pages write as JSON");
+    digest_canonical_json(&pages)
+        .inspect_err(|refusal| {
+            tracing::warn!(
+                error = refusal as &(dyn std::error::Error + 'static),
+                "question_input_not_digested"
+            );
+        })
+        .ok()
+}
+
+/// The record's row as `asked` writes it, open or waiting for its run, a run's question with the
+/// digest of its pages. Refused when the record is already kept.
 pub(crate) fn insert_question_statement(asked: &QuestionAskedPayload) -> WriteStatement {
-    let (question_id, session_id, run_id, wait_id, provider_request_id, is_agent_waiting, state) =
-        match asked {
-            QuestionAskedPayload::Run(asked) => (
-                asked.question_id,
-                asked.session_id,
-                Some(asked.run_id.text()),
-                None,
-                asked.provider_request_id.as_ref().map(FreeFormText::as_str),
-                asked.is_agent_waiting,
-                match asked.state {
-                    QuestionAskedState::Open => QuestionState::Open,
-                    QuestionAskedState::WaitingForRun => QuestionState::WaitingForRun,
-                },
-            ),
-            QuestionAskedPayload::Wait(asked) => (
-                asked.question_id,
-                asked.session_id,
-                None,
-                Some(asked.wait_id.text()),
-                None,
-                asked.is_agent_waiting,
-                QuestionState::Open,
-            ),
-        };
+    let (
+        question_id,
+        session_id,
+        run_id,
+        wait_id,
+        provider_request_id,
+        input_digest,
+        is_agent_waiting,
+        state,
+    ) = match asked {
+        QuestionAskedPayload::Run(asked) => (
+            asked.question_id,
+            asked.session_id,
+            Some(asked.run_id.text()),
+            None,
+            asked.provider_request_id.as_ref().map(FreeFormText::as_str),
+            question_input_digest(asked.questions.as_slice()),
+            asked.is_agent_waiting,
+            match asked.state {
+                QuestionAskedState::Open => QuestionState::Open,
+                QuestionAskedState::WaitingForRun => QuestionState::WaitingForRun,
+            },
+        ),
+        QuestionAskedPayload::Wait(asked) => (
+            asked.question_id,
+            asked.session_id,
+            None,
+            Some(asked.wait_id.text()),
+            None,
+            None,
+            asked.is_agent_waiting,
+            QuestionState::Open,
+        ),
+    };
     WriteStatement {
         sql: Cow::Borrowed(INSERT_QUESTION_SQL),
         bindings: StatementBindings::Named(vec![
@@ -193,6 +220,7 @@ pub(crate) fn insert_question_statement(asked: &QuestionAskedPayload) -> WriteSt
             nullable_text_binding("@runId", run_id.as_ref().map(UuidText::as_str)),
             nullable_text_binding("@waitId", wait_id.as_ref().map(UuidText::as_str)),
             nullable_text_binding("@providerRequestId", provider_request_id),
+            nullable_text_binding("@inputDigest", input_digest.as_ref().map(Sha256Hex::as_str)),
             (
                 Cow::Borrowed("@isAgentWaiting"),
                 SqlValue::Integer(i64::from(is_agent_waiting)),
@@ -335,24 +363,26 @@ pub(crate) fn read_asked(
         .optional()
 }
 
-/// The open question `run_id` holds, its agent waiting on it, that came on the provider's request
-/// `provider_request_id`, or `None` when it holds none. Fails as SQLite does, or when a stored id
-/// does not read.
-pub(crate) fn read_open_question_of_request(
+/// The open questions `run_id` holds, their agent waiting on them, that came on the provider's
+/// request `provider_request_id`, then those whose pages have `input_digest`, oldest first. Fails
+/// as SQLite does, or when a stored id does not read.
+pub(crate) fn read_open_questions_asked_again(
     connection: &Connection,
     run_id: &RunId,
     provider_request_id: &str,
-) -> rusqlite::Result<Option<QuestionId>> {
+    input_digest: Option<&Sha256Hex>,
+) -> rusqlite::Result<Vec<QuestionId>> {
     connection
-        .prepare_cached(&OPEN_OF_PROVIDER_REQUEST_SQL)?
-        .query_row(
+        .prepare_cached(&OPEN_ASKED_AGAIN_SQL)?
+        .query_map(
             named_params! {
                 "@runId": run_id.text().as_str(),
                 "@providerRequestId": provider_request_id,
+                "@inputDigest": input_digest.map(Sha256Hex::as_str),
             },
             |row| text_column(row, 0, |text| QuestionId::new(&text)),
-        )
-        .optional()
+        )?
+        .collect()
 }
 
 /// Which of `question_ids` are not settled: open, or waiting for their run. Fails as SQLite does,

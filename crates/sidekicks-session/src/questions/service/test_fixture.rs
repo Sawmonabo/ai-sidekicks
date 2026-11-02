@@ -147,6 +147,7 @@ impl Fixture {
                 database.path(),
                 QUESTION_STATEMENT_CAPACITY,
             )),
+            Arc::clone(&writer),
             Arc::clone(&engine),
             Arc::new(registry_of_first_provider(Arc::new(driver))),
         );
@@ -235,7 +236,7 @@ impl Fixture {
                 DeviceId::new("device-1".to_owned()).expect("a device id"),
             )
             .await
-            .map(|resolved| resolved.state)
+            .map(|resolved| resolved.response.state)
     }
 
     /// Appends `event`, given as its type and payload, as the queue would.

@@ -761,6 +761,8 @@ CREATE TABLE questions (
   wait_id           TEXT,              -- the workflow wait that holds it
   provider_request_id TEXT,            -- the provider's request a run's question came on, from question.asked.providerRequestId,
                                        -- so a request sent again after a restart finds its open record; NULL on a wait's question
+  input_digest      TEXT,              -- the SHA-256 of question.asked.questions as RFC 8785 JSON, so the same pages asked
+                                       -- again under a new request find their record; NULL on a wait's question
   is_agent_waiting  INTEGER NOT NULL CHECK(is_agent_waiting IN (0, 1)), -- 0: a queued message answers it
   state             TEXT NOT NULL DEFAULT 'open' CHECK(state IN ('waitingForRun', 'open', 'answered', 'canceled')),
   CHECK((run_id IS NULL) <> (wait_id IS NULL))
@@ -781,6 +783,25 @@ CREATE TABLE question_answer_items (
 ) STRICT;
 
 CREATE INDEX idx_question_answer_items_question ON question_answer_items(question_id);
+
+-- Owner: Plan-010
+-- Each answer given while no provider request held its question, as after a restart before the
+-- provider asked again, written in the answer's own write; a question answered while a request
+-- held it has none. The question asked again and the run's continue each claim their mark before
+-- the answer goes out, so neither hand repeats. An answer holding a secret has no row: it is kept
+-- in the daemon's memory only and lost at its next stop.
+CREATE TABLE question_kept_answers (
+  question_id         TEXT PRIMARY KEY,  -- no REFERENCES: the questions are rebuilt from the log, and this row
+                                         -- outlives a rebuild; a session purge deletes it
+  session_id          TEXT NOT NULL,
+  run_id              TEXT NOT NULL,
+  answer              TEXT NOT NULL,     -- JSON: the answers as question.resolve took them
+  kept_at             TEXT NOT NULL,
+  call_handed_at      TEXT,              -- the question asked again took it
+  continue_handed_at  TEXT               -- the run's continue took it
+) STRICT;
+
+CREATE INDEX idx_question_kept_answers_session ON question_kept_answers(session_id);
 ```
 
 The daemon keeps no table of approval rules: the providers keep them ([Spec-010 §Default Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)), and a session's own answers are its `approval_resolutions` rows and its `approval.rule.remembered` and `approval.rule.revoked` events, which the inspector's `Rules` reads beside the providers' own rules.
