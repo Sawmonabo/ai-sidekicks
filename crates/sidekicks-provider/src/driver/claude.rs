@@ -24,7 +24,9 @@ use sidekicks_platforms::{
 };
 
 use crate::command::running_set::takes_no_input;
-use crate::driver::claude::account_credentials::SECURE_STORAGE_FOLDER_VARIABLE;
+use crate::driver::claude::account_credentials::{
+    CONFIG_FOLDER_VARIABLE, SECURE_STORAGE_FOLDER_VARIABLE,
+};
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
 use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
 use crate::driver::claude::lifecycle::ClaudeDriver;
@@ -185,7 +187,7 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     // The account's configuration home, its credential store, and the scratch folder the daemon
     // keeps per account home, so a session's temporary files sit where its purge finds them.
     credential_home_environment_names: &[
-        "CLAUDE_CONFIG_DIR",
+        CONFIG_FOLDER_VARIABLE,
         SECURE_STORAGE_FOLDER_VARIABLE,
         "CLAUDE_CODE_TMPDIR",
     ],

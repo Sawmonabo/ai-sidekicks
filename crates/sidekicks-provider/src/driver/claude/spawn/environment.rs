@@ -12,7 +12,9 @@ use sidekicks_platforms::PathRules;
 
 use crate::driver::ProviderAccountFolders;
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::claude::account_credentials::SECURE_STORAGE_FOLDER_VARIABLE;
+use crate::driver::claude::account_credentials::{
+    CONFIG_FOLDER_VARIABLE, SECURE_STORAGE_FOLDER_VARIABLE,
+};
 use crate::spawn_environment::{
     ProviderEnvironmentRequest, SessionEnvironment, SpawnEnvironmentError,
     build_provider_process_environment,
@@ -112,7 +114,7 @@ pub(crate) fn claude_config_folder(
     spawn_environment: &[(String, String)],
     rules: PathRules,
 ) -> Option<PathBuf> {
-    if let Some(configured) = rules.environment_value(spawn_environment, "CLAUDE_CONFIG_DIR") {
+    if let Some(configured) = rules.environment_value(spawn_environment, CONFIG_FOLDER_VARIABLE) {
         return Some(PathBuf::from(configured));
     }
     let home = rules
@@ -159,7 +161,7 @@ pub(crate) fn compose_claude_process_environment(
         }
     };
     let credential_homes = [
-        ("CLAUDE_CONFIG_DIR".to_owned(), config_folder),
+        (CONFIG_FOLDER_VARIABLE.to_owned(), config_folder),
         (
             SECURE_STORAGE_FOLDER_VARIABLE.to_owned(),
             credential_store_folder,

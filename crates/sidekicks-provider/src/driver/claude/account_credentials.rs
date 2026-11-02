@@ -36,6 +36,10 @@ const CLAUDE_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
 /// The account Claude Code files its keychain item under when the user's name is unusable.
 const CLAUDE_KEYCHAIN_FALLBACK_ACCOUNT: &str = "claude-code-user";
 
+/// The variable that moves Claude Code's config home, the folder of its settings, its config file
+/// and, unless the secure-storage folder is named, its sign-in.
+pub(crate) const CONFIG_FOLDER_VARIABLE: &str = "CLAUDE_CONFIG_DIR";
+
 /// The variable naming the folder Claude Code keeps its sign-in in, apart from its config home,
 /// which its keychain item is named for.
 pub(crate) const SECURE_STORAGE_FOLDER_VARIABLE: &str = "CLAUDE_SECURESTORAGE_CONFIG_DIR";
@@ -529,7 +533,7 @@ pub(crate) fn claude_keychain_service(environment: &[(String, String)]) -> Strin
         Some("") => None,
         Some(folder) => Some(folder.nfc().collect::<String>()),
         None => rules
-            .environment_value(environment, "CLAUDE_CONFIG_DIR")
+            .environment_value(environment, CONFIG_FOLDER_VARIABLE)
             .filter(|folder| !folder.is_empty())
             .map(|folder| folder.nfc().collect::<String>()),
     };
