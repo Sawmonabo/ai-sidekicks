@@ -39,7 +39,7 @@ use tempfile::TempDir;
 
 use super::{
     HeldRequestAnswerer, QUESTION_STATEMENT_CAPACITY, QuestionError, QuestionRecording,
-    QuestionsService,
+    QuestionResolution, QuestionsService,
 };
 use crate::questions::projection::question_projection_statements;
 use crate::questions::schema::schema_parts;
@@ -224,6 +224,17 @@ impl Fixture {
         question_id: QuestionId,
         answers: Value,
     ) -> Result<QuestionSettledState, QuestionError> {
+        self.resolve(question_id, answers)
+            .await
+            .map(|resolved| resolved.response.state)
+    }
+
+    /// Answers `question_id` with `answers` from a device, the kept fact included.
+    pub(super) async fn resolve(
+        &self,
+        question_id: QuestionId,
+        answers: Value,
+    ) -> Result<QuestionResolution, QuestionError> {
         self.questions
             .resolve_question(
                 QuestionResolveRequest {
@@ -236,7 +247,6 @@ impl Fixture {
                 DeviceId::new("device-1".to_owned()).expect("a device id"),
             )
             .await
-            .map(|resolved| resolved.response.state)
     }
 
     /// Appends `event`, given as its type and payload, as the queue would.

@@ -1,34 +1,14 @@
 //! A question's answer kept while no provider request held it, and a question asked again under a
 //! new request, which returns to its record by its pages.
 
-use serde_json::{Value, json};
-use sidekicks_contracts::question::{QuestionAnswer, QuestionId, QuestionResolveRequest};
-use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_contracts::wire::list::BoundedVec;
+use serde_json::json;
+use sidekicks_contracts::question::QuestionAnswer;
 
 use super::{SECRET, secret_page};
 use crate::questions::kept_answers::OwedQuestionContinue;
-use crate::questions::service::QuestionResolution;
 use crate::questions::service::test_fixture::{Fixture, choice_page};
 
 impl Fixture {
-    /// Answers `question_id` with `answers` from a device, the kept fact included.
-    async fn resolve(&self, question_id: QuestionId, answers: Value) -> QuestionResolution {
-        self.questions
-            .resolve_question(
-                QuestionResolveRequest {
-                    question_id,
-                    answers: BoundedVec::new(
-                        serde_json::from_value(answers).expect("the test's answers read"),
-                    )
-                    .expect("the test answers at least once"),
-                },
-                DeviceId::new("device-1".to_owned()).expect("a device id"),
-            )
-            .await
-            .expect("the answer is kept, not refused")
-    }
-
     /// How many kept rows the database holds.
     fn kept_rows(&self) -> i64 {
         self.database
@@ -57,7 +37,8 @@ async fn an_answer_no_held_request_takes_is_kept_and_answers_the_question_asked_
             question_id,
             json!([{ "kind": "picked", "labels": ["Beta"] }]),
         )
-        .await;
+        .await
+        .expect("the answer is kept, not refused");
 
     assert_eq!(resolved.kept, Some((fixture.session_id, fixture.run_id)));
     assert_eq!(fixture.state(question_id), "answered");
@@ -110,7 +91,8 @@ async fn a_secret_answer_is_kept_in_memory_only() {
 
     let resolved = fixture
         .resolve(question_id, json!([{ "kind": "secret", "value": SECRET }]))
-        .await;
+        .await
+        .expect("the answer is kept, not refused");
 
     assert_eq!(resolved.kept, Some((fixture.session_id, fixture.run_id)));
     assert_eq!(fixture.kept_rows(), 0);
@@ -155,7 +137,8 @@ async fn a_question_asked_again_under_a_new_id_is_held_under_the_open_question_o
             question_id,
             json!([{ "kind": "picked", "labels": ["Alpha"] }]),
         )
-        .await;
+        .await
+        .expect("the answer lands");
     assert_eq!(resolved.kept, None);
     assert_eq!(fixture.kept_rows(), 0);
     let handed = fixture.handed.lock().expect("never poisoned").clone();
