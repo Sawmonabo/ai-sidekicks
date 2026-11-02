@@ -541,19 +541,14 @@ async fn move_bindings(
             break;
         }
     }
-    match account_move.moved {
-        // The switch that asked may have stopped waiting.
-        Some(waiting) => {
-            let _unheard = waiting.send(moved);
-        }
-        None => {
-            if let Err(error) = moved {
-                tracing::warn!(
-                    error = &error as &(dyn std::error::Error + 'static),
-                    "a session's binding was not moved onto the account its service now carries"
-                );
-            }
-        }
+    // The switch that asked may have stopped waiting.
+    if let Some(waiting) = account_move.moved {
+        let _unheard = waiting.send(moved);
+    } else if let Err(error) = moved {
+        tracing::warn!(
+            error = &error as &(dyn std::error::Error + 'static),
+            "a session's binding was not moved onto the account its service now carries"
+        );
     }
 }
 

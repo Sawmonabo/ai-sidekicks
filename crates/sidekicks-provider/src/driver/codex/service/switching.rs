@@ -355,8 +355,8 @@ pub(crate) mod test_sign_in {
     /// The plan every test sign-in's identity token names.
     pub(crate) const TEST_PLAN: &str = "pro";
 
-    /// Writes into `codex_home` the `auth.json` Codex's `file` store keeps for a `ChatGPT` sign-in to
-    /// `workspace` with `access_token`, its identity token naming [`TEST_PLAN`].
+    /// Writes into `codex_home` the `auth.json` Codex's `file` store keeps for a `ChatGPT` sign-in
+    /// to `workspace` with `access_token`, its identity token naming [`TEST_PLAN`].
     pub(crate) fn write_sign_in(codex_home: &Path, workspace: &str, access_token: &str) {
         std::fs::create_dir_all(codex_home).expect("the home is made");
         let auth = json!({
