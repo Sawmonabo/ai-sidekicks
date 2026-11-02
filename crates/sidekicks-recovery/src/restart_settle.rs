@@ -1,16 +1,15 @@
 //! What a restart left in one session, settled in an order no later step undoes: the faster-model
 //! retries still pending, before the run ends that would expire an accepted one; the runs still in
-//! progress, past their queue and not paused, re-armed from the log before a resume of the
-//! session's conversation, with the paused and pausing runs beside them; the runs still live that
-//! no resume took, failed as no provider session came back, or with the provider's own words where
-//! it refused the resume, a lead the person paused kept paused, each judged stopping or not by the
-//! stops read before the first of them settles, so a lead's own end never clears the stop its
-//! helper waits on; the open turns of runs that had
-//! already ended, before their unresolved interventions, whose expiry would drop the limit a turn
-//! ends with; then the asks, the choices and the held plans those ended runs left open. Every read
-//! is of the one session and taken after its rebuild; every write is guarded on the rows it read.
-//! The recovery pass settles each session it finds so, and `Continue from here` settles a damaged
-//! one.
+//! progress, past their queue and not paused, a pausing run among them, re-armed from the log
+//! before a resume of the session's conversation, with the paused runs beside them; the runs still
+//! live that no resume took, failed as no provider session came back, or with the provider's own
+//! words where it refused the resume, a lead the person paused or was pausing kept paused, each
+//! judged stopping or not by the stops read before the first of them settles, so a lead's own end
+//! never clears the stop its helper waits on; the open turns of runs that had already ended, before
+//! their unresolved interventions, whose expiry would drop the limit a turn ends with; then the
+//! asks, the choices and the held plans those ended runs left open. Every read is of the one
+//! session and taken after its rebuild; every write is guarded on the rows it read. The recovery
+//! pass settles each session it finds so, and `Continue from here` settles a damaged one.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -73,7 +72,7 @@ pub struct RestartSettle {
 /// state the settle or the resume's finalize ended them in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct RestartTally {
-    /// The runs a resume took that are still live and neither paused nor pausing.
+    /// The runs a resume took that are still live and not paused.
     pub(crate) resumed: u64,
     /// The runs ended `failed`.
     pub(crate) failed: u64,
@@ -112,10 +111,10 @@ impl RestartTally {
     }
 }
 
-/// A session's live runs past their queue at a restart: those in progress, each re-armed, the
-/// ones among them a pending stop of their own wins over, and those the person paused or was
-/// pausing, which are no work in progress and are re-armed only beside a run in progress, whose
-/// resume opens the session.
+/// A session's live runs past their queue at a restart: those in progress, a pausing run among
+/// them, each re-armed, the ones among them a pending stop of their own wins over, and those the
+/// person paused, which are no work in progress and are re-armed only beside a run in progress,
+/// whose resume opens the session.
 #[derive(Debug, Default)]
 pub(crate) struct RearmedRuns {
     /// The runs in progress, re-armed from the log.
@@ -123,7 +122,7 @@ pub(crate) struct RearmedRuns {
     /// The runs in progress a stop of their own waits on, which no resume continues; a helper
     /// beneath a stopping lead is not among them, since its resume settles it.
     pub(crate) stopping: BTreeSet<RunId>,
-    /// The runs `paused` or `pausing`.
+    /// The runs `paused`.
     pub(crate) paused_run_ids: Vec<RunId>,
 }
 
@@ -174,13 +173,13 @@ impl RestartSettle {
     }
 
     /// Settles `session_id`'s pending faster-model retries, then re-arms each run of it still in
-    /// progress, live past its queue and neither paused nor pausing, from the log, as the engine
-    /// held it before the restart, so a resume of the session's conversation finds them armed, and
-    /// beside any such run the paused and pausing ones too, whose turn the resumed provider may
-    /// still run to its pause; answers the runs in progress, none where nothing of the session was
-    /// in progress, with those a pending stop of their own wins over, which are re-armed too so the
-    /// settle that follows ends them by their stops, beside the runs paused or pausing. Reads
-    /// `stop` before each step. Fails at the first read or write that fails, or with `Stopped`.
+    /// progress, live past its queue and not paused, a pausing run among them, from the log, as the
+    /// engine held it before the restart, so a resume of the session's conversation finds them
+    /// armed, and beside any such run the paused ones too; answers the runs in progress, none where
+    /// nothing of the session was in progress, with those a pending stop of their own wins over,
+    /// which are re-armed too so the settle that follows ends them by their stops, beside the
+    /// paused runs. Reads `stop` before each step. Fails at the first read or write that fails, or
+    /// with `Stopped`.
     pub(crate) async fn rearm_live(
         &self,
         session_id: SessionId,
@@ -202,14 +201,15 @@ impl RestartSettle {
                 | RunState::Interrupted
                 | RunState::Stopped
                 | RunState::Failed => {}
-                RunState::Paused | RunState::Pausing => {
+                RunState::Paused => {
                     rearmed.paused_run_ids.push(live_run.run_id);
                     paused.push(live_run);
                 }
                 RunState::Starting
                 | RunState::Running
                 | RunState::WaitingForApproval
-                | RunState::WaitingForInput => {
+                | RunState::WaitingForInput
+                | RunState::Pausing => {
                     check_stop(Some(stop))?;
                     self.deps.run_engine.rearm_after_restart(&live_run).await?;
                     rearmed.in_progress.push(live_run);
@@ -218,7 +218,8 @@ impl RestartSettle {
         }
         let in_progress: Vec<RunId> = rearmed.in_progress.iter().map(|run| run.run_id).collect();
         rearmed.stopping = self.read_stopping(in_progress, read_has_own_stop).await?;
-        // A session resumed for another run may still run a pausing run's turn to its pause.
+        // A paused run is re-armed beside a run in progress, so a limit it owes is handed again at
+        // its continue.
         if !rearmed.in_progress.is_empty() {
             for live_run in &paused {
                 check_stop(Some(stop))?;
@@ -234,10 +235,10 @@ impl RestartSettle {
     /// appends and reading `stop`, where the caller has one, before each step. Whether a stop wins
     /// over each run is read for all of them before the first settles, since a lead's own end
     /// discharges the stop its helper waits on, so the order the runs settle in decides nothing.
-    /// A run `resumed`
-    /// names is counted resumed while it is live and neither paused nor pausing, nowhere while it
-    /// is, and by its end where the resume's finalize ended it. Fails at the first read or write
-    /// that fails, or with `Stopped`.
+    /// A run `resumed` names is counted resumed while it is live and not paused, a pausing run
+    /// among them since its pause is still to land, nowhere while it is paused, and by its end
+    /// where the resume's finalize ended it. Fails at the first read or write that fails, or with
+    /// `Stopped`.
     pub(crate) async fn settle_live(
         &self,
         session_id: SessionId,
@@ -264,7 +265,7 @@ impl RestartSettle {
         for live_run in &live_runs {
             if resumed.contains(&live_run.run_id) {
                 // A paused run the resume named stays paused, so it is counted nowhere.
-                if !matches!(live_run.run.state, RunState::Paused | RunState::Pausing) {
+                if live_run.run.state != RunState::Paused {
                     settlement.tally.resumed += 1;
                 }
                 continue;
