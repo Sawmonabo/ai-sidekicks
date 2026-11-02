@@ -283,17 +283,7 @@ impl RepoFolderUsage {
         let repo_mount_id = *repo_mount_id;
         self.reads
             .read(ReadLength::Short, move |connection| {
-                let mount = connection
-                    .prepare_cached(&MOUNT_SQL)?
-                    .query_row(
-                        named_params! { "@repo_mount_id": repo_mount_id.text().as_str() },
-                        mount_origin_row,
-                    )
-                    .optional()?
-                    .filter(|mount| {
-                        mount.project_id.is_some() || mount.origin == MountOrigin::Managed
-                    })
-                    .ok_or(RepoRefusal::MountNotFound { repo_mount_id })?;
+                let mount = read_reachable_mount(connection, repo_mount_id)?;
                 let used_by = connection
                     .prepare_cached(&BOUND_SESSIONS_SQL)?
                     .query_map(
@@ -313,6 +303,37 @@ impl RepoFolderUsage {
             })
             .await
     }
+
+    /// Where the mount came from, alone, for a caller that needs none of its users. Refuses
+    /// `repoMount.notFound` as [`Self::read_usage`] does, and fails as the read fails.
+    pub async fn read_origin(
+        &self,
+        repo_mount_id: &RepoMountId,
+    ) -> Result<RepoMountOrigin, RepoFolderUsageError> {
+        let repo_mount_id = *repo_mount_id;
+        self.reads
+            .read(ReadLength::Short, move |connection| {
+                Ok(origin_of(&read_reachable_mount(connection, repo_mount_id)?))
+            })
+            .await
+    }
+}
+
+// The mount's row, unless it is unknown or detached with its project forgotten
+// (`repoMount.notFound`).
+fn read_reachable_mount(
+    connection: &Connection,
+    repo_mount_id: RepoMountId,
+) -> Result<MountOriginRow, RepoFolderUsageError> {
+    Ok(connection
+        .prepare_cached(&MOUNT_SQL)?
+        .query_row(
+            named_params! { "@repo_mount_id": repo_mount_id.text().as_str() },
+            mount_origin_row,
+        )
+        .optional()?
+        .filter(|mount| mount.project_id.is_some() || mount.origin == MountOrigin::Managed)
+        .ok_or(RepoRefusal::MountNotFound { repo_mount_id })?)
 }
 
 fn mount_origin_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MountOriginRow> {
