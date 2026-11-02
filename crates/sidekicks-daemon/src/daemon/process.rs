@@ -1,6 +1,6 @@
 //! The running daemon: its start, in the order each service needs the ones before it, and its
-//! stop, in the reverse order, carrying why it stops. A start that fails releases what it took,
-//! in the stop's order, and names the step that failed.
+//! stop, in the reverse order, carrying why it stops, which its `stop` module runs. A start that
+//! fails releases what it took, in the stop's order, and names the step that failed.
 
 mod approvals;
 mod crash_monitor;
@@ -31,7 +31,6 @@ use std::error::Error;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
-use futures::FutureExt as _;
 use jiff::Timestamp;
 use sidekicks_artifact::plans::store::StoredPlanHolds;
 use sidekicks_contracts::daemon::lifecycle::{DAEMON_READY_LINE, DAEMON_STOP_DRAIN_BOUND_MS};
@@ -56,7 +55,6 @@ use sidekicks_session::search::index::live::{LiveIndex, LiveIndexOptions};
 use sidekicks_shell::orphan::guard::{OrphanGuard, open_orphan_guard};
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::scheduler::Scheduler;
-use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
 use sidekicks_store::credential_store::os::KEYCHAIN_CALL_TIMEOUT;
 use sidekicks_store::data_folder::lock::DataFolderLock;
@@ -72,7 +70,7 @@ use sidekicks_workspace::git::process::{GitLimits, GitRunner};
 use sidekicks_workspace::git::worktree::creation::WorktreeCreator;
 use sidekicks_workspace::git::worktree::setup::WorktreeSetupRunner;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -109,13 +107,12 @@ use crate::daemon::process::session_services::{
 };
 use crate::daemon::process::start_error::{DaemonStartError, DaemonStartFailure};
 use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvironment};
-use crate::daemon::process::stop::{DaemonStopFailure, close_data_folder, stop_work};
+use crate::daemon::process::stop::{DaemonCommand, close_data_folder, stop_work};
 use crate::daemon::process::supervision::{ProcessStateTracker, ServingSocketHooks};
 use crate::daemon::process::workspace_services::{WorkspaceWork, settle_interrupted_creations};
 use crate::daemon::run_folder::{bind_socket, mint_session_token, prepare_run_folder};
 use crate::daemon::service_status::remove_service_status;
 use crate::daemon::start_stopped_error::DaemonStartStoppedError;
-use crate::data_acts::erase::EraseStep;
 use crate::ipc::local_gateway::{GatewayServices, LocalGateway};
 use crate::observability::diagnostic_buckets::expiry::{
     DiagnosticExpiryDeps, live_diagnostic_files,
@@ -124,14 +121,6 @@ use crate::observability::diagnostic_buckets::expiry::{
 /// The longest the stop's drain runs, the work ending and the data folder closing together.
 pub(crate) const DAEMON_STOP_DRAIN_BOUND: Duration =
     Duration::from_millis(DAEMON_STOP_DRAIN_BOUND_MS);
-
-/// A step of the erase the process runs on the task that owns it, answering once the step ran.
-enum DaemonCommand {
-    /// Ends the daemon's work as the stop does.
-    StopWork(oneshot::Sender<()>),
-    /// Closes everything that holds a file in the data folder.
-    CloseDataFolder(oneshot::Sender<()>),
-}
 
 /// The running daemon: every service it started, held in the order its stop ends them, each part
 /// a step closes taken as it closes, so a later stop skips it.
@@ -771,121 +760,5 @@ impl DaemonProcess {
             failures: Box::new(CleanupFailures::new(error, failures, START_OPERATION)),
             release_started,
         }
-    }
-
-    /// The stop asked for over the socket: the lifecycle methods' stop asks with
-    /// [`DaemonStopIntent::Stop`], their restart with [`DaemonStopIntent::Restart`], and the
-    /// erase's end with [`DaemonStopIntent::Stop`]; the first ask wins.
-    pub(crate) fn accept_stop(&self) -> Arc<dyn Fn(DaemonStopIntent) + Send + Sync> {
-        let stop_asked = self.stop_asked.clone();
-        Arc::new(move |intent| {
-            stop_asked.send_if_modified(|asked| {
-                let is_first = asked.is_none();
-                if is_first {
-                    *asked = Some(intent);
-                }
-                is_first
-            });
-        })
-    }
-
-    /// The erase's step that ends the daemon's work as the stop does.
-    pub(crate) fn stop_work_step(&self) -> EraseStep {
-        self.command_step(DaemonCommand::StopWork)
-    }
-
-    /// The erase's step that closes everything that holds a file in the data folder.
-    pub(crate) fn close_data_folder_step(&self) -> EraseStep {
-        self.command_step(DaemonCommand::CloseDataFolder)
-    }
-
-    // An erase step that sends the command `command` makes to the task that owns the process and
-    // waits until it ran. Once the stop has begun, the stop closes these parts instead, and the
-    // erase's later steps race the runtime's end.
-    fn command_step(&self, command: fn(oneshot::Sender<()>) -> DaemonCommand) -> EraseStep {
-        let commands = self.command_sender.clone();
-        Arc::new(move || {
-            let commands = commands.clone();
-            async move {
-                let (reply, replied) = oneshot::channel();
-                if commands.send(command(reply)).await.is_err() || replied.await.is_err() {
-                    tracing::info!(
-                        "the daemon's stop had begun before the erase's step, so the stop closes \
-                         those parts"
-                    );
-                }
-            }
-            .boxed()
-        })
-    }
-
-    /// Runs the erase's steps as they come, until the first stop asked for: the system's stop
-    /// request, which stops, damage found in the database file, which restarts so the next start
-    /// repairs it, or a stop or restart over the socket, which the erase's end asks for.
-    pub(crate) async fn wait_for_stop(&mut self) -> DaemonStopIntent {
-        let mut stop_asked = self.stop_asked.subscribe();
-        let damage = self
-            .database
-            .as_ref()
-            .map(|database| Arc::clone(&database.damage));
-        loop {
-            let command = tokio::select! {
-                () = self.system_stop.cancelled() => return DaemonStopIntent::Stop,
-                () = async {
-                    match &damage {
-                        Some(damage) => {
-                            damage.when_found().await;
-                        }
-                        None => std::future::pending().await,
-                    }
-                } => return DaemonStopIntent::Restart,
-                asked = stop_asked.wait_for(Option::is_some) => return match asked.as_deref() {
-                    Ok(Some(intent)) => *intent,
-                    // The process holds the sender, so the wait ends only with an ask.
-                    Ok(None) | Err(_) => DaemonStopIntent::Stop,
-                },
-                Some(command) = self.commands.recv() => command,
-            };
-            self.run_command(command).await;
-        }
-    }
-
-    // Runs one of the erase's steps, logging each failure, and answers that it ran.
-    async fn run_command(&mut self, command: DaemonCommand) {
-        let (failures, reply) = match command {
-            DaemonCommand::StopWork(reply) => (
-                stop_work(self, DaemonStopIntent::Stop, DAEMON_STOP_DRAIN_BOUND).await,
-                reply,
-            ),
-            DaemonCommand::CloseDataFolder(reply) => (close_data_folder(self).await, reply),
-        };
-        for failure in &failures {
-            tracing::error!(
-                error = failure as &(dyn Error + 'static),
-                "a step of the erase's stop failed"
-            );
-        }
-        if reply.send(()).is_err() {
-            tracing::debug!("the erase ended before its step answered");
-        }
-    }
-
-    /// Stops the daemon for `intent`: its work within the drain bound, then its data folder; a
-    /// part the erase already closed is skipped. Fails with every step's failure, each step having
-    /// run.
-    pub(crate) async fn stop(
-        mut self,
-        intent: DaemonStopIntent,
-    ) -> Result<(), SettleFailures<DaemonStopFailure>> {
-        let mut failures = stop_work(&mut self, intent, DAEMON_STOP_DRAIN_BOUND).await;
-        failures.extend(close_data_folder(&mut self).await);
-        settle_all(
-            failures
-                .into_iter()
-                .map(Err)
-                .collect::<Vec<Result<(), _>>>(),
-            "the daemon's stop",
-        )
-        .map(drop)
     }
 }
