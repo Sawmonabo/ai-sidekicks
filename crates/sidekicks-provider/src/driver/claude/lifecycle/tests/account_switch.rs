@@ -22,6 +22,7 @@ use crate::driver::claude::account::credentials::{
 };
 use crate::driver::claude::account::{ClaudeAccountLegs, test_account_legs};
 use crate::driver::claude::session::control_requests::ClaudeControlRequests;
+use crate::driver::claude::session::controls::one_turn_legs;
 use crate::driver::claude::session::conversation_home::claude_conversation_home_metadata;
 use crate::driver::claude::session::process::ClaudeOutputReader;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
@@ -151,9 +152,8 @@ fn folders(root: &Path, name: &str) -> ProviderAccountFolders {
     }
 }
 
-fn environment_value<'a>(start: &'a ScriptedStartRecord, name: &str) -> Option<&'a str> {
-    start
-        .environment
+fn environment_value<'a>(environment: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    environment
         .iter()
         .find(|(key, _)| key == name)
         .map(|(_, value)| value.as_str())
@@ -306,13 +306,16 @@ async fn a_token_target_relaunches_between_turns_and_resumes_by_id() {
         ClaudeConversationStart::Resume { resume_handle } if resume_handle == conversation
     ));
     assert_eq!(
-        environment_value(&relaunched, SECURE_STORAGE_FOLDER_VARIABLE),
+        environment_value(&relaunched.environment, SECURE_STORAGE_FOLDER_VARIABLE),
         Some(switch.store("to").as_str())
     );
-    assert_eq!(environment_value(&relaunched, OAUTH_TOKEN_VARIABLE), None);
+    assert_eq!(
+        environment_value(&relaunched.environment, OAUTH_TOKEN_VARIABLE),
+        None
+    );
     let conversation_home = folders(switch.fixture.folder.path(), "from").configuration_folder;
     assert_eq!(
-        environment_value(&relaunched, "CLAUDE_CONFIG_DIR"),
+        environment_value(&relaunched.environment, "CLAUDE_CONFIG_DIR"),
         Some(conversation_home.to_string_lossy().as_ref())
     );
     assert_eq!(
@@ -421,4 +424,38 @@ async fn the_first_request_after_a_store_switch_is_heard_at_its_message_start() 
         moved.first_request.await.expect("the watch is answered"),
         FirstRequestAfterMove::Ran
     );
+}
+
+// After an in-place switch, a one-turn copy of the session and the environment a rewind's fork
+// starts with sign in to the store the process was pointed at, in the home that holds the
+// conversation. Killed by a copy started from the environment the process spawned with, and by
+// the signed-in environment keeping the spawn's store.
+#[tokio::test(start_paused = true)]
+async fn a_process_started_from_the_legs_after_a_store_switch_signs_in_to_the_new_store() {
+    let switch = SwitchFixture::new(None).await;
+    drop(switch.switch().await);
+    settle().await;
+    let live = switch
+        .fixture
+        .driver
+        .composed_parts()
+        .expect("composed")
+        .slots()
+        .live_session(switch.session_id)
+        .expect("the session is live");
+
+    let conversation_home = folders(switch.fixture.folder.path(), "from").configuration_folder;
+    for environment in [
+        one_turn_legs(&live, None, None).spawn_environment,
+        live.signed_in_spawn_environment(),
+    ] {
+        assert_eq!(
+            environment_value(&environment, SECURE_STORAGE_FOLDER_VARIABLE),
+            Some(switch.store("to").as_str())
+        );
+        assert_eq!(
+            environment_value(&environment, "CLAUDE_CONFIG_DIR"),
+            Some(conversation_home.to_string_lossy().as_ref())
+        );
+    }
 }

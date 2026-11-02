@@ -75,8 +75,10 @@ impl ClaudeSessionEstablishment {
             }
         };
         let settings = lock(&predecessor.settings).clone();
-        // The predecessor's own legs, at the level, model, advisor and style it runs with now.
+        // The predecessor's own legs, at the level, model, advisor and style it runs with now,
+        // signed in to the credential store it runs on now.
         let legs = ClaudeSpawnBoundLegs {
+            spawn_environment: predecessor.signed_in_spawn_environment(),
             execution_posture: settings.execution_posture.clone(),
             model: settings.running_model.clone(),
             advisor: settings.advisor.clone(),

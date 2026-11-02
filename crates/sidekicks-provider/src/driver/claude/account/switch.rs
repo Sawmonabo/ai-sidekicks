@@ -230,8 +230,9 @@ struct ClaudeStoreMove<'a> {
 
 // Points `live`'s process at `account_move`'s store in place, through its stream's queue: the
 // session's account, which its stream shares, its lead's binding and its bound runs' move onto
-// the move's account where Claude Code acknowledged it among the frames; `first_request` hears how
-// the next request goes. Fails as the request does, nothing moved.
+// the move's account where Claude Code acknowledged it among the frames, and a process started
+// from the session's legs signs in to the store from the answer on; `first_request` hears how the
+// next request goes. Fails as the request does, nothing moved.
 async fn point_at_store(
     establishment: &ClaudeSessionEstablishment,
     live: &LiveClaudeSession,
@@ -252,6 +253,7 @@ async fn point_at_store(
         .streams
         .get(live.session_id)
         .ok_or_else(|| DriverError::from(session_process_unavailable(live.session_id)))?;
+    let store = account_move.store.to_owned();
     let account_move = ClaudeAccountMoveMarker {
         arrivals: stream.arrivals().clone(),
         provider_account_id: account_move.provider_account_id.clone(),
@@ -263,6 +265,7 @@ async fn point_at_store(
         .send_account_move(request, account_move)
         .await
         .map_err(DriverError::from)?;
+    live.account.point_at_store(store);
     Ok(())
 }
 
