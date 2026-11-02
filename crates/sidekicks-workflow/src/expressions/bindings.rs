@@ -37,7 +37,6 @@ use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use tokio::sync::oneshot::error::RecvError;
 
 use crate::definitions::kept_values::WorkflowKeptValue;
-use crate::expressions::key_order::to_jsonata_value;
 use crate::expressions::lineage::{LineageError, StepKey, StepOutputs, walk_paired_item};
 use crate::expressions::syntax_tree::find_in_syntax_tree;
 use crate::runs::creation::WorkflowRunTrigger;
@@ -197,14 +196,14 @@ impl StepBindings {
             now,
             today: JValue::string(today),
             environment: JValue::object(environment),
-            variables: to_jsonata_value(&Value::Object(variables)),
-            run: to_jsonata_value(&json!({
+            variables: JValue::from(Value::Object(variables)),
+            run: JValue::from(json!({
                 "id": bindings.run_id,
                 "startedAt": WireInstant::from_timestamp(bindings.run_started_at),
                 "trigger": bindings.run_trigger,
             })),
-            workflow: to_jsonata_value(
-                &json!({ "id": bindings.workflow_id, "name": bindings.workflow_name }),
+            workflow: JValue::from(
+                json!({ "id": bindings.workflow_id, "name": bindings.workflow_name }),
             ),
             instant_millis,
             instant_text_call: Rc::new(instant_text_call),
@@ -260,7 +259,7 @@ impl StepBindings {
                     None
                 }
             })
-            .unwrap_or_else(|| to_jsonata_value(&json!({})));
+            .unwrap_or_else(|| JValue::from(json!({})));
         let mut context = Context::new();
         context.bind("json".to_owned(), item_json);
         context.bind("runIndex".to_owned(), self.run_index.clone());
@@ -452,7 +451,7 @@ impl ItemReader {
             .node_params
             .get(node_id)
             .map_or(JValue::Undefined, |params| {
-                to_jsonata_value(&serde_json::to_value(params).expect("params write as JSON"))
+                JValue::from(serde_json::to_value(params).expect("params write as JSON"))
             }))
     }
 
@@ -486,7 +485,7 @@ fn items_array(items: &[WorkflowItem]) -> JArray {
 
 /// `item` as the evaluator reads it: its `json`, `binary`, `pairedItem` and `error`.
 fn item_value(item: &WorkflowItem) -> JValue {
-    to_jsonata_value(&serde_json::to_value(item).expect("an item writes as JSON"))
+    JValue::from(serde_json::to_value(item).expect("an item writes as JSON"))
 }
 
 /// The instant `instant_millis` as `$fromMillis` writes it under `picture_and_zone`, jsonata's
