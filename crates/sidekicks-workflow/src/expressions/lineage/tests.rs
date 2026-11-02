@@ -91,7 +91,9 @@ fn a_one_to_one_chain_walks_back_to_the_labeled_node() {
 }
 
 /// An item made from several answers `Ambiguous` naming the node that made it and the fixes, one
-/// with no `pairedItem` answers `LineageMissing`, and a label no node has answers `UnknownLabel`.
+/// with no `pairedItem` answers `LineageMissing`, a label the item's way back never passes answers
+/// `NotUpstream` rather than blaming the trigger, and a label no node has answers `UnknownLabel`.
+/// Mutations: answer the trigger's missing lineage for a label off the path.
 #[test]
 fn a_collapse_a_missing_lineage_and_an_unknown_label_are_typed_errors() {
     let steps = run(vec![
@@ -142,6 +144,12 @@ fn a_collapse_a_missing_lineage_and_an_unknown_label_are_typed_errors() {
         })
     );
     assert_eq!(
+        walk_paired_item(&steps, &key("first"), 0, "sum"),
+        Err(LineageError::NotUpstream {
+            label: "sum".to_owned(),
+        })
+    );
+    assert_eq!(
         walk_paired_item(&steps, &key("after sum"), 0, "nowhere"),
         Err(LineageError::UnknownLabel {
             label: "nowhere".to_owned(),
@@ -181,4 +189,28 @@ fn a_paired_items_input_picks_the_upstream_of_a_fan_in() {
 
     let found = walk_paired_item(&steps, &key("current"), 0, "right").expect("the walk ends");
     assert_eq!(found.json.0, json!({ "right": 1 }));
+}
+
+/// Records that feed two executions from each other end the walk with `LineageMissing` instead of
+/// spinning the expression thread. Mutations: drop the bound on the walk.
+#[test]
+fn a_cycle_in_the_records_ends_the_walk() {
+    let steps = run(vec![
+        (
+            "ping",
+            vec![fed_by("pong")],
+            vec![item(json!({ "ping": 0 }), json!({ "item": 0 }))],
+        ),
+        (
+            "pong",
+            vec![fed_by("ping")],
+            vec![item(json!({ "pong": 0 }), json!({ "item": 0 }))],
+        ),
+        ("current", vec![fed_by("ping")], vec![]),
+    ]);
+
+    assert!(matches!(
+        walk_paired_item(&steps, &key("current"), 0, "current"),
+        Err(LineageError::LineageMissing { .. })
+    ));
 }

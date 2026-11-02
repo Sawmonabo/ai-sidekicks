@@ -117,15 +117,30 @@ impl StepOutputs {
             .expect("every step runs a node of the run's document, which the labels hold")
             .clone()
     }
+
+    /// How many executions the run recorded, which bounds a walk back through them.
+    fn execution_count(&self) -> usize {
+        self.steps.values().map(BTreeMap::len).sum()
+    }
 }
 
-/// Why `$item('<label>')` found no item: no node has the label, a node on the way back recorded no
-/// lineage for the item, or a node on the way back made the item from several.
+/// Why `$item('<label>')` found no item: no node has the label, the item's way back never passes
+/// it, a node on the way back recorded no lineage for the item, or a node on the way back made the
+/// item from several.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub(crate) enum LineageError {
     /// No node is labeled `label`.
     #[error("No node is labeled '{label}'.")]
     UnknownLabel {
+        /// The label the expression named.
+        label: String,
+    },
+    /// The item's way back reaches the trigger or a slot nothing fed before it reaches `label`.
+    #[error(
+        "Can't follow this item back to '{label}': it didn't come through '{label}'. Use \
+         $first('{label}'), $last('{label}') or $all('{label}')[i] instead."
+    )]
+    NotUpstream {
         /// The label the expression named.
         label: String,
     },
@@ -156,8 +171,10 @@ pub(crate) enum LineageError {
 /// The item of the node labeled `to_label` that input item `item_index` of the execution `from`
 /// came from, found by walking each item's `pairedItem` back through the slot its `input` names.
 /// Fails with [`LineageError::UnknownLabel`] for a label no node has, with
-/// [`LineageError::LineageMissing`] where an item on the way records no lineage or the walk reaches
-/// a slot nothing fed, and with [`LineageError::Ambiguous`] where an item came from several.
+/// [`LineageError::NotUpstream`] where the walk reaches the trigger or a slot nothing fed, with
+/// [`LineageError::LineageMissing`] where an item on the way records no lineage or the walk goes
+/// round more steps than the run recorded, which only a cycle in the records does, and with
+/// [`LineageError::Ambiguous`] where an item came from several.
 pub(crate) fn walk_paired_item<'steps>(
     steps: &'steps StepOutputs,
     from: &StepKey,
@@ -177,28 +194,28 @@ pub(crate) fn walk_paired_item<'steps>(
             .ok_or_else(|| lineage_missing(&at.node_id))?,
         input: None,
     };
-    loop {
-        let source = steps
+    // Each hop reaches an earlier execution, so a walk past the run's executions is in a cycle.
+    for _ in 0..steps.execution_count() {
+        let step = steps
             .step(&at)
-            .and_then(|step| {
-                let slot = paired_item.input.map_or(0, SafeInt::get);
-                usize::try_from(slot)
-                    .ok()
-                    .and_then(|slot| step.sources.get(slot))
-            })
-            .and_then(Option::as_ref)
             .ok_or_else(|| lineage_missing(&at.node_id))?;
+        let source = usize::try_from(paired_item.input.map_or(0, SafeInt::get))
+            .ok()
+            .and_then(|slot| step.sources.get(slot))
+            .and_then(Option::as_ref)
+            .ok_or_else(|| LineageError::NotUpstream {
+                label: to_label.to_owned(),
+            })?;
         let upstream = StepKey {
             node_id: source.node_id.clone(),
             execution_index: source.execution_index.get(),
         };
-        let item = steps
+        let upstream_step = steps
             .step(&upstream)
-            .and_then(|step| {
-                usize::try_from(source.output_index.get())
-                    .ok()
-                    .and_then(|output| step.outputs.get(output))
-            })
+            .ok_or_else(|| lineage_missing(&upstream.node_id))?;
+        let item = usize::try_from(source.output_index.get())
+            .ok()
+            .and_then(|output| upstream_step.outputs.get(output))
             .and_then(|items| {
                 usize::try_from(paired_item.item.get())
                     .ok()
@@ -207,6 +224,12 @@ pub(crate) fn walk_paired_item<'steps>(
             .ok_or_else(|| lineage_missing(&upstream.node_id))?;
         if upstream.node_id == *target {
             return Ok(item);
+        }
+        // A step nothing feeds, the trigger, starts every way back, so the label is not on this one.
+        if upstream_step.sources.is_empty() {
+            return Err(LineageError::NotUpstream {
+                label: to_label.to_owned(),
+            });
         }
         paired_item = match &item.paired_item {
             Some(WorkflowPairedItems::One(only)) => *only,
@@ -224,6 +247,7 @@ pub(crate) fn walk_paired_item<'steps>(
         };
         at = upstream;
     }
+    Err(lineage_missing(&at.node_id))
 }
 
 #[cfg(test)]
