@@ -132,7 +132,7 @@ pub(crate) struct ClaudeRunPauses {
     lead_pauses: HookPauses<SessionId, RunId, ()>,
     /// Each paused helper, by session and agent id, and the request ids of its held callbacks.
     helper_pauses: HookPauses<(SessionId, String), (), String>,
-    /// The helpers stopped alone, whose tool uses are denied.
+    /// The stopped helpers, whose tool uses are denied.
     stopped_helpers: ClaudeStoppedHelpers,
 }
 
@@ -153,7 +153,7 @@ impl ClaudeRunPauses {
         );
     }
 
-    /// Stops the helper `agent_id` alone for `reason`: its tool uses are denied from the next on.
+    /// Stops the helper `agent_id` for `reason`: its tool uses are denied from the next on.
     pub(crate) fn stop_helper(
         &mut self,
         session_id: SessionId,
@@ -163,7 +163,33 @@ impl ClaudeRunPauses {
         self.stopped_helpers.stop(session_id, agent_id, reason);
     }
 
-    /// Answers a pre-tool callback: a helper stopped alone is denied, a paused lead's is denied, a
+    /// Clears the helper `agent_id`'s stop as its new own run starts, unless the stop is final.
+    pub(crate) fn release_helper(&mut self, session_id: SessionId, agent_id: &str) {
+        self.stopped_helpers.release(session_id, agent_id);
+    }
+
+    /// Why the helper `agent_id` is stopped, `None` while it is not.
+    pub(crate) fn helper_stop_reason(
+        &self,
+        session_id: &SessionId,
+        agent_id: &str,
+    ) -> Option<HelperStopReason> {
+        self.stopped_helpers
+            .stop_reason_of(*session_id, agent_id)
+            .cloned()
+    }
+
+    /// Holds the helper `agent_id` an interrupt ended at its next tool call, as a pause does. The
+    /// pause is marked as already in effect, so the first held call reports no `paused` on a run
+    /// the interrupt already ended.
+    pub(crate) fn hold_interrupted_helper(&mut self, session_id: &SessionId, agent_id: &str) {
+        let helper = (*session_id, agent_id.to_owned());
+        self.helper_pauses
+            .pause(helper.clone(), *session_id, PausedRole::Helper, ());
+        self.helper_pauses.mark_taken_effect(&helper);
+    }
+
+    /// Answers a pre-tool callback: a stopped helper is denied, a paused lead's is denied, a
     /// paused helper's is held, any other passes with no decision. `agent_id` is the helper's,
     /// `None` on the lead.
     pub(crate) fn answer_before_tool(

@@ -1,12 +1,18 @@
+use rstest::rstest;
 use serde_json::{Value, json};
+use sidekicks_contracts::run::control::{RunFailureCategory, StopTrigger};
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_std::mutex_lock::lock;
 
 use super::super::tests::{helper_started, init, result};
+use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudePauseAnswer};
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
 };
+use crate::driver::run_control::HelperStopReason;
 use crate::port::run_host::test_host::RecordedDelivery;
-use crate::run::delivery::LateAppendableRow;
+use crate::run::delivery::{LateAppendableRow, RunSetupRefusal};
+use crate::run::state_entry::RunStateEntry;
 
 // A helper's `task_started`, launched by the helper `parent` where one is named, started as
 // `role` where one is named.
@@ -188,4 +194,188 @@ async fn a_background_helpers_nested_start_after_the_turn_ended_hangs_under_it()
             .all(|delivery| delivery.kind != "turnBoundary"),
         "a start after the turn ended opens no turn"
     );
+}
+
+// The `task_notification` that ends the helper `task_id` with `status`.
+fn helper_ended(task_id: &str, status: &str, summary: &str) -> Value {
+    json!({
+        "type": "system",
+        "subtype": "task_notification",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "task_id": task_id,
+        "tool_use_id": "call-1",
+        "status": status,
+        "summary": summary,
+    })
+}
+
+// How the daemon answers the helper `agent_id`'s next pre-tool callback.
+fn helper_tool_answer(session: &ScriptedSession, agent_id: &str) -> ClaudePauseAnswer {
+    lock(&session.parts.run_controls.pauses).answer_before_tool(
+        &session.session_id,
+        Some(agent_id),
+        "helper-tool",
+    )
+}
+
+// Whether the helper `agent_id`'s next tool use is denied with words holding `words`.
+fn is_denied_with(session: &ScriptedSession, agent_id: &str, words: &str) -> bool {
+    matches!(
+        helper_tool_answer(session, agent_id),
+        ClaudePauseAnswer::Answer(ClaudeHookAnswer::Deny { reason }) if reason.contains(words)
+    )
+}
+
+// A helper's end reads by why the daemon stopped it: a stop from the console is final, a token
+// limit stops it with that trigger even when it finished, and Claude Code's own stop reads as an
+// interruption. Killed by reading every `stopped` as final, by reading the console's stop as an
+// interruption, by leaving a token-limited finish completed, by dropping the trigger, and by
+// answering the console's stop with another reason's sentence.
+#[rstest]
+#[case::stop_all(
+    Some(HelperStopReason::StopAll),
+    "stopped",
+    RunStateEntry::Stopped { intended_close: None, trigger: None }
+)]
+#[case::token_limit_stopped(
+    Some(HelperStopReason::TokenLimit),
+    "stopped",
+    RunStateEntry::Stopped { intended_close: None, trigger: Some(StopTrigger::TokenLimit) }
+)]
+#[case::token_limit_completed(
+    Some(HelperStopReason::TokenLimit),
+    "completed",
+    RunStateEntry::Stopped { intended_close: None, trigger: Some(StopTrigger::TokenLimit) }
+)]
+#[case::own_stop(
+    None,
+    "stopped",
+    RunStateEntry::Interrupted { intended_close: None, trigger: None }
+)]
+#[case::own_finish(None, "completed", RunStateEntry::Completed { intended_close: None })]
+#[tokio::test(start_paused = true)]
+async fn a_helpers_end_reads_by_why_it_was_stopped(
+    #[case] stop: Option<HelperStopReason>,
+    #[case] status: &str,
+    #[case] expected: RunStateEntry,
+) {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    session.frame(&helper_started("helper", "local_agent", "call-1"));
+    settle().await;
+    let child_run = session
+        .start
+        .routes
+        .child_run_for(session.session_id, "helper")
+        .expect("the helper has its child run");
+    let is_stop_all = stop == Some(HelperStopReason::StopAll);
+    if let Some(stop) = stop {
+        lock(&session.parts.run_controls.pauses).stop_helper(session.session_id, "helper", stop);
+    }
+
+    session.frame(&helper_ended("helper", status, "Reported"));
+    settle().await;
+
+    assert_eq!(session.engine.moves_of_run(child_run), [expected]);
+    if is_stop_all {
+        assert!(is_denied_with(&session, "helper", "will not be resumed"));
+    }
+}
+
+// A failed helper keeps its own words and category while its lead completes. Killed by taking the
+// child's end from the lead's.
+#[tokio::test(start_paused = true)]
+async fn a_failed_helper_keeps_its_words_while_the_lead_completes() {
+    let session = ScriptedSession::new().await;
+    let lead_run = session.hold_lead_turn("lead");
+    session.frame(&init());
+    session.frame(&helper_started("helper", "local_agent", "call-1"));
+    settle().await;
+    let child_run = session
+        .start
+        .routes
+        .child_run_for(session.session_id, "helper")
+        .expect("the helper has its child run");
+
+    session.frame(&helper_ended("helper", "failed", "the build broke"));
+    session.frame(&result(&json!({})));
+    settle().await;
+
+    let moves = session.engine.run_moves();
+    let child_moves: Vec<_> = moves
+        .iter()
+        .filter(|change| change.run_id == child_run)
+        .collect();
+    assert!(
+        matches!(
+            child_moves.as_slice(),
+            [change] if change.failure_category == Some(RunFailureCategory::ProviderFailure)
+                && matches!(
+                    &change.entry,
+                    RunStateEntry::Failed { provider_failure_detail: Some(words), .. }
+                        if words.as_str() == "the build broke"
+                )
+        ),
+        "{child_moves:?}"
+    );
+    assert_eq!(
+        session.engine.moves_of_run(lead_run),
+        [RunStateEntry::Completed {
+            intended_close: None
+        }]
+    );
+}
+
+// A helper's new own run clears a stop that is not final, a stop from the console holds, and a
+// helper refused again is stopped again for that refusal. Killed by never clearing the stop (the
+// token limit's case is denied), by clearing the console's stop, and by clearing after the
+// refusal's stop (the refused-again case passes).
+#[rstest]
+#[case::token_limit(HelperStopReason::TokenLimit, false, None)]
+#[case::setup_refused(
+    HelperStopReason::SetupRefused { refusal: earlier_refusal() },
+    false,
+    None
+)]
+#[case::stop_all(HelperStopReason::StopAll, false, Some("will not be resumed"))]
+#[case::refused_again(HelperStopReason::TokenLimit, true, Some("/gone/again.git"))]
+#[tokio::test(start_paused = true)]
+async fn a_new_own_run_clears_a_stop_that_is_not_final(
+    #[case] stop: HelperStopReason,
+    #[case] is_refused_again: bool,
+    #[case] denial: Option<&str>,
+) {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    session.frame(&helper_started("helper", "local_agent", "call-1"));
+    session.frame(&helper_ended("helper", "completed", "Reported"));
+    settle().await;
+    lock(&session.parts.run_controls.pauses).stop_helper(session.session_id, "helper", stop);
+    if is_refused_again {
+        session.engine.refuse_next_child_run(RunSetupRefusal {
+            cause: "the writable root '/gone/again.git' could not be resolved".to_owned(),
+            is_posture_rejection: false,
+        });
+    }
+
+    session.frame(&helper_started("helper", "local_agent", "call-2"));
+    settle().await;
+
+    match denial {
+        Some(words) => assert!(is_denied_with(&session, "helper", words)),
+        None => assert_eq!(
+            helper_tool_answer(&session, "helper"),
+            ClaudePauseAnswer::Answer(ClaudeHookAnswer::Pass)
+        ),
+    }
+}
+
+// The refusal a helper's earlier run was stopped for.
+fn earlier_refusal() -> RunSetupRefusal {
+    RunSetupRefusal {
+        cause: "the writable root '/gone/repo.git' could not be resolved".to_owned(),
+        is_posture_rejection: false,
+    }
 }
