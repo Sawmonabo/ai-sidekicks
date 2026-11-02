@@ -351,9 +351,10 @@ mod tests {
     }
 
     // Killed by an account-first walk, by a dropped managed tier or one read after the files, by
-    // the account read before the shared file or the shared file tagged as the person's, which
-    // would start a cloned project's `bypassPermissions` at YOLO, or by a reader that answers a
-    // default where no file sets the key.
+    // the shared file read before the local one, by the account read before the shared file or
+    // the shared file tagged as the person's, which would start a cloned project's
+    // `bypassPermissions` at YOLO, or by a reader that answers a default where no file sets the
+    // key.
     #[rstest]
     #[case::local_over_account(
         None,
@@ -368,6 +369,13 @@ mod tests {
         None,
         None,
         Some((ClaudeSettingsSource::Managed, false)),
+    )]
+    #[case::local_over_shared(
+        None,
+        Some(r#"{"autoMemoryEnabled": true}"#),
+        Some(r#"{"autoMemoryEnabled": false}"#),
+        None,
+        Some((ClaudeSettingsSource::Project, true)),
     )]
     #[case::shared_over_account(
         None,
