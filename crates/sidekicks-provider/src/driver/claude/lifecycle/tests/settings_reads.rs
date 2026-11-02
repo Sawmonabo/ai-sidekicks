@@ -8,6 +8,7 @@ use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::machine::settings::ProviderRowValue;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
     ProviderDeclarationId, ProviderRow, ProviderSettingControl, ProviderValueText,
 };
@@ -178,10 +179,17 @@ async fn the_level_list_offers_reviewed_only_on_a_model_the_account_runs_auto_mo
     assert_eq!(mode_ids(listed), expected);
 }
 
-// A live session's level list reads the auto-mode models its process declared at start, with no
-// control-only read of the catalog. Killed by reading the catalog for a live session.
+// A live session's level list reads the auto-mode models its process declared at its launch, with
+// no control-only read of the catalog, until an in-place switch moves the process onto another
+// account, whose catalog is then read. Killed by reading the catalog for a live session that has
+// not moved, and by taking the launch's catalog for one that has.
+#[rstest]
+#[case::on_its_launch_account(false)]
+#[case::moved_in_place(true)]
 #[tokio::test(start_paused = true)]
-async fn a_live_sessions_level_list_reads_its_process_and_starts_no_other() {
+async fn a_live_sessions_level_list_reads_its_process_while_it_runs_on_its_launch_account(
+    #[case] is_moved: bool,
+) {
     let fixture = ScriptedDriver::new();
     fixture
         .starts
@@ -195,25 +203,39 @@ async fn a_live_sessions_level_list_reads_its_process_and_starts_no_other() {
     ]}));
     let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
     fixture.starts.take_catalog_environments();
+    if is_moved {
+        fixture
+            .driver
+            .composed_parts()
+            .expect("the pieces are composed")
+            .establishment
+            .slots
+            .live_session(session_id)
+            .expect("the created session is live")
+            .move_admitted_account(
+                ProviderAccountId::new("moved-to".to_owned()).expect("an account id fits"),
+            );
+    }
 
     let listed = fixture
         .driver
         .list_modes(ListModesParams {
             session_id: Some(session_id),
-            provider_account_id: Some(test_provider_account_id()),
+            provider_account_id: None,
             model: Some(ProviderToken::new("opus".to_owned()).expect("the model fits")),
         })
         .await
         .expect("the levels read");
 
-    assert!(
+    assert_eq!(
         listed
             .iter()
-            .any(|mode| mode.id.as_str() == <&str>::from(PermissionLevel::Reviewed))
+            .any(|mode| mode.id.as_str() == <&str>::from(PermissionLevel::Reviewed)),
+        !is_moved
     );
     assert_eq!(
-        fixture.starts.take_catalog_environments(),
-        Vec::<Vec<(String, String)>>::new()
+        fixture.starts.take_catalog_environments().len(),
+        usize::from(is_moved)
     );
 }
 
