@@ -5,6 +5,7 @@
 
 mod adoption;
 mod continuation;
+mod helpers;
 mod settings;
 
 use std::path::PathBuf;
@@ -49,7 +50,9 @@ use crate::driver::codex::session::history::{
     read_codex_turns,
 };
 use crate::driver::codex::session::inbound::{CodexSessionInboundReceiver, codex_session_inbound};
-use crate::driver::codex::session::owed_turn_ends::end_owed_codex_turns;
+use crate::driver::codex::session::owed_turn_ends::{
+    end_owed_codex_helper_turn, end_owed_codex_turns,
+};
 use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::codex::session::state::{CodexEstablishedConversation, CodexSessionRecord};
 use crate::driver::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
@@ -368,7 +371,7 @@ impl CodexSessionEstablishment {
     /// counter survives a resume, and binds again each helper an adoption holds; the session's
     /// queue is attached, the conversation and its helpers registered and its held frames
     /// delivered, and the claim let go; last, each turn an adoption bound that Codex listed as
-    /// over is ended as Codex ended it.
+    /// over, and each restored helper's newest turn listed over, is ended as Codex ended it.
     pub(crate) async fn open(
         &self,
         established: CodexEstablishedSession,
@@ -419,6 +422,17 @@ impl CodexSessionEstablishment {
         drop(claim);
         let ended = end_owed_codex_turns(&mut routing, delivery, &mut record, &listed_turns).await;
         routed.extend(ended);
+        for helper in &helpers {
+            let ended = end_owed_codex_helper_turn(
+                &mut routing,
+                delivery,
+                &mut record,
+                &helper.thread_id,
+                &helper.newest_turn,
+            )
+            .await;
+            routed.extend(ended);
+        }
         CodexOpenedSession {
             record,
             receiver,

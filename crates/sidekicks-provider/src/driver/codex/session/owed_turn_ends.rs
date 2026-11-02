@@ -1,7 +1,8 @@
 //! The ends a resumed conversation still owes its session: each turn the session's record holds
 //! live or ending that the resume lists as over sent its `turn/completed` while the daemon was not
-//! connected, and Codex sends none again, so its listed end is routed as Codex's own. A listed
-//! turn is read here for how it stands.
+//! connected, and Codex sends none again, so its listed end is routed as Codex's own; so is the
+//! newest turn's end of each helper an adoption restored. A listed turn is read here for how it
+//! stands.
 
 use serde::Deserialize;
 use serde::de::IgnoredAny;
@@ -45,6 +46,38 @@ pub(crate) async fn end_owed_codex_turns(
         routed.extend(ended);
     }
     routed
+}
+
+/// Routes the `turn/completed` of a restored helper's newest turn `newest`, listed over, through
+/// `routing` to `delivery`, so the helper's child run, bound in `record`, ends as Codex ended it.
+/// A turn still running or a helper with no bound child run routes nothing. Answers the frames the
+/// end produced.
+pub(crate) async fn end_owed_codex_helper_turn(
+    routing: &mut CodexSessionRouting,
+    delivery: &CodexFrameDelivery,
+    record: &mut CodexSessionRecord,
+    helper_thread_id: &str,
+    newest: &CodexListedTurn,
+) -> CodexRoutedFrames {
+    let is_bound = record
+        .delivery
+        .child_run_by_thread_id
+        .get(helper_thread_id)
+        .is_some_and(|child| child.bound.is_some());
+    if !is_bound || is_codex_turn_in_progress(&newest.turn) {
+        return CodexRoutedFrames::default();
+    }
+    let Some(params) = compose_turn_completed_params(helper_thread_id, &newest.turn) else {
+        return CodexRoutedFrames::default();
+    };
+    routing
+        .route_notification(
+            delivery,
+            record,
+            CODEX_TURN_COMPLETED_METHOD.to_owned(),
+            params,
+        )
+        .await
 }
 
 /// Whether a turn as `thread/turns/list` lists it still runs.

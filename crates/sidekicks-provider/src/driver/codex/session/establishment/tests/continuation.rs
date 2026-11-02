@@ -24,6 +24,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 };
 use crate::driver::codex::session::establishment::CodexEstablishedSession;
 use crate::driver::codex::session::test_fixture::TestCodexSession;
+use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::session_control::{
     DriverResumeResult, LiveRunResume, OpenTurnResume, ProviderTurnAnswer,
 };
@@ -38,13 +39,13 @@ use crate::runtime_binding::test_store::{
 };
 
 /// The conversation a resume by handle adopts, beside the test session's own.
-const ADOPTED_THREAD: &str = "thread-adopted";
+pub(super) const ADOPTED_THREAD: &str = "thread-adopted";
 
 /// The lead run's turn the end of its service cut.
-const CUT_TURN: &str = "turn-cut";
+pub(super) const CUT_TURN: &str = "turn-cut";
 
 /// The first turn of the cut turn's chain.
-const ROOT_TURN: &str = "turn-root";
+pub(super) const ROOT_TURN: &str = "turn-root";
 
 /// The turn Codex starts for the continuation.
 const CONTINUATION_TURN: &str = "turn-continued";
@@ -56,7 +57,7 @@ const OTHER_ROOT_TURN: &str = "turn-other-root";
 const CUT_TURN_NUMBER: u64 = 2;
 
 // A lead run standing at `run_state` with the cut turn open.
-fn lead_run(run_id: RunId, run_state: RunState) -> LiveRunResume {
+pub(super) fn lead_run(run_id: RunId, run_state: RunState) -> LiveRunResume {
     LiveRunResume {
         run_id,
         parent_run_id: None,
@@ -74,16 +75,16 @@ fn lead_run(run_id: RunId, run_state: RunState) -> LiveRunResume {
 
 // What a resume by handle did: its result, the session it established, and each `thread/resume`
 // and `turn/start` it sent.
-struct Adoption {
-    result: DriverResumeResult,
-    established: Option<CodexEstablishedSession>,
-    resumes: Vec<Value>,
-    turn_starts: Vec<Value>,
+pub(super) struct Adoption {
+    pub(super) result: DriverResumeResult,
+    pub(super) established: Option<CodexEstablishedSession>,
+    pub(super) resumes: Vec<Value>,
+    pub(super) turn_starts: Vec<Value>,
 }
 
 impl Adoption {
     // The answer for `run_id` the result gives.
-    fn answer_of(&self, run_id: RunId) -> ProviderTurnAnswer {
+    pub(super) fn answer_of(&self, run_id: RunId) -> ProviderTurnAnswer {
         let DriverResumeResult::Resumed { runs, .. } = &self.result else {
             panic!("the conversation is adopted: {:?}", self.result);
         };
@@ -107,14 +108,25 @@ impl Adoption {
 
 // How the service answers an adoption: whether it holds the conversation loaded, the status each
 // resume reads it at, the turns of each resume's page in order (none past the list, or where an
-// entry is `None`), the turns it lists, and each `turn/start`'s answer (a refusal where it holds
-// an error), left unanswered where it is `None`.
-struct AdoptionScript {
-    is_loaded: bool,
-    status: &'static str,
-    resume_pages: Vec<Option<Value>>,
-    listed_turns: Value,
-    turn_start_answer: Option<Value>,
+// entry is `None`), the turns it lists, each `turn/start`'s answer (a refusal where it holds an
+// error), left unanswered where it is `None`, and how it answers for each helper.
+pub(super) struct AdoptionScript {
+    pub(super) is_loaded: bool,
+    pub(super) status: &'static str,
+    pub(super) resume_pages: Vec<Option<Value>>,
+    pub(super) listed_turns: Value,
+    pub(super) turn_start_answer: Option<Value>,
+    pub(super) helpers: Vec<HelperScript>,
+}
+
+// How the service answers for one helper's conversation: whether it holds it loaded, its resume's
+// page (a refusal where it holds an error), and the turns it lists, newest first. A helper no
+// script names lists no turn.
+pub(super) struct HelperScript {
+    pub(super) thread_id: &'static str,
+    pub(super) is_loaded: bool,
+    pub(super) resume_page: Value,
+    pub(super) listed_turns: Value,
 }
 
 impl AdoptionScript {
@@ -127,25 +139,27 @@ impl AdoptionScript {
             resume_pages: Vec::new(),
             listed_turns,
             turn_start_answer: Some(turn_start_answer),
+            helpers: Vec::new(),
         }
     }
 
     // The conversation held loaded and read active, its resume's page holding `newest_turn`, its
     // turns `listed_turns`, and no `turn/start` answered.
-    fn loaded_active(listed_turns: Value, newest_turn: Value) -> Self {
+    pub(super) fn loaded_active(listed_turns: Value, newest_turn: Value) -> Self {
         Self {
             is_loaded: true,
             status: "active",
             resume_pages: vec![Some(Value::Array(vec![newest_turn]))],
             listed_turns,
             turn_start_answer: None,
+            helpers: Vec::new(),
         }
     }
 }
 
 // Adopts `ADOPTED_THREAD` by its handle on the test session's service, naming `live_runs`, the
 // service answering as `answers` says.
-async fn adopt(
+pub(super) async fn adopt(
     session: &mut TestCodexSession,
     live_runs: Vec<LiveRunResume>,
     answers: AdoptionScript,
@@ -187,11 +201,22 @@ async fn adopt(
         resume_pages,
         listed_turns,
         turn_start_answer,
+        helpers,
     } = answers;
-    let loaded = if is_loaded {
-        json!([ADOPTED_THREAD])
-    } else {
-        json!([])
+    let loaded: Vec<&str> = is_loaded
+        .then_some(ADOPTED_THREAD)
+        .into_iter()
+        .chain(
+            helpers
+                .iter()
+                .filter(|helper| helper.is_loaded)
+                .map(|helper| helper.thread_id),
+        )
+        .collect();
+    let helper_of = |sent: &Value| {
+        helpers
+            .iter()
+            .find(|helper| sent["params"]["threadId"] == helper.thread_id)
     };
     let script = &mut session.scripted.script;
     let mut resumes = Vec::new();
@@ -201,11 +226,15 @@ async fn adopt(
     let resumed = loop {
         tokio::select! {
             resumed = &mut resuming => break resumed,
-            sent = script.next_sent() => match sent["method"].as_str() {
-                Some("thread/loaded/list") => {
+            sent = script.next_sent() => match (sent["method"].as_str(), helper_of(&sent)) {
+                (Some("thread/loaded/list"), _) => {
                     script.answer(&sent, &json!({"data": loaded, "nextCursor": null}));
                 }
-                Some("thread/resume") => {
+                (Some("thread/resume"), Some(helper)) => {
+                    resumes.push(sent.clone());
+                    answer_helper_resume(script, &sent, helper);
+                }
+                (Some("thread/resume"), None) => {
                     let mut reply = json!({
                         "thread": {
                             "id": sent["params"]["threadId"],
@@ -214,34 +243,39 @@ async fn adopt(
                         },
                         "activePermissionProfile": {"id": sent["params"]["permissions"]},
                     });
-                    if let Some(Some(page)) = resume_pages.get(resumes.len()) {
+                    let lead_resumes = resumes
+                        .iter()
+                        .filter(|resume| resume["params"]["threadId"] == ADOPTED_THREAD)
+                        .count();
+                    if let Some(Some(page)) = resume_pages.get(lead_resumes) {
                         reply["initialTurnsPage"] = json!({"data": page, "nextCursor": null});
                     }
                     resumes.push(sent.clone());
                     script.answer(&sent, &reply);
                 }
-                Some("thread/turns/list") => {
-                    script.answer(
-                        &sent,
-                        &json!({"data": listed_turns, "nextCursor": null}),
-                    );
+                (Some("thread/turns/list"), helper) => {
+                    let turns = match helper {
+                        Some(helper) => helper.listed_turns.clone(),
+                        None if sent["params"]["threadId"] == ADOPTED_THREAD => {
+                            listed_turns.clone()
+                        }
+                        None => json!([]),
+                    };
+                    script.answer(&sent, &json!({"data": turns, "nextCursor": null}));
                 }
-                Some("thread/settings/update") => script.answer(&sent, &json!({})),
-                Some("turn/start") => {
+                (Some("thread/settings/update"), _) => script.answer(&sent, &json!({})),
+                (Some("turn/start"), _) => {
                     turn_starts.push(sent.clone());
                     match &turn_start_answer {
                         Some(refusal) if refusal.get("error").is_some() => {
-                            let mut refusal = refusal.clone();
-                            refusal["jsonrpc"] = json!("2.0");
-                            refusal["id"] = sent["id"].clone();
-                            script.send(&refusal);
+                            send_refusal(script, &sent, refusal);
                         }
                         Some(answer) => script.answer(&sent, answer),
                         // Left unanswered, so the start's deadline passes.
                         None => {}
                     }
                 }
-                method => panic!("the service was not asked {method:?}"),
+                (method, _) => panic!("the service was not asked {method:?}"),
             },
         }
     };
@@ -251,6 +285,33 @@ async fn adopt(
         resumes,
         turn_starts,
     }
+}
+
+// Answers `helper`'s resume `sent` with its page, or with its refusal.
+fn answer_helper_resume(script: &ScriptedService, sent: &Value, helper: &HelperScript) {
+    if helper.resume_page.get("error").is_some() {
+        send_refusal(script, sent, &helper.resume_page);
+        return;
+    }
+    script.answer(
+        sent,
+        &json!({
+            "thread": {
+                "id": helper.thread_id,
+                "sessionId": "codex-session",
+                "status": {"type": "active"},
+            },
+            "initialTurnsPage": {"data": helper.resume_page, "nextCursor": null},
+        }),
+    );
+}
+
+// Answers the request `sent` with `refusal`, an object holding its `error`.
+fn send_refusal(script: &ScriptedService, sent: &Value, refusal: &Value) {
+    let mut refusal = refusal.clone();
+    refusal["jsonrpc"] = json!("2.0");
+    refusal["id"] = sent["id"].clone();
+    script.send(&refusal);
 }
 
 // The turn ends among `calls`: the daemon's own, then those its provider reported.
@@ -275,7 +336,7 @@ fn cut_turn_listed() -> Value {
 }
 
 // The turn `turn_id` standing at `status`, in the chain `root_turn_id` begins, as a page holds it.
-fn page_turn(turn_id: &str, status: &str, root_turn_id: &str) -> Value {
+pub(super) fn page_turn(turn_id: &str, status: &str, root_turn_id: &str) -> Value {
     let mut turn =
         json!({"id": turn_id, "items": [], "status": status, "rootTurnId": root_turn_id});
     if status != "inProgress" {
@@ -756,6 +817,7 @@ async fn a_continuation_start_left_unanswered_is_held_where_a_second_resume_show
             resume_pages: vec![None, Some(json!([newest_turn]))],
             listed_turns: json!([cut_turn_listed()]),
             turn_start_answer: None,
+            helpers: Vec::new(),
         },
     )
     .await;

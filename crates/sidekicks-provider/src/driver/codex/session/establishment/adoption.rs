@@ -6,26 +6,33 @@
 //! session's record is rebuilt from the live runs the resume names: a lead run whose turn the end
 //! of the daemon's own service cut continued in a new turn, a lead whose cut turn Codex continued
 //! itself on a service the daemon only joined held to the turn that newest one shows, every other
-//! open turn Codex lists bound to its run, each loaded helper bound to its child run, and what
-//! Codex holds of each run's turns answered. A lead held on the person waits with its cut turn
-//! unbound, and a pausing lead's cut turn is gone, so the daemon ends it as the pause owes; both
-//! keep their deliveries' binding for the person's continue.
+//! open turn Codex lists bound to its run, and what Codex holds of each run's turns answered. A
+//! lead held on the person waits with its cut turn unbound, and a pausing lead's cut turn is gone,
+//! so the daemon ends it as the pause owes; both keep their deliveries' binding for the person's
+//! continue. Each live helper is answered from its newest turn, parents first: a loaded one is
+//! reopened on the daemon's connection, which Codex sends its frames on only after that, and an
+//! unloaded one is listed, which loads nothing. A helper Codex runs, or whose newest turn is over,
+//! is bound to its child run again, the end of that turn owed as the session opens.
 
+use std::error::Error;
 use std::sync::Arc;
 
 use serde_json::value::RawValue;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::run::subagent::SubagentId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::ProviderTurnId;
 use tokio::time::Instant;
 
 use super::continuation::{answer_continued_runs, read_cut_turns};
+use super::helpers::{order_parents_first, reopen_codex_helper};
 use super::{
     CodexEstablishedSession, CodexHandleResume, CodexResumedThread, CodexSessionEstablishment,
     compose_failed_resume, prepare_adoption, read_resumed_thread, request_thread_resume,
 };
 use crate::driver::codex::delivery::memory::{CodexBoundChildRun, CodexChildRun};
-use crate::driver::codex::run::routes::CodexRunBinding;
+use crate::driver::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
 use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::service::supervisor::start::read_codex_loaded_threads;
 use crate::driver::codex::service::supervisor::{CODEX_UNLOAD_TIMEOUT, CodexService};
@@ -36,7 +43,9 @@ use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::settings::{
     compose_resume_settings_request, require_execution_posture,
 };
-use crate::driver::codex::session::history::{CodexListedTurn, compose_codex_newest_turn_page};
+use crate::driver::codex::session::history::{
+    CodexListedTurn, compose_codex_newest_turn_page, read_codex_newest_turn,
+};
 use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::owed_turn_ends::is_codex_turn_in_progress;
 use crate::driver::codex::session::slots::let_go_codex_thread;
@@ -50,11 +59,14 @@ use crate::driver::session_control::{
 use crate::run::turn_end::StartedTurn;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
-/// A helper an adopted conversation holds again: its conversation, and what was already metered
-/// on it, which its usage is based on.
+/// A helper an adopted conversation holds again: its conversation, its newest turn, and what was
+/// already metered on it, which its usage is based on.
 pub(crate) struct CodexRestoredHelper {
     /// The helper's conversation, whose id is the helper's own.
     pub(crate) thread_id: String,
+    /// Its newest turn as Codex read it at the adoption; one listed over is ended as the session
+    /// opens, since Codex sent its end while the daemon was away.
+    pub(crate) newest_turn: CodexListedTurn,
     /// The spend already metered on it; zero until the caller reads it.
     pub(crate) prior_emitted: UsageAxisCounts,
 }
@@ -121,9 +133,18 @@ impl CodexSessionEstablishment {
             // The resume's own sink, bound to the binding it runs under.
             on_mcp_server_status: params.on_mcp_server_status.clone(),
         });
-        let helpers = find_loaded_helpers(&params.live_runs, &loaded);
+        let mut helpers = order_parents_first(
+            find_live_helpers(&params.live_runs, &loaded),
+            |helper| helper.run_id,
+            |helper| Some(helper.parent_run_id),
+        );
         let registered: Vec<String> = std::iter::once(thread_id.clone())
-            .chain(helpers.iter().map(|helper| helper.thread_id.clone()))
+            .chain(
+                helpers
+                    .iter()
+                    .filter(|helper| helper.is_loaded)
+                    .map(|helper| helper.subagent_id.as_str().to_owned()),
+            )
             .collect();
         let claim = service.begin_thread_claim();
         // Attached and registered before the resume, since Codex sends a loaded conversation's
@@ -146,6 +167,7 @@ impl CodexSessionEstablishment {
         };
         let adopted = async {
             let resumed = read_resumed_thread(&record, &connection, &reply, false).await?;
+            read_helper_newest_turns(&connection, session_id, &mut helpers).await;
             let runs = answer_live_runs(&params.live_runs, &resumed, &helpers);
             let result =
                 prepare_adoption(&record, &service, &resumed, &params.binding_id, runs).await?;
@@ -192,8 +214,17 @@ impl CodexSessionEstablishment {
             &continued,
             &result,
         );
-        for helper in &helpers {
-            restore_helper(&mut record, helper, &binding);
+        let mut restored = Vec::new();
+        for helper in helpers {
+            if let Some(helper) = restore_helper(
+                &mut record,
+                helper,
+                &binding,
+                &self.dependencies.run_routes,
+                &service,
+            ) {
+                restored.push(helper);
+            }
         }
         let established = CodexEstablishedSession {
             record,
@@ -203,13 +234,7 @@ impl CodexSessionEstablishment {
                 &params.runtime_metadata,
             )),
             listed_turns: resumed.listed_turns,
-            helpers: helpers
-                .into_iter()
-                .map(|helper| CodexRestoredHelper {
-                    thread_id: helper.thread_id,
-                    prior_emitted: UsageAxisCounts::default(),
-                })
-                .collect(),
+            helpers: restored,
         };
         Ok((result, established))
     }
@@ -388,44 +413,88 @@ fn bind_open_turns(
     is_bound
 }
 
-/// A live helper run whose conversation the service holds loaded, with the run it was started
-/// beneath.
-struct LoadedHelper {
-    thread_id: String,
-    run: LiveRunResume,
+/// A live helper run, with the run it was started beneath, whether the service holds its
+/// conversation loaded, and its newest turn once read.
+struct AdoptedHelper {
+    // Its id, which is its conversation's.
+    subagent_id: SubagentId,
+    run_id: RunId,
     parent_run_id: RunId,
+    is_loaded: bool,
+    newest_turn: Option<CodexListedTurn>,
 }
 
-// The live helper runs of `live_runs` whose conversations `loaded` holds and whose parent run the
-// log names, so a child run can be bound to each.
-fn find_loaded_helpers(live_runs: &[LiveRunResume], loaded: &[String]) -> Vec<LoadedHelper> {
+impl AdoptedHelper {
+    // What Codex holds of the helper's turn, read from its newest turn: one running on a loaded
+    // conversation still runs, one over ended, and one running on an unloaded conversation is
+    // gone, since Codex unloads only an idle helper, so its turn died with a service.
+    fn answer(&self) -> ProviderTurnAnswer {
+        match &self.newest_turn {
+            None => ProviderTurnAnswer::Gone,
+            Some(newest) if !is_codex_turn_in_progress(&newest.turn) => {
+                ProviderTurnAnswer::EndedByProvider
+            }
+            Some(_) if self.is_loaded => ProviderTurnAnswer::StillRunning,
+            Some(_) => ProviderTurnAnswer::Gone,
+        }
+    }
+}
+
+// The live helper runs of `live_runs` whose parent run the log names, so a child run can be bound
+// to each, each marked loaded where `loaded` holds its conversation.
+fn find_live_helpers(live_runs: &[LiveRunResume], loaded: &[String]) -> Vec<AdoptedHelper> {
     live_runs
         .iter()
         .filter_map(|run| {
-            let thread_id = run.subagent_id.as_ref()?.as_str();
+            let subagent_id = run.subagent_id.clone()?;
             let parent_run_id = run.parent_run_id?;
-            loaded
-                .iter()
-                .any(|held| held == thread_id)
-                .then(|| LoadedHelper {
-                    thread_id: thread_id.to_owned(),
-                    run: run.clone(),
-                    parent_run_id,
-                })
+            Some(AdoptedHelper {
+                is_loaded: loaded.iter().any(|held| held == subagent_id.as_str()),
+                subagent_id,
+                run_id: run.run_id,
+                parent_run_id,
+                newest_turn: None,
+            })
         })
         .collect()
+}
+
+// Reads each of `helpers`' newest turns on `connection`, in their order: a loaded one reopened,
+// so its frames reach the daemon's connection, an unloaded one listed, which loads nothing. A
+// read Codex refuses is logged and leaves the helper with no turn, which reads `Gone`.
+async fn read_helper_newest_turns(
+    connection: &CodexAppServerConnection,
+    session_id: SessionId,
+    helpers: &mut [AdoptedHelper],
+) {
+    for helper in helpers {
+        let read = if helper.is_loaded {
+            reopen_codex_helper(connection, helper.subagent_id.as_str()).await
+        } else {
+            read_codex_newest_turn(connection, helper.subagent_id.as_str()).await
+        };
+        match read {
+            Ok(newest_turn) => helper.newest_turn = newest_turn,
+            Err(error) => tracing::warn!(
+                session_id = %session_id,
+                run_id = %helper.run_id,
+                thread_id = %helper.subagent_id.as_str(),
+                error = &error as &(dyn Error + 'static),
+                "codex refused the read of an adopted helper's newest turn"
+            ),
+        }
+    }
 }
 
 // Each live run's answer. A lead whose turns the service's end cut answers `Waiting` where it is
 // held on the person, so its cut turn stays unbound until the person's answer continues it, and
 // `Gone` where it is pausing with no stop pending, so the daemon ends the cut turn as the pause
 // owes; any other lead answers from its open turns as Codex lists them. A helper answers
-// `StillRunning` where its conversation is loaded and bound again, else `Waiting` where it is
-// held on the person, else `Gone`.
+// `Waiting` where it is held on the person, else from its newest turn.
 fn answer_live_runs(
     live_runs: &[LiveRunResume],
     resumed: &CodexResumedThread,
-    helpers: &[LoadedHelper],
+    helpers: &[AdoptedHelper],
 ) -> Vec<ResumedRunAnswer> {
     let is_conversation_read = matches!(
         resumed.status,
@@ -435,12 +504,13 @@ fn answer_live_runs(
         .iter()
         .map(|run| {
             let turn = if run.subagent_id.is_some() {
-                if helpers.iter().any(|helper| helper.run.run_id == run.run_id) {
-                    ProviderTurnAnswer::StillRunning
-                } else if run.is_held(live_runs) {
+                if run.is_held(live_runs) {
                     ProviderTurnAnswer::Waiting
                 } else {
-                    ProviderTurnAnswer::Gone
+                    helpers
+                        .iter()
+                        .find(|helper| helper.run_id == run.run_id)
+                        .map_or(ProviderTurnAnswer::Gone, AdoptedHelper::answer)
                 }
             } else {
                 let is_cut =
@@ -468,34 +538,50 @@ fn answer_live_runs(
         .collect()
 }
 
-// Binds a loaded helper's conversation to its child run, started beneath its parent, so its rows
-// and asks land on that run and its end completes it.
+// Binds a helper Codex runs, or whose newest turn is over, to its child run, started beneath its
+// parent, so its rows and asks land on that run and its end completes it, and routes the run to
+// the helper's conversation, which an interrupt of the run reaches; a helper held on the person is
+// bound the same, so its frames keep their run. Answers it restored, with its newest turn. Any
+// other helper's turn is gone, and a loaded one's conversation is let go on `service`.
 fn restore_helper(
     record: &mut CodexSessionRecord,
-    helper: &LoadedHelper,
+    helper: AdoptedHelper,
     binding: &CodexRunBinding,
-) {
-    let Some(subagent_id) = helper.run.subagent_id.clone() else {
-        return;
+    run_routes: &CodexRunRoutes,
+    service: &CodexService,
+) -> Option<CodexRestoredHelper> {
+    let thread_id = helper.subagent_id.as_str().to_owned();
+    let is_gone = helper.answer() == ProviderTurnAnswer::Gone;
+    let Some(newest_turn) = helper.newest_turn.filter(|_| !is_gone) else {
+        if helper.is_loaded {
+            service.release_thread(&thread_id);
+        }
+        return None;
     };
     record.delivery.child_run_by_thread_id.insert(
-        helper.thread_id.clone(),
+        thread_id.clone(),
         CodexChildRun {
             bound: Some(CodexBoundChildRun {
-                child_run_id: helper.run.run_id,
+                child_run_id: helper.run_id,
                 parent_run_id: helper.parent_run_id,
                 start_row_event_id: None,
             }),
             agent_id: binding.agent_id,
             binding_id: binding.binding_id.clone(),
-            subagent_id,
+            subagent_id: helper.subagent_id,
             parent_tool_call_id: None,
         },
     );
     record
         .delivery
         .child_thread_id_by_run_id
-        .insert(helper.run.run_id, helper.thread_id.clone());
+        .insert(helper.run_id, thread_id.clone());
+    run_routes.bind_helper_run(helper.run_id, record.session_id, &thread_id);
+    Some(CodexRestoredHelper {
+        thread_id,
+        newest_turn,
+        prior_emitted: UsageAxisCounts::default(),
+    })
 }
 
 // Takes back what an adoption that failed set up on `service` before its resume: the session's
