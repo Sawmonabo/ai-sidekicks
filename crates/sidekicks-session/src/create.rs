@@ -11,7 +11,8 @@
 //!   recorded key answers the session that key made, finishing it first when it was left
 //!   `provisioning`.
 //! - A plan handed to a fresh session births it here under the id its verdict fixed, in the
-//!   planning session's project or folder; see [`hand_off`].
+//!   planning session's project or folder, and finishes it with the seeding port's writes and the
+//!   verdict's level; see [`hand_off`].
 
 pub mod hand_off;
 mod provisioning;
@@ -21,7 +22,7 @@ mod tests;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::error::Error;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex, Weak};
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, named_params};
@@ -80,17 +81,20 @@ use sidekicks_workspace::managed::service::{ManagedWorkspaceError, ManagedWorksp
 use sidekicks_workspace::repo::errors::RepoRefusal;
 use sidekicks_workspace::schema::MountOrigin;
 use sidekicks_workspace::service::{WorkspaceService, WorkspaceServiceError};
+use tokio::sync::SetOnce;
 
 use crate::changes::renamed_event;
 use crate::console_state::INSERT_CONSOLE_STATE_SQL;
+use crate::create::hand_off::HandOffSeeding;
 use crate::create::provisioning::{SessionFinishFailure, SessionToFinish};
 
 /// The statements the creation's reads keep prepared on each read connection: a recorded create,
 /// the current account and whether any is registered, a project's target, the sessions left
 /// provisioning, a session's mount, whether a project clones, the unborn chats, whether one chat
-/// is unborn, a session's state, and for a hand-off's birth its record, the planning session's
-/// working folder and its project.
-pub const SESSION_CREATION_STATEMENT_CAPACITY: usize = 13;
+/// is unborn, a session's state, a session's state with whether a hand-off names it, for a
+/// hand-off's birth its record, the planning session's working folder and its project, and for
+/// the start pass every hand-off and its seed's queue item.
+pub const SESSION_CREATION_STATEMENT_CAPACITY: usize = 16;
 
 // Each statement's position in `session.created`'s write: the request's record, then the account
 // guard; a project session's project and folder guards and its group guard follow.
@@ -196,6 +200,9 @@ pub struct SessionCreation {
     // The chats whose workspace is made or being made and whose `session.created` has not settled,
     // so the removal of unborn chats' workspaces never takes one of theirs.
     chats_being_created: Mutex<HashSet<SessionId>>,
+    // The daemon's writes of a hand-off's transcript file and seed plan, and its finish of a
+    // hand-off a stop left; held weakly, as the daemon's side holds the creation.
+    hand_off_seeding: SetOnce<Weak<dyn HandOffSeeding>>,
     /// Where a test holds a create just before it appends `session.created`.
     #[cfg(test)]
     pub(crate) created_append_pause: PausePoint,
@@ -252,6 +259,9 @@ pub enum SessionCreateError {
     /// Some stopped creates could not be finished; every other one was.
     #[error(transparent)]
     Finish(#[from] SettleFailures<SessionFinishFailure>),
+    /// The hand-off seeding port is not set, or a step of it failed.
+    #[error("the hand-off seeding port is not set, or a step of it failed")]
+    HandOffSeeding(#[source] Box<dyn Error + Send + Sync>),
 }
 
 impl From<SessionCreateError> for HandlerError {
@@ -271,7 +281,8 @@ impl From<SessionCreateError> for HandlerError {
             | SessionCreateError::Append(_)
             | SessionCreateError::ChatWithoutMount { .. }
             | SessionCreateError::Unanswered(_)
-            | SessionCreateError::Finish(_)) => Self::Internal(Box::new(fault)),
+            | SessionCreateError::Finish(_)
+            | SessionCreateError::HandOffSeeding(_)) => Self::Internal(Box::new(fault)),
         }
     }
 }
@@ -333,6 +344,7 @@ impl SessionCreation {
             settings: deps.settings,
             key_lock: Arc::new(KeyedLock::new()),
             chats_being_created: Mutex::new(HashSet::new()),
+            hand_off_seeding: SetOnce::new(),
             #[cfg(test)]
             created_append_pause: PausePoint::default(),
             #[cfg(test)]
