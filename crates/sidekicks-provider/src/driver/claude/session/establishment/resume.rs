@@ -386,6 +386,7 @@ fn resume_failure(
 
 #[cfg(test)]
 mod tests {
+    use sidekicks_contracts::run::state::RunState;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     use super::*;
@@ -404,6 +405,7 @@ mod tests {
             }],
             subagent_id: None,
             is_stopping,
+            run_state: RunState::Running,
         }
     }
 

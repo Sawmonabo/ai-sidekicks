@@ -225,6 +225,11 @@ impl CodexFrameDelivery {
         }
     }
 
+    /// The run engine the delivery opens turns on, which a resume also writes turn ends through.
+    pub(crate) fn engine(&self) -> &Arc<dyn RunHost> {
+        &self.dependencies.engine
+    }
+
     /// Delivers one frame the routing kept for the session `record` holds, with the router's
     /// `route` for it, while the turn bookkeeping still holds the turn's route; `gate` is the
     /// session's terminal gate, which outlives its records. Never fails: each delivery's failure

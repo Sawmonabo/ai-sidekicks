@@ -6,6 +6,7 @@ use std::sync::Arc;
 use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::ProviderTurnId;
@@ -33,6 +34,7 @@ fn lead_run(run_id: RunId, open_turns: Vec<OpenTurnResume>) -> LiveRunResume {
         open_turns,
         subagent_id: None,
         is_stopping: false,
+        run_state: RunState::Running,
     }
 }
 
@@ -44,6 +46,7 @@ fn helper_run(run_id: RunId, parent_run_id: RunId) -> LiveRunResume {
         open_turns: vec![open_turn(1)],
         subagent_id: Some(SubagentId::new("helper-1".to_owned()).expect("a helper id fits")),
         is_stopping: false,
+        run_state: RunState::Running,
     }
 }
 
@@ -129,6 +132,7 @@ async fn a_resume_the_live_process_answers_holds_only_the_turn_it_runs() {
         open_turns: Vec::new(),
         subagent_id: None,
         is_stopping: false,
+        run_state: RunState::Running,
     };
 
     let resumed = fixture

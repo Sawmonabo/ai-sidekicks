@@ -30,6 +30,7 @@ use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::controls::methods::{
     PermissionLevel, SessionMode, SideQuestionId,
@@ -177,8 +178,8 @@ pub struct ResumeSessionParams {
 }
 
 /// A run of a resumed session not yet ended, as its log names it to the provider: the run it was
-/// started beneath, its open turns, for a provider's helper the helper's own id, and whether a
-/// pending stop wins over its resume.
+/// started beneath, its open turns, for a provider's helper the helper's own id, whether a pending
+/// stop wins over its resume, and the state it stands in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LiveRunResume {
     /// The run.
@@ -193,6 +194,8 @@ pub struct LiveRunResume {
     /// Whether a stop the run waits on, its own or that of the run whose helper it is, wins over
     /// the resume, so no turn of it is continued.
     pub is_stopping: bool,
+    /// The state the run stands in as the start reads it.
+    pub run_state: RunState,
 }
 
 /// A turn of a live run started with no end.

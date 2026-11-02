@@ -9,6 +9,7 @@ use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
@@ -392,6 +393,7 @@ async fn a_loaded_conversation_is_joined_as_it_runs() {
             }],
             subagent_id: None,
             is_stopping: false,
+            run_state: RunState::Running,
         },
         LiveRunResume {
             run_id: helper_run,
@@ -399,6 +401,7 @@ async fn a_loaded_conversation_is_joined_as_it_runs() {
             open_turns: Vec::new(),
             subagent_id: Some(SubagentId::new(HELPER_THREAD.to_owned()).expect("a helper id")),
             is_stopping: false,
+            run_state: RunState::Running,
         },
     ];
     let mut resumes = Vec::new();
@@ -498,6 +501,7 @@ async fn a_loaded_conversation_is_joined_as_it_runs() {
                 EngineCall::StartTurn(_)
                 | EngineCall::CountStep(_)
                 | EngineCall::RecordTurnEnd(..)
+                | EngineCall::RecordDaemonTurnEnd(..)
                 | EngineCall::StartDaemonTurn(_)
                 | EngineCall::EndTurnOnProcessExit(_)
                 | EngineCall::EndTurnOnClose(_) => None,

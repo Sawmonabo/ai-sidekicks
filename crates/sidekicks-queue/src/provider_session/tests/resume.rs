@@ -10,6 +10,7 @@ use rusqlite::params;
 use serde_json::{Value, json};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::ProviderTurnId;
@@ -162,6 +163,7 @@ async fn a_resume_names_each_live_run_with_its_open_turns_and_helper_id() {
             }],
             subagent_id: None,
             is_stopping: false,
+            run_state: RunState::Running,
         }
     );
     assert_eq!(
@@ -172,6 +174,7 @@ async fn a_resume_names_each_live_run_with_its_open_turns_and_helper_id() {
             open_turns: Vec::new(),
             subagent_id: Some(SubagentId::new(SUBAGENT_ID.to_owned()).expect("a helper id")),
             is_stopping: false,
+            run_state: RunState::Running,
         }
     );
 }
