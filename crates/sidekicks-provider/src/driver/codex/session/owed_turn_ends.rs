@@ -54,9 +54,9 @@ pub(crate) fn is_codex_turn_in_progress(turn: &RawValue) -> bool {
 
 /// How a turn as `thread/turns/list` lists it stands: its status, whether it carries the time it
 /// ended, which only a turn something stopped or finished carries, and the first turn of its chain.
-pub(super) struct CodexListedTurnState {
+pub(crate) struct CodexListedTurnState {
     /// Its status; `None` for a word Codex does not send or a turn that reads as no object.
-    pub(super) status: Option<CodexTurnStatus>,
+    pub(crate) status: Option<CodexTurnStatus>,
     /// Whether it carries `completedAt`: a turn a cold load marked interrupted carries none.
     pub(super) has_completed_at: bool,
     /// The first turn of the chain of work that led to it; `None` where Codex names none.
@@ -64,7 +64,7 @@ pub(super) struct CodexListedTurnState {
 }
 
 /// Reads the listed turn `turn` for how it stands.
-pub(super) fn read_codex_listed_turn(turn: &RawValue) -> CodexListedTurnState {
+pub(crate) fn read_codex_listed_turn(turn: &RawValue) -> CodexListedTurnState {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct ListedTurn {

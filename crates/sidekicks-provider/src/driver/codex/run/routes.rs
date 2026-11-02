@@ -131,6 +131,14 @@ impl CodexRunRoutes {
         Some(route.clone())
     }
 
+    /// Clears the daemon's interrupt mark of a helper's child run whose interrupt failed, so its
+    /// own end reads as its own; the route stays.
+    pub(crate) fn end_helper_interrupt(&self, run_id: RunId) {
+        if let Some(route) = self.lock().helpers.get_mut(&run_id) {
+            route.is_interrupted_by_daemon = false;
+        }
+    }
+
     /// Removes and answers the route of a helper's child run that ended.
     pub(crate) fn retire_helper_run(&self, run_id: RunId) -> Option<CodexHelperRoute> {
         self.lock().helpers.remove(&run_id)

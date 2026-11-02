@@ -382,10 +382,9 @@ impl HelperStopReason {
     }
 }
 
-/// Params of `stop_helper_at_token_limit`: the helper whose own run passed its token limit, which
-/// stops alone while its lead goes on.
+/// Params of a helper's stop: the helper whose own run stops alone while its lead goes on.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HelperTokenLimitParams {
+pub struct HelperStopParams {
     /// The session.
     pub session_id: SessionId,
     /// The helper's own run.
