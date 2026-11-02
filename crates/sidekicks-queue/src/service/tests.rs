@@ -1,12 +1,13 @@
 //! The run queue's tests, over a test database holding a session whose lead is bound to the
 //! table's first provider, whose driver is a stand-in that records what it is asked: a send to a
 //! session that takes no change and the removal of a queued run's last message here; sends,
-//! starts, run ends and the interrupts' queue in the modules below.
+//! starts, run ends, the interrupts' queue and a plan message's withdrawal in the modules below.
 
 mod interrupt;
 mod run_ends;
 mod sends;
 mod starts;
+mod withdrawal;
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

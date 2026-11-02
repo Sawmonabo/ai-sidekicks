@@ -7,7 +7,7 @@ use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::QueueItemSummary;
+use sidekicks_contracts::run::queue::MessageContent;
 use sidekicks_provider::run::start_request::DriverStep;
 use sidekicks_store::database::statement::WriteStatement;
 
@@ -35,9 +35,9 @@ pub struct RunTurnStart {
 pub struct RunStartRequest {
     /// The run and how its turn reaches the driver.
     pub turn: RunTurnStart,
-    /// The item that starts the run; absent on a turn the daemon or its provider starts on a
-    /// session.
-    pub queue_item: Option<QueueItemSummary>,
+    /// The words of the item that starts the run, a message's or a plan message's; absent for a
+    /// review and on a turn the daemon or its provider starts on a session.
+    pub opening_words: Option<MessageContent>,
     /// The provider the run runs on; its settled output speed is read against this one's standard.
     pub provider: ProviderId,
     /// The output speed the run starts at, held until its provider reports the speed settled.
@@ -53,6 +53,6 @@ pub struct RunStartRequest {
 pub struct RunContinueRequest {
     /// The run and how its next turn reaches the driver.
     pub turn: RunTurnStart,
-    /// The item that continues the run.
-    pub queue_item: QueueItemSummary,
+    /// The words of the message that continues the run.
+    pub opening_words: MessageContent,
 }

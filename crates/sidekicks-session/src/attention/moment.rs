@@ -8,7 +8,6 @@ use sidekicks_contracts::orchestration::InterruptReason;
 use sidekicks_contracts::plan::PlanId;
 use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queued::AgentRunQueuedPayload;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -289,13 +288,7 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         SessionEvent::AgentRunWaitingForInput(payload) => {
             wait_run(payload.run_id, AttentionMomentTrigger::PendingInput)
         }
-        SessionEvent::AgentRunQueued(queued) => {
-            let run_id = match queued {
-                AgentRunQueuedPayload::SessionAgent(payload) => payload.run_id,
-                AgentRunQueuedPayload::ResolvedAgent(payload) => payload.run_id,
-            };
-            resolve_run(run_id, None)
-        }
+        SessionEvent::AgentRunQueued(queued) => resolve_run(queued.run_id(), None),
         SessionEvent::AgentRunStarting(payload) => resolve_run(payload.run_id, None),
         SessionEvent::AgentRunRunning(payload) => resolve_run(payload.run_id, None),
         SessionEvent::AgentRunPausing(payload) => resolve_run(payload.run_id, None),
@@ -486,6 +479,7 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::ApprovalRuleRevoked(_)
         | SessionEvent::ApprovalReviewerFlagged(_)
         | SessionEvent::PlanHoldEnded(_)
+        | SessionEvent::PlanHandOffFailed(_)
         | SessionEvent::QuestionAsked(_)
         | SessionEvent::QuestionOpened(_)
         | SessionEvent::QuestionCanceled(_)

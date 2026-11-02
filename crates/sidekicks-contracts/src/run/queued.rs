@@ -160,6 +160,32 @@ pub enum AgentRunQueuedPayload {
     ResolvedAgent(#[garde(dive)] Box<RunQueuedResolvedAgentPayload>),
 }
 
+impl AgentRunQueuedPayload {
+    /// The session the run is created in.
+    pub fn session_id(&self) -> SessionId {
+        match self {
+            Self::SessionAgent(payload) => payload.session_id,
+            Self::ResolvedAgent(payload) => payload.session_id,
+        }
+    }
+
+    /// The run it creates.
+    pub fn run_id(&self) -> RunId {
+        match self {
+            Self::SessionAgent(payload) => payload.run_id,
+            Self::ResolvedAgent(payload) => payload.run_id,
+        }
+    }
+
+    /// The run's version at creation.
+    pub fn run_version(&self) -> SafeInt<0> {
+        match self {
+            Self::SessionAgent(payload) => payload.run_version,
+            Self::ResolvedAgent(payload) => payload.run_version,
+        }
+    }
+}
+
 /// The TypeScript module of a run's creation record.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "run/queued",

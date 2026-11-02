@@ -1,13 +1,16 @@
 //! The requests a live Claude Code process holds a run on that the daemon's own hooks do not
 //! answer: tool asks, the question tool (as an ask, or through the Sandboxed question hook), the
 //! plan a plan turn proposes as it asks to leave plan mode, the reviewer's blocks, the choices, a
-//! tool server's messages and the withdrawals. Each ask is recorded pending, attributed to its
-//! run's execution on the session's task and handed to its service on a task of its own once
-//! admitted; with no service registered it stays pending at Claude Code. The pending asks are the
-//! session's open asks, which a `Send now` row waits out.
+//! tool server's messages and the withdrawals. Each ask, question and plan is recorded pending,
+//! attributed to its run's execution on the session's task and handed to its service on a task of
+//! its own once admitted; with no service registered an ask stays pending at Claude Code, while a
+//! question or a plan is refused. The pending requests are the session's open asks, which a
+//! `Send now` row waits out.
 
 pub(crate) mod answers;
 mod pending;
+mod plan_hold;
+mod question_prompts;
 
 use std::error::Error;
 use std::io;
@@ -16,12 +19,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
-use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::question::{QuestionOption, QuestionPrompt};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
@@ -34,6 +34,8 @@ use self::answers::{
     compose_claude_question_answer, compose_claude_question_refusal, compose_pre_tool_use_allow,
 };
 use self::pending::{HeldRequest, PendingRequest, RequestTables};
+use self::plan_hold::withdrawn_hold_end;
+use self::question_prompts::read_question_prompts;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::ask_action::read_claude_ask_action;
 use crate::driver::claude::delivery::claude_delivery_origin;
@@ -74,7 +76,7 @@ use crate::port::permission_ask::{
     PermissionAskPort, ProviderAnswerRule, ProviderPermissionAnswer, ProviderPermissionAsk,
     ProviderPermissionAskWithdrawal, ProviderRuleNotKeptError,
 };
-use crate::port::plan::{PlanPort, ProviderPlan};
+use crate::port::plan::PlanPort;
 use crate::port::question::{
     ProviderQuestion, ProviderQuestionWithdrawal, QuestionLinePlace, QuestionPort,
     QuestionTurnError, take_question_in_turn,
@@ -265,7 +267,11 @@ impl ClaudeInboundRequests {
                 (composed, made_rule_of(answer))
             }
             (HeldRequest::Question(_), ProviderRequestAnswer::Permission(_))
-            | (HeldRequest::Ask(_), ProviderRequestAnswer::Question { .. }) => {
+            | (HeldRequest::Ask(_), ProviderRequestAnswer::Question { .. })
+            | (
+                HeldRequest::Plan { .. },
+                ProviderRequestAnswer::Question { .. } | ProviderRequestAnswer::Permission(_),
+            ) => {
                 return Err(ClaudeRequestAnswerError::KindMismatch);
             }
         };
@@ -291,33 +297,41 @@ impl ClaudeInboundRequests {
         Ok(())
     }
 
-    /// Whether the session holds an ask or a question open, and a receiver told once the last one
-    /// closes; the receiver fails when the session's process ends first. `None` when none is open.
+    /// Whether the session holds an ask, a question or a plan open, and a receiver told once the
+    /// last one closes; the receiver fails when the session's process ends first. `None` when none
+    /// is open.
     pub(crate) fn wait_asks_closed(&self, session_id: SessionId) -> Option<oneshot::Receiver<()>> {
         self.lock().wait_closed(session_id)
     }
 
-    /// How many asks and questions the session holds open, each one a reason it stays awake.
+    /// How many asks, questions and plans the session holds open, each one a reason it stays
+    /// awake.
     pub(crate) fn open_request_count(&self, session_id: SessionId) -> u32 {
         u32::try_from(self.lock().open_count(session_id)).unwrap_or(u32::MAX)
     }
 
-    /// Forgets the requests of a session whose process is gone; each one a service holds is
-    /// withdrawn there, since nothing can answer it any more, and every waiter on its open asks
-    /// is let go unanswered.
+    /// Forgets the requests of a session whose process is gone; each ask or question a service
+    /// holds is withdrawn there, since nothing can answer it any more, and every waiter on its
+    /// open asks is let go unanswered. A held plan is dropped unreported: its run's end settles it.
     pub(crate) fn forget_session(&self, session_id: SessionId) {
         let requests = self.lock().take_session(session_id);
         for (request_id, pending) in requests {
-            self.hand_on_withdrawal(session_id, request_id, &pending);
+            match pending.held {
+                HeldRequest::Ask(_) | HeldRequest::Question(_) => {
+                    self.hand_on_withdrawal(session_id, request_id, &pending);
+                }
+                HeldRequest::Plan { .. } => {}
+            }
         }
     }
 
     // Claude Code settled a request itself: an ask it withdrew goes to the approval pipeline, a
-    // question to the questions card, and a choice it withdrew is recorded by the dialogs. One not
-    // handed on yet is only dropped, so it never reaches its service.
+    // question to the questions card, a plan to the plan record, and a choice it withdrew is
+    // recorded by the dialogs. One not handed on yet is only dropped, so it never reaches its
+    // service; a plan whose take still runs is reported by its take.
     async fn withdraw(&self, session: &ClaudeRequestSession<'_>, request_id: &str) {
         let session_id = session.stream.session_id();
-        let closed = self.lock().close(session_id, request_id);
+        let closed = self.lock().withdraw(session_id, request_id);
         match closed {
             Some(pending) => self.hand_on_withdrawal(session_id, request_id.to_owned(), &pending),
             None => {
@@ -363,6 +377,18 @@ impl ClaudeInboundRequests {
                         })
                     },
                 ),
+                HeldRequest::Plan { plan_id } => {
+                    self.dependencies
+                        .plans
+                        .port()
+                        .cloned()
+                        .map(|port| -> BoxFuture<'static, _> {
+                            Box::pin(async move {
+                                port.end_plan_hold(withdrawn_hold_end(session_id, plan_id))
+                                    .await
+                            })
+                        })
+                }
             };
         if let Some(handed_on) = handed_on {
             tokio::spawn(async move {
@@ -391,14 +417,17 @@ impl ClaudeInboundRequests {
             return;
         };
         let input = read_input(ask.input.as_deref());
+        let tool_call_id = ask.tool_use_id.filter(|id| !id.is_empty());
         if tool_name == CLAUDE_QUESTION_TOOL_NAME {
             self.ask_question(session, request_id, &run, ClaudeQuestionRoute::Ask, input)
                 .await;
             return;
         }
-        // The plan is recorded from the request itself, which stays held on its ask until answered.
+        // A plan is held for its verdict, never put to the approval pipeline.
         if tool_name == CLAUDE_PLAN_EXIT_TOOL_NAME {
-            self.record_plan(session_id, &run, &input);
+            self.hold_plan(session, request_id, &run, tool_call_id.as_deref(), input)
+                .await;
+            return;
         }
         // At Reviewed only Claude Code's own removal check reaches the person: a removal the
         // level's removal rule sent while the process reviews in auto mode is the level's to
@@ -413,7 +442,6 @@ impl ClaudeInboundRequests {
             Value::Bool(ask.suppress_always_allow_rule == Some(true)),
         )]);
         let reading = read_claude_ask_action(&tool_name, &input, &flags);
-        let tool_call_id = ask.tool_use_id.filter(|id| !id.is_empty());
         let prompt = ask.title.filter(|title| !title.is_empty()).or(ask
             .description
             .filter(|description| !description.is_empty()));
@@ -519,35 +547,6 @@ impl ClaudeInboundRequests {
         }
     }
 
-    // A plan the agent proposes is recorded from the ask's own input, Claude Code's `plan` text and
-    // the plan file it wrote beside it; the ask goes on to the approval pipeline and stays held
-    // until answered, so the plan holds its request.
-    fn record_plan(&self, session_id: SessionId, run: &ClaudeBoundRun, input: &Map<String, Value>) {
-        let Some(text) = input
-            .get("plan")
-            .and_then(Value::as_str)
-            .filter(|text| !text.trim().is_empty())
-        else {
-            return;
-        };
-        let Some(port) = self.dependencies.plans.port().cloned() else {
-            return;
-        };
-        let plan = ProviderPlan {
-            session_id,
-            run_id: run.run_id,
-            text: text.to_owned(),
-            plan_file_path: read_non_empty_string(input, "planFilePath")
-                .and_then(|path| FilesystemPath::new(path.to_owned()).ok()),
-            holds_request: true,
-        };
-        tokio::spawn(async move {
-            if let Err(error) = port.take_plan(plan).await {
-                record_hand_off_failure(session_id, "plan", error.as_ref());
-            }
-        });
-    }
-
     async fn ask_question(
         &self,
         session: &ClaudeRequestSession<'_>,
@@ -557,7 +556,7 @@ impl ClaudeInboundRequests {
         input: Map<String, Value>,
     ) {
         let session_id = session.stream.session_id();
-        let questions = read_question_prompts(&input);
+        let questions = read_question_prompts(session_id, &input);
         let held = HeldRequest::Question(ClaudeHeldQuestion {
             route,
             input,
@@ -573,7 +572,21 @@ impl ClaudeInboundRequests {
         else {
             return;
         };
+        // With no questions card registered, the agent is refused rather than left waiting.
         let Some(port) = self.dependencies.questions.port().cloned() else {
+            let refusal = compose_claude_question_refusal(route);
+            let refused = write_answer(
+                &self.tables,
+                &*session.channel,
+                session_id,
+                &request_id,
+                admission,
+                &refusal,
+            )
+            .await;
+            if let Err(error) = refused {
+                record_hand_off_failure(session_id, admitted, &error);
+            }
             return;
         };
         let question = ProviderQuestion {
@@ -767,56 +780,6 @@ fn read_input(input: Option<&RawValue>) -> Map<String, Value> {
     input
         .and_then(|input| serde_json::from_str::<Map<String, Value>>(input.get()).ok())
         .unwrap_or_default()
-}
-
-// The question tool's questions as the questions card asks them; a malformed one is left out.
-fn read_question_prompts(input: &Map<String, Value>) -> Vec<QuestionPrompt> {
-    let Some(questions) = input.get("questions").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    questions
-        .iter()
-        .filter_map(Value::as_object)
-        .filter_map(|question| {
-            let text = read_non_empty_text(question, "question")?;
-            let options = question
-                .get("options")
-                .and_then(Value::as_array)
-                .map(Vec::as_slice)
-                .unwrap_or_default()
-                .iter()
-                .filter_map(Value::as_object)
-                .filter_map(|option| {
-                    Some(QuestionOption {
-                        label: read_non_empty_text(option, "label")?,
-                        description: read_non_empty_string(option, "description")
-                            .map(str::to_owned),
-                        preview: None,
-                    })
-                })
-                .collect();
-            Some(QuestionPrompt {
-                header: read_non_empty_text(question, "header"),
-                text,
-                heading: None,
-                description: None,
-                options,
-                several_answers: question.get("multiSelect") == Some(&Value::Bool(true)),
-                secret: false,
-                required: None,
-                default: None,
-                minimum: None,
-                maximum: None,
-                step: None,
-                unit: None,
-                placeholder: None,
-            })
-        })
-        .collect()
-}
-
-fn read_non_empty_text(source: &Map<String, Value>, key: &str) -> Option<NonEmptyText> {
-    read_non_empty_string(source, key).and_then(|text| NonEmptyText::new(text.to_owned()))
 }
 
 fn record_hand_off_failure(session_id: SessionId, kind: &str, error: &(dyn Error + 'static)) {

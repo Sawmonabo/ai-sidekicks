@@ -34,7 +34,6 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::mount::{
     ExecutionMode, RepoMountId, RepoMountState, WorkspaceId, WorkspaceState,
 };
-use sidekicks_contracts::run::queue::{QueueItemSummary, QueueMessageSummary};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -358,7 +357,12 @@ impl<W: Watcher + Send + 'static> ExecutionRootSetupGate<W> {
         let (name, first_message_preview) = title.unwrap_or_default();
         let title_words = name
             .or(first_message_preview)
-            .or_else(|| context.queue_item.as_ref().and_then(queued_message_words))
+            .or_else(|| {
+                context
+                    .opening_words
+                    .as_ref()
+                    .map(|words| words.as_str().to_owned())
+            })
             .unwrap_or_default();
         derive_run_tail(
             &suggest_tail_for(&title_words),
@@ -640,22 +644,6 @@ fn read_run_workspace(
             },
         )
         .optional()?)
-}
-
-// The words of a queued message, which stand in for a first message the session has not yet
-// recorded; a review has none.
-fn queued_message_words(item: &QueueItemSummary) -> Option<String> {
-    let QueueItemSummary::Message(message) = item else {
-        return None;
-    };
-    let content = match message {
-        QueueMessageSummary::Queued { content, .. }
-        | QueueMessageSummary::Admitted { content, .. }
-        | QueueMessageSummary::Superseded { content, .. }
-        | QueueMessageSummary::Canceled { content, .. }
-        | QueueMessageSummary::NotDelivered { content, .. } => content,
-    };
-    Some(content.as_str().to_owned())
 }
 
 // A preparation's failure as the gate's cause: a refusal keeps its code wherever it is wrapped.

@@ -7,9 +7,10 @@
 //! anything, so a payload for a session or run that is not there is refused before it costs a
 //! write.
 //!
-//! A chat's file or folder is one group of manifests per path, each write a new manifest whose
-//! version number is the group's next, counted inside the write itself, so two writes of one path
-//! never take one number; every other artifact is version 1 of its own.
+//! A chat's file or folder is one group of manifests per path of its chat folder, whichever chat
+//! holding the folder wrote it, each write a new manifest whose version number is the group's next,
+//! counted inside the write itself, so two writes of one path never take one number; every other
+//! artifact is version 1 of its own.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -23,6 +24,7 @@ use sidekicks_contracts::artifacts::operations::ArtifactPictureSize;
 use sidekicks_contracts::artifacts::publication::ArtifactPublicationPayload;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::plan::PlanId;
+use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -55,15 +57,16 @@ use crate::payload_store::ContentHash;
 use crate::refusals::ArtifactError;
 
 // One row whatever the group holds: an aggregate with no GROUP BY yields one row, so a path's
-// next version is counted on the writer's connection, and a manifest with no path is version 1.
+// next version is counted on the writer's connection, across every chat holding its folder, and a
+// manifest with no path is version 1.
 const INSERT_MANIFEST_SQL: &str = "INSERT INTO artifact_manifests
   (id, session_id, run_id, created_by, client_idempotency_key, artifact_type, content_hash,
-   size_bytes, metadata, workspace_path, version_number, plan_id, created_at)
+   size_bytes, metadata, workspace_path, repo_mount_id, version_number, plan_id, created_at)
   SELECT @id, @sessionId, @runId, @createdBy, @clientIdempotencyKey, @artifactType, @contentHash,
-         @sizeBytes, @metadata, @workspacePath, COALESCE(MAX(version_number), 0) + 1, @planId,
-         @createdAt
+         @sizeBytes, @metadata, @workspacePath, @repoMountId,
+         COALESCE(MAX(version_number), 0) + 1, @planId, @createdAt
     FROM artifact_manifests
-   WHERE session_id = @sessionId AND workspace_path = @workspacePath";
+   WHERE repo_mount_id = @repoMountId AND workspace_path = @workspacePath";
 
 const INSERT_PAYLOAD_REF_SQL: &str = "INSERT INTO artifact_payload_refs
   (id, manifest_id, storage_path, media_type, size_bytes, pixel_width, pixel_height, created_at)
@@ -97,11 +100,20 @@ const MEDIA_TYPE_MEMBER: &str = "mediaType";
 #[error("the stored manifest's {0} is not a valid value")]
 struct StoredManifestTextInvalidError(&'static str);
 
+/// A path of a chat folder, the group a chat's file or folder versions belong to.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct ChatFolderPath {
+    /// The chat folder's managed mount.
+    pub(crate) repo_mount_id: RepoMountId,
+    /// The path inside the folder, `/` between its parts.
+    pub(crate) path: ComposedText,
+}
+
 /// One published artifact as its producer records it, over a payload already in the store.
 pub(crate) struct PublishedManifest {
     /// The manifest's id.
     pub(crate) artifact_id: ArtifactId,
-    /// The session it belongs to.
+    /// The session it belongs to, whose log carries its `artifact.published`.
     pub(crate) session_id: SessionId,
     /// The run that produced it, when one did.
     pub(crate) run_id: Option<RunId>,
@@ -122,9 +134,9 @@ pub(crate) struct PublishedManifest {
     pub(crate) natural_size: Option<ArtifactPictureSize>,
     /// The manifest's freeform provenance; the media type is recorded in it beside the rest.
     pub(crate) metadata: JsonRecord,
-    /// A chat's file or folder: its path in the chat's workspace, whose group this manifest is the
-    /// next version of; `None` for every other artifact.
-    pub(crate) workspace_path: Option<ComposedText>,
+    /// A chat's file or folder: its path in the chat folder, whose group this manifest is the next
+    /// version of; `None` for every other artifact.
+    pub(crate) workspace_path: Option<ChatFolderPath>,
     /// The plan record whose text this is; `None` for every other artifact.
     pub(crate) plan_id: Option<PlanId>,
     /// When the manifest was written.
@@ -276,6 +288,10 @@ pub(crate) fn published_manifest_write(manifest: PublishedManifest) -> Published
     let artifact_id_text = manifest.artifact_id.text();
     let run_id_text = manifest.run_id.map(|run_id| run_id.text());
     let plan_id_text = manifest.plan_id.map(|plan_id| plan_id.text());
+    let repo_mount_id_text = manifest
+        .workspace_path
+        .as_ref()
+        .map(|folder_path| folder_path.repo_mount_id.text());
     statements.push(WriteStatement {
         sql: Cow::Borrowed(INSERT_MANIFEST_SQL),
         bindings: StatementBindings::Named(vec![
@@ -302,7 +318,14 @@ pub(crate) fn published_manifest_write(manifest: PublishedManifest) -> Published
             text_binding("@metadata", &metadata_text),
             nullable_text_binding(
                 "@workspacePath",
-                manifest.workspace_path.as_ref().map(ComposedText::as_str),
+                manifest
+                    .workspace_path
+                    .as_ref()
+                    .map(|folder_path| folder_path.path.as_str()),
+            ),
+            nullable_text_binding(
+                "@repoMountId",
+                repo_mount_id_text.as_ref().map(UuidText::as_str),
             ),
             nullable_text_binding("@planId", plan_id_text.as_ref().map(UuidText::as_str)),
             text_binding("@createdAt", manifest.created_at.as_str()),

@@ -182,6 +182,15 @@ impl QueueAdmission {
                 message.output_speed_for_turn,
             ),
             QueueItemBody::Review { target } => (RunOpeningItem::Review { target }, None),
+            // A plan message opens its run as a message of its words alone.
+            QueueItemBody::PlanMessage { text, .. } => (
+                RunOpeningItem::Message {
+                    attachments: Vec::new(),
+                    skills: Vec::new(),
+                    content: text,
+                },
+                None,
+            ),
         };
         driver
             .start_run(StartRunParams {

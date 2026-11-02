@@ -5,7 +5,7 @@ use std::sync::Arc;
 #[cfg(test)]
 use serde_json::Value;
 use sidekicks_contracts::plan::PlanId;
-use sidekicks_provider::port::plan::ProviderPlan;
+use sidekicks_provider::port::plan::{ProviderPlan, mint_plan_id};
 
 use super::PlansService;
 use crate::test_store::ArtifactTestStore;
@@ -32,10 +32,13 @@ impl Fixture {
         Self { store, plans }
     }
 
-    /// Takes the test's plan, holding its request when `holds_request`.
+    /// Takes the test's plan under a plan id minted as a driver mints it, holding its request when
+    /// `holds_request`, and answers that id.
     pub async fn take(&self, holds_request: bool) -> PlanId {
+        let plan_id = mint_plan_id();
         self.plans
             .take_plan(ProviderPlan {
+                plan_id,
                 session_id: self.store.session_id,
                 run_id: self.store.run_id,
                 text: PLAN_TEXT.to_owned(),
@@ -43,7 +46,8 @@ impl Fixture {
                 holds_request,
             })
             .await
-            .expect("the plan is recorded")
+            .expect("the plan is recorded");
+        plan_id
     }
 
     /// The state `plan_id`'s row holds.

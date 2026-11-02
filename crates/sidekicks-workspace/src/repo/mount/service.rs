@@ -1,8 +1,9 @@
 //! The `repo_mounts` table's attach, read and detach, and a chat's managed mount rows. An attached
 //! mount belongs to the machine and serves one project: attach stamps the daemon's machine id and
-//! the root's place, writes no workspace and appends no event. A managed mount is one chat's own
-//! workspace folder, written at that chat's create and deleted with it, which also keeps the count
-//! of the files in it.
+//! the root's place, writes no workspace and appends no event. A managed mount is a chat's
+//! workspace folder, written at that chat's create with the chat's hold on it, held by every chat
+//! working in it, and deleted with the chat it is made for; it also keeps the count of the files
+//! in it.
 //!
 //! - A repository is attached once per machine and place: its identity is its git common folder,
 //!   kept on the mount as `metadata.commonDir` and compared inside the insert, with the active-root
@@ -27,6 +28,7 @@ use sidekicks_contracts::repo::folders::{
 };
 use sidekicks_contracts::repo::mount::{RepoMountHealth, RepoMountId, RepoMountState, VcsType};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 #[cfg(test)]
@@ -52,7 +54,7 @@ use crate::row_guards::COMMON_DIR_METADATA_PATH;
 use crate::schema::MountOrigin;
 
 /// The statements the service's reads keep prepared on each read connection.
-pub const REPO_MOUNT_SERVICE_STATEMENT_CAPACITY: usize = 4;
+pub const REPO_MOUNT_SERVICE_STATEMENT_CAPACITY: usize = 5;
 
 // An attached mount of a repository the machine has no active mount of in that place, compared by
 // identity anchor inside the write; zero rows refuses it.
@@ -92,6 +94,31 @@ static INSERT_MANAGED_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// The founding chat's hold on its managed mount, written in the mount's own insert.
+const INSERT_FOUNDING_HOLD_SQL: &str =
+    "INSERT INTO managed_folder_holds (repo_mount_id, session_id) VALUES (@id, @session_id)";
+
+// A chat's hold on the managed folder a planning chat holds, written only while the planning chat
+// holds that folder and is not marked for purge; zero rows refuses the write.
+static INSERT_HANDED_OFF_HOLD_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "INSERT INTO managed_folder_holds (repo_mount_id, session_id)
+  SELECT hold.repo_mount_id, @session_id
+    FROM managed_folder_holds AS hold
+    JOIN sessions AS planning ON planning.id = hold.session_id
+   WHERE hold.repo_mount_id = @repo_mount_id AND hold.session_id = @planning_session_id
+     AND planning.state <> '{}'",
+        <&'static str>::from(SessionState::PurgeRequested)
+    )
+});
+
+// Every chat holding the managed folder made for a chat.
+const SELECT_FOLDER_HOLDERS_SQL: &str = "SELECT hold.session_id
+     FROM managed_folder_holds AS hold
+     JOIN repo_mounts AS mount ON mount.id = hold.repo_mount_id
+    WHERE mount.managed_session_id = @session_id
+    ORDER BY hold.session_id";
+
 // A chat's document count, written only when it moved, so an unchanged count changes no row.
 const UPDATE_DOCUMENT_COUNT_SQL: &str = "UPDATE repo_mounts SET document_count = @count
     WHERE managed_session_id = @session_id AND document_count <> @count";
@@ -102,13 +129,16 @@ const MANAGED_WORKSPACE_IDS_SQL: &str = "SELECT workspace.id
      JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
     WHERE mount.managed_session_id = @session_id";
 
-// Each row that names a workspace on the mount goes before it, and each workspace before the mount,
-// because every foreign key holds on DELETE too. A chat's run writes no run context, so none names
-// a managed workspace.
-static DELETE_MANAGED_MOUNT_SQL: LazyLock<[String; 3]> = LazyLock::new(|| {
+// Each row that names a workspace on the mount goes before it, and each workspace and hold before
+// the mount, because every foreign key holds on DELETE too. A chat's run writes no run context, so
+// none names a managed workspace.
+static DELETE_MANAGED_MOUNT_SQL: LazyLock<[String; 4]> = LazyLock::new(|| {
     [
         format!("DELETE FROM branch_contexts WHERE workspace_id IN ({MANAGED_WORKSPACE_IDS_SQL})"),
         "DELETE FROM workspaces
+    WHERE repo_mount_id IN (SELECT id FROM repo_mounts WHERE managed_session_id = @session_id)"
+            .to_owned(),
+        "DELETE FROM managed_folder_holds
     WHERE repo_mount_id IN (SELECT id FROM repo_mounts WHERE managed_session_id = @session_id)"
             .to_owned(),
         "DELETE FROM repo_mounts WHERE managed_session_id = @session_id".to_owned(),
@@ -142,8 +172,11 @@ static SELECT_ACTIVE_MOUNT_OF_REPOSITORY_SQL: LazyLock<String> = LazyLock::new(|
     )
 });
 
-const SELECT_MANAGED_ROOT_SQL: &str =
-    "SELECT canonical_root FROM repo_mounts WHERE managed_session_id = @session_id";
+// The root of the managed folder a chat holds: the one made for it, or the one a plan handed it.
+const SELECT_MANAGED_ROOT_SQL: &str = "SELECT mount.canonical_root
+     FROM managed_folder_holds AS hold
+     JOIN repo_mounts AS mount ON mount.id = hold.repo_mount_id
+    WHERE hold.session_id = @session_id";
 
 /// Why a mount call failed: a refusal the wire carries, or a failure of the store or of the
 /// events a committed detach owed.
@@ -457,8 +490,8 @@ impl RepoMountService {
         })
     }
 
-    /// The folder of the chat's managed workspace, or `None` when the session has none. Fails as
-    /// the read fails.
+    /// The folder of the managed workspace the chat holds, made for it or handed to it by a plan,
+    /// or `None` when the session holds none. Fails as the read fails.
     pub async fn read_managed_root(
         &self,
         session_id: SessionId,
@@ -477,8 +510,9 @@ impl RepoMountService {
             .await
     }
 
-    /// Registers a chat's workspace folder `canonical_root` in `place` as its managed mount,
-    /// before the folder exists: the daemon chose the root, so nothing is resolved. Refuses
+    /// Registers a chat's workspace folder `canonical_root` in `place` as its managed mount, with
+    /// the chat's hold on it in the same write, before the folder exists: the daemon chose the
+    /// root, so nothing is resolved. Refuses
     /// `repoMount.alreadyAttached` when the root, which the session id names, is already
     /// attached; fails with the write's failure otherwise.
     pub(crate) async fn attach_managed(
@@ -488,7 +522,7 @@ impl RepoMountService {
         place: Option<&Place>,
     ) -> Result<RepoMountId, RepoMountServiceError> {
         let repo_mount_id = new_repo_mount_id();
-        let statement = WriteStatement {
+        let mount = WriteStatement {
             sql: Cow::Borrowed(INSERT_MANAGED_MOUNT_SQL.as_str()),
             bindings: StatementBindings::Named(vec![
                 text_binding("@id", repo_mount_id.text().as_str()),
@@ -500,7 +534,15 @@ impl RepoMountService {
             ]),
             expected_row_count: None,
         };
-        if let Err(error) = self.writer.write(vec![statement]).await {
+        let founding_hold = WriteStatement {
+            sql: Cow::Borrowed(INSERT_FOUNDING_HOLD_SQL),
+            bindings: StatementBindings::Named(vec![
+                text_binding("@id", repo_mount_id.text().as_str()),
+                text_binding("@session_id", session_id.text().as_str()),
+            ]),
+            expected_row_count: Some(1),
+        };
+        if let Err(error) = self.writer.write(vec![mount, founding_hold]).await {
             return Err(self
                 .refusal_of_insert(error, canonical_root, None, place, 0)
                 .await);
@@ -508,8 +550,9 @@ impl RepoMountService {
         Ok(repo_mount_id)
     }
 
-    /// Deletes a chat's managed mount row and every row on it, in one write. A session with no
-    /// managed mount writes nothing, so a repeat is safe. Fails with the write's failure.
+    /// Deletes a chat's managed mount row and every row on it, its holds included, in one write. A
+    /// session with no managed mount writes nothing, so a repeat is safe. Fails with the write's
+    /// failure.
     pub(crate) async fn delete_managed(
         &self,
         session_id: SessionId,
@@ -520,13 +563,14 @@ impl RepoMountService {
         Ok(())
     }
 
-    /// Stores `count` as the files in the chat's workspace folder; answers whether the stored
-    /// count moved, false too for a session with no managed mount. Fails with the write's failure.
+    /// Stores `count` as the files in the workspace folder made for the chat; answers every chat
+    /// holding the folder once the stored count moved, and none when it did not or the session has
+    /// no managed mount. Fails with the write's or the read's failure.
     pub(crate) async fn record_document_count(
         &self,
         session_id: SessionId,
         count: u64,
-    ) -> Result<bool, RepoMountServiceError> {
+    ) -> Result<Vec<SessionId>, RepoMountServiceError> {
         let count = i64::try_from(count).unwrap_or(i64::MAX);
         let results = self
             .writer
@@ -542,7 +586,20 @@ impl RepoMountService {
                 expected_row_count: None,
             }])
             .await?;
-        Ok(results.first().is_some_and(|result| result.row_count > 0))
+        if results.first().is_none_or(|result| result.row_count == 0) {
+            return Ok(Vec::new());
+        }
+        self.reads
+            .read(ReadLength::Short, move |connection| {
+                Ok(connection
+                    .prepare_cached(SELECT_FOLDER_HOLDERS_SQL)?
+                    .query_map(
+                        named_params! { "@session_id": session_id.text().as_str() },
+                        |row| text_column(row, 0, |text| SessionId::new(&text)),
+                    )?
+                    .collect::<rusqlite::Result<Vec<_>>>()?)
+            })
+            .await
     }
 
     /// One mount's stored facts, in any state. Refuses `repoMount.notFound`; fails as the read
@@ -640,8 +697,8 @@ impl RepoMountService {
     }
 }
 
-/// The statements that delete a chat's managed mount row with every workspace on it and the branch
-/// rows naming those workspaces, in foreign-key order; a session with none matches
+/// The statements that delete a chat's managed mount row with every workspace and hold on it and
+/// the branch rows naming those workspaces, in foreign-key order; a session with none matches
 /// nothing. They go in one write, alone or inside the purge's.
 pub fn managed_mount_deletion_statements(session_id: SessionId) -> Vec<WriteStatement> {
     DELETE_MANAGED_MOUNT_SQL
@@ -655,6 +712,26 @@ pub fn managed_mount_deletion_statements(session_id: SessionId) -> Vec<WriteStat
             expected_row_count: None,
         })
         .collect()
+}
+
+/// The statement that gives `session_id` a hold on the managed folder `repo_mount_id`, which the
+/// planning chat `planning_session_id` holds, for the chat a plan hands off to in that folder. It
+/// writes nothing, refusing its write, when the planning chat does not hold the folder or is marked
+/// for purge.
+pub fn managed_folder_hold_statement(
+    repo_mount_id: RepoMountId,
+    planning_session_id: SessionId,
+    session_id: SessionId,
+) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(INSERT_HANDED_OFF_HOLD_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@repo_mount_id", repo_mount_id.text().as_str()),
+            text_binding("@planning_session_id", planning_session_id.text().as_str()),
+            text_binding("@session_id", session_id.text().as_str()),
+        ]),
+        expected_row_count: Some(1),
+    }
 }
 
 fn already_attached(holder: &ActiveMount) -> RepoRefusal {

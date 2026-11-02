@@ -6,13 +6,13 @@ use std::collections::HashSet;
 
 use satteri_pulldown_cmark::{Event, LinkType, Options, Parser, Tag, TagEnd};
 use sidekicks_contracts::artifacts::id::ArtifactId;
-use sidekicks_contracts::plan::{PlanId, PlanProposedPayload};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::plan::PlanProposedPayload;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_provider::port::plan::ProviderPlan;
 
-/// The `plan.proposed` payload for `plan`, kept by `artifact_id`, under a freshly minted plan id.
+/// The `plan.proposed` payload for `plan`, kept by `artifact_id`, under the plan id its driver
+/// minted.
 pub(crate) fn compose_plan_proposed_payload(
     plan: ProviderPlan,
     artifact_id: ArtifactId,
@@ -22,8 +22,7 @@ pub(crate) fn compose_plan_proposed_payload(
         .title
         .unwrap_or_else(|| read_first_line(&plan.text).to_owned());
     PlanProposedPayload {
-        plan_id: PlanId::try_from(mint_uuid_v7())
-            .expect("a minted UUID is in the text form a plan id takes"),
+        plan_id: plan.plan_id,
         session_id: plan.session_id,
         run_id: plan.run_id,
         title,
@@ -240,7 +239,7 @@ mod tests {
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
-    use sidekicks_provider::port::plan::ProviderPlan;
+    use sidekicks_provider::port::plan::{ProviderPlan, mint_plan_id};
 
     use super::compose_plan_proposed_payload;
     use crate::id::mint_artifact_id;
@@ -275,6 +274,7 @@ mod tests {
     ) {
         let payload = compose_plan_proposed_payload(
             ProviderPlan {
+                plan_id: mint_plan_id(),
                 session_id: SessionId::try_from(mint_uuid_v7()).expect("a minted UUID"),
                 run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID"),
                 text: markdown.to_owned(),

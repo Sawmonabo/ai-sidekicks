@@ -1,7 +1,7 @@
 //! The continue of an interrupted run: its place at the gate again, its opening taken under the
-//! session's lock, and what a continue that failed leaves for the run's messages. A review is
-//! never a continue's opening: one left waiting for the run with no message beside it goes on to a
-//! next run of its own.
+//! session's lock, and what a continue that failed leaves for the run's messages. A review or a
+//! plan message is never a continue's opening: one left waiting for the run with no message beside
+//! it goes on to a next run of its own.
 
 use std::sync::Arc;
 
@@ -14,7 +14,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_provider::driver::contract::ProviderDriver;
-use sidekicks_session::queue_store::summary::summary_of;
 use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord};
 use sidekicks_session::run::agent::read_lead_agent_through;
 use sidekicks_session::run::engine::errors::RunEngineError;
@@ -53,7 +52,7 @@ impl QueueAdmission {
             .read_execution_posture(session_id, provider_account_id.clone())
             .await?;
         // Taken under the lock, so a removal either lands first or finds the opening taken.
-        let (opening, reviews_run_id) = {
+        let (opening, own_run_id) = {
             let hold = self.deps.session_lock.hold_session(session_id).await;
             let is_interrupted = read_run_through::<QueueError>(&self.deps.pool, run_id)
                 .await?
@@ -67,28 +66,28 @@ impl QueueAdmission {
             } else {
                 Vec::new()
             };
-            let (messages, reviews): (Vec<_>, Vec<_>) = lead_waiting
+            let (messages, own_run_items): (Vec<_>, Vec<_>) = lead_waiting
                 .into_iter()
                 .partition(|item| item.body.as_message().is_some());
             let head = messages.into_iter().next();
             if let Some(head) = &head {
                 self.deps.openings.insert(run_id, head.clone());
             }
-            let reviews_run_id = if head.is_none() && !reviews.is_empty() {
+            let own_run_id = if head.is_none() && !own_run_items.is_empty() {
                 Some(
-                    self.queue_reviews_run(&hold, &reviews, provider_account_id)
+                    self.queue_own_run_items(&hold, &own_run_items, provider_account_id)
                         .await?,
                 )
             } else {
                 None
             };
-            (head, reviews_run_id)
+            (head, own_run_id)
         };
         let Some(opening) = opening else {
             // Nothing is left to continue the run with, so it rests holding no place.
             self.release(run_id);
-            if let Some(reviews_run_id) = reviews_run_id {
-                self.start(session_id, reviews_run_id);
+            if let Some(own_run_id) = own_run_id {
+                self.start(session_id, own_run_id);
             }
             return Ok(());
         };
@@ -104,7 +103,12 @@ impl QueueAdmission {
                     execution_posture,
                     true,
                 ),
-                queue_item: summary_of(opening.clone()),
+                opening_words: opening
+                    .body
+                    .as_message()
+                    .expect("a continue opens only on a message")
+                    .content
+                    .clone(),
             })
             .await;
         if let Err(continue_error) = continued {
@@ -197,13 +201,14 @@ impl QueueAdmission {
         }
     }
 
-    // Queues the session's next lead run for the `reviews` left waiting for its interrupted lead
-    // run, pointing each at it, on `provider_account_id`'s account, the one the interrupted run ran
-    // on, and answers its id. Called under `hold`; fails as the read or the write fails.
-    async fn queue_reviews_run(
+    // Queues the session's next lead run for `own_run_items`, the reviews and plan messages left
+    // waiting for its interrupted lead run, which open a run of their own, pointing each at it, on
+    // `provider_account_id`'s account, the one the interrupted run ran on, and answers its id.
+    // Called under `hold`; fails as the read or the write fails.
+    async fn queue_own_run_items(
         &self,
         hold: &KeyHold<'_, SessionId>,
-        reviews: &[QueueItemRecord],
+        own_run_items: &[QueueItemRecord],
         provider_account_id: ProviderAccountId,
     ) -> Result<RunId, QueueError> {
         let session_id = *hold.key();
@@ -220,7 +225,7 @@ impl QueueAdmission {
                     provider_account_id,
                     run_config,
                 ),
-                reviews,
+                own_run_items,
                 &WireInstant::now(),
             )
             .await?;

@@ -586,6 +586,7 @@ pub(crate) async fn register_method_inputs(
     let stored = build_stored_data_methods(StoredDataMethodsStart {
         database,
         repo,
+        data_folder,
         session_services: &session,
         payloads: Arc::clone(&artifacts.payloads),
         shells: Arc::clone(&shells),

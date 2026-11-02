@@ -178,6 +178,10 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         ("CLAUDE_CODE_USER_DIALOG_TIMEOUT_MS", "0"),
         // A background command's `timeout` is honored up to Claude Code's own cap.
         ("BASH_MAX_TIMEOUT_MS", "2147483647"),
+        // The question tool's two switches: options carry markdown previews, and the tool also
+        // asks text and number questions under a title; unset, a process asks neither.
+        ("CLAUDE_CODE_QUESTION_PREVIEW_FORMAT", "markdown"),
+        ("CLAUDE_CODE_QUESTION_EXTENDED", "1"),
     ],
     launch_environment_names: &[],
     // The account's configuration home, its credential store, and the scratch folder the daemon
