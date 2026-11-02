@@ -3,6 +3,7 @@
 //! composed once the run engine and the other handles the daemon registers after the drivers are
 //! built, on the first call that needs a session.
 
+pub(super) mod account_move;
 mod controls;
 mod effects;
 pub(super) mod intake;

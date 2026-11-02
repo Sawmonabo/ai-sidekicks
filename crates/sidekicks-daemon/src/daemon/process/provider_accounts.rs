@@ -56,7 +56,9 @@ use tokio::runtime::Handle;
 use crate::daemon::process::start_error::DaemonStartError;
 use crate::ipc::handlers::provider_account::ProviderAccountMethodSources;
 use crate::ipc::handlers::provider_account::notifications::ProviderAccountNotifications;
-use crate::orchestration::account_switch::{AccountSwitch, AccountSwitchDeps};
+use crate::orchestration::account_switch::{
+    AccountSwitch, AccountSwitchDeps, SessionAccountMoveRecord,
+};
 
 // The wake helper's program, which the service ships beside its own.
 const WAKE_HELPER_PROGRAM_NAME: &str = "sidekicks-wake-helper";
@@ -101,6 +103,9 @@ pub(crate) struct ProviderAccountPlane {
     pub(crate) reader: Arc<dyn ProviderAccountReader>,
     /// The account registry, which the drivers' account legs take through their port.
     pub(crate) registry: Arc<ProviderAccountRegistry>,
+    /// The record of each session a driver moves onto another account outside a switch, which
+    /// the drivers' port takes.
+    pub(crate) account_move_record: Arc<SessionAccountMoveRecord>,
     /// What the `provider.account.*` methods act through.
     pub(crate) methods: ProviderAccountMethodSources,
     /// The background observer, started once the recovery pass has run.
@@ -196,6 +201,12 @@ pub(crate) async fn build_provider_account_plane(
         Arc::clone(&home_lock),
         Arc::clone(&signing_in),
     ));
+    let account_move_record = Arc::new(SessionAccountMoveRecord::new(
+        Arc::clone(&appender),
+        Arc::clone(&reads),
+        Arc::clone(&read_damaged_from_sequence),
+        machine_device_id.clone(),
+    ));
     let account_switch = Arc::new(AccountSwitch::new(AccountSwitchDeps {
         accounts: Arc::clone(&registry),
         signing_in: Arc::clone(&signing_in),
@@ -228,6 +239,7 @@ pub(crate) async fn build_provider_account_plane(
         },
         reader,
         registry,
+        account_move_record,
         observation: ProviderAccountObservation {
             observer,
             usage_events: None,
@@ -252,7 +264,7 @@ async fn remove_sign_in_move_leftovers(
                     tracing::warn!(
                         provider = provider.as_str(),
                         error = &failure as &(dyn std::error::Error + 'static),
-                        "a stopped sign-in move's leftover was not removed; the next start sweeps it"
+                        "a stopped sign-in move's leftover stays until the next start sweeps it"
                     );
                 }
             }

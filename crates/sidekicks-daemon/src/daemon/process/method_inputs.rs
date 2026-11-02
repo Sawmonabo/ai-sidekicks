@@ -497,6 +497,7 @@ pub(crate) async fn register_method_inputs(
         DriverPortOwners {
             provider_accounts: accounts.reader,
             provider_account_registry: accounts.registry,
+            session_account_moves: accounts.account_move_record,
             run_engine: Arc::clone(&session.engine),
             inbound_dispatch: Arc::clone(&session.inbound_dispatch),
             queue_admission: session.queue.admission(),

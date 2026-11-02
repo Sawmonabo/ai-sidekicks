@@ -49,6 +49,7 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::{
     DriverServices, ProviderAccountReader, ProviderDescriptor, ProviderRegistration,
 };
+use sidekicks_provider::port::session_account_move::SessionAccountMoveRecorder;
 use sidekicks_provider::port::session_level_follower::SessionLevelFollower;
 use sidekicks_provider::process_registry::ProviderProcessRegistry;
 use sidekicks_provider::run::posture::ExecutionPostureService;
@@ -321,6 +322,8 @@ pub(crate) struct DriverPortOwners {
     pub(crate) session_resumes: Arc<StoredSessionResumes>,
     /// Each session's provider session, which follows a level or mode its provider reported.
     pub(crate) provider_sessions: Arc<ProviderSessions>,
+    /// The record of each session a driver moves onto another account outside a switch.
+    pub(crate) session_account_moves: Arc<dyn SessionAccountMoveRecorder>,
 }
 
 /// The places the daemon runs sessions in: this computer's own system alone, its login shell's
@@ -382,6 +385,9 @@ pub(crate) fn register_driver_ports(
         .register(Arc::new(WeakLevelFollower(Arc::downgrade(
             &owners.provider_sessions,
         ))))?;
+    ports
+        .session_account_moves
+        .register(owners.session_account_moves)?;
     ports.run_pauses.register(owners.run_pauses)
 }
 

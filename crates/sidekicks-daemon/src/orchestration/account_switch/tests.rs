@@ -1,6 +1,7 @@
 //! The current-account switch over a test database, the real account registry and folder reader,
 //! a driver whose level list the test names, and switch legs and a level control that record what
-//! they were asked and answer as the test scripts.
+//! they were asked and answer as the test scripts; beside it, the record of a move no switch waits
+//! on, over the same log.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -40,6 +41,7 @@ use sidekicks_provider::driver::contract::account::{
 };
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
+use sidekicks_provider::port::session_account_move::SessionAccountMoveRecorder;
 use sidekicks_provider::runtime_binding::store::{CreateRuntimeBindingInput, RuntimeBindingStore};
 use sidekicks_provider::runtime_binding::test_store::{
     binding_input, spawn_config_on, spawned_build,
@@ -55,7 +57,7 @@ use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tempfile::TempDir;
 
-use super::{AccountSwitch, AccountSwitchDeps, SessionLevelMoves};
+use super::{AccountSwitch, AccountSwitchDeps, SessionAccountMoveRecord, SessionLevelMoves};
 use crate::daemon::schema::schema_parts;
 
 // The statements the tests' read pool prepares, every reader's together.
@@ -189,6 +191,8 @@ struct Fixture {
     legs: Arc<RecordedSwitchLegs>,
     level_moves: Arc<RecordedLevelMoves>,
     switch: Arc<AccountSwitch>,
+    move_record: SessionAccountMoveRecord,
+    machine_device_id: DeviceId,
 }
 
 // Over a driver whose level list for any account and model leaves out `reviewed`.
@@ -216,6 +220,17 @@ async fn fixture() -> Fixture {
     });
     let legs = Arc::new(RecordedSwitchLegs::default());
     let level_moves = Arc::new(RecordedLevelMoves::default());
+    let appender = Arc::new(SessionEventAppender::new(
+        Arc::clone(&log.service),
+        SESSION_EVENT_VERSION.clone(),
+    ));
+    let machine_device_id = actor();
+    let move_record = SessionAccountMoveRecord::new(
+        Arc::clone(&appender),
+        Arc::clone(&reads),
+        Arc::new(|_: &SessionId| None::<i64>),
+        machine_device_id.clone(),
+    );
     let switch = Arc::new(AccountSwitch::new(AccountSwitchDeps {
         accounts: Arc::clone(&accounts),
         signing_in: Arc::default(),
@@ -229,10 +244,7 @@ async fn fixture() -> Fixture {
         )]),
         providers: Arc::new(registry_of_first_provider(Arc::new(driver))),
         level_moves: Arc::clone(&level_moves) as Arc<dyn SessionLevelMoves>,
-        appender: Arc::new(SessionEventAppender::new(
-            Arc::clone(&log.service),
-            SESSION_EVENT_VERSION.clone(),
-        )),
+        appender,
         reads: Arc::clone(&reads),
         read_damaged_from_sequence: Arc::new(|_: &SessionId| None::<i64>),
     }));
@@ -246,6 +258,8 @@ async fn fixture() -> Fixture {
         legs,
         level_moves,
         switch,
+        move_record,
+        machine_device_id,
     }
 }
 
@@ -711,4 +725,45 @@ async fn a_session_a_stop_left_on_the_old_account_moves_at_the_start() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].0, "agent.providerBinding.changed");
     assert_eq!(events[0].1["landedProviderAccountId"], current.as_str());
+}
+
+// Fails when a session a driver moved onto another account with no switch waiting on the move is
+// not recorded as its lead landed there in place, by this machine's own device, or when a session
+// whose log names no lead records anything.
+#[tokio::test]
+async fn a_move_no_switch_waits_on_is_recorded_for_the_session_lead() {
+    let fixture = fixture().await;
+    let left = fixture
+        .register(ProviderAccountHealthState::Authenticated)
+        .await;
+    let to = fixture
+        .register(ProviderAccountHealthState::Authenticated)
+        .await;
+    let session_id = fixture
+        .session(PROVIDERS[0].id, &left, None, PermissionLevel::Ask, true)
+        .await;
+    let no_lead = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+    insert_session_row(
+        &fixture.database.reader(),
+        no_lead.text().as_str(),
+        None,
+        None,
+    );
+
+    fixture
+        .move_record
+        .record_account_moved(session_id, to.clone())
+        .await;
+    fixture
+        .move_record
+        .record_account_moved(no_lead, to.clone())
+        .await;
+
+    let events = fixture.appended(session_id);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].0, "agent.providerBinding.changed");
+    assert_eq!(events[0].1["landedProviderAccountId"], to.as_str());
+    assert_eq!(events[0].1["continuity"], "inPlace");
+    assert_eq!(events[0].1["actor"], fixture.machine_device_id.as_str());
+    assert_eq!(fixture.appended(no_lead), []);
 }

@@ -31,6 +31,7 @@ use crate::port::repository_reader::RepositoryReader;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
 use crate::port::run_pause::{ContinuedMessages, RunPauses};
+use crate::port::session_account_move::SessionAccountMoveRecorder;
 use crate::port::session_advisor_store::SessionAdvisorStore;
 use crate::port::session_level_follower::SessionLevelFollower;
 use crate::port::session_resume_reader::SessionResumeReader;
@@ -203,6 +204,9 @@ pub struct DriverPorts {
     pub run_pauses: Arc<PortRegistration<Arc<dyn RunPauses>>>,
     /// The messages waiting for paused runs, as the run queue holds them.
     pub continued_messages: Arc<PortRegistration<Arc<dyn ContinuedMessages>>>,
+    /// The record of each session a driver moved onto another account with no switch waiting on
+    /// the move; a move made before it is registered is logged and goes unrecorded.
+    pub session_account_moves: Arc<PortRegistration<Arc<dyn SessionAccountMoveRecorder>>>,
 }
 
 impl Default for DriverPorts {
@@ -247,6 +251,7 @@ impl DriverPorts {
             session_level_followers: Arc::new(PortRegistration::new("session level followers")),
             run_pauses: Arc::new(PortRegistration::new("run pauses")),
             continued_messages: Arc::new(PortRegistration::new("continued messages")),
+            session_account_moves: Arc::new(PortRegistration::new("session account moves")),
         }
     }
 }

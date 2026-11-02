@@ -21,6 +21,10 @@
 //! - At the daemon's start the same move reaches every session the last stop left on another
 //!   account than its provider's current one, before the runs the stop left waiting are admitted;
 //!   the start waits for the moves, never for a moved lead's first request.
+//! - A session a driver moves with no switch waiting on the move, as one attached to a service
+//!   that changes account outside a switch, is recorded through [`SessionAccountMoveRecord`] with
+//!   the same `agent.providerBinding.changed`, by this machine's own device; the record only reads
+//!   the session's lead and appends, so a driver may report from inside its service's start.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -57,9 +61,10 @@ use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::params_and_results::ListModesParams;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::{CurrentProviderAccount, ProviderAccountReader};
+use sidekicks_provider::port::session_account_move::SessionAccountMoveRecorder;
 use sidekicks_queue::provider_session::ProviderSessions;
 use sidekicks_session::permission_level::read_session_permission_level;
-use sidekicks_session::run::agent::{SessionLead, read_provider_session_leads};
+use sidekicks_session::run::agent::{SessionLead, read_provider_session_leads, read_session_lead};
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -67,7 +72,7 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
-use sidekicks_store::events::session::read::DamagedFromSequenceReader;
+use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_read_bound};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
@@ -537,7 +542,8 @@ impl AccountSwitch {
             );
             return;
         }
-        self.append(
+        append_settlement(
+            &self.deps.appender,
             session_id,
             &SessionEvent::SessionNoticePosted(SessionNoticePostedPayload::Notice(
                 SessionNotice::LevelUnavailable {
@@ -550,22 +556,10 @@ impl AccountSwitch {
     }
 
     async fn record_changed(&self, lead: &LeadToMove, to: &ProviderAccountId, actor: &DeviceId) {
-        let from = lead.lead.binding.clone();
-        let session_id = lead.session_id;
-        self.append(
-            session_id,
-            &SessionEvent::AgentProviderBindingChanged(AgentProviderBindingChangedPayload {
-                switch_id: mint_switch_id(),
-                declared_losses: Vec::new(),
-                continuity: AgentBindingContinuity::InPlace,
-                session_id,
-                agent_id: lead.lead.agent_id,
-                actor: actor.clone(),
-                // The lead still follows the current account: only where it landed moved.
-                to: from.clone(),
-                from,
-                landed_provider_account_id: to.clone(),
-            }),
+        append_settlement(
+            &self.deps.appender,
+            lead.session_id,
+            &binding_changed(lead.session_id, &lead.lead, to, actor),
         )
         .await;
     }
@@ -594,7 +588,8 @@ impl AccountSwitch {
         account_state: AgentBindingSwitchAccountState,
     ) {
         let session_id = lead.session_id;
-        self.append(
+        append_settlement(
+            &self.deps.appender,
             session_id,
             &SessionEvent::AgentProviderBindingChangeFailed(
                 AgentProviderBindingChangeFailedPayload {
@@ -620,27 +615,125 @@ impl AccountSwitch {
         )
         .await;
     }
+}
 
-    // Appends `event` to `session_id`'s log; a failure is logged, since the switch has no caller
-    // left to answer by then.
-    async fn append(&self, session_id: SessionId, event: &SessionEvent) {
-        let appended = match SessionEventDraft::of_session(session_id, event) {
-            Ok(draft) => self
-                .deps
-                .appender
-                .append(draft, SessionEventLinkage::default())
-                .await
-                .map(|_receipt| ())
-                .map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>),
-            Err(error) => Err(Box::new(error) as Box<dyn Error + Send + Sync>),
-        };
-        if let Err(error) = appended {
-            tracing::warn!(
-                %session_id,
-                error = &*error as &(dyn Error + 'static),
-                "an account switch's settlement was not appended"
-            );
+/// The record of each session a driver moved onto another account with no switch waiting on the
+/// move: `agent.providerBinding.changed` for the session's lead, landed on that account, by this
+/// machine's own device.
+pub(crate) struct SessionAccountMoveRecord {
+    appender: Arc<SessionEventAppender>,
+    reads: Arc<DatabaseReadPool>,
+    read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
+    machine_device_id: DeviceId,
+}
+
+impl SessionAccountMoveRecord {
+    /// The record appending through `appender`, reading each lead through `reads` outside the
+    /// skipped ranges `read_damaged_from_sequence` answers, by `machine_device_id`.
+    pub(crate) fn new(
+        appender: Arc<SessionEventAppender>,
+        reads: Arc<DatabaseReadPool>,
+        read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
+        machine_device_id: DeviceId,
+    ) -> Self {
+        Self {
+            appender,
+            reads,
+            read_damaged_from_sequence,
+            machine_device_id,
         }
+    }
+}
+
+impl SessionAccountMoveRecorder for SessionAccountMoveRecord {
+    /// Reads the session's lead and appends its move; a session whose lead cannot be read, or whose
+    /// log names none, is logged and records nothing.
+    fn record_account_moved(
+        &self,
+        session_id: SessionId,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, ()> {
+        async move {
+            let damaged_from = Arc::clone(&self.read_damaged_from_sequence);
+            let lead = self
+                .reads
+                .read(
+                    ReadLength::Short,
+                    move |reader| -> Result<_, SessionLeadsReadError> {
+                        let read_bound = session_read_bound(&*damaged_from, &session_id, None);
+                        Ok(read_session_lead(reader, &session_id, read_bound)?)
+                    },
+                )
+                .await;
+            let lead = match lead {
+                Ok(Some(lead)) => lead,
+                Ok(None) => {
+                    tracing::warn!(
+                        %session_id,
+                        "a session moved onto another account names no lead, so nothing records it"
+                    );
+                    return;
+                }
+                Err(error) => {
+                    skip_unreadable(session_id, &error);
+                    return;
+                }
+            };
+            let event = binding_changed(
+                session_id,
+                &lead,
+                &provider_account_id,
+                &self.machine_device_id,
+            );
+            append_settlement(&self.appender, session_id, &event).await;
+        }
+        .boxed()
+    }
+}
+
+// `agent.providerBinding.changed` for `session_id`'s `lead`, landed on `to` in place, by `actor`.
+fn binding_changed(
+    session_id: SessionId,
+    lead: &SessionLead,
+    to: &ProviderAccountId,
+    actor: &DeviceId,
+) -> SessionEvent {
+    let from = lead.binding.clone();
+    SessionEvent::AgentProviderBindingChanged(AgentProviderBindingChangedPayload {
+        switch_id: mint_switch_id(),
+        declared_losses: Vec::new(),
+        continuity: AgentBindingContinuity::InPlace,
+        session_id,
+        agent_id: lead.agent_id,
+        actor: actor.clone(),
+        // The lead still follows the current account: only where it landed moved.
+        to: from.clone(),
+        from,
+        landed_provider_account_id: to.clone(),
+    })
+}
+
+// Appends `event` to `session_id`'s log through `appender`; a failure is logged, since no caller is
+// left to answer by then.
+async fn append_settlement(
+    appender: &SessionEventAppender,
+    session_id: SessionId,
+    event: &SessionEvent,
+) {
+    let appended = match SessionEventDraft::of_session(session_id, event) {
+        Ok(draft) => appender
+            .append(draft, SessionEventLinkage::default())
+            .await
+            .map(|_receipt| ())
+            .map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>),
+        Err(error) => Err(Box::new(error) as Box<dyn Error + Send + Sync>),
+    };
+    if let Err(error) = appended {
+        tracing::warn!(
+            %session_id,
+            error = &*error as &(dyn Error + 'static),
+            "an account move's settlement was not appended"
+        );
     }
 }
 

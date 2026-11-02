@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::error::Error;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -6,12 +7,13 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::{
     BillingMode, ProviderAccountHealthState, ProviderAccountId, ProviderAuthMode,
 };
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_std::mutex_lock::lock;
@@ -25,11 +27,13 @@ use super::{hand_switching_service_again, move_codex_sessions};
 use crate::account::registry::{AccountAdmission, HealthObservation, open_test_registry};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::CodexAccountLegs;
+use crate::driver::codex::lifecycle::account_move::CodexBindingMove;
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::server_requests::{
     CodexInboundServerRequest, CodexServerRequestDecision,
 };
 use crate::driver::codex::service::registry::CodexServiceRegistry;
+use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_switching_service,
 };
@@ -51,7 +55,10 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::diagnostics::RecordedEvents;
 use crate::driver::schema::schema_parts;
 use crate::driver::test_registry::{NothingServed, new_session_id};
+use crate::port::session_account_move::SessionAccountMoveRecorder;
+use crate::runtime_binding::store::RuntimeBindingRebind;
 use crate::runtime_binding::test_store::test_provider_account_id;
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 /// The conversation the moved session runs on the switching service.
 const THREAD: &str = "thread-on-the-switching-service";
@@ -60,13 +67,122 @@ const THREAD: &str = "thread-on-the-switching-service";
 const WORKSPACE_LEFT: &str = "workspace-of-the-account-left";
 const WORKSPACE_TO: &str = "workspace-of-the-account-moved-to";
 
-/// What a session's task saw, in order: each frame by method, each move by its account.
-#[derive(Clone, Default)]
-struct SessionQueue(Arc<Mutex<Vec<String>>>);
+/// Each binding move the store was asked for, and each move reported as no switch's.
+#[derive(Default)]
+struct RecordedMoves {
+    bindings: Mutex<Vec<(RuntimeBindingId, ProviderAccountId)>>,
+    reported: Mutex<Vec<(SessionId, ProviderAccountId)>>,
+}
+
+impl RecordedMoves {
+    fn reported(&self) -> Vec<(SessionId, ProviderAccountId)> {
+        lock(&self.reported).clone()
+    }
+}
+
+impl RuntimeBindingWriter for RecordedMoves {
+    fn rebind(
+        &self,
+        _rebind: RuntimeBindingRebind,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        unreachable!("a switch points no binding at another conversation")
+    }
+
+    fn keep_recovery_data(
+        &self,
+        _binding_id: RuntimeBindingId,
+        _runtime_metadata: Map<String, Value>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        unreachable!("a switch keeps no recovery data")
+    }
+
+    fn move_account(
+        &self,
+        binding_id: RuntimeBindingId,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        lock(&self.bindings).push((binding_id, provider_account_id));
+        async { Ok(()) }.boxed()
+    }
+}
+
+impl SessionAccountMoveRecorder for RecordedMoves {
+    fn record_account_moved(
+        &self,
+        session_id: SessionId,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, ()> {
+        lock(&self.reported).push((session_id, provider_account_id));
+        async {}.boxed()
+    }
+}
+
+/// A session's task: what it saw, in order, each frame by method and each move by its account,
+/// and its record, whose account and binding each move lands as the session's task lands it.
+#[derive(Clone)]
+struct SessionQueue {
+    seen: Arc<Mutex<Vec<String>>>,
+    session_id: SessionId,
+    record_account: Arc<Mutex<ProviderAccountId>>,
+    record_binding: RuntimeBindingId,
+    moves: Arc<RecordedMoves>,
+    recorder: Arc<PortRegistration<Arc<dyn SessionAccountMoveRecorder>>>,
+}
+
+impl SessionQueue {
+    // The task of `session_id`, its record on `record_account`, its moves kept in `moves`.
+    fn new(
+        session_id: SessionId,
+        record_account: ProviderAccountId,
+        moves: &Arc<RecordedMoves>,
+    ) -> Self {
+        let recorder = Arc::new(PortRegistration::new("session account moves"));
+        assert!(
+            recorder
+                .register(Arc::clone(moves) as Arc<dyn SessionAccountMoveRecorder>)
+                .is_ok()
+        );
+        Self {
+            seen: Arc::default(),
+            session_id,
+            record_account: Arc::new(Mutex::new(record_account)),
+            record_binding: RuntimeBindingId::new(mint_uuid_v7().to_string())
+                .expect("a binding id"),
+            moves: Arc::clone(moves),
+            recorder,
+        }
+    }
+
+    // Attaches this session to `service` and drains what reaches it on a task of its own.
+    fn attach(&self, service: &CodexService) -> tokio::task::JoinHandle<()> {
+        let (sender, receiver) = codex_session_inbound(self.session_id);
+        service.attach_session(sender);
+        let mut handler = self.clone();
+        tokio::spawn(async move {
+            drain_codex_session_inbound(receiver, &mut handler).await;
+        })
+    }
+
+    fn seen(&self) -> Vec<String> {
+        lock(&self.seen).clone()
+    }
+
+    // Waits until this session's task saw `count` items, as the service's reader routes them on
+    // its own task.
+    async fn wait_until_seen(&self, count: usize) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while self.seen().len() < count {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the session's task sees the frames");
+    }
+}
 
 impl CodexSessionInboundHandler for SessionQueue {
     fn frame(&mut self, method: String, _params: Box<RawValue>) -> BoxFuture<'_, ()> {
-        lock(&self.0).push(method);
+        lock(&self.seen).push(method);
         async {}.boxed()
     }
 
@@ -93,16 +209,20 @@ impl CodexSessionInboundHandler for SessionQueue {
     }
 
     fn account_moved(&mut self, account_move: CodexAccountMove) -> BoxFuture<'_, ()> {
-        lock(&self.0).push(format!(
+        lock(&self.seen).push(format!(
             "moved to {}",
             account_move.provider_account_id.as_str()
         ));
-        // The binding moves once the spend before it is recorded, which the test's task has none
-        // of.
-        if let Some(moved) = account_move.moved {
-            let _answered = moved.send(Ok(()));
-        }
-        async {}.boxed()
+        let binding_move = {
+            let mut record_account = lock(&self.record_account);
+            CodexBindingMove::plan(
+                self.session_id,
+                Some((&mut *record_account, Some(&self.record_binding))),
+                account_move,
+            )
+        };
+        // The test's task meters no spend, so the bindings move at once.
+        async move { binding_move.land(&*self.moves, &self.recorder).await }.boxed()
     }
 
     fn next_deadline(&self) -> Option<Instant> {
@@ -123,6 +243,7 @@ struct Fixture {
     database: TestDatabase,
     session: SessionToMove,
     queue: SessionQueue,
+    moves: Arc<RecordedMoves>,
     drained: tokio::task::JoinHandle<()>,
     left: ProviderAccountId,
     to: ProviderAccountId,
@@ -194,16 +315,12 @@ impl Fixture {
         handed.expect("the start's login is answered");
 
         let session_id = new_session_id();
-        let (sender, receiver) = codex_session_inbound(session_id);
-        scripted.service.attach_session(sender);
+        let moves = Arc::new(RecordedMoves::default());
+        let queue = SessionQueue::new(session_id, left.clone(), &moves);
+        let drained = queue.attach(&scripted.service);
         scripted
             .service
             .register_thread(THREAD.to_owned(), session_id);
-        let queue = SessionQueue::default();
-        let mut handler = queue.clone();
-        let drained = tokio::spawn(async move {
-            drain_codex_session_inbound(receiver, &mut handler).await;
-        });
         Self {
             legs,
             scripted,
@@ -214,6 +331,7 @@ impl Fixture {
                     .expect("a binding id"),
             },
             queue,
+            moves,
             drained,
             left,
             to,
@@ -223,25 +341,13 @@ impl Fixture {
         }
     }
 
-    // Waits until the session's task saw `count` items, as the service's reader routes them on
-    // its own task.
-    async fn wait_until_seen(&self, count: usize) {
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while lock(&self.queue.0).len() < count {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("the session's task sees the frames");
-    }
-
     // What the session's task saw, once the service let it go and its queue drained.
     async fn seen_by_the_session(self) -> Vec<String> {
         self.scripted
             .service
             .detach_session(&self.session.session_id);
         self.drained.await.expect("the session's task ends");
-        lock(&self.queue.0).clone()
+        self.queue.seen()
     }
 
     // The account's stored credential generation.
@@ -312,8 +418,9 @@ async fn first_request(moved: SessionAccountMove) -> FirstRequestAfterMove {
 // move reaches the session at another place among its frames than the login's answer, when the
 // service keeps carrying the account left or its limit readings, when those readings are lost to
 // a frame of the account left that the session reads after the switch, when the credential
-// generation moves, when a token reaches a log line, a reply or an error, or when a login follows
-// on a timer.
+// generation moves, when a token reaches a log line, a reply or an error, when a login follows
+// on a timer, or when the named session's move is reported, which the daemon records itself at
+// the move's acknowledgment.
 #[tokio::test]
 async fn a_switch_is_one_login_whose_answer_moves_each_session_in_its_place() {
     let mut fixture = Fixture::new().await;
@@ -356,7 +463,7 @@ async fn a_switch_is_one_login_whose_answer_moves_each_session_in_its_place() {
     tokio::time::pause();
     tokio::time::sleep(Duration::from_hours(1)).await;
     tokio::time::resume();
-    fixture.wait_until_seen(3).await;
+    fixture.queue.wait_until_seen(3).await;
     let after = fixture.unread_requests();
     let carried = fixture.scripted.service.provider_account_id();
     let readings = fixture.scripted.service.rate_limit_reading().observation;
@@ -368,8 +475,10 @@ async fn a_switch_is_one_login_whose_answer_moves_each_session_in_its_place() {
     let to = fixture.to.clone();
     let token = fixture.tokens[&to].clone();
     let left_token = fixture.tokens[&fixture.left].clone();
+    let moves = Arc::clone(&fixture.moves);
     let seen = fixture.seen_by_the_session().await;
 
+    assert_eq!(moves.reported(), []);
     assert_eq!(login["params"], login_params(&token, WORKSPACE_TO));
     assert_eq!(
         after,
@@ -507,7 +616,7 @@ async fn a_renewed_token_is_handed_once_and_the_running_command_is_left_running(
     );
     let handed_again = hand_switching_service_again(&fixture.legs, &left, &left_home).await;
     send_frame(&fixture.scripted, "item/completed");
-    fixture.wait_until_seen(2).await;
+    fixture.queue.wait_until_seen(2).await;
     let after = fixture.unread_requests();
     let seen = fixture.seen_by_the_session().await;
 
@@ -654,7 +763,8 @@ async fn a_refused_renewal_fails_and_the_next_read_hands_it_again() {
 
 // Fails when a session start hands the switching service the account a refused switch was moving
 // it to without moving the sessions the refusal left on it, which then run on the new account's
-// sign-in while their bindings and usage stay on the account left.
+// sign-in while their bindings and usage stay on the account left, or without reporting the move
+// for the daemon to record, since no switch waits on it.
 #[tokio::test]
 async fn a_session_start_after_a_refused_switch_moves_the_sessions_left_behind() {
     let mut fixture = Fixture::new().await;
@@ -679,11 +789,80 @@ async fn a_session_start_after_a_refused_switch_moves_the_sessions_left_behind()
         switching.carry_for_session(&service, &to),
         answer_login(&mut fixture.scripted)
     );
-    fixture.wait_until_seen(1).await;
+    fixture.queue.wait_until_seen(1).await;
+    let moves = Arc::clone(&fixture.moves);
+    let session_id = fixture.session.session_id;
     let seen = fixture.seen_by_the_session().await;
 
     assert!(refused.iter().all(Result::is_err));
     assert!(carried.is_ok());
     assert_eq!(service.provider_account_id(), Some(to.clone()));
     assert_eq!(seen, [format!("moved to {}", to.as_str())]);
+    assert_eq!(moves.reported(), [(session_id, to)]);
+}
+
+// Fails when a switch moves a session attached to the service that it did not name, as one with no
+// lead yet, onto the new account without moving its record's binding or reporting the move for
+// the daemon to record, or when it reports the session it named.
+#[tokio::test]
+async fn a_switch_reports_each_session_it_moved_without_naming_it() {
+    let mut fixture = Fixture::new().await;
+    let unnamed = SessionQueue::new(new_session_id(), fixture.left.clone(), &fixture.moves);
+    let unnamed_drained = unnamed.attach(&fixture.scripted.service);
+    let to = fixture.to.clone();
+    let sessions = vec![fixture.session.clone()];
+    let (moved, _login) = tokio::join!(
+        move_codex_sessions(&fixture.legs, to.clone(), sessions),
+        answer_login(&mut fixture.scripted)
+    );
+    fixture.queue.wait_until_seen(1).await;
+    unnamed.wait_until_seen(1).await;
+    fixture.scripted.service.detach_session(&unnamed.session_id);
+    unnamed_drained
+        .await
+        .expect("the unnamed session's task ends");
+    let moves = Arc::clone(&fixture.moves);
+    let seen = fixture.seen_by_the_session().await;
+
+    assert!(moved.iter().all(Result::is_ok));
+    assert_eq!(seen, [format!("moved to {}", to.as_str())]);
+    assert_eq!(unnamed.seen(), [format!("moved to {}", to.as_str())]);
+    assert_eq!(moves.reported(), [(unnamed.session_id, to.clone())]);
+    assert!(lock(&moves.bindings).contains(&(unnamed.record_binding.clone(), to)));
+}
+
+// Fails when a rejoined service carrying no account, after a login never answered, moves a session
+// whose record ran on another account onto the current one without reporting the move for the
+// daemon to record, since no switch waits on it.
+#[tokio::test]
+async fn a_rejoin_carrying_no_account_reports_each_session_it_moved() {
+    let mut fixture = Fixture::new().await;
+    *lock(&fixture.queue.record_account) = fixture.to.clone();
+    let to = fixture.to.clone();
+    let sessions = vec![fixture.session.clone()];
+    tokio::time::pause();
+    let scripted = &mut fixture.scripted;
+    let (unanswered, _login) = tokio::join!(
+        move_codex_sessions(&fixture.legs, to, sessions),
+        scripted.next_request(CODEX_LOGIN_START_METHOD)
+    );
+    tokio::time::resume();
+    let service = Arc::clone(&fixture.scripted.service);
+    let connection = service.connection().expect("the service is up");
+    let switching = Arc::clone(&fixture.scripted.dependencies.switching);
+    let (handed, _login) = tokio::join!(
+        switching.hand_at_start(&service, &connection),
+        answer_login(&mut fixture.scripted)
+    );
+    fixture.queue.wait_until_seen(1).await;
+    let moves = Arc::clone(&fixture.moves);
+    let session_id = fixture.session.session_id;
+    let left = fixture.left.clone();
+    let seen = fixture.seen_by_the_session().await;
+
+    assert!(unanswered.iter().all(Result::is_err));
+    assert!(handed.is_ok());
+    assert_eq!(service.provider_account_id(), Some(left.clone()));
+    assert_eq!(seen, [format!("moved to {}", left.as_str())]);
+    assert_eq!(moves.reported(), [(session_id, left)]);
 }
