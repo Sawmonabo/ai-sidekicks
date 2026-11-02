@@ -368,21 +368,21 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - **Consumes:** `config/read` layer attribution ← T22.2.2 (Phase 2, merged).
 
 - **T22.3.5 — Validation-first ordering.**
-  - Files: `crates/sidekicks-mcp/src/mutation_preflight.rs` (CREATE)
+  - Files: `crates/sidekicks-mcp/src/mutation/preflight.rs` (CREATE)
   - Every check that can fail a mutation outright runs **before** the durable leg commits; `mcp.server.configInvalid` is exclusively a pre-commit refusal — including a Codex `local` name that clashes across the user file (the refusal naming, by its root's last folder name, the project that holds the other one; no path crosses the wire). Once the durable leg commits, the mutation never converts to a thrown error — later per-leg failures report inside the successful response. Every operation applies at every scope on every provider.
   - **Spec coverage:** Spec-024 §Configuration Mutation, Spec-024 §Fallback Behavior
   - **Verifies invariant:** I-022-2
   - **Consumes:** bindings ← T22.2.3 (Phase 2, merged).
 
 - **T22.3.6 — Two-phase `mcp_mutation_receipts` idempotency layer.**
-  - Files: `crates/sidekicks-mcp/src/receipt/store.rs` (CREATE)
-  - Commit a `pending` **intent** (key, operation) in its own transaction **before** any provider leg runs; finalize (`committed`, response recorded) in the **same SQLite transaction** as the mutation's store writes. A retry with the same key returns the saved result, whatever the second request carries, with no provider call and no store write. `committed` rows older than 24 h prune opportunistically on later mutation writes; `pending` intents are never silently pruned.
+  - Files: `crates/sidekicks-mcp/src/mutation/receipts.rs` (CREATE)
+  - Commit a `pending` **intent** (key, operation) in its own transaction **before** any provider leg runs; finalize (`committed`, response recorded) in the **same SQLite transaction** as the mutation's store writes. A retry with the same key and the same request returns the saved result with no provider call and no store write; a retry under that key with another request is refused `mcp.server.idempotencyConflict`. `committed` rows older than 24 h prune opportunistically on later mutation writes; `pending` intents are never silently pruned.
   - **Spec coverage:** Spec-024 §Authorization
   - **Verifies invariant:** I-022-3
   - **Consumes:** `mcp_mutation_receipts` ← T22.1.6 (Phase 1, merged).
 
 - **T22.3.7 — Startup receipt-intent reconciler.**
-  - Files: `crates/sidekicks-mcp/src/receipt/reconciler.rs` (CREATE)
+  - Files: `crates/sidekicks-mcp/src/mutation/reconciler.rs` (CREATE)
   - At startup, resolve every `pending` intent by observing provider state: an intent with no provider effect expires; an intent whose durable provider write landed is completed — store writes applied, the receipt finalized — **late but exactly once, never lost and never doubled**. An identical-key retry meeting a pending intent drives reconciliation first, then returns the saved result (the Plan-012 `command_receipts` two-phase discipline).
   - **Spec coverage:** Spec-024 §Authorization
   - **Verifies invariant:** I-022-3
@@ -397,7 +397,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
   - **Not built:** the table composer.
 
 - **T22.3.9 — Codex project-file writer with read-back.**
-  - Files: `crates/sidekicks-provider/src/driver/codex/mcp/project_file.rs` (CREATE)
+  - Files: `crates/sidekicks-provider/src/driver/codex/mcp/config/project_file.rs` (CREATE)
   - Edit `<project>/.codex/config.toml` through `toml_edit` 0.25.17's `DocumentMut` (feature `serde`), a format-preserving TOML edit that keeps the file's comments and layout; write to a temporary file and rename into place only if the file still hashes to what the daemon last read, else refuse `mcp.server.configWriteConflict` with nothing written; read the result back with `config/read {cwd, includeLayers}`, whose project layer must list the server, then `config/mcpServer/reload`. The edit touches only that server's own table. Library choice: `toml_edit`, which kept 13 of 13 untouched lines and their comments when probed, for the edit, and `toml` 1.1.8 only for typed reads and the daemon's own whole files, since re-serializing drops a person's comments; a format-preserving edit is required because the file belongs to the person and the repository.
   - **Tests:** a hand-commented project file round-trips an add and a remove with its comments and layout byte-identical outside the server's table; a file changed between read and write refuses with the file unchanged.
   - **Spec coverage:** Spec-024 §Configuration Mutation
