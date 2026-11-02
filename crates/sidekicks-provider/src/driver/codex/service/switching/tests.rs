@@ -20,6 +20,7 @@ use crate::driver::codex::service::switching::test_moves::{
 use crate::driver::codex::service::switching::test_sign_in::{
     AccountHomes, compose_access_token, write_sign_in,
 };
+use crate::driver::codex::session::errors::CodexError;
 use crate::driver::test_registry::new_session_id;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
@@ -117,7 +118,7 @@ impl Fixture {
         let signed_out = json!({"account": null, "requiresOpenaiAuth": true});
         let (handed, (methods, login, _carried)) = tokio::join!(
             switching.hand_at_start(&service, &connection),
-            answer_through_login(&mut self.scripted, &signed_out)
+            answer_through_login(&mut self.scripted, &signed_out, false)
         );
         handed.expect("the key's login is answered");
         (methods, login)
@@ -132,11 +133,13 @@ impl Fixture {
 }
 
 // Answers each request a hand sends, the account read with `reading` and a sign-out at once, up
-// to the login, which it answers once it noted the account the service carried when the login
-// came. Answers the methods in order, the login, and that account.
+// to the login, which it answers, or refuses where `is_login_refused`, once it noted the account
+// the service carried when the login came. Answers the methods in order, the login, and that
+// account.
 async fn answer_through_login(
     scripted: &mut ScriptedCodexService,
     reading: &Value,
+    is_login_refused: bool,
 ) -> (Vec<String>, Value, Option<ProviderAccountId>) {
     let mut methods = Vec::new();
     loop {
@@ -153,7 +156,15 @@ async fn answer_through_login(
             "account/logout" => scripted.script.answer(&request, &json!({})),
             _ => {
                 let carried = scripted.service.provider_account_id();
-                scripted.script.answer(&request, &json!({"type": "apiKey"}));
+                if is_login_refused {
+                    scripted.script.send(&json!({
+                        "jsonrpc": "2.0",
+                        "id": request["id"],
+                        "error": {"code": -32600, "message": "the API key is not valid"},
+                    }));
+                } else {
+                    scripted.script.answer(&request, &json!({"type": "apiKey"}));
+                }
                 return (methods, request, carried);
             }
         }
@@ -196,7 +207,7 @@ async fn a_switch_onto_an_api_key_account_hands_the_key(
     let to = fixture.key_account.clone();
     let (switched, (methods, login, carried_at_login)) = tokio::join!(
         switching.hand_switch(&service, to.clone(), Vec::new(), switching_person()),
-        answer_through_login(&mut fixture.scripted, &reading)
+        answer_through_login(&mut fixture.scripted, &reading, false)
     );
     switched.expect("the key's login is answered");
     // A switch off another account checks the new login once its hand is let go.
@@ -219,6 +230,45 @@ async fn a_switch_onto_an_api_key_account_hands_the_key(
     );
     assert_eq!(service.provider_account_id(), Some(to.clone()));
     assert_eq!(queue.seen(), [format!("moved to {}", to.as_str())]);
+    assert_eq!(fixture.unread_requests(), Vec::<Value>::new());
+}
+
+// Killed by the refusal leaving the previous account carried, which the service, signed out of
+// it, no longer holds, and by the refused login moving the session or answering as handed.
+#[tokio::test]
+async fn a_key_refused_after_the_sign_out_leaves_the_service_carrying_none() {
+    let mut fixture = Fixture::new(false);
+    fixture.carry_the_account_left().await;
+    let moves = Arc::new(RecordedMoves::default());
+    let queue = SessionQueue::new(new_session_id(), fixture.left.clone(), &moves);
+    // The task ends with the test's runtime.
+    let _drained = queue.attach(&fixture.scripted.service);
+
+    let service = Arc::clone(&fixture.scripted.service);
+    let switching = Arc::clone(&fixture.scripted.dependencies.switching);
+    let on_chatgpt = json!({"account": {"type": "chatgpt"}, "requiresOpenaiAuth": true});
+    let (switched, (methods, _login, carried_at_login)) = tokio::join!(
+        switching.hand_switch(
+            &service,
+            fixture.key_account.clone(),
+            Vec::new(),
+            switching_person()
+        ),
+        answer_through_login(&mut fixture.scripted, &on_chatgpt, true)
+    );
+
+    assert!(
+        matches!(switched, Err(CodexError::ProviderRequest { .. })),
+        "the key's refusal is not the caller's answer"
+    );
+    assert_eq!(
+        methods,
+        ["account/read", "account/logout", CODEX_LOGIN_START_METHOD]
+    );
+    assert_eq!(carried_at_login, Some(fixture.left.clone()));
+    assert_eq!(switching.carried_account(), None);
+    assert_eq!(service.provider_account_id(), None);
+    assert_eq!(queue.seen(), Vec::<String>::new());
     assert_eq!(fixture.unread_requests(), Vec::<Value>::new());
 }
 

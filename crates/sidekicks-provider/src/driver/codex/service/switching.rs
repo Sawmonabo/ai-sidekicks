@@ -119,6 +119,14 @@ enum CodexHandedLogin {
     ApiKey(SecretString),
 }
 
+// A hand's login ready to send: its request's params, the sign-in carried once it is answered,
+// and whether the service was signed out for it.
+struct PreparedLogin {
+    params: CodexLoginAccountParams,
+    sign_in: CarriedSignIn,
+    is_signed_out: bool,
+}
+
 impl CodexSwitchingAccount {
     /// Carrying no account yet, each account's home and the current account read through
     /// `provider_accounts`.
@@ -152,9 +160,10 @@ impl CodexSwitchingAccount {
     /// account it carries, else of Codex's current account, and carries that account; a service
     /// that carried none moves every session attached to it onto that account, as a switch does.
     /// An API-key account's key is handed once the service is signed out of any other kind of
-    /// sign-in. Fails with the refusal of an account with no current one, no `ChatGPT` sign-in in
-    /// its home or no key sealed, as its home or key cannot be read, and with Codex's refusal of
-    /// the read, the sign-out or the login.
+    /// sign-in; a key refused after that sign-out leaves it carrying none. Fails with the refusal
+    /// of an account with no current one, no `ChatGPT` sign-in in its home or no key sealed, as
+    /// its home or key cannot be read, and with Codex's refusal of the read, the sign-out or the
+    /// login.
     pub(crate) async fn hand_at_start(
         &self,
         service: &Arc<CodexService>,
@@ -172,10 +181,15 @@ impl CodexSwitchingAccount {
                 .map(drop);
         };
         let login = self.read_login(&provider_account_id).await?;
-        let (params, sign_in) = self.prepare_login(connection, login).await?;
+        let prepared = self.prepare_login(connection, login).await?;
         self.windows.close();
-        self.settle_login(connection.request(CODEX_LOGIN_START_METHOD, &params).await)?;
-        carry(&self.carried, provider_account_id, sign_in);
+        self.settle_handed_login(
+            connection
+                .request(CODEX_LOGIN_START_METHOD, &prepared.params)
+                .await,
+            prepared.is_signed_out,
+        )?;
+        carry(&self.carried, provider_account_id, prepared.sign_in);
         Ok(())
     }
 
@@ -183,10 +197,10 @@ impl CodexSwitchingAccount {
     /// `actor`: at its answer's place among the service's frames its readings start afresh, it
     /// carries `to`, and every session attached to it is queued its move onto `to`, each of
     /// `named` with its lead's binding and its switch's wait, every other one reported as moved by
-    /// `actor`; a refused login leaves it carrying what it did and moves nothing. A switch off
-    /// another account then checks its hand-back window. Fails as [`Self::hand_at_start`] does,
-    /// before anything is sent where `to` has no sign-in to hand, and while the service has no
-    /// connection.
+    /// `actor`; a refused login moves nothing and leaves it carrying what it did, or nothing where
+    /// it was signed out for a key. A switch off another account then checks its hand-back window.
+    /// Fails as [`Self::hand_at_start`] does, before anything is sent where `to` has no sign-in to
+    /// hand, and while the service has no connection.
     pub(crate) async fn hand_switch(
         &self,
         service: &Arc<CodexService>,
@@ -253,7 +267,11 @@ impl CodexSwitchingAccount {
         actor: Option<DeviceId>,
     ) -> Result<Option<u64>, CodexError> {
         let login = self.read_login(&to).await?;
-        let (params, sign_in) = self.prepare_login(connection, login).await?;
+        let PreparedLogin {
+            params,
+            sign_in,
+            is_signed_out,
+        } = self.prepare_login(connection, login).await?;
         let carried = Arc::clone(&self.carried);
         let windows = Arc::clone(&self.windows);
         let acknowledged = Arc::downgrade(service);
@@ -277,7 +295,7 @@ impl CodexSwitchingAccount {
                 }),
             )
             .await;
-        self.settle_login(answer)?;
+        self.settle_handed_login(answer, is_signed_out)?;
         // The hook ran before the answer came back, so the window it opened is the one open.
         Ok(self.windows.open_serial())
     }
@@ -336,6 +354,19 @@ impl CodexSwitchingAccount {
             *lock(&self.carried) = None;
         }
         answer
+    }
+
+    // A hand's login answer, settled as [`Self::settle_login`] settles it, except that one failed
+    // after the service was signed out for it leaves the service signed out, so it carries none.
+    fn settle_handed_login<Answer>(
+        &self,
+        answer: Result<Answer, CodexError>,
+        is_signed_out: bool,
+    ) -> Result<Answer, CodexError> {
+        if is_signed_out && answer.is_err() {
+            *lock(&self.carried) = None;
+        }
+        self.settle_login(answer)
     }
 
     // The account carried and the access token last handed it, the one Codex refuses; `None` for
@@ -399,23 +430,23 @@ impl CodexSwitchingAccount {
         ))
     }
 
-    // The params of `login`'s request and the sign-in it carries once answered. Codex refuses a
-    // key while handed tokens are active, so a key's service, read first, is signed out unless
-    // it is signed out already or on a key; the sign-out leaves the handed tokens unrevoked.
-    // Fails as the read or the sign-out does.
+    // `login` ready to send. Codex refuses a key while handed tokens are active, so a key's
+    // service, read first, is signed out unless it is signed out already or on a key; the
+    // sign-out leaves the handed tokens unrevoked. Fails as the read or the sign-out does.
     async fn prepare_login(
         &self,
         connection: &CodexAppServerConnection,
         login: CodexHandedLogin,
-    ) -> Result<(CodexLoginAccountParams, CarriedSignIn), CodexError> {
+    ) -> Result<PreparedLogin, CodexError> {
         match login {
-            CodexHandedLogin::Tokens(tokens) => {
-                let sign_in = CarriedSignIn::Tokens {
+            CodexHandedLogin::Tokens(tokens) => Ok(PreparedLogin {
+                sign_in: CarriedSignIn::Tokens {
                     access_token: tokens.access_token.clone(),
                     dead_token: None,
-                };
-                Ok((compose_login(tokens), sign_in))
-            }
+                },
+                params: compose_login(tokens),
+                is_signed_out: false,
+            }),
             CodexHandedLogin::ApiKey(api_key) => {
                 let reading = self
                     .settle_login(read_codex_account(connection, CODEX_AUTH_PROBE_TIMEOUT).await)?;
@@ -429,10 +460,11 @@ impl CodexSwitchingAccount {
                 if !is_clear {
                     self.settle_login(connection.request(CODEX_ACCOUNT_LOGOUT_METHOD, &()).await)?;
                 }
-                Ok((
-                    CodexLoginAccountParams::ApiKey { api_key },
-                    CarriedSignIn::ApiKey,
-                ))
+                Ok(PreparedLogin {
+                    params: CodexLoginAccountParams::ApiKey { api_key },
+                    sign_in: CarriedSignIn::ApiKey,
+                    is_signed_out: !is_clear,
+                })
             }
         }
     }
