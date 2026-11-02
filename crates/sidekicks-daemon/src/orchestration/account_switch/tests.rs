@@ -218,6 +218,7 @@ async fn fixture() -> Fixture {
     let level_moves = Arc::new(RecordedLevelMoves::default());
     let switch = Arc::new(AccountSwitch::new(AccountSwitchDeps {
         accounts: Arc::clone(&accounts),
+        signing_in: Arc::default(),
         account_reader: Arc::new(ProviderAccounts::new(
             Arc::clone(&reads),
             Arc::new(NoTokens),

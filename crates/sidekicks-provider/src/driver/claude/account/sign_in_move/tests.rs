@@ -41,7 +41,8 @@ use crate::account::registry::{
     open_test_registry,
 };
 use crate::account::sign_in::{
-    ProviderAccountNotificationPublisher, ProviderSignInBroker, SignedInAccountWatcher,
+    AccountsSigningIn, ProviderAccountNotificationPublisher, ProviderSignInBroker,
+    SignedInAccountWatcher,
 };
 use crate::driver::claude::account::credentials::{
     SECURE_STORAGE_FOLDER_VARIABLE, claude_keychain_account, claude_keychain_service,
@@ -169,6 +170,7 @@ struct Fixture {
     legs: ClaudeAccountLegs,
     home_lock: Arc<AccountHomeLock>,
     sign_ins: ProviderSignInBroker,
+    signing_in: Arc<AccountsSigningIn>,
     live_turns: LiveTurns,
     keychain: CredentialStore,
 }
@@ -194,6 +196,7 @@ impl Fixture {
         ]);
         let legs = test_account_legs(&services, Weak::new());
         let home_lock = Arc::new(AccountHomeLock::default());
+        let signing_in = Arc::new(AccountsSigningIn::default());
         let sign_ins = ProviderSignInBroker::new(
             Arc::clone(&registry),
             HashMap::from([(
@@ -203,6 +206,7 @@ impl Fixture {
             Arc::new(Unheard),
             Arc::new(Unheard),
             Arc::clone(&home_lock),
+            Arc::clone(&signing_in),
         );
         Self {
             data_folder,
@@ -212,6 +216,7 @@ impl Fixture {
             legs,
             home_lock,
             sign_ins,
+            signing_in,
             live_turns: LiveTurns::default(),
             keychain,
         }
@@ -221,7 +226,7 @@ impl Fixture {
         ClaudeSignInMoveBounds {
             registry: &self.registry,
             home_lock: self.home_lock.as_ref(),
-            sign_ins: &self.sign_ins,
+            signing_in: &self.signing_in,
             live_turns: &self.live_turns,
             keychain: &self.keychain,
             keychain_wait: CLAUDE_SIGN_IN_MOVE_KEYCHAIN_WAIT,

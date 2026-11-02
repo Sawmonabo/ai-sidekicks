@@ -75,6 +75,28 @@ pub trait SignedInAccountWatcher: Send + Sync {
     fn watch_signed_in(&self, account: &RegisteredAccount);
 }
 
+/// The accounts with a sign-in in flight, each from its start until it settles. The broker marks
+/// them, and the observer, a switch and a home's reset read them, so none of those acts in a home
+/// a sign-in is using.
+#[derive(Default)]
+pub struct AccountsSigningIn(Mutex<HashSet<ProviderAccountId>>);
+
+impl AccountsSigningIn {
+    /// Whether `account_id` has a sign-in in flight.
+    pub fn is_signing_in(&self, account_id: &ProviderAccountId) -> bool {
+        lock(&self.0).contains(account_id)
+    }
+
+    // Marks `account_id` signing in; `false` where it already was.
+    fn mark(&self, account_id: ProviderAccountId) -> bool {
+        lock(&self.0).insert(account_id)
+    }
+
+    fn unmark(&self, account_id: &ProviderAccountId) {
+        lock(&self.0).remove(account_id);
+    }
+}
+
 /// Why a sign-in start, a code submit or a cancel failed; a failed start leaves no attempt, no
 /// row and no minted home behind.
 #[derive(Debug, thiserror::Error)]
@@ -131,14 +153,16 @@ pub struct ProviderSignInBroker {
 
 impl ProviderSignInBroker {
     /// A broker writing through `registry`, starting each provider's flow through its entry in
-    /// `legs` and storing its end under the account's hold on `home_lock`, sending its
-    /// notifications to `publisher` and each account it signs in to `watcher`.
+    /// `legs` and storing its end under the account's hold on `home_lock`, marking each account in
+    /// `signing_in` while its attempt runs, sending its notifications to `publisher` and each
+    /// account it signs in to `watcher`.
     pub fn new(
         registry: Arc<ProviderAccountRegistry>,
         legs: HashMap<ProviderId, Arc<dyn ProviderSignInLegs>>,
         publisher: Arc<dyn ProviderAccountNotificationPublisher>,
         watcher: Arc<dyn SignedInAccountWatcher>,
         home_lock: Arc<AccountHomeLock>,
+        signing_in: Arc<AccountsSigningIn>,
     ) -> Self {
         Self {
             attempt: AttemptServices {
@@ -146,15 +170,11 @@ impl ProviderSignInBroker {
                 publisher,
                 watcher,
                 home_lock,
+                signing_in,
                 attempts: Arc::new(Mutex::new(LiveAttempts::default())),
             },
             legs,
         }
-    }
-
-    /// Whether `account_id` has a sign-in in flight, from its start until it settles.
-    pub fn is_signing_in(&self, account_id: &ProviderAccountId) -> bool {
-        lock(&self.attempt.attempts).accounts.contains(account_id)
     }
 
     /// Starts the provider's own sign-in for `request`'s account, or for a new account whose id
@@ -247,13 +267,15 @@ impl ProviderSignInBroker {
 }
 
 /// What an attempt reaches beyond its own flow: the registry, the notification publisher, the
-/// watcher of a signed-in account, the lock on account homes and the broker's live attempts.
+/// watcher of a signed-in account, the lock on account homes, the accounts signing in and the
+/// broker's live attempts.
 #[derive(Clone)]
 struct AttemptServices {
     registry: Arc<ProviderAccountRegistry>,
     publisher: Arc<dyn ProviderAccountNotificationPublisher>,
     watcher: Arc<dyn SignedInAccountWatcher>,
     home_lock: Arc<AccountHomeLock>,
+    signing_in: Arc<AccountsSigningIn>,
     attempts: Arc<Mutex<LiveAttempts>>,
 }
 
@@ -265,7 +287,7 @@ impl AttemptServices {
         home: CredentialHome,
         minted: Option<MintedAccount>,
     ) -> Result<Reservation, ProviderSignInError> {
-        if !lock(&self.attempts).accounts.insert(account_id.clone()) {
+        if !self.signing_in.mark(account_id.clone()) {
             return Err(ProviderSignInError::InFlight);
         }
         Ok(Reservation {
@@ -278,11 +300,10 @@ impl AttemptServices {
     }
 }
 
-/// The attempts in flight, by id, and the accounts holding one.
+/// The attempts in flight, by id.
 #[derive(Default)]
 struct LiveAttempts {
     attempts: HashMap<AttemptId, LiveAttempt>,
-    accounts: HashSet<ProviderAccountId>,
 }
 
 /// One attempt in flight: the flow's input, and whether it waits for a pasted code.
@@ -382,9 +403,7 @@ impl Reservation {
 
 impl Drop for Reservation {
     fn drop(&mut self) {
-        lock(&self.services.attempts)
-            .accounts
-            .remove(&self.account_id);
+        self.services.signing_in.unmark(&self.account_id);
         if let Some(minted) = self.minted.take() {
             abandon(&self.services.registry, minted);
         }
@@ -632,4 +651,4 @@ fn failure_reason_text(reason: &'static str) -> FailureReason {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

@@ -19,7 +19,7 @@ use sidekicks_provider::account::home_lock::AccountHomeLock;
 use sidekicks_provider::account::observer::{AccountLiveTurns, ProviderAccountObserver};
 use sidekicks_provider::account::registry::{ProviderAccountRegistry, RegisteredAccount};
 use sidekicks_provider::account::sign_in::{
-    ProviderAccountNotificationPublisher as _, ProviderSignInBroker,
+    AccountsSigningIn, ProviderAccountNotificationPublisher as _, ProviderSignInBroker,
 };
 use sidekicks_provider::account::token_custody::ProviderTokenCustody;
 use sidekicks_provider::account::wake_helper::MachineWakeHelper;
@@ -53,6 +53,8 @@ pub(crate) struct ProviderAccountMethodSources {
     pub(crate) providers: Arc<ProviderRegistry>,
     /// The broker of each provider's own sign-in.
     pub(crate) sign_in: Arc<ProviderSignInBroker>,
+    /// The accounts with a sign-in in flight, whose home a reset leaves alone.
+    pub(crate) signing_in: Arc<AccountsSigningIn>,
     /// The custody of each pasted token.
     pub(crate) token_custody: Arc<ProviderTokenCustody>,
     /// The background observer, which the probe asks and a new or removed account joins or

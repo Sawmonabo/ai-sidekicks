@@ -433,7 +433,9 @@ interface ProviderAccountDeleteResponse {
 // REFUSES IN PLACE where the named account fails the fail-closed spawn validation, or where its
 // last limits read showed a dead login (Claude Code's read answering `rate_limits_available:
 // false`): the current mark does not move, no session moves, and the refusal carries that account's
-// own remedy.
+// own remedy. A sign-in in flight on the named account refuses the same way, as
+// `provider.account.signInInFlight`, since the sign-in is using its home; so does a registration
+// whose `makeDefault` names such an account.
 interface ProviderAccountCurrentUpdateRequest {
   accountId: ProviderAccountId;
 }
@@ -457,7 +459,8 @@ interface ProviderAccountCurrentUpdateResponse {
 // readings are kept for the same reason and are NOT cleared — the provider-side allowance kept
 // running while the home was empty — but each carries the generation it was observed under, so a
 // consumer renders a pre-rebuild reading as stale. The stored health pair is the opposite case:
-// the bump invalidates it, which is why `healthState` is returned here.
+// the bump invalidates it, which is why `healthState` is returned here. A sign-in in flight on the
+// account refuses the reset as `provider.account.signInInFlight`, leaving the home as it is.
 interface ProviderAccountCredentialHomeResetRequest {
   accountId: ProviderAccountId;
 }

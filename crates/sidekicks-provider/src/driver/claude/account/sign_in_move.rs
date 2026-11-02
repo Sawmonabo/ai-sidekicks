@@ -34,7 +34,7 @@ use crate::account::home_lock::AccountHomeLock;
 use crate::account::observer::AccountLiveTurns;
 use crate::account::registry::{ProviderAccountRegistry, RegisteredAccount};
 use crate::account::resolver::credential_home_folders;
-use crate::account::sign_in::ProviderSignInBroker;
+use crate::account::sign_in::AccountsSigningIn;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::ClaudeAccountLegs;
 use crate::driver::claude::account::credentials::{
@@ -50,8 +50,8 @@ pub(crate) struct ClaudeSignInMoveBounds<'a> {
     pub(crate) registry: &'a ProviderAccountRegistry,
     /// The lock every act in an account's home takes, which an observation holds while it reads.
     pub(crate) home_lock: &'a AccountHomeLock,
-    /// The sign-ins in flight, each of which holds its account's home.
-    pub(crate) sign_ins: &'a ProviderSignInBroker,
+    /// The accounts with a sign-in in flight, each of which holds its account's home.
+    pub(crate) signing_in: &'a AccountsSigningIn,
     /// The turns live on each account, each of which holds its account's home.
     pub(crate) live_turns: &'a dyn AccountLiveTurns,
     /// The person's login keychain.
@@ -251,7 +251,7 @@ fn is_home_in_use(
     bounds: &ClaudeSignInMoveBounds<'_>,
     provider_account_id: &ProviderAccountId,
 ) -> bool {
-    bounds.sign_ins.is_signing_in(provider_account_id)
+    bounds.signing_in.is_signing_in(provider_account_id)
         || !bounds
             .live_turns
             .sessions_with_live_turns(provider_account_id)

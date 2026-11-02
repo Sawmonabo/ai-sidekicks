@@ -8,7 +8,7 @@
 //!   has landed, so a second switch on that provider waits for the first.
 //! - A dead target refuses before the mark moves or any session is sent anything: an account not
 //!   registered or being removed, a home that is gone, or a sign-in its stored reading says is
-//!   gone.
+//!   gone; so does an account with a sign-in in flight, whose home the sign-in is using.
 //! - A lead lands at the provider's acknowledgment of its move with `agent.providerBinding.changed`
 //!   in place, or `agent.providerBinding.changeFailed` where the move failed; a first request the
 //!   provider then refuses for the new account's login hands the previous account back, recorded
@@ -49,6 +49,7 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::account::readiness::derive_account_readiness;
 use sidekicks_provider::account::registry::{ProviderAccountRegistry, RegisteredAccount};
+use sidekicks_provider::account::sign_in::{AccountsSigningIn, ProviderSignInError};
 use sidekicks_provider::driver::contract::account::{
     FirstRequestAfterMove, ProviderSwitchLegs, SessionAccountMove, SessionToMove,
 };
@@ -101,6 +102,8 @@ impl SessionLevelMoves for ProviderSessions {
 pub(crate) struct AccountSwitchDeps {
     /// The accounts, whose current mark the switch moves.
     pub(crate) accounts: Arc<ProviderAccountRegistry>,
+    /// The accounts with a sign-in in flight, which no switch moves onto.
+    pub(crate) signing_in: Arc<AccountsSigningIn>,
     /// Resolves an account's folders, refusing one whose home is gone, and each provider's current
     /// account.
     pub(crate) account_reader: Arc<dyn ProviderAccountReader>,
@@ -183,8 +186,9 @@ impl AccountSwitch {
     /// session of that provider not already on it. Answers once the mark has moved; the moves land
     /// after, under the provider's lock. Refused `provider.account.notFound` for an account not
     /// registered or being removed, `provider.account.credentialHome.unavailable` for a home that
-    /// is gone and `provider.account.notAuthenticated` with the account's remedy for a sign-in its
-    /// stored reading says is gone, each with the mark unmoved and no session sent anything.
+    /// is gone, `provider.account.notAuthenticated` with the account's remedy for a sign-in its
+    /// stored reading says is gone and `provider.account.signInInFlight` for an account with a
+    /// sign-in in flight, each with the mark unmoved and no session sent anything.
     pub(crate) async fn make_current(
         self: &Arc<Self>,
         account_id: ProviderAccountId,
@@ -262,6 +266,9 @@ impl AccountSwitch {
             )
             .with_detail(ProviderAccountNotAuthenticatedDetails { remedy })
             .into());
+        }
+        if self.deps.signing_in.is_signing_in(&account_id) {
+            return Err(ProviderSignInError::InFlight.into());
         }
         // An account already current keeps the mark, and its sessions still on another move.
         let is_moved = !account.is_default;

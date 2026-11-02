@@ -64,7 +64,7 @@ const EARLIER_AUTH_MODE: ProviderAuthMode = ProviderAuthMode::ApiKey;
 type Code = FreeFormText<PROVIDER_SIGN_IN_CODE_MAX_LEN>;
 
 /// One running scripted flow, as the test drives it.
-struct ScriptedFlow {
+pub(crate) struct ScriptedFlow {
     account_id: ProviderAccountId,
     home: PathBuf,
     prompts: mpsc::UnboundedSender<()>,
@@ -73,7 +73,8 @@ struct ScriptedFlow {
 }
 
 impl ScriptedFlow {
-    fn finish(&self, end: ProviderSignInEnd) {
+    /// Ends the flow as `end`.
+    pub(crate) fn finish(&self, end: ProviderSignInEnd) {
         let sender = lock(&self.end).take().expect("the flow has not ended");
         sender.send(end).expect("the broker awaits the flow's end");
     }
@@ -107,7 +108,7 @@ impl ProviderSignInInput for ScriptedInput {
 
 /// What the scripted provider does at the start and in its status read after the flow.
 #[derive(Clone, Copy, Debug)]
-enum Status {
+pub(crate) enum Status {
     /// The arm emits nothing to act on.
     Unsupported,
     /// The status read names the account, or not.
@@ -116,10 +117,15 @@ enum Status {
     Unreadable,
 }
 
-struct ScriptedLegs {
-    status: Status,
-    flows: mpsc::UnboundedSender<ScriptedFlow>,
-    homes: Mutex<Vec<PathBuf>>,
+/// Sign-in legs whose flows the test drives: each flow started goes to `flows`, and the status
+/// read after it answers as `status` says.
+pub(crate) struct ScriptedLegs {
+    /// What the start and the status read do.
+    pub(crate) status: Status,
+    /// Where each flow started goes.
+    pub(crate) flows: mpsc::UnboundedSender<ScriptedFlow>,
+    /// Each home a flow started in.
+    pub(crate) homes: Mutex<Vec<PathBuf>>,
 }
 
 impl ProviderSignInLegs for ScriptedLegs {
@@ -205,7 +211,7 @@ impl ProviderAccountNotificationPublisher for RecordingPublisher {
 
 /// A watcher that records each account it is handed.
 #[derive(Default)]
-struct RecordingWatcher(Mutex<Vec<ProviderAccountId>>);
+pub(crate) struct RecordingWatcher(Mutex<Vec<ProviderAccountId>>);
 
 impl SignedInAccountWatcher for RecordingWatcher {
     fn watch_signed_in(&self, account: &RegisteredAccount) {
@@ -338,6 +344,7 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
         Arc::new(RecordingPublisher(published_sender)),
         Arc::clone(&watcher) as Arc<dyn SignedInAccountWatcher>,
         Arc::clone(&home_lock),
+        Arc::default(),
     );
     let events_before = session_event_count(&database.path());
     let request = match &existing {
@@ -537,6 +544,7 @@ async fn a_sign_in_whose_home_changed_under_it_writes_nothing() {
         Arc::new(RecordingPublisher(published_sender)),
         Arc::clone(&watcher) as Arc<dyn SignedInAccountWatcher>,
         Arc::clone(&home_lock),
+        Arc::default(),
     );
     broker
         .start(

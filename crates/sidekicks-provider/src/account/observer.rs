@@ -4,7 +4,8 @@
 //!
 //! - A read runs under the account's home lock and joins the read in flight on the account, so no
 //!   two reads run in one home, and none while a reset or a sign-in holds the home; it never runs
-//!   while a turn is live on the account, since the turn brings its own figures.
+//!   while a turn is live on the account, since the turn brings its own figures, nor while a
+//!   sign-in is in flight on it, whose save a crossing read would fail; the next pass reads it.
 //! - A provider whose reads each start a process reads one account at a time.
 //! - `Check now` answers the last read while it is under a minute old, and a hold's end while the
 //!   throttle ladder holds the account; the opt-out stops every read but `Check now`.
@@ -49,7 +50,9 @@ use crate::account::observer::window_start::{WindowStartTimers, WindowStartWakes
 use crate::account::registry::{
     HealthObservation, HealthObserver, ProviderAccountRegistry, RegisteredAccount,
 };
-use crate::account::sign_in::{ProviderAccountNotificationPublisher, SignedInAccountWatcher};
+use crate::account::sign_in::{
+    AccountsSigningIn, ProviderAccountNotificationPublisher, SignedInAccountWatcher,
+};
 use crate::account::token_custody::{ProviderTokenCustody, TokenCustodyError};
 use crate::account::wake_helper::MachineWakeHelper;
 use crate::driver::contract::account::{
@@ -103,6 +106,8 @@ pub struct ProviderAccountObserverDeps {
     pub usage: Arc<dyn UsageSink>,
     /// Whether a turn is live on an account.
     pub live_turns: Arc<dyn AccountLiveTurns>,
+    /// The accounts with a sign-in in flight, which no read runs on.
+    pub signing_in: Arc<AccountsSigningIn>,
     /// The lock every act in an account's home takes.
     pub home_lock: Arc<AccountHomeLock>,
     /// The daemon's scheduler, which runs each account's job and tells each wake.
@@ -136,8 +141,8 @@ pub enum AccountReadAnswer {
         /// When the hold ends.
         until: WireInstant,
     },
-    /// No read may run now: the account is opted out, a turn is live on it, or another act holds
-    /// its home; the last read, `None` before the first.
+    /// No read may run now: the account is opted out, a turn or a sign-in is live on it, or
+    /// another act holds its home; the last read, `None` before the first.
     NotNow {
         /// The last read taken.
         last: Option<AccountReading>,
@@ -222,7 +227,9 @@ struct AccountMemory {
     unanswered_in_a_row: u32,
 }
 
-type SharedReading = Result<AccountReading, Arc<ProviderAccountObserverError>>;
+// A read's answer to every asker joined on it; `None` where a sign-in on the account kept it from
+// running.
+type SharedReading = Result<Option<AccountReading>, Arc<ProviderAccountObserverError>>;
 
 type SharedWindowStart = Result<(), Arc<ProviderAccountObserverError>>;
 
@@ -244,6 +251,7 @@ struct ObserverShared {
     // One per provider whose reads run one at a time; its window turns take it too.
     one_reader_at_a_time: HashMap<ProviderId, Arc<tokio::sync::Mutex<()>>>,
     live_turns: Arc<dyn AccountLiveTurns>,
+    signing_in: Arc<AccountsSigningIn>,
     scheduler: Arc<Scheduler>,
     wall_clock: Arc<dyn WallClock>,
     reads: AccountHomeFlights<SharedReading>,
@@ -280,6 +288,7 @@ impl ProviderAccountObserver {
                 publisher: deps.publisher,
                 one_reader_at_a_time,
                 live_turns: deps.live_turns,
+                signing_in: deps.signing_in,
                 scheduler: Arc::clone(&deps.scheduler),
                 wall_clock: deps.wall_clock,
                 reads: AccountHomeFlights::new(Arc::clone(&deps.home_lock)),
@@ -542,17 +551,24 @@ impl ObserverShared {
             .reads
             .run_if_free(provider_account_id.clone(), move || {
                 async move {
+                    // Read under the home's hold: a sign-in marks its account before it holds the
+                    // home to note the generation its save compares, so a read either finds the
+                    // mark or is stored before that note.
+                    if shared.signing_in.is_signing_in(&account.account_id) {
+                        return Ok(None);
+                    }
                     shared
                         .take_reading(account, legs, asker.writer())
                         .await
+                        .map(Some)
                         .map_err(Arc::new)
                 }
                 .boxed()
             })
             .await?;
         match answer {
-            None => Ok(AccountReadAnswer::NotNow { last }),
-            Some(Ok(reading)) => {
+            None | Some(Ok(None)) => Ok(AccountReadAnswer::NotNow { last }),
+            Some(Ok(Some(reading))) => {
                 Arc::clone(self).spawn_window_start(provider_account_id);
                 Ok(AccountReadAnswer::Read(reading))
             }

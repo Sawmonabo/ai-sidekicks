@@ -436,6 +436,7 @@ methods! {
                 ProviderAccountDisplayLabelTaken,
                 ProviderAccountCurrentConflict,
                 ProviderAccountCredentialHomeUnavailable,
+                ProviderAccountSignInInFlight,
             ],
         },
         /// Edits an account's descriptive settings.
@@ -473,6 +474,7 @@ methods! {
                 ProviderAccountNotAuthenticated,
                 ProviderAccountCurrentConflict,
                 ProviderAccountCredentialHomeUnavailable,
+                ProviderAccountSignInInFlight,
             ],
         },
         /// Checks an account's health now.
@@ -495,6 +497,7 @@ methods! {
                 ProviderAccountPermissionDenied,
                 ProviderAccountNotFound,
                 ProviderAccountCredentialHomeUnavailable,
+                ProviderAccountSignInInFlight,
             ],
         },
         /// Starts the provider's own interactive sign-in.

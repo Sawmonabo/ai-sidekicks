@@ -30,7 +30,8 @@ use sidekicks_provider::account::observer::{
 use sidekicks_provider::account::registry::ProviderAccountRegistry;
 use sidekicks_provider::account::resolver::ProviderAccounts;
 use sidekicks_provider::account::sign_in::{
-    ProviderAccountNotificationPublisher, ProviderSignInBroker, SignedInAccountWatcher,
+    AccountsSigningIn, ProviderAccountNotificationPublisher, ProviderSignInBroker,
+    SignedInAccountWatcher,
 };
 use sidekicks_provider::account::token_custody::ProviderTokenCustody;
 use sidekicks_provider::account::wake_helper::{MachineWakeHelper, SystemWakeHelper};
@@ -165,6 +166,7 @@ pub(crate) async fn build_provider_account_plane(
         );
     }
     let home_lock = Arc::new(AccountHomeLock::default());
+    let signing_in = Arc::new(AccountsSigningIn::default());
     let live_turns: Arc<dyn AccountLiveTurns> = binding_cursors;
     let publisher = Arc::new(ProviderAccountNotifications::new());
     let observer = Arc::new(ProviderAccountObserver::new(ProviderAccountObserverDeps {
@@ -177,6 +179,7 @@ pub(crate) async fn build_provider_account_plane(
         database_writer: writer,
         usage,
         live_turns: Arc::clone(&live_turns),
+        signing_in: Arc::clone(&signing_in),
         home_lock: Arc::clone(&home_lock),
         scheduler,
         wall_clock: clock,
@@ -189,9 +192,11 @@ pub(crate) async fn build_provider_account_plane(
         Arc::clone(&publisher) as _,
         Arc::clone(&observer) as Arc<dyn SignedInAccountWatcher>,
         Arc::clone(&home_lock),
+        Arc::clone(&signing_in),
     ));
     let account_switch = Arc::new(AccountSwitch::new(AccountSwitchDeps {
         accounts: Arc::clone(&registry),
+        signing_in: Arc::clone(&signing_in),
         account_reader: Arc::clone(&reader),
         switch_legs,
         providers: Arc::clone(&providers),
@@ -205,6 +210,7 @@ pub(crate) async fn build_provider_account_plane(
             accounts: Arc::clone(&registry),
             providers,
             sign_in,
+            signing_in,
             token_custody,
             observer: Arc::clone(&observer),
             account_reader: Arc::clone(&reader),

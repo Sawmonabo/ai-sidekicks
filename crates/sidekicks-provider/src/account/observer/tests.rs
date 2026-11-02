@@ -1,10 +1,17 @@
-use std::sync::Arc;
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
+use futures::StreamExt as _;
+use futures::channel::mpsc;
 use rstest::rstest;
 use sidekicks_contracts::provider::account::record::{
     CredentialGeneration, ProviderAccountHealthState, ProviderAccountNotification,
+    ProviderSignInOutcome,
+};
+use sidekicks_contracts::provider::account::sign_in::{
+    ProviderAccountSignInRequest, RegisteredAccountSignIn,
 };
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -12,12 +19,17 @@ use sidekicks_platforms::WallClock as _;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use tokio::sync::{Notify, Semaphore};
 
-use super::test_fixture::{Fixture, ScriptedLegs, figures, new_clock, read_reading};
+use super::test_fixture::{Fixture, ScriptedLegs, claude, figures, new_clock, read_reading};
 use super::window_store::read_usage_windows;
 use super::{AccountReadAnswer, ReadAsker};
-use crate::account::registry::HealthObservation;
+use crate::account::registry::{HealthObservation, HealthObserver};
+use crate::account::sign_in::ProviderSignInBroker;
+use crate::account::sign_in::tests::{
+    RecordingWatcher, ScriptedLegs as ScriptedSignIns, Status as SignInStatus,
+};
 use crate::driver::contract::account::{
-    ObservedAccountIdentity, ProviderAccountFigures, ProviderObservation,
+    ObservedAccountIdentity, ProviderAccountFigures, ProviderObservation, ProviderSignInEnd,
+    ProviderSignInLegs, SignInOrigin,
 };
 use crate::driver::schema::schema_parts;
 
@@ -215,13 +227,117 @@ async fn no_read_runs_while_a_turn_is_live_or_a_sign_in_holds_the_home() {
     assert_eq!(fixture.read(&account, ReadAsker::Cadence).await, not_yet);
     fixture.live_turns.0.store(false, Ordering::SeqCst);
 
-    // A sign-in holds the account's home for its whole attempt.
+    // A sign-in holds the account's home while its flow starts and while its end is stored.
     let sign_in = fixture.home_lock.hold(account.account_id.clone()).await;
     assert_eq!(fixture.read(&account, ReadAsker::CheckNow).await, not_yet);
     assert_eq!(fixture.read(&account, ReadAsker::Dictation).await, not_yet);
     assert_eq!(fixture.legs.reads(), 0);
     drop(sign_in);
 
+    read_reading(fixture.read(&account, ReadAsker::CheckNow).await);
+    assert_eq!(fixture.legs.reads(), 1);
+}
+
+// A probe asked while a sign-in is in flight on a signed-out account reads nothing and writes
+// nothing, so the sign-in's save finds the generation it started on and stores the account signed
+// in; the account's next read runs. Killed by the sign-in check dropped, where the probe reads the
+// account signed in, a crossing that moves its generation, and the sign-in fails at its save.
+#[tokio::test]
+async fn a_probe_during_a_sign_in_writes_nothing_and_the_sign_in_saves() {
+    let database = TestDatabase::new(schema_parts());
+    let data_folder = tempfile::tempdir().expect("a data folder");
+    let fixture = Fixture::open(
+        &database,
+        data_folder.path(),
+        new_clock(),
+        ScriptedLegs::default(),
+    )
+    .await;
+    let account = fixture.register().await;
+    let account_id = account.account_id.clone();
+    fixture
+        .registry
+        .record_health(
+            &account_id,
+            &HealthObservation {
+                state: ProviderAccountHealthState::ReauthRequired,
+                observed_at: WireInstant::now(),
+            },
+            HealthObserver::Probe,
+        )
+        .await
+        .expect("the account reads signed out");
+    let (flow_sender, mut flows) = mpsc::unbounded();
+    let broker = ProviderSignInBroker::new(
+        Arc::clone(&fixture.registry),
+        HashMap::from([(
+            claude(),
+            Arc::new(ScriptedSignIns {
+                status: SignInStatus::Read {
+                    is_account_named: true,
+                },
+                flows: flow_sender,
+                homes: Mutex::default(),
+            }) as Arc<dyn ProviderSignInLegs>,
+        )]),
+        Arc::clone(&fixture.notifications) as _,
+        Arc::new(RecordingWatcher::default()),
+        Arc::clone(&fixture.home_lock),
+        Arc::clone(&fixture.signing_in),
+    );
+    broker
+        .start(
+            ProviderAccountSignInRequest::Registered(RegisteredAccountSignIn {
+                account_id: account_id.clone(),
+            }),
+            SignInOrigin::ThisMachine,
+        )
+        .await
+        .expect("the sign-in starts");
+    let flow = flows.next().await.expect("the flow started");
+    let started = fixture
+        .registry
+        .read(account_id.clone())
+        .await
+        .expect("the account reads");
+
+    assert_eq!(
+        fixture.read(&account, ReadAsker::CheckNow).await,
+        AccountReadAnswer::NotNow { last: None }
+    );
+    assert_eq!(fixture.legs.reads(), 0);
+    let during = fixture
+        .registry
+        .read(account_id.clone())
+        .await
+        .expect("the account reads");
+    assert_eq!(during.credential_generation, started.credential_generation);
+
+    flow.finish(ProviderSignInEnd::Finished);
+    let outcome = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let ended = fixture
+                .notifications
+                .published()
+                .into_iter()
+                .find_map(|notification| {
+                    if let ProviderAccountNotification::SignInCompleted { outcome, .. } =
+                        notification
+                    {
+                        Some(outcome)
+                    } else {
+                        None
+                    }
+                });
+            if let Some(outcome) = ended {
+                return outcome;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the sign-in settles");
+    assert_eq!(outcome, ProviderSignInOutcome::Succeeded);
     read_reading(fixture.read(&account, ReadAsker::CheckNow).await);
     assert_eq!(fixture.legs.reads(), 1);
 }

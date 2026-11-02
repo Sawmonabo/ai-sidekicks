@@ -21,18 +21,22 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_contracts::method::Method as _;
 use sidekicks_contracts::provider::account::methods::{
-    PROVIDER_ACCOUNT_METHOD_DESCRIPTORS, ProviderAccountCurrentUpdate,
-    ProviderAccountCurrentUpdateResponse, ProviderAccountRegister, ProviderAccountSubscribe,
-    ProviderAccountUpdate, ProviderAccountUpdateResponse, ProviderWakeHelperState,
+    PROVIDER_ACCOUNT_METHOD_DESCRIPTORS, ProviderAccountCredentialHomeReset,
+    ProviderAccountCurrentUpdate, ProviderAccountCurrentUpdateResponse, ProviderAccountRegister,
+    ProviderAccountSignIn, ProviderAccountSubscribe, ProviderAccountUpdate,
+    ProviderAccountUpdateResponse, ProviderWakeHelperState,
 };
 use sidekicks_contracts::provider::account::record::{
     ProviderAccountId, ProviderAccountNotification, ProviderAuthMode,
 };
-use sidekicks_contracts::provider::account::sign_in::ProviderAccountRegisterResponse;
+use sidekicks_contracts::provider::account::sign_in::{
+    PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderAccountRegisterResponse, ProviderAccountSignInResponse,
+};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
+use sidekicks_contracts::web_address::HttpsAddress;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::call_fixtures::{context, request};
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
@@ -48,19 +52,25 @@ use sidekicks_ipc::stream::feed::CreditGate;
 use sidekicks_platforms::{
     ParentProcess, ResponsibleProcess, WakeHelperStatus, WallClock, this_process,
 };
+use sidekicks_provider::account::credential_home::CredentialHome;
 use sidekicks_provider::account::home_lock::AccountHomeLock;
 use sidekicks_provider::account::observer::{
     AccountLiveTurns, ProviderAccountObserver, ProviderAccountObserverDeps,
 };
 use sidekicks_provider::account::registry::ProviderAccountRegistry;
 use sidekicks_provider::account::resolver::ProviderAccounts;
-use sidekicks_provider::account::sign_in::{ProviderSignInBroker, SignedInAccountWatcher};
+use sidekicks_provider::account::sign_in::{
+    AccountsSigningIn, ProviderSignInBroker, SignedInAccountWatcher,
+};
 use sidekicks_provider::account::token_custody::ProviderTokenCustody;
 use sidekicks_provider::account::wake_helper::{
     MachineWakeHelper, ScriptedWakeHelper, WakeHelperCall,
 };
 use sidekicks_provider::driver::contract::MockProviderDriver;
-use sidekicks_provider::driver::contract::account::ProviderTokenStatusLegs;
+use sidekicks_provider::driver::contract::account::{
+    ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs, ProviderSignInObservation,
+    ProviderTokenStatusLegs, SignInOrigin,
+};
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
 use sidekicks_provider::driver::{PROVIDERS, ProviderAccountFolders, ProviderAccountReader};
@@ -312,9 +322,55 @@ impl SessionLevelMoves for NoSessions {
     }
 }
 
+// A sign-in whose flow starts and never ends, so its account stays signing in.
+struct EndlessSignIn;
+
+impl ProviderSignInLegs for EndlessSignIn {
+    fn start_sign_in(
+        &self,
+        _provider_account_id: ProviderAccountId,
+        _home: CredentialHome,
+        _origin: SignInOrigin,
+    ) -> BoxFuture<'_, Result<ProviderSignInHandle, DriverError>> {
+        async {
+            Ok(ProviderSignInHandle {
+                verification_uri: HttpsAddress::new("https://claude.ai/oauth/authorize")
+                    .expect("an https address"),
+                user_code: None,
+                expires_at: None,
+                code_prompts: futures::stream::pending().boxed(),
+                input: Box::new(EndlessSignIn),
+                completion: futures::future::pending().boxed(),
+            })
+        }
+        .boxed()
+    }
+
+    fn observe_sign_in(
+        &self,
+        _provider_account_id: ProviderAccountId,
+        _home: CredentialHome,
+    ) -> BoxFuture<'_, Result<ProviderSignInObservation, DriverError>> {
+        unreachable!("the flow never ends")
+    }
+}
+
+impl ProviderSignInInput for EndlessSignIn {
+    fn write_code(
+        &self,
+        _code: FreeFormText<PROVIDER_SIGN_IN_CODE_MAX_LEN>,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        unreachable!("no code is pasted")
+    }
+
+    fn cancel(&self) -> BoxFuture<'_, Result<(), DriverError>> {
+        unreachable!("no sign-in is canceled")
+    }
+}
+
 // The `provider.account.*` methods over a test database, the real registry, token custody,
-// observer, broker and switch, a first provider whose status read accepts every token, and the
-// test's wake helper.
+// observer, broker and switch, a first provider whose status read accepts every token and whose
+// sign-in never ends, and the test's wake helper.
 struct MethodInputs {
     _database: TestDatabase,
     _log: TestLog,
@@ -354,6 +410,7 @@ impl MethodInputs {
         ));
         let clock: Arc<dyn WallClock> = Arc::new(TestWallClock::default());
         let home_lock = Arc::new(AccountHomeLock::default());
+        let signing_in = Arc::new(AccountsSigningIn::default());
         let wake_helper = wake_helper as Arc<dyn MachineWakeHelper>;
         let publisher = Arc::new(ProviderAccountNotifications::new());
         let observer = Arc::new(ProviderAccountObserver::new(ProviderAccountObserverDeps {
@@ -366,6 +423,7 @@ impl MethodInputs {
             database_writer: Arc::clone(&log.writer),
             usage: Arc::new(UnreadUsage),
             live_turns: Arc::new(NoSessions),
+            signing_in: Arc::clone(&signing_in),
             home_lock: Arc::clone(&home_lock),
             scheduler: Arc::new(Scheduler::start(
                 Arc::clone(&clock),
@@ -381,6 +439,7 @@ impl MethodInputs {
         )));
         let account_switch = Arc::new(AccountSwitch::new(AccountSwitchDeps {
             accounts: Arc::clone(&accounts),
+            signing_in: Arc::clone(&signing_in),
             account_reader: Arc::clone(&account_reader),
             switch_legs: HashMap::new(),
             providers: Arc::clone(&providers),
@@ -400,11 +459,16 @@ impl MethodInputs {
                 providers,
                 sign_in: Arc::new(ProviderSignInBroker::new(
                     Arc::clone(&accounts),
-                    HashMap::new(),
+                    HashMap::from([(
+                        first_provider(),
+                        Arc::new(EndlessSignIn) as Arc<dyn ProviderSignInLegs>,
+                    )]),
                     Arc::clone(&publisher) as _,
                     Arc::clone(&observer) as Arc<dyn SignedInAccountWatcher>,
                     Arc::clone(&home_lock),
+                    Arc::clone(&signing_in),
                 )),
+                signing_in,
                 token_custody,
                 observer,
                 account_reader,
@@ -647,6 +711,79 @@ async fn a_resupply_to_a_taken_name_leaves_the_old_token() {
     let held: Vec<String> = lock(&inputs.keychain.0).values().cloned().collect();
     assert!(held.iter().any(|token| token == "the-other-pasted-token"));
     assert!(!held.iter().any(|token| token == "a-fresh-token"));
+}
+
+// The act a sign-in in flight refuses.
+#[derive(Clone, Copy)]
+enum ActDuringSignIn {
+    Switch,
+    Reset,
+}
+
+// While a sign-in is in flight on an account, a switch onto it and a reset of its home are each
+// refused as a second sign-in is, the mark and the home's generation left as they were. Killed by
+// the switch's check or the reset's check dropped, where the call is answered.
+#[rstest]
+#[case::switch(ActDuringSignIn::Switch)]
+#[case::reset(ActDuringSignIn::Reset)]
+#[tokio::test]
+async fn an_account_signing_in_is_neither_switched_to_nor_reset(#[case] act: ActDuringSignIn) {
+    let inputs =
+        MethodInputs::new(Arc::new(ScriptedWakeHelper::new(WakeHelperStatus::Missing))).await;
+    let current = inputs.register_token_account().await.account;
+    let other: ProviderAccountRegisterResponse = inputs
+        .call(
+            ProviderAccountRegister::DESCRIPTOR.method,
+            &json!({
+                "provider": first_provider().as_str(),
+                "displayLabel": "Home",
+                "billingMode": "subscription",
+                "nonInteractiveToken": "another-pasted-token",
+            }),
+        )
+        .await;
+    let account_id = other.account.account_id().clone();
+    let before = inputs
+        .accounts
+        .read(account_id.clone())
+        .await
+        .expect("the account reads");
+    let _started: ProviderAccountSignInResponse = inputs
+        .call(
+            ProviderAccountSignIn::DESCRIPTOR.method,
+            &json!({ "accountId": account_id.as_str() }),
+        )
+        .await;
+
+    let method = match act {
+        ActDuringSignIn::Switch => ProviderAccountCurrentUpdate::DESCRIPTOR.method,
+        ActDuringSignIn::Reset => ProviderAccountCredentialHomeReset::DESCRIPTOR.method,
+    };
+    let answer = inputs
+        .registry
+        .dispatch(
+            request(method, Some(&json!({ "accountId": account_id.as_str() }))),
+            context(1),
+        )
+        .await;
+
+    let Err(DispatchError::Refused(refusal)) = answer else {
+        panic!("{method} went through during a sign-in");
+    };
+    assert_eq!(refusal.code, RefusalCode::ProviderAccountSignInInFlight);
+    let after = inputs
+        .accounts
+        .read(account_id)
+        .await
+        .expect("the account reads");
+    assert!(!after.is_default);
+    assert_eq!(after.credential_generation, before.credential_generation);
+    let still_current = inputs
+        .accounts
+        .read(current.account_id().clone())
+        .await
+        .expect("the account reads");
+    assert!(still_current.is_default);
 }
 
 // Making current the account already current moves no mark, so no change goes out: the next
