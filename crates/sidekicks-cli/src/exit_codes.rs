@@ -3,11 +3,13 @@
 //! ends, and the one mapping from a run's failure to its ending.
 
 use std::error::Error;
+use std::fmt;
 use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use sidekicks_client::error::ClientError;
+use sidekicks_contracts::daemon::data::write_data_folder_held;
 use sidekicks_contracts::daemon::service_status::DaemonCannotStart;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
@@ -181,6 +183,10 @@ pub(crate) enum CommandFailure {
         #[source]
         last_failure: ClientError,
     },
+    /// A service the command did not start, and no login agent runs, holds the data folder, so the
+    /// command changed nothing.
+    #[error("{}", fmt::from_fn(|formatter| write_data_folder_held(formatter, None)))]
+    DataFolderHeld,
     /// The service that runs while the person is logged out was not installed, for `cause`; what
     /// the command changed before was put back, and a failure doing that is the source.
     #[error(
@@ -206,7 +212,8 @@ impl CommandFailure {
             Self::AppOwnsService
             | Self::TurnedOffInLoginItems
             | Self::AppServiceTurnedOff
-            | Self::ServiceRunning { .. } => ExitCode::Configuration,
+            | Self::ServiceRunning { .. }
+            | Self::DataFolderHeld => ExitCode::Configuration,
             Self::RegistrationRefused(_) => ExitCode::Software,
             Self::BackupUnreadable { .. } => ExitCode::NoInput,
             Self::LoggedOutServiceRefused { cause, .. } => cause.exit_code(),

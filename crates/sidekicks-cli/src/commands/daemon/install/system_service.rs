@@ -6,17 +6,28 @@
 //! one administrator password; a step that fails puts each earlier one back before the command
 //! refuses. The login agent's list is kept until the system service is in place, so putting the
 //! agent back loads it again without writing it.
+//!
+//! Run under `sudo`, as over SSH with no one at the screen, it acts for the account that ran
+//! `sudo` and writes nothing in that account's data folder: it refuses while the record there
+//! names the login keychain, which root cannot reach, or while a service the login agent does not
+//! run holds the folder; otherwise it unloads the login agent, which ends its service, and
+//! installs the system service directly.
 
 use std::ffi::OsString;
 use std::fmt;
-use std::io::Write;
+use std::fs::{File, TryLockError};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
 use sidekicks_client::daemon_ending::DaemonEndingVerb;
-use sidekicks_contracts::daemon::secrets_place::{SECRETS_MOVE_MODE, SecretsMoveDestination};
+use sidekicks_contracts::daemon::data::{DAEMON_DATA_FOLDER_NAME, DAEMON_LOCK_FILE_NAME};
+use sidekicks_contracts::daemon::secrets_place::{
+    PlaceRecord, SECRETS_MOVE_MODE, SecretsMoveDestination,
+};
 use sidekicks_platforms::{
-    CtrlCListener, ServiceOwner, ServiceRegistration, Spawner, SystemServiceOwner,
+    CtrlCListener, ServiceOwner, ServiceRegistration, ServiceRegistrationError, Spawner,
+    SystemServiceOwner,
 };
 use tokio::runtime::Handle;
 
@@ -24,8 +35,9 @@ use crate::command_context::CommandContext;
 use crate::commands::daemon::ending::end_running_daemon;
 use crate::commands::daemon::install::wait_for_installed_daemon;
 use crate::commands::daemon::registration::{
-    RootStepFailure, read_owner, read_root_step_failure, registration_failure,
+    LoginRegistration, RootStepFailure, read_owner, read_root_step_failure, registration_failure,
 };
+use crate::commands::daemon::secrets_place::read_secrets_place;
 use crate::commands::data::offline_mode::run_offline_mode;
 use crate::connected_command::run_listening_for_ctrl_c;
 use crate::daemon_program::daemon_program;
@@ -54,6 +66,8 @@ pub(crate) enum LoggedOutServiceRefusal {
     NoScreenSession,
     /// Another account on this Mac has the one system service installed.
     OtherAccount,
+    /// The secrets are in the login keychain, which a run under `sudo` cannot reach to move them.
+    KeychainHoldsSecrets,
     /// The person canceled the administrator password prompt.
     PasswordNotGiven,
     /// macOS did not install it, with its own message.
@@ -68,7 +82,10 @@ impl LoggedOutServiceRefusal {
     /// install macOS failed, and 78 where something must change first.
     pub(crate) const fn exit_code(&self) -> ExitCode {
         match self {
-            Self::Probe(_) | Self::NoScreenSession | Self::OtherAccount => ExitCode::Configuration,
+            Self::Probe(_)
+            | Self::NoScreenSession
+            | Self::OtherAccount
+            | Self::KeychainHoldsSecrets => ExitCode::Configuration,
             Self::PasswordNotGiven => ExitCode::NoPermission,
             Self::NotInstalled { .. } => ExitCode::Software,
         }
@@ -87,6 +104,10 @@ impl fmt::Display for LoggedOutServiceRefusal {
                 "another account on this Mac already has it on. Run sidekicks daemon uninstall \
                  from that account first",
             ),
+            Self::KeychainHoldsSecrets => formatter.write_str(
+                "the sign-ins and secrets are in the login keychain. Log in at this Mac once, run \
+                 the command there, then it runs while you are logged out",
+            ),
             Self::PasswordNotGiven => {
                 formatter.write_str("the administrator password was not given")
             }
@@ -97,13 +118,88 @@ impl fmt::Display for LoggedOutServiceRefusal {
     }
 }
 
+/// The steps of the service's registration the logged-out install takes, beside the login
+/// agent's, behind one trait so a test can answer for the system's service manager.
+pub(crate) trait LoggedOutServiceRegistration: LoginRegistration {
+    /// Which account has the system service installed, and whether it starts `daemon_program`;
+    /// fails when it cannot be read.
+    fn system_service_owner(
+        &self,
+        daemon_program: &Path,
+    ) -> Result<SystemServiceOwner, ServiceRegistrationError>;
+
+    /// Whether the login agent is loaded; fails when it cannot be read.
+    fn is_agent_loaded(&self) -> Result<bool, ServiceRegistrationError>;
+
+    /// Unloads the login agent, waiting for its service to exit; fails with the step's refusal.
+    fn boot_out_agent(&self) -> Result<(), ServiceRegistrationError>;
+
+    /// Starts the loaded login agent; fails with the step's refusal.
+    fn kickstart(&self) -> Result<(), ServiceRegistrationError>;
+
+    /// The account's home folder; fails when it cannot be read.
+    fn account_home(&self) -> Result<PathBuf, ServiceRegistrationError>;
+
+    /// Whether this run has root's rights, as under `sudo`.
+    fn runs_as_root(&self) -> bool;
+
+    /// Installs the system service starting `daemon_program`, attributed to the app when
+    /// `is_app_installed`, its root step started on `spawner`'s thread; fails with the step's
+    /// cause.
+    async fn install_system_service(
+        &self,
+        spawner: &Spawner,
+        daemon_program: &Path,
+        is_app_installed: bool,
+    ) -> Result<(), ServiceRegistrationError>;
+}
+
+impl LoggedOutServiceRegistration for ServiceRegistration {
+    fn system_service_owner(
+        &self,
+        daemon_program: &Path,
+    ) -> Result<SystemServiceOwner, ServiceRegistrationError> {
+        ServiceRegistration::system_service_owner(self, daemon_program)
+    }
+
+    fn is_agent_loaded(&self) -> Result<bool, ServiceRegistrationError> {
+        ServiceRegistration::is_agent_loaded(self)
+    }
+
+    fn boot_out_agent(&self) -> Result<(), ServiceRegistrationError> {
+        ServiceRegistration::boot_out_agent(self)
+    }
+
+    fn kickstart(&self) -> Result<(), ServiceRegistrationError> {
+        ServiceRegistration::kickstart(self)
+    }
+
+    fn account_home(&self) -> Result<PathBuf, ServiceRegistrationError> {
+        ServiceRegistration::account_home(self)
+    }
+
+    fn runs_as_root(&self) -> bool {
+        ServiceRegistration::runs_as_root(self)
+    }
+
+    async fn install_system_service(
+        &self,
+        spawner: &Spawner,
+        daemon_program: &Path,
+        is_app_installed: bool,
+    ) -> Result<(), ServiceRegistrationError> {
+        ServiceRegistration::install_system_service(self, spawner, daemon_program, is_app_installed)
+            .await
+    }
+}
+
 /// Installs the system service that runs the background service while the person is logged out
 /// in place of the login agent, through `registration`, the service's program `daemon_path` or
-/// the one beside this program, and answers 0 with the outcome's line on stdout. Fails with
-/// [`CommandFailure::LoggedOutServiceRefused`] for each cause it refuses, with what it changed
-/// put back first; with the moves mode's refusal when the secrets cannot move;
-/// `ClientError::Canceled` after a Ctrl-C while the service stops; and as a read of the
-/// registration, the service's stop, the login agent's removal or the wait for the installed
+/// the one beside this program, and answers 0 with the outcome's line on stdout; under `sudo` as
+/// [`install_as_root`] does. Fails with [`CommandFailure::LoggedOutServiceRefused`] for each cause
+/// it refuses, with what it changed put back first; with the moves mode's refusal when the secrets
+/// cannot move; `ClientError::Canceled` after a Ctrl-C while the service stops; and as a read of
+/// the registration, the service's stop, the login agent's removal or the wait for the installed
 /// service fails.
 pub(crate) fn install_while_signed_out<Output: Write, ErrorOutput: Write>(
     registration: ServiceRegistration,
@@ -113,35 +209,23 @@ pub(crate) fn install_while_signed_out<Output: Write, ErrorOutput: Write>(
     if let Some(cause) = registration.system_service_refusal() {
         return Err(refused(LoggedOutServiceRefusal::Probe(cause), Ok(())));
     }
+    if registration.runs_as_root() {
+        return install_as_root(&registration, daemon_path, context);
+    }
     let has_screen_session = registration.has_screen_session().map_err(|failure| {
         registration_failure(failure, "could not read whether anyone is at the screen")
     })?;
     if !has_screen_session {
         return Err(refused(LoggedOutServiceRefusal::NoScreenSession, Ok(())));
     }
-    let system_service_owner = registration.system_service_owner().map_err(|failure| {
-        registration_failure(
-            failure,
-            "could not read which account runs the background service while logged out",
-        )
-    })?;
-    if system_service_owner == SystemServiceOwner::OtherAccount {
-        return Err(refused(LoggedOutServiceRefusal::OtherAccount, Ok(())));
-    }
-    let owner = read_owner(&registration)?;
-    // A run whose home is not the account's own reads no agent, so it leaves the account's alone.
-    let was_agent_loaded = owner != ServiceOwner::None
-        && registration.is_agent_loaded().map_err(|failure| {
-            registration_failure(failure, "could not read whether the login agent is loaded")
-        })?;
-    if system_service_owner == SystemServiceOwner::ThisAccount && !was_agent_loaded {
-        context
-            .stdout
-            .write_all(ALREADY_INSTALLED_LINE.as_bytes())?;
-        context.stdout.flush()?;
-        return Ok(ExitCode::Success);
-    }
     let program = daemon_program(daemon_path)?;
+    let Goal::Takeover {
+        owner,
+        was_agent_loaded,
+    } = read_goal(&registration, &program)?
+    else {
+        return write_line(context, ALREADY_INSTALLED_LINE);
+    };
     context.stdout.write_all(FILES_LINE.as_bytes())?;
     context.stdout.flush()?;
     let takeover = Takeover {
@@ -151,17 +235,164 @@ pub(crate) fn install_while_signed_out<Output: Write, ErrorOutput: Write>(
         program,
     };
     run_listening_for_ctrl_c(async |ctrl_c| takeover.run(ctrl_c).await)?;
-    if owner == ServiceOwner::CommandLine {
-        // Already unloaded, so only its list goes.
-        registration.uninstall().map_err(|failure| {
+    remove_replaced_agent(&registration, owner)?;
+    wait_for_installed_daemon(&mut context.stderr)?;
+    write_line(context, INSTALLED_LINE)
+}
+
+/// Installs the system service under `sudo`, for the account that ran it, through `registration`
+/// and the service's program `daemon_path` or the one beside this program, and answers 0 with the
+/// outcome's line on stdout. Writes nothing in the account's data folder and runs no moves mode,
+/// so it refuses with [`LoggedOutServiceRefusal::KeychainHoldsSecrets`] while the record there
+/// names the login keychain, and with [`CommandFailure::DataFolderHeld`] while a service the login
+/// agent does not run holds the folder. Otherwise it unloads the login agent, which ends its
+/// service, installs the system service and removes the command line's agent list; root cannot
+/// pass the service's own-account check, so it does not wait for the service to answer. Fails as
+/// the reads, the record, the lock's probe, the unload or the install fails, with the login agent
+/// put back first after the unload.
+fn install_as_root<Output: Write, ErrorOutput: Write>(
+    registration: &impl LoggedOutServiceRegistration,
+    daemon_path: Option<&Path>,
+    context: &mut CommandContext<Output, ErrorOutput>,
+) -> anyhow::Result<ExitCode> {
+    let program = daemon_program(daemon_path)?;
+    let Goal::Takeover {
+        owner,
+        was_agent_loaded,
+    } = read_goal(registration, &program)?
+    else {
+        return write_line(context, ALREADY_INSTALLED_LINE);
+    };
+    let home = registration
+        .account_home()
+        .map_err(|failure| registration_failure(failure, "could not read this account's home"))?;
+    if read_secrets_place(&home)?.is_some_and(PlaceRecord::names_operating_system) {
+        return Err(refused(
+            LoggedOutServiceRefusal::KeychainHoldsSecrets,
+            Ok(()),
+        ));
+    }
+    // A loaded agent's own service holds the lock, and the unload's wait frees it.
+    if !was_agent_loaded && is_data_folder_held(&home.join(DAEMON_DATA_FOLDER_NAME))? {
+        return Err(CommandFailure::DataFolderHeld.into());
+    }
+    context.stdout.write_all(FILES_LINE.as_bytes())?;
+    context.stdout.flush()?;
+    if let Err(failure) = registration.boot_out_agent() {
+        let put_back = restore_agent_steps(registration, owner, was_agent_loaded, &program);
+        return Err(join_put_back(
+            registration_failure(failure, "could not unload the login agent"),
+            put_back,
+        ));
+    }
+    let installed = run_listening_for_ctrl_c(async |_ctrl_c| {
+        Ok(install_system_service(registration, &program, owner).await)
+    })?;
+    if let Err(failure) = installed {
+        let put_back = restore_agent_steps(registration, owner, was_agent_loaded, &program);
+        return Err(match failure {
+            InstallFailure::Refused(cause) => refused(cause, put_back),
+            InstallFailure::Other(failure) => join_put_back(failure, put_back),
+        });
+    }
+    remove_replaced_agent(registration, owner)?;
+    write_line(context, INSTALLED_LINE)
+}
+
+/// What the logged-out install found before it changes anything.
+enum Goal {
+    /// This account's system service already starts this program, with no login agent beside it.
+    Holds,
+    /// The system service is to take the place of what runs the service now.
+    Takeover {
+        /// Which registration starts the service at login.
+        owner: ServiceOwner,
+        /// Whether the login agent was loaded.
+        was_agent_loaded: bool,
+    },
+}
+
+/// Whether the system service already runs `program` for this account through `registration`,
+/// else what it is to replace. Fails with [`LoggedOutServiceRefusal::OtherAccount`] when another
+/// account has it installed, and as the registration's reads fail.
+fn read_goal(
+    registration: &impl LoggedOutServiceRegistration,
+    program: &Path,
+) -> anyhow::Result<Goal> {
+    let system_service_owner = registration
+        .system_service_owner(program)
+        .map_err(|failure| {
             registration_failure(
                 failure,
-                "could not remove the login agent the service replaced",
+                "could not read which account runs the background service while logged out",
             )
         })?;
+    if system_service_owner == SystemServiceOwner::OtherAccount {
+        return Err(refused(LoggedOutServiceRefusal::OtherAccount, Ok(())));
     }
-    wait_for_installed_daemon(&mut context.stderr)?;
-    context.stdout.write_all(INSTALLED_LINE.as_bytes())?;
+    let owner = read_owner(registration)?;
+    // A run whose home is not the account's own reads no agent, so it leaves the account's alone.
+    let was_agent_loaded = owner != ServiceOwner::None
+        && registration.is_agent_loaded().map_err(|failure| {
+            registration_failure(failure, "could not read whether the login agent is loaded")
+        })?;
+    if system_service_owner == SystemServiceOwner::ThisAccount && !was_agent_loaded {
+        return Ok(Goal::Holds);
+    }
+    Ok(Goal::Takeover {
+        owner,
+        was_agent_loaded,
+    })
+}
+
+/// Whether a service holds the data folder at `data_folder`: its lock file locked, read through a
+/// shared lock tried once on the file opened read only, which neither creates nor changes it. A
+/// folder with no lock file is not held. Fails, naming the file, when it cannot be opened or
+/// locked.
+fn is_data_folder_held(data_folder: &Path) -> anyhow::Result<bool> {
+    let path = data_folder.join(DAEMON_LOCK_FILE_NAME);
+    let unreadable = |failure: io::Error| {
+        anyhow::Error::new(failure).context(format!(
+            "could not read whether a background service holds {}",
+            path.display()
+        ))
+    };
+    let file = match File::open(&path) {
+        Ok(file) => file,
+        Err(failure) if failure.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(failure) => return Err(unreadable(failure)),
+    };
+    // The probe's shared lock is freed as the file closes on return.
+    match file.try_lock_shared() {
+        Ok(()) => Ok(false),
+        Err(TryLockError::WouldBlock) => Ok(true),
+        Err(TryLockError::Error(failure)) => Err(unreadable(failure)),
+    }
+}
+
+/// Removes the command line's login agent list the system service replaced, already unloaded, for
+/// a `CommandLine` `owner`. Fails as the removal fails.
+fn remove_replaced_agent(
+    registration: &impl LoginRegistration,
+    owner: ServiceOwner,
+) -> anyhow::Result<()> {
+    if owner != ServiceOwner::CommandLine {
+        return Ok(());
+    }
+    registration.uninstall().map_err(|failure| {
+        registration_failure(
+            failure,
+            "could not remove the login agent the service replaced",
+        )
+    })
+}
+
+/// Writes `line` on stdout and answers 0.
+fn write_line<Output: Write, ErrorOutput: Write>(
+    context: &mut CommandContext<Output, ErrorOutput>,
+    line: &str,
+) -> anyhow::Result<ExitCode> {
+    context.stdout.write_all(line.as_bytes())?;
     context.stdout.flush()?;
     Ok(ExitCode::Success)
 }
@@ -206,7 +437,9 @@ impl Takeover {
                 return Err(join_put_back(failure, self.put_back().await));
             }
         }
-        let Err(failure) = self.install_system_service().await else {
+        let Err(failure) =
+            install_system_service(&self.registration, &self.program, self.owner).await
+        else {
             return Ok(());
         };
         let put_back = self.put_back().await;
@@ -214,35 +447,6 @@ impl Takeover {
             InstallFailure::Refused(cause) => refused(cause, put_back),
             InstallFailure::Other(failure) => join_put_back(failure, put_back),
         })
-    }
-
-    /// Installs the system service behind the administrator password, attributed to the app where
-    /// the app's agent ran the service, from a spawner thread that ends with the step.
-    async fn install_system_service(&self) -> Result<(), InstallFailure> {
-        let spawner = Spawner::new(Handle::current())
-            .context("could not start the thread the administrator step runs from")
-            .map_err(InstallFailure::Other)?;
-        let installed = self
-            .registration
-            .install_system_service(&spawner, &self.program, self.owner == ServiceOwner::App)
-            .await;
-        let Err(failure) = installed else {
-            return Ok(());
-        };
-        Err(
-            match read_root_step_failure(failure, self.registration.runs_as_root()) {
-                RootStepFailure::Canceled => {
-                    InstallFailure::Refused(LoggedOutServiceRefusal::PasswordNotGiven)
-                }
-                RootStepFailure::NotDone { message } => {
-                    InstallFailure::Refused(LoggedOutServiceRefusal::NotInstalled { message })
-                }
-                RootStepFailure::Other(failure) => InstallFailure::Other(registration_failure(
-                    failure,
-                    "could not install the background service to run while you are logged out",
-                )),
-            },
-        )
     }
 
     /// Moves the secrets back into the login keychain, then puts the login agent back. Fails as
@@ -262,29 +466,76 @@ impl Takeover {
     /// unloaded, is loaded again by the app at its next start or the next login. Fails as the
     /// service manager does.
     async fn restore_agent(&self) -> anyhow::Result<()> {
-        if !self.was_agent_loaded {
-            return Ok(());
-        }
         let registration = self.registration;
         let owner = self.owner;
+        let was_agent_loaded = self.was_agent_loaded;
         let program = self.program.clone();
-        run_blocking(move || {
-            let is_loaded = registration.is_agent_loaded().map_err(|failure| {
-                registration_failure(failure, "could not read whether the login agent is loaded")
-            })?;
-            if is_loaded {
-                registration.kickstart().map_err(|failure| {
-                    registration_failure(failure, "could not start the login agent again")
-                })?;
-            } else if owner == ServiceOwner::CommandLine {
-                registration.install(&program).map_err(|failure| {
-                    registration_failure(failure, "could not load the login agent again")
-                })?;
-            }
-            Ok(())
-        })
-        .await
+        run_blocking(move || restore_agent_steps(&registration, owner, was_agent_loaded, &program))
+            .await
     }
+}
+
+/// Installs the system service starting `program` through `registration`, behind the
+/// administrator password unless the run has root's rights, attributed to the app where the
+/// app's agent was the `owner`, from a spawner thread that ends with the step. Fails with the
+/// refusal the person is told, or any other failure.
+async fn install_system_service(
+    registration: &impl LoggedOutServiceRegistration,
+    program: &Path,
+    owner: ServiceOwner,
+) -> Result<(), InstallFailure> {
+    let spawner = Spawner::new(Handle::current())
+        .context("could not start the thread the administrator step runs from")
+        .map_err(InstallFailure::Other)?;
+    let installed = registration
+        .install_system_service(&spawner, program, owner == ServiceOwner::App)
+        .await;
+    let Err(failure) = installed else {
+        return Ok(());
+    };
+    Err(
+        match read_root_step_failure(failure, registration.runs_as_root()) {
+            RootStepFailure::Canceled => {
+                InstallFailure::Refused(LoggedOutServiceRefusal::PasswordNotGiven)
+            }
+            RootStepFailure::NotDone { message } => {
+                InstallFailure::Refused(LoggedOutServiceRefusal::NotInstalled { message })
+            }
+            RootStepFailure::Other(failure) => InstallFailure::Other(registration_failure(
+                failure,
+                "could not install the background service to run while you are logged out",
+            )),
+        },
+    )
+}
+
+/// Starts the login agent again through `registration` where it `was_agent_loaded`: started where
+/// it is still loaded, and the command line's own kept list loaded again for a `CommandLine`
+/// `owner` where it was unloaded, which writes nothing while the list names `program` and leaves it
+/// for the next login with no one at the screen. The app's agent, once unloaded, is loaded again by
+/// the app at its next start or the next login. Fails as the service manager does.
+fn restore_agent_steps(
+    registration: &impl LoggedOutServiceRegistration,
+    owner: ServiceOwner,
+    was_agent_loaded: bool,
+    program: &Path,
+) -> anyhow::Result<()> {
+    if !was_agent_loaded {
+        return Ok(());
+    }
+    let is_loaded = registration.is_agent_loaded().map_err(|failure| {
+        registration_failure(failure, "could not read whether the login agent is loaded")
+    })?;
+    if is_loaded {
+        registration.kickstart().map_err(|failure| {
+            registration_failure(failure, "could not start the login agent again")
+        })?;
+    } else if owner == ServiceOwner::CommandLine {
+        registration.install(program).map_err(|failure| {
+            registration_failure(failure, "could not load the login agent again")
+        })?;
+    }
+    Ok(())
 }
 
 /// How the system service's install failed: a refusal the person is told as one, or any other
@@ -330,4 +581,143 @@ async fn run_blocking<T: Send + 'static>(
     tokio::task::spawn_blocking(step)
         .await
         .context("a step on the service manager stopped before it answered")?
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+    use std::path::{Path, PathBuf};
+
+    use rstest::rstest;
+    use sidekicks_contracts::daemon::data::DAEMON_DATA_FOLDER_NAME;
+    use sidekicks_contracts::daemon::secrets_place::SECRETS_PLACE_RECORD_FILE_NAME;
+    use sidekicks_platforms::{
+        ServiceInstall, ServiceOwner, ServiceRegistrationError, Spawner, SystemServiceOwner,
+    };
+
+    use super::{LoggedOutServiceRefusal, LoggedOutServiceRegistration, install_as_root};
+    use crate::command_context::CommandContext;
+    use crate::commands::daemon::registration::LoginRegistration;
+    use crate::exit_codes::CommandFailure;
+
+    /// A run under `sudo` for an account whose command line agent is loaded and whose home is
+    /// `home`, which records the agent's unload and refuses to install anything.
+    struct SudoRegistration {
+        home: PathBuf,
+        is_booted_out: Cell<bool>,
+    }
+
+    impl LoginRegistration for SudoRegistration {
+        fn owner(&self) -> Result<ServiceOwner, ServiceRegistrationError> {
+            Ok(ServiceOwner::CommandLine)
+        }
+
+        fn install(&self, _program: &Path) -> Result<ServiceInstall, ServiceRegistrationError> {
+            unreachable!("nothing was unloaded, so nothing is loaded again")
+        }
+
+        fn uninstall(&self) -> Result<(), ServiceRegistrationError> {
+            unreachable!("a refused run removes no agent")
+        }
+    }
+
+    impl LoggedOutServiceRegistration for SudoRegistration {
+        fn system_service_owner(
+            &self,
+            _daemon_program: &Path,
+        ) -> Result<SystemServiceOwner, ServiceRegistrationError> {
+            Ok(SystemServiceOwner::NotInstalled)
+        }
+
+        fn is_agent_loaded(&self) -> Result<bool, ServiceRegistrationError> {
+            Ok(true)
+        }
+
+        fn boot_out_agent(&self) -> Result<(), ServiceRegistrationError> {
+            self.is_booted_out.set(true);
+            Ok(())
+        }
+
+        fn kickstart(&self) -> Result<(), ServiceRegistrationError> {
+            unreachable!("nothing was unloaded, so nothing is started again")
+        }
+
+        fn account_home(&self) -> Result<PathBuf, ServiceRegistrationError> {
+            Ok(self.home.clone())
+        }
+
+        fn runs_as_root(&self) -> bool {
+            true
+        }
+
+        #[expect(
+            clippy::unused_async_trait_impl,
+            reason = "the trait's install waits on its root step; this one refuses at once"
+        )]
+        async fn install_system_service(
+            &self,
+            _spawner: &Spawner,
+            _daemon_program: &Path,
+            _is_app_installed: bool,
+        ) -> Result<(), ServiceRegistrationError> {
+            unreachable!(
+                "a run under sudo installed the service while the keychain held the secrets"
+            )
+        }
+    }
+
+    // Fails when the record's check is dropped or comes after the agent's unload (an unload is
+    // recorded), and when it reads only the record's place (the move into the keychain passes on
+    // to the install, which panics).
+    #[rstest]
+    #[case::kept_in_the_keychain(r#"{"place":{"kind":"operatingSystem"}}"#)]
+    #[case::moving_into_the_keychain(
+        r#"{"place":{"kind":"loggedOutServiceFile"},"movingTo":{"kind":"operatingSystem"}}"#
+    )]
+    fn a_sudo_run_refuses_while_the_keychain_holds_the_secrets(#[case] record: &str) {
+        let home = tempfile::tempdir().expect("a temporary home");
+        let data_folder = home.path().join(DAEMON_DATA_FOLDER_NAME);
+        std::fs::create_dir(&data_folder).expect("the data folder is made");
+        std::fs::write(data_folder.join(SECRETS_PLACE_RECORD_FILE_NAME), record)
+            .expect("the record is written");
+        let registration = SudoRegistration {
+            home: home.path().to_path_buf(),
+            is_booted_out: Cell::new(false),
+        };
+        let mut context = CommandContext {
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            is_stdout_styled: false,
+            is_stderr_styled: false,
+        };
+
+        let failure = install_as_root(
+            &registration,
+            Some(Path::new("/usr/local/bin/sidekicks-daemon")),
+            &mut context,
+        )
+        .expect_err("the run refuses");
+
+        assert!(matches!(
+            failure.downcast_ref::<CommandFailure>(),
+            Some(CommandFailure::LoggedOutServiceRefused {
+                cause: LoggedOutServiceRefusal::KeychainHoldsSecrets,
+                put_back_failure: None,
+            })
+        ));
+        assert_eq!(
+            failure.to_string(),
+            "This Mac cannot keep the background service running while you are logged out: the \
+             sign-ins and secrets are in the login keychain. Log in at this Mac once, run the \
+             command there, then it runs while you are logged out."
+        );
+        assert!(
+            !registration.is_booted_out.get(),
+            "the login agent was unloaded"
+        );
+        assert!(
+            context.stdout.is_empty(),
+            "the run printed before it refused"
+        );
+    }
 }
