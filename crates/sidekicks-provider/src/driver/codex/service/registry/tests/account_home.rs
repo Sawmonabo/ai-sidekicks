@@ -1,3 +1,7 @@
+//! An account's home and its lasting service: the home's kind as the account signs in, the store
+//! its sign-in is kept in, a restart that keeps the service, and an API-key account's key handed
+//! at each start.
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -9,7 +13,7 @@ use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, short_socket_folder};
 use sidekicks_std::port_registration::PortRegistration;
 
 use super::stand_in::{
-    account_stand_in_services, another_daemon, is_running, last_launch_arguments,
+    account_home, account_stand_in_services, another_daemon, is_running, last_launch_arguments,
     per_home_services, recorded_requests, services_on, this_daemon,
     wait_for_end_and_record_removal,
 };
@@ -17,7 +21,7 @@ use crate::driver::ProviderAccountReader;
 use crate::driver::codex::account::{
     CODEX_EPHEMERAL_CREDENTIAL_STORE, CODEX_FILE_CREDENTIAL_STORE,
 };
-use crate::driver::codex::service::home::{CodexHomeKind, CodexHomes, CodexServiceHome};
+use crate::driver::codex::service::home::{CodexHomeKind, CodexHomes};
 use crate::driver::codex::service::registry::CodexHomeResolver;
 use crate::driver::codex::service::switching::test_sign_in::AccountHomes;
 use crate::driver::daemon_stop::DaemonStopIntent;
@@ -97,12 +101,7 @@ async fn a_lasting_service_keeps_its_sign_in_in_the_store_its_home_names(
         return;
     }
     let folder = short_socket_folder().expect("a scratch folder is made");
-    let codex_home = folder.path().join("account");
-    std::fs::create_dir_all(&codex_home).expect("the home is made");
-    let home = CodexServiceHome {
-        codex_home,
-        kind: kind_of(test_provider_account_id()),
-    };
+    let home = account_home(folder.path(), kind_of(test_provider_account_id()));
     let services = services_on(home, folder, |program| Arc::new(program));
     let daemon = this_daemon(&services);
 

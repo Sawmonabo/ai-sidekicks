@@ -75,7 +75,7 @@ impl Fixture {
             },
             api_keys: HashMap::from([(key_account.clone(), SecretString::from(TEST_KEY))]),
         }
-        .register_on(scripted.dependencies.switching.provider_accounts());
+        .register_on(&scripted.dependencies.provider_accounts);
         Self {
             scripted,
             left,

@@ -22,7 +22,8 @@ mod refresh;
 #[cfg(test)]
 pub(crate) mod test_moves;
 /// What a test signs its accounts in with: each account's home holding a `ChatGPT` sign-in Codex
-/// wrote, and an accounts reader resolving each account to its home and to its pasted key.
+/// wrote, an accounts reader resolving each account to its home and to its pasted key, and a hand
+/// answered through its login, tokens or key alike.
 #[cfg(test)]
 pub(crate) mod test_sign_in;
 
@@ -334,13 +335,6 @@ impl CodexSwitchingAccount {
         )?;
         self.renew_carried_token(provider_account_id, access_token);
         Ok(true)
-    }
-
-    /// The registration of the accounts reader the sign-ins are found through, for a test to
-    /// register its own.
-    #[cfg(test)]
-    pub(crate) fn provider_accounts(&self) -> &PortRegistration<Arc<dyn ProviderAccountReader>> {
-        &self.provider_accounts
     }
 
     // A login's answer: one written and never answered may have landed or not, so the service's

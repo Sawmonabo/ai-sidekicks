@@ -96,7 +96,7 @@ impl Fixture {
             current: left.clone(),
             api_keys,
         }
-        .register_on(switching.dependencies.switching.provider_accounts());
+        .register_on(&switching.dependencies.provider_accounts);
         let registry = CodexServiceRegistry::holding(&switching);
         registry.hold(&home_to.service);
         let moves = Arc::new(RecordedMoves::default());

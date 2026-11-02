@@ -125,8 +125,8 @@ pub(super) fn per_home_services(kind: CodexHomeKind) -> StandInServices {
     })
 }
 
-// The account's home of `kind` under `folder`, made.
-fn account_home(folder: &Path, kind: CodexHomeKind) -> CodexServiceHome {
+/// The account's home of `kind` under `folder`, made.
+pub(super) fn account_home(folder: &Path, kind: CodexHomeKind) -> CodexServiceHome {
     let codex_home = folder.join("account");
     std::fs::create_dir_all(&codex_home).expect("the home is made");
     CodexServiceHome { codex_home, kind }

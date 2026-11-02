@@ -345,8 +345,6 @@ pub(crate) fn start_scripted_terminal_service() -> ScriptedCodexService {
     )
 }
 
-// A service of `kind` on a home of `home_kind` whose connection the test scripts, a start of its
-// own running `program`, telling `events` what happens to it.
 /// Starts the switching service, on the switching home under its data folder, whose connection
 /// the test scripts. Must be called within a runtime.
 #[cfg(test)]
@@ -359,6 +357,8 @@ pub(crate) fn start_scripted_switching_service() -> ScriptedCodexService {
     )
 }
 
+// A service of `kind` on a home of `home_kind` whose connection the test scripts, a start of its
+// own running `program`, telling `events` what happens to it.
 fn start_scripted_codex_service_on(
     home_kind: CodexHomeKind,
     kind: CodexServiceKind,

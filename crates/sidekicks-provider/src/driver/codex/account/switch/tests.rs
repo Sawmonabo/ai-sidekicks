@@ -110,7 +110,7 @@ impl Fixture {
             current: left.clone(),
             api_keys: HashMap::new(),
         }
-        .register_on(scripted.dependencies.switching.provider_accounts());
+        .register_on(&scripted.dependencies.provider_accounts);
         let accounts = Arc::new(PortRegistration::new("provider account registry"));
         assert!(accounts.register(Arc::new(registry)).is_ok());
         let legs = CodexAccountLegs::new(

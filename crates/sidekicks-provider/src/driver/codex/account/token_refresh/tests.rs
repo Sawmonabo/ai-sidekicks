@@ -129,7 +129,7 @@ impl Fixture {
             current: account_id.clone(),
             api_keys: HashMap::new(),
         }
-        .register_on(switching.dependencies.switching.provider_accounts());
+        .register_on(&switching.dependencies.provider_accounts);
         let home_lock = Arc::new(AccountHomeLock::default());
         let legs = CodexAccountLegs::new(
             CodexServiceRegistry::holding_service_on(
@@ -463,7 +463,7 @@ async fn an_account_read_on_a_dead_handed_login_asks_for_fresh_tokens() {
         current: test_provider_account_id(),
         api_keys: HashMap::new(),
     }
-    .register_on(dependencies.switching.provider_accounts());
+    .register_on(&dependencies.provider_accounts);
     let legs = probe_legs(&folder, &dependencies);
     let service = legs
         .registry
