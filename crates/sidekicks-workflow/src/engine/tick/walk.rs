@@ -1,7 +1,10 @@
 //! The run's walk: which steps the settles it is handed ready or skip, as a pure function of those
 //! settles in log order. Each settle feeds its outputs into the input slots of the nodes they
-//! enter, a node's slots fill in rounds by run index, and a full round with items is decided.
+//! enter, a node's slots fill in rounds by run index, and a full round with items is decided; a
+//! first-to-arrive node's round is decided by its first input with items. Once the run is quiet,
+//! the flush decides what still waits.
 
+mod first_to_arrive;
 mod graph;
 #[cfg(test)]
 mod tests;
@@ -10,25 +13,30 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::step::events::WorkflowStepSkipReason;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowStepKey, WorkflowStepSource};
 
+use self::first_to_arrive::FirstToArriveWin;
 use self::graph::{RunGraph, SlotTarget};
+use crate::expressions::lineage::{StepKey, StepOutputs};
 
-/// What one walk turn answers: the steps it readied and the steps it skipped, each in the order
-/// it handed out their execution indices.
+/// What one walk turn answers: the steps it readied, the steps it skipped and the first-to-arrive
+/// wins it decided, each in the order it handed out their execution indices.
 #[derive(Default)]
 pub(crate) struct WalkTurn {
     /// The steps readied to run.
     pub(crate) ready: Vec<WalkReady>,
     /// The steps skipped without running.
     pub(crate) skipped: Vec<WalkSkip>,
+    /// The first-to-arrive wins, whose losers are to be canceled.
+    pub(crate) wins: Vec<FirstToArriveWin>,
 }
 
 /// A step the walk readied.
 pub(crate) struct WalkReady {
-    /// The step: attempt 1 at its own execution index.
+    /// The step at its own execution index: attempt 1, or a retry's next attempt.
     pub(crate) step: WorkflowStepKey,
     /// The node's run index, `$runIndex`.
     pub(crate) run_index: u64,
@@ -67,9 +75,26 @@ enum RoundSlot {
 struct Round {
     /// The slots, slot k at index k.
     slots: Vec<RoundSlot>,
+    /// Whether a first-to-arrive node's step already ran on the round, which then takes its slots'
+    /// later feeds without a step until every slot has fed.
+    is_won: bool,
 }
 
 impl Round {
+    /// Whether every slot is filled.
+    fn is_full(&self) -> bool {
+        self.slots
+            .iter()
+            .all(|slot| matches!(slot, RoundSlot::Filled { .. }))
+    }
+
+    /// The lowest slot whose feed carries items, `None` when no slot's does.
+    fn first_slot_with_items(&self) -> Option<usize> {
+        self.slots
+            .iter()
+            .position(|slot| matches!(slot, RoundSlot::Filled { count, .. } if *count > 0))
+    }
+
     /// Whether every slot is filled and at least one holds items.
     fn is_full_with_items(&self) -> bool {
         let mut has_items = false;
@@ -114,6 +139,18 @@ struct NodeRounds {
     openings: Vec<SlotOpenings>,
 }
 
+/// A step the walk readied and that has not settled.
+struct LiveStep {
+    /// The step.
+    step: WorkflowStepKey,
+    /// Its node's place in the graph.
+    place: usize,
+    /// The node's run index.
+    run_index: u64,
+    /// The feed of each main input slot in slot order, which a retry runs on again.
+    sources: Vec<Option<WorkflowStepSource>>,
+}
+
 /// The walk of one run over its graph: the steps live, each node's open rounds, and the next
 /// execution index.
 pub(crate) struct RunWalk {
@@ -123,8 +160,8 @@ pub(crate) struct RunWalk {
     run_id: WorkflowRunId,
     /// The execution index the next step takes.
     next_execution_index: u64,
-    /// The steps readied and not yet settled, by execution index, each to its node's place.
-    live: BTreeMap<u64, usize>,
+    /// The steps readied and not yet settled, by execution index.
+    live: BTreeMap<u64, LiveStep>,
     /// Each node's rounds, by its place in the graph.
     rounds: Vec<NodeRounds>,
 }
@@ -157,15 +194,9 @@ impl RunWalk {
         let trigger = self.graph.trigger();
         self.rounds[trigger].next_run_index = 1;
         let step = self.take_step(trigger);
-        self.live.insert(step.execution_index.get(), trigger);
-        WalkTurn {
-            ready: vec![WalkReady {
-                step,
-                run_index: 0,
-                sources: Vec::new(),
-            }],
-            skipped: Vec::new(),
-        }
+        let mut turn = WalkTurn::default();
+        self.ready(trigger, step, 0, Vec::new(), &mut turn);
+        turn
     }
 
     /// Settles `step` with `output_lengths` items on each main output in output order, and
@@ -177,11 +208,123 @@ impl RunWalk {
         let place = self
             .live
             .remove(&execution_index.get())
-            .expect("a settle names a step the walk readied and has not settled");
+            .expect("a settle names a step the walk readied and has not settled")
+            .place;
         let mut turn = WalkTurn::default();
         let fed = self.feed(place, execution_index, output_lengths);
         self.visit(fed, &mut turn);
         turn
+    }
+
+    /// Readies the next attempt of the live `step` under the next execution index, with the same
+    /// run index and sources, in its place among the live steps. A failed step's retry and a
+    /// Resume both take it.
+    pub(crate) fn retry(&mut self, step: &WorkflowStepKey) -> WalkReady {
+        let live_step = self
+            .live
+            .remove(&step.execution_index.get())
+            .expect("a retry names a step the walk readied and has not settled");
+        let next_step = WorkflowStepKey {
+            attempt: SafeInt::new(live_step.step.attempt.get() + 1)
+                .expect("a step's attempts are far below the largest safe integer"),
+            execution_index: self.take_execution_index(),
+            ..live_step.step
+        };
+        let ready = WalkReady {
+            step: next_step.clone(),
+            run_index: live_step.run_index,
+            sources: live_step.sources.clone(),
+        };
+        self.live.insert(
+            next_step.execution_index.get(),
+            LiveStep {
+                step: next_step,
+                ..live_step
+            },
+        );
+        ready
+    }
+
+    /// Removes the live `step`, canceled or ended with no outputs, so it feeds nothing.
+    pub(crate) fn drop_step(&mut self, step: &WorkflowStepKey) {
+        self.live
+            .remove(&step.execution_index.get())
+            .expect("a dropped step is one the walk readied and has not settled");
+    }
+
+    /// Decides what waits once no step is live: each open round not won, by the node's
+    /// `(order, id)` and then run index, its unfilled slots read as settled empty with no source.
+    /// A round with items is readied, or skipped on a disabled node, which passes its first input
+    /// on; a round without is skipped, feeding nothing. The flush ends at the first step it
+    /// readies, since that step's outputs may still feed what waits after it; a flush that
+    /// readies nothing also drops the won rounds still open. Answers nothing while a step is live.
+    pub(crate) fn flush(&mut self) -> WalkTurn {
+        let mut turn = WalkTurn::default();
+        if !self.live.is_empty() {
+            return turn;
+        }
+        let mut has_decided = true;
+        while has_decided {
+            has_decided = false;
+            for place in 0..self.graph.node_count() {
+                while let Some(run_index) = self.first_waiting_round(place) {
+                    has_decided = true;
+                    let mut round = self.take_round(place, run_index);
+                    for slot in &mut round.slots {
+                        if matches!(slot, RoundSlot::Unfilled) {
+                            *slot = RoundSlot::Filled {
+                                source: None,
+                                count: 0,
+                            };
+                        }
+                    }
+                    self.decide_flushed(place, run_index, &round, &mut turn);
+                    if !turn.ready.is_empty() {
+                        return turn;
+                    }
+                }
+            }
+        }
+        for place in 0..self.graph.node_count() {
+            let won: Vec<u64> = self.rounds[place].open.keys().copied().collect();
+            for run_index in won {
+                self.take_round(place, run_index);
+            }
+        }
+        turn
+    }
+
+    /// The lowest run index of the node at `place`'s open rounds that no win took.
+    fn first_waiting_round(&self, place: usize) -> Option<u64> {
+        self.rounds[place]
+            .open
+            .iter()
+            .find(|(_, round)| !round.is_won)
+            .map(|(&run_index, _)| run_index)
+    }
+
+    /// Decides a `round` the flush took, every slot filled: run as a full round when it holds
+    /// items, else skipped with all outputs empty, `disabled` on a disabled node and `noItems`
+    /// on any other.
+    fn decide_flushed(&mut self, place: usize, run_index: u64, round: &Round, turn: &mut WalkTurn) {
+        if round.first_slot_with_items().is_some() {
+            self.run_round(place, run_index, round, turn);
+            return;
+        }
+        let graph = Arc::clone(&self.graph);
+        let node = graph.node(place);
+        let step = self.take_step(place);
+        turn.skipped.push(WalkSkip {
+            step,
+            run_index,
+            reason: if node.is_disabled {
+                WorkflowStepSkipReason::Disabled
+            } else {
+                WorkflowStepSkipReason::NoItems
+            },
+            sources: round.sources(),
+            output_lengths: vec![0; node.outputs.len()],
+        });
     }
 
     /// Applies every feed of the step of `place` at `execution_index`: its outputs in order, each
@@ -266,17 +409,23 @@ impl RunWalk {
         rounds.next_run_index += 1;
         let mut slots = Vec::with_capacity(node.slots.len());
         for (slot, openings) in node.slots.iter().zip(&mut rounds.openings) {
-            if slot.is_wired {
-                openings.unfilled.insert(run_index);
-                slots.push(RoundSlot::Unfilled);
-            } else {
+            if slot.feeders.is_empty() {
                 slots.push(RoundSlot::Filled {
                     source: None,
                     count: 0,
                 });
+            } else {
+                openings.unfilled.insert(run_index);
+                slots.push(RoundSlot::Unfilled);
             }
         }
-        rounds.open.insert(run_index, Round { slots });
+        rounds.open.insert(
+            run_index,
+            Round {
+                slots,
+                is_won: false,
+            },
+        );
         run_index
     }
 
@@ -288,38 +437,60 @@ impl RunWalk {
         }
     }
 
-    /// Decides the round of the node at `place` under `run_index` when every slot is filled and at
-    /// least one holds items: a disabled node is skipped, passing its first slot on as its first
-    /// output and feeding onward depth first; any other is readied. A round decided already, or
-    /// whose filled slots are all empty, is left as it is.
+    /// Decides the round of the node at `place` under `run_index`. A first-to-arrive node's round
+    /// readies on its lowest slot with items, the other slots read as fed nothing, and stays open
+    /// until every slot has fed; any other node's round is run once every slot is filled and one
+    /// holds items. A round decided already, or whose filled slots are all empty, is left as it is.
     fn decide_round(&mut self, place: usize, run_index: u64, turn: &mut WalkTurn) {
-        let rounds = &mut self.rounds[place];
-        if !rounds
-            .open
-            .get(&run_index)
-            .is_some_and(Round::is_full_with_items)
-        {
+        let graph = Arc::clone(&self.graph);
+        let node = graph.node(place);
+        let Some(round) = self.rounds[place].open.get_mut(&run_index) else {
+            return;
+        };
+        if !node.readies_on_first_input {
+            if round.is_full_with_items() {
+                let round = self.take_round(place, run_index);
+                self.run_round(place, run_index, &round, turn);
+            }
             return;
         }
-        let round = rounds
-            .open
-            .remove(&run_index)
-            .expect("the round was just found open");
-        for openings in &mut rounds.openings {
-            openings.unfilled.remove(&run_index);
-            openings.empty.remove(&run_index);
+        if round.is_won {
+            if round.is_full() {
+                self.take_round(place, run_index);
+            }
+            return;
         }
+        let Some(winning_slot) = round.first_slot_with_items() else {
+            return;
+        };
+        let sources = round
+            .sources()
+            .into_iter()
+            .enumerate()
+            .map(|(slot, source)| source.filter(|_| slot == winning_slot))
+            .collect();
+        round.is_won = true;
+        if round.is_full() {
+            self.take_round(place, run_index);
+        }
+        let step = self.take_step(place);
+        turn.wins.push(FirstToArriveWin {
+            deciding: step.clone(),
+            losers: first_to_arrive::losers(&graph, place, winning_slot, &self.live),
+        });
+        self.ready(place, step, run_index, sources, turn);
+    }
+
+    /// Runs a decided `round` of the node at `place`: a disabled node is skipped, passing its first
+    /// slot on as its first output and feeding onward depth first when that carries items; any
+    /// other is readied.
+    fn run_round(&mut self, place: usize, run_index: u64, round: &Round, turn: &mut WalkTurn) {
         let step = self.take_step(place);
         let sources = round.sources();
         let graph = Arc::clone(&self.graph);
         let node = graph.node(place);
         if !node.is_disabled {
-            self.live.insert(step.execution_index.get(), place);
-            turn.ready.push(WalkReady {
-                step,
-                run_index,
-                sources,
-            });
+            self.ready(place, step, run_index, sources, turn);
             return;
         }
         let mut output_lengths = vec![0; node.outputs.len()];
@@ -343,16 +514,89 @@ impl RunWalk {
         }
     }
 
+    /// Removes the open round of the node at `place` under `run_index` and every slot opening that
+    /// names it, and answers it.
+    fn take_round(&mut self, place: usize, run_index: u64) -> Round {
+        let rounds = &mut self.rounds[place];
+        for openings in &mut rounds.openings {
+            openings.unfilled.remove(&run_index);
+            openings.empty.remove(&run_index);
+        }
+        rounds
+            .open
+            .remove(&run_index)
+            .expect("a round taken is open")
+    }
+
+    /// Readies `step` of the node at `place`, making it live.
+    fn ready(
+        &mut self,
+        place: usize,
+        step: WorkflowStepKey,
+        run_index: u64,
+        sources: Vec<Option<WorkflowStepSource>>,
+        turn: &mut WalkTurn,
+    ) {
+        self.live.insert(
+            step.execution_index.get(),
+            LiveStep {
+                step: step.clone(),
+                place,
+                run_index,
+                sources: sources.clone(),
+            },
+        );
+        turn.ready.push(WalkReady {
+            step,
+            run_index,
+            sources,
+        });
+    }
+
     /// The key of the node at `place`'s next step: attempt 1 at the next execution index.
     fn take_step(&mut self, place: usize) -> WorkflowStepKey {
-        let execution_index = SafeInt::new(self.next_execution_index)
-            .expect("a run's execution count is far below the largest safe integer");
-        self.next_execution_index += 1;
         WorkflowStepKey {
             workflow_run_id: self.run_id,
             node_id: self.graph.node(place).id.clone(),
             attempt: SafeInt::new(1).expect("1 is a whole number from 1"),
-            execution_index,
+            execution_index: self.take_execution_index(),
         }
     }
+
+    /// The next execution index, which no other step of the run takes.
+    fn take_execution_index(&mut self) -> SafeInt<0> {
+        let execution_index = SafeInt::new(self.next_execution_index)
+            .expect("a run's execution count is far below the largest safe integer");
+        self.next_execution_index += 1;
+        execution_index
+    }
+}
+
+/// The input lists the step `ready` runs on, one per input of its kind's spec in spec order: a main
+/// slot's list is its source output's items, cloned once, and a tool input's or an unfed slot's
+/// list is empty. Every source is a step `outputs` recorded.
+pub(crate) fn ready_inputs(
+    graph: &RunGraph,
+    ready: &WalkReady,
+    outputs: &StepOutputs,
+) -> Vec<Vec<WorkflowItem>> {
+    let node = graph.node(graph.place(&ready.step.node_id));
+    let mut inputs = vec![Vec::new(); node.input_count];
+    for (slot, source) in node.slots.iter().zip(&ready.sources) {
+        let Some(source) = source else {
+            continue;
+        };
+        let source_step = outputs
+            .step(&StepKey {
+                node_id: source.node_id.clone(),
+                execution_index: source.execution_index.get(),
+            })
+            .expect("a ready step's sources settled, and the run recorded their outputs");
+        let output_index = usize::try_from(source.output_index.get())
+            .expect("an output index fits in a pointer-sized integer");
+        if let Some(items) = source_step.outputs.get(output_index) {
+            inputs[slot.spec_position].clone_from(items);
+        }
+    }
+    inputs
 }

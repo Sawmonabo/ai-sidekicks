@@ -102,7 +102,7 @@ impl StepOutputs {
     }
 
     /// The execution `key`, or `None` when it has not run.
-    fn step(&self, key: &StepKey) -> Option<&StepOutput> {
+    pub(crate) fn step(&self, key: &StepKey) -> Option<&StepOutput> {
         self.steps
             .get(&key.node_id)
             .and_then(|executions| executions.get(&key.execution_index))

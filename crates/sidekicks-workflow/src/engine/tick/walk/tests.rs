@@ -1,15 +1,38 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use futures::future::BoxFuture;
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::workflow::definition::document::{WorkflowEdge, WorkflowNode};
+use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowStepKey, WorkflowStepSource};
 
 use super::graph::RunGraph;
-use super::{RunWalk, WalkTurn};
-use crate::kinds::{NodeKind, NodeKindTable, PassThroughExecutor, test_kind};
+use super::{RunWalk, WalkTurn, ready_inputs};
+use crate::expressions::lineage::{StepKey, StepOutput, StepOutputs};
+use crate::kinds::step_context::StepContext;
+use crate::kinds::{
+    NodeExecutor, NodeKind, NodeKindTable, PassThroughExecutor, StepFailure, StepOutcome, test_kind,
+};
+
+/// A test executor whose step runs on its first main input with items, passing its inputs on.
+struct FirstInputExecutor;
+
+impl NodeExecutor for FirstInputExecutor {
+    fn execute<'step>(
+        &'step self,
+        _context: &'step StepContext,
+        inputs: Vec<Vec<WorkflowItem>>,
+    ) -> BoxFuture<'step, Result<StepOutcome, StepFailure>> {
+        Box::pin(async move { Ok(StepOutcome::Outputs(inputs)) })
+    }
+
+    fn readies_on_first_input(&self, _node: &WorkflowNode) -> bool {
+        true
+    }
+}
 
 /// The test kind `name` with `inputs` main inputs and `outputs` main outputs.
 fn kind(name: &str, inputs: usize, outputs: usize) -> NodeKind {
@@ -38,6 +61,22 @@ fn kinds() -> NodeKindTable {
         kind("test.pair", 2, 2),
         kind("test.loop", 1, 2),
         kind("test.triple", 3, 1),
+        test_kind(
+            json!({
+                "kind": "test.first", "version": 1, "category": "developer",
+                "displayName": "Test", "description": "A first-to-arrive test kind.",
+                "icon": "test", "params": [], "outputsDeriveFromParams": false,
+                "inputs": [
+                    { "type": "tool", "id": "inputs/tool/0", "label": "T" },
+                    { "type": "main", "id": "inputs/main/0", "label": "H" },
+                    { "type": "main", "id": "inputs/main/1", "label": "H" },
+                    { "type": "main", "id": "inputs/main/2", "label": "H" },
+                ],
+                "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "H" }],
+            }),
+            None,
+            Box::new(FirstInputExecutor),
+        ),
     ])
     .expect("the test kinds build")
 }
@@ -47,6 +86,15 @@ fn node(id: &str, kind: &str, order: i64, is_disabled: bool) -> WorkflowNode {
     serde_json::from_value(json!({
         "id": id, "kind": kind, "kindVersion": 1, "name": id, "order": order, "params": {},
         "disabled": is_disabled,
+    }))
+    .expect("the test's node reads")
+}
+
+/// The node `id` of the kind `test.step` at `order`, marked to always output data.
+fn always_output_node(id: &str, order: i64) -> WorkflowNode {
+    serde_json::from_value(json!({
+        "id": id, "kind": "test.step", "kindVersion": 1, "name": id, "order": order,
+        "params": {}, "alwaysOutputData": true,
     }))
     .expect("the test's node reads")
 }
@@ -78,6 +126,32 @@ fn start(nodes: Vec<WorkflowNode>, edges: &[WorkflowEdge]) -> (RunWalk, WalkTurn
     let mut walk = RunWalk::new(Arc::new(graph), run_id);
     let turn = walk.start();
     (walk, turn)
+}
+
+/// The first-to-arrive graph: the trigger feeds A, B and X; A feeds M's first main slot, B its
+/// second, and X feeds C, which feeds its third, and Y. M's kind lists a tool input first.
+fn first_to_arrive_walk() -> (RunWalk, WalkTurn) {
+    start(
+        vec![
+            node("trigger", "test.trigger", 0, false),
+            node("A", "test.step", 1, false),
+            node("B", "test.step", 2, false),
+            node("X", "test.step", 3, false),
+            node("C", "test.step", 4, false),
+            node("Y", "test.step", 5, false),
+            node("M", "test.first", 6, false),
+        ],
+        &[
+            edge("trigger", 0, "A", 0),
+            edge("trigger", 0, "B", 0),
+            edge("trigger", 0, "X", 0),
+            edge("X", 0, "C", 0),
+            edge("X", 0, "Y", 0),
+            edge("A", 0, "M", 0),
+            edge("B", 0, "M", 1),
+            edge("C", 0, "M", 2),
+        ],
+    )
 }
 
 /// The key of the step `turn` readied for `node_id`.
@@ -131,7 +205,33 @@ fn describe(turn: &WalkTurn) -> Vec<String> {
             skip.output_lengths
         )
     });
-    ready.chain(skipped).collect()
+    let wins = turn.wins.iter().map(|win| {
+        let losers: Vec<String> = win
+            .losers
+            .iter()
+            .map(|loser| format!("{}@{}", loser.node_id.as_str(), loser.execution_index.get()))
+            .collect();
+        format!(
+            "win {} exec {} losers [{}]",
+            win.deciding.node_id.as_str(),
+            win.deciding.execution_index.get(),
+            losers.join(" ")
+        )
+    });
+    ready.chain(skipped).chain(wins).collect()
+}
+
+/// The open rounds of every node, as `node:run index`, in visiting order.
+fn every_open_round(walk: &RunWalk) -> Vec<String> {
+    (0..walk.graph.node_count())
+        .flat_map(|place| {
+            let node_id = walk.graph.node(place).id.as_str();
+            walk.rounds[place]
+                .open
+                .keys()
+                .map(move |run_index| format!("{node_id}:{run_index}"))
+        })
+        .collect()
 }
 
 /// The run indices of `node_id`'s open rounds, lowest first.
@@ -299,50 +399,352 @@ fn a_node_fed_again_runs_under_its_next_run_index() {
     assert_eq!(open_rounds(&walk, "M"), [1]);
 }
 
-/// Walks over graphs built from their own node maps answer the same settles alike, siblings of
-/// equal `order` readied by id. Mutation: let a node map's hash order reach an answer.
-#[test]
-fn the_same_settles_give_the_same_turns() {
-    let answers: Vec<Vec<String>> = (0..8)
-        .map(|_| {
-            let (mut walk, start_turn) = start(
-                vec![
-                    node("trigger", "test.trigger", 0, false),
-                    node("c", "test.step", 1, false),
-                    node("a", "test.step", 1, false),
-                    node("b", "test.step", 1, false),
-                    node("J", "test.triple", 2, false),
-                ],
-                &[
-                    edge("trigger", 0, "c", 0),
-                    edge("trigger", 0, "a", 0),
-                    edge("trigger", 0, "b", 0),
-                    edge("c", 0, "J", 0),
-                    edge("a", 0, "J", 1),
-                    edge("b", 0, "J", 2),
-                ],
-            );
-            let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
-            let mut answer = describe(&trigger_turn);
-            for sibling in ["b", "c", "a"] {
-                answer.extend(describe(
-                    &walk.settle(&readied(&trigger_turn, sibling), &[1]),
-                ));
-            }
-            answer
-        })
-        .collect();
-    assert_eq!(
-        answers[0],
-        [
-            "ready a run 0 exec 1 from trigger:0@0",
-            "ready b run 0 exec 2 from trigger:0@0",
-            "ready c run 0 exec 3 from trigger:0@0",
-            "ready J run 0 exec 4 from c:0@3 a:0@1 b:0@2",
-        ]
+/// The answers of a walk over three siblings of equal `order` feeding one node, settled out of
+/// their visiting order.
+fn equal_order_siblings_answers() -> Vec<String> {
+    let (mut walk, start_turn) = start(
+        vec![
+            node("trigger", "test.trigger", 0, false),
+            node("c", "test.step", 1, false),
+            node("a", "test.step", 1, false),
+            node("b", "test.step", 1, false),
+            node("J", "test.triple", 2, false),
+        ],
+        &[
+            edge("trigger", 0, "c", 0),
+            edge("trigger", 0, "a", 0),
+            edge("trigger", 0, "b", 0),
+            edge("c", 0, "J", 0),
+            edge("a", 0, "J", 1),
+            edge("b", 0, "J", 2),
+        ],
     );
+    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
+    let mut answer = describe(&trigger_turn);
+    for sibling in ["b", "c", "a"] {
+        answer.extend(describe(
+            &walk.settle(&readied(&trigger_turn, sibling), &[1]),
+        ));
+    }
+    answer
+}
+
+/// The answers of a walk over the first-to-arrive graph, every branch settling with items.
+fn first_to_arrive_answers() -> Vec<String> {
+    let (mut walk, start_turn) = first_to_arrive_walk();
+    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
+    let mut answer = describe(&trigger_turn);
+    for branch in ["A", "B"] {
+        answer.extend(describe(
+            &walk.settle(&readied(&trigger_turn, branch), &[1]),
+        ));
+    }
+    let x_turn = walk.settle(&readied(&trigger_turn, "X"), &[1]);
+    answer.extend(describe(&x_turn));
+    answer.extend(describe(&walk.settle(&readied(&x_turn, "C"), &[1])));
+    answer
+}
+
+/// Walks over graphs built from their own node maps answer the same settles alike, siblings of
+/// equal `order` readied by id and a win's losers by execution index. Mutation: let a node map's
+/// hash order reach an answer.
+#[rstest]
+#[case::equal_order_siblings(equal_order_siblings_answers, &[
+    "ready a run 0 exec 1 from trigger:0@0",
+    "ready b run 0 exec 2 from trigger:0@0",
+    "ready c run 0 exec 3 from trigger:0@0",
+    "ready J run 0 exec 4 from c:0@3 a:0@1 b:0@2",
+])]
+#[case::first_to_arrive(first_to_arrive_answers, &[
+    "ready A run 0 exec 1 from trigger:0@0",
+    "ready B run 0 exec 2 from trigger:0@0",
+    "ready X run 0 exec 3 from trigger:0@0",
+    "ready M run 0 exec 4 from A:0@1 - -",
+    "win M exec 4 losers [B@2]",
+    "ready C run 0 exec 5 from X:0@3",
+    "ready Y run 0 exec 6 from X:0@3",
+])]
+fn the_same_settles_give_the_same_turns(
+    #[case] walk_answers: fn() -> Vec<String>,
+    #[case] expected: &[&str],
+) {
+    let answers: Vec<Vec<String>> = (0..8).map(|_| walk_answers()).collect();
+    assert_eq!(answers[0], expected);
     assert!(
         answers.iter().all(|answer| *answer == answers[0]),
         "{answers:?}"
+    );
+}
+
+/// A first-to-arrive node readies on its first input with items, passing that input in its spec
+/// place, and its losers are only the live steps whose branch feeds nothing else; later feeds
+/// close the won round without a second step, and with every branch empty nothing wins and the
+/// flush skips it. Mutations: let an empty input win; cancel a shared ancestor (X); let a
+/// straggler ready the node again; use the slot index as the spec position.
+#[test]
+fn first_to_arrive_wins_on_items_and_cancels_only_its_losing_branch() {
+    let (mut walk, start_turn) = first_to_arrive_walk();
+    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
+    let a_step = readied(&trigger_turn, "A");
+    let a_turn = walk.settle(&a_step, &[2]);
+    assert_eq!(
+        describe(&a_turn),
+        [
+            "ready M run 0 exec 4 from A:0@1 - -",
+            "win M exec 4 losers [B@2]"
+        ]
+    );
+    let a_items: Vec<WorkflowItem> = (0..2)
+        .map(|number| {
+            serde_json::from_value(json!({ "json": { "number": number } }))
+                .expect("the test's item reads")
+        })
+        .collect();
+    let mut outputs = StepOutputs::new([(a_step.node_id.clone(), "A".to_owned())]);
+    outputs.record(
+        StepKey {
+            node_id: a_step.node_id.clone(),
+            execution_index: 1,
+        },
+        StepOutput {
+            sources: Vec::new(),
+            outputs: vec![a_items.clone()],
+        },
+    );
+    assert_eq!(
+        ready_inputs(&walk.graph, &a_turn.ready[0], &outputs),
+        [Vec::new(), a_items, Vec::new(), Vec::new()]
+    );
+    assert_eq!(
+        describe(&walk.settle(&readied(&trigger_turn, "B"), &[1])),
+        Vec::<String>::new()
+    );
+    let x_turn = walk.settle(&readied(&trigger_turn, "X"), &[1]);
+    assert_eq!(
+        describe(&x_turn),
+        [
+            "ready C run 0 exec 5 from X:0@3",
+            "ready Y run 0 exec 6 from X:0@3"
+        ]
+    );
+    assert_eq!(open_rounds(&walk, "M"), [0]);
+    assert_eq!(
+        describe(&walk.settle(&readied(&x_turn, "C"), &[1])),
+        Vec::<String>::new()
+    );
+    assert_eq!(open_rounds(&walk, "M"), Vec::<u64>::new());
+
+    let (mut walk, start_turn) = first_to_arrive_walk();
+    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
+    for branch in ["A", "B", "X"] {
+        assert_eq!(
+            describe(&walk.settle(&readied(&trigger_turn, branch), &[0])),
+            Vec::<String>::new()
+        );
+    }
+    assert_eq!(
+        describe(&walk.flush()),
+        [
+            "skipped C NoItems run 0 exec 4 from X:0@3 outputs [0]",
+            "skipped Y NoItems run 0 exec 5 from X:0@3 outputs [0]",
+            "skipped M NoItems run 0 exec 6 from A:0@1 B:0@2 - outputs [0]",
+        ]
+    );
+}
+
+/// The walk after the trigger feeds X, X settles empty into Y and Y would feed Z; Y always
+/// outputs data when `is_always_output`.
+fn empty_feed_walk(is_always_output: bool) -> RunWalk {
+    let y = if is_always_output {
+        always_output_node("Y", 2)
+    } else {
+        node("Y", "test.step", 2, false)
+    };
+    let (mut walk, start_turn) = start(
+        vec![
+            node("trigger", "test.trigger", 0, false),
+            node("X", "test.step", 1, false),
+            y,
+            node("Z", "test.step", 3, false),
+        ],
+        &[
+            edge("trigger", 0, "X", 0),
+            edge("X", 0, "Y", 0),
+            edge("Y", 0, "Z", 0),
+        ],
+    );
+    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
+    walk.settle(&readied(&trigger_turn, "X"), &[0]);
+    walk
+}
+
+/// A quiet walk whose Y was fed only an empty input.
+fn empty_feed_quiet_walk() -> RunWalk {
+    empty_feed_walk(false)
+}
+
+/// A quiet walk whose Y, marked to always output data, was fed only an empty input.
+fn always_output_quiet_walk() -> RunWalk {
+    empty_feed_walk(true)
+}
+
+/// A quiet walk whose M ran its round 0 on P and R, Q's feed waiting in round 1 for its slot 1.
+fn second_round_quiet_walk() -> RunWalk {
+    let (mut walk, start_turn) = start(
+        vec![
+            node("trigger", "test.trigger", 0, false),
+            node("P", "test.step", 1, false),
+            node("Q", "test.step", 2, false),
+            node("R", "test.step", 3, false),
+            node("M", "test.pair", 4, false),
+        ],
+        &[
+            edge("trigger", 0, "P", 0),
+            edge("trigger", 0, "Q", 0),
+            edge("trigger", 0, "R", 0),
+            edge("P", 0, "M", 0),
+            edge("Q", 0, "M", 0),
+            edge("R", 0, "M", 1),
+        ],
+    );
+    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
+    walk.settle(&readied(&trigger_turn, "P"), &[1]);
+    walk.settle(&readied(&trigger_turn, "Q"), &[1]);
+    let r_turn = walk.settle(&readied(&trigger_turn, "R"), &[1]);
+    walk.settle(&readied(&r_turn, "M"), &[1, 0]);
+    walk
+}
+
+/// A walk whose Y was fed only an empty input while W is still live.
+fn live_step_walk() -> RunWalk {
+    let (mut walk, start_turn) = start(
+        vec![
+            node("trigger", "test.trigger", 0, false),
+            node("X", "test.step", 1, false),
+            node("W", "test.step", 2, false),
+            node("Y", "test.step", 3, false),
+        ],
+        &[
+            edge("trigger", 0, "X", 0),
+            edge("trigger", 0, "W", 0),
+            edge("X", 0, "Y", 0),
+        ],
+    );
+    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
+    walk.settle(&readied(&trigger_turn, "X"), &[0]);
+    walk
+}
+
+/// A quiet walk whose first-to-arrive M won on A and ran, B dropped before it fed M.
+fn won_round_quiet_walk() -> RunWalk {
+    let (mut walk, start_turn) = start(
+        vec![
+            node("trigger", "test.trigger", 0, false),
+            node("A", "test.step", 1, false),
+            node("B", "test.step", 2, false),
+            node("M", "test.first", 3, false),
+        ],
+        &[
+            edge("trigger", 0, "A", 0),
+            edge("trigger", 0, "B", 0),
+            edge("A", 0, "M", 0),
+            edge("B", 0, "M", 1),
+        ],
+    );
+    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
+    let a_turn = walk.settle(&readied(&trigger_turn, "A"), &[1]);
+    walk.drop_step(&readied(&trigger_turn, "B"));
+    walk.settle(&readied(&a_turn, "M"), &[1]);
+    walk
+}
+
+/// The flush decides what waits only once the run is quiet: an empty-only round is skipped and
+/// feeds nothing whatever the node's settings, a waiting round with items runs with no source on
+/// its missing slot, and a won round is dropped unreadied. Mutations: flush while a step is live;
+/// let a `noItems` skip feed onward; let always-output data ready an unfed node; give a missing
+/// slot a source; ready a won round.
+#[rstest]
+#[case::an_empty_feed_is_skipped(empty_feed_quiet_walk, &[
+    "skipped Y NoItems run 0 exec 2 from X:0@1 outputs [0]",
+], &[])]
+#[case::always_output_data_does_not_run_an_unfed_node(always_output_quiet_walk, &[
+    "skipped Y NoItems run 0 exec 2 from X:0@1 outputs [0]",
+], &[])]
+#[case::a_waiting_round_runs_without_its_missing_slot(second_round_quiet_walk, &[
+    "ready M run 1 exec 5 from Q:0@2 -",
+], &[])]
+#[case::a_live_step_holds_the_flush(live_step_walk, &[], &["Y:0"])]
+#[case::a_won_round_is_dropped(won_round_quiet_walk, &[], &[])]
+fn a_quiet_run_flushes_what_waits_and_a_skip_feeds_nothing(
+    #[case] quiet_walk: fn() -> RunWalk,
+    #[case] expected: &[&str],
+    #[case] still_open: &[&str],
+) {
+    let mut walk = quiet_walk();
+    assert_eq!(describe(&walk.flush()), expected);
+    assert_eq!(every_open_round(&walk), still_open);
+}
+
+/// A retry readies the next attempt under the next execution index with the run index and sources
+/// of the first, and the successor reads the retry's execution; a dropped step leaves the live
+/// set, so the flush can ready what it fed no longer. Mutations: retry under a new run index;
+/// reuse execution index 1, putting two rows on one key; leave a dropped step live.
+#[test]
+fn a_retry_keeps_its_run_index_and_a_dropped_step_frees_the_flush() {
+    let (mut walk, start_turn) = start(
+        vec![
+            node("trigger", "test.trigger", 0, false),
+            node("A", "test.step", 1, false),
+            node("S", "test.step", 2, false),
+        ],
+        &[edge("trigger", 0, "A", 0), edge("A", 0, "S", 0)],
+    );
+    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
+    let first_attempt = readied(&trigger_turn, "A");
+    assert_eq!(
+        (
+            first_attempt.attempt.get(),
+            first_attempt.execution_index.get()
+        ),
+        (1, 1)
+    );
+    let retry = walk.retry(&first_attempt);
+    assert_eq!(
+        (
+            retry.step.attempt.get(),
+            retry.step.execution_index.get(),
+            retry.run_index
+        ),
+        (2, 2, 0)
+    );
+    assert_eq!(retry.sources, trigger_turn.ready[0].sources);
+    assert_eq!(
+        describe(&walk.settle(&retry.step, &[1])),
+        ["ready S run 0 exec 3 from A:0@2"]
+    );
+
+    let (mut walk, start_turn) = start(
+        vec![
+            node("trigger", "test.trigger", 0, false),
+            node("P", "test.step", 1, false),
+            node("Q", "test.step", 2, false),
+            node("M", "test.pair", 3, false),
+        ],
+        &[
+            edge("trigger", 0, "P", 0),
+            edge("trigger", 0, "Q", 0),
+            edge("P", 0, "M", 0),
+            edge("Q", 0, "M", 1),
+        ],
+    );
+    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
+    assert_eq!(
+        describe(&walk.settle(&readied(&trigger_turn, "P"), &[1])),
+        Vec::<String>::new()
+    );
+    walk.drop_step(&readied(&trigger_turn, "Q"));
+    assert_eq!(
+        describe(&walk.flush()),
+        ["ready M run 0 exec 3 from P:0@1 -"]
     );
 }

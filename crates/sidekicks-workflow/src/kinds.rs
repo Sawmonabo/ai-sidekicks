@@ -60,6 +60,12 @@ pub(crate) trait NodeExecutor: Send + Sync {
     fn admission_need(&self, _node: &WorkflowNode) -> StepAdmissionNeed {
         StepAdmissionNeed::Unweighed
     }
+
+    /// Whether the step of `node` runs on the first main input that settles with items, the
+    /// branches feeding its other inputs canceled; otherwise it waits for every main input.
+    fn readies_on_first_input(&self, _node: &WorkflowNode) -> bool {
+        false
+    }
 }
 
 /// What a step the memory gate weighs runs, as its kind declares it.

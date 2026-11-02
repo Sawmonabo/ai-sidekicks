@@ -9,9 +9,9 @@ use sidekicks_contracts::workflow::definition::document::{
     WorkflowEdge, WorkflowNode, WorkflowNodeId,
 };
 use sidekicks_contracts::workflow::definition::handle::{
-    WorkflowHandleType, parse_workflow_handle,
+    WorkflowHandleMode, WorkflowHandleType, parse_workflow_handle,
 };
-use sidekicks_contracts::workflow::kind::WorkflowOutputHandleSpec;
+use sidekicks_contracts::workflow::definition::refusals::WorkflowNodeHandles;
 
 use crate::kinds::NodeKindTable;
 
@@ -46,16 +46,10 @@ pub(crate) struct SlotTarget {
 /// One main input slot of a node: slot k is the input whose id is `inputs/main/k`.
 pub(crate) struct InputSlot {
     /// The input's position among the kind's inputs, tool inputs included.
-    #[cfg_attr(
-        test,
-        expect(
-            dead_code,
-            reason = "the ready step's input lists, built in spec order"
-        )
-    )]
     pub(crate) spec_position: usize,
-    /// Whether any main edge enters the slot; an unwired slot reads as settled empty.
-    pub(crate) is_wired: bool,
+    /// The places of the nodes whose main outputs feed the slot, lowest first, each once; an
+    /// unwired slot has none and reads as settled empty.
+    pub(crate) feeders: Vec<usize>,
 }
 
 /// One node of a run's graph.
@@ -64,6 +58,12 @@ pub(crate) struct RunGraphNode {
     pub(crate) id: WorkflowNodeId,
     /// Whether the node is switched off, so its rounds are skipped and pass their first input on.
     pub(crate) is_disabled: bool,
+    /// Whether the node's step runs on the first main input that settles with items, the branches
+    /// feeding its other inputs canceled; never for a disabled node, whose rounds wait for every
+    /// input.
+    pub(crate) readies_on_first_input: bool,
+    /// How many inputs the kind's spec lists, tool inputs included.
+    pub(crate) input_count: usize,
     /// Its main input slots, slot k at index k.
     pub(crate) slots: Vec<InputSlot>,
     /// For each main output, the error output last where the node has one, the slots it feeds,
@@ -76,6 +76,8 @@ pub(crate) struct RunGraphNode {
 pub(crate) struct RunGraph {
     /// The nodes in visiting order.
     nodes: Vec<RunGraphNode>,
+    /// Each node's place by its id.
+    places: HashMap<WorkflowNodeId, usize>,
     /// The trigger's place.
     trigger: usize,
 }
@@ -93,13 +95,12 @@ impl RunGraph {
     ) -> Result<Self, RunGraphError> {
         let mut sorted: Vec<&WorkflowNode> = nodes.values().collect();
         sorted.sort_by(|left, right| (left.order, &left.id).cmp(&(right.order, &right.id)));
-        let places: HashMap<&WorkflowNodeId, usize> = sorted
+        let places: HashMap<WorkflowNodeId, usize> = sorted
             .iter()
             .enumerate()
-            .map(|(place, node)| (&node.id, place))
+            .map(|(place, node)| (node.id.clone(), place))
             .collect();
-        let mut input_ids = Vec::with_capacity(sorted.len());
-        let mut output_ids = Vec::with_capacity(sorted.len());
+        let mut node_handles: Vec<WorkflowNodeHandles> = Vec::with_capacity(sorted.len());
         let mut graph_nodes = Vec::with_capacity(sorted.len());
         for node in &sorted {
             let rules = kinds
@@ -107,44 +108,45 @@ impl RunGraph {
                 .ok_or_else(|| RunGraphError::UnknownKind {
                     node_id: node.id.clone(),
                 })?;
-            let mut main_inputs: Vec<(u64, usize, String)> = rules
+            let mut main_inputs: Vec<(u64, usize)> = rules
                 .handles
                 .inputs
                 .iter()
                 .enumerate()
                 .filter(|(_, input)| !input.is_tool())
                 .map(|(position, input)| {
-                    let id = input.id_text();
-                    (parse_workflow_handle(&id).index.get(), position, id)
+                    (
+                        parse_workflow_handle(&input.id_text()).index.get(),
+                        position,
+                    )
                 })
                 .collect();
             main_inputs.sort_unstable();
-            let main_outputs: Vec<String> = rules
+            let main_output_count = rules
                 .handles
                 .outputs
                 .iter()
                 .filter(|output| !output.is_tool())
-                .map(WorkflowOutputHandleSpec::id_text)
-                .collect();
+                .count();
+            let is_disabled = node.disabled == Some(true);
             graph_nodes.push(RunGraphNode {
                 id: node.id.clone(),
-                is_disabled: node.disabled == Some(true),
+                is_disabled,
+                readies_on_first_input: !is_disabled
+                    && kinds
+                        .kind_of(node)
+                        .is_some_and(|kind| kind.executor.readies_on_first_input(node)),
+                input_count: rules.handles.inputs.len(),
                 slots: main_inputs
                     .iter()
-                    .map(|&(_, spec_position, _)| InputSlot {
+                    .map(|&(_, spec_position)| InputSlot {
                         spec_position,
-                        is_wired: false,
+                        feeders: Vec::new(),
                     })
                     .collect(),
-                outputs: vec![Vec::new(); main_outputs.len()],
+                outputs: vec![Vec::new(); main_output_count],
             });
-            input_ids.push(
-                main_inputs
-                    .into_iter()
-                    .map(|(_, _, id)| id)
-                    .collect::<Vec<_>>(),
-            );
-            output_ids.push(main_outputs);
+            node_handles.push(rules.handles);
         }
         for edge in edges {
             let is_tool = |handle: &NonEmptyText| {
@@ -160,21 +162,44 @@ impl RunGraph {
             };
             let source = place_of(&edge.source);
             let target = place_of(&edge.target);
-            let output = declared_index(&output_ids[source], &edge.source, &edge.source_handle)?;
-            let slot = declared_index(&input_ids[target], &edge.target, &edge.target_handle)?;
+            let source_outputs = &node_handles[source].outputs;
+            let output = node_handles[source]
+                .declared_position(edge.source_handle.as_str(), WorkflowHandleMode::Outputs)
+                .map(|position| {
+                    source_outputs[..position]
+                        .iter()
+                        .filter(|output| !output.is_tool())
+                        .count()
+                })
+                .ok_or_else(|| undeclared_handle(&edge.source, &edge.source_handle))?;
+            let slot = node_handles[target]
+                .declared_position(edge.target_handle.as_str(), WorkflowHandleMode::Inputs)
+                .and_then(|position| {
+                    graph_nodes[target]
+                        .slots
+                        .iter()
+                        .position(|slot| slot.spec_position == position)
+                })
+                .ok_or_else(|| undeclared_handle(&edge.target, &edge.target_handle))?;
             graph_nodes[source].outputs[output].push(SlotTarget { node: target, slot });
-            graph_nodes[target].slots[slot].is_wired = true;
+            graph_nodes[target].slots[slot].feeders.push(source);
         }
         for node in &mut graph_nodes {
             for targets in &mut node.outputs {
                 targets.sort_unstable();
             }
+            for slot in &mut node.slots {
+                slot.feeders.sort_unstable();
+                slot.feeders.dedup();
+            }
         }
+        let trigger = *places
+            .get(trigger)
+            .expect("a run's trigger is a node of its pinned version");
         Ok(Self {
             nodes: graph_nodes,
-            trigger: *places
-                .get(trigger)
-                .expect("a run's trigger is a node of its pinned version"),
+            places,
+            trigger,
         })
     }
 
@@ -192,20 +217,28 @@ impl RunGraph {
     pub(crate) fn trigger(&self) -> usize {
         self.trigger
     }
+
+    /// The place of the node `node_id`, which the graph holds.
+    pub(crate) fn place(&self, node_id: &WorkflowNodeId) -> usize {
+        *self
+            .places
+            .get(node_id)
+            .expect("a step's node is a node of its run's graph")
+    }
+
+    /// The places of the nodes whose main outputs feed the node at `place`, with repeats.
+    pub(crate) fn feeders(&self, place: usize) -> impl Iterator<Item = usize> + '_ {
+        self.nodes[place]
+            .slots
+            .iter()
+            .flat_map(|slot| slot.feeders.iter().copied())
+    }
 }
 
-/// Where `handle` sits among a node's declared main handle ids on its side, or
-/// [`RunGraphError::UndeclaredHandle`] when the kind does not declare it there.
-fn declared_index(
-    declared: &[String],
-    node_id: &WorkflowNodeId,
-    handle: &NonEmptyText,
-) -> Result<usize, RunGraphError> {
-    declared
-        .iter()
-        .position(|id| id == handle.as_str())
-        .ok_or_else(|| RunGraphError::UndeclaredHandle {
-            node_id: node_id.clone(),
-            handle: handle.clone(),
-        })
+/// The refusal of an edge naming `handle` on `node_id`, whose kind declares no such main handle.
+fn undeclared_handle(node_id: &WorkflowNodeId, handle: &NonEmptyText) -> RunGraphError {
+    RunGraphError::UndeclaredHandle {
+        node_id: node_id.clone(),
+        handle: handle.clone(),
+    }
 }
