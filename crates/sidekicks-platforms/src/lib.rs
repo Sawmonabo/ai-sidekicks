@@ -47,6 +47,8 @@
               (`GetNamedPipeServerProcessId`), a Windows AF_UNIX socket's peer read (`WSAIoctl` of \
               `SIO_AF_UNIX_GETPEERPID`) and the mark that lets `async-io` drive it (`IoSafe`), the \
               run folder's owner and access list (`GetSecurityInfo`, `GetAce`, `IsWellKnownSid`), \
+              Windows' volume GUID path read of an open file or folder \
+              (`GetFinalPathNameByHandleW`), \
               a Windows child's output read at its exit (`CancelIoEx`, `PeekNamedPipe`), the \
               daemon's process containment (Windows' kill-on-close job through `CreateJobObjectW`, \
               `SetInformationJobObject` and `AssignProcessToJobObject`, and Linux's `poll` of its \
