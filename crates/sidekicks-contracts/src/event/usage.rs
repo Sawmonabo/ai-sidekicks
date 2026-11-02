@@ -147,7 +147,7 @@ pub struct UsageTokenCountRecordedPayload {
     #[schemars(with = "SubagentId")]
     pub subagent_id: Option<SubagentId>,
     /// The provider's id of the request the row belongs to, shared by every row of that request;
-    /// absent on a row that is a request of its own.
+    /// absent where the provider names none.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -249,7 +249,9 @@ pub struct UsagePricedEvent {
 pub struct UsageCostUpdatedPayload {
     /// The session.
     pub session_id: SessionId,
-    /// The run, absent on a turn no run owns.
+    /// The run every one of the account's rows of the request was counted toward; absent where
+    /// they name different runs or none. Each row's own run is on the token event `pricedEvents`
+    /// names.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -264,8 +266,7 @@ pub struct UsageCostUpdatedPayload {
     pub cost_source: UsageCostSource,
     /// The account's token events of the request, each with its share of the figure.
     pub priced_events: BoundedVec<UsagePricedEvent, 1, { usize::MAX }>,
-    /// The model the provider attributes the reading to, absent when it attributes only
-    /// the run.
+    /// The model the request was priced at.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -273,8 +274,9 @@ pub struct UsageCostUpdatedPayload {
     )]
     #[schemars(with = "FreeFormText<EVENT_FIELD_MAX_LEN>")]
     pub model_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
-    /// The subagent the provider attributes the reading to, paired with its start on the
-    /// run, the provider and this id.
+    /// The helper every one of the account's rows of the request was attributed to; absent where
+    /// they name different helpers or none. Each row's own helper is on the token event
+    /// `pricedEvents` names.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",

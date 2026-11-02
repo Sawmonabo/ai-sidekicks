@@ -333,12 +333,17 @@ impl Harness {
         }
     }
 
-    // The `usage.cost.updated` payload of `run_id`'s request at `total` micro-dollars, naming
-    // each of `priced_events`' ids at its figure.
-    fn cost_payload(&self, run_id: RunId, total: u64, priced_events: &[(&str, u64)]) -> Value {
-        json!({
+    // The `usage.cost.updated` payload of a request at `total` micro-dollars charged to `run_id`
+    // and `helper` where each is named, naming each of `priced_events`' ids at its figure.
+    fn cost_payload(
+        &self,
+        run_id: Option<RunId>,
+        helper: Option<&str>,
+        total: u64,
+        priced_events: &[(&str, u64)],
+    ) -> Value {
+        let mut payload = json!({
             "sessionId": self.session_id.text().as_str(),
-            "runId": run_id.text().as_str(),
             "costUsdMicros": total,
             "modelId": MODEL,
             "costSource": "derivedExact",
@@ -346,7 +351,14 @@ impl Harness {
                 .iter()
                 .map(|(event_id, figure)| json!({"eventId": event_id, "costUsdMicros": figure}))
                 .collect::<Vec<_>>(),
-        })
+        });
+        if let Some(run_id) = run_id {
+            payload["runId"] = json!(run_id.text().as_str());
+        }
+        if let Some(helper) = helper {
+            payload["subagentId"] = json!(helper);
+        }
+        payload
     }
 }
 
@@ -741,10 +753,12 @@ async fn a_whole_set_files_rows_only_when_it_moved_from_the_stored_windows(
 }
 
 // Each answer names the event its reading became, and a request whose rows sit on two accounts
-// writes one cost per account, each naming its own rows and their sum. Killed by an id minted in
-// the record rather than taken from the dispatch's outcome (the answers would name no stored
-// event), by one event across the accounts (one event of 15), and by the first figure taken as the
-// total (account-1's would read 6).
+// writes one cost per account, each naming its own rows and their sum, and the run and the helper
+// only where all its rows agree. Killed by an id minted in the record rather than taken from the
+// dispatch's outcome (the answers would name no stored event), by one event across the accounts
+// (one event of 18), by the first figure taken as the total (account-1's would read 6), by the
+// first row's run or helper kept (account-2's run, account-1's helper), and by a disagreement on
+// one dropping both (account-2's helper).
 #[tokio::test]
 async fn a_request_priced_across_two_accounts_writes_one_cost_per_account_naming_its_rows() {
     let harness = Harness::new(None, true).await;
@@ -771,14 +785,28 @@ async fn a_request_priced_across_two_accounts_writes_one_cost_per_account_naming
             .map(|(id, _, _)| (id.as_str(), Some(harness.lead_run_id), &account_1))
             .collect::<Vec<_>>()
     );
-    let elsewhere = hand_built_row(harness.lead_run_id, "account-2");
+    let helper = SubagentId::new("helper-1".to_owned()).expect("a helper id");
+    let helpers_row = RecordedUsage {
+        subagent_id: Some(helper.clone()),
+        ..written[0].clone()
+    };
+    let elsewhere = RecordedUsage {
+        subagent_id: Some(helper.clone()),
+        ..hand_built_row(harness.lead_run_id, "account-2")
+    };
+    let side_question = RecordedUsage {
+        run_id: None,
+        subagent_id: Some(helper),
+        ..hand_built_row(harness.lead_run_id, "account-2")
+    };
 
     harness
         .record
         .record_cost(harness.priced_request(vec![
-            priced(written[0].clone(), 6),
-            priced(written[1].clone(), 5),
+            priced(helpers_row, 6),
             priced(elsewhere.clone(), 4),
+            priced(written[1].clone(), 5),
+            priced(side_question.clone(), 3),
         ]))
         .await
         .expect("the request's cost is recorded");
@@ -791,9 +819,10 @@ async fn a_request_priced_across_two_accounts_writes_one_cost_per_account_naming
             .collect::<Vec<_>>(),
         vec![
             (
-                lead.clone(),
+                lead,
                 harness.cost_payload(
-                    harness.lead_run_id,
+                    Some(harness.lead_run_id),
+                    None,
                     11,
                     &[
                         (written[0].event_id.as_str(), 6),
@@ -802,8 +831,16 @@ async fn a_request_priced_across_two_accounts_writes_one_cost_per_account_naming
                 )
             ),
             (
-                lead,
-                harness.cost_payload(harness.lead_run_id, 4, &[(elsewhere.event_id.as_str(), 4)])
+                None,
+                harness.cost_payload(
+                    None,
+                    Some("helper-1"),
+                    7,
+                    &[
+                        (elsewhere.event_id.as_str(), 4),
+                        (side_question.event_id.as_str(), 3)
+                    ]
+                )
             ),
         ]
     );
@@ -830,7 +867,12 @@ async fn a_cost_is_recorded_with_the_bindings_cursor_closed() {
             .collect::<Vec<_>>(),
         vec![(
             Some(harness.lead_run_id.text().as_str().to_owned()),
-            harness.cost_payload(harness.lead_run_id, 7, &[(row.event_id.as_str(), 7)])
+            harness.cost_payload(
+                Some(harness.lead_run_id),
+                None,
+                7,
+                &[(row.event_id.as_str(), 7)]
+            )
         )]
     );
 }

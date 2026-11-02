@@ -551,15 +551,15 @@ fn recorded_usage(
 }
 
 // One account's `usage.cost.updated` of a request: each of `rows`' events with its share, their
-// sum, and the run and helper the first row was charged to. Unstamped, since each token row
-// carries its own stamp.
+// sum, and the run and the helper every row was charged to, each `None` where the rows disagree.
+// Unstamped, since each token row carries its own stamp.
 fn cost_row(
     session_id: SessionId,
     model_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
     cost_source: UsageCostSource,
     rows: Vec<PricedUsageRow>,
 ) -> Result<UsageCostUpdatedPayload, UsageRecordError> {
-    let mut charged_to = None;
+    let mut charged_to: Option<(Option<RunId>, Option<SubagentId>)> = None;
     let mut total: u64 = 0;
     let mut priced_events = Vec::with_capacity(rows.len());
     for PricedUsageRow {
@@ -570,8 +570,16 @@ fn cost_row(
         total = total
             .checked_add(cost_usd_micros.0.get())
             .ok_or(UsageRecordError::FigureOutOfRange)?;
-        if charged_to.is_none() {
-            charged_to = Some((row.run_id, row.subagent_id));
+        match &mut charged_to {
+            None => charged_to = Some((row.run_id, row.subagent_id)),
+            Some((run_id, subagent_id)) => {
+                if *run_id != row.run_id {
+                    *run_id = None;
+                }
+                if *subagent_id != row.subagent_id {
+                    *subagent_id = None;
+                }
+            }
         }
         priced_events.push(UsagePricedEvent {
             event_id: row.event_id,
