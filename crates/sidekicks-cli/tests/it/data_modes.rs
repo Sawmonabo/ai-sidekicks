@@ -1,13 +1,16 @@
 //! `sidekicks data erase` and `data restore` against the built daemon program's offline modes,
-//! each run under a home, temporary folder and runtime folder of the test's own. No leg lets a
-//! mode act: a successful erase would also empty this account's keychain items.
+//! each run under a home, temporary folder and runtime folder of the test's own. No erase acts,
+//! since a successful one would also empty this account's keychain items; a restore touches no
+//! keychain, so one leg lets it act.
 
 use std::fs::{self, File};
 use std::path::PathBuf;
 
+use serde_json::json;
+use sidekicks_contracts::daemon::backup::{BACKUP_DATABASE_FILE_NAME, BACKUP_MANIFEST_FILE_NAME};
 use sidekicks_contracts::daemon::data::{DAEMON_DATA_FOLDER_NAME, DAEMON_LOCK_FILE_NAME};
 
-use crate::helpers::{PrivateFolders, built_daemon_program, path_text, text};
+use crate::helpers::{DaemonEnding, PrivateFolders, built_daemon_program, path_text, text};
 
 /// Makes the data folder under the folders' home with a file in it, and answers the folder and
 /// the file.
@@ -55,6 +58,61 @@ fn a_held_data_folder_refuses_the_erase_and_the_restore_with_78_and_keeps_its_fi
             "{arguments:?} changed the held data folder"
         );
     }
+}
+
+// Fails when the restore exits 0 without putting the backup's store back, since the store the test
+// removed is then still missing; and when its success maps to any code but 0.
+#[test]
+fn a_restore_puts_the_backup_s_store_back_and_exits_0() {
+    let folders = PrivateFolders::new();
+    let daemon = built_daemon_program();
+    let _ending = DaemonEnding::new(&folders);
+    // The built daemon writes a store of this build's schema, which is all a restore accepts.
+    let started = folders.run_sidekicks(&[
+        "daemon",
+        "start",
+        "--daemon-path",
+        path_text(&daemon),
+        "--timeout",
+        "60000",
+    ]);
+    assert_eq!(started.status.code(), Some(0), "{}", text(&started.stderr));
+    let stopped = folders.run_sidekicks(&["daemon", "stop", "--yes"]);
+    assert_eq!(stopped.status.code(), Some(0), "{}", text(&stopped.stderr));
+
+    let data_folder = folders.path().join("h").join(DAEMON_DATA_FOLDER_NAME);
+    let store = data_folder.join("daemon.db");
+    let backup = folders.path().join("backups").join("backup");
+    fs::create_dir_all(&backup).expect("the backup's folder is made");
+    fs::copy(&store, backup.join(BACKUP_DATABASE_FILE_NAME)).expect("the store is copied");
+    let manifest = json!({
+        "backupId": "backup",
+        "takenAt": "2026-10-20T03:00:00.000Z",
+        "appVersion": "0.1.0",
+        "serviceVersion": "0.1.0",
+        "totalBytes": 4096,
+        "computerName": "Studio",
+    });
+    fs::write(
+        backup.join(BACKUP_MANIFEST_FILE_NAME),
+        serde_json::to_vec(&manifest).expect("the manifest writes"),
+    )
+    .expect("the manifest is written");
+    fs::remove_file(&store).expect("the store is removed");
+
+    let restored = folders.run_sidekicks(&["data", "restore", "--yes", path_text(&backup)]);
+
+    assert_eq!(
+        restored.status.code(),
+        Some(0),
+        "{}",
+        text(&restored.stderr)
+    );
+    assert_eq!(
+        text(&restored.stdout),
+        "Restored the backup. Start the background service with sidekicks daemon start.\n"
+    );
+    assert!(store.is_file(), "the restore did not put the store back");
 }
 
 // Fails when the erase asks without a terminal, since the question then reads the empty input as
