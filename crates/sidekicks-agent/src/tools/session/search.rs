@@ -25,7 +25,8 @@ pub const DESCRIPTION: ToolDescription = ToolDescription {
               then group.",
     body: "{\"query\": \"stripe webhook\"}\n{\"related_to\": \"builder\", \"relevance\": \
            \"high\"}\n\nUse it to find earlier work (\"the session that fixed the webhook last \
-           week\"). Results are previews; read a session with session_read.",
+           week\"). Results are previews; read a session with session_read. Name at least one \
+           of query, related_to, group or tag.",
 };
 
 /// The members of which a search names at least one.

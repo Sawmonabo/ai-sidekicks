@@ -5,7 +5,7 @@ use std::fmt::{self, Write as _};
 
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 
-use crate::tools::session::ToolDescription;
+use crate::tools::session::{ToolDescription, permission_level_words};
 
 /// What a model reads about `session_options`.
 pub const DESCRIPTION: ToolDescription = ToolDescription {
@@ -90,7 +90,10 @@ impl fmt::Display for SessionOptions {
             lines.push(line);
         }
         for &level in &self.permission_levels {
-            lines.push(format!("permission level {}", <&'static str>::from(level)));
+            lines.push(format!(
+                "permission level {}",
+                permission_level_words(level)
+            ));
         }
         for computer in &self.computers {
             lines.push(format!("computer {computer}"));

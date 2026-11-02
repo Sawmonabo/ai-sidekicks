@@ -1,6 +1,6 @@
 //! The session tools' arguments as the tool route reads them: the received check before serde,
-//! the line range's and the reminder delay's written forms, and the rules between fields that
-//! garde and the schema hold alike.
+//! the line range's and the reminder delay's written forms, the rules no shape holds that garde
+//! and the schema hold alike, and each tool's schema as a model's tool listing shows it.
 
 use std::num::NonZeroU64;
 
@@ -10,7 +10,7 @@ use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use sidekicks_contracts::method_descriptor::EmptyPayload;
-use sidekicks_contracts::schema::{closed_schema_for, received_check};
+use sidekicks_contracts::schema::{closed_schema_for, listed_schema_for, received_check};
 
 use crate::tools::session::ask::SessionAskArguments;
 use crate::tools::session::group::SessionGroupArguments;
@@ -100,9 +100,9 @@ fn the_tool_route_builds_each_check_and_refuses_an_unknown_member_or_a_nul() {
     assert_eq!(remind.delay.minutes(), 20);
 }
 
-// A reminder's delay reads whole minutes or hours of at least 1 into minutes, and refuses a zero,
-// a missing unit or count, another unit and a count past the minutes it can hold. Killed by
-// dropping the `at least 1` check: `0m` then reads as no delay.
+// A reminder's delay reads whole minutes or hours from 1 to 9999 into minutes, and refuses a zero,
+// a missing unit or count, another unit and a count past 9999. Killed by dropping the `at least 1`
+// check (`0m` then reads as no delay) and by dropping the bound (`10000m` then reads).
 #[rstest]
 #[case::minutes("20m", Some(20))]
 #[case::hours("2h", Some(120))]
@@ -111,8 +111,9 @@ fn the_tool_route_builds_each_check_and_refuses_an_unknown_member_or_a_nul() {
 #[case::days("2d", None)]
 #[case::no_count("m", None)]
 #[case::signed("+5m", None)]
-#[case::count_overflows("4294967296m", None)]
-#[case::hours_overflow("71582789h", None)]
+#[case::largest("9999h", Some(599_940))]
+#[case::leading_zeros("00020m", Some(20))]
+#[case::past_the_bound("10000m", None)]
 fn a_reminder_delay_reads_minutes_or_hours(#[case] text: &str, #[case] minutes: Option<u32>) {
     let read = text.parse::<ReminderDelay>().ok();
     assert_eq!(read.map(ReminderDelay::minutes), minutes, "{text}");
@@ -139,9 +140,9 @@ fn a_line_range_reads_a_span_or_a_last_count(
     assert_eq!(text.parse::<LineRange>().ok(), expected, "{text}");
 }
 
-// Each rule between fields is held by garde and by the schema alike, so the route and any other
-// reader of the schema refuse the same call. Killed by dropping any one garde rule, or its
-// schema twin.
+// Each rule no shape holds, between fields or on a list's length, is held by garde and by the
+// schema alike, so the route and any other reader of the schema refuse the same call. Killed by
+// dropping any one garde rule, or its schema twin.
 #[rstest]
 #[case::search_names_words(
     taken_by_garde_and_schema::<SessionSearchArguments>,
@@ -188,6 +189,16 @@ fn a_line_range_reads_a_span_or_a_last_count(
     json!({ "session": "builder", "lines": "-50" }),
     false
 )]
+#[case::wait_lists(
+    taken_by_garde_and_schema::<SessionWaitArguments>,
+    json!({}),
+    true
+)]
+#[case::wait_names_no_session(
+    taken_by_garde_and_schema::<SessionWaitArguments>,
+    json!({ "sessions": [] }),
+    false
+)]
 #[case::read_turns_and_around(
     taken_by_garde_and_schema::<SessionReadArguments>,
     json!({ "session": "builder", "turns": 3, "around": "h-12" }),
@@ -201,4 +212,46 @@ fn a_call_is_taken_only_when_its_fields_combine(
     let (by_garde, by_schema) = taken_by(&message);
     assert_eq!(by_garde, is_taken, "garde: {message}");
     assert_eq!(by_schema, is_taken, "schema: {message}");
+}
+
+// Each tool's listed schema keeps at its root only what both providers read there, while the
+// type's own schema keeps its rules for the received check. Killed by the listing keeping the root
+// as the type writes it (`session_search`'s union, `session_read`'s `not`, `session_group`'s
+// `if`), and by a definition left behind a reference.
+#[test]
+fn each_tool_s_listed_schema_holds_only_what_a_provider_reads_at_its_root() {
+    let listed = [
+        listed_schema_for::<SessionListArguments>(),
+        listed_schema_for::<SessionSearchArguments>(),
+        listed_schema_for::<EmptyPayload>(),
+        listed_schema_for::<SessionReadArguments>(),
+        listed_schema_for::<SessionUpdateArguments>(),
+        listed_schema_for::<SessionGroupArguments>(),
+        listed_schema_for::<SessionStartArguments>(),
+        listed_schema_for::<SessionSendArguments>(),
+        listed_schema_for::<SessionAskArguments>(),
+        listed_schema_for::<SessionWaitArguments>(),
+        listed_schema_for::<SessionStopArguments>(),
+        listed_schema_for::<SessionRemindArguments>(),
+    ];
+    for schema in listed {
+        let schema = schema.expect("the listed schema writes");
+        let root = schema.as_object().expect("a listed schema is an object");
+        assert!(
+            root.keys().all(|keyword| {
+                ["type", "properties", "required", "additionalProperties"]
+                    .contains(&keyword.as_str())
+            }),
+            "only the four keywords stay at the root: {schema}"
+        );
+        assert!(
+            !schema.to_string().contains("$ref"),
+            "every subschema is written in place: {schema}"
+        );
+    }
+    let search = closed_schema_for::<SessionSearchArguments>().expect("the schema writes");
+    assert!(
+        search.get("anyOf").is_some(),
+        "the type's own schema keeps its rule"
+    );
 }

@@ -18,7 +18,7 @@ pub const DESCRIPTION: ToolDescription = ToolDescription {
               a related session.",
     body: "{\"session\": \"tax-fix\", \"archived\": true}\n{\"session\": \"this\", \"add_tags\": \
            [\"billing/stripe\"], \"link\": \"stripe-webhook\"}\n\n\"this\" means the session you \
-           are in.",
+           are in. Name at least one change.",
 };
 
 /// The members of which an update names at least one.

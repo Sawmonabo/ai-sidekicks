@@ -152,9 +152,3 @@ impl fmt::Display for SessionSendResult {
         }
     }
 }
-
-/// The refusal of a message to the calling session itself, whose answer would come back and wake
-/// it in a loop.
-pub fn not_sent_to_self(name: &str) -> String {
-    format!("Not sent: {name} is this session.")
-}

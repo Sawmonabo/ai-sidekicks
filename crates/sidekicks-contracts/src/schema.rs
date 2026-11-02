@@ -1,6 +1,6 @@
 //! JSON Schemas of the contract types, closed so they refuse exactly the unknown members serde
-//! refuses. The TypeScript checks, an agent tool's input schema and the check a received message
-//! passes before its contract reads it all come from here.
+//! refuses. The TypeScript checks, an agent tool's input schema as a model's tool listing shows
+//! it, and the check a received message passes before its contract reads it all come from here.
 
 use std::any::TypeId;
 use std::collections::BTreeMap;
@@ -13,8 +13,16 @@ use serde_json::{Map, Value, json};
 
 use crate::typescript::SchemaContract;
 
+/// The keywords a model's tool listing keeps at its schema's root.
+const LISTED_ROOT_KEYWORDS: [&str; 4] = ["type", "properties", "required", "additionalProperties"];
+
 /// A draft 2020-12 generator for the schemas `contract` describes.
 pub fn generator(contract: SchemaContract) -> SchemaGenerator {
+    settings(contract).into_generator()
+}
+
+// The draft 2020-12 settings for the schemas `contract` describes.
+fn settings(contract: SchemaContract) -> SchemaSettings {
     let settings = SchemaSettings::draft2020_12();
     let settings = match contract {
         SchemaContract::Read => settings.for_deserialize(),
@@ -23,7 +31,6 @@ pub fn generator(contract: SchemaContract) -> SchemaGenerator {
     settings
         .with_transform(RecursiveTransform(enum_of_documented_words))
         .with_transform(RecursiveTransform(discriminate_tagged_arms))
-        .into_generator()
 }
 
 /// Writes a closed set of words whose variants carry docs, which schemars spells as a `oneOf` of
@@ -146,6 +153,44 @@ pub fn received_schema_for<T: JsonSchema>() -> Result<Value, ReceivedCheckError>
         type_name: T::schema_name().into_owned(),
         source,
     })
+}
+
+/// An agent tool's input `T` as a model's tool listing shows it: closed, every subschema written
+/// in place, and at its root only `type`, `properties`, `required` and `additionalProperties`,
+/// since Claude Code flattens a root union and the API refuses one, and Codex drops a root `if`,
+/// `not` or `dependentRequired`. A rule the root states beside them stays in `T`'s own schema,
+/// which the received check reads, and is written in the tool's or the field's description.
+/// Fails where `T`'s schema does not serialize, and where `T` refers to itself, which a schema
+/// with no definitions cannot write.
+pub fn listed_schema_for<T: JsonSchema>() -> Result<Value, ListedSchemaError> {
+    let generator = settings(SchemaContract::Read)
+        .with(|settings| settings.inline_subschemas = true)
+        .into_generator();
+    let mut schema = serde_json::to_value(generator.into_root_schema_for::<T>())?;
+    close_composite_objects(&mut schema);
+    if schema.get("$defs").is_some() {
+        return Err(ListedSchemaError::Recursive {
+            type_name: T::schema_name().into_owned(),
+        });
+    }
+    if let Value::Object(root) = &mut schema {
+        root.retain(|keyword, _| LISTED_ROOT_KEYWORDS.contains(&keyword.as_str()));
+    }
+    Ok(schema)
+}
+
+/// Why a tool listing's schema could not be written.
+#[derive(Debug, thiserror::Error)]
+pub enum ListedSchemaError {
+    /// The type's schema does not serialize.
+    #[error(transparent)]
+    Schema(#[from] serde_json::Error),
+    /// The type refers to itself, so its schema keeps definitions a listing cannot hold.
+    #[error("the schema of {type_name} refers to itself, so it cannot be written in place")]
+    Recursive {
+        /// The type's schema name.
+        type_name: String,
+    },
 }
 
 /// Why the check of a received type could not be built.

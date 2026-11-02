@@ -50,8 +50,8 @@ pub struct SessionReadArguments {
     pub session: SessionReference,
     /// How many of the latest turns to read.
     #[schemars(
-        description = "How many of the latest turns. Omit for the last answer only. A whole \
-                       number of at least 1."
+        description = "How many of the latest turns. Omit for the last answer only. Not with \
+                       around. A whole number of at least 1."
     )]
     #[serde(
         default,
@@ -62,7 +62,7 @@ pub struct SessionReadArguments {
     pub turns: Option<SafeInt<1>>,
     /// The search hit whose turns to read.
     #[schemars(description = text_field(
-        "A hit id from session_search; returns the turns around it.",
+        "A hit id from session_search; returns the turns around it. Not with turns.",
         SESSION_ITEM_ID_MAX_LEN,
     ))]
     #[serde(

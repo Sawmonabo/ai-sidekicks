@@ -21,7 +21,8 @@ pub const DESCRIPTION: ToolDescription = ToolDescription {
               first add to it.",
     body: "{\"group\": \"auth work\", \"add\": [\"login refactor\", \"token rotation\", \
            \"this\"]}\n{\"group\": \"auth work\", \"rename_to\": \"auth\"}\n\nUngrouping \
-           archives nothing; its sessions go back loose.",
+           archives nothing; its sessions go back loose. Name at least one of add, remove, \
+           rename_to or delete.",
 };
 
 /// The members of which a call names at least one, besides `delete`.
@@ -93,7 +94,7 @@ pub struct SessionGroupArguments {
     #[schemars(with = "FreeFormText<SESSION_NAME_MAX_LEN>")]
     pub rename_to: Option<FreeFormText<SESSION_NAME_MAX_LEN>>,
     /// Whether to ungroup every session in the group.
-    #[schemars(description = "true ungroups every session in it.")]
+    #[schemars(description = "true ungroups every session in it, and comes with nothing else.")]
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",

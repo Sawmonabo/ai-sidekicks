@@ -1,8 +1,8 @@
 //! `session_wait`: waits for sessions to finish their turn or to need the person, or lists what
 //! the caller waits on. Its results are also what `session_send` and `session_start` answer with
 //! `wait: true`. The daemon picks how it waits: where the call holds, it answers with the result;
-//! where the call returns at once, it tells the model to end its turn and a later turn brings the
-//! answer.
+//! where the call returns at once, the provider's driver words the line ending the caller's turn,
+//! and a later turn brings the answer.
 
 use std::fmt;
 use std::time::Duration;
@@ -29,7 +29,7 @@ pub const DESCRIPTION: ToolDescription = ToolDescription {
 fn sessions_words() -> String {
     format!(
         "Session names or ids. Returns as soon as any one finishes or needs the person. Omit to \
-         list what you are waiting on. Each {}",
+         list what you are waiting on. At least one when given, each {}",
         text_limits(SESSION_NAME_MAX_LEN)
     )
 }
@@ -39,8 +39,10 @@ fn sessions_words() -> String {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct SessionWaitArguments {
-    /// The sessions to wait on; absent lists what the caller already waits on.
+    /// The sessions to wait on, at least one; absent lists what the caller already waits on.
     #[schemars(description = sessions_words())]
+    #[schemars(extend("minItems" = 1))]
+    #[garde(length(min = 1))]
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -84,8 +86,8 @@ impl fmt::Display for WaitEntry {
     }
 }
 
-/// What a wait answers, the same on every provider: a held call's result, the list of what the
-/// caller waits on, or, where the call returns at once, the line ending the caller's turn.
+/// What a held wait answers, the same on every provider: the awaited session's result, or the list
+/// of what the caller waits on.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionWaitResult {
     /// The awaited session finished its turn.
@@ -104,11 +106,6 @@ pub enum SessionWaitResult {
     },
     /// The sessions the caller waits on, oldest wait first.
     Waiting(Vec<WaitEntry>),
-    /// The wait is stored and the caller ends its turn; the answer arrives as a message.
-    EndYourTurn {
-        /// The awaited session's name.
-        name: String,
-    },
 }
 
 impl fmt::Display for SessionWaitResult {
@@ -125,11 +122,6 @@ impl fmt::Display for SessionWaitResult {
                 let listed: Vec<String> = entries.iter().map(WaitEntry::to_string).collect();
                 write!(formatter, "Waiting on: {}.", listed.join(", "))
             }
-            Self::EndYourTurn { name } => write!(
-                formatter,
-                "Waiting on {name}. End your turn now; {name}'s answer arrives as a message when \
-                 it finishes or needs the person."
-            ),
         }
     }
 }

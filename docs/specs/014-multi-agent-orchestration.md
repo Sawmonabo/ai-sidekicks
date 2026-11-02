@@ -248,7 +248,7 @@ Search every session's messages, tool calls, titles, groups and tags, the same i
 {"query": "stripe webhook"}
 {"related_to": "builder", "relevance": "high"}
 
-Use it to find earlier work ("the session that fixed the webhook last week"). Results are previews; read a session with session_read.
+Use it to find earlier work ("the session that fixed the webhook last week"). Results are previews; read a session with session_read. Name at least one of query, related_to, group or tag.
 ```
 
 Fields:
@@ -284,8 +284,8 @@ Use it to check another session's work instead of asking it to paste. The sessio
 Fields:
 
 - `session`: `A session name or id.`
-- `turns` (optional): `How many of the latest turns. Omit for the last answer only.`
-- `around` (optional): `A hit id from session_search; returns the turns around it.`
+- `turns` (optional): `How many of the latest turns. Omit for the last answer only. Not with around.`
+- `around` (optional): `A hit id from session_search; returns the turns around it. Not with turns.`
 - `include` (optional): `Any of "tools", "outputs", "changes". Omit for messages only.`
 - `output` (optional): `One tool output's id, from an earlier read, to read it alone.`
 - `lines` (optional): `With output: a range such as "1-200" or "-50" (the last 50).`
@@ -409,7 +409,7 @@ Rename, archive, unarchive, pin or unpin a session; add or remove tags; link it 
 {"session": "tax-fix", "archived": true}
 {"session": "this", "add_tags": ["billing/stripe"], "link": "stripe-webhook"}
 
-"this" means the session you are in.
+"this" means the session you are in. Name at least one change.
 ```
 
 Fields:
@@ -428,7 +428,7 @@ Put sessions in a named group of their project, take them out, rename a group or
 {"group": "auth work", "add": ["login refactor", "token rotation", "this"]}
 {"group": "auth work", "rename_to": "auth"}
 
-Ungrouping archives nothing; its sessions go back loose.
+Ungrouping archives nothing; its sessions go back loose. Name at least one of add, remove, rename_to or delete.
 ```
 
 Fields:
@@ -436,7 +436,7 @@ Fields:
 - `group`: `The group's name in the project.`
 - `add`, `remove` (optional): `Session names or ids; "this" means the session you are in.`
 - `rename_to` (optional): `The new name.`
-- `delete` (optional): `true ungroups every session in it.`
+- `delete` (optional): `true ungroups every session in it, and comes with nothing else.`
 
 Result: `auth work · 2 sessions added.`
 
