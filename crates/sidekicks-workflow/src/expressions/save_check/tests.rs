@@ -94,42 +94,16 @@ async fn an_expression_breaking_a_rule_marks_its_step(
     assert_eq!(findings_beside_fetch(step).await, expected);
 }
 
-/// A command step's fill that does not expand marks that step with the reason naming the fill,
-/// while the same text in its other params, or in another kind's `command`, is no finding.
-/// Mutations: read the fills of every param; read every kind's `command`; drop the fill check.
+/// A fill that would not expand on a command step's line is no finding in its other params or in
+/// another kind's `command`; the store's save tests prove the line's own refusal. Mutations: read
+/// the fills of every param; read every kind's `command`.
 #[rstest]
-#[case::the_command_line("developer.shell", "command", true)]
-#[case::another_param("developer.shell", "notes", false)]
-#[case::another_kinds_command("files.write", "command", false)]
+#[case::another_param("developer.shell", "notes")]
+#[case::another_kinds_command("files.write", "command")]
 #[tokio::test]
-async fn only_a_command_steps_line_is_read_for_fills(
-    #[case] kind: &str,
-    #[case] param: &str,
-    #[case] is_refused: bool,
-) {
+async fn only_a_command_steps_line_is_read_for_fills(#[case] kind: &str, #[case] param: &str) {
     let params = Map::from_iter([(param.to_owned(), json!("=echo '{{ $json.x }}'"))]);
     let step = node("step", kind, "Run", &Value::Object(params));
 
-    let findings = findings_beside_fetch(step).await;
-
-    if is_refused {
-        let [WorkflowDefinitionFinding::ExpressionNotExpanded { node_ids, detail }] =
-            findings.as_slice()
-        else {
-            panic!("the step is marked for its fill alone, not {findings:?}");
-        };
-        assert_eq!(
-            node_ids
-                .iter()
-                .map(WorkflowNodeId::as_str)
-                .collect::<Vec<_>>(),
-            ["step"]
-        );
-        assert!(
-            detail.as_str().starts_with("Fill 1 sits in single quotes"),
-            "{detail:?}"
-        );
-    } else {
-        assert_eq!(findings, Vec::new());
-    }
+    assert_eq!(findings_beside_fetch(step).await, Vec::new());
 }
