@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde::Deserialize;
+use serde::de::IgnoredAny;
 use serde_json::Value;
 use serde_json::value::RawValue;
 use sidekicks_contracts::session::id::SessionId;
@@ -130,7 +131,45 @@ struct FrameConversation {
 struct StartedThread {
     id: Option<Box<RawValue>>,
     parent_thread_id: Option<Box<RawValue>>,
-    thread_source_kind: Option<Box<RawValue>>,
+    source: Option<Box<RawValue>>,
+}
+
+// A thread's `source` as far as helpers go: its `subAgent` arm, where it has one.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ThreadSource {
+    sub_agent: Option<SubAgentSource>,
+}
+
+// The arms of `source.subAgent` this release names; an arm a newer Codex adds reads as no source.
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum SubAgentSource {
+    Review,
+    Compact,
+    ThreadSpawn(IgnoredAny),
+    MemoryConsolidation,
+    Other(IgnoredAny),
+}
+
+// Whether a thread's `source` makes it a helper, whose spend is its own: a review, a spawned
+// helper, or another Codex names. A compaction or a memory consolidation is Codex's housekeeping
+// for the parent, whose spend stays the parent run's, as is an arm a newer Codex adds or a thread
+// with no source.
+fn is_helper_source(source: Option<&RawValue>) -> bool {
+    let sub_agent = source
+        .and_then(|source| {
+            crate::driver::codex::transport::connection::read_codex_object::<ThreadSource>(
+                source.get(),
+            )
+        })
+        .and_then(|source| source.sub_agent);
+    match sub_agent {
+        Some(
+            SubAgentSource::Review | SubAgentSource::ThreadSpawn(_) | SubAgentSource::Other(_),
+        ) => true,
+        Some(SubAgentSource::Compact | SubAgentSource::MemoryConsolidation) | None => false,
+    }
 }
 
 // A raw member read as non-empty text.
@@ -168,11 +207,11 @@ pub(crate) fn read_codex_child_thread_announcement(
     let thread = read_frame_conversation(params)?.thread?;
     let thread_id = read_text(thread.id.as_deref())?;
     let parent_thread_id = read_text(thread.parent_thread_id.as_deref())?;
-    let source_kind = read_text(thread.thread_source_kind.as_deref()).unwrap_or_default();
+    let is_subagent = is_helper_source(thread.source.as_deref());
     Some(derive_codex_child_thread_announcement(
         thread_id,
         Some(parent_thread_id),
-        &source_kind,
+        is_subagent,
     ))
 }
 
