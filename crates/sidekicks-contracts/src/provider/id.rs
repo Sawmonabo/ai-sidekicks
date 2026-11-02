@@ -45,6 +45,13 @@ impl garde::error::PathComponentKind for ProviderId {
     }
 }
 
+/// The id as a failed value's path names it.
+impl std::fmt::Display for ProviderId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
 /// The TypeScript module of the provider id.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/id",

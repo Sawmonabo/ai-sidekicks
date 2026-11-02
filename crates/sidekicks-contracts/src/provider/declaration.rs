@@ -42,6 +42,13 @@ impl garde::error::PathComponentKind for ProviderDeclarationId {
     }
 }
 
+/// The id as a failed value's path names it.
+impl std::fmt::Display for ProviderDeclarationId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
 /// A label, a line or a reason in the words a person reads.
 pub type ProviderDeclarationText = FreeFormText<PROVIDER_DECLARATION_TEXT_MAX_LEN>;
 /// The value a choice or a text setting holds.

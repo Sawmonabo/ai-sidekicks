@@ -150,10 +150,10 @@ pub(crate) fn mount(id: &str) -> RepoMountId {
 }
 
 /// The scope of account `name`'s home.
-pub(crate) fn home_scope(name: &str) -> Option<ProviderStandingRuleScope> {
-    Some(ProviderStandingRuleScope::AccountHome {
+pub(crate) fn home_scope(name: &str) -> ProviderStandingRuleScope {
+    ProviderStandingRuleScope::AccountHome {
         account_id: account(name),
-    })
+    }
 }
 
 /// `path` as the list carries it.

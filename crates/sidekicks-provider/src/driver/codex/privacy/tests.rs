@@ -54,7 +54,7 @@ async fn a_file_that_does_not_parse_fails_naming_its_path_and_never_its_text() {
         panic!("the failure is not a parse failure: {failure:?}");
     };
     assert_eq!(*line, Some(2));
-    assert!(!message.is_empty());
+    assert_ne!(message.as_str(), "");
     let detail = failure.to_string();
     assert!(detail.contains(&path.display().to_string()), "{detail}");
     assert!(detail.contains(message.as_str()), "{detail}");

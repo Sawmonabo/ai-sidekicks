@@ -48,8 +48,18 @@ async fn lists_each_rule_call_as_written_under_its_scope_and_file_with_a_stable_
         vec![
             expected(None, &system, "prompt", COMMENTED_CALL),
             expected(None, &system, "allow", LS_CALL),
-            expected(home_scope("a"), &home_a.to_string_lossy(), "allow", LS_CALL),
-            expected(home_scope("b"), &home_b.to_string_lossy(), "allow", LS_CALL),
+            expected(
+                Some(home_scope("a")),
+                &home_a.to_string_lossy(),
+                "allow",
+                LS_CALL
+            ),
+            expected(
+                Some(home_scope("b")),
+                &home_b.to_string_lossy(),
+                "allow",
+                LS_CALL
+            ),
             expected(trusted, &project.to_string_lossy(), "allow", NPM_CALL),
         ]
     );
@@ -92,7 +102,7 @@ async fn revokes_one_call_from_its_own_file_and_again_reads_already_absent() {
         .await
         .into_iter()
         .find(|rule| {
-            rule.scope == home_scope("a")
+            rule.scope == Some(home_scope("a"))
                 && rule.source_path == file_path(&home_a)
                 && rule.text.as_str() == LS_CALL
         })
@@ -166,7 +176,7 @@ async fn a_revoke_that_would_leave_an_unloadable_file_is_refused_and_writes_noth
             .list()
             .await
             .into_iter()
-            .find(|rule| rule.scope == home_scope("a") && rule.text.as_str() == revoked_text)
+            .find(|rule| rule.scope == Some(home_scope("a")) && rule.text.as_str() == revoked_text)
             .expect("home a's rule is listed")
             .rule_id;
 
