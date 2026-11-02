@@ -3,7 +3,7 @@
 //! applied switch lands from `agent.providerBinding.changed`, and the settled switch's clear from
 //! either binding event. The daemon's own writes of the pending switch, the typed row and its
 //! reads sit beside them. A rebuild writes every row through the live write's own statements and
-//! keeps a pending switch, which no event carries.
+//! keeps a pending switch, which no event carries, on a row whose birth it replayed.
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -98,6 +98,10 @@ const CLEAR_PENDING_SWITCH_SQL: &str =
 // A rebuild keeps the rows holding a pending switch, which the log cannot write again.
 const CLEAR_SESSION_AGENTS_SQL: &str =
     "DELETE FROM agents WHERE session_id = ? AND pending_switch IS NULL";
+
+// A kept row whose birth the rebuild did not replay, one in a range of the log it skipped.
+const DELETE_UNBORN_AGENTS_SQL: &str = "DELETE FROM agents
+  WHERE session_id = @sessionId AND id NOT IN (SELECT value FROM json_each(@bornAgentIds))";
 
 const AGENT_COLUMNS: &str = "id, session_id, name, provider_name, model_id, provider_account_id,
   effort, options, output_speed, larger_window, instructions, resolved_from_definition_id,
@@ -260,16 +264,19 @@ impl SessionProjection for AgentsProjection {
         }]
     }
 
-    fn fold(&self, _session_id: &SessionId) -> Box<dyn SessionProjectionFold> {
+    fn fold(&self, session_id: &SessionId) -> Box<dyn SessionProjectionFold> {
         Box::new(AgentsFold {
+            session_id: *session_id,
             born: HashSet::new(),
         })
     }
 }
 
-// The agents a rebuild has written so far: an agent's first birth refreshes the row the clear
-// kept for its pending switch, and any later one keeps what is there.
+// The agents a rebuild of `session_id` has written so far: an agent's first birth refreshes the
+// row the clear kept for its pending switch, and any later one keeps what is there; a kept row
+// whose birth never came is dropped once the log is read.
 struct AgentsFold {
+    session_id: SessionId,
     born: HashSet<AgentId>,
 }
 
@@ -292,6 +299,25 @@ impl SessionProjectionFold for AgentsFold {
             },
         ));
         Ok(())
+    }
+
+    fn closing_statements(&self) -> Vec<WriteStatement> {
+        let born: Vec<String> = self
+            .born
+            .iter()
+            .map(|agent_id| agent_id.text().as_str().to_owned())
+            .collect();
+        vec![WriteStatement {
+            sql: Cow::Borrowed(DELETE_UNBORN_AGENTS_SQL),
+            bindings: StatementBindings::Named(vec![
+                text_binding("@sessionId", self.session_id.text().as_str()),
+                text_binding(
+                    "@bornAgentIds",
+                    &serde_json::to_string(&born).expect("a list of ids writes as JSON"),
+                ),
+            ]),
+            expected_row_count: None,
+        }]
     }
 }
 

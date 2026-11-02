@@ -8,15 +8,17 @@ use sidekicks_contracts::agent::provider_binding::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::driver::PROVIDERS;
-use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
+use sidekicks_store::events::projection::SessionProjection as _;
+use sidekicks_store::events::test_log::stored_envelope;
 
 use super::test_fixture::{
     binding, binding_change_failed, binding_changed, project, resolved_run_queued, run_statements,
     session_created,
 };
 use super::{
-    AgentRow, InterruptDispatch, StoredPendingSwitch, read_agent_row, read_session_agents,
-    write_pending_switch,
+    AgentRow, AgentsProjection, InterruptDispatch, StoredPendingSwitch, read_agent_row,
+    read_session_agents, write_pending_switch,
 };
 use crate::agents::schema::schema_parts;
 
@@ -197,5 +199,58 @@ fn a_pending_switch_reads_back_as_it_was_written() {
         &agents.connection,
         &[write_pending_switch(&agent_id_of(&lead), &record)],
     );
+    assert_eq!(agents.row(&lead).pending_switch, Some(record));
+}
+
+// A rebuild keeps a pending switch on a row whose birth it replays, and drops a kept row whose
+// birth it never read, as one in a range of the log it skipped. Killed by no closing delete (the
+// unborn row kept), and by a closing delete of every kept row (the lead's switch lost).
+#[test]
+fn a_rebuild_keeps_a_born_agents_switch_and_drops_an_unborn_one() {
+    let agents = Agents::new();
+    let provider = PROVIDERS[0].id;
+    let (lead, helper) = (mint_uuid_v7().to_string(), mint_uuid_v7().to_string());
+    let created = session_created(agents.session_id, &lead, &binding(provider, "model-a"));
+    project(&agents.connection, agents.session_id, &created);
+    project(
+        &agents.connection,
+        agents.session_id,
+        &resolved_run_queued(
+            agents.session_id,
+            &mint_uuid_v7().to_string(),
+            &helper,
+            &binding(provider, "model-b"),
+        ),
+    );
+    let record = pending_switch("switch-1", None);
+    run_statements(
+        &agents.connection,
+        &[
+            write_pending_switch(&agent_id_of(&lead), &record),
+            write_pending_switch(&agent_id_of(&helper), &pending_switch("switch-2", None)),
+        ],
+    );
+
+    run_statements(
+        &agents.connection,
+        &AgentsProjection.clear_statements(&agents.session_id),
+    );
+    let mut fold = AgentsProjection.fold(&agents.session_id);
+    let mut statements = Vec::new();
+    fold.apply(
+        &stored_envelope(&test_envelope(agents.session_id, &created), 0),
+        &created,
+        &mut statements,
+    )
+    .expect("the lead's birth folds");
+    statements.extend(fold.closing_statements());
+    run_statements(&agents.connection, &statements);
+
+    let rows = read_session_agents(&agents.connection, &agents.session_id).expect("the rows read");
+    let kept: Vec<String> = rows
+        .iter()
+        .map(|row| row.agent_id.text().as_str().to_owned())
+        .collect();
+    assert_eq!(kept, [lead.clone()]);
     assert_eq!(agents.row(&lead).pending_switch, Some(record));
 }
