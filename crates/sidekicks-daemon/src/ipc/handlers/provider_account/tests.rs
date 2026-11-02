@@ -140,6 +140,8 @@ async fn a_daemon_started_caller_reaches_no_provider_account_method(#[case] toke
         Arc::new(ScriptedReader {
             responsible: ResponsibleProcess::Untracked,
             parent: ParentProcess::Pinned(this_process()),
+            parents: HashMap::new(),
+            programs: HashMap::new(),
             is_desktop_client: false,
             was_signature_read: AtomicBool::new(false),
         }) as Arc<dyn CallerProcessReader>,

@@ -231,7 +231,7 @@ mod tests {
     use crate::jsonrpc::message::CancelRequestParams;
     use crate::jsonrpc::negotiation::ConnectionInitializeRequest;
     use crate::jsonrpc::streaming::SubscriptionCancelRequest;
-    use crate::provider::tools::{SessionSendArguments, TaskOutputArguments, TaskStopArguments};
+    use crate::provider::tools::{TaskOutputArguments, TaskStopArguments};
     use crate::schema::{generator, received_check};
     use crate::typescript::{Definition, SchemaContract};
     use crate::workflow::run::tool::WorkflowRunToolInput;
@@ -262,10 +262,6 @@ mod tests {
                 (
                     "$/subscription/cancel",
                     received_check::<SubscriptionCancelRequest>().err(),
-                ),
-                (
-                    "session_send",
-                    received_check::<SessionSendArguments>().err(),
                 ),
                 ("task_output", received_check::<TaskOutputArguments>().err()),
                 ("task_stop", received_check::<TaskStopArguments>().err()),

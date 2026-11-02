@@ -90,6 +90,7 @@ mod hooks;
 pub(crate) mod inbox;
 mod intervention;
 mod lifecycle;
+mod live_sessions;
 mod mcp;
 mod output_speed;
 mod rate_limit_windows;

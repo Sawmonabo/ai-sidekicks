@@ -1,8 +1,8 @@
 //! What the Claude Code driver reads out of a process's deliveries and delivers to the run engine:
 //! a call's ask, the rows of its message frames, the blocks it streams, a file change's patch, the
 //! choices it holds a run on, the system frames, a turn's end, the requests it holds a run on, the
-//! reviewer's blocks, and the stream that turns each frame into the run engine's deliveries in
-//! order.
+//! reviewer's blocks, the messages other sessions sent, and the stream that turns each frame into
+//! the run engine's deliveries in order.
 
 mod ask_action;
 pub(super) mod commands;
@@ -10,6 +10,7 @@ pub(super) mod dialogs;
 pub(super) mod mcp_tasks;
 pub(super) mod messages;
 mod patches;
+mod peer_arrival;
 pub(super) mod requests;
 pub(super) mod reviewer;
 pub(super) mod run_readings;

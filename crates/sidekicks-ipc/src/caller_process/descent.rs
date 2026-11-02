@@ -9,6 +9,10 @@
 //! Where the system keeps a responsible process (macOS), the daemon is its own and every terminal
 //! it opens is its own, so a caller the daemon is responsible for is an agent's and the walk up the
 //! parents looks only for a held provider service. Elsewhere the walk decides alone.
+//!
+//! Before either, a caller whose pinned chain is the daemon's own program run by a provider's hook
+//! from a held service's shell is admitted for the hook method alone, though it descends from that
+//! service and, where the daemon started the service, the daemon is responsible for it.
 
 use std::collections::HashSet;
 use std::error::Error;
@@ -20,6 +24,7 @@ use sidekicks_platforms::{ParentProcess, PinnedProcess, ResponsibleProcess, Sign
 use tokio::sync::Semaphore;
 
 use crate::caller_process::contract::CallerProcessReader;
+use crate::caller_process::provider_hook::is_provider_hook_caller;
 use crate::caller_process::provider_services::ProviderServiceProcesses;
 use crate::protocol_negotiation::{CallerAdmission, CallerAdmissionCheck};
 
@@ -78,16 +83,26 @@ impl CallerCheck {
         })
     }
 
-    /// How `caller` is admitted: refused when the daemon or a held provider service started it or
-    /// nothing vouches for it; admitted by its signature when `is_tokenless` and it is the
-    /// desktop's signed client helper; otherwise only with the session token. A signature that does
-    /// not meet the requirement is logged at debug with its status. Fails when the system refuses
-    /// a read.
+    /// How `caller` is admitted: for the hook method alone when it is the daemon's own program
+    /// run by a held provider service's hook; refused when the daemon or a held provider service
+    /// otherwise started it or nothing vouches for it; admitted by its signature when
+    /// `is_tokenless` and it is the desktop's signed client helper; otherwise only with the session
+    /// token. A signature that does not meet the requirement is logged at debug with its status.
+    /// Fails when the system refuses a read.
     async fn admit(
         &self,
         caller: PinnedProcess,
         is_tokenless: bool,
     ) -> io::Result<CallerAdmission> {
+        if is_provider_hook_caller(
+            self.reader.as_ref(),
+            &self.provider_services,
+            caller.clone(),
+        )
+        .await?
+        {
+            return Ok(CallerAdmission::ProviderHook);
+        }
         let responsible = self.reader.read_responsible_process(caller.clone()).await?;
         let is_untracked = match &responsible {
             ResponsibleProcess::ThisProcess | ResponsibleProcess::Ended => {
@@ -175,12 +190,17 @@ pub mod test_reader;
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
+    use std::path::PathBuf;
+    use std::process::{Child, Command, Stdio};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use rstest::rstest;
-    use sidekicks_platforms::{ParentProcess, ResponsibleProcess, this_process};
+    use sidekicks_platforms::{
+        ParentProcess, PinnedProcess, ResponsibleProcess, RunningProgramPath, pin_child_process,
+        read_running_program_path, this_process,
+    };
 
     use super::CallerCheck;
     use super::test_reader::ScriptedReader;
@@ -265,6 +285,8 @@ pub(crate) mod tests {
         let reader = Arc::new(ScriptedReader {
             responsible,
             parent,
+            parents: HashMap::new(),
+            programs: HashMap::new(),
             is_desktop_client,
             was_signature_read: AtomicBool::new(false),
         });
@@ -294,9 +316,125 @@ pub(crate) mod tests {
             with_token,
             match expected {
                 CallerAdmission::Signature => CallerAdmission::TokenRequired,
-                CallerAdmission::Refused | CallerAdmission::TokenRequired => expected,
+                CallerAdmission::Refused
+                | CallerAdmission::TokenRequired
+                | CallerAdmission::ProviderHook => expected,
             }
         );
         assert!(!reader.was_signature_read.load(Ordering::SeqCst));
+    }
+
+    /// How a caller's chain up to a held provider service departs from a hook's.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum HookChain {
+        /// The daemon's program, under a shell, under a held service.
+        Hook,
+        /// The parent runs the daemon's own program, as the command wrapper does.
+        ParentRunsTheDaemonProgram,
+        /// The parent runs the service's own program, as a child the service runs commands
+        /// through does.
+        ParentRunsTheServiceProgram,
+        /// The caller runs a program at another path.
+        CallerRunsAnotherProgram,
+        /// The parent's own parent ended during the read, so no pinned link reaches the service.
+        ServiceLinkEnded,
+        /// The service is not one the daemon holds, though another is held.
+        ServiceNotHeld,
+    }
+
+    /// A child of this test, run with no test to run so it ends at once, pinned before it is
+    /// reaped, so its id names it alone while the test runs.
+    fn pinned_child() -> (Child, PinnedProcess) {
+        let child = Command::new(std::env::current_exe().expect("the test program names itself"))
+            .args(["--exact", "no test has this name"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("the child starts");
+        let pinned = pin_child_process(child.id()).expect("the unreaped child is pinned");
+        (child, pinned)
+    }
+
+    // The test's own process stands in for the held service. Killed by leaving any link of the
+    // chain unchecked: the caller's program, the parent's against either program, the service's
+    // hold, or a link that ended taken as pinned; each departing chain would then be admitted.
+    #[rstest]
+    #[case::a_hook(HookChain::Hook, CallerAdmission::ProviderHook)]
+    #[case::the_command_wrapper(HookChain::ParentRunsTheDaemonProgram, CallerAdmission::Refused)]
+    #[case::the_services_executable(
+        HookChain::ParentRunsTheServiceProgram,
+        CallerAdmission::Refused
+    )]
+    #[case::another_program(HookChain::CallerRunsAnotherProgram, CallerAdmission::Refused)]
+    #[case::a_link_that_ended(HookChain::ServiceLinkEnded, CallerAdmission::Refused)]
+    #[case::a_service_not_held(HookChain::ServiceNotHeld, CallerAdmission::Refused)]
+    #[tokio::test]
+    async fn a_hook_caller_is_admitted_only_by_its_whole_pinned_chain(
+        #[case] chain: HookChain,
+        #[case] expected: CallerAdmission,
+    ) {
+        let RunningProgramPath::OnDisk(daemon_program) =
+            read_running_program_path().expect("this program's path reads")
+        else {
+            panic!("this test's program is on disk");
+        };
+        let service_program = PathBuf::from("/opt/provider/service");
+        let (mut caller_child, caller) = pinned_child();
+        let (mut shell_child, shell) = pinned_child();
+        let (mut other_child, other_service) = pinned_child();
+        let service = this_process();
+        let service_link = if chain == HookChain::ServiceLinkEnded {
+            ParentProcess::Ended
+        } else {
+            ParentProcess::Pinned(service.clone())
+        };
+        let caller_program = if chain == HookChain::CallerRunsAnotherProgram {
+            PathBuf::from("/usr/local/bin/sidekicks-daemon")
+        } else {
+            daemon_program.clone()
+        };
+        let shell_program = match chain {
+            HookChain::ParentRunsTheDaemonProgram => daemon_program,
+            HookChain::ParentRunsTheServiceProgram => service_program.clone(),
+            HookChain::Hook
+            | HookChain::CallerRunsAnotherProgram
+            | HookChain::ServiceLinkEnded
+            | HookChain::ServiceNotHeld => PathBuf::from("/bin/zsh"),
+        };
+        let provider_services = Arc::new(ProviderServiceProcesses::default());
+        let _hold = provider_services.hold(if chain == HookChain::ServiceNotHeld {
+            other_service.id()
+        } else {
+            service.id()
+        });
+        let reader = ScriptedReader {
+            // As for a service the daemon started: every check after the chain's refuses.
+            responsible: ResponsibleProcess::ThisProcess,
+            parent: ParentProcess::Root,
+            parents: HashMap::from([
+                (caller.id(), ParentProcess::Pinned(shell.clone())),
+                (shell.id(), service_link),
+            ]),
+            programs: HashMap::from([
+                (caller.id(), caller_program),
+                (shell.id(), shell_program),
+                (service.id(), service_program),
+            ]),
+            is_desktop_client: false,
+            was_signature_read: AtomicBool::new(false),
+        };
+        let check = CallerCheck::new(
+            Arc::new(reader) as Arc<dyn CallerProcessReader>,
+            Arc::new(HashSet::new),
+            provider_services,
+        );
+
+        let admission = check.admission_check()(caller, false)
+            .await
+            .expect("the check answers");
+        assert_eq!(admission, expected);
+        for child in [&mut caller_child, &mut shell_child, &mut other_child] {
+            child.wait().expect("the child is reaped");
+        }
     }
 }

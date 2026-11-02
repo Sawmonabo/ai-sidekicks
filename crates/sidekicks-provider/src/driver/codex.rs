@@ -97,6 +97,7 @@ mod input_limit;
 mod intervention;
 mod lifecycle;
 mod mcp;
+mod messages;
 mod model_windows;
 mod native_program;
 mod notification_routing;

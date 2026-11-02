@@ -8391,6 +8391,18 @@ dependencies = [
 [[package]]
 name = "sidekicks-agent"
 version = "0.0.0"
+dependencies = [
+ "garde",
+ "jiff",
+ "jsonschema",
+ "rstest",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "sidekicks-contracts",
+ "sidekicks-provider",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "sidekicks-approval"
@@ -8912,6 +8924,7 @@ dependencies = [
  "typify",
  "unicode-normalization",
  "url",
+ "uuid",
  "zeroize",
  "zstd",
 ]

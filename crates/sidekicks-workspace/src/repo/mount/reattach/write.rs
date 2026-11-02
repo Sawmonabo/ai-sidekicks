@@ -3,7 +3,6 @@
 //! retirement; and what the committed write read back.
 
 use std::borrow::Cow;
-use std::error::Error;
 use std::sync::LazyLock;
 
 use rusqlite::types::Value;
@@ -14,6 +13,7 @@ use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
 use sidekicks_store::database::statement::{
     StatementBindings, StatementResult, WriteStatement, text_binding,
 };
+use sidekicks_store::database::stored_column::returned_parsed;
 
 use crate::git::worktree::rows::LIVE_WORKTREE_STATE_PREDICATE;
 use crate::repo::mount::service::detach::SELECT_RUNNING_RUN_SQL;
@@ -261,17 +261,13 @@ pub(super) fn read_written(
     };
     let moved_workspaces = rows(MOVED_WORKSPACES_STATEMENT)
         .iter()
-        .map(|row| {
-            WorkspaceId::new(text_value(row, 0)?).map_err(|error| conversion_failure(0, error))
-        })
+        .map(|row| returned_parsed(row, 0, WorkspaceId::new))
         .collect::<Result<_, _>>()?;
     let retired_worktrees = rows(UNLISTED_WORKTREES_STATEMENT)
         .iter()
         .map(|row| {
-            let worktree_id = WorktreeId::new(text_value(row, 0)?)
-                .map_err(|error| conversion_failure(0, error))?;
-            let session_id = SessionId::new(text_value(row, 1)?)
-                .map_err(|error| conversion_failure(1, error))?;
+            let worktree_id = returned_parsed(row, 0, WorktreeId::new)?;
+            let session_id = returned_parsed(row, 1, SessionId::new)?;
             Ok((worktree_id, session_id))
         })
         .collect::<Result<_, rusqlite::Error>>()?;
@@ -287,24 +283,4 @@ pub(super) fn read_written(
         retired_worktrees,
         project_id,
     })
-}
-
-// The TEXT value at `index` of a row the write returned.
-fn text_value(row: &[Value], index: usize) -> Result<&str, rusqlite::Error> {
-    match row.get(index) {
-        Some(Value::Text(text)) => Ok(text),
-        Some(value) => Err(rusqlite::Error::InvalidColumnType(
-            index,
-            String::new(),
-            value.data_type(),
-        )),
-        None => Err(rusqlite::Error::InvalidColumnIndex(index)),
-    }
-}
-
-fn conversion_failure(
-    index: usize,
-    failure: impl Error + Send + Sync + 'static,
-) -> rusqlite::Error {
-    rusqlite::Error::FromSqlConversionFailure(index, rusqlite::types::Type::Text, Box::new(failure))
 }

@@ -370,6 +370,7 @@ impl ClaudeDriver {
             command_output: Arc::clone(&ports.command_output),
             turn_readings: Arc::clone(&ports.turn_readings),
             context: Arc::clone(&context_readings),
+            session_message_readings: Arc::clone(&ports.session_message_readings),
         }));
         let goals = Arc::new(ClaudeGoalCommands::default());
         let cuts = Arc::new(ClaudeConversationCuts {
@@ -399,6 +400,7 @@ impl ClaudeDriver {
                 Arc::clone(&ports.session_wakes),
                 slots.clone(),
                 Arc::clone(&idle_sleep),
+                Arc::clone(&ports.session_message_readings),
             ));
             let run_start = ClaudeRunStart {
                 slots: slots.clone(),
