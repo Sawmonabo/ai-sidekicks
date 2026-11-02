@@ -12,11 +12,15 @@
 //! - A lead lands at the provider's acknowledgment of its move with `agent.providerBinding.changed`
 //!   in place, or `agent.providerBinding.changeFailed` where the move failed; a first request the
 //!   provider then refuses for the new account's login hands the previous account back, recorded
-//!   by one `changeFailed`.
+//!   by one `changeFailed`, which also records a hand-back that could not be made.
+//! - The leads to move are read against each session's own binding, so a switch to the account
+//!   already current still moves a session a failed move left on another; a session whose lead
+//!   cannot be read is skipped and logged, and the rest move.
 //! - A lead at a level the new account's model cannot run moves to the nearest more careful one
 //!   through the level control's own move, with one `levelUnavailable` notice.
 //! - At the daemon's start the same move reaches every session the last stop left on another
-//!   account than its provider's current one, before the runs the stop left waiting are admitted.
+//!   account than its provider's current one, before the runs the stop left waiting are admitted;
+//!   the start waits for the moves, never for a moved lead's first request.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -189,7 +193,7 @@ impl AccountSwitch {
                 Ok((plan, account, left)) => {
                     let moving = plan.leads.iter().map(|lead| lead.session_id).collect();
                     let _unheard = answer.send(Ok((account, left, moving)));
-                    switch.carry_out(plan, actor, hold).await;
+                    switch.carry_out(plan, actor, hold).await.await;
                 }
             }
         });
@@ -206,16 +210,20 @@ impl AccountSwitch {
 
     /// Moves every session the last stop left on another account than its provider's current one
     /// onto that account, provider by provider under each one's lock, settled for `actor`, this
-    /// machine's own device; answers once every move has landed. Fails as a provider's current
-    /// account or its sessions cannot be read, every provider tried.
+    /// machine's own device; answers once every move has landed, each moved lead's first request
+    /// watched on its own task, since an idle session's may come only when the person next writes.
+    /// Fails as a provider's current account or its list of sessions cannot be read, every
+    /// provider tried.
     pub(crate) async fn follow_current_accounts(
-        &self,
+        self: &Arc<Self>,
         actor: &DeviceId,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let followed = join_all(self.deps.switch_legs.keys().map(|provider| async move {
             let hold = self.locks.acquire(provider.clone()).await;
             if let Some(plan) = self.plan_follow(provider.clone()).await? {
-                self.carry_out(plan, actor.clone(), hold).await;
+                let first_requests = self.carry_out(plan, actor.clone(), hold).await;
+                // The watch settles on its own; the start goes on.
+                drop(tokio::spawn(first_requests));
             }
             Ok::<_, Box<dyn Error + Send + Sync>>(())
         }))
@@ -244,26 +252,24 @@ impl AccountSwitch {
             .with_detail(ProviderAccountNotAuthenticatedDetails { remedy })
             .into());
         }
-        if account.is_default {
-            let plan = SwitchPlan {
-                provider,
-                to: account_id,
-                leads: Vec::new(),
-            };
-            return Ok((plan, account, None));
-        }
-        let left = self
-            .deps
-            .accounts
-            .list(Some(provider.clone()))
-            .await?
-            .into_iter()
-            .find(|other| other.is_default)
-            .map(|other| RegisteredAccount {
-                is_default: false,
-                ..other
-            });
-        let account = self.deps.accounts.make_current(account_id.clone()).await?;
+        // An account already current keeps the mark, and its sessions still on another move.
+        let (account, left) = if account.is_default {
+            (account, None)
+        } else {
+            let left = self
+                .deps
+                .accounts
+                .list(Some(provider.clone()))
+                .await?
+                .into_iter()
+                .find(|other| other.is_default)
+                .map(|other| RegisteredAccount {
+                    is_default: false,
+                    ..other
+                });
+            let account = self.deps.accounts.make_current(account_id.clone()).await?;
+            (account, left)
+        };
         let leads = self
             .read_leads_off(provider.clone(), account_id.clone())
             .await
@@ -298,7 +304,8 @@ impl AccountSwitch {
     }
 
     // The leads on `provider` that follow its current account and whose conversation runs on an
-    // account other than `to`, each with its level.
+    // account other than `to`, each with its level; a session whose lead or level cannot be read is
+    // logged and left where it is.
     async fn read_leads_off(
         &self,
         provider: ProviderId,
@@ -314,6 +321,13 @@ impl AccountSwitch {
                     let mut leads = Vec::new();
                     for standing in read_provider_session_leads(reader, &provider, &*damaged_from)?
                     {
+                        let standing = match standing {
+                            Ok(standing) => standing,
+                            Err(unreadable) => {
+                                skip_unreadable(unreadable.session_id, &unreadable);
+                                continue;
+                            }
+                        };
                         let Some(conversation) = standing.conversation else {
                             continue;
                         };
@@ -321,7 +335,14 @@ impl AccountSwitch {
                         if from == to {
                             continue;
                         }
-                        let level = read_session_permission_level(reader, &standing.session_id)?;
+                        let level =
+                            match read_session_permission_level(reader, &standing.session_id) {
+                                Ok(level) => level,
+                                Err(error) => {
+                                    skip_unreadable(standing.session_id, &error);
+                                    continue;
+                                }
+                            };
                         leads.push(LeadToMove {
                             session_id: standing.session_id,
                             lead: standing.lead,
@@ -338,9 +359,14 @@ impl AccountSwitch {
     }
 
     // Moves every lead of `plan` onto its account, grouped by the account each leaves, settling each
-    // at its acknowledgment, then frees the provider's lock and waits for each moved lead's first
-    // request on the new account.
-    async fn carry_out(&self, plan: SwitchPlan, actor: DeviceId, hold: KeyHold<'_, ProviderId>) {
+    // at its acknowledgment, then frees the provider's lock and answers the watch of each moved
+    // lead's first request on the new account, which ends once every one has settled.
+    async fn carry_out(
+        self: &Arc<Self>,
+        plan: SwitchPlan,
+        actor: DeviceId,
+        hold: KeyHold<'_, ProviderId>,
+    ) -> BoxFuture<'static, ()> {
         let SwitchPlan {
             provider,
             to,
@@ -353,7 +379,7 @@ impl AccountSwitch {
                     "the provider moves no session between accounts, so its sessions stay"
                 );
             }
-            return;
+            return futures::future::ready(()).boxed();
         };
         let mut by_account: HashMap<ProviderAccountId, HashMap<SessionId, LeadToMove>> =
             HashMap::new();
@@ -386,7 +412,7 @@ impl AccountSwitch {
                 match landing {
                     Ok(first_request) => {
                         self.land(&lead, &to, &actor).await;
-                        first_requests.push(self.watch_first_request(
+                        first_requests.push(Arc::clone(self).watch_first_request(
                             lead,
                             to.clone(),
                             actor.clone(),
@@ -398,7 +424,7 @@ impl AccountSwitch {
             }
         }
         drop(hold);
-        join_all(first_requests).await;
+        join_all(first_requests).map(drop).boxed()
     }
 
     // A lead whose move the provider acknowledged: its settlement, then its level moved where the
@@ -409,33 +435,33 @@ impl AccountSwitch {
     }
 
     // Waits for a moved lead's first request on `to`: one the provider refused for the new
-    // account's login was handed the previous account back, which one `changeFailed` records.
+    // account's login was handed the previous account back, which one `changeFailed` records. A
+    // hand-back that could not be made leaves the session on `to`, whose login is gone, so it is
+    // the same failure to the person, and its cause is logged.
     fn watch_first_request(
-        &self,
+        self: Arc<Self>,
         lead: LeadToMove,
         to: ProviderAccountId,
         actor: DeviceId,
         first_request: BoxFuture<'static, Result<FirstRequestAfterMove, DriverError>>,
-    ) -> BoxFuture<'_, ()> {
+    ) -> BoxFuture<'static, ()> {
         async move {
             match first_request.await {
-                Ok(FirstRequestAfterMove::Ran | FirstRequestAfterMove::Unobserved) => {}
-                Ok(FirstRequestAfterMove::HandedBack) => {
-                    self.record_failed_with(
-                        &lead,
-                        &to,
-                        &actor,
-                        AgentBindingSwitchAccountState::ReauthRequired,
-                    )
-                    .await;
-                }
-                // The hand-back could not be made, so the session stays on the account it moved to.
+                Ok(FirstRequestAfterMove::Ran | FirstRequestAfterMove::Unobserved) => return,
+                Ok(FirstRequestAfterMove::HandedBack) => {}
                 Err(error) => tracing::warn!(
                     session_id = %lead.session_id,
                     error = &error as &(dyn Error + 'static),
                     "a refused login after an account switch could not be handed back"
                 ),
             }
+            self.record_failed_with(
+                &lead,
+                &to,
+                &actor,
+                AgentBindingSwitchAccountState::ReauthRequired,
+            )
+            .await;
         }
         .boxed()
     }
@@ -601,6 +627,15 @@ enum SessionLeadsReadError {
     Read(#[from] DatabaseReadError),
     #[error("the sessions could not be read")]
     Query(#[from] rusqlite::Error),
+}
+
+// Logs a session the switch skips because `error` kept its lead or level from reading.
+fn skip_unreadable(session_id: SessionId, error: &(dyn Error + 'static)) {
+    tracing::warn!(
+        %session_id,
+        error,
+        "a session whose lead could not be read was left on its account"
+    );
 }
 
 // The switch's own task ended before it answered.

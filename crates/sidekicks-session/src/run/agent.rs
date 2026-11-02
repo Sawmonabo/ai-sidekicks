@@ -201,39 +201,65 @@ pub struct ProviderSessionLead {
     pub conversation: Option<RuntimeBinding>,
 }
 
+/// A session whose lead or newest conversation could not be read, which a read of every session
+/// skips and names.
+#[derive(Debug, thiserror::Error)]
+#[error("the lead of session \"{session_id}\" could not be read")]
+pub struct UnreadableSessionLead {
+    /// The session.
+    pub session_id: SessionId,
+    /// Why its read failed.
+    #[source]
+    pub source: rusqlite::Error,
+}
+
 /// Every active session whose lead runs on `provider` and follows its current account, pinned to
 /// none, in id order, each lead read from its log outside the skipped ranges
-/// `read_damaged_from_sequence` answers. Fails as SQLite fails or a stored id, binding or model
-/// does not read.
+/// `read_damaged_from_sequence` answers; a session whose stored id, binding or model does not
+/// read stands as an [`UnreadableSessionLead`] in its place, so the rest still read. Fails as
+/// SQLite fails to list the sessions.
 pub fn read_provider_session_leads(
     reader: &Connection,
     provider: &ProviderId,
     read_damaged_from_sequence: &DamagedFromSequenceReader,
-) -> rusqlite::Result<Vec<ProviderSessionLead>> {
+) -> rusqlite::Result<Vec<Result<ProviderSessionLead, UnreadableSessionLead>>> {
     let session_ids = reader
         .prepare_cached(&SELECT_ACTIVE_SESSIONS_SQL)?
         .query_map([], |row| text_column(row, 0, |text| SessionId::new(&text)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut leads = Vec::new();
     for session_id in session_ids {
-        let read_bound = session_read_bound(read_damaged_from_sequence, &session_id, None);
-        let Some(lead) = read_session_lead(reader, &session_id, read_bound)? else {
-            continue;
-        };
-        if lead.binding.provider_name != *provider || lead.binding.provider_account_id.is_some() {
-            continue;
+        match read_following_lead(reader, session_id, provider, read_damaged_from_sequence) {
+            Ok(Some(lead)) => leads.push(Ok(lead)),
+            Ok(None) => {}
+            Err(source) => leads.push(Err(UnreadableSessionLead { session_id, source })),
         }
-        let conversation = read_newest_resumable_binding_of_runs(
-            reader,
-            &read_session_run_ids(reader, &session_id)?,
-        )?;
-        leads.push(ProviderSessionLead {
-            session_id,
-            lead,
-            conversation,
-        });
     }
     Ok(leads)
+}
+
+// `session_id`'s lead with its newest conversation where it runs on `provider` and follows its
+// current account; `None` where it does not, or its log names no lead.
+fn read_following_lead(
+    reader: &Connection,
+    session_id: SessionId,
+    provider: &ProviderId,
+    read_damaged_from_sequence: &DamagedFromSequenceReader,
+) -> rusqlite::Result<Option<ProviderSessionLead>> {
+    let read_bound = session_read_bound(read_damaged_from_sequence, &session_id, None);
+    let Some(lead) = read_session_lead(reader, &session_id, read_bound)? else {
+        return Ok(None);
+    };
+    if lead.binding.provider_name != *provider || lead.binding.provider_account_id.is_some() {
+        return Ok(None);
+    }
+    let conversation =
+        read_newest_resumable_binding_of_runs(reader, &read_session_run_ids(reader, &session_id)?)?;
+    Ok(Some(ProviderSessionLead {
+        session_id,
+        lead,
+        conversation,
+    }))
 }
 
 /// Whether the session's log names `agent_id`, as its lead or on a run queued for it, in its

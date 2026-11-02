@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -100,12 +101,22 @@ impl SecretKeychain for NoTokens {
     }
 }
 
-// How a scripted move of one session goes: it lands and its first request reads as given, or the
-// provider refuses it.
+// How a scripted move of one session goes: it lands and its first request reads as given, it lands
+// and the hand-back its first request asks for cannot be made, it lands and its first request never
+// comes, or the provider refuses it.
 #[derive(Clone, Copy)]
 enum ScriptedMove {
     Lands(FirstRequestAfterMove),
+    HandBackFails,
+    FirstRequestNeverComes,
     Refused,
+}
+
+fn refused_login() -> DriverError {
+    DriverError::from(DomainError::new(
+        "The provider refused the login",
+        RefusalCode::ProviderAccountNotAuthenticated,
+    ))
 }
 
 // Switch legs recording each call and answering each session as scripted; a session not scripted
@@ -133,19 +144,20 @@ impl ProviderSwitchLegs for RecordedSwitchLegs {
                         .get(&session.session_id)
                         .copied()
                         .unwrap_or(ScriptedMove::Lands(FirstRequestAfterMove::Ran));
-                    match scripted {
-                        ScriptedMove::Lands(first) => Ok(SessionAccountMove {
-                            session_id: session.session_id,
-                            first_request: futures::future::ready(Ok(first)).boxed(),
-                        }),
-                        ScriptedMove::Refused => Err((
-                            session.session_id,
-                            DriverError::from(DomainError::new(
-                                "The provider refused the login",
-                                RefusalCode::ProviderAccountNotAuthenticated,
-                            )),
-                        )),
-                    }
+                    let first_request = match scripted {
+                        ScriptedMove::Lands(first) => futures::future::ready(Ok(first)).boxed(),
+                        ScriptedMove::HandBackFails => {
+                            futures::future::ready(Err(refused_login())).boxed()
+                        }
+                        ScriptedMove::FirstRequestNeverComes => futures::future::pending().boxed(),
+                        ScriptedMove::Refused => {
+                            return Err((session.session_id, refused_login()));
+                        }
+                    };
+                    Ok(SessionAccountMove {
+                        session_id: session.session_id,
+                        first_request,
+                    })
                 })
                 .collect()
         }
@@ -289,6 +301,27 @@ impl Fixture {
         level: PermissionLevel,
         has_run: bool,
     ) -> SessionId {
+        let lead = json!({
+            "agentId": mint_uuid_v7().to_string(),
+            "binding": {
+                "providerName": provider,
+                "modelId": "model-1",
+                "effort": null,
+                "providerAccountId": pin.map(ProviderAccountId::as_str),
+            },
+        });
+        self.session_led_by(lead, runs_on, level, has_run).await
+    }
+
+    // An active session whose log names `lead` as its lead, at `level`, with a binding of a run of
+    // its on `runs_on` where `has_run`.
+    async fn session_led_by(
+        &self,
+        lead: Value,
+        runs_on: &ProviderAccountId,
+        level: PermissionLevel,
+        has_run: bool,
+    ) -> SessionId {
         let session_id =
             SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
         let connection = self.database.reader();
@@ -308,18 +341,7 @@ impl Fixture {
                 params![
                     mint_uuid_v7().to_string(),
                     session_id.text().as_str(),
-                    json!({
-                        "mainAgent": {
-                            "agentId": mint_uuid_v7().to_string(),
-                            "binding": {
-                                "providerName": provider,
-                                "modelId": "model-1",
-                                "effort": null,
-                                "providerAccountId": pin.map(ProviderAccountId::as_str),
-                            },
-                        },
-                    })
-                    .to_string(),
+                    json!({ "mainAgent": lead }).to_string(),
                 ],
             )
             .expect("the test creates the session's lead");
@@ -456,13 +478,14 @@ async fn a_dead_switch_target_is_refused_before_anything_moves(
 // another through its legs, from the account each leaves, and settles each lead at its
 // acknowledgment: in place where it landed, failed `accountUnavailable` where the provider refused
 // it, the others still moving, and one more failed settlement where its first request on the new
-// account handed the old one back. A session at `reviewed` whose new account's model lists no
-// `reviewed` moves to `ask` through the level control once, then one `levelUnavailable` names the
-// level it left. A session that never ran, one already on the target and one on another provider
-// get nothing. Killed by the notice dropped, by the level control skipped, by a refused move
-// dropping the others, by the settlement held until the first request (the hand-back then records
-// no `changed`), by a hand-back settled as a success, and by a session never run, on another
-// provider or on the target moved.
+// account handed the old one back, or asked for a hand-back that could not be made. A session at
+// `reviewed` whose new account's model lists no `reviewed` moves to `ask` through the level control
+// once, then one `levelUnavailable` names the level it left. A session that never ran, one already
+// on the target and one on another provider get nothing. Killed by the notice dropped, by the level
+// control skipped, by a refused move dropping the others, by the settlement held until the first
+// request (the hand-back then records no `changed`), by a hand-back settled as a success, by a
+// hand-back that could not be made only logged, and by a session never run, on another provider
+// or on the target moved.
 #[tokio::test]
 async fn a_switch_moves_each_session_off_the_target_and_settles_each_lead_at_its_acknowledgment() {
     let fixture = fixture().await;
@@ -476,6 +499,7 @@ async fn a_switch_moves_each_session_off_the_target_and_settles_each_lead_at_its
     let reviewed = follower(PermissionLevel::Reviewed, true).await;
     let refused = follower(PermissionLevel::Ask, true).await;
     let handed_back = follower(PermissionLevel::Ask, true).await;
+    let hand_back_failed = follower(PermissionLevel::Ask, true).await;
     let never_ran = follower(PermissionLevel::Ask, false).await;
     let on_target = fixture
         .session(PROVIDERS[0].id, &to, None, PermissionLevel::Reviewed, true)
@@ -489,6 +513,7 @@ async fn a_switch_moves_each_session_off_the_target_and_settles_each_lead_at_its
             handed_back,
             ScriptedMove::Lands(FirstRequestAfterMove::HandedBack),
         ),
+        (hand_back_failed, ScriptedMove::HandBackFails),
     ]);
 
     let made = fixture
@@ -503,7 +528,7 @@ async fn a_switch_moves_each_session_off_the_target_and_settles_each_lead_at_its
         made.left.map(|left| (left.account_id, left.is_default)),
         Some((old.clone(), false))
     );
-    let mut moved = vec![reviewed, refused, handed_back];
+    let mut moved = vec![reviewed, refused, handed_back, hand_back_failed];
     moved.sort_by_key(|session| session.text().as_str().to_owned());
     let mut moving = made.moving_sessions;
     moving.sort_by_key(|session| session.text().as_str().to_owned());
@@ -541,19 +566,23 @@ async fn a_switch_moves_each_session_off_the_target_and_settles_each_lead_at_its
 
     let refused_events = fixture.appended(refused);
     let handed_back_events = fixture.appended(handed_back);
-    let handed_back_kinds: Vec<&str> = handed_back_events
-        .iter()
-        .map(|(kind, _)| kind.as_str())
-        .collect();
-    assert_eq!(
-        handed_back_kinds,
-        [
-            "agent.providerBinding.changed",
-            "agent.providerBinding.changeFailed"
-        ]
-    );
+    let hand_back_failed_events = fixture.appended(hand_back_failed);
+    for events in [&handed_back_events, &hand_back_failed_events] {
+        let kinds: Vec<&str> = events.iter().map(|(kind, _)| kind.as_str()).collect();
+        assert_eq!(
+            kinds,
+            [
+                "agent.providerBinding.changed",
+                "agent.providerBinding.changeFailed"
+            ]
+        );
+    }
     assert_eq!(refused_events.len(), 1);
-    for failed in [&refused_events[0], &handed_back_events[1]] {
+    for failed in [
+        &refused_events[0],
+        &handed_back_events[1],
+        &hand_back_failed_events[1],
+    ] {
         assert_eq!(failed.0, "agent.providerBinding.changeFailed");
         assert_eq!(failed.1["reason"], "accountUnavailable");
         assert_eq!(failed.1["accountState"], "reauthRequired");
@@ -600,9 +629,45 @@ async fn a_pinned_session_gets_nothing_from_a_switch() {
     assert_eq!(fixture.appended(pinned), Vec::new());
 }
 
+// A switch to the account already current moves a session a failed move left on another one,
+// the mark staying where it is. Killed by a switch that plans against the mark and moves nothing
+// when the target already holds it.
+#[tokio::test]
+async fn a_switch_to_the_current_account_moves_a_session_left_on_another() {
+    let fixture = fixture().await;
+    let current = fixture
+        .register(ProviderAccountHealthState::Authenticated)
+        .await;
+    let other = fixture
+        .register(ProviderAccountHealthState::Authenticated)
+        .await;
+    let left_behind = fixture
+        .session(PROVIDERS[0].id, &other, None, PermissionLevel::Ask, true)
+        .await;
+
+    let made = fixture
+        .switch
+        .make_current(current.clone(), actor())
+        .await
+        .expect("the switch is made");
+    made.settled.await.expect("the moves settle");
+
+    assert_eq!(made.left.map(|left| left.account_id), None);
+    assert_eq!(made.moving_sessions, [left_behind]);
+    assert_eq!(fixture.current().await, std::slice::from_ref(&current));
+    let calls = lock(&fixture.legs.calls).clone();
+    assert_eq!(calls.len(), 1);
+    assert_eq!((&calls[0].0, &calls[0].1), (&other, &current));
+    let events = fixture.appended(left_behind);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].1["landedProviderAccountId"], current.as_str());
+}
+
 // A session the last stop left on an account that is no longer its provider's current one moves
-// onto the current one at the start, settled in place. Killed by the start's move dropped, and by
-// its leg called on the current account as the one left.
+// onto the current one at the start, settled in place, though its first request on that account
+// has not come and a session beside it has a lead that does not read. Killed by the start's move
+// dropped, by its leg called on the current account as the one left, by the start waiting on the
+// first request (it never ends), and by one unreadable session failing the start.
 #[tokio::test]
 async fn a_session_a_stop_left_on_the_old_account_moves_at_the_start() {
     let fixture = fixture().await;
@@ -615,17 +680,27 @@ async fn a_session_a_stop_left_on_the_old_account_moves_at_the_start() {
     let left_behind = fixture
         .session(PROVIDERS[0].id, &old, None, PermissionLevel::Ask, true)
         .await;
+    let unreadable = json!({
+        "agentId": "not-an-agent-id",
+        "binding": { "providerName": PROVIDERS[0].id, "modelId": "model-1", "effort": null },
+    });
+    fixture
+        .session_led_by(unreadable, &old, PermissionLevel::Ask, true)
+        .await;
+    lock(&fixture.legs.script).insert(left_behind, ScriptedMove::FirstRequestNeverComes);
     fixture
         .accounts
         .make_current(current.clone())
         .await
         .expect("the mark moves while the daemon is down");
 
-    fixture
-        .switch
-        .follow_current_accounts(&actor())
-        .await
-        .expect("the start's move settles");
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        fixture.switch.follow_current_accounts(&actor()),
+    )
+    .await
+    .expect("the start does not wait on the first request")
+    .expect("the start's move settles");
 
     let calls = lock(&fixture.legs.calls).clone();
     assert_eq!(calls.len(), 1);
