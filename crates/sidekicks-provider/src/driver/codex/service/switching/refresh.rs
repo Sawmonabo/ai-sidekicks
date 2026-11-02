@@ -4,9 +4,11 @@
 //! carries, never undoing it. A refresh that finds none carried, as while a rejoin hands them, is
 //! answered with the tokens that hand gave. An account carried on its API key has no token to
 //! renew, so a refresh for it is refused at once. A token the renewal left dead hands the previous
-//! account back where a switch just moved onto it; otherwise it is refused, at once on every later
-//! refresh, since Codex retries a refused one with fresh requests. The whole answer is bounded
-//! inside Codex's own wait; past the bound it is refused and nothing is remembered.
+//! account back where a switch just moved onto it: its tokens are the answer, or, for an account
+//! that signs in with an API key, the refresh is refused and the key is handed after it. Otherwise
+//! it is refused, at once on every later refresh, since Codex retries a refused one with fresh
+//! requests. The whole answer is bounded inside Codex's own wait; past the bound it is refused and
+//! nothing is remembered.
 
 use std::error::Error;
 use std::time::Duration;
@@ -76,7 +78,8 @@ impl CodexSwitchingAccount {
                 Some(tokens)
             }
             Ok(CodexRenewal::Dead) => {
-                // Refused right after a switch moved onto it: the previous account goes back.
+                // Refused right after a switch moved onto it: the previous account goes back, its
+                // tokens the answer; a previous account on its key is handed back after a refusal.
                 if let Some(previous_tokens) = self.hand_back(&provider_account_id).await {
                     return Some(previous_tokens);
                 }
