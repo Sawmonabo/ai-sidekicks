@@ -25,7 +25,7 @@ use sidekicks_platforms::PathRules;
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use sidekicks_policy::destructive_git::covers_destructive_git;
 use sidekicks_std::bounded_wait::wait_within;
-use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use sidekicks_std::file::atomic_write::{AtomicWriteError, rewrite_file_in_place};
 use sidekicks_std::file::real_location::resolve_real_location;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::missing_entry::MissingEntry;
@@ -48,8 +48,9 @@ const CODEX_RULE_FILE_EXTENSION: &str = "rules";
 const CODEX_PROJECT_RULE_FILE_NAME: &str = "sidekicks.rules";
 const CODEX_PROJECT_RULE_EXCLUDE_PATTERN: &str = "/.codex/rules/sidekicks.rules";
 
-// The rule file is the person's to read, as Codex leaves such files.
-const CODEX_PROJECT_RULE_FILE_MODE: u32 = 0o644;
+// A rule file the daemon makes is the person's to read, as Codex leaves such files; one already
+// there keeps its own mode.
+const CODEX_RULE_FILE_MODE: u32 = 0o644;
 
 // A host's rule covers both protocols a fetch takes.
 const CODEX_NETWORK_RULE_PROTOCOLS: [&str; 2] = ["https", "http"];
@@ -747,7 +748,7 @@ async fn write_rule_file(file_path: &Path, lines: &[&str]) -> Result<(), CodexRu
     }
     let mut text = lines.join("\n");
     text.push('\n');
-    write_file_atomically(file_path, text, CODEX_PROJECT_RULE_FILE_MODE)
+    rewrite_file_in_place(file_path, text, CODEX_RULE_FILE_MODE)
         .await
         .map_err(CodexRulesError::Write)
 }

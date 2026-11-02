@@ -29,10 +29,10 @@ use sidekicks_contracts::provider::settings::{
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
 use sidekicks_platforms::PathRules;
-use sidekicks_std::file::atomic_write::write_file_atomically;
+use sidekicks_std::file::atomic_write::rewrite_file_in_place;
 
 use super::{
-    AfterFailure, CODEX_PROJECT_RULE_FILE_MODE, CODEX_PROJECT_SETTINGS_FOLDER, CodexRuleSources,
+    AfterFailure, CODEX_PROJECT_SETTINGS_FOLDER, CODEX_RULE_FILE_MODE, CodexRuleSources,
     CodexRulesError, RULE_FILE_LOCK, evaluate_rule_files, is_codex_home_project, read_if_present,
     read_rule_file_texts, resolve_lock_key, rule_lines,
 };
@@ -148,7 +148,7 @@ pub(crate) async fn revoke_codex_standing_rule(
                 failure,
             })?;
     } else {
-        write_file_atomically(&listed.file, kept, CODEX_PROJECT_RULE_FILE_MODE)
+        rewrite_file_in_place(&listed.file, kept, CODEX_RULE_FILE_MODE)
             .await
             .map_err(CodexRulesError::Write)?;
     }

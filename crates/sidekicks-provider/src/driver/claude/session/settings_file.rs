@@ -11,7 +11,7 @@ use jsonc_parser::ParseOptions;
 use jsonc_parser::cst::{CstInputValue, CstObject, CstRootNode};
 use serde::de::IgnoredAny;
 use serde_json::{Map, Value};
-use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use sidekicks_std::file::atomic_write::{AtomicWriteError, rewrite_file_in_place};
 use sidekicks_std::file::real_location::resolve_real_location;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::missing_entry::MissingEntry;
@@ -122,8 +122,9 @@ pub(crate) async fn read_settings_file(
         })
 }
 
-/// Replaces `file`, whose edit lock `_hold` holds, with `text` crash-safely, a new file made with
-/// `mode` less the umask and its folder made where missing. Fails with `CreateFolder` or `Write`.
+/// Replaces `file`, whose edit lock `_hold` holds, with `text` crash-safely, through any link to it
+/// and keeping its mode; a new file is made with `mode` less the umask and its folder made where
+/// missing. Fails with `CreateFolder` or `Write`.
 pub(crate) async fn write_settings_file(
     _hold: &KeyHold<'_, PathBuf>,
     file: &Path,
@@ -138,7 +139,7 @@ pub(crate) async fn write_settings_file(
             }
         })?;
     }
-    write_file_atomically(file, text, mode)
+    rewrite_file_in_place(file, text, mode)
         .await
         .map_err(|failure| ClaudeSettingsFileError::Write {
             path: file.to_path_buf(),

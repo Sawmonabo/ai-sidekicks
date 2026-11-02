@@ -337,7 +337,7 @@ pub use posix::file_system::{
 };
 #[cfg(unix)]
 pub use posix::file_system::{
-    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, open_regular_file,
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, file_mode, has_file_mode, open_regular_file,
     remove_tree, rename_replacing,
 };
 #[cfg(unix)]
@@ -538,7 +538,7 @@ pub use windows::file_system::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::file_system::{
-    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, open_regular_file,
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, file_mode, has_file_mode, open_regular_file,
     remove_tree, rename_replacing,
 };
 #[cfg(target_os = "windows")]

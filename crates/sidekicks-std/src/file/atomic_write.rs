@@ -10,6 +10,7 @@ use sidekicks_platforms::LeftoverSweep;
 use tokio::task::JoinError;
 
 use crate::cleanup_failures::CleanupFailures;
+use crate::missing_entry::is_missing_entry;
 
 /// Why a crash-safe write failed.
 #[derive(Debug, thiserror::Error)]
@@ -58,6 +59,44 @@ pub async fn write_file_atomically(
     let target = file_path.to_path_buf();
     match tokio::task::spawn_blocking(move || write_and_flush(&target, contents.as_ref(), mode))
         .await
+    {
+        Ok(written) => written,
+        Err(failure) => Err(AtomicWriteError::Interrupted {
+            path: file_path.to_path_buf(),
+            failure,
+        }),
+    }
+}
+
+/// Replaces the file `file_path` reaches, through any link to it, with `contents` as
+/// [`write_file_atomically`] does, the new file taking that file's mode less the umask, so a
+/// person's own file keeps its link and its mode; a file not there yet is made with
+/// `new_file_mode`. Fails as [`write_file_atomically`] does, a failed resolve or mode read included
+/// as [`AtomicWriteError::Write`].
+pub async fn rewrite_file_in_place(
+    file_path: &Path,
+    contents: impl AsRef<[u8]> + Send + 'static,
+    new_file_mode: u32,
+) -> Result<(), AtomicWriteError> {
+    let path = file_path.to_path_buf();
+    match tokio::task::spawn_blocking(move || {
+        let resolved = sidekicks_platforms::real_path(&path).and_then(|target| {
+            let mode = sidekicks_platforms::file_mode(&target)?;
+            Ok((target, mode))
+        });
+        let (target, mode) = match resolved {
+            Ok(resolved) => resolved,
+            Err(failure) if is_missing_entry(&failure) => (path, new_file_mode),
+            Err(failure) => {
+                return Err(AtomicWriteError::Write {
+                    path,
+                    failure: CleanupFailures::new(failure, Vec::new(), "reading the file's mode"),
+                });
+            }
+        };
+        write_and_flush(&target, contents.as_ref(), mode)
+    })
+    .await
     {
         Ok(written) => written,
         Err(failure) => Err(AtomicWriteError::Interrupted {
@@ -121,7 +160,7 @@ pub fn write_and_flush(target: &Path, contents: &[u8], mode: u32) -> Result<(), 
 mod tests {
     use sidekicks_platforms::has_file_mode;
 
-    use super::{write_file_atomically, write_file_atomically_if_changed};
+    use super::{rewrite_file_in_place, write_file_atomically, write_file_atomically_if_changed};
 
     // Fails when only the bytes are compared, so a file holding the app's contents under a wider
     // mode keeps it.
@@ -138,5 +177,28 @@ mod tests {
             .expect("the file is checked");
 
         assert!(has_file_mode(&file, 0o600).expect("the file's mode reads"));
+    }
+
+    // Fails when the rewrite takes the new-file mode over the file's own, so a file the person
+    // keeps private is left readable to others.
+    #[tokio::test]
+    async fn a_rewrite_keeps_the_files_own_mode_and_a_new_file_takes_the_given_one() {
+        let folder = tempfile::tempdir().expect("a scratch folder");
+        let kept = folder.path().join("kept.json");
+        write_file_atomically(&kept, b"{}", 0o600)
+            .await
+            .expect("the private file is written");
+
+        rewrite_file_in_place(&kept, b"{\"a\":1}", 0o644)
+            .await
+            .expect("the file is rewritten");
+        let made = folder.path().join("made.json");
+        rewrite_file_in_place(&made, b"{}", 0o640)
+            .await
+            .expect("the new file is written");
+
+        assert_eq!(std::fs::read(&kept).expect("the file reads"), b"{\"a\":1}");
+        assert!(has_file_mode(&kept, 0o600).expect("the file's mode reads"));
+        assert!(has_file_mode(&made, 0o640).expect("the new file's mode reads"));
     }
 }
