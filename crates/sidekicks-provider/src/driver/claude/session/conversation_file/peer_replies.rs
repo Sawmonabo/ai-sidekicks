@@ -3,13 +3,12 @@
 //! transcript holds the message's record, and at the receiver's idle notice the answer of the turn
 //! the message started, nothing more for one that joined a turn under way, or not delivered where
 //! no record of it came. One watch per transcript follows its appends while a message is awaited
-//! in it, or waits for it to appear in its project folder; where none runs, the transcript is read
-//! once at the notice.
+//! in it, or waits for it to appear in its project folder, and for that folder to appear in the
+//! config folder's `projects` folder; where none runs, the transcript is read once at the notice.
 
 mod fold;
 mod project_key;
-// The cases follow a transcript through a file watch, which Windows has none of.
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests;
 
 use std::collections::HashMap;
@@ -32,7 +31,8 @@ use crate::port::session_message_reading_publisher::{
     SessionMessageReading, SessionMessageReadingPublisher,
 };
 
-/// The most bytes one read of a transcript at a notice takes.
+/// The size of each chunk a read of the transcript at a notice takes, so a long transcript is read
+/// in bounded pieces.
 const NOTICE_READ_LIMIT: usize = 64 * 1024;
 
 /// The messages awaited in terminal sessions' transcripts, each until its receiver's idle notice.
@@ -70,15 +70,20 @@ pub(crate) struct ClaudePeerReplyWait {
     notice_id: String,
 }
 
-// Where a watch starts: the transcript, or the project folder it is yet to appear in.
+// Where a watch starts: the transcript, or the project folder it is yet to appear in, inside the
+// `projects` folder the project folder may be yet to appear in.
 enum TranscriptSource {
     File(PathBuf),
-    Folder { folder: PathBuf, file: PathBuf },
+    Folder {
+        projects: PathBuf,
+        folder: PathBuf,
+        file: PathBuf,
+    },
 }
 
-// How a wait for a transcript to appear ended: it came, with the drain asked as a look found it,
-// or no message is awaited in it any more.
-enum TranscriptArrival {
+// How a wait for a folder or the transcript to appear ended: it came, with the drain asked as a
+// look found it, or no message is awaited in the transcript any more.
+enum Arrival {
     Arrived {
         drained: Option<oneshot::Sender<()>>,
     },
@@ -139,12 +144,12 @@ impl ClaudePeerReplies {
                 )
             } else {
                 let source = receiver.working_folder.as_deref().map(|working_folder| {
-                    let folder = config_folder
-                        .join("projects")
-                        .join(claude_project_key(working_folder));
+                    let projects = config_folder.join("projects");
+                    let folder = projects.join(claude_project_key(working_folder));
                     TranscriptSource::Folder {
                         file: folder.join(format!("{session_id}.jsonl")),
                         folder,
+                        projects,
                     }
                 });
                 (0, source)
@@ -359,7 +364,7 @@ async fn drain_watch(drains: Option<mpsc::Sender<oneshot::Sender<()>>>) -> bool 
     drains.send(drained).await.is_ok() && answer.await.is_ok()
 }
 
-// Follows one transcript while a message is awaited in it. A missing project folder and a
+// Follows one transcript while a message is awaited in it. A missing `projects` folder and a
 // platform with no watch end it quietly, any other failure is logged; its messages are then read
 // once at their notices.
 async fn watch_transcript(
@@ -394,12 +399,14 @@ async fn follow_transcript(
 ) -> io::Result<()> {
     let (file, mut pending) = match source {
         TranscriptSource::File(file) => (file, None),
-        TranscriptSource::Folder { folder, file } => {
-            match await_transcript(&folder, &file, drain_requests).await? {
-                TranscriptArrival::Arrived { drained } => (file, drained),
-                TranscriptArrival::Unawaited => return Ok(()),
-            }
-        }
+        TranscriptSource::Folder {
+            projects,
+            folder,
+            file,
+        } => match await_transcript(&projects, &folder, &file, drain_requests).await? {
+            Arrival::Arrived { drained } => (file, drained),
+            Arrival::Unawaited => return Ok(()),
+        },
     };
     let mut watch = FileAppendWatch::watch(&file).await?;
     let mut lines = TranscriptLines::new(&file, 0);
@@ -434,34 +441,57 @@ async fn follow_transcript(
     }
 }
 
-// Waits for the transcript `file` to appear in `folder`. It is looked for once the watch is set,
-// as it may have come since the search, and at each drain asked, since on Linux a file created in
-// place rather than renamed in wakes no folder watch. A drain asked while it is still missing is
-// dropped unanswered, so the notice searches every project folder for it, as it may sit in
-// another. Fails as the folder cannot be watched or listed.
+// Waits for the transcript `file` to appear in its project folder `folder`, first for that folder
+// to appear in `projects` where it is not there yet. Fails as a folder cannot be watched or listed.
 async fn await_transcript(
+    projects: &Path,
     folder: &Path,
     file: &Path,
     drain_requests: &mut mpsc::Receiver<oneshot::Sender<()>>,
-) -> io::Result<TranscriptArrival> {
-    let mut arrivals = FolderArrivalWatch::watch(folder).await?;
-    if tokio::fs::try_exists(file).await? {
-        return Ok(TranscriptArrival::Arrived { drained: None });
+) -> io::Result<Arrival> {
+    let mut drained = None;
+    if !tokio::fs::try_exists(folder).await? {
+        match await_arrival(projects, folder, None, drain_requests).await? {
+            Arrival::Arrived {
+                drained: folder_drained,
+            } => drained = folder_drained,
+            Arrival::Unawaited => return Ok(Arrival::Unawaited),
+        }
     }
+    await_arrival(folder, file, drained, drain_requests).await
+}
+
+// Waits for `wanted` to appear in the folder `watched`, `drained` handed on where it is already
+// there. It is looked for once the watch is set, as it may have come since the last look, and at
+// each drain asked, since on Linux an entry created in place rather than renamed in wakes no folder
+// watch. A drain asked while it is still missing is dropped unanswered, so the notice searches
+// every project folder for the transcript, as it may sit in another. Fails as the folder cannot be
+// watched or listed.
+async fn await_arrival(
+    watched: &Path,
+    wanted: &Path,
+    drained: Option<oneshot::Sender<()>>,
+    drain_requests: &mut mpsc::Receiver<oneshot::Sender<()>>,
+) -> io::Result<Arrival> {
+    let mut arrivals = FolderArrivalWatch::watch(watched).await?;
+    if tokio::fs::try_exists(wanted).await? {
+        return Ok(Arrival::Arrived { drained });
+    }
+    drop(drained);
     loop {
         tokio::select! {
             request = drain_requests.recv() => {
                 let Some(drained) = request else {
-                    return Ok(TranscriptArrival::Unawaited);
+                    return Ok(Arrival::Unawaited);
                 };
-                if tokio::fs::try_exists(file).await? {
-                    return Ok(TranscriptArrival::Arrived { drained: Some(drained) });
+                if tokio::fs::try_exists(wanted).await? {
+                    return Ok(Arrival::Arrived { drained: Some(drained) });
                 }
                 drop(drained);
             }
             arrived = arrivals.next_arrivals() => {
-                if arrived?.iter().any(|arrival| arrival == file) {
-                    return Ok(TranscriptArrival::Arrived { drained: None });
+                if arrived?.iter().any(|arrival| arrival == wanted) {
+                    return Ok(Arrival::Arrived { drained: None });
                 }
             }
         }

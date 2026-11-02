@@ -182,8 +182,10 @@ enum TurnReading {
     Unseen,
     // It joined a turn under way, which answers it nothing.
     Absorbed,
-    // It started a turn: the ids of the turn's records, and its last reply so far.
+    // It started a turn: the uuid of the record that started it, the ids of the turn's records,
+    // and its last reply so far.
     Started {
+        root_record: String,
         turn_ids: HashSet<Uuid>,
         reply: Option<Reply>,
     },
@@ -241,6 +243,9 @@ impl AwaitedMessage {
             }
             self.turn = if is_own_start {
                 TurnReading::Started {
+                    // A start record with no uuid, which Claude Code always writes, names the
+                    // message's own turn.
+                    root_record: entry.uuid.clone().unwrap_or_else(|| message_id.to_owned()),
                     turn_ids: entry
                         .uuid
                         .as_deref()
@@ -258,7 +263,10 @@ impl AwaitedMessage {
                 }
             });
         }
-        let TurnReading::Started { turn_ids, reply } = &mut self.turn else {
+        let TurnReading::Started {
+            turn_ids, reply, ..
+        } = &mut self.turn
+        else {
             return None;
         };
         let is_in_turn = entry
@@ -269,8 +277,12 @@ impl AwaitedMessage {
         if !is_in_turn || line.starts_turn() {
             return None;
         }
-        if let Some(uuid) = entry.uuid.as_deref().and_then(read_uuid) {
-            turn_ids.insert(uuid);
+        // A record already folded, as a read again over lines a watch folded meets it, adds
+        // nothing more.
+        if let Some(uuid) = entry.uuid.as_deref().and_then(read_uuid)
+            && !turn_ids.insert(uuid)
+        {
+            return None;
         }
         if entry.entry_type.as_deref() == Some("assistant")
             && let Some(message) = &entry.message
@@ -294,13 +306,19 @@ impl AwaitedMessage {
         None
     }
 
-    /// What the message's idle notice publishes: a started turn its answer, a message absorbed
-    /// into a turn nothing more, and one with no record `NotDelivered`.
+    /// What the message's idle notice publishes: a started turn its root record and answer, no
+    /// answer where its last reply held no text, a message absorbed into a turn nothing more, and
+    /// one with no record `NotDelivered`.
     pub(super) fn settle(self, message_id: String) -> Option<SessionMessageReading> {
         match self.turn {
-            TurnReading::Started { reply, .. } => Some(SessionMessageReading::Answered {
+            TurnReading::Started {
+                root_record, reply, ..
+            } => Some(SessionMessageReading::Answered {
                 message_id,
-                answer: reply.map(|reply| reply.text).unwrap_or_default(),
+                turn_record: root_record,
+                answer: reply
+                    .map(|reply| reply.text)
+                    .filter(|text| !text.is_empty()),
             }),
             TurnReading::Absorbed => None,
             TurnReading::Unseen => Some(SessionMessageReading::NotDelivered { message_id }),
@@ -310,4 +328,83 @@ impl AwaitedMessage {
 
 fn read_uuid(text: &str) -> Option<Uuid> {
     Uuid::parse_str(text).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    use super::{AwaitedMessage, TranscriptLine, read_line};
+    use crate::port::session_message_reading_publisher::SessionMessageReading;
+
+    const MESSAGE: &str = "6f1c1e0a-0000-4000-8000-0000000000a1";
+    const FIRST_REPLY: &str = "6f1c1e0a-0000-4000-8000-000000000001";
+    const TOOL_RESULT: &str = "6f1c1e0a-0000-4000-8000-000000000002";
+    const LAST_REPLY: &str = "6f1c1e0a-0000-4000-8000-000000000003";
+
+    fn line(record: &Value) -> TranscriptLine {
+        read_line(record.to_string().as_bytes()).expect("the record is one JSON object")
+    }
+
+    fn peer_start() -> TranscriptLine {
+        line(&json!({
+            "type": "user", "uuid": MESSAGE, "parentUuid": null, "turnOrigin": "peer",
+            "message": {"role": "user", "content": "a peer's message"},
+        }))
+    }
+
+    // Killed by a record folded again appending its text again (the answer reads "oursours").
+    #[test]
+    fn a_record_folded_twice_answers_its_text_once() {
+        let mut message = AwaitedMessage::new(0);
+        let reply = line(&json!({
+            "type": "assistant", "uuid": FIRST_REPLY, "parentUuid": MESSAGE,
+            "message": {"id": "msg-ours", "content": [{"type": "text", "text": "ours"}]},
+        }));
+        for folded in [peer_start(), reply] {
+            message.fold(MESSAGE, &folded);
+            message.fold(MESSAGE, &folded);
+        }
+
+        assert_eq!(
+            message.settle(MESSAGE.to_owned()),
+            Some(SessionMessageReading::Answered {
+                message_id: MESSAGE.to_owned(),
+                turn_record: MESSAGE.to_owned(),
+                answer: Some("ours".to_owned()),
+            })
+        );
+    }
+
+    // Killed by a turn whose last reply holds no text answering an empty text.
+    #[test]
+    fn a_turn_whose_last_reply_holds_no_text_answers_nothing() {
+        let mut message = AwaitedMessage::new(0);
+        for folded in [
+            peer_start(),
+            line(&json!({
+                "type": "assistant", "uuid": FIRST_REPLY, "parentUuid": MESSAGE,
+                "message": {"id": "msg-first", "content": [{"type": "text", "text": "looking"}]},
+            })),
+            line(&json!({
+                "type": "user", "uuid": TOOL_RESULT, "parentUuid": FIRST_REPLY,
+                "message": {"role": "user", "content": [{"type": "tool_result"}]},
+            })),
+            line(&json!({
+                "type": "assistant", "uuid": LAST_REPLY, "parentUuid": TOOL_RESULT,
+                "message": {"id": "msg-last", "content": [{"type": "tool_use", "name": "Read"}]},
+            })),
+        ] {
+            message.fold(MESSAGE, &folded);
+        }
+
+        assert_eq!(
+            message.settle(MESSAGE.to_owned()),
+            Some(SessionMessageReading::Answered {
+                message_id: MESSAGE.to_owned(),
+                turn_record: MESSAGE.to_owned(),
+                answer: None,
+            })
+        );
+    }
 }

@@ -503,7 +503,9 @@ pub use wake_helper::{WakeHelper, wake_helper};
 pub use wake_helper::{WakeHelperError, WakeHelperStatus};
 pub use wake_watch::WakeWatchError;
 pub use wall_clock::{WallClock, WallClockWait};
-pub use watch::{FileAppendWatch, FolderArrivalWait, FolderArrivalWatch};
+pub use watch::{
+    FileAppendWatch, FolderArrivalWait, FolderArrivalWatch, WATCHES_ARRIVALS_AND_APPENDS,
+};
 pub use windowless_app::WindowlessLaunch;
 #[cfg(target_os = "windows")]
 pub use windows::allocator::{

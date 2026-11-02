@@ -1,7 +1,9 @@
 //! A terminal session's replies read from its transcript: each awaited message delivered as its
 //! record lands, and at its idle notice answered by the turn it started, given nothing more where
 //! it joined a turn under way, or not delivered where it left no record; a transcript yet to be
-//! written is followed from its project folder, or read once at the notice where no folder is.
+//! written is followed from its project folder, a project folder yet to be made from the
+//! `projects` folder, and the transcript read once at the notice where no `projects` folder is.
+//! Each case follows a transcript through the system's watches, so it runs only where they are.
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -9,6 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Value, json};
+use sidekicks_platforms::WATCHES_ARRIVALS_AND_APPENDS;
 use sidekicks_std::port_registration::PortRegistration;
 
 use super::ClaudePeerReplies;
@@ -96,10 +99,12 @@ fn delivered(message_id: &str) -> SessionMessageReading {
     }
 }
 
-fn answered(message_id: &str, answer: &str) -> SessionMessageReading {
+// The answer to `message_id` from the turn the record `turn_record` started.
+fn answered(message_id: &str, turn_record: &str, answer: &str) -> SessionMessageReading {
     SessionMessageReading::Answered {
         message_id: message_id.to_owned(),
-        answer: answer.to_owned(),
+        turn_record: turn_record.to_owned(),
+        answer: Some(answer.to_owned()),
     }
 }
 
@@ -109,6 +114,9 @@ fn answered(message_id: &str, answer: &str) -> SessionMessageReading {
 // joined ("s" alone), and by a notice no wait awaits being taken.
 #[tokio::test]
 async fn a_watched_transcript_answers_the_turn_each_message_started_and_no_other() {
+    if !WATCHES_ARRIVALS_AND_APPENDS {
+        return;
+    }
     let scratch = tempfile::tempdir().expect("a scratch folder is made");
     let config_folder = scratch.path().join("config");
     let project_folder = config_folder.join("projects").join("-work-app");
@@ -180,7 +188,7 @@ async fn a_watched_transcript_answers_the_turn_each_message_started_and_no_other
         vec![
             delivered(MESSAGE_M),
             delivered(MESSAGE_B),
-            answered(MESSAGE_M, "ours"),
+            answered(MESSAGE_M, MESSAGE_M, "ours"),
             SessionMessageReading::NotDelivered {
                 message_id: MESSAGE_C.to_owned(),
             },
@@ -188,11 +196,16 @@ async fn a_watched_transcript_answers_the_turn_each_message_started_and_no_other
     );
 }
 
-// Killed by the read at the notice skipped where no watch runs (E reads `NotDelivered`), by a
-// merged start answering only the message it is named for (D2 reads `NotDelivered`), and by a
-// folder watch that never turns to the transcript once it appears.
+// Killed by the read at the notice skipped where no watch runs (F reads `NotDelivered`), by a
+// merged start answering only the message it is named for (D2 reads `NotDelivered`), by each
+// merged message naming its own turn rather than the start record (D2 names itself), by a folder
+// watch that never turns to the transcript once it appears, and by a missing project folder left
+// unwatched (E's `Delivered` waits for its notice).
 #[tokio::test]
 async fn a_transcript_written_after_the_send_is_read_with_or_without_a_watch() {
+    if !WATCHES_ARRIVALS_AND_APPENDS {
+        return;
+    }
     let scratch = tempfile::tempdir().expect("a scratch folder is made");
     let config_folder = scratch.path().join("config");
     let (replies, recording) = recording_replies();
@@ -224,36 +237,71 @@ async fn a_transcript_written_after_the_send_is_read_with_or_without_a_watch() {
     assert!(replies.take_idle_notice("n-d").await);
     assert!(replies.take_idle_notice("n-d2").await);
 
-    // Not even the project folder is there: nothing is watched, and the notice reads the file.
-    let unwatched_session = "1a2b3c4d-1111-4222-8333-000000000002";
+    // The project folder is not there yet: the `projects` folder is watched for it, and the
+    // transcript is delivered as it lands, before the notice.
+    let arriving_session = "1a2b3c4d-1111-4222-8333-000000000002";
     let message_e = "6f1c1e0a-0000-4000-8000-0000000000f1";
-    let receiver = terminal_session(&config_folder, unwatched_session, "/work/other");
+    let receiver = terminal_session(&config_folder, arriving_session, "/work/other");
     let _wait_e = replies
         .await_reply(&receiver, message_e.to_owned(), "n-e".to_owned())
         .await
         .expect("the reply is awaited");
-    // The watch finds no folder and ends before the folder is made.
     tokio::time::sleep(WRITE_GAP).await;
-    let unwatched_folder = config_folder.join("projects").join("-work-other");
+    // Made beside and renamed in, which every system's folder watch wakes on.
+    let staged_folder = config_folder.join("-work-other");
+    std::fs::create_dir(&staged_folder).expect("the project folder is made");
+    append(
+        &staged_folder.join(format!("{arriving_session}.jsonl")),
+        &[
+            peer_start(message_e, PROMPT_REPLY, &[]),
+            reply(OUR_LAST, message_e, "msg-e", "followed from projects"),
+        ],
+    );
+    std::fs::rename(
+        &staged_folder,
+        config_folder.join("projects").join("-work-other"),
+    )
+    .expect("the project folder is moved in");
+    tokio::time::sleep(WRITE_GAP).await;
+    assert_eq!(
+        recording.message_readings().last(),
+        Some(&delivered(message_e))
+    );
+    assert!(replies.take_idle_notice("n-e").await);
+
+    // Not even the `projects` folder is there: nothing is watched, and the notice reads the file.
+    let bare_config_folder = scratch.path().join("bare-config");
+    let unwatched_session = "1a2b3c4d-1111-4222-8333-000000000003";
+    let message_f = "6f1c1e0a-0000-4000-8000-0000000000f2";
+    let receiver = terminal_session(&bare_config_folder, unwatched_session, "/work/bare");
+    let _wait_f = replies
+        .await_reply(&receiver, message_f.to_owned(), "n-f".to_owned())
+        .await
+        .expect("the reply is awaited");
+    // The watch finds no `projects` folder and ends before the folder is made.
+    tokio::time::sleep(WRITE_GAP).await;
+    let unwatched_folder = bare_config_folder.join("projects").join("-work-bare");
     std::fs::create_dir_all(&unwatched_folder).expect("the project folder is made");
     append(
         &unwatched_folder.join(format!("{unwatched_session}.jsonl")),
         &[
-            peer_start(message_e, PROMPT_REPLY, &[]),
-            reply(OUR_LAST, message_e, "msg-e", "read at the notice"),
+            peer_start(message_f, PROMPT_REPLY, &[]),
+            reply(OUR_LAST, message_f, "msg-f", "read at the notice"),
         ],
     );
-    assert!(replies.take_idle_notice("n-e").await);
+    assert!(replies.take_idle_notice("n-f").await);
 
     assert_eq!(
         recording.message_readings(),
         vec![
             delivered(message_d),
             delivered(message_d2),
-            answered(message_d, "done"),
-            answered(message_d2, "done"),
+            answered(message_d, message_d, "done"),
+            answered(message_d2, message_d, "done"),
             delivered(message_e),
-            answered(message_e, "read at the notice"),
+            answered(message_e, message_e, "followed from projects"),
+            delivered(message_f),
+            answered(message_f, message_f, "read at the notice"),
         ]
     );
 }
