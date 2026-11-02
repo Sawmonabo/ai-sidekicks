@@ -1,16 +1,23 @@
+use std::collections::HashSet;
+
 use rusqlite::params;
 use sidekicks_client::daemon_connection::{DaemonConnection, DaemonEndpoint};
 use sidekicks_contracts::provider::account::methods::ProviderAccountList;
 use sidekicks_contracts::provider::account::record::ProviderAccountListRequest;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, create_missing_private_folders};
+use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::test_registry::test_driver_services;
 use sidekicks_store::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, open_database,
 };
 use tokio_util::sync::CancellationToken;
 
 use super::TestHome;
+use crate::daemon::process::provider_accounts::collect_provider_account_legs;
 use crate::daemon::schema::schema_parts;
 
 // The stored account's id.
@@ -76,4 +83,27 @@ async fn a_client_lists_the_provider_accounts_the_registry_holds() {
         .map(|account| account.account_id().as_str())
         .collect();
     assert_eq!(account_ids, [ACCOUNT_ID]);
+}
+
+// The plane takes every act the drivers' account legs offer: over the real drivers, each
+// provider's window turns, Claude Code's pasted-token status read alone, and no sign-in, which no
+// driver offers. Killed by the window-turn arm or the token-status arm dropped from the collection.
+#[tokio::test]
+async fn the_plane_collects_each_act_the_real_drivers_offer() {
+    let providers =
+        ProviderRegistry::register_from(PROVIDER_REGISTRATIONS, &test_driver_services());
+    let claude = ProviderId::new("claude".to_owned()).expect("a provider id");
+    let codex = ProviderId::new("codex".to_owned()).expect("a provider id");
+
+    let legs = collect_provider_account_legs(&providers);
+
+    assert_eq!(
+        legs.window_turn.keys().cloned().collect::<HashSet<_>>(),
+        HashSet::from([claude.clone(), codex])
+    );
+    assert_eq!(
+        legs.token_status.keys().cloned().collect::<Vec<_>>(),
+        [claude]
+    );
+    assert!(legs.sign_in.is_empty());
 }
