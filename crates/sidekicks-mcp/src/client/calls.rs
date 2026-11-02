@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_provider::port::question::mint_tool_server_request_id;
 use sidekicks_std::mutex_lock::lock;
 use tokio_util::sync::CancellationToken;
 
@@ -83,11 +84,18 @@ impl CallsInFlight {
         let Some((run_id, ended)) = self.run_of(number) else {
             return QuestionOutcome::Withdrawn;
         };
-        let request_id = watches.mint_request_id(scope, &format!("call-{number}"));
+        let request_id = mint_tool_server_request_id();
         let question = compose_question(scope, run_id, request_id.clone(), &params);
         let (answer, answered) = ElicitationAnswer::open(params);
         if !watches
-            .take_question(scope, question, answer, QuestionTake::InRunTurn, &ended)
+            .take_question(
+                scope,
+                question,
+                answer,
+                QuestionTake::InRunTurn,
+                &ended,
+                None,
+            )
             .await
         {
             return QuestionOutcome::Withdrawn;
@@ -102,7 +110,7 @@ impl CallsInFlight {
             watches.withdraw_questions_later(scope.session_id, vec![request_id]);
             return QuestionOutcome::Withdrawn;
         }
-        let outcome = AwaitedQuestion::hold(watches, scope.session_id, request_id.clone())
+        let outcome = AwaitedQuestion::hold(watches, scope.session_id, request_id.clone(), None)
             .answer(answered)
             .await;
         // Settled, it is no longer open, so the call's end has nothing to withdraw for it.
@@ -166,6 +174,7 @@ impl Drop for TrackedCall<'_> {
 mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
+    use sidekicks_provider::port::question::is_tool_server_request_id;
     use tokio::time::{Duration, timeout};
 
     use crate::client::tasks::McpToolCallEnd;
@@ -236,7 +245,8 @@ mod tests {
 
     // Mutations: in `connection.rs`'s `create_elicitation`, answer `cancel` instead of asking
     // `ask_newest_call`; in `CallsInFlight::track`, record another run; or in
-    // `revision_2026_07_28::call_tool`, fail an `InputRequired` round instead of answering it.
+    // `revision_2026_07_28::call_tool`, fail an `InputRequired` round instead of answering it; or in
+    // `CallsInFlight::ask`, mint the question's id anywhere but `mint_tool_server_request_id`.
     #[rstest]
     #[case::a_2025_11_25_request(eliciting_v1_server(), v1_answer)]
     #[case::a_2026_07_28_input_round(eliciting_v2_server(), v2_answer)]
@@ -268,6 +278,10 @@ mod tests {
         assert_eq!(
             (question.session_id, question.run_id),
             (server.session_id, run_id)
+        );
+        assert!(
+            is_tool_server_request_id(&question.request_id),
+            "the question's id is minted for the start's withdrawal to find"
         );
         assert_eq!(server_answer(&server), board_accepted());
         assert!(sink.recorded().is_empty(), "a plain call records no task");

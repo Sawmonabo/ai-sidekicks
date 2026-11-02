@@ -39,11 +39,14 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::spawn_environment::SpawnEnvironmentError;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 
 use crate::client::calls::CallsInFlight;
 use crate::client::idle_window::ToolCallActivity;
 use crate::client::prompts::PromptWatchers;
-use crate::client::raw_copy::{INITIALIZE_METHOD, RawCopyTransport, RawReplyCopy};
+use crate::client::raw_copy::{
+    DetachedRequests, INITIALIZE_METHOD, RawCopyTransport, RawReplyCopy,
+};
 use crate::client::requests::{McpRequestError, PageCursors, RequestWait, ServerRequests};
 use crate::client::stdio::StdioProcess;
 use crate::client::tasks::watches::{QuestionOutcome, TaskWatches};
@@ -189,6 +192,9 @@ pub(crate) struct McpServerConnection {
     are_tools_stale: Arc<AtomicBool>,
     /// A stdio server's process, ended when the connection closes or drops.
     pub(super) process: Option<StdioProcess>,
+    /// Canceled as the connection starts to close, before its service, so a 2025-11-25 task's
+    /// question whose request the close cuts is detached rather than withdrawn.
+    closing: CancellationToken,
 }
 
 impl McpServerConnection {
@@ -214,17 +220,22 @@ impl McpServerConnection {
         let are_tools_stale = Arc::new(AtomicBool::new(false));
         let calls = Arc::new(CallsInFlight::default());
         let activity = Arc::new(ToolCallActivity::new());
+        let closing = CancellationToken::new();
+        let detached = DetachedRequests::default();
         let handler = McpClientHandler {
             scope: scope.clone(),
             are_tools_stale: Arc::clone(&are_tools_stale),
             calls: Arc::clone(&calls),
             activity: Arc::clone(&activity),
+            closing: closing.clone(),
+            detached: Arc::clone(&detached),
         };
         let lifecycle = serve_client_with_lifecycle(
             handler,
             RawCopyTransport {
                 inner: transport,
                 raw: raw.clone(),
+                detached,
             },
             ClientLifecycleMode::Auto {
                 preferred_versions: vec![ProtocolVersion::V_2026_07_28],
@@ -279,6 +290,7 @@ impl McpServerConnection {
             task_tools: Mutex::new(HashSet::new()),
             are_tools_stale,
             process: None,
+            closing,
         };
         if task_generation == Some(McpTaskGeneration::V1)
             && let Err(error) = connection.read_task_tools().await
@@ -290,10 +302,11 @@ impl McpServerConnection {
         Ok(connection)
     }
 
-    /// Closes the connection: its transport first, which closes a stdio server's input, the
-    /// primary way to ask it to stop; then, for a stdio server, its process is ended as
-    /// [`StdioProcess::close`] says. Never fails.
+    /// Closes the connection: it is marked closing, then its transport is closed, which closes a
+    /// stdio server's input, the primary way to ask it to stop; then, for a stdio server, its
+    /// process is ended as [`StdioProcess::close`] says. Never fails.
     pub(crate) async fn close(&self) {
+        self.closing.cancel();
         self.service.cancellation_token().cancel();
         if let Some(process) = &self.process {
             process.close().await;
@@ -392,6 +405,10 @@ pub(crate) struct McpClientHandler {
     are_tools_stale: Arc<AtomicBool>,
     calls: Arc<CallsInFlight>,
     activity: Arc<ToolCallActivity>,
+    /// The connection's closing mark.
+    closing: CancellationToken,
+    /// The requests whose answer the transport drops.
+    detached: DetachedRequests,
 }
 
 impl ClientHandler for McpClientHandler {
@@ -426,16 +443,23 @@ impl ClientHandler for McpClientHandler {
                 Some(task_id) => {
                     self.scope
                         .task_watches
-                        .ask_v1_task_question(&self.scope, task_id, params)
+                        .ask_v1_task_question(&self.scope, task_id, params, &self.closing)
                         .await
                 }
                 None => self.calls.ask_newest_call(&self.scope, params).await,
             }
         };
-        // A request the server canceled drops its question, which withdraws it from the card.
+        // A request the server canceled drops its question, which withdraws it from the card. One
+        // the connection's close cut leaves a task's question open for the server's next ask on
+        // another connection, and the answer to it is never sent.
         let asked = tokio::select! {
             asked = ask => asked,
-            () = context.ct.cancelled() => Some(QuestionOutcome::Withdrawn),
+            () = context.ct.cancelled() => {
+                if self.closing.is_cancelled() && related_task.is_some() {
+                    lock(&self.detached).insert(context.id.clone());
+                }
+                Some(QuestionOutcome::Withdrawn)
+            }
         };
         Ok(match asked {
             Some(QuestionOutcome::Answered(content)) => {

@@ -1,5 +1,7 @@
 use serde_json::{Map, Value, json};
-use sidekicks_provider::port::question::QuestionPort as _;
+use sidekicks_provider::port::question::{
+    QuestionPort as _, is_tool_server_request_id, mint_tool_server_request_id,
+};
 use tokio::time::{Duration, Instant, timeout};
 
 use super::read_task;
@@ -56,7 +58,8 @@ fn status_reply(status: &str) -> Reply {
 // `poll_once`'s suggested interval, which polls at the 2 s default; move
 // `observe_mcp_task_acceptance` after `follow_task`; never hold the result on
 // "input_required"; or in `connection.rs`'s `create_elicitation`, read the task id from the
-// request's params instead of `context.meta`, which leaves the question unasked.
+// request's params instead of `context.meta`, which leaves the question unasked; or mint the
+// question's id anywhere but `mint_tool_server_request_id`.
 #[tokio::test(start_paused = true)]
 async fn a_2025_11_25_task_keeps_its_handle_and_interval_and_asks_its_question_on_the_card() {
     let (client, card) = test_client();
@@ -104,6 +107,10 @@ async fn a_2025_11_25_task_keeps_its_handle_and_interval_and_asks_its_question_o
     assert_eq!(
         (question.session_id, question.run_id),
         (server.session_id, run_id)
+    );
+    assert!(
+        is_tool_server_request_id(&question.request_id),
+        "the question's id is minted for the start's withdrawal to find"
     );
     assert_eq!(
         server.answer_to("server-1").expect("the client answered")["result"],
@@ -681,10 +688,7 @@ async fn a_task_dropped_while_its_question_waits_for_the_run_withdraws_it() {
     let (client, card) = test_client();
     let (connection, server) = open_test_server(&client, asking_task_server()).await;
     let call = track_call();
-    let request_id = connection
-        .scope
-        .task_watches
-        .mint_request_id(&connection.scope, "other");
+    let request_id = mint_tool_server_request_id();
     let (answer, _answered) = ElicitationAnswer::open(board_form());
     card.take_tool_server_question(
         compose_question(&connection.scope, call.run_id, request_id, &board_form()),

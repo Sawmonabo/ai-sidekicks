@@ -314,6 +314,7 @@ async fn answer_input_request(
             &params,
             answer,
             QuestionTake::Now,
+            None,
         )
         .await
         .is_some_and(|taken| taken.is_some())
