@@ -65,15 +65,28 @@ fn helper_stop(session: &TestCodexSession, run_id: RunId) -> HelperStopParams {
     }
 }
 
-// A helper's stop reads its newest turn: a running one is interrupted and its commands ended, an
+// Which of the two helper stops a test takes.
+#[derive(Clone, Copy, Debug)]
+enum HelperStop {
+    // The person's interrupt of the helper's run.
+    Interrupt,
+    // The stop from the console.
+    Stop,
+}
+
+// A helper's stop, by the person's interrupt of its run or from the console, reads its newest
+// turn on its own conversation alone: a running one is interrupted and its commands ended, an
 // interrupted one is left so, and an ended one, a helper no message reached, a conversation Codex
 // does not hold, an interrupt racing the turn's own end and a session not live all read as ended,
 // the commands of an ended turn ended again; a refused interrupt and a service that never answers
-// fail. Kills: the status not read (the interrupted case), a conversation Codex does not hold read
-// as a failure (both `thread not found` cases), a session not live read as a failure (the not-live
-// case), no deadline (the silent case outlives the test's bound), and the commands not ended after
-// an interrupt or on an ended turn (the commands list never comes in the running, completed and
-// turn-ended-first cases).
+// fail. The route keeps the daemon's interrupt mark only where Codex stopped a running turn, so
+// any other end reads as the helper's own. Kills: the status not read (the interrupted case), a
+// conversation Codex does not hold read as a failure (both `thread not found` cases), a session
+// not live read as a failure (the not-live case), no deadline (the silent case outlives the
+// test's bound), the commands not ended after an interrupt or on an ended turn (the commands list
+// never comes in the running, completed and turn-ended-first cases), the mark never set (the
+// running case), the mark kept on any other answer or a failure (every other case), and anything
+// sent to the lead's conversation (something more is sent).
 #[rstest]
 #[case::running(
     ServiceAnswer::Newest("inProgress"),
@@ -112,12 +125,16 @@ fn helper_stop(session: &TestCodexSession, run_id: RunId) -> HelperStopParams {
 async fn a_helpers_stop_answers_from_its_newest_turn(
     #[case] service: ServiceAnswer,
     #[case] expected: StopAnswer,
+    #[values(HelperStop::Interrupt, HelperStop::Stop)] helper_stop_kind: HelperStop,
 ) {
     let mut session = TestCodexSession::start().await;
-    let mut params = helper_stop(&session, new_run_id());
+    let helper_run = new_run_id();
+    let mut params = helper_stop(&session, helper_run);
     if matches!(service, ServiceAnswer::NotLive) {
         params.session_id = new_session_id();
     }
+    let run_routes = Arc::clone(&session.task.run_routes);
+    run_routes.bind_helper_run(helper_run, params.session_id, HELPER_THREAD);
     let control = Arc::clone(&session.task.run_control);
     let task = &mut session.task;
     let script = &mut session.scripted.script;
@@ -128,6 +145,7 @@ async fn a_helpers_stop_answers_from_its_newest_turn(
         let listed = script.next_sent().await;
         assert_eq!(listed["method"], "thread/turns/list");
         assert_eq!(listed["params"]["threadId"], HELPER_THREAD);
+        assert_eq!(listed["params"]["limit"], 1);
         let (status, interrupt_refusal) = match service {
             ServiceAnswer::Silent => {
                 // Moved past the deadline here rather than left to auto-advance, which a blocking
@@ -180,16 +198,40 @@ async fn a_helpers_stop_answers_from_its_newest_turn(
         assert_eq!(commands["params"]["threadId"], HELPER_THREAD);
         script.answer(&commands, &json!({"data": []}));
     };
+    let stopping = async {
+        match helper_stop_kind {
+            // An interrupt answers no steers, and takes the outcome only as its mark.
+            HelperStop::Interrupt => control.interrupt_run(helper_run).await.map(|steers| {
+                assert_eq!(steers, Vec::new());
+                None
+            }),
+            HelperStop::Stop => control.stop_child_run(&params).await.map(Some),
+        }
+    };
     let (stopped, ()) = tokio::time::timeout(
         DEADLOCK_BOUND,
-        Box::pin(async { tokio::join!(task.drive(control.stop_child_run(&params)), service_side) }),
+        Box::pin(async { tokio::join!(task.drive(stopping), service_side) }),
     )
     .await
     .expect("the helper's stop is answered within its deadline");
 
+    let route = run_routes
+        .retire_helper_run(helper_run)
+        .expect("the helper's route stays until its end");
+    assert_eq!(
+        route.is_interrupted_by_daemon,
+        matches!(
+            expected,
+            StopAnswer::Outcome(HelperStopOutcome::Interrupted)
+        ),
+        "the mark stands only for a turn Codex stopped"
+    );
     match expected {
         StopAnswer::Outcome(outcome) => {
-            assert_eq!(stopped.expect("the helper's stop is answered"), outcome);
+            let answered = stopped.expect("the helper's stop is answered");
+            if matches!(helper_stop_kind, HelperStop::Stop) {
+                assert_eq!(answered, Some(outcome));
+            }
         }
         StopAnswer::Refused => assert!(
             matches!(
@@ -212,71 +254,6 @@ async fn a_helpers_stop_answers_from_its_newest_turn(
     assert!(
         session.scripted.script.sent.try_recv().is_err(),
         "nothing more was sent"
-    );
-}
-
-// Which of the two helper stops a test takes.
-#[derive(Clone, Copy)]
-enum HelperStop {
-    // The person's interrupt of the helper's run.
-    Interrupt,
-    // The stop from the console.
-    Stop,
-}
-
-// A helper whose interrupt Codex refused keeps its route with the daemon's mark cleared, so the
-// end its own `turn/completed` brings, which reads that mark, is its own and not the interrupt's.
-// Kills the mark kept on a failure, by either stop.
-#[rstest]
-#[case::interrupt(HelperStop::Interrupt)]
-#[case::stop(HelperStop::Stop)]
-#[tokio::test(start_paused = true)]
-async fn a_failed_helper_interrupt_leaves_its_end_unmarked(#[case] helper_stop_kind: HelperStop) {
-    let mut session = TestCodexSession::start().await;
-    let helper_run = new_run_id();
-    let params = helper_stop(&session, helper_run);
-    let run_routes = Arc::clone(&session.task.run_routes);
-    run_routes.bind_helper_run(helper_run, params.session_id, HELPER_THREAD);
-    let control = Arc::clone(&session.task.run_control);
-    let task = &mut session.task;
-    let script = &mut session.scripted.script;
-    let service_side = async {
-        let listed = script.next_sent().await;
-        assert_eq!(listed["method"], "thread/turns/list");
-        script.answer(
-            &listed,
-            &json!({"data": [{"id": HELPER_TURN, "status": "inProgress"}]}),
-        );
-        let interrupt = script.next_sent().await;
-        assert_eq!(interrupt["method"], "turn/interrupt");
-        script.send(&json!({
-            "jsonrpc": "2.0",
-            "id": interrupt["id"],
-            "error": {"code": -32603, "message": "internal error"},
-        }));
-    };
-    let is_failed = tokio::time::timeout(
-        DEADLOCK_BOUND,
-        Box::pin(async {
-            let stopping = async {
-                match helper_stop_kind {
-                    HelperStop::Interrupt => control.interrupt_run(helper_run).await.is_err(),
-                    HelperStop::Stop => control.stop_child_run(&params).await.is_err(),
-                }
-            };
-            tokio::join!(task.drive(stopping), service_side).0
-        }),
-    )
-    .await
-    .expect("the helper's stop is answered");
-
-    assert!(is_failed, "the refused interrupt fails the stop");
-    let route = run_routes
-        .retire_helper_run(helper_run)
-        .expect("the helper's route stays until its end");
-    assert!(
-        !route.is_interrupted_by_daemon,
-        "the helper's own end does not read as the failed interrupt's"
     );
 }
 

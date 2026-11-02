@@ -5,8 +5,9 @@
 use crate::driver::codex::app_server_protocol::TurnInterruptParams;
 use crate::driver::codex::session::errors::{CODEX_INVALID_REQUEST_CODE, CodexError};
 use crate::driver::codex::session::history::read_codex_newest_turn;
-use crate::driver::codex::session::owed_turn_ends::is_codex_turn_in_progress;
+use crate::driver::codex::session::owed_turn_ends::read_codex_listed_turn;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
+use crate::driver::codex::turn_evidence::CodexTurnStatus;
 
 /// The method that stops a turn.
 pub(crate) const TURN_INTERRUPT_METHOD: &str = "turn/interrupt";
@@ -51,21 +52,34 @@ pub(crate) async fn interrupt_codex_turn(
     }
 }
 
-/// Interrupts the running turn of the conversation `thread_id`, read as its newest turn, and
-/// answers how Codex took it; `None` where no message has reached the conversation yet, its newest
-/// turn has ended, or that turn is `leave`. Fails as the read or the interrupt fails.
+/// How a conversation's newest turn stood when its running turn's interrupt was asked for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CodexRunningTurnInterrupt {
+    /// No message has reached the conversation yet, so nothing was sent.
+    NoTurn,
+    /// Nothing was sent: the newest turn was not running, or was the turn left alone. Holds the
+    /// status it was listed with, `None` for a status Codex added.
+    Untouched(Option<CodexTurnStatus>),
+    /// The newest turn was running, and Codex answered its interrupt so.
+    Running(CodexTurnInterrupt),
+}
+
+/// Interrupts the running turn of the conversation `thread_id`, read as its newest turn, unless
+/// that turn is `leave`, and answers how the turn stood and how Codex took the interrupt. Fails as
+/// the read or the interrupt fails.
 pub(crate) async fn interrupt_codex_running_turn(
     connection: &CodexAppServerConnection,
     thread_id: &str,
     leave: Option<&str>,
-) -> Result<Option<CodexTurnInterrupt>, CodexError> {
+) -> Result<CodexRunningTurnInterrupt, CodexError> {
     let Some(newest) = read_codex_newest_turn(connection, thread_id).await? else {
-        return Ok(None);
+        return Ok(CodexRunningTurnInterrupt::NoTurn);
     };
-    if !is_codex_turn_in_progress(&newest.turn) || leave == Some(newest.id.as_str()) {
-        return Ok(None);
+    let status = read_codex_listed_turn(&newest.turn).status;
+    if status != Some(CodexTurnStatus::InProgress) || leave == Some(newest.id.as_str()) {
+        return Ok(CodexRunningTurnInterrupt::Untouched(status));
     }
     interrupt_codex_turn(connection, thread_id, &newest.id)
         .await
-        .map(Some)
+        .map(CodexRunningTurnInterrupt::Running)
 }
