@@ -3,7 +3,9 @@
 //! progress, past their queue and not paused, re-armed from the log before a resume of the
 //! session's conversation, with the paused and pausing runs beside them; the runs still live that
 //! no resume took, failed as no provider session came back, or with the provider's own words where
-//! it refused the resume, a lead the person paused kept paused; the open turns of runs that had
+//! it refused the resume, a lead the person paused kept paused, each judged stopping or not by the
+//! stops read before the first of them settles, so a lead's own end never clears the stop its
+//! helper waits on; the open turns of runs that had
 //! already ended, before their unresolved interventions, whose expiry would drop the limit a turn
 //! ends with; then the asks, the choices and the held plans those ended runs left open. Every read
 //! is of the one session and taken after its rebuild; every write is guarded on the rows it read.
@@ -215,17 +217,7 @@ impl RestartSettle {
             }
         }
         let in_progress: Vec<RunId> = rearmed.in_progress.iter().map(|run| run.run_id).collect();
-        rearmed.stopping = self
-            .read(move |reader| {
-                let mut stopping = BTreeSet::new();
-                for run_id in in_progress {
-                    if read_is_run_stopping(reader, &run_id)? {
-                        stopping.insert(run_id);
-                    }
-                }
-                Ok(stopping)
-            })
-            .await?;
+        rearmed.stopping = self.read_stopping(in_progress).await?;
         // A session resumed for another run may still run a pausing run's turn to its pause.
         if !rearmed.in_progress.is_empty() {
             for live_run in &paused {
@@ -239,7 +231,10 @@ impl RestartSettle {
     /// Settles `session_id`'s pending faster-model retries, then ends each run of it still live
     /// that `resumed` does not name as [`RunEngine::settle_run_after_restart`] decides, a `failed`
     /// end carrying `failure_detail`, writing under `hold` where the caller holds the session's
-    /// appends and reading `stop`, where the caller has one, before each step. A run `resumed`
+    /// appends and reading `stop`, where the caller has one, before each step. Whether a stop wins
+    /// over each run is read for all of them before the first settles, since a lead's own end
+    /// discharges the stop its helper waits on, so the order the runs settle in decides nothing.
+    /// A run `resumed`
     /// names is counted resumed while it is live and neither paused nor pausing, nowhere while it
     /// is, and by its end where the resume's finalize ended it. Fails at the first read or write
     /// that fails, or with `Stopped`.
@@ -257,6 +252,14 @@ impl RestartSettle {
         let live_runs = self
             .read(move |reader| RunStateReader::new(reader).list_live_runs(Some(&session_id)))
             .await?;
+        let unsettled: Vec<RunId> = live_runs
+            .iter()
+            .filter(|live_run| {
+                live_run.run.state != RunState::Queued && !resumed.contains(&live_run.run_id)
+            })
+            .map(|live_run| live_run.run_id)
+            .collect();
+        let stopping = self.read_stopping(unsettled).await?;
         let mut settlement = LiveSettlement::default();
         for live_run in &live_runs {
             if resumed.contains(&live_run.run_id) {
@@ -270,7 +273,12 @@ impl RestartSettle {
             let settled = self
                 .deps
                 .run_engine
-                .settle_run_after_restart(live_run, failure_detail, hold)
+                .settle_run_after_restart(
+                    live_run,
+                    stopping.contains(&live_run.run_id),
+                    failure_detail,
+                    hold,
+                )
                 .await?;
             if settled.state == RunState::Failed {
                 settlement.failed_run_ids.push(live_run.run_id);
@@ -392,6 +400,23 @@ impl RestartSettle {
                 Ok::<_, RestartSettleError>(read(reader)?)
             })
             .await
+    }
+
+    // Those of `run_ids` a stop wins over, read in one go.
+    async fn read_stopping(
+        &self,
+        run_ids: Vec<RunId>,
+    ) -> Result<BTreeSet<RunId>, RestartSettleError> {
+        self.read(move |reader| {
+            let mut stopping = BTreeSet::new();
+            for run_id in run_ids {
+                if read_is_run_stopping(reader, &run_id)? {
+                    stopping.insert(run_id);
+                }
+            }
+            Ok(stopping)
+        })
+        .await
     }
 }
 

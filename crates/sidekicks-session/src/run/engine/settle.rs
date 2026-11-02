@@ -327,27 +327,38 @@ impl RunEngine {
     /// `decide_restart_settlement` decides, a run it leaves returned as it is: its end or a lead's
     /// pause reached, every pending interrupt applied, and its open turns' ends, each a limit's
     /// row names with that limit and every other with `daemonRestart`, guarded on no interrupt
-    /// appearing since, a `failed` end carrying `failure_detail`. An interrupt that moved or
-    /// appeared since the facts were read refuses the write, and the run and its facts are read
-    /// again once. Every write goes under `hold` where the caller holds the run's session. Fails as
+    /// appearing since, a `failed` end carrying `failure_detail`. `is_stopping` says whether a stop
+    /// wins over the run, read by the caller before any run of its session settled, since a lead's
+    /// own settle discharges the stop its helper waits on. An interrupt that moved or appeared
+    /// since the facts were read refuses the write, and the run and its facts are read again once.
+    /// Every write goes under `hold` where the caller holds the run's session. Fails as
     /// [`RunEngine::transition`] does, the second refusal returned.
     pub async fn settle_run_after_restart(
         &self,
         run: &LiveRun,
+        is_stopping: bool,
         failure_detail: &str,
         hold: Option<&SessionAppendHold>,
     ) -> Result<RunRead, RunEngineError> {
-        self.settle_after_restart(run, decide_restart_settlement, failure_detail, hold)
-            .await
+        self.settle_after_restart(
+            run,
+            decide_restart_settlement,
+            is_stopping,
+            failure_detail,
+            hold,
+        )
+        .await
     }
 
-    /// Settles `run`, a run a restart left live, as `decide` decides from its facts, as
-    /// [`RunEngine::settle_run_after_restart`] settles it, a `failed` end carrying
-    /// `failure_detail`. Fails as [`RunEngine::transition`] does, the second refusal returned.
+    /// Settles `run`, a run a restart left live, as `decide` decides from its facts and
+    /// `is_stopping`, as [`RunEngine::settle_run_after_restart`] settles it, a `failed` end
+    /// carrying `failure_detail`. Fails as [`RunEngine::transition`] does, the second refusal
+    /// returned.
     pub(super) async fn settle_after_restart(
         &self,
         run: &LiveRun,
         decide: fn(&LiveRun, &RestartFacts) -> Option<RestartDecision>,
+        is_stopping: bool,
         failure_detail: &str,
         hold: Option<&SessionAppendHold>,
     ) -> Result<RunRead, RunEngineError> {
@@ -358,7 +369,7 @@ impl RunEngine {
             let facts = self
                 .pool
                 .read(ReadLength::Short, move |reader| {
-                    Ok::<_, RunEngineError>(read_restart_facts(reader, &facts_of)?)
+                    Ok::<_, RunEngineError>(read_restart_facts(reader, &facts_of, is_stopping)?)
                 })
                 .await?;
             #[cfg(any(test, feature = "test-support"))]

@@ -164,7 +164,7 @@ impl RunEngine {
             }
             // A run whose turn is gone never fails here, so the failure detail is never read.
             ResumedRunMove::TurnGone => {
-                self.settle_after_restart(run, decide_turn_gone_settlement, "", hold)
+                self.settle_after_restart(run, decide_turn_gone_settlement, is_stopping, "", hold)
                     .await?;
             }
         }

@@ -418,7 +418,9 @@ async fn a_pass_keeps_paused_runs_paused_and_opens_no_session_for_them() {
 // left), by limit rows handed as a person's (a second call for the step-limit run), by the lead's
 // rows handed to a helper (a call for the helper), by `any` read for `all` (the first provider's
 // driver, which expects no resume, is called), by the all-stopping check dropped (the same), and
-// by the stopping helper's arm dropped (session A's helper reads `failed`).
+// by the stopping helper's arm dropped, and by the settle reading whether each run is stopping
+// as it reaches it, after its lead's end has discharged the lead's stop (session A's helper reads
+// `failed` either way).
 #[tokio::test]
 async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interrupt_again() {
     let answers: Arc<Mutex<HashMap<RunId, ProviderTurnAnswer>>> = Arc::default();

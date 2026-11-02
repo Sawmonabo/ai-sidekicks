@@ -196,7 +196,8 @@ pub(crate) struct RestartFacts {
     /// Each open turn a limit's interrupt row names as cut, oldest first.
     pub(crate) turn_cuts: Vec<TurnCut>,
     /// Whether a stop wins over the run, its own or that of the run a provider's helper was
-    /// dispatched beneath; never for a queued run.
+    /// dispatched beneath, as read before any run of the session settled; never for a queued
+    /// run.
     pub(crate) is_stopping: bool,
     /// Whether a queued message targets the run, which starts it when its queue reaches it.
     pub(crate) has_queued_item: bool,
@@ -243,12 +244,14 @@ pub(crate) struct RestartDecision {
 }
 
 /// Reads what [`decide_restart_settlement`] needs of `run` on `reader`: a queued run's waiting
-/// messages, any other run's pending interrupts, the limit it still owes, its open turns' cuts
-/// and whether it is stopping. Fails when SQLite refuses a read or a stored row does not read as its type, an
-/// interrupt's record among them.
+/// messages, any other run's pending interrupts, the limit it still owes and its open turns' cuts,
+/// beside `is_stopping`, which the caller read before any run of the session settled, since a
+/// lead's own settle discharges the stop its helper waits on. Fails when SQLite refuses a read or
+/// a stored row does not read as its type, an interrupt's record among them.
 pub(crate) fn read_restart_facts(
     reader: &Connection,
     run: &LiveRun,
+    is_stopping: bool,
 ) -> rusqlite::Result<RestartFacts> {
     if run.run.state == RunState::Queued {
         let has_queued_item = !QueueItemReader::new(reader)
@@ -267,7 +270,7 @@ pub(crate) fn read_restart_facts(
         pending_interrupts,
         owed_limit,
         turn_cuts: read_turn_cuts(reader, &run.run_id)?,
-        is_stopping: read_is_run_stopping(reader, &run.run_id)?,
+        is_stopping,
         has_queued_item: false,
     })
 }
