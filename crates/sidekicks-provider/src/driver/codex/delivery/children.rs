@@ -175,7 +175,7 @@ impl CodexFrameDelivery {
 
     /// Ends the child run of a helper whose last turn ended, with the `subagent.completed` row,
     /// after the asks that turn still held and the pieces it still had waiting; `turn_params` is
-    /// that turn's `turn/completed` params. A helper stopped at its token limit ends stopped for
+    /// that turn's `turn/completed` params and `turn_members` the same params read as an object. A helper stopped at its token limit ends stopped for
     /// it unless its turn failed, and an end after the daemon's interrupt of the helper's run
     /// says it is that interrupt's; the run's helper route goes with it.
     pub(crate) async fn complete_child(
@@ -183,10 +183,11 @@ impl CodexFrameDelivery {
         record: &mut CodexSessionRecord,
         child_thread_id: &str,
         turn_params: &RawValue,
+        turn_members: &serde_json::Map<String, serde_json::Value>,
     ) {
-        let members: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_str(turn_params.get()).unwrap_or_default();
-        let turn = members.get("turn").and_then(serde_json::Value::as_object);
+        let turn = turn_members
+            .get("turn")
+            .and_then(serde_json::Value::as_object);
         let turn_id = turn.and_then(|turn| read_non_empty_string(turn, "id"));
         if let Some(turn_id) = turn_id {
             self.withdraw_ended_turn_asks(record, child_thread_id, turn_id);

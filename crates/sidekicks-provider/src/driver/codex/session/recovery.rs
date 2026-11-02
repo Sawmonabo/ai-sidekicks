@@ -766,8 +766,8 @@ fn never_left() -> CodexWriterLeft {
 
 /// Drops every turn the session held on a service whose process ended, on the session's task:
 /// the live, interrupted, paused and retried turns with their routes, pauses and continues, the
-/// helpers' child runs, the compaction wait on the conversation and the waits on its turns, which
-/// no turn ends now. Answers each run those turns belonged to, then each helper's child run, once.
+/// helpers' child runs, the marks of the turns held on the person, the compaction wait on the
+/// conversation and the waits on its turns, which no turn ends now. Answers each run those turns belonged to, then each helper's child run, once.
 pub(crate) fn drop_codex_turns(
     task: &mut CodexSessionTask<'_>,
     dependencies: &CodexSessionCallDependencies,
@@ -792,6 +792,7 @@ pub(crate) fn drop_codex_turns(
         }
     }
     record.continues_awaiting_pause.clear();
+    record.held_continuation_turn_ids.clear();
     record.pause_run_id_by_turn_id.clear();
     record.interrupting_turn_ids.clear();
     record.turn_input_by_turn_id.clear();
