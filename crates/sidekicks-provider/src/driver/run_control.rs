@@ -1,7 +1,8 @@
 //! The params and results of the driver operations that act on one live run: a steer or an
 //! interrupt, pause and continue, withdrawing a waiting message, overruling a reviewer's block,
 //! answering a provider's choice and resending a held turn on a faster model; and the binding the
-//! run queue opens for a turn the daemon starts itself.
+//! run queue opens for a turn the daemon starts itself; and stopping a helper alone and re-attaching
+//! a session's helpers after a restart.
 
 use std::error::Error;
 
@@ -16,6 +17,7 @@ use sidekicks_contracts::provider::driver::methods::{
     PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_REASON_MAX_LEN,
 };
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::provider_choice::{RunRefusalChoice, RunUsageCreditsChoice};
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
@@ -415,7 +417,7 @@ pub struct ReattachedHelper {
     /// The provider's id of the helper it runs under; `None` under the lead.
     pub parent_subagent_id: Option<SubagentId>,
     /// The provider's call that started its newest own run, where the provider names one.
-    pub start_call_id: Option<sidekicks_contracts::provider::tool_call::ToolCallId>,
+    pub start_call_id: Option<ToolCallId>,
     /// Its path in its provider's tree; `None` on a provider that keeps no tree paths.
     pub provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
     /// Whether its own run was live before the restart. An ancestor included only for its place in
