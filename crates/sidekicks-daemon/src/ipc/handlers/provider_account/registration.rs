@@ -106,6 +106,7 @@ pub(super) fn register_provider_account_registration(
                         sources.live_turns.as_ref(),
                         &sources.token_custody,
                         &sources.providers,
+                        &sources.home_lock,
                     )
                     .await?;
                 sources.observer.forget(&request.account_id);

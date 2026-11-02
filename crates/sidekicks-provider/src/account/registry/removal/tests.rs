@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
+use std::time::Duration;
 
 use rstest::rstest;
 use secrecy::SecretString;
@@ -50,6 +51,7 @@ struct Fixture {
     writer: Arc<DatabaseWriter>,
     keychain: Arc<ScriptedKeychain>,
     custody: ProviderTokenCustody,
+    home_lock: AccountHomeLock,
     account: RegisteredAccount,
 }
 
@@ -75,6 +77,7 @@ impl Fixture {
             writer,
             keychain,
             custody,
+            home_lock: AccountHomeLock::default(),
             account,
         };
         // The workflow crate's table, cut to the columns the guard reads.
@@ -147,6 +150,7 @@ impl Fixture {
                 &LiveSessions(live_sessions),
                 &self.custody,
                 drivers,
+                &self.home_lock,
             )
             .await
     }
@@ -317,4 +321,40 @@ async fn a_removal_shreds_what_the_account_kept_and_leaves_its_home() {
     assert!(ids.registered.is_empty() && ids.marked.is_empty());
     assert_eq!(fixture.readings(), (Vec::new(), 0));
     assert_eq!(snapshot(&home), home_before);
+}
+
+// Killed by the removal's check and mark run without the account's home held: the account would
+// be marked while a sign-in or renewal holding the home still writes there.
+#[tokio::test]
+async fn a_removal_waits_for_the_account_s_home() {
+    let fixture = Fixture::new().await;
+    let mut driver = MockProviderDriver::new();
+    driver.expect_forget_account().return_const(());
+    let drivers = registry_of_first_provider(Arc::new(driver));
+    let held = fixture.home_lock.hold(fixture.account_id().clone()).await;
+
+    let removal = fixture.remove(Vec::new(), &drivers);
+    tokio::pin!(removal);
+    let is_done_while_held = tokio::time::timeout(Duration::from_millis(200), &mut removal)
+        .await
+        .is_ok();
+    let marked_while_held = fixture
+        .registry
+        .read_account_ids_by_removal_intent()
+        .await
+        .expect("the accounts read")
+        .marked;
+    drop(held);
+    removal
+        .await
+        .expect("the account is removed once its home is free");
+
+    assert!(
+        !is_done_while_held,
+        "the removal ran while the home was held"
+    );
+    assert!(
+        marked_while_held.is_empty(),
+        "the account was marked while its home was held"
+    );
 }
