@@ -42,6 +42,9 @@ use crate::driver::contract::error::DriverError;
 /// The request that cancels a sign-in by its id.
 const LOGIN_CANCEL_METHOD: &str = "account/login/cancel";
 
+/// The cancel's status for a login Codex no longer runs, as one that already ended.
+const LOGIN_NOT_FOUND_STATUS: &str = "notFound";
+
 /// The notice Codex sends, on every connection, once a sign-in ends.
 const LOGIN_COMPLETED_METHOD: &str = "account/login/completed";
 
@@ -120,6 +123,13 @@ enum LoginStartReply {
     },
 }
 
+// The member of a cancel's reply the sign-in reads.
+#[derive(Deserialize)]
+struct CancelReply {
+    #[serde(default)]
+    status: Option<String>,
+}
+
 // The members of a completion notice the sign-in reads.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -194,8 +204,9 @@ pub(super) async fn start_codex_sign_in(
 
 /// Reads who signed in on `provider_account_id`'s `home` after a sign-in there, through
 /// `account/read` on the home's service: a `ChatGPT` sign-in is a subscription, named where Codex
-/// names its email or, with none, its plan, an API key is one, a Bedrock sign-in comes from elsewhere, and none is signed
-/// out. Fails as the service or the request does, and where the reply cannot be read.
+/// names its email or, with none, its plan, an API key is one, a Bedrock sign-in comes from
+/// elsewhere, and none is signed out. Fails as the service or the request does, and where the
+/// reply cannot be read.
 pub(super) async fn observe_codex_sign_in(
     legs: &CodexAccountLegs,
     provider_account_id: ProviderAccountId,
@@ -312,11 +323,13 @@ fn device_code_expiry() -> Option<WireInstant> {
     WireInstant::from_timestamp(jiff::Timestamp::now().checked_add(ceiling).ok()?)
 }
 
+// Cancels login `login_id`, answering whether Codex still ran it; one it no longer runs has ended
+// on its own, and its completion says how.
 async fn send_cancel(
     connection: &CodexAppServerConnection,
     login_id: &str,
-) -> Result<(), CodexError> {
-    connection
+) -> Result<bool, CodexError> {
+    let reply = connection
         .request(
             LOGIN_CANCEL_METHOD,
             &CancelLoginAccountParams {
@@ -324,7 +337,9 @@ async fn send_cancel(
             },
         )
         .await?;
-    Ok(())
+    Ok(read_codex_object::<CancelReply>(reply.get())
+        .and_then(|reply| reply.status)
+        .is_none_or(|status| status != LOGIN_NOT_FOUND_STATUS))
 }
 
 async fn close(connection: &CodexAppServerConnection) {
@@ -362,7 +377,10 @@ impl Login {
         tokio::pin!(bound);
         let mut is_input_open = true;
         let end = loop {
+            // Codex's completion first, so a cancel racing it never reads a finished login as
+            // canceled.
             tokio::select! {
+                biased;
                 notice = self.notices.recv() => match notice {
                     Some(LoginNotice::Completed(params)) => {
                         let Some(completed) = read_codex_object::<LoginCompleted>(params.get())
@@ -386,11 +404,12 @@ impl Login {
                 input = self.inputs.recv(), if is_input_open => match input {
                     Some(CancelInput(answer)) => {
                         let sent = send_cancel(&self.connection, &self.id).await;
-                        let is_sent = sent.is_ok();
-                        if answer.send(sent).is_err() {
+                        // A login Codex no longer ran has ended; its completion settles it.
+                        let is_canceled = matches!(sent, Ok(true));
+                        if answer.send(sent.map(|_is_running| ())).is_err() {
                             tracing::debug!("a Codex sign-in's cancel stopped waiting");
                         }
-                        if is_sent {
+                        if is_canceled {
                             break ProviderSignInEnd::Canceled;
                         }
                     }

@@ -147,9 +147,16 @@ async fn only_a_sign_in_at_this_machine_holds_the_machine_s_one_callback_port() 
     assert!(!legs.is_one_per_machine(SignInOrigin::AnotherDevice));
 }
 
-// Killed by a cancel that sends nothing to Codex, which would hold its sign-in until it timed out.
+// Killed by a cancel that sends nothing to Codex, which would hold its sign-in until it timed out,
+// and by a cancel of a login Codex had already ended read as canceled (its completion is the end).
+#[rstest]
+#[case::running("canceled", ProviderSignInEnd::Canceled)]
+#[case::already_ended("notFound", ProviderSignInEnd::Finished)]
 #[tokio::test(flavor = "multi_thread")]
-async fn a_cancel_sends_codex_s_own_cancel_for_this_login() {
+async fn a_cancel_sends_codex_s_own_cancel_for_this_login(
+    #[case] status: &'static str,
+    #[case] expected: ProviderSignInEnd,
+) {
     let scripted = start_scripted_codex_service();
     let Some(listener) = bind_test_listener(scripted.service.socket_path()) else {
         return;
@@ -161,9 +168,12 @@ async fn a_cancel_sends_codex_s_own_cancel_for_this_login() {
         let cancel = next_socket_request(&mut socket).await;
         send_on_socket(
             &mut socket,
-            json!({"id": cancel["id"], "result": {"status": "canceled"}}),
+            json!({"id": cancel["id"], "result": {"status": status}}),
         )
         .await;
+        if status == "notFound" {
+            send_on_socket(&mut socket, completed(Some(DEVICE_LOGIN), true)).await;
+        }
         cancel
     });
 
@@ -180,7 +190,7 @@ async fn a_cancel_sends_codex_s_own_cancel_for_this_login() {
         .await
         .expect("the login ends");
 
-    assert_eq!(end, ProviderSignInEnd::Canceled);
+    assert_eq!(end, expected);
     let cancel = tokio::time::timeout(WAIT, served)
         .await
         .expect("the stand-in served the cancel")
