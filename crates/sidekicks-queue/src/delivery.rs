@@ -12,7 +12,8 @@
 //! shows it took it. A message the provider's process keeps past its run's end stays handed while
 //! that process runs; once it is gone, the message waits for the person's next send, unless a
 //! resume sent it, whose record then says what became of it. While an
-//! interrupt of a run is under way nothing more is handed to it. Every hand, withdraw and settle
+//! interrupt of a run is under way nothing more is handed to it, and while an undo of a session is
+//! under way nothing of the whole session is handed. Every hand, withdraw and settle
 //! of a session's messages runs on one chain per session, so they reach the driver in the order
 //! the queue decided them.
 
@@ -23,6 +24,7 @@ mod state;
 pub mod test_fixture;
 #[cfg(test)]
 mod tests;
+mod undo_hold;
 mod withdraw;
 
 use std::error::Error;
@@ -180,13 +182,16 @@ impl QueueDelivery {
 
     /// Takes `item`, just sent, into the live run `run_id`: kept for the next turn while the run
     /// waits on input with no credits choice held, else handed as [`QueueDelivery::hand_waiting`]
-    /// does. Called under `hold`; fails as that does.
+    /// does; left waiting while an undo holds the session. Called under `hold`; fails as that does.
     pub(crate) async fn accept_send(
         &self,
         hold: &KeyHold<'_, SessionId>,
         item: &QueueItemRecord,
         run_id: RunId,
     ) -> Result<(), DeliveryError> {
+        if self.is_held_for_undo(*hold.key()) {
+            return Ok(());
+        }
         if let Some(run) = self.read_run(run_id).await? {
             let mut state = self.lock_state();
             if run.state == RunState::WaitingForInput
@@ -235,9 +240,9 @@ impl QueueDelivery {
 
     /// Hands `item`, waiting for `run_id` and taken back from the provider, to the run marked
     /// priority, so the provider reads it ahead of what it holds, then every other lead message
-    /// waiting for the run, in the queue's order, as [`QueueDelivery::hand_waiting`] does. Called
-    /// under `hold`, so the priority hand joins the chain first. Fails when a read fails or the
-    /// run's driver is refused.
+    /// waiting for the run, in the queue's order, as [`QueueDelivery::hand_waiting`] does; nothing
+    /// while an undo holds the session. Called under `hold`, so the priority hand joins the chain
+    /// first. Fails when a read fails or the run's driver is refused.
     pub(crate) async fn hand_first(
         &self,
         hold: &KeyHold<'_, SessionId>,
@@ -245,6 +250,10 @@ impl QueueDelivery {
         item: QueueItemRecord,
     ) -> Result<(), DeliveryError> {
         let session_id = *hold.key();
+        // `item` reaches no read of the waiting messages, so the undo's hold is read for it here.
+        if self.is_held_for_undo(session_id) {
+            return Ok(());
+        }
         let driver = read_run_driver::<DeliveryError>(
             &self.shared.deps.pool,
             &self.shared.deps.providers,
@@ -484,22 +493,39 @@ impl QueueDelivery {
         run_id: RunId,
         intervention_id: InterventionId,
     ) {
+        self.hold_and_wait_out(
+            hold,
+            |state| {
+                state
+                    .interrupt_holds
+                    .entry(run_id)
+                    .or_default()
+                    .insert(intervention_id);
+            },
+            |in_flight| *in_flight != Some(run_id),
+        )
+        .await;
+    }
+
+    // Takes a hold by `take` on the state, then waits until the session's chain has no hand inside
+    // its driver call that `is_clear` refuses; the jobs queued on the chain are never waited for.
+    // Called under `hold`.
+    async fn hold_and_wait_out(
+        &self,
+        hold: &KeyHold<'_, SessionId>,
+        take: impl FnOnce(&mut DeliveryState),
+        is_clear: impl FnMut(&Option<RunId>) -> bool,
+    ) {
         let in_flight = {
             let mut state = self.lock_state();
-            state
-                .interrupt_holds
-                .entry(run_id)
-                .or_default()
-                .insert(intervention_id);
+            take(&mut state);
             state
                 .chains
                 .get(hold.key())
                 .map(SessionChain::follow_in_flight)
         };
         if let Some(mut in_flight) = in_flight {
-            let settled = in_flight
-                .wait_for(|in_flight| *in_flight != Some(run_id))
-                .await;
+            let settled = in_flight.wait_for(is_clear).await;
             // A closed follow means the chain ended, with nothing in flight.
             drop(settled);
         }

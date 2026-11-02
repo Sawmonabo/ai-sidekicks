@@ -1,12 +1,14 @@
 //! The run queue's tests, over a test database holding a session whose lead is bound to the
 //! table's first provider, whose driver is a stand-in that records what it is asked: a send to a
 //! session that takes no change and the removal of a queued run's last message here; sends,
-//! starts, run ends, the interrupts' queue and a plan message's withdrawal in the modules below.
+//! starts, run ends, the interrupts' queue, a plan message's withdrawal and an undo in the modules
+//! below.
 
 mod interrupt;
 mod run_ends;
 mod sends;
 mod starts;
+mod undo;
 mod withdrawal;
 
 use std::num::NonZeroUsize;
@@ -50,6 +52,7 @@ use sidekicks_provider::process_identity::{ProcessStandIn, ProviderProcessIds};
 use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
 use sidekicks_provider::runtime_binding::test_store::spawned_build;
 use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
+use sidekicks_session::checkpoints::schema::schema_parts as checkpoint_schema_parts;
 use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::queue_store::{
     NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, QueueMessageBody,
@@ -259,7 +262,7 @@ struct Fixture {
 }
 
 async fn fixture(driver: MockProviderDriver) -> Fixture {
-    let database = TestDatabase::new(schema_parts());
+    let database = TestDatabase::new(schema_parts().with_parts(checkpoint_schema_parts()));
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
