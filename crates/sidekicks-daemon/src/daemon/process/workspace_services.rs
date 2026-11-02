@@ -33,7 +33,7 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_workspace::execution_root::{ExecutionRootService, ExecutionRootServiceDeps};
 use sidekicks_workspace::folder::usage::RepoFolderUsage;
 use sidekicks_workspace::git::process::GitRunner;
-use sidekicks_workspace::git::worktree::copy::progress::WorktreeCopiesUnderWay;
+use sidekicks_workspace::git::worktree::copy_progress::WorktreeCopiesUnderWay;
 use sidekicks_workspace::git::worktree::creation::WorktreeCreator;
 use sidekicks_workspace::git::worktree::path_holds::PathHolds;
 use sidekicks_workspace::git::worktree::removal::{

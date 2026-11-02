@@ -1,27 +1,25 @@
-//! The one recursive copy of a tree, and the progress of the copies across volumes. The copy walks
-//! every entry under its source, nothing ignored and no link followed: each folder is made and
-//! takes its source's mode once its entries are in, each file is cloned where the file system makes
-//! one (its mode kept either way), and each link is made again pointing where it pointed. A setup's
-//! copy into a tree keeps what the tree has; a kept or put-back copy goes into a folder of its own
-//! and keeps each file's and link's times.
-pub mod progress;
+//! The one recursive copy of a tree. The copy walks every entry under its source, nothing ignored
+//! and no link followed: each folder is made and takes its source's mode once its entries are in,
+//! each file is cloned where the file system makes one (its mode kept either way), and each link is
+//! made again pointing where it pointed. A copy into a tree that has entries keeps them; a copy into
+//! a folder of its own keeps each file's and link's times.
 
 use std::fs::{self, FileTimes, Metadata, Permissions};
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::file::clone_or_copy::clone_or_copy;
 use ignore::WalkBuilder;
 use sidekicks_platforms::recreate_link;
-use sidekicks_std::file::clone_or_copy::clone_or_copy;
 
 /// What a copy does with what its destination already has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TreeCopyPolicy {
-    /// A setup's copy into a tree: an entry the tree already has is kept and logged by its path
-    /// from the folder the copy lands in, never copied over, and a folder both have is copied into.
+    /// A copy into a tree: an entry the tree already has is kept and logged by its path from the
+    /// folder the copy lands in, never copied over, and a folder both have is copied into.
     KeepExisting,
-    /// A kept or put-back copy: the destination is made by the copy, every entry is new, and each
-    /// file and link keeps its source's times; anything already there fails the copy.
+    /// A copy into a folder of its own: the destination is made by the copy, every entry is new,
+    /// and each file and link keeps its source's times; anything already there fails the copy.
     IntoEmpty,
 }
 
