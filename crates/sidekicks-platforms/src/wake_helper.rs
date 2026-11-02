@@ -138,6 +138,11 @@ pub enum WakeHelper {}
 #[cfg(not(target_os = "macos"))]
 impl WakeHelper {
     /// Books a wake; never called, since no value exists.
+    #[expect(
+        clippy::unused_async,
+        clippy::unused_async_trait_impl,
+        reason = "the stub keeps the macOS method's signature"
+    )]
     pub async fn book(
         &self,
         _asked_at: std::time::SystemTime,
@@ -146,6 +151,11 @@ impl WakeHelper {
     }
 
     /// Cancels a wake; never called, since no value exists.
+    #[expect(
+        clippy::unused_async,
+        clippy::unused_async_trait_impl,
+        reason = "the stub keeps the macOS method's signature"
+    )]
     pub async fn cancel(
         &self,
         _asked_at: std::time::SystemTime,
@@ -154,6 +164,11 @@ impl WakeHelper {
     }
 
     /// Installs the helper; never called, since no value exists.
+    #[expect(
+        clippy::unused_async,
+        clippy::unused_async_trait_impl,
+        reason = "the stub keeps the macOS method's signature"
+    )]
     pub async fn install(
         &self,
         _spawner: &crate::Spawner,
@@ -163,6 +178,11 @@ impl WakeHelper {
     }
 
     /// Removes the helper; never called, since no value exists.
+    #[expect(
+        clippy::unused_async,
+        clippy::unused_async_trait_impl,
+        reason = "the stub keeps the macOS method's signature"
+    )]
     pub async fn uninstall(&self, _spawner: &crate::Spawner) -> Result<(), WakeHelperError> {
         match *self {}
     }

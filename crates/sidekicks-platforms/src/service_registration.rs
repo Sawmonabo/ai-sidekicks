@@ -288,6 +288,11 @@ impl ServiceRegistration {
     }
 
     /// Installs the system service; never called, since no value exists.
+    #[expect(
+        clippy::unused_async,
+        clippy::unused_async_trait_impl,
+        reason = "the stub keeps the macOS method's signature"
+    )]
     pub async fn install_system_service(
         &self,
         _spawner: &crate::Spawner,
@@ -298,6 +303,11 @@ impl ServiceRegistration {
     }
 
     /// Removes the system service; never called, since no value exists.
+    #[expect(
+        clippy::unused_async,
+        clippy::unused_async_trait_impl,
+        reason = "the stub keeps the macOS method's signature"
+    )]
     pub async fn uninstall_system_service(
         &self,
         _spawner: &crate::Spawner,
