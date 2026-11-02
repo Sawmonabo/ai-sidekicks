@@ -13,7 +13,7 @@ use crate::driver::codex::session::detached_conversation::CODEX_DETACHED_INTERRU
 use crate::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
 use crate::driver::codex::session::test_fixture::TestCodexSession;
 use crate::driver::run_control::{HelperStopOutcome, HelperStopParams};
-use crate::driver::test_registry::new_run_id;
+use crate::driver::test_registry::{new_run_id, new_session_id};
 
 /// The helper's own conversation, which is its id.
 const HELPER_THREAD: &str = "helper-thread";
@@ -27,15 +27,18 @@ const DEADLOCK_BOUND: Duration = Duration::from_secs(60);
 // How the scripted service answers the stop's requests.
 #[derive(Clone, Copy)]
 enum ServiceAnswer {
-    // Lists the newest turn with this status; a running one's interrupt is answered `{}`, then
-    // its commands are listed as none.
+    // Lists the newest turn with this status; a running one's interrupt is answered `{}`, and the
+    // commands of any but an interrupted one are listed as none.
     Newest(&'static str),
     // Refuses the turn list with `-32600` and these words.
     ListRefused(&'static str),
-    // Lists a running turn and refuses its interrupt with this code and these words.
+    // Lists a running turn and refuses its interrupt with this code and these words; after
+    // Codex's `-32600` that the turn already ended, the commands are listed as none.
     InterruptRefused(i64, &'static str),
     // Reads the turn list and never answers it.
     Silent,
+    // Is asked nothing: the stop names a session with no live conversation.
+    NotLive,
 }
 
 // What the stop answers.
@@ -57,11 +60,13 @@ fn helper_stop(session: &TestCodexSession, run_id: RunId) -> HelperStopParams {
 
 // A helper's stop reads its newest turn: a running one is interrupted and its commands ended, an
 // interrupted one is left so, and an ended one, a helper no message reached, a conversation Codex
-// does not hold and an interrupt racing the turn's own end all read as ended; a refused interrupt
-// and a service that never answers fail. Kills: the status not read (the interrupted case), a
-// conversation Codex does not hold read as a failure (both `thread not found` cases), no deadline
-// (the silent case outlives the test's bound), and the commands not ended (the running case's third
-// request never comes).
+// does not hold, an interrupt racing the turn's own end and a session not live all read as ended,
+// the commands of an ended turn ended again; a refused interrupt and a service that never answers
+// fail. Kills: the status not read (the interrupted case), a conversation Codex does not hold read
+// as a failure (both `thread not found` cases), a session not live read as a failure (the not-live
+// case), no deadline (the silent case outlives the test's bound), and the commands not ended after
+// an interrupt or on an ended turn (the commands list never comes in the running, completed and
+// turn-ended-first cases).
 #[rstest]
 #[case::running(
     ServiceAnswer::Newest("inProgress"),
@@ -92,17 +97,27 @@ fn helper_stop(session: &TestCodexSession, run_id: RunId) -> HelperStopParams {
     StopAnswer::Refused
 )]
 #[case::silent(ServiceAnswer::Silent, StopAnswer::PastDeadline)]
+#[case::not_live(
+    ServiceAnswer::NotLive,
+    StopAnswer::Outcome(HelperStopOutcome::AlreadyEnded)
+)]
 #[tokio::test(start_paused = true)]
 async fn a_helpers_stop_answers_from_its_newest_turn(
     #[case] service: ServiceAnswer,
     #[case] expected: StopAnswer,
 ) {
     let mut session = TestCodexSession::start().await;
-    let params = helper_stop(&session, new_run_id());
+    let mut params = helper_stop(&session, new_run_id());
+    if matches!(service, ServiceAnswer::NotLive) {
+        params.session_id = new_session_id();
+    }
     let control = Arc::clone(&session.task.run_control);
     let task = &mut session.task;
     let script = &mut session.scripted.script;
     let service_side = async {
+        if matches!(service, ServiceAnswer::NotLive) {
+            return;
+        }
         let listed = script.next_sent().await;
         assert_eq!(listed["method"], "thread/turns/list");
         assert_eq!(listed["params"]["threadId"], HELPER_THREAD);
@@ -121,6 +136,7 @@ async fn a_helpers_stop_answers_from_its_newest_turn(
                 }));
                 return;
             }
+            ServiceAnswer::NotLive => return,
             ServiceAnswer::Newest(status) => (status, None),
             ServiceAnswer::InterruptRefused(code, message) => ("inProgress", Some((code, message))),
         };
@@ -128,24 +144,30 @@ async fn a_helpers_stop_answers_from_its_newest_turn(
             &listed,
             &json!({"data": [{"id": HELPER_TURN, "status": status}]}),
         );
-        if status != "inProgress" {
+        if status == "interrupted" {
             return;
         }
-        let interrupt = script.next_sent().await;
-        assert_eq!(interrupt["method"], "turn/interrupt");
-        assert_eq!(
-            interrupt["params"],
-            json!({"threadId": HELPER_THREAD, "turnId": HELPER_TURN})
-        );
-        if let Some((code, message)) = interrupt_refusal {
-            script.send(&json!({
-                "jsonrpc": "2.0",
-                "id": interrupt["id"],
-                "error": {"code": code, "message": message},
-            }));
-            return;
+        if status == "inProgress" {
+            let interrupt = script.next_sent().await;
+            assert_eq!(interrupt["method"], "turn/interrupt");
+            assert_eq!(
+                interrupt["params"],
+                json!({"threadId": HELPER_THREAD, "turnId": HELPER_TURN})
+            );
+            match interrupt_refusal {
+                Some((code, message)) => {
+                    script.send(&json!({
+                        "jsonrpc": "2.0",
+                        "id": interrupt["id"],
+                        "error": {"code": code, "message": message},
+                    }));
+                    if code != -32600 {
+                        return;
+                    }
+                }
+                None => script.answer(&interrupt, &json!({})),
+            }
         }
-        script.answer(&interrupt, &json!({}));
         let commands = script.next_sent().await;
         assert_eq!(commands["method"], "thread/backgroundTerminals/list");
         assert_eq!(commands["params"]["threadId"], HELPER_THREAD);

@@ -46,10 +46,8 @@ impl CodexRunControl {
     }
 
     /// Stops the helper `params.subagent_id` names from the console, its lead going on: its
-    /// running turn is interrupted, which Codex can continue, and its commands ended. Answers
-    /// `Interrupted` for a turn it stopped, `AlreadyInterrupted` for a newest turn that ended
-    /// interrupted, and `AlreadyEnded` for one that ended otherwise, for a helper no message has
-    /// reached and for a conversation Codex does not hold. A bound route is marked first, as an
+    /// running turn is interrupted, which Codex can continue, and its commands ended; how each
+    /// newest turn answers is the shared body's table. A bound route is marked first, as an
     /// interrupt marks it, and cleared when the stop fails. Codex holds no helper's hook call
     /// here, so no pausing or paused helper is stopped differently. Fails as a request fails, and
     /// with `CodexError::Unanswered` past [`CODEX_DETACHED_INTERRUPT_DEADLINE`].
@@ -73,15 +71,28 @@ impl CodexRunControl {
         stopped
     }
 
-    // Interrupts the running turn of the helper conversation `thread_id`, read as its newest
-    // turn, then ends its commands, within the detached interrupt's deadline.
+    // Stops the helper conversation `thread_id` by its newest turn, within the detached interrupt's
+    // deadline, its commands ended as a lead's interrupt ends them:
+    //
+    // | Session or newest turn                           | Commands ended | Answer               |
+    // |--------------------------------------------------|----------------|----------------------|
+    // | session not live (asleep, closing, re-starting)  | no             | `AlreadyEnded`       |
+    // | no turn yet, or Codex does not hold the thread   | no             | `AlreadyEnded`       |
+    // | interrupted                                      | no             | `AlreadyInterrupted` |
+    // | completed, failed, or a status Codex adds        | yes            | `AlreadyEnded`       |
+    // | running, Codex stopped it                        | yes            | `Interrupted`        |
+    // | running, it ended before the interrupt           | yes            | `AlreadyEnded`       |
+    // | a failed request, or the deadline passed         | no             | `Err`                |
     async fn stop_helper_turn(
         &self,
         session_id: SessionId,
         thread_id: &str,
     ) -> Result<HelperStopOutcome, CodexError> {
         tokio::time::timeout(CODEX_DETACHED_INTERRUPT_DEADLINE, async {
-            let inbound = self.dependencies.slots.require_live(session_id)?;
+            // Its helpers end with the session, as Claude Code's end with its process.
+            let Ok(inbound) = self.dependencies.slots.require_live(session_id) else {
+                return Ok(HelperStopOutcome::AlreadyEnded);
+            };
             let reading = call_codex_session(&inbound, |reply| CodexSessionCall::ReadSession {
                 thread_id: None,
                 reply,
@@ -96,24 +107,28 @@ impl CodexRunControl {
                 }
                 Err(error) => return Err(error),
             };
-            match read_codex_listed_turn(&newest.turn).status {
-                Some(CodexTurnStatus::InProgress) => {}
+            let stopped = match read_codex_listed_turn(&newest.turn).status {
+                Some(CodexTurnStatus::InProgress) => {
+                    match interrupt_codex_turn(&connection, thread_id, &newest.id).await {
+                        Ok(CodexTurnInterrupt::Stopped) => HelperStopOutcome::Interrupted,
+                        Ok(CodexTurnInterrupt::AlreadyEnded) => HelperStopOutcome::AlreadyEnded,
+                        Err(error) if error.is_thread_not_found() => {
+                            return Ok(HelperStopOutcome::AlreadyEnded);
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
                 Some(CodexTurnStatus::Interrupted) => {
                     return Ok(HelperStopOutcome::AlreadyInterrupted);
                 }
                 Some(CodexTurnStatus::Completed | CodexTurnStatus::Failed) | None => {
-                    return Ok(HelperStopOutcome::AlreadyEnded);
+                    HelperStopOutcome::AlreadyEnded
                 }
-            }
-            match interrupt_codex_turn(&connection, thread_id, &newest.id).await {
-                Ok(CodexTurnInterrupt::Stopped) => {
-                    end_codex_running_commands(&connection, thread_id, false).await;
-                    Ok(HelperStopOutcome::Interrupted)
-                }
-                Ok(CodexTurnInterrupt::AlreadyEnded) => Ok(HelperStopOutcome::AlreadyEnded),
-                Err(error) if error.is_thread_not_found() => Ok(HelperStopOutcome::AlreadyEnded),
-                Err(error) => Err(error),
-            }
+            };
+            // Ending an ended turn's commands again is harmless, and ends one whose end the
+            // daemon missed.
+            end_codex_running_commands(&connection, thread_id, false).await;
+            Ok(stopped)
         })
         .await
         .unwrap_or_else(|_elapsed| {
