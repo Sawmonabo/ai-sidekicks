@@ -505,10 +505,12 @@ impl SessionScopedRow {
             ),
             Self::GoalUpdated(payload) => (
                 payload.session_id,
+                Vec::new(),
                 SessionEvent::SessionGoalUpdated(payload),
             ),
             Self::GoalCleared(payload) => (
                 payload.session_id,
+                Vec::new(),
                 SessionEvent::SessionGoalCleared(payload),
             ),
         }
