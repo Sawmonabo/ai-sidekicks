@@ -20,6 +20,7 @@ use sidekicks_ipc::domain_error::DomainError;
 use crate::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE;
+use crate::driver::daemon_stop::RecordedServicesStop;
 use crate::driver::{DriverServices, ProviderDescriptor, ProviderRegistration};
 
 /// The refusal for a call naming a provider no registered driver answers; its detail carries only
@@ -75,6 +76,9 @@ struct RegisteredDriver {
     /// The capabilities its last read reported, `None` until the provider check records one; the
     /// lock is held only for a read or a write of the snapshot.
     capabilities: RwLock<Option<DriverCapabilities>>,
+    /// Ends the lasting services the provider's records name, `None` for a provider that keeps
+    /// none.
+    stop_recorded_services: Option<RecordedServicesStop>,
 }
 
 /// Holds the registered drivers in the table's order and gates capability-bound calls on their
@@ -96,6 +100,7 @@ impl ProviderRegistry {
                     descriptor: registration.descriptor,
                     driver: (registration.build)(services),
                     capabilities: RwLock::new(None),
+                    stop_recorded_services: registration.stop_recorded_services,
                 })
                 .collect(),
         }
@@ -189,6 +194,14 @@ impl ProviderRegistry {
             files.extend(registered.driver.running_service_log_files()?);
         }
         Ok(files)
+    }
+
+    /// The stop of each registered provider's recorded services, in the table's order, for each
+    /// provider that keeps lasting services.
+    pub fn recorded_service_stops(&self) -> impl Iterator<Item = RecordedServicesStop> + '_ {
+        self.drivers
+            .iter()
+            .filter_map(|registered| registered.stop_recorded_services)
     }
 
     /// Each registered provider with its driver, in the table's order.

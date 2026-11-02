@@ -59,6 +59,7 @@ Nobody types these. One program, `sidekicks-daemon`, is signed and shipped; the 
 | `database shell` | The service | SQLite's own shell, used for `.recover` on a damaged database. |
 | `database copy` | The service | Copies a damaged database aside in a child process, so the service's file locks survive. |
 | `database restore <backup>` | `sidekicks data restore` or the app | Restores a backup with the service stopped. |
+| `data erase` | `sidekicks data erase` | Erases everything the app keeps on this computer with the service stopped: ends what a stopped service left running, deletes the keychain items, then the data folder but its backups. |
 | `ingest` | The service | Draws a file's preview, such as a PDF's first page, in a throwaway child process. |
 
 ## Program and link files
