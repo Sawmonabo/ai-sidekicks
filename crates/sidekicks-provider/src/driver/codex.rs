@@ -122,6 +122,7 @@ mod usage_limit_signal;
 #[cfg(test)]
 mod vendored_schema;
 mod version;
+mod written_names;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use service::supervisor::test_service::{
@@ -244,6 +245,13 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     ],
     // Codex's own limit on a skill's name.
     skill_name_max_length: Some(64),
+    written_name_forms: &written_names::CODEX_WRITTEN_NAME_FORMS,
+    permission_identifiers: &[
+        "sandbox_permissions",
+        "sandbox_mode",
+        "request_user_input",
+        "<proposed_plan>",
+    ],
     background_work: None,
     callback_tools_asked: false,
     // Its login runs its own loopback listener for the browser's return.

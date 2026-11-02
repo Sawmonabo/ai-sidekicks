@@ -103,6 +103,7 @@ mod spent_retries_signal;
 mod tools;
 mod turn_evidence;
 mod version;
+mod written_names;
 
 /// Claude Code's fixed facts. Its plan ids read as their own words, and it reads no tool-server
 /// declaration member beyond the shared ones.
@@ -218,6 +219,13 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     mcp_transports: &[McpTransport::Stdio, McpTransport::Http, McpTransport::Sse],
     mcp_config_members: &[],
     skill_name_max_length: None,
+    written_name_forms: &written_names::CLAUDE_WRITTEN_NAME_FORMS,
+    permission_identifiers: &[
+        "ExitPlanMode",
+        "plan mode",
+        "permission mode",
+        "auto-accept",
+    ],
     callback_tools_asked: true,
     // Its sign-in takes the daemon's receiver's address when the authorization server accepts it.
     can_mcp_sign_in_return_to_daemon_receiver: true,

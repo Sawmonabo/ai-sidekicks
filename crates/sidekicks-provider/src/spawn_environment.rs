@@ -381,6 +381,8 @@ mod tests {
         mcp_transports: &[],
         mcp_config_members: &[],
         skill_name_max_length: None,
+        written_name_forms: &[],
+        permission_identifiers: &[],
         background_work: None,
         callback_tools_asked: false,
         can_mcp_sign_in_return_to_daemon_receiver: false,

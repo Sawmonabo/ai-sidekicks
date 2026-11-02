@@ -74,6 +74,7 @@ pub mod task_list;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_registry;
 pub(crate) mod unified_diff;
+pub mod written_name;
 
 /// The fixed facts a provider's driver declares about itself, the same for every installed build,
 /// account, model and session; what depends on those comes from the driver's methods.
@@ -135,6 +136,12 @@ pub struct ProviderDescriptor {
     /// The most characters it takes in a skill's name, where it sets a limit of its own.
     #[expect(dead_code, reason = "the provider list's section reads it")]
     pub(crate) skill_name_max_length: Option<u64>,
+    /// Every form the provider writes a name of each kind in when it writes text; a kind with no
+    /// form is one it never writes.
+    pub written_name_forms: &'static [written_name::WrittenNameForm],
+    /// The provider's own words for its permission machinery; a crossing seed drops a line that
+    /// names one.
+    pub permission_identifiers: &'static [&'static str],
     /// The forms of the provider's own command whose work would outlive the call, which no agent
     /// in a session may run, and the switch that turns them off; `None` where it has none.
     pub background_work: Option<BackgroundWork>,
