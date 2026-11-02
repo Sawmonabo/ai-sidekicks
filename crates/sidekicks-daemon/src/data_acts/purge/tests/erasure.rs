@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rstest::rstest;
-use rusqlite::{Connection, params};
+use rusqlite::params;
 use serde_json::json;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -22,10 +22,8 @@ use sidekicks_workflow::test_rows::{
     TEST_SESSION_ID, TestStep, insert_run, insert_step, insert_workflow_version,
 };
 use sidekicks_workspace::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
+use sidekicks_workspace::git::turn_snapshot::capture_folder::CAPTURES_SEGMENT;
 use sidekicks_workspace::git::turn_snapshot::retention::RunContextKey;
-use sidekicks_workspace::git::worktree::test_rows::insert_worktree_rows;
-use sidekicks_workspace::test_rows::PARENT_ROWS_AT;
-use tempfile::TempDir;
 use tokio::time::timeout;
 
 use super::{
@@ -37,25 +35,16 @@ use crate::data_acts::purge::{SessionPurgeError, SessionPurgeOutcome};
 
 const WAIT: Duration = Duration::from_secs(10);
 
-// A repository stored as a run context of `session_id`, and a capture folder in the session's
-// storage folder under `data_folder` holding one snapshot ref of `run_id`: the repository and the
-// capture folder.
-async fn store_run_snapshot(
-    connection: &Connection,
+// A capture folder in the session's storage folder under `data_folder`, holding an object of
+// `MARKER` under one snapshot ref of `run_id`.
+async fn store_capture_folder(
     git: &GitRunner,
     data_folder: &Path,
     session_id: SessionId,
     run_id: RunId,
-) -> (TempDir, PathBuf) {
-    let repository = tempfile::tempdir().expect("a scratch repository");
-    git.run(
-        None,
-        GitCall::read(in_folder(repository.path(), &["init", "--quiet"])),
-    )
-    .await
-    .expect("the repository is made");
+) -> PathBuf {
     let capture_folder = session_storage_folder(data_folder, &session_id)
-        .join("captures")
+        .join(CAPTURES_SEGMENT)
         .join("repository");
     git.run(
         None,
@@ -88,27 +77,7 @@ async fn store_run_snapshot(
     )
     .await
     .expect("the snapshot ref is written");
-    insert_worktree_rows(connection);
-    connection
-        .execute(
-            "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \
-             execution_mode, execution_root, checkout_root, git_common_dir, branch_context_id, \
-             created_at) VALUES (?1, ?2, 'workspace', 'boundRoot', ?3, ?3, ?4, \
-             'branch-context', ?5)",
-            params![
-                run_id.text().as_str(),
-                session_id.text().as_str(),
-                repository.path().to_string_lossy().into_owned(),
-                repository
-                    .path()
-                    .join(".git")
-                    .to_string_lossy()
-                    .into_owned(),
-                PARENT_ROWS_AT
-            ],
-        )
-        .expect("the test stores the run's context");
-    (repository, capture_folder)
+    capture_folder
 }
 
 fn contains(bytes: &[u8], text: &str) -> bool {
@@ -121,9 +90,10 @@ fn contains(bytes: &[u8], text: &str) -> bool {
 // steps stay), an unsettled release or a spent `Send now` key of the lead run left behind,
 // `secure_delete` off or the truncation skipped (the marker stays in the file or its log), a
 // receipt outside the delete's write or naming another range, a count of live runs that only run
-// state changes move (the purged run stays counted), a purge that keeps a run's snapshot refs
-// (the session's capture folder stays), a window's shadow links left (the windows' delete is
-// refused, so the session is not removed), and a session's shadows or volume folders left.
+// state changes move (the purged run stays counted), a purge that keeps the session's storage
+// folder (its capture folder and the run's snapshot refs stay), a window's shadow links left (the
+// windows' delete is refused, so the session is not removed), and a session's shadows, volume
+// folders or kept undo outcomes left.
 #[tokio::test]
 async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log() {
     let fixture = purge_fixture().await;
@@ -135,8 +105,8 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
     let lead_run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     insert_running_run(&fixture.database, session_id, lead_run_id);
     let git = test_git_runner();
-    let (_repository, capture_folder) =
-        store_run_snapshot(&reader, &git, fixture.home.path(), session_id, lead_run_id).await;
+    let capture_folder =
+        store_capture_folder(&git, fixture.home.path(), session_id, lead_run_id).await;
     append_event(&fixture.log, session_id, "Read").await;
     append_event(&fixture.log, session_id, MARKER).await;
     append_event(&fixture.log, survivor, "Write").await;
@@ -228,12 +198,16 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
              VALUES ('{checkpoint_id}', 0, '/repo/{MARKER}.bin', 'command', 'shadow', '/repo',
                '{window_id}', '{shadow_id}');
              INSERT INTO checkpoint_volume_folders (session_id, folder, volume_id)
-             VALUES ('{session}', '/volume/.ai-sidekicks-501/{session}', 'volume');",
+             VALUES ('{session}', '/volume/.ai-sidekicks-501/{session}', 'volume');
+             INSERT INTO session_restores (client_idempotency_key, session_id, outcome,
+               created_at)
+             VALUES ('{restore_key}', '{session}', '{{\"note\":\"{MARKER}\"}}', '{at}');",
             session = session_id.text().as_str(),
             lead_run = lead_run_id.text().as_str(),
             at = "2026-10-02T00:00:30.000Z",
+            restore_key = mint_uuid_v7(),
         ))
-        .expect("the test records a checkpoint, an open window and the shadow it stands on");
+        .expect("the test records a checkpoint, an open window, its shadow and an undo's outcome");
     assert_eq!(
         *fixture.live_runs.borrow(),
         1,
@@ -287,7 +261,7 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
         ),
         ("send_now_requests WHERE target_run_id = ?1", lead_run),
         // A checkpoint, its open window, the shadow the window stands on and the version naming
-        // it, and the session's folder on another volume.
+        // it, the session's folder on another volume, and an undo's kept outcome.
         ("session_checkpoints WHERE session_id = ?1", session),
         (
             "checkpoint_commands WHERE window_id = ?1",
@@ -303,6 +277,7 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
         ),
         ("checkpoint_shadows WHERE session_id = ?1", session),
         ("checkpoint_volume_folders WHERE session_id = ?1", session),
+        ("session_restores WHERE session_id = ?1", session),
     ] {
         let left: i64 = reader
             .query_row(&format!("SELECT COUNT(*) FROM {rows}"), [id], |row| {
@@ -313,7 +288,7 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
     }
     assert!(
         !capture_folder.exists(),
-        "the run's snapshot refs go with the session's capture folder"
+        "the run's snapshot refs go with the session's storage folder"
     );
     assert_eq!(event_count(&reader, survivor), 1);
     assert_eq!(

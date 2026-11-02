@@ -503,13 +503,12 @@ impl TurnSnapshotService {
 
     /// Deletes the snapshot refs of the run `run_key` from the capture folder of the owner whose
     /// folder is `owner_folder` for the repository whose common git folder is `git_common_dir`,
-    /// for a run whose rows are already deleted or whose session is marked for purging, running
-    /// git for the project at `place`; the repository itself is never written. The refs listed
-    /// under the run's prefix go in one `update-ref --no-deref --stdin` transaction, all or none,
-    /// so a refusal deletes none and the prune is retried. A dangling symref under the prefix,
-    /// which the daemon never writes, is not listed and so not deleted. Never fails; answers
-    /// `Skipped` with `GitDirAbsent`, `GitDirUnusable` or `RefDeleteFailed`.
-    pub async fn prune_run_refs(
+    /// running git for the project at `place`; the repository itself is never written. The refs
+    /// listed under the run's prefix go in one `update-ref --no-deref --stdin` transaction, all or
+    /// none, so a refusal deletes none and the prune is retried. A dangling symref under the
+    /// prefix, which the daemon never writes, is not listed and so not deleted. Never fails;
+    /// answers `Skipped` with `GitDirAbsent`, `GitDirUnusable` or `RefDeleteFailed`.
+    async fn prune_run_refs(
         &self,
         place: Option<&Place>,
         run_key: RunContextKey,

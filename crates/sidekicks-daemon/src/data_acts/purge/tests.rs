@@ -46,10 +46,6 @@ use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_workspace::event_emitter::WorkspaceEventEmitter;
 use sidekicks_workspace::git::process::test_git_runner;
-use sidekicks_workspace::git::turn_snapshot::repack::CapturePacking;
-use sidekicks_workspace::git::turn_snapshot::service::{
-    TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY, TurnSnapshotService,
-};
 use sidekicks_workspace::managed::service::ManagedWorkspaceService;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
 use sidekicks_workspace::project::records::ProjectRecords;
@@ -130,7 +126,6 @@ pub(crate) async fn test_purge(
             + CONVERSATION_PURGE_STATEMENT_CAPACITY
             + APPROVAL_RULES_STATEMENT_CAPACITY
             + ARTIFACT_STATEMENT_CAPACITY
-            + TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY
             + REPO_MOUNT_SERVICE_STATEMENT_CAPACITY,
     ));
     let home = tempfile::tempdir().expect("a scratch home");
@@ -186,7 +181,6 @@ pub(crate) async fn test_purge(
         Arc::clone(&reads),
         Arc::new(ProjectSessionActivityReader::new(&StoredPlanHolds)),
     );
-    let git = test_git_runner();
     let purge = SessionPurge::new(SessionPurgeDeps {
         writer: Arc::clone(&log.writer),
         reads: Arc::clone(&reads),
@@ -197,12 +191,6 @@ pub(crate) async fn test_purge(
         conversations,
         managed_workspaces,
         data_folder: home.path().to_path_buf(),
-        snapshots: Arc::new(TurnSnapshotService::new(
-            git.clone(),
-            Arc::clone(&reads),
-            Arc::new(KeyedLock::new()),
-            Arc::new(CapturePacking::new(git)),
-        )),
         project_rules,
         list_feed,
         project_list_feed: Arc::new(ProjectListFeed::new(Arc::new(projects), &log.followers)),
