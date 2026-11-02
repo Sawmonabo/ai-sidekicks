@@ -1,9 +1,10 @@
 //! A session's whole transcript, every run of it, the lead's and each helper's, handed to a sink
 //! as it is read. Runs come in the order each run's first row, its `agent.run.queued`, is logged;
 //! within a run the canonical fold gives the turns. One read pass over the log under one snapshot
-//! holds at most one hydrated page and the segment being handed on, never the session: each page
-//! is folded and handed on before the next is read, and a body too long for a page is handed on a
-//! frame at a time as it is read.
+//! holds at most one hydrated page, the segment being handed on and the run's calls whose result
+//! folds, never the session: each page is folded and handed on before the next is read, a call's
+//! last close is read alone when its first is folded, and a body too long for a page is handed on
+//! a frame at a time as it is read.
 
 use std::io;
 use std::ops::ControlFlow;
@@ -18,13 +19,15 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_store::events::content::codec::{
     BodyStreamError, StoredBodyPlace, out_of_memory_read_failure,
 };
+use sidekicks_store::events::session::read::tool_call_closes::ToolCallCloses;
 use sidekicks_store::events::session::read::{
-    HydratedPage, SessionEventFilter, SessionEventReads, SessionLogReadError, malformed_body,
+    HydratedPage, SessionEventFilter, SessionEventReads, SessionLogReadError, UnloadedBodyEvent,
+    malformed_body,
 };
 
 use crate::hand_over::canonical_transcript::{
     CanonicalTranscriptFoldError, CanonicalTranscriptRole, CanonicalTranscriptSegment,
-    TRANSCRIPT_EVENT_TYPES, TurnFold, TurnFoldStep, read_payload,
+    TRANSCRIPT_EVENT_TYPES, TurnFold, TurnFoldStep, read_payload, read_run_close,
 };
 
 /// Receives a session's transcript in log order: a run's opening before its first turn, a turn's
@@ -123,6 +126,21 @@ trait TranscriptPageSource {
         after_position: i64,
     ) -> Result<HydratedPage, SessionLogReadError>;
 
+    /// Run `run_id`'s calls with a stand-in or several closes, over the whole run.
+    fn read_run_tool_call_closes(
+        &self,
+        session_id: &SessionId,
+        run_id: &RunId,
+    ) -> Result<Vec<ToolCallCloses>, SessionLogReadError>;
+
+    /// Run `run_id`'s close at `sequence` as a one-row page.
+    fn read_run_close(
+        &self,
+        session_id: &SessionId,
+        run_id: &RunId,
+        sequence: i64,
+    ) -> Result<HydratedPage, SessionLogReadError>;
+
     /// Hands the body stored at `place` to `each` a frame at a time, as
     /// [`StoredBodyPlace::stream`] does.
     fn stream_body<Stop>(
@@ -173,6 +191,24 @@ where
         )
     }
 
+    fn read_run_tool_call_closes(
+        &self,
+        session_id: &SessionId,
+        run_id: &RunId,
+    ) -> Result<Vec<ToolCallCloses>, SessionLogReadError> {
+        self.reads
+            .read_run_tool_call_closes(session_id, run_id, None)
+    }
+
+    fn read_run_close(
+        &self,
+        session_id: &SessionId,
+        run_id: &RunId,
+        sequence: i64,
+    ) -> Result<HydratedPage, SessionLogReadError> {
+        read_run_close(self.reads, session_id, run_id, sequence)
+    }
+
     fn stream_body<Stop>(
         &self,
         place: &StoredBodyPlace,
@@ -201,7 +237,8 @@ fn walk_session<Sink: SessionTranscriptSink>(
 }
 
 /// Folds one run a hydrated page at a time, handing each piece to `sink` before the next page is
-/// read, and opening the run only at its first turn.
+/// read, and opening the run only at its first turn. A call's first close is folded as its last,
+/// read alone.
 fn walk_run<Sink: SessionTranscriptSink>(
     pages: &impl TranscriptPageSource,
     session_id: &SessionId,
@@ -210,8 +247,13 @@ fn walk_run<Sink: SessionTranscriptSink>(
     sink: &mut Sink,
 ) -> Result<(), SessionTranscriptError<Sink::Error>> {
     let run_id = queued.run_id();
-    let mut fold = TurnFold::default();
-    let mut is_run_open = false;
+    let mut fold = TurnFold::new(pages.read_run_tool_call_closes(session_id, &run_id)?);
+    let mut run = RunPieces {
+        sink,
+        number,
+        queued,
+        is_open: false,
+    };
     let mut after_position = START_OF_LOG_POSITION;
     loop {
         let page = pages.read_run_page(session_id, &run_id, after_position)?;
@@ -219,57 +261,121 @@ fn walk_run<Sink: SessionTranscriptSink>(
             return Ok(());
         };
         after_position = last;
-        let mut hand_on = |step| match step {
-            TurnFoldStep::TurnOpened { role, .. } => {
-                if !is_run_open {
-                    is_run_open = true;
-                    sink.open_run(number, queued)
-                        .map_err(SessionTranscriptError::Sink)?;
-                }
-                sink.open_turn(role).map_err(SessionTranscriptError::Sink)
-            }
-            TurnFoldStep::Segment(segment) => {
-                sink.segment(segment).map_err(SessionTranscriptError::Sink)
-            }
-        };
         for event in page.events {
-            fold.add(event, &mut hand_on)?;
+            let Some(last_close) = fold.last_close_for(&event.event) else {
+                fold.add(event, &mut |step| run.hand_on(step))?;
+                continue;
+            };
+            let close = pages.read_run_close(session_id, &run_id, last_close)?;
+            fold_close(pages, &mut fold, &mut run, &event.event, close)?;
         }
         let Some(unloaded) = page.oversized else {
             continue;
         };
-        let Some(head) = fold.add_streamed(&unloaded.event, &mut hand_on)? else {
-            continue;
-        };
-        sink.open_streamed_segment(head)
-            .map_err(SessionTranscriptError::Sink)?;
-        for piece in &unloaded.pieces {
-            let streamed = pages.stream_body(piece, |frame| {
-                Ok(match sink.body_frame(frame) {
-                    Ok(()) => ControlFlow::Continue(()),
-                    Err(refused) => ControlFlow::Break(refused),
-                })
-            });
-            match streamed {
-                Ok(ControlFlow::Continue(())) => {}
-                Ok(ControlFlow::Break(refused)) => {
-                    return Err(SessionTranscriptError::Sink(refused));
+        match fold.last_close_for(&unloaded.event) {
+            Some(last_close) => {
+                let close = pages.read_run_close(session_id, &run_id, last_close)?;
+                fold_close(pages, &mut fold, &mut run, &unloaded.event, close)?;
+            }
+            None => stream_row(pages, &mut fold, &mut run, &unloaded.event, &unloaded)?,
+        }
+    }
+}
+
+/// A run's pieces as they reach the sink: the run opens at its first turn.
+struct RunPieces<'walk, Sink> {
+    sink: &'walk mut Sink,
+    number: u64,
+    queued: &'walk AgentRunQueuedPayload,
+    is_open: bool,
+}
+
+impl<Sink: SessionTranscriptSink> RunPieces<'_, Sink> {
+    /// Hands one step of the fold to the sink, opening the run before its first turn.
+    fn hand_on(&mut self, step: TurnFoldStep) -> Result<(), SessionTranscriptError<Sink::Error>> {
+        match step {
+            TurnFoldStep::TurnOpened { role, .. } => {
+                if !self.is_open {
+                    self.is_open = true;
+                    self.sink
+                        .open_run(self.number, self.queued)
+                        .map_err(SessionTranscriptError::Sink)?;
                 }
-                Err(BodyStreamError::Read(refused)) => {
-                    return Err(SessionLogReadError::from(refused).into());
-                }
-                Err(BodyStreamError::OutOfMemory) => {
-                    return Err(SessionLogReadError::from(out_of_memory_read_failure()).into());
-                }
-                Err(damaged @ (BodyStreamError::Damaged(_) | BodyStreamError::Write(_))) => {
-                    let malformed = malformed_body(&unloaded.event, damaged);
-                    return Err(SessionLogReadError::from(malformed).into());
-                }
+                self.sink
+                    .open_turn(role)
+                    .map_err(SessionTranscriptError::Sink)
+            }
+            TurnFoldStep::Segment(segment) => self
+                .sink
+                .segment(segment)
+                .map_err(SessionTranscriptError::Sink),
+        }
+    }
+}
+
+/// Folds `close`, the one-row page of the last close of the call `first` first closes, at
+/// `first`'s place, its body whole or a frame at a time.
+fn fold_close<Sink: SessionTranscriptSink>(
+    pages: &impl TranscriptPageSource,
+    fold: &mut TurnFold,
+    run: &mut RunPieces<'_, Sink>,
+    first: &EventEnvelope,
+    close: HydratedPage,
+) -> Result<(), SessionTranscriptError<Sink::Error>> {
+    let HydratedPage {
+        mut events,
+        oversized,
+    } = close;
+    if let Some(last) = events.pop() {
+        return fold.add_in_place_of(first, last, &mut |step| run.hand_on(step));
+    }
+    let unloaded =
+        oversized.expect("the snapshot holds the close the run's read of its calls named");
+    stream_row(pages, fold, run, first, &unloaded)
+}
+
+/// Folds `unloaded`, a row too long for a page, at `place`'s position, handing its body on a
+/// frame at a time as it is read.
+fn stream_row<Sink: SessionTranscriptSink>(
+    pages: &impl TranscriptPageSource,
+    fold: &mut TurnFold,
+    run: &mut RunPieces<'_, Sink>,
+    place: &EventEnvelope,
+    unloaded: &UnloadedBodyEvent,
+) -> Result<(), SessionTranscriptError<Sink::Error>> {
+    let Some(head) = fold.add_streamed(place, &unloaded.event, &mut |step| run.hand_on(step))?
+    else {
+        return Ok(());
+    };
+    let sink = &mut *run.sink;
+    sink.open_streamed_segment(head)
+        .map_err(SessionTranscriptError::Sink)?;
+    for piece in &unloaded.pieces {
+        let streamed = pages.stream_body(piece, |frame| {
+            Ok(match sink.body_frame(frame) {
+                Ok(()) => ControlFlow::Continue(()),
+                Err(refused) => ControlFlow::Break(refused),
+            })
+        });
+        match streamed {
+            Ok(ControlFlow::Continue(())) => {}
+            Ok(ControlFlow::Break(refused)) => {
+                return Err(SessionTranscriptError::Sink(refused));
+            }
+            Err(BodyStreamError::Read(refused)) => {
+                return Err(SessionLogReadError::from(refused).into());
+            }
+            Err(BodyStreamError::OutOfMemory) => {
+                return Err(SessionLogReadError::from(out_of_memory_read_failure()).into());
+            }
+            Err(damaged @ (BodyStreamError::Damaged(_) | BodyStreamError::Write(_))) => {
+                let malformed = malformed_body(&unloaded.event, damaged);
+                return Err(SessionLogReadError::from(malformed).into());
             }
         }
-        sink.close_streamed_segment()
-            .map_err(SessionTranscriptError::Sink)?;
     }
+    sink.close_streamed_segment()
+        .map_err(SessionTranscriptError::Sink)
 }
 
 #[cfg(test)]
@@ -286,6 +392,7 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_store::events::content::codec::{BodyStreamError, StoredBodyPlace};
+    use sidekicks_store::events::session::read::tool_call_closes::ToolCallCloses;
     use sidekicks_store::events::session::read::{
         HYDRATED_PAGE_TEXT_BYTES, HydratedPage, SessionEventReads, SessionLogReadError,
     };
@@ -322,6 +429,23 @@ mod tests {
         ) -> Result<HydratedPage, SessionLogReadError> {
             self.pages_read.set(self.pages_read.get() + 1);
             self.pages.read_run_page(session_id, run_id, after_position)
+        }
+
+        fn read_run_tool_call_closes(
+            &self,
+            session_id: &SessionId,
+            run_id: &RunId,
+        ) -> Result<Vec<ToolCallCloses>, SessionLogReadError> {
+            self.pages.read_run_tool_call_closes(session_id, run_id)
+        }
+
+        fn read_run_close(
+            &self,
+            session_id: &SessionId,
+            run_id: &RunId,
+            sequence: i64,
+        ) -> Result<HydratedPage, SessionLogReadError> {
+            self.pages.read_run_close(session_id, run_id, sequence)
         }
 
         fn stream_body<Stop>(
@@ -533,6 +657,7 @@ mod tests {
                         tool_call_id: "call-1".to_owned(),
                         outcome: CanonicalToolResultOutcome::Succeeded,
                         provenance: CanonicalToolResultProvenance::Provider,
+                        end_cause: None,
                         text: String::new(),
                         is_content_unavailable: false,
                     })
@@ -541,5 +666,75 @@ mod tests {
             ]
         );
         assert_eq!(pages_read.get(), 5);
+    }
+
+    // Killed by the stream left in log order, which hands on the stand-in and both closes as
+    // three results.
+    #[test]
+    fn the_transcript_file_folds_a_held_call_as_the_brief_does() {
+        let log = SessionTestLog::new(schema_parts());
+        run_queued(&log, log.run_id, None);
+        let invoked = log.tool_row("agent.toolCall.invoked", "call-1", json!({}), Some("{}"));
+        log.tool_row(
+            "agent.toolCall.backgrounded",
+            "call-1",
+            json!({ "taskId": "t1", "survivesRestart": false }),
+            Some("Moved to the background as task t1"),
+        );
+        let failed = log.tool_row(
+            "agent.toolCall.failed",
+            "call-1",
+            json!({ "endCause": "stopped" }),
+            None,
+        );
+        log.tool_row(
+            "agent.toolCall.completed",
+            "call-1",
+            json!({}),
+            Some("done"),
+        );
+
+        let reader = log.reader();
+        let reads = SessionEventReads::new(&reader, |_: &SessionId| None);
+        let pages_read = Cell::new(0);
+        let pages = CountedPages {
+            pages: SessionLogPages {
+                reads: &reads,
+                connection: &reader,
+            },
+            pages_read: &pages_read,
+        };
+        let mut sink = RecordingSink {
+            pages_read: &pages_read,
+            pieces: Vec::new(),
+            streamed_body: String::new(),
+            streamed_frames: 0,
+        };
+        walk_session(&pages, &log.session_id, &mut sink).expect("the session's transcript reads");
+
+        let pieces: Vec<Piece> = sink.pieces.into_iter().map(|(_, piece)| piece).collect();
+        assert_eq!(
+            pieces,
+            [
+                Piece::Run(1, None),
+                Piece::Turn(CanonicalTranscriptRole::Assistant),
+                Piece::Segment(CanonicalTranscriptSegment::ToolCall {
+                    position: position(invoked),
+                    tool_call_id: "call-1".to_owned(),
+                    tool_name: "bash".to_owned(),
+                    arguments_json: "{}".to_owned(),
+                    is_content_unavailable: false,
+                }),
+                Piece::Segment(CanonicalTranscriptSegment::ToolResult {
+                    position: position(failed),
+                    tool_call_id: "call-1".to_owned(),
+                    outcome: CanonicalToolResultOutcome::Succeeded,
+                    provenance: CanonicalToolResultProvenance::Provider,
+                    end_cause: None,
+                    text: "done".to_owned(),
+                    is_content_unavailable: false,
+                }),
+            ]
+        );
     }
 }

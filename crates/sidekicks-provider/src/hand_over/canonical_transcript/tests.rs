@@ -1,8 +1,11 @@
 use std::sync::Arc;
 
+use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::json;
+use sidekicks_contracts::event::declared_variants::ToolCallEndCause;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::provider::driver::declared_loss::DeclaredLossKind;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -15,11 +18,12 @@ use sidekicks_store::events::session::read::SessionEventReads;
 use sidekicks_store::events::test_log::SessionTestLog;
 
 use super::{
-    CanonicalToolResultOutcome, CanonicalToolResultProvenance, CanonicalTranscriptRole,
-    CanonicalTranscriptSegment, CanonicalTranscriptTurn, TranscriptExportBound,
-    fold_canonical_transcript,
+    CanonicalToolResultOutcome, CanonicalToolResultProvenance, CanonicalTranscriptProjection,
+    CanonicalTranscriptRole, CanonicalTranscriptSegment, CanonicalTranscriptTurn,
+    TranscriptExportBound, fold_canonical_transcript,
 };
 use crate::driver::schema::schema_parts;
+use crate::hand_over::transform_pipeline::transform_transcript;
 
 /// Appends `event` to `session_id`'s log through the row write, with `body` as its stored
 /// body.
@@ -192,10 +196,142 @@ fn a_row_stored_in_pieces_folds_as_one_segment_with_its_whole_body() {
                     tool_call_id: "call-1".to_owned(),
                     outcome: CanonicalToolResultOutcome::Succeeded,
                     provenance: CanonicalToolResultProvenance::Provider,
+                    end_cause: None,
                     text: body,
                     is_content_unavailable: false,
                 },
             ],
         }]
+    );
+}
+
+/// Run `log`'s lead run folded whole.
+fn fold_lead_run(log: &SessionTestLog) -> Vec<CanonicalTranscriptTurn> {
+    let reader = log.reader();
+    let reads = SessionEventReads::new(&reader, |_: &SessionId| None);
+    fold_canonical_transcript(
+        &reads,
+        &log.session_id,
+        &log.run_id,
+        TranscriptExportBound::Unbounded,
+    )
+    .expect("the run's transcript folds")
+    .turns
+}
+
+fn position(sequence: i64) -> u64 {
+    u64::try_from(sequence).expect("a sequence is not negative")
+}
+
+/// Call `call-1`'s opening at `sequence`, with the arguments `{}`.
+fn call(sequence: i64) -> CanonicalTranscriptSegment {
+    CanonicalTranscriptSegment::ToolCall {
+        position: position(sequence),
+        tool_call_id: "call-1".to_owned(),
+        tool_name: "bash".to_owned(),
+        arguments_json: "{}".to_owned(),
+        is_content_unavailable: false,
+    }
+}
+
+// Killed by the failed row read as `ToolActivityPayload`, which refuses `endCause`, so the fold
+// fails with `Payload`; and by a bodiless row with an end cause folded as an unavailable body.
+#[test]
+fn a_failed_row_with_an_end_cause_folds_as_its_calls_failed_result() {
+    let log = SessionTestLog::new(schema_parts());
+    let invoked = log.tool_row("agent.toolCall.invoked", "call-1", json!({}), Some("{}"));
+    let failed = log.tool_row(
+        "agent.toolCall.failed",
+        "call-1",
+        json!({ "endCause": "stopped" }),
+        None,
+    );
+
+    assert_eq!(
+        fold_lead_run(&log),
+        [CanonicalTranscriptTurn {
+            position: position(invoked),
+            role: CanonicalTranscriptRole::Assistant,
+            segments: vec![
+                call(invoked),
+                CanonicalTranscriptSegment::ToolResult {
+                    position: position(failed),
+                    tool_call_id: "call-1".to_owned(),
+                    outcome: CanonicalToolResultOutcome::Failed,
+                    provenance: CanonicalToolResultProvenance::Provider,
+                    end_cause: Some(ToolCallEndCause::Stopped),
+                    text: String::new(),
+                    is_content_unavailable: false,
+                },
+            ],
+        }]
+    );
+}
+
+// Killed by `backgrounded` left out of the transcript's types (the stand-in case meets a call
+// with no result, which the repair answers), by the first of several closes kept (`Failed`), by
+// the stand-in kept beside a close (two results), and by the last close placed at its own row.
+#[rstest]
+#[case::stand_in_only(false)]
+#[case::closes_follow(true)]
+fn a_held_call_answers_with_its_stand_in_until_a_close_follows(#[case] do_closes_follow: bool) {
+    let log = SessionTestLog::new(schema_parts());
+    let invoked = log.tool_row("agent.toolCall.invoked", "call-1", json!({}), Some("{}"));
+    let stand_in = "Moved to the background as task t1";
+    let backgrounded = log.tool_row(
+        "agent.toolCall.backgrounded",
+        "call-1",
+        json!({ "taskId": "t1", "survivesRestart": false }),
+        Some(stand_in),
+    );
+    let (result_sequence, result_text) = if do_closes_follow {
+        let failed = log.tool_row(
+            "agent.toolCall.failed",
+            "call-1",
+            json!({ "endCause": "stopped" }),
+            None,
+        );
+        log.tool_row(
+            "agent.toolCall.completed",
+            "call-1",
+            json!({}),
+            Some("done"),
+        );
+        (failed, "done")
+    } else {
+        (backgrounded, stand_in)
+    };
+
+    let turns = fold_lead_run(&log);
+    assert_eq!(
+        turns,
+        [CanonicalTranscriptTurn {
+            position: position(invoked),
+            role: CanonicalTranscriptRole::Assistant,
+            segments: vec![
+                call(invoked),
+                CanonicalTranscriptSegment::ToolResult {
+                    position: position(result_sequence),
+                    tool_call_id: "call-1".to_owned(),
+                    outcome: CanonicalToolResultOutcome::Succeeded,
+                    provenance: CanonicalToolResultProvenance::Provider,
+                    end_cause: None,
+                    text: result_text.to_owned(),
+                    is_content_unavailable: false,
+                },
+            ],
+        }]
+    );
+    let transformed = transform_transcript(CanonicalTranscriptProjection {
+        session_id: log.session_id,
+        run_id: log.run_id,
+        built_at_position: 0,
+        turns,
+    });
+    assert!(
+        !transformed
+            .declared_losses
+            .contains(&DeclaredLossKind::ToolCallHistoryRepaired),
+        "a held call's one result needs no repair"
     );
 }
