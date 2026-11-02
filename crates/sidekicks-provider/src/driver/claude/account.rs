@@ -3,7 +3,6 @@
 
 pub(super) mod credentials;
 mod limits;
-mod read_folder;
 mod sign_in;
 mod sign_in_move;
 mod sign_out;

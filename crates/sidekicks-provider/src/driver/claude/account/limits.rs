@@ -17,9 +17,9 @@ use sidekicks_contracts::event::usage::compose_scoped_limit_id;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::account::read_folder::run_in_read_folder;
 use crate::driver::ProviderAccountFolders;
 use crate::driver::claude::account::ClaudeAccountLegs;
-use crate::driver::claude::account::read_folder::run_in_read_folder;
 use crate::driver::claude::rate_limit_windows::{SESSION_WINDOW_MINUTES, WEEKLY_WINDOW_MINUTES};
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
@@ -326,10 +326,10 @@ mod tests {
     use sidekicks_std::file::atomic_write::write_file_atomically;
 
     use super::{CLAUDE_LIMITS_READ_FOLDER, read_limit_windows};
+    use crate::account::read_folder::compose_reads_folder;
     use crate::driver::CurrentProviderAccount;
     use crate::driver::ProviderAccountFolders;
     use crate::driver::claude::account::ClaudeAccountLegs;
-    use crate::driver::claude::account::read_folder::compose_reads_folder;
     use crate::driver::claude::rate_limit_windows::read_claude_quota_windows;
     use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
     use crate::driver::contract::account::{
