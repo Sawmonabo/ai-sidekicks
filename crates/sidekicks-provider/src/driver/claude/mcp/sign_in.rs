@@ -252,6 +252,19 @@ pub(crate) async fn sign_in_with_claude_client(
         .and_then(|oauth| oauth.get(OAUTH_CLIENT_ID_MEMBER))
         .and_then(Value::as_str)
         .map(str::to_owned);
+    // A `url` naming no variable reads the same in any environment, so an entry at another server
+    // is turned away here, before a folder is made or an environment composed for it.
+    if let Some(entry) = &entry
+        && !entry
+            .get(URL_MEMBER)
+            .and_then(Value::as_str)
+            .is_some_and(|url| url.contains("${"))
+        && !declares_server_at(entry, &request.server_address, &[])
+    {
+        return Err(DriverError::from(NoPersonServerEntry {
+            binding: request.binding,
+        }));
+    }
     // The entry goes to the folder as declared, since Claude Code fills its variables itself.
     let servers: Map<String, Value> = entry
         .clone()

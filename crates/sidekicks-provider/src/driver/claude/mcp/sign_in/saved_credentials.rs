@@ -13,6 +13,7 @@ use super::ClaudeSignInError;
 use crate::driver::claude::account_credentials::{
     ClaudeSignInReader, ClaudeStoredCredentials, read_claude_credential_file,
 };
+use crate::driver::claude::mcp::machine_probe::variables::expand_remote_address;
 use crate::driver::contract::sign_in::{BEARER_TOKEN_TYPE, ProviderSignInTakeover};
 use crate::driver::mcp_server::address::names_server_at;
 
@@ -38,7 +39,7 @@ pub(super) async fn read_saved_sign_in(
     address: &McpServerAddress,
 ) -> Result<ClaudeSavedSignInReading, ClaudeSignInError> {
     let from_file = match read_claude_credential_file(environment).await {
-        Ok(Some(stored)) => read_claude_saved_sign_in(stored, name, address),
+        Ok(Some(stored)) => read_claude_saved_sign_in(stored, environment, name, address),
         Ok(None) => Err(ClaudeSignInError::NoSavedSignIn),
         Err(error) => Err(ClaudeSignInError::CredentialsUnreadable(error)),
     };
@@ -46,7 +47,7 @@ pub(super) async fn read_saved_sign_in(
         return from_file;
     }
     let from_keychain = match credentials.read_keychain_record(environment).await {
-        Ok(Some(stored)) => read_claude_saved_sign_in(stored, name, address),
+        Ok(Some(stored)) => read_claude_saved_sign_in(stored, environment, name, address),
         // Nothing in the keychain to read or remove: the file's outcome stands.
         Ok(None) => return from_file,
         Err(error) => Err(ClaudeSignInError::CredentialsUnreadable(error)),
@@ -115,11 +116,14 @@ pub(super) struct ClaudeSavedSignInReading {
 }
 
 /// The sign-in `stored` holds for the server `name` at `address`, matched by the saved name and
-/// address, never by Claude Code's key, whose hash Claude Code computes; the expiry Claude Code
+/// address, never by Claude Code's key, whose hash Claude Code computes; a saved address that does
+/// not name the server as written is read again with its variables filled from `environment`, the
+/// sign-in process's own, as an address saved as the entry declares it. The expiry Claude Code
 /// keeps in milliseconds since the epoch, the scopes as one space-separated text. Fails with
 /// `NoSavedSignIn` when none with an access token matches.
 pub(super) fn read_claude_saved_sign_in(
     stored: ClaudeStoredCredentials,
+    environment: &[(String, String)],
     name: &McpServerName,
     address: &McpServerAddress,
 ) -> Result<ClaudeSavedSignInReading, ClaudeSignInError> {
@@ -128,10 +132,10 @@ pub(super) fn read_claude_saved_sign_in(
         .into_values()
         .find(|sign_in| {
             sign_in.server_name.as_deref() == Some(name.as_str())
-                && sign_in
-                    .server_url
-                    .as_deref()
-                    .is_some_and(|url| names_server_at(url, address))
+                && sign_in.server_url.as_deref().is_some_and(|url| {
+                    names_server_at(url, address)
+                        || names_server_at(&expand_remote_address(url, environment), address)
+                })
                 && sign_in
                     .access_token
                     .as_deref()

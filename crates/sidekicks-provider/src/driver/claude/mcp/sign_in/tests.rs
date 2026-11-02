@@ -185,6 +185,7 @@ fn a_saved_sign_in_matches_by_name_and_address_and_its_expiry_reads_in_milliseco
 
     let read = read_claude_saved_sign_in(
         serde_json::from_value(file).expect("Claude Code's credentials parse"),
+        &[],
         &name(),
         &address(),
     )
@@ -384,9 +385,10 @@ async fn a_plugin_binding_signs_in_with_its_entry_and_a_connector_reads_the_no_e
 }
 
 // A binding whose server the person's config no longer declares, or declares at another address,
-// reads the no-entry arm before any process starts, so the launch asks the next provider. Killed
-// by a missing entry answered as the driver's own failure, and by an entry matched by its name
-// alone, which signs in to the other address.
+// reads the no-entry arm before any process starts or any sign-in folder is made, so the launch
+// asks the next provider. Killed by a missing entry answered as the driver's own failure, by an
+// entry matched by its name alone, which signs in to the other address, and by a plain address at
+// another server judged only once a folder is made for it.
 #[rstest]
 #[case::no_entry(json!({"mcpServers": {}}))]
 #[case::another_address(
@@ -410,6 +412,7 @@ async fn a_binding_with_no_entry_at_its_address_reads_the_no_entry_arm(#[case] c
         "a binding with no entry at its address reads the no-entry arm, not {refused:?}"
     );
     assert!(scripted.starts.take_sign_in_starts().is_empty());
+    assert!(!sign_ins_folder(&scripted).exists());
 }
 
 // A person whose environment sets `CLAUDE_CONFIG_DIR` keeps their servers in that folder's
@@ -478,30 +481,41 @@ async fn a_user_entry_is_read_from_the_config_folder_the_persons_environment_nam
 // An entry whose `url` names variables matches the request at the address Claude Code connects
 // to, each variable filled from the sign-in process's own environment: a default where the
 // variable is unset, the variable's value where it is set, and a covered credential name read as
-// empty though set. The entry still goes to the process as declared. Killed by matching the `url`
-// as written, which names no server, by filling it from no environment, and by expanding a
-// covered credential name.
+// empty though set. The entry still goes to the process as declared, and its saved sign-in reads
+// back whether Claude Code saved the address filled or as declared. Killed by matching the `url`
+// as written, which names no server, by filling it from no environment, by expanding a covered
+// credential name, and by matching the saved address only as written.
 #[rstest]
 #[case::a_default_where_unset(
     &[],
     "${API_BASE_URL:-https://docs.example.test}/mcp",
+    SERVER_ADDRESS,
     SERVER_ADDRESS
 )]
 #[case::the_value_where_set(
     &[("API_BASE_URL", "https://set.example.test")],
     "${API_BASE_URL:-https://docs.example.test}/mcp",
+    "https://set.example.test/mcp",
     "https://set.example.test/mcp"
 )]
 #[case::a_credential_read_empty(
     &[("NPM_TOKEN", "/npm-secret")],
     "https://docs.example.test${NPM_TOKEN}/mcp",
+    SERVER_ADDRESS,
     SERVER_ADDRESS
+)]
+#[case::a_saved_address_as_declared(
+    &[("API_BASE_URL", "https://set.example.test")],
+    "${API_BASE_URL:-https://docs.example.test}/mcp",
+    "https://set.example.test/mcp",
+    "${API_BASE_URL:-https://docs.example.test}/mcp"
 )]
 #[tokio::test]
 async fn an_entry_address_with_variables_matches_as_the_sign_in_process_fills_it(
     #[case] variables: &[(&str, &str)],
     #[case] declared_url: &str,
     #[case] requested_address: &str,
+    #[case] saved_address: &str,
 ) {
     let scripted = ScriptedDriver::new();
     std::fs::create_dir_all(&scripted.home).expect("the person's home is made");
@@ -529,7 +543,7 @@ async fn an_entry_address_with_variables_matches_as_the_sign_in_process_fills_it
     );
     scripted.starts.script_mcp_sign_in(
         custom_scheme_channel(),
-        json!({"mcpOAuth": {"docs|key": saved(SERVER_NAME, requested_address, "access-one")}}),
+        json!({"mcpOAuth": {"docs|key": saved(SERVER_NAME, saved_address, "access-one")}}),
         ScriptedSignInPlace::File,
         Vec::new(),
     );
