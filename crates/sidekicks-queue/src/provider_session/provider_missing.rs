@@ -1,6 +1,7 @@
-//! The `providerMissing` notice a start posts on its session when no driver answers the session's
-//! provider, or the driver finds the provider not installed where the session runs: no process
-//! started, and every client reads why from the notice. The start's own failure stands.
+//! The `providerMissing` notice a start, or a run's admission, posts on its session when no driver
+//! answers the session's provider, or the driver finds the provider not installed where the
+//! session runs: no process started, and every client reads why from the notice. The start's own
+//! failure stands.
 
 use std::error::Error;
 
@@ -17,10 +18,11 @@ use super::controls::NoticeWriteError;
 use super::errors::ProviderSessionError;
 
 impl ProviderSessions {
-    /// Answers `failed`, why a start of `session_id` on `provider` failed, once the session's
-    /// `providerMissing` notice is posted where `failed` says the provider is missing. Answers
-    /// [`ProviderSessionError::ProviderMissingNotPosted`], carrying `failed`, when the post fails.
-    pub(super) async fn answer_failed_start(
+    /// Answers `failed`, why a start of `session_id` on `provider` failed or an admission of its
+    /// run was refused, once the session's `providerMissing` notice is posted where `failed` says
+    /// the provider is missing. Answers [`ProviderSessionError::ProviderMissingNotPosted`],
+    /// carrying `failed`, when the post fails.
+    pub(crate) async fn answer_failed_start(
         &self,
         session_id: SessionId,
         provider: &ProviderId,

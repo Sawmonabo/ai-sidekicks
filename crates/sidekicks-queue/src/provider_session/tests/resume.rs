@@ -36,7 +36,7 @@ use tokio::time::timeout;
 use super::{Opening, READ_STATEMENT_CAPACITY, WAIT, unregistered_provider};
 use crate::provider_session::errors::ProviderSessionError;
 use crate::provider_session::resumed_runs::ResumedRuns;
-use crate::provider_session::test_opening::first_provider;
+use crate::provider_session::test_opening::{first_provider, read_provider_missing_notices};
 
 /// The recurring job the wake's test stores for the session.
 const CRON: &str = "0 9 * * 1";
@@ -472,7 +472,7 @@ async fn a_resume_or_a_restart_whose_provider_is_missing_posts_one_notice(
         "{relaunched:?}"
     );
     assert_eq!(
-        opening.provider_missing_notices(),
+        read_provider_missing_notices(&opening.database.reader()),
         vec![opening.provider_missing_notice(provider)]
     );
     let epochs = lock(&opening.epochs);

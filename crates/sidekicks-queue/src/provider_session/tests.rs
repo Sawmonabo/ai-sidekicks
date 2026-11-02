@@ -27,7 +27,7 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
+use sidekicks_contracts::session::controls::events::SessionNotice;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -347,35 +347,6 @@ impl Opening {
             .last()
             .cloned()
             .expect("an opening handed its process a binding")
-    }
-
-    // Each `providerMissing` notice posted on the session, in order.
-    fn provider_missing_notices(&self) -> Vec<SessionNotice> {
-        self.database
-            .reader()
-            .prepare("SELECT payload FROM session_events WHERE type = ?1 ORDER BY sequence")
-            .expect("the test reads the notices")
-            .query_map([SessionEventType::SessionNoticePosted.as_str()], |row| {
-                row.get::<_, String>(0)
-            })
-            .expect("the notices read")
-            .map(|payload| {
-                serde_json::from_str::<SessionNoticePostedPayload>(
-                    &payload.expect("each notice reads"),
-                )
-                .expect("a stored notice parses")
-            })
-            .filter_map(|posted| {
-                if let SessionNoticePostedPayload::Notice(
-                    notice @ SessionNotice::ProviderMissing { .. },
-                ) = posted
-                {
-                    Some(notice)
-                } else {
-                    None
-                }
-            })
-            .collect()
     }
 
     // The one notice a start on `provider` posts for the session in `TEST_PLACE`.

@@ -19,7 +19,7 @@ use tokio::time::timeout;
 
 use super::{Opening, WAIT, take_row, unregistered_provider, unresolvable_provider};
 use crate::provider_session::errors::ProviderSessionError;
-use crate::provider_session::test_opening::first_provider;
+use crate::provider_session::test_opening::{first_provider, read_provider_missing_notices};
 
 // Opening a session whose conversation an earlier daemon left resumes it, and a restart of its
 // process brings it back the same way: each records the binding it minted on its predecessor's run,
@@ -293,7 +293,7 @@ async fn a_create_whose_provider_is_missing_posts_one_notice_and_fails_as_it_fai
         .open(opening.session_id, opening.run_id)
         .await;
 
-    let notices = opening.provider_missing_notices();
+    let notices = read_provider_missing_notices(&opening.database.reader());
     match failure {
         CreateFailure::NoDriver => {
             assert!(

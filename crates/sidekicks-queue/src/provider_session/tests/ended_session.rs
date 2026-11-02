@@ -16,6 +16,7 @@ use sidekicks_provider::driver::contract::error::DriverError;
 
 use super::{CLOSE_HELD, Opening, WAIT, unresolvable_provider};
 use crate::provider_session::errors::ProviderSessionError;
+use crate::provider_session::test_opening::read_provider_missing_notices;
 
 // A run admitted before a close, whose open waits out the close, and an idle sleep's wake that
 // waits it out too, are refused once the close's `session.closed` is written, and no process comes
@@ -221,5 +222,8 @@ async fn a_deleted_session_takes_no_provider_missing_notice() {
         ),
         "{opened:?}"
     );
-    assert_eq!(opening.provider_missing_notices(), Vec::new());
+    assert_eq!(
+        read_provider_missing_notices(&opening.database.reader()),
+        Vec::new()
+    );
 }
