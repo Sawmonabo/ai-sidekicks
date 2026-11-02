@@ -26,6 +26,7 @@ use url::{Host, Url};
 
 use crate::oauth::pushed_authorization::PushedAuthorizationRefusal;
 use crate::sign_in::admitted_client::{AdmittedClient, AdmittedClientStore};
+use crate::sign_in::oauth_http_client::address_policy::is_loopback_address;
 use crate::sign_in::oauth_http_client::{RegistrationOutcome, ServerOAuthHttpClient};
 
 /// Where this deployment's relay is reached, registered by the account once it is signed in to
@@ -147,7 +148,7 @@ pub(crate) async fn choose_client(
     if !resolution.source.is_discovered() {
         return SignInClient::Unsupported;
     }
-    if !is_loopback(request.redirect_address) {
+    if !is_loopback_address(request.redirect_address) {
         return SignInClient::ProviderFlow {
             admitted_provider: None,
         };
@@ -271,16 +272,6 @@ fn is_refusal(status: StatusCode) -> bool {
     status.is_client_error()
         && status != StatusCode::REQUEST_TIMEOUT
         && status != StatusCode::TOO_MANY_REQUESTS
-}
-
-// Whether `address` is a loopback redirect: `localhost` or a loopback literal.
-fn is_loopback(address: &Url) -> bool {
-    match address.host() {
-        Some(Host::Domain(domain)) => domain.eq_ignore_ascii_case("localhost"),
-        Some(Host::Ipv4(ip)) => ip.is_loopback(),
-        Some(Host::Ipv6(ip)) => ip.is_loopback(),
-        None => false,
-    }
 }
 
 // The address of the relay's client metadata document to offer as `client_id`, when the server
