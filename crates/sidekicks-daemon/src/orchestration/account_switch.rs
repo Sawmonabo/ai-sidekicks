@@ -124,11 +124,14 @@ pub(crate) struct AccountSwitch {
     locks: KeyedLock<ProviderId>,
 }
 
-/// A switch that made its account current: the account as it now reads, the one whose mark moved
-/// off it, the sessions being moved, and the work that moves them.
+/// A switch that made its account current: the account as it now reads, whether the mark moved
+/// onto it, the one whose mark moved off it, the sessions being moved, and the work that moves
+/// them.
 pub(crate) struct CurrentAccountMade {
     /// The account now current.
     pub(crate) account: RegisteredAccount,
+    /// Whether the mark moved onto the account; `false` where it already stood there.
+    pub(crate) is_mark_moved: bool,
     /// The account that was current before, as it now reads; `None` where none was or the account
     /// already was.
     pub(crate) left: Option<RegisteredAccount>,
@@ -156,9 +159,16 @@ struct SwitchPlan {
     leads: Vec<LeadToMove>,
 }
 
+// Where the switch's refusals left the mark: the account now current, whether the mark moved onto
+// it, and the account it moved off, as it now reads.
+struct MarkPlaced {
+    account: RegisteredAccount,
+    is_moved: bool,
+    left: Option<RegisteredAccount>,
+}
+
 // The switch's answer to its caller, sent before the moves land.
-type SwitchAnswer =
-    Result<(RegisteredAccount, Option<RegisteredAccount>, Vec<SessionId>), HandlerError>;
+type SwitchAnswer = Result<(MarkPlaced, Vec<SessionId>), HandlerError>;
 
 impl AccountSwitch {
     /// The switch over `deps`.
@@ -172,8 +182,8 @@ impl AccountSwitch {
     /// Makes `account_id` its provider's current account for `actor`, then moves every running
     /// session of that provider not already on it. Answers once the mark has moved; the moves land
     /// after, under the provider's lock. Refused `provider.account.notFound` for an account not
-    /// registered or being removed, `provider.account.credentialHome.unavailable` for a home that is
-    /// gone and `provider.account.notAuthenticated` with the account's remedy for a sign-in its
+    /// registered or being removed, `provider.account.credentialHome.unavailable` for a home that
+    /// is gone and `provider.account.notAuthenticated` with the account's remedy for a sign-in its
     /// stored reading says is gone, each with the mark unmoved and no session sent anything.
     pub(crate) async fn make_current(
         self: &Arc<Self>,
@@ -190,19 +200,20 @@ impl AccountSwitch {
                 Err(refusal) => {
                     let _unheard = answer.send(Err(refusal));
                 }
-                Ok((plan, account, left)) => {
+                Ok((plan, mark)) => {
                     let moving = plan.leads.iter().map(|lead| lead.session_id).collect();
-                    let _unheard = answer.send(Ok((account, left, moving)));
+                    let _unheard = answer.send(Ok((mark, moving)));
                     switch.carry_out(plan, actor, hold).await.await;
                 }
             }
         });
-        let (account, left, moving_sessions) = answered
+        let (mark, moving_sessions) = answered
             .await
             .map_err(|_ended| HandlerError::Internal(Box::new(SwitchEnded)))??;
         Ok(CurrentAccountMade {
-            account,
-            left,
+            account: mark.account,
+            is_mark_moved: mark.is_moved,
+            left: mark.left,
             moving_sessions,
             settled,
         })
@@ -236,7 +247,7 @@ impl AccountSwitch {
         &self,
         provider: ProviderId,
         account_id: ProviderAccountId,
-    ) -> Result<(SwitchPlan, RegisteredAccount, Option<RegisteredAccount>), HandlerError> {
+    ) -> Result<(SwitchPlan, MarkPlaced), HandlerError> {
         let account = self.deps.accounts.read(account_id.clone()).await?;
         self.deps
             .account_reader
@@ -253,6 +264,7 @@ impl AccountSwitch {
             .into());
         }
         // An account already current keeps the mark, and its sessions still on another move.
+        let is_moved = !account.is_default;
         let (account, left) = if account.is_default {
             (account, None)
         } else {
@@ -279,7 +291,12 @@ impl AccountSwitch {
             to: account_id,
             leads,
         };
-        Ok((plan, account, left))
+        let mark = MarkPlaced {
+            account,
+            is_moved,
+            left,
+        };
+        Ok((plan, mark))
     }
 
     // The leads to move onto `provider`'s current account at the start, `None` where it has none.
@@ -358,9 +375,9 @@ impl AccountSwitch {
         Ok(leads)
     }
 
-    // Moves every lead of `plan` onto its account, grouped by the account each leaves, settling each
-    // at its acknowledgment, then frees the provider's lock and answers the watch of each moved
-    // lead's first request on the new account, which ends once every one has settled.
+    // Moves every lead of `plan` onto its account, grouped by the account each leaves, settling
+    // each at its acknowledgment, then frees the provider's lock and answers the watch of each
+    // moved lead's first request on the new account, which ends once every one has settled.
     async fn carry_out(
         self: &Arc<Self>,
         plan: SwitchPlan,

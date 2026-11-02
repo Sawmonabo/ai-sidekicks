@@ -3,10 +3,11 @@
 //! daemon's service log files and each provider service's log and kept tail in `logs/`, every
 //! diagnostic bucket, the crash dumps and crash reports, and the provider diagnostic folders in
 //! each account home and each provider's switching home, and asks each such home's driver to
-//! expire what its provider keeps there beyond those folders. A file still being written, the one the service log holds open, a running
-//! provider service's log, a partial crash dump or a crash-safe write's temporary file in either
-//! crash folder, which the crash pass removes itself once no writer holds it, is never deleted, and
-//! a running service's log past its cap is cut instead. A file in `logs/` that is no diagnostic log
+//! expire what its provider keeps there beyond those folders. A file still being written, the one
+//! the service log holds open, a running provider service's log, a partial crash dump or a
+//! crash-safe write's temporary file in either crash folder, which the crash pass removes itself
+//! once no writer holds it, is never deleted, and a running service's log past its cap is cut
+//! instead. A file in `logs/` that is no diagnostic log
 //! is never touched, and no folder is removed. A file that cannot be read, cut or deleted is told
 //! in the service log and the pass goes on. Each pass is metered against its processor budget.
 
@@ -158,23 +159,27 @@ async fn run_expiry(
         deps.data_folder.join(CRASH_REPORTS_FOLDER_NAME),
     ];
     let mut folders = diagnostic_bucket_folders(&deps.data_folder).to_vec();
-    let mut homes: Vec<(String, PathBuf)> = switching_homes(&deps.drivers, &deps.data_folder)
-        .into_iter()
-        .map(|switching_home| (switching_home.provider, switching_home.home))
-        .collect();
+    // Each home with its provider and its account, none for a switching home.
+    let mut homes: Vec<(String, Option<String>, PathBuf)> =
+        switching_homes(&deps.drivers, &deps.data_folder)
+            .into_iter()
+            .map(|switching_home| (switching_home.provider, None, switching_home.home))
+            .collect();
     match read_account_homes(&deps.reads, &meter).await {
-        Ok(account_homes) => homes.extend(
-            account_homes
-                .into_iter()
-                .map(|account_home| (account_home.provider, account_home.home)),
-        ),
+        Ok(account_homes) => homes.extend(account_homes.into_iter().map(|account_home| {
+            (
+                account_home.provider,
+                Some(account_home.account_id),
+                account_home.home,
+            )
+        })),
         Err(failure) => tracing::warn!(
             error = &failure as &(dyn Error + 'static),
             "the account homes' diagnostics could not be expired"
         ),
     }
-    let mut driven_homes: Vec<(Arc<dyn ProviderDriver>, PathBuf)> = Vec::new();
-    for (home_provider, home) in homes {
+    let mut driven_homes: Vec<(Arc<dyn ProviderDriver>, Option<String>, PathBuf)> = Vec::new();
+    for (home_provider, account_id, home) in homes {
         folders.extend(account_home_diagnostic_folders(
             &deps.drivers,
             &home_provider,
@@ -186,7 +191,7 @@ async fn run_expiry(
             .drivers()
             .find(|(provider, _)| provider.as_str() == home_provider)
         {
-            driven_homes.push((Arc::clone(driver), home));
+            driven_homes.push((Arc::clone(driver), account_id, home));
         }
     }
     let expired = meter
@@ -210,11 +215,11 @@ async fn run_expiry(
                     is_partial_dump_name(name) || atomic_write_target_of(name).is_some()
                 });
             }
-            for (driver, home) in &driven_homes {
+            for (driver, account_id, home) in &driven_homes {
                 match driver.expire_account_home_diagnostics(home, cutoff) {
                     Ok(rows_deleted) => count.rows_deleted += rows_deleted,
                     Err(failure) => tracing::warn!(
-                        home = %home.display(),
+                        provider_account_id = account_id.as_deref(),
                         error = &*failure as &(dyn Error + 'static),
                         "a provider's diagnostics in an account home could not be expired"
                     ),

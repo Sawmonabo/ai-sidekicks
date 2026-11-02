@@ -21,7 +21,8 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_contracts::method::Method as _;
 use sidekicks_contracts::provider::account::methods::{
-    PROVIDER_ACCOUNT_METHOD_DESCRIPTORS, ProviderAccountRegister, ProviderAccountSubscribe,
+    PROVIDER_ACCOUNT_METHOD_DESCRIPTORS, ProviderAccountCurrentUpdate,
+    ProviderAccountCurrentUpdateResponse, ProviderAccountRegister, ProviderAccountSubscribe,
     ProviderAccountUpdate, ProviderAccountUpdateResponse, ProviderWakeHelperState,
 };
 use sidekicks_contracts::provider::account::record::{
@@ -602,6 +603,86 @@ async fn a_refused_token_resupply_leaves_the_name_as_it_was() {
     assert_eq!(
         stored.display_label.as_ref().map(FreeFormText::as_str),
         Some("Work")
+    );
+}
+
+// A re-supply to a name another account of the provider holds is refused before its token is
+// sealed, so the account keeps the token it had. Killed by a re-supply that replaces the token
+// before the rename is refused.
+#[tokio::test]
+async fn a_resupply_to_a_taken_name_leaves_the_old_token() {
+    let inputs =
+        MethodInputs::new(Arc::new(ScriptedWakeHelper::new(WakeHelperStatus::Missing))).await;
+    inputs.register_token_account().await;
+    let other: ProviderAccountRegisterResponse = inputs
+        .call(
+            ProviderAccountRegister::DESCRIPTOR.method,
+            &json!({
+                "provider": first_provider().as_str(),
+                "displayLabel": "Home",
+                "billingMode": "subscription",
+                "nonInteractiveToken": "the-other-pasted-token",
+            }),
+        )
+        .await;
+
+    let answer = inputs
+        .registry
+        .dispatch(
+            request(
+                ProviderAccountRegister::DESCRIPTOR.method,
+                Some(&json!({
+                    "provider": first_provider().as_str(),
+                    "accountId": other.account.account_id().as_str(),
+                    "displayLabel": "work",
+                    "billingMode": "subscription",
+                    "nonInteractiveToken": "a-fresh-token",
+                })),
+            ),
+            context(1),
+        )
+        .await;
+
+    assert!(answer.is_err(), "the taken name was accepted");
+    let held: Vec<String> = lock(&inputs.keychain.0).values().cloned().collect();
+    assert!(held.iter().any(|token| token == "the-other-pasted-token"));
+    assert!(!held.iter().any(|token| token == "a-fresh-token"));
+}
+
+// Making current the account already current moves no mark, so no change goes out: the next
+// notice a subscriber reads is the rename after it. Killed by a switch that publishes the
+// account and the one it left whatever the mark did.
+#[tokio::test]
+async fn making_the_current_account_current_again_publishes_nothing() {
+    let inputs =
+        MethodInputs::new(Arc::new(ScriptedWakeHelper::new(WakeHelperStatus::Missing))).await;
+    let account_id = inputs
+        .register_token_account()
+        .await
+        .account
+        .account_id()
+        .clone();
+    let mut feed = inputs.subscribe().await;
+
+    let made: ProviderAccountCurrentUpdateResponse = inputs
+        .call(
+            ProviderAccountCurrentUpdate::DESCRIPTOR.method,
+            &json!({ "accountId": account_id.as_str() }),
+        )
+        .await;
+    let renamed: ProviderAccountUpdateResponse = inputs
+        .call(
+            ProviderAccountUpdate::DESCRIPTOR.method,
+            &json!({ "accountId": account_id.as_str(), "displayLabel": "Renamed" }),
+        )
+        .await;
+
+    assert!(made.account.is_default());
+    assert_eq!(
+        next_notification(&mut *feed).await,
+        ProviderAccountNotification::AccountChanged {
+            account: renamed.account
+        }
     );
 }
 

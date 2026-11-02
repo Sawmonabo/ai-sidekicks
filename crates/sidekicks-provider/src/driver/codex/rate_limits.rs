@@ -349,31 +349,42 @@ mod tests {
         );
     }
 
-    // A push that arrives after a complete read's answer is newer than the read, so the readings
-    // keep the push. Killed by storing the read's readings once its request returns, which lands
-    // them over a push the reader merged meanwhile, so the older set wins.
+    // A push is newer than a complete read sent before it, whether it arrives before the read's
+    // answer or after it, so the readings keep the push. Killed by storing the read's readings
+    // once its request returns, which lands them over a push the reader merged meanwhile, and by
+    // replacing the readings with the read's set at its answer, which undoes a push that arrived
+    // while the read was out.
+    #[rstest::rstest]
+    #[case::the_push_after_the_answer(false)]
+    #[case::the_push_while_the_read_is_out(true)]
     #[tokio::test]
-    async fn a_push_after_a_read_s_answer_stays_over_the_read() {
+    async fn a_push_after_a_read_was_sent_stays_over_the_read(#[case] is_pushed_first: bool) {
         let mut scripted = start_scripted_codex_service();
         let filing = CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage")));
         let five_hours = |used| json!({"usedPercent": used, "windowDurationMins": 300});
         let service = Arc::clone(&scripted.service);
         let script = &mut scripted.script;
-        let answer_then_push = async {
+        let push = json!({
+            "jsonrpc": "2.0",
+            "method": CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD,
+            "params": {"rateLimits": {"limitId": "codex", "primary": five_hours(20)}},
+        });
+        let answer_and_push = async {
             let read = script.next_sent().await;
             assert_eq!(read["method"], CODEX_ACCOUNT_RATE_LIMITS_READ_METHOD);
+            if is_pushed_first {
+                script.send(&push);
+            }
             script.answer(
                 &read,
                 &json!({"rateLimits": {"limitId": "codex", "primary": five_hours(10)}}),
             );
-            script.send(&json!({
-                "jsonrpc": "2.0",
-                "method": CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD,
-                "params": {"rateLimits": {"limitId": "codex", "primary": five_hours(20)}},
-            }));
+            if !is_pushed_first {
+                script.send(&push);
+            }
         };
 
-        let (read, ()) = tokio::join!(filing.read(&service), answer_then_push);
+        let (read, ()) = tokio::join!(filing.read(&service), answer_and_push);
         // The read's answer and the push are each one change of the readings.
         tokio::time::timeout(Duration::from_secs(5), async {
             while service.rate_limit_reading().arrival < 2 {

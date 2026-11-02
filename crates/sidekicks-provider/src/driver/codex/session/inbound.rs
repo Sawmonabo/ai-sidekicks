@@ -91,10 +91,12 @@ pub(crate) enum CodexSessionInbound {
 pub(crate) struct CodexAccountMove {
     /// The account the session moved onto.
     pub(crate) provider_account_id: ProviderAccountId,
-    /// The binding its lead runs on, which moves with it.
-    pub(crate) binding_id: RuntimeBindingId,
-    /// Where the binding's move, or its failure, goes once the spend before it is recorded.
-    pub(crate) moved: oneshot::Sender<Result<(), DriverError>>,
+    /// The binding its lead runs on, which moves with it, where a switch named the session; the
+    /// session's own binding moves either way.
+    pub(crate) binding_id: Option<RuntimeBindingId>,
+    /// Where the bindings' move, or its failure, goes once the spend before it is recorded, where
+    /// a switch waits on it.
+    pub(crate) moved: Option<oneshot::Sender<Result<(), DriverError>>>,
 }
 
 /// A call on a session's record, each answering on its own `reply`; a dropped `reply` means the

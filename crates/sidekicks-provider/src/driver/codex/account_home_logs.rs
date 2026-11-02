@@ -95,7 +95,6 @@ impl AccountHomeLogExpiry {
             && let Err(error) = self.rebuild_if_changed(home)
         {
             tracing::warn!(
-                codex_home = %home.display(),
                 error = &*error as &(dyn Error + 'static),
                 "a codex home's log database could not be rebuilt"
             );
@@ -123,7 +122,6 @@ impl AccountHomeLogExpiry {
             .saturating_mul(2);
         if volume_free_bytes(home)? < needed {
             tracing::info!(
-                codex_home = %home.display(),
                 needed,
                 "a codex home's log database was not rebuilt, its volume short of room for the copy"
             );

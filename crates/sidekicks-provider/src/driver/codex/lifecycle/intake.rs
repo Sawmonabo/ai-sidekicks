@@ -245,7 +245,7 @@ impl CodexSessionIntake {
     // at once, and its bindings, the lead's and the record's own, once every spend metered before
     // is recorded, so that spend stays on the account it left.
     async fn move_account(&mut self, account_move: CodexAccountMove) {
-        let mut binding_ids = vec![account_move.binding_id.clone()];
+        let mut binding_ids: Vec<_> = account_move.binding_id.iter().cloned().collect();
         if let Some(record) = self.record.as_mut() {
             record.provider_account_id = account_move.provider_account_id.clone();
             if let Some(binding_id) = &record.binding_id
@@ -524,8 +524,8 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
     }
 }
 
-// Moves each of `binding_ids` onto `account_move`'s account and answers the move, the first
-// failure ending it.
+// Moves each of `binding_ids` onto `account_move`'s account and answers the move to the switch
+// waiting on it, else logs its failure, the first failure ending it.
 async fn move_bindings(
     bindings: &dyn RuntimeBindingWriter,
     binding_ids: Vec<RuntimeBindingId>,
@@ -542,7 +542,14 @@ async fn move_bindings(
         }
     }
     // The switch that asked may have stopped waiting.
-    let _unheard = account_move.moved.send(moved);
+    if let Some(waiting) = account_move.moved {
+        let _unheard = waiting.send(moved);
+    } else if let Err(error) = moved {
+        tracing::warn!(
+            error = &error as &(dyn std::error::Error + 'static),
+            "a session's binding was not moved onto the account its service now carries"
+        );
+    }
 }
 
 /// What applying a delivery's report acts through, borrowed from the driver's parts.

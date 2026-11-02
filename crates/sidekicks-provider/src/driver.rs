@@ -77,12 +77,6 @@ pub(crate) mod unified_diff;
 
 /// The fixed facts a provider's driver declares about itself, the same for every installed build,
 /// account, model and session; what depends on those comes from the driver's methods.
-#[expect(
-    dead_code,
-    reason = "the provider list, the daemon's start, the capability report, the spawn \
-              environment, the managed-settings checks, the memory gate and the sandboxed \
-              permission level's check read each descriptor's facts"
-)]
 pub struct ProviderDescriptor {
     /// The provider's id: a lowercase letter, then up to 31 lowercase letters, digits or hyphens.
     pub id: &'static str,
@@ -93,8 +87,10 @@ pub struct ProviderDescriptor {
     /// page.
     pub release_notes_address: fn(&str) -> String,
     /// Each plan id the provider sends and the word a person reads it as.
+    #[expect(dead_code, reason = "the provider list's section reads it")]
     pub(crate) plan_words: &'static [(&'static str, &'static str)],
     /// The provider's built-in tools in its own spelling, each with the words the picker draws.
+    #[expect(dead_code, reason = "the provider list's section reads it")]
     pub(crate) built_in_tools: &'static [(&'static str, &'static str)],
     /// How the provider's command is found on each kind of operating system.
     pub(crate) command: ProviderCommand,
@@ -128,12 +124,16 @@ pub struct ProviderDescriptor {
     /// The variables a Terminal pane's shell is given while `Simplify for a screen reader` is on.
     pub(crate) screen_reader_environment_names: &'static [&'static str],
     /// The voice kinds the provider offers, each at most once.
+    #[expect(dead_code, reason = "the provider list's section reads it")]
     pub(crate) voice_kinds: &'static [VoiceKind],
     /// The transports its tool servers are reached over.
+    #[expect(dead_code, reason = "the provider list's section reads it")]
     pub(crate) mcp_transports: &'static [McpTransport],
     /// The tool-server declaration members it reads beyond the shared ones.
+    #[expect(dead_code, reason = "the provider list's section reads it")]
     pub(crate) mcp_config_members: &'static [McpDeclaredConfigMember],
     /// The most characters it takes in a skill's name, where it sets a limit of its own.
+    #[expect(dead_code, reason = "the provider list's section reads it")]
     pub(crate) skill_name_max_length: Option<u64>,
     /// The forms of the provider's own command whose work would outlive the call, which no agent
     /// in a session may run, and the switch that turns them off; `None` where it has none.

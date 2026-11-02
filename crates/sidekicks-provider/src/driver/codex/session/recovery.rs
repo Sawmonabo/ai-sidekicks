@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::json;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::ProcessExit;
@@ -242,7 +243,7 @@ impl CodexServiceRecovery {
         let resumed = self.resume_all(service, generation).await;
         if cause == CodexServiceRecoveryCause::Reconnect {
             CodexTransportDiagnostic::ServiceReconnected {
-                codex_home: service.home().codex_home.clone(),
+                provider_account_id: service.provider_account_id(),
                 conversations: resumed
                     .iter()
                     .map(|(_, thread_id, _)| thread_id.clone())
@@ -296,7 +297,10 @@ impl CodexServiceRecovery {
             ),
             (None, None) => {
                 tracing::warn!(
-                    codex_home = %service.home().codex_home.display(),
+                    provider_account_id = service
+                        .provider_account_id()
+                        .as_ref()
+                        .map(ProviderAccountId::as_str),
                     "a codex service stays down after a crash loop whose ends no wait read"
                 );
                 return;
@@ -809,10 +813,6 @@ fn report_restarted(
     resumed: &[(SessionId, String, DriverResumeResult)],
 ) {
     let mut details = serde_json::Map::from_iter([
-        (
-            "codexHome".to_owned(),
-            json!(service.home().codex_home.display().to_string()),
-        ),
         ("cause".to_owned(), json!(format!("{cause:?}"))),
         (
             "conversations".to_owned(),

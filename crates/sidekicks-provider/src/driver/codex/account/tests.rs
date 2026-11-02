@@ -20,8 +20,9 @@ use crate::runtime_binding::test_store::test_provider_account_id;
 /// starts as Codex.
 const APP_SERVER_STAND_IN: &str = "driver::codex::account::tests::an_app_server_stand_in";
 
-/// How long the test lets the act run: past a start and past the grace a stop gives before its
-/// kill, so a service stopped by a signal has ended and its act answered within it.
+/// How long the test lets the act run: past a start and past the grace a short-lived service's
+/// drain gives before its kill, so a service killed at that bound has ended and its act answered
+/// within it.
 const ACT_WAIT: Duration = Duration::from_secs(8);
 
 // Listens as Codex does, answering the daemon's start. Skips unless a test's script started it.
@@ -31,12 +32,12 @@ async fn an_app_server_stand_in() {
     serve_as_codex_service_stand_in().await;
 }
 
-// A short-lived service started for one act is ended by Codex's own drain and waited for: the
-// stand-in ignores the hang-up, as a service finishing a write does, so the act keeps waiting and
-// the service keeps running. Killed by a stop that signals the service to end and kills it once
-// the grace runs out, which lets the act answer.
+// A short-lived service whose drain never ends, here a stand-in that ignores Codex's hang-up, is
+// killed once the grace a stop gives passes, so the act answers and lets the account's home go.
+// Killed by a drain waited on with no bound, which holds the act, and so the home, until the
+// service exits by itself.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_short_lived_service_ends_by_codexs_own_drain_and_is_waited_for() {
+async fn a_short_lived_service_that_never_drains_is_killed_at_the_grace() {
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
@@ -82,7 +83,7 @@ async fn a_short_lived_service_ends_by_codexs_own_drain_and_is_waited_for() {
     )
     .await;
 
-    assert!(acted.is_err(), "the act waits on the service's drain");
+    assert_eq!(acted, Ok(true), "the act waited past the drain's bound");
     // Read through a guard of its own, which ends the launch it still finds running at the test's
     // end, as the script's does.
     let stand_ins = StandInLaunches::in_folder(folder.path());
@@ -91,12 +92,17 @@ async fn a_short_lived_service_ends_by_codexs_own_drain_and_is_waited_for() {
         .iter()
         .find(|launch| launch.codex_home == codex_home)
         .expect("the short-lived service was launched");
-    assert!(
-        launch
+    // The killed service leaves the process table once its exit is reaped.
+    let gone = tokio::time::timeout(Duration::from_secs(5), async {
+        while launch
             .process
             .pin()
             .expect("the process table reads")
-            .is_some(),
-        "the service drains on, never killed"
-    );
+            .is_some()
+        {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(gone.is_ok(), "the service outlived its drain's bound");
 }

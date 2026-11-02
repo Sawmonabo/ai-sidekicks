@@ -302,7 +302,6 @@ impl CodexServiceRegistry {
             if let Err(error) = freed {
                 tracing::warn!(
                     error = &error as &(dyn std::error::Error + 'static),
-                    codex_home = %service.home().codex_home.display(),
                     "whether the codex terminal service is free could not be read; it keeps \
                      running"
                 );

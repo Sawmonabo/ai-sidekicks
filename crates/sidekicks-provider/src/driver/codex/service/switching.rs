@@ -2,13 +2,15 @@
 //! whose tokens the daemon reads from that account's own home and hands it with Codex's
 //! `account/login/start {type: "chatgptAuthTokens"}`, held in memory alone. The tokens are handed
 //! at each start or rejoin of the service, before it answers, so before any resume or admission
-//! there; at a switch, its answer the acknowledgment for every conversation on the service; and
-//! when a limits read in the carried account's home finds its access token renewed. Never on a
-//! timer, since each such login refreshes the tool servers of every conversation loaded there.
+//! there; at a switch, and at any hand onto another account than the one carried, its answer the
+//! acknowledgment that moves every session on the service with it; and when a limits read in the
+//! carried account's home finds its access token renewed. Never on a timer, since each such login
+//! refreshes the tool servers of every conversation loaded there.
 //! One hand at a time: each holds the switching service's hand through its login's answer, so a
 //! renewal never hands an account back over a switch that landed meanwhile. A login written and
 //! never answered leaves the service's account unknown, carried as none until the next hand.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -16,22 +18,39 @@ use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::value::RawValue;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use subtle::ConstantTimeEq as _;
+use tokio::sync::oneshot;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::auth_file::{CodexAuthTokens, read_codex_auth_tokens};
 use crate::driver::codex::account::login::CodexLoginAccountParams;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::inbound::{
+    CodexAccountMove, CodexSessionInbound, CodexSessionInboundSender,
+};
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::contract::error::DriverError;
 use crate::driver::{ProviderAccountReader, read_current_account};
 
 /// Codex's request that signs a service in.
 pub(crate) const CODEX_LOGIN_START_METHOD: &str = "account/login/start";
+
+/// A session a switch names, moved at the switch's acknowledgment with its lead's binding, and
+/// where the switch waits on that move.
+pub(crate) struct CodexNamedMove {
+    /// The session to move.
+    pub(crate) session_id: SessionId,
+    /// The binding its lead runs on, which moves with it.
+    pub(crate) binding_id: RuntimeBindingId,
+    /// Where the bindings' move, or its failure, goes once the spend before it is recorded.
+    pub(crate) moved: oneshot::Sender<Result<(), DriverError>>,
+}
 
 /// The account the switching service carries and the tokens it was last handed for it.
 pub(crate) struct CodexSwitchingAccount {
@@ -69,20 +88,24 @@ impl CodexSwitchingAccount {
             .map(|carried| carried.provider_account_id.clone())
     }
 
-    /// Hands a starting or rejoined switching service on `connection` the tokens of the account
-    /// it carries, else of Codex's current account, and carries that account. Fails with the
-    /// refusal of an account with no current one or no `ChatGPT` sign-in in its home, as its home
-    /// cannot be read, and with Codex's refusal of the login.
+    /// Hands a starting or rejoined switching `service`, over `connection`, the tokens of the
+    /// account it carries, else of Codex's current account, and carries that account; a service
+    /// that carried none moves every session attached to it onto that account, as a switch does.
+    /// Fails with the refusal of an account with no current one or no `ChatGPT` sign-in in its
+    /// home, as its home cannot be read, and with Codex's refusal of the login.
     pub(crate) async fn hand_at_start(
         &self,
+        service: &Arc<CodexService>,
         connection: &CodexAppServerConnection,
     ) -> Result<(), CodexError> {
-        let _hand = self.hands.lock().await;
-        let provider_account_id = match self.carried_account() {
-            Some(carried) => carried,
-            None => read_current_account(&self.provider_accounts, DESCRIPTOR.provider_id())
+        let hand = self.hands.lock().await;
+        let Some(provider_account_id) = self.carried_account() else {
+            let current = read_current_account(&self.provider_accounts, DESCRIPTOR.provider_id())
                 .await
-                .map_err(CodexError::Driver)?,
+                .map_err(CodexError::Driver)?;
+            return self
+                .hand_switch_holding(&hand, service, connection, current, Vec::new())
+                .await;
         };
         let tokens = self.read_tokens(&provider_account_id).await?;
         let access_token = tokens.access_token.clone();
@@ -100,24 +123,26 @@ impl CodexSwitchingAccount {
 
     /// Hands the switching `service` the tokens of `to`'s account, the switch's one call: at its
     /// answer's place among the service's frames its readings start afresh, it carries `to`, and
-    /// `on_acknowledged` runs there; a refused login leaves it carrying what it did and runs
+    /// every session attached to it is queued its move onto `to`, each of `named` with its lead's
+    /// binding and its switch's wait; a refused login leaves it carrying what it did and moves
     /// nothing. Fails as [`Self::hand_at_start`] does, before anything is sent where `to`'s home
     /// holds no sign-in, and while the service has no connection.
     pub(crate) async fn hand_switch(
         &self,
         service: &Arc<CodexService>,
         to: ProviderAccountId,
-        on_acknowledged: impl FnOnce() + Send + 'static,
+        named: Vec<CodexNamedMove>,
     ) -> Result<(), CodexError> {
         let hand = self.hands.lock().await;
-        self.hand_switch_holding(&hand, service, to, on_acknowledged)
+        let connection = service.connection()?;
+        self.hand_switch_holding(&hand, service, &connection, to, named)
             .await
     }
 
     /// Hands the switching `service` `to`'s tokens as a switch does where it carries another
     /// account or none, so a session following the current account starts on `to` though no
-    /// session was live to move the service there; a service carrying `to` is handed nothing.
-    /// Fails as [`Self::hand_switch`] does.
+    /// switch moved the service there, and every session already on it moves with it; a service
+    /// carrying `to` is handed nothing. Fails as [`Self::hand_switch`] does.
     pub(crate) async fn carry_for_session(
         &self,
         service: &Arc<CodexService>,
@@ -127,20 +152,22 @@ impl CodexSwitchingAccount {
         if self.carried_account().as_ref() == Some(to) {
             return Ok(());
         }
-        self.hand_switch_holding(&hand, service, to.clone(), || {})
+        let connection = service.connection()?;
+        self.hand_switch_holding(&hand, service, &connection, to.clone(), Vec::new())
             .await
     }
 
-    // The switch's login, sent under `_hand`.
+    // The switch's login, sent on `connection` under `_hand`, its answer the acknowledgment that
+    // moves the service and every session attached to it onto `to`.
     async fn hand_switch_holding(
         &self,
         _hand: &tokio::sync::MutexGuard<'_, ()>,
         service: &Arc<CodexService>,
+        connection: &CodexAppServerConnection,
         to: ProviderAccountId,
-        on_acknowledged: impl FnOnce() + Send + 'static,
+        named: Vec<CodexNamedMove>,
     ) -> Result<(), CodexError> {
         let tokens = self.read_tokens(&to).await?;
-        let connection = service.connection()?;
         let access_token = tokens.access_token.clone();
         let carried = Arc::clone(&self.carried);
         let acknowledged = Arc::downgrade(service);
@@ -154,11 +181,11 @@ impl CodexSwitchingAccount {
                     };
                     service.restart_rate_limits(|| {
                         *lock(&carried) = Some(CarriedAccount {
-                            provider_account_id: to,
+                            provider_account_id: to.clone(),
                             access_token,
                         });
                     });
-                    on_acknowledged();
+                    move_attached_sessions(&service, &to, named);
                 }),
             )
             .await;
@@ -250,6 +277,41 @@ impl CodexSwitchingAccount {
     }
 }
 
+// Queues each session attached to `service` its move onto `to` at this place among its frames:
+// each of `named` with its lead's binding and its switch's wait, every other one with its own
+// binding alone. A named session no longer attached drops its wait, which moves it at once.
+fn move_attached_sessions(
+    service: &CodexService,
+    to: &ProviderAccountId,
+    named: Vec<CodexNamedMove>,
+) {
+    let mut unnamed: HashMap<SessionId, CodexSessionInboundSender> = service
+        .attached_sessions()
+        .into_iter()
+        .map(|session| (session.session_id(), session))
+        .collect();
+    for session in named {
+        unnamed.remove(&session.session_id);
+        // A queue that takes nothing drops the wait, which moves the session at once.
+        let _taken = service.push_session_item(
+            &session.session_id,
+            CodexSessionInbound::AccountMoved(CodexAccountMove {
+                provider_account_id: to.clone(),
+                binding_id: Some(session.binding_id),
+                moved: Some(session.moved),
+            }),
+        );
+    }
+    for session in unnamed.into_values() {
+        // A queue whose task ended takes nothing more; its session is closing.
+        let _taken = session.push(CodexSessionInbound::AccountMoved(CodexAccountMove {
+            provider_account_id: to.clone(),
+            binding_id: None,
+            moved: None,
+        }));
+    }
+}
+
 // The tokens of `codex_home`'s `auth.json`, `None` where it holds none. Fails as it cannot be read.
 async fn read_home_tokens(codex_home: &Path) -> Result<Option<CodexAuthTokens>, CodexError> {
     read_codex_auth_tokens(codex_home)
@@ -293,8 +355,8 @@ pub(crate) mod test_sign_in {
     /// The plan every test sign-in's identity token names.
     pub(crate) const TEST_PLAN: &str = "pro";
 
-    /// Writes into `codex_home` the `auth.json` Codex's `file` store keeps for a `ChatGPT` sign-in to
-    /// `workspace` with `access_token`, its identity token naming [`TEST_PLAN`].
+    /// Writes into `codex_home` the `auth.json` Codex's `file` store keeps for a `ChatGPT` sign-in
+    /// to `workspace` with `access_token`, its identity token naming [`TEST_PLAN`].
     pub(crate) fn write_sign_in(codex_home: &Path, workspace: &str, access_token: &str) {
         std::fs::create_dir_all(codex_home).expect("the home is made");
         let auth = json!({

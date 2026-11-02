@@ -173,17 +173,7 @@ async fn register_account(
             )
         }
     };
-    let (account, left) = if make_default == Some(true) {
-        let made = sources
-            .account_switch
-            .make_current(account.account_id, device.clone())
-            .await?;
-        // The moves land on their own, after the answer.
-        drop(made.settled);
-        (made.account, made.left)
-    } else {
-        (account, None)
-    };
+    // Before the switch, so a new account the switch refuses is still read and announced.
     if is_new && let Err(error) = sources.observer.watch(&account) {
         // The account is registered; its first read waits for the next start's schedule.
         tracing::warn!(
@@ -192,7 +182,16 @@ async fn register_account(
             "a new provider account could not be scheduled for the background observer"
         );
     }
-    Ok((account, left))
+    if make_default != Some(true) {
+        return Ok((account, None));
+    }
+    let made = sources
+        .account_switch
+        .make_current(account.account_id, device.clone())
+        .await?;
+    // The moves land on their own, after the answer.
+    drop(made.settled);
+    Ok((made.account, made.left))
 }
 
 // A new account's id and home, for a provider the daemon runs.
@@ -224,7 +223,8 @@ fn keep_or_abandon<Failure: Into<HandlerError>>(
     })
 }
 
-// Replaces the sealed token of the account `resupply` names, then writes any new name and billing.
+// Replaces the sealed token of the account `resupply` names, then writes any new name and billing;
+// a rename refused, or to a name another account holds, leaves the token as it was.
 async fn resupply_token(
     sources: &ProviderAccountMethodSources,
     resupply: TokenResupply,
@@ -242,7 +242,18 @@ async fn resupply_token(
         billing_mode: Some(resupply.billing_mode),
         ..AccountSettingsChange::default()
     };
+    // Both refusals before the token is replaced, so a refused change leaves the old token.
     refuse_unnamed_rename(&account, &change)?;
+    if let Some(display_label) = &change.display_label {
+        sources
+            .accounts
+            .check_display_label_free(
+                account.provider.clone(),
+                account.account_id.clone(),
+                display_label,
+            )
+            .await?;
+    }
     let folders = sources
         .account_reader
         .resolve_account_folders(account.account_id.clone())
@@ -253,7 +264,10 @@ async fn resupply_token(
         .token_custody
         .replace(account.account_id, &folders, &token)
         .await?;
-    change_settings(sources, &account, change).await
+    Ok(sources
+        .accounts
+        .change_settings(account.account_id, change)
+        .await?)
 }
 
 // Writes `request`'s settings, the wake switch on only once the helper is installed, and has the

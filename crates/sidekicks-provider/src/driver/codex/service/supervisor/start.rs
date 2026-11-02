@@ -218,7 +218,7 @@ async fn start_relayed_service(
                 service
                     .dependencies()
                     .switching
-                    .hand_at_start(&started.connection)
+                    .hand_at_start(service, &started.connection)
                     .await
             }
             CodexHomeKind::Account(_)
