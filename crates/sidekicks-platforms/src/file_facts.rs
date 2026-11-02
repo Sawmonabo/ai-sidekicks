@@ -25,7 +25,7 @@ pub struct FileFacts {
 mod tests {
     use std::fs::{self, File};
 
-    use crate::{file_facts, file_facts_of};
+    use crate::{file_facts, file_facts_of, file_mode_of};
 
     // Fails when the link count is fixed, when a path and a handle on one file read different
     // facts, or when an open file's facts are read through its path, which names another file once
@@ -68,5 +68,30 @@ mod tests {
                 "the path now names the replacement"
             );
         }
+    }
+
+    // Fails when the mode keeps the file's type bits or reads anything but its permissions: a
+    // read-only file reads `0o444` on Windows, and a file set to `0o751` reads that on Unix.
+    #[test]
+    fn a_files_mode_is_its_permission_bits_alone() {
+        let folder = tempfile::tempdir().expect("a scratch folder is made");
+        let path = folder.path().join("file");
+        fs::write(&path, b"a file").expect("the file is written");
+        let mut permissions = fs::metadata(&path).expect("the file reads").permissions();
+        #[cfg(unix)]
+        let expected = {
+            use std::os::unix::fs::PermissionsExt as _;
+            permissions.set_mode(0o751);
+            0o751
+        };
+        #[cfg(windows)]
+        let expected = {
+            permissions.set_readonly(true);
+            0o444
+        };
+        fs::set_permissions(&path, permissions).expect("the permissions are set");
+
+        let opened = File::open(&path).expect("the file opens");
+        assert_eq!(file_mode_of(&opened).expect("the mode reads"), expected);
     }
 }

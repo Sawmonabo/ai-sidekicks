@@ -10,6 +10,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::file_facts::FileFacts;
 use crate::posix::entry_identity::identity_of;
 
+// The bits of `st_mode` that are a file's permissions, its type left out.
+const PERMISSION_BITS: u32 = 0o7777;
+
 /// The facts of the file at `path`, from one `stat` that follows a link: its device and inode, its
 /// size, its link count, and its modification and change times. Opens nothing, so no lock the
 /// process holds on the file is dropped. Fails with the stat's error, `NotFound` when nothing is
@@ -23,6 +26,13 @@ pub fn file_facts(path: &Path) -> io::Result<FileFacts> {
 /// stat's error.
 pub fn file_facts_of(file: &File) -> io::Result<FileFacts> {
     Ok(facts_of(&file.metadata()?))
+}
+
+/// The permission bits of the open file `file`, `st_mode`'s low twelve (the set-id and sticky bits
+/// with the owner's, group's and others' read, write and run), from one `fstat` of its descriptor.
+/// Fails with the stat's error.
+pub fn file_mode_of(file: &File) -> io::Result<u32> {
+    Ok(file.metadata()?.mode() & PERMISSION_BITS)
 }
 
 // The facts one stat read: `st_dev` and `st_ino`, `st_size`, `st_nlink`, `st_mtime` and `st_ctime`.

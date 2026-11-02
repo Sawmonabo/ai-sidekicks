@@ -21,6 +21,12 @@ use crate::windows::file_information::read_information;
 // epoch.
 const UNIX_EPOCH_INTERVALS: i128 = 116_444_736_000_000_000;
 
+// The mode of a file whose read-only attribute is set: read for everyone.
+const READ_ONLY_MODE: u32 = 0o444;
+
+// The mode of a file whose read-only attribute is clear: read and write for everyone.
+const WRITABLE_MODE: u32 = 0o666;
+
 /// The facts of the file at `path`, read from one handle opened through any link: its volume
 /// serial and 128-bit file id, its size, its link count, and its last write and change times.
 /// Fails with the system's error from the open or a read, `NotFound` when nothing is there.
@@ -53,6 +59,17 @@ pub fn file_facts_of(file: &File) -> io::Result<FileFacts> {
         link_count: u64::from(standard.NumberOfLinks),
         modified: nanoseconds(times.LastWriteTime),
         changed: nanoseconds(times.ChangeTime),
+    })
+}
+
+/// The open file `file`'s permissions as a Unix mode: `0o444` when its read-only attribute is set,
+/// else `0o666`, the only permission Windows keeps on a file's own attributes. Fails with the
+/// system's error from the read.
+pub fn file_mode_of(file: &File) -> io::Result<u32> {
+    Ok(if file.metadata()?.permissions().readonly() {
+        READ_ONLY_MODE
+    } else {
+        WRITABLE_MODE
     })
 }
 
