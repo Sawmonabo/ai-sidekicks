@@ -5,6 +5,8 @@ edition.workspace = true
 rust-version.workspace = true
 description = "All operating-system code behind one interface: macOS, Windows and Linux."
 license.workspace = true
+# Hands the daemon's build script the macOS `Info.plist` it links into the daemon's program.
+links = "sidekicks-platforms"
 publish.workspace = true
 
 [package.metadata.cargo-shear]
