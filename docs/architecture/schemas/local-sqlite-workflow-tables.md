@@ -261,6 +261,7 @@ CREATE TABLE workflow_steps (
   CHECK(status = 'waiting' OR (resume_at IS NULL AND wait_account_id IS NULL AND wait_deadline_at IS NULL)),
   CHECK(wait_cause = 'account' OR (resume_at IS NULL AND wait_account_id IS NULL)),
   CHECK(wait_deadline_at IS NULL OR wait_cause IN ('approval', 'form', 'reply')),
+  CHECK((wait_id IS NOT NULL) = (status = 'waiting' AND wait_cause IN ('approval', 'form', 'reply'))),
   CHECK(decline_reason IS NULL OR status = 'failed')
 ) STRICT;
 
@@ -270,6 +271,8 @@ CREATE INDEX idx_workflow_steps_wait_deadline ON workflow_steps(wait_deadline_at
   WHERE wait_deadline_at IS NOT NULL;            -- re-arming the deadline timers at start
 CREATE INDEX idx_workflow_steps_wait_account ON workflow_steps(wait_account_id)
   WHERE wait_account_id IS NOT NULL;             -- one attention entry per spent account
+CREATE UNIQUE INDEX idx_workflow_steps_wait_id ON workflow_steps(wait_id)
+  WHERE wait_id IS NOT NULL;                     -- an answer finds its waiting step by its waitId
 
 -- ========================================================================
 -- 7. workflow_triggers — one row per armed trigger (MUTABLE TRUTH)
