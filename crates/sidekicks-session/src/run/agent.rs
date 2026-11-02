@@ -1,8 +1,8 @@
 //! Reads which agent a run is for, from the session's log: the agent its `agent.run.queued` names,
 //! the one minted from a saved definition with it, else the session's lead, for a lead run queued
 //! before a run named its agent; the binding that agent runs on now, from its `agents` row; the
-//! account that event admitted the run against; the session's lead, which `session.created` names, with the binding
-//! and the model it runs on now; and whether the log names an agent at all.
+//! account that event admitted the run against; the session's lead, which `session.created` names,
+//! with the binding and the model it runs on now; and whether the log names an agent at all.
 
 use std::sync::LazyLock;
 

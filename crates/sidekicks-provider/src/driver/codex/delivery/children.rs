@@ -175,9 +175,10 @@ impl CodexFrameDelivery {
 
     /// Ends the child run of a helper whose last turn ended, with the `subagent.completed` row,
     /// after the asks that turn still held and the pieces it still had waiting; `turn_params` is
-    /// that turn's `turn/completed` params and `turn_members` the same params read as an object. A helper stopped at its token limit ends stopped for
-    /// it unless its turn failed, and an end after the daemon's interrupt of the helper's run
-    /// says it is that interrupt's; the run's helper route goes with it.
+    /// that turn's `turn/completed` params and `turn_members` the same params read as an object. A
+    /// helper stopped at its token limit ends stopped for it unless its turn failed, and an end
+    /// after the daemon's interrupt of the helper's run says it is that interrupt's; the run's
+    /// helper route goes with it.
     pub(crate) async fn complete_child(
         &self,
         record: &mut CodexSessionRecord,
