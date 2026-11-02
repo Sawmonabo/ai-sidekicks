@@ -635,7 +635,8 @@ impl ObserverShared {
             .map_or(0, |memory| memory.unanswered_in_a_row);
         let (stored, unanswered_in_a_row) = match &reading.observation {
             Some(ProviderObservation::Figures(figures)) => {
-                self.store_figures(account, figures).await?;
+                self.store_figures(account, figures, &reading.read_at)
+                    .await?;
                 self.registry.clear_read_hold(account_id).await?;
                 (Some((ProviderAccountHealthState::Authenticated, writer)), 0)
             }

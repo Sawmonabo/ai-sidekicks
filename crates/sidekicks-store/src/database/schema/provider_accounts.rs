@@ -88,6 +88,10 @@ CREATE TABLE provider_accounts (
   -- for each read the provider throttled or refused since. Kept here so a restart resumes it.
   read_hold_rung            INTEGER NOT NULL DEFAULT 0 CHECK(read_hold_rung >= 0),
   read_held_until           TEXT,               -- when the latest hold ends; NULL until one is set
+  -- When the last limits read that answered figures was taken; NULL before the first. It names
+  -- the account's whole set, so each stored window reads as read no earlier, and a read that
+  -- changed no window writes only this, never an event.
+  limits_read_at            TEXT,
   -- An account's redeemable limit resets from its last limits read; NULL where the read
   -- carried none.
   reset_credits_available   INTEGER

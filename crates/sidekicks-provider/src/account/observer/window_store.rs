@@ -14,7 +14,8 @@
 //!   writes nothing.
 //! - A reading is written only while its account is held, so a rebuild after a removal writes
 //!   nothing for it, as the removal's cascade left it.
-//! - `provider.account.list` reads the stored readings back, a registered account's alone.
+//! - `provider.account.list` reads the stored readings back, a registered account's alone, each
+//!   read no earlier than the account's last limits read, which confirms a set it did not change.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -87,9 +88,12 @@ ON CONFLICT (account_id, limit_id, window_mins) DO UPDATE
     )
 });
 
-// A removed account's readings go with its row, and one whose removal has begun is not read.
+// A removed account's readings go with its row, and one whose removal has begun is not read. A
+// window reads as read at the account's last limits read where that came later: the read named the
+// account's whole set, so a set it left unchanged was read then too.
 const SELECT_USAGE_WINDOWS_SQL: &str = "
-  SELECT windows.account_id, limit_id, window_mins, label, used_percent, resets_at, observed_at,
+  SELECT windows.account_id, limit_id, window_mins, label, used_percent, resets_at,
+         MAX(windows.observed_at, COALESCE(accounts.limits_read_at, windows.observed_at)),
          observed_credential_generation, source
     FROM provider_account_usage_windows AS windows
     JOIN provider_accounts AS accounts ON accounts.account_id = windows.account_id

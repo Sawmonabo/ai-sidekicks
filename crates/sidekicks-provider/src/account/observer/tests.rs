@@ -8,10 +8,12 @@ use sidekicks_contracts::provider::account::record::{
 };
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_platforms::WallClock as _;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use tokio::sync::{Notify, Semaphore};
 
 use super::test_fixture::{Fixture, ScriptedLegs, figures, new_clock, read_reading};
+use super::window_store::read_usage_windows;
 use super::{AccountReadAnswer, ReadAsker};
 use crate::account::registry::HealthObservation;
 use crate::driver::contract::account::{
@@ -434,6 +436,56 @@ async fn a_read_s_figures_record_the_whole_set_and_each_reported_identity_column
             None,
             Some(refreshed_at.as_str().to_owned()),
         ]
+    );
+}
+
+// A read whose windows match the stored ones files no reading, yet the account's windows read as
+// read at that read and go out as such: a window stored at 7:00 and read again unchanged at 7:30
+// reads `7:30`. Killed by the read's time not written on the account's row, by the windows' read
+// taking only their own stored time, and by the windows not published after the read.
+#[tokio::test]
+async fn a_read_matching_the_stored_windows_says_they_were_read_at_that_read() {
+    let database = TestDatabase::new(schema_parts());
+    let data_folder = tempfile::tempdir().expect("a data folder");
+    let fixture = Fixture::open(
+        &database,
+        data_folder.path(),
+        new_clock(),
+        ScriptedLegs::default(),
+    )
+    .await;
+    let account = fixture.register().await;
+    let stored_at = super::ladder::wire_instant(fixture.clock.now());
+    rusqlite::Connection::open(database.path())
+        .expect("the database opens")
+        .execute(
+            "INSERT INTO provider_account_usage_windows
+               (account_id, limit_id, window_mins, used_percent, observed_at,
+                observed_credential_generation, source)
+             VALUES (?1, 'session', 300, 40.0, ?2, 1, 'probe')",
+            [account.account_id.as_str(), stored_at.as_str()],
+        )
+        .expect("the test stores the account's window");
+
+    fixture.clock.advance(Duration::from_mins(30));
+    let reading = read_reading(fixture.read(&account, ReadAsker::Cadence).await);
+
+    let windows = read_usage_windows(&fixture.observer.shared.database_reads, None)
+        .await
+        .expect("the windows read");
+    let [window] = windows.as_slice() else {
+        panic!("one window is stored, not {windows:?}");
+    };
+    assert_ne!(stored_at, reading.read_at);
+    assert_eq!(window.observed_at, reading.read_at);
+    assert!(
+        fixture.notifications.published().contains(
+            &ProviderAccountNotification::UsageWindowUpdated {
+                account_id: account.account_id.clone(),
+                window: window.clone(),
+            }
+        ),
+        "the window went out as read at the read"
     );
 }
 
