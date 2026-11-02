@@ -369,7 +369,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
 
 - **T22.3.5 — Validation-first ordering.**
   - Files: `crates/sidekicks-mcp/src/mutation_preflight.rs` (CREATE)
-  - Every check that can fail a mutation outright runs **before** the durable leg commits; `mcp.server.configInvalid` is exclusively a pre-commit refusal — including a Codex `local` name that clashes across the user file (the refusal naming the project that holds the other one). Once the durable leg commits, the mutation never converts to a thrown error — later per-leg failures report inside the successful response. Every operation applies at every scope on every provider.
+  - Every check that can fail a mutation outright runs **before** the durable leg commits; `mcp.server.configInvalid` is exclusively a pre-commit refusal — including a Codex `local` name that clashes across the user file (the refusal naming, by its root's last folder name, the project that holds the other one; no path crosses the wire). Once the durable leg commits, the mutation never converts to a thrown error — later per-leg failures report inside the successful response. Every operation applies at every scope on every provider.
   - **Spec coverage:** Spec-024 §Configuration Mutation, Spec-024 §Fallback Behavior
   - **Verifies invariant:** I-022-2
   - **Consumes:** bindings ← T22.2.3 (Phase 2, merged).

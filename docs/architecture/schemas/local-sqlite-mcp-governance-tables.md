@@ -64,18 +64,34 @@ The FK targets the binding table because first observation of any binding upsert
 
 ```sql
 -- Owner: Plan-022
+-- A governance mutation's idempotency key, written as a pending intent before the provider is
+-- touched and committed in the same write as the mutation's own rows.
 CREATE TABLE mcp_mutation_receipts (
   client_idempotency_key  TEXT NOT NULL PRIMARY KEY,  -- requester-generated UUID (Spec-004's mandatory clientIdempotencyKey; the interventions UNIQUE(target_run_id, client_idempotency_key) precedent, adapted to machine-scoped operations with no run axis)
-  operation               TEXT NOT NULL,              -- the receipted mcp.* operation the key was spent on (the governance mutations, mcp.server.signIn and mcp.server.signOut; mcp.server.reconnect is unreceipted)
+  operation               TEXT NOT NULL,              -- the mcp.* method the key was spent on (the governance mutations, mcp.server.signIn and mcp.server.signOut; mcp.server.reconnect is unreceipted)
+  -- The binding the mutation writes, keyed as its row is. No foreign key: a first add's row does
+  -- not exist when the receipt begins, and a committed remove's receipt outlives its binding.
+  provider                TEXT NOT NULL,
+  scope                   TEXT NOT NULL CHECK(scope IN ('user', 'project', 'local', 'plugin', 'connector', 'managed')),
+  scope_ref               TEXT NOT NULL DEFAULT '',
+  scope_place             TEXT NOT NULL DEFAULT '',
+  server_name             TEXT NOT NULL,
+  request_digest          BLOB CHECK(request_digest IS NULL OR length(request_digest) = 32),  -- the keyed digest of the idempotency key and the request; NULL only on a row committed when the receipt key was lost
+  before_digest           BLOB CHECK(before_digest IS NULL OR length(before_digest) = 32),    -- the keyed digest of the binding's declaration before the write; NULL where it had none
+  after_digest            BLOB CHECK(after_digest IS NULL OR length(after_digest) = 32),      -- the keyed digest of the declaration the write leaves; NULL for a remove
+  wanted_enabled          INTEGER CHECK(wanted_enabled IS NULL OR wanted_enabled IN (0, 1)),  -- a switch's wanted state; NULL for every other mutation
   status                  TEXT NOT NULL
                           CHECK(status IN ('pending', 'committed')),  -- two-phase (the Plan-012 command_receipts discipline, Spec-024 §Authorization): the row INSERTs as a 'pending' intent in its own transaction BEFORE any provider leg runs, and flips to 'committed' in the same transaction as the mutation's store writes — closing both crash windows around the external provider side effect (a durable provider write can never be left unfinalized: startup reconciliation completes any pending intent — verifying provider state, finishing store writes exactly once — or expires an intent whose provider leg never ran)
   response_json           TEXT,                       -- the acknowledged response, returned verbatim as the saved result on any retry with the same key, whatever the second request carries — no provider call or store write (Spec-024 §Authorization); NULL while 'pending' (recorded at finalization). One representation exception: the mcp.server.signIn row stores the acknowledgment with authorizationUrl STRUCTURALLY OMITTED — launch URLs embed single-use PKCE state and are never durable (Plan-022 I-022-1) — so its saved result is an acknowledgment with no URL (the flow already launched; a caller that never received the URL starts a new login under a fresh key)
   created_at              TEXT NOT NULL,              -- RFC 3339 UTC; 'committed' rows older than 24 h are pruned opportunistically on later mutation writes ('pending' intents resolve at startup reconciliation, never silently pruned)
-  CHECK((status = 'committed') = (response_json IS NOT NULL))
+  CHECK((status = 'committed') = (response_json IS NOT NULL)),
+  CHECK(request_digest IS NOT NULL OR status = 'committed'),
+  CHECK((scope IN ('user', 'managed')) = (scope_ref = '')),
+  CHECK(scope IN ('project', 'local') OR scope_place = '')
 ) STRICT;
 ```
 
-Receipts are **two-phase** because the provider config write is an external side effect no SQLite transaction can span. The `'pending'` intent row (key and operation) commits in its **own transaction before** the provider leg runs; finalization — `status = 'committed'` plus the recorded response — commits in the **same transaction** as the mutation's governance-store writes, making the acknowledgment and the saved result atomic. That closes both crash windows: crash before the provider leg leaves a pending intent with no provider effect (startup reconciliation expires it — the caller retries fresh); crash after a durable provider write but before finalization leaves a pending intent whose provider state startup reconciliation verifies, completing the store writes **exactly once, late**, then finalizing. An identical-key retry that meets a pending row first drives that reconciliation, then returns the finalized response; a lost IPC response after commit can re-drive only the provider leg (safe by construction — sanctioned provider writes are upserts, full-set replacements, or version-guarded), never a second acknowledgment. Receipts carry no config values.
+Receipts are **two-phase** because the provider config write is an external side effect no SQLite transaction can span. The `'pending'` intent row (key and operation) commits in its **own transaction before** the provider leg runs; finalization — `status = 'committed'` plus the recorded response — commits in the **same transaction** as the mutation's governance-store writes, making the acknowledgment and the saved result atomic. That closes both crash windows: crash before the provider leg leaves a pending intent with no provider effect (startup reconciliation expires it — the caller retries fresh); crash after a durable provider write but before finalization leaves a pending intent whose provider state startup reconciliation verifies, completing the store writes **exactly once, late**, then finalizing. An identical-key retry that meets a pending row first drives that reconciliation, then returns the finalized response; a lost IPC response after commit can re-drive only the provider leg (safe by construction — sanctioned provider writes are upserts, full-set replacements, or version-guarded), never a second acknowledgment. A retry with the same key is matched by the keyed digest of its request, and the digests of the binding's declaration before and after the write let a pending intent's provider state be settled at start. Receipts carry no config values: the digests are keyed, and no column holds a declaration.
 
 ```sql
 -- Owner: Plan-022 (T22.2.12)
