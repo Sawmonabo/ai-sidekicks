@@ -15,11 +15,12 @@ allow-wildcard-paths = true
 
 [sources]
 # crates.io only, plus the git sources the JavaScript engines' web APIs, the bash grammar's scanner
-# fix and the markdown parser's indented-code-block fix come from.
+# fix, the markdown parser's indented-code-block fix and the expression engine's fixes come from.
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-git = [
   "https://github.com/awslabs/llrt",
   "https://github.com/tree-sitter/tree-sitter-bash",
   "https://github.com/Sawmonabo/satteri",
+  "https://github.com/Sawmonabo/jsonata-core",
 ]

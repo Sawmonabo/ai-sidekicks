@@ -402,6 +402,14 @@ ignored = [
 ]
 
 [patch.crates-io]
+# The expression engine is its 2.2.13 release with three fixes on the user's fork, each offered
+# upstream: regex classes read as JavaScript reads them
+# (https://github.com/txjmb/jsonata-core/pull/271), a cancel seen inside `$distinct` and `$keys`
+# (https://github.com/txjmb/jsonata-core/pull/272), and object keys in JavaScript's order
+# (https://github.com/txjmb/jsonata-core/pull/273). Each fix leaves the fork when a release carries
+# it, and the entry goes when a release carries all three.
+jsonata-core.git = "https://github.com/Sawmonabo/jsonata-core"
+jsonata-core.rev = "d8f551bc1df42d71f18cf4a5702bbb9708507076"
 # Sätteri's markdown parser is its 0.10.5 release with our indented-code-block fix, one commit on
 # the user's fork, which the markdown parser's WebAssembly build reads too.
 satteri-pulldown-cmark.git = "https://github.com/Sawmonabo/satteri"
