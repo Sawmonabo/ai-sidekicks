@@ -1,5 +1,5 @@
 //! The daemon's program the command line starts or runs: the one the person names, else the one
-//! installed beside this program.
+//! installed beside this program; and this program's own file.
 
 use std::env::consts::EXE_SUFFIX;
 use std::path::{Path, PathBuf};
@@ -23,6 +23,16 @@ pub(crate) fn daemon_program(named: Option<&Path>) -> anyhow::Result<PathBuf> {
             )
         });
     }
+    let running = this_program()?;
+    let folder = running
+        .parent()
+        .context("this program's path names no folder")?;
+    Ok(folder.join(format!("{DAEMON_PROGRAM_NAME}{EXE_SUFFIX}")))
+}
+
+/// This program's own file, every link resolved. Fails when its path cannot be read, or its file
+/// was removed or replaced since it started, so neither it nor anything beside it can be trusted.
+pub(crate) fn this_program() -> anyhow::Result<PathBuf> {
     let running =
         read_running_program_path().context("could not find where this program is installed")?;
     let RunningProgramPath::OnDisk(running) = running else {
@@ -32,8 +42,5 @@ pub(crate) fn daemon_program(named: Option<&Path>) -> anyhow::Result<PathBuf> {
              program with --daemon-path"
         );
     };
-    let folder = running
-        .parent()
-        .context("this program's path names no folder")?;
-    Ok(folder.join(format!("{DAEMON_PROGRAM_NAME}{EXE_SUFFIX}")))
+    Ok(running)
 }

@@ -18,6 +18,7 @@ use sidekicks_platforms::{ChildExit, ServiceRegistrationError};
 use crate::commands::daemon::install::system_service::LoggedOutServiceRefusal;
 use crate::commands::daemon::registration::TURNED_OFF_IN_LOGIN_ITEMS;
 use crate::commands::daemon::status::describe_cannot_start;
+use crate::commands::daemon::uninstall::system_service::SystemServiceKeptCause;
 use crate::commands::open::AddressHandlerMissingError;
 use crate::confirmation::ConfirmationUnavailableError;
 
@@ -199,6 +200,26 @@ pub(crate) enum CommandFailure {
         #[source]
         put_back_failure: Option<Box<dyn Error + Send + Sync>>,
     },
+    /// The system service that runs while the person is logged out is installed for this account,
+    /// and the run has neither root's rights nor a session at the screen, where the administrator
+    /// password prompt is drawn, so nothing was changed.
+    #[error(
+        "The background service runs while you are logged out. Remove it with sudo sidekicks \
+         daemon uninstall."
+    )]
+    SystemServiceNeedsRoot,
+    /// Some sign-ins and secrets are in the files of the service that runs while the person is
+    /// logged out, and the login keychain cannot take them back now: it is locked, out of this
+    /// run's reach, or the run has root's rights.
+    #[error(
+        "The sign-ins and secrets cannot go back into the login keychain while it is locked. Log \
+         in at this Mac, then run sidekicks daemon uninstall again."
+    )]
+    SecretsKeychainLocked,
+    /// The system service that runs while the person is logged out was not removed, for the
+    /// cause, whose line this is.
+    #[error("{0}")]
+    SystemServiceKept(SystemServiceKeptCause),
 }
 
 impl CommandFailure {
@@ -208,7 +229,8 @@ impl CommandFailure {
             Self::StartTimedOut { .. }
             | Self::DaemonExited { .. }
             | Self::InstalledNotAnswering { .. }
-            | Self::RegisteredNotAnswering { .. } => ExitCode::Unavailable,
+            | Self::RegisteredNotAnswering { .. }
+            | Self::SecretsKeychainLocked => ExitCode::Unavailable,
             Self::AppOwnsService
             | Self::TurnedOffInLoginItems
             | Self::AppServiceTurnedOff
@@ -217,6 +239,8 @@ impl CommandFailure {
             Self::RegistrationRefused(_) => ExitCode::Software,
             Self::BackupUnreadable { .. } => ExitCode::NoInput,
             Self::LoggedOutServiceRefused { cause, .. } => cause.exit_code(),
+            Self::SystemServiceNeedsRoot => ExitCode::NoPermission,
+            Self::SystemServiceKept(cause) => cause.exit_code(),
         }
     }
 }
@@ -349,6 +373,7 @@ mod tests {
 
     use super::{CommandFailure, ExitCode, ProcessEnding, exit_code_for_failure};
     use crate::commands::daemon::install::system_service::LoggedOutServiceRefusal;
+    use crate::commands::daemon::uninstall::system_service::SystemServiceKeptCause;
     use crate::commands::open::AddressHandlerMissingError;
     use crate::confirmation::ConfirmationUnavailableError;
     use crate::program::Cli;
@@ -575,6 +600,24 @@ mod tests {
             cause: LoggedOutServiceRefusal::NotInstalled { message: "refused".to_owned() },
             put_back_failure: Some(Box::new(ClientError::link_down(LinkFault::PeerClosed))),
         }.into(),
+        ProcessEnding::Exit(ExitCode::Software)
+    )]
+    #[case::system_service_needs_root(
+        CommandFailure::SystemServiceNeedsRoot.into(),
+        ProcessEnding::Exit(ExitCode::NoPermission)
+    )]
+    #[case::secrets_keychain_locked(
+        CommandFailure::SecretsKeychainLocked.into(),
+        ProcessEnding::Exit(ExitCode::Unavailable)
+    )]
+    #[case::system_service_kept_password_not_given(
+        CommandFailure::SystemServiceKept(SystemServiceKeptCause::PasswordNotGiven).into(),
+        ProcessEnding::Exit(ExitCode::NoPermission)
+    )]
+    #[case::system_service_kept_not_removed(
+        CommandFailure::SystemServiceKept(SystemServiceKeptCause::NotRemoved {
+            message: "refused".to_owned(),
+        }).into(),
         ProcessEnding::Exit(ExitCode::Software)
     )]
     #[case::anything_else(anyhow!("failed"), ProcessEnding::Exit(ExitCode::Software))]

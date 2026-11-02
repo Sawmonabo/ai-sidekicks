@@ -397,7 +397,7 @@ fn remove_replaced_agent(
 }
 
 /// Writes `line` on stdout and answers 0.
-fn write_line<Output: Write, ErrorOutput: Write>(
+pub(crate) fn write_line<Output: Write, ErrorOutput: Write>(
     context: &mut CommandContext<Output, ErrorOutput>,
     line: &str,
 ) -> anyhow::Result<ExitCode> {
@@ -575,7 +575,7 @@ fn join_put_back(failure: anyhow::Error, put_back: anyhow::Result<()>) -> anyhow
 }
 
 /// The moves mode's arguments that take the secrets to `destination`.
-fn secrets_move_arguments(destination: SecretsMoveDestination) -> Vec<OsString> {
+pub(crate) fn secrets_move_arguments(destination: SecretsMoveDestination) -> Vec<OsString> {
     SECRETS_MOVE_MODE
         .into_iter()
         .chain([destination.word()])

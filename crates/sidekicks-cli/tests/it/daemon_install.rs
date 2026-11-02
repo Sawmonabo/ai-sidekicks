@@ -196,3 +196,61 @@ fn a_given_password_installs_the_system_service_with_the_secrets_in_a_private_fi
         secrets_file.display()
     );
 }
+
+/// The system service's list, which only its install writes.
+fn system_service_list() -> PathBuf {
+    Path::new("/Library/LaunchDaemons").join(format!("{DAEMON_LAUNCHD_LABEL}.plist"))
+}
+
+// Run after the given-password leg, with the login keychain locked by hand first. Fails when the
+// keychain's check is dropped or comes after the removal, since the service is then removed while
+// the secrets cannot go back.
+#[test]
+#[ignore = "acts on this account's system service with the login keychain locked by hand first: \
+            run by hand at a Mac"]
+fn a_locked_keychain_keeps_the_system_service_and_its_files() {
+    let secrets_file = read_secrets_file().expect("the system service keeps its secrets in a file");
+
+    let kept = run_sidekicks_as_this_account(&["daemon", "uninstall"]);
+
+    assert_eq!(kept.status.code(), Some(69), "{}", text(&kept.stderr));
+    assert_eq!(text(&kept.stdout), "");
+    assert_eq!(
+        text(&kept.stderr),
+        "error: The sign-ins and secrets cannot go back into the login keychain while it is \
+         locked. Log in at this Mac, then run sidekicks daemon uninstall again.\n"
+    );
+    assert!(
+        system_service_list().is_file(),
+        "the system service was removed"
+    );
+    assert!(secrets_file.is_file(), "the secrets file was removed");
+}
+
+// Run after the leg above, with the login keychain unlocked again; the person gives the password.
+// Fails when the secrets do not move back, since their file is then left and the login agent's
+// service names it, and when the login agent is not put back and answering.
+#[test]
+#[ignore = "removes a system service behind an administrator's password: run by hand at a Mac"]
+fn an_uninstall_moves_the_secrets_back_into_the_login_keychain() {
+    let secrets_file = read_secrets_file().expect("the system service keeps its secrets in a file");
+
+    let removed = run_sidekicks_as_this_account(&["daemon", "uninstall"]);
+
+    assert_eq!(removed.status.code(), Some(0), "{}", text(&removed.stderr));
+    assert_eq!(
+        text(&removed.stdout),
+        "The background service no longer runs while you are logged out. It starts at login and \
+         is running now.\n"
+    );
+    assert!(
+        !system_service_list().exists(),
+        "the system service's list is still there"
+    );
+    assert!(
+        !secrets_file.exists(),
+        "{} is still there",
+        secrets_file.display()
+    );
+    assert_eq!(read_secrets_file(), None, "the secrets stayed in a file");
+}
