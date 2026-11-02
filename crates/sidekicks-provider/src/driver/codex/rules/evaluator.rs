@@ -2,10 +2,12 @@
 //! Starlark's standard environment beside Codex's three builtins, `prefix_rule`, `network_rule`
 //! and `host_executable`, which make the checks Codex's builtins make, and once a file has run its
 //! rules are held to their examples. A file Codex refuses fails with Codex's own words for it, so
-//! what the daemon lists is what Codex enforces, whatever a file computes its rules with.
+//! what the daemon lists is what Codex enforces, whatever a file computes its rules with. Each rule
+//! call is also kept where the file writes it, so a rule can be shown and taken out as written.
 
 use std::cell::{RefCell, RefMut};
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -164,16 +166,36 @@ struct PendingExamples {
     not_matches: Vec<Vec<String>>,
 }
 
+/// One rule call a file makes, where the file writes it: the call its own code makes, so a rule a
+/// file's function makes is the call to that function, and a call a loop runs is written once.
+pub(super) struct RuleCall {
+    /// Codex's word for what the rule does, as the call gives it or Codex's default.
+    pub(super) decision: String,
+    /// The call's bytes in the file's text.
+    pub(super) span: Range<usize>,
+}
+
+/// What one rule file makes: every allow and block it holds, and each rule call it writes.
+pub(super) struct EvaluatedRuleFile {
+    /// The allows and blocks, each once.
+    pub(super) rules: Vec<ProviderAskRule>,
+    /// The rule calls, each once, in the order they first ran.
+    pub(super) calls: Vec<RuleCall>,
+}
+
 // What the builtins gather while a file runs, carried from one file to the next as Codex carries
 // it: the program paths each `host_executable` names stay for the later files' examples. The
 // builtins reach it through the evaluator, as Codex's reach its rule builder. `listed` holds the
-// file's rules once each, so a file making many rules is not slowed by its duplicates.
+// file's rules once each and `called` its calls' places, so a file making many rules is not slowed
+// by its duplicates.
 struct RuleCollector {
     path_rules: PathRules,
     host_executables: HashMap<String, Vec<String>>,
     pending_examples: Vec<PendingExamples>,
     rules: Vec<ProviderAskRule>,
     listed: HashSet<ProviderAskRule>,
+    calls: Vec<RuleCall>,
+    called: HashSet<Range<usize>>,
 }
 
 /// Evaluates rule files in the order Codex loads them, in a place that spells paths by
@@ -195,6 +217,8 @@ impl RuleFileEvaluator {
                 pending_examples: Vec::new(),
                 rules: Vec::new(),
                 listed: HashSet::new(),
+                calls: Vec::new(),
+                called: HashSet::new(),
             }),
             working_folder,
             home_folder,
@@ -202,14 +226,15 @@ impl RuleFileEvaluator {
     }
 
     /// Runs one file named `file_name` holding `text`, stopped once `deadline` passes, and gives
-    /// every allow and block it made. Fails with Codex's words where Codex refuses the file, which
-    /// then drops every rule file's rules, and with "did not finish" where the deadline stopped it.
+    /// every allow and block it made with each rule call it wrote. Fails with Codex's words where
+    /// Codex refuses the file, which then drops every rule file's rules, and with "did not finish"
+    /// where the deadline stopped it.
     pub(super) fn evaluate(
         &self,
         file_name: &str,
         text: &str,
         deadline: Instant,
-    ) -> Result<Vec<ProviderAskRule>, String> {
+    ) -> Result<EvaluatedRuleFile, String> {
         let pending_from = self.collector.borrow().pending_examples.len();
         self.run(file_name, text, deadline)
             .map_err(|error| match &error {
@@ -231,13 +256,19 @@ impl RuleFileEvaluator {
                 .map_err(|error| error.to_string())?;
         }
         drop(collector);
-        Ok(std::mem::take(&mut self.collector.borrow_mut().rules))
+        let mut collector = self.collector.borrow_mut();
+        Ok(EvaluatedRuleFile {
+            rules: std::mem::take(&mut collector.rules),
+            calls: std::mem::take(&mut collector.calls),
+        })
     }
 
     fn run(&self, file_name: &str, text: &str, deadline: Instant) -> Result<(), RuleFileError> {
         let mut collector = self.collector.borrow_mut();
         collector.rules.clear();
         collector.listed.clear();
+        collector.calls.clear();
+        collector.called.clear();
         drop(collector);
         let mut dialect = Dialect::Extended.clone();
         dialect.enable_f_strings = true;
@@ -278,6 +309,15 @@ impl RuleCollector {
     fn add(&mut self, rule: ProviderAskRule) {
         if self.listed.insert(rule.clone()) {
             self.rules.push(rule);
+        }
+    }
+
+    fn record_call(&mut self, span: Range<usize>, decision: &str) {
+        if self.called.insert(span.clone()) {
+            self.calls.push(RuleCall {
+                decision: decision.to_owned(),
+                span,
+            });
         }
     }
 
@@ -375,6 +415,17 @@ fn rule_collector<'a>(evaluator: &Evaluator<'_, 'a, '_>) -> RefMut<'a, RuleColle
         .and_then(|extra| extra.downcast_ref::<RefCell<RuleCollector>>())
         .expect("every rule file runs with its rule collector")
         .borrow_mut()
+}
+
+// The bytes of the call the file's own top-level code made that led to this builtin: the frame
+// nearest the bottom of the call stack that has a place, since starlark starts a file's evaluation
+// with a frame of no place and a call made from Rust (a `sorted` key) has none either.
+fn file_call_span(evaluator: &Evaluator<'_, '_, '_>) -> Range<usize> {
+    let location = (0..evaluator.call_stack_count())
+        .rev()
+        .find_map(|from_top| evaluator.call_stack_nth_location(from_top))
+        .expect("a builtin runs under a call the file's own code makes");
+    location.span.begin().get() as usize..location.span.end().get() as usize
 }
 
 fn prefix_rule_match(
@@ -618,7 +669,8 @@ fn rule_builtins(builder: &mut GlobalsBuilder) {
         justification: Option<&'v str>,
         eval: &mut Evaluator<'v, '_, '_>,
     ) -> anyhow::Result<NoneType> {
-        let decision = decision.map_or(Ok(Decision::Allow), Decision::parse)?;
+        let decision_word = decision.unwrap_or("allow");
+        let decision = Decision::parse(decision_word)?;
         let justification = read_justification(justification)?;
         let tokens = read_pattern(pattern)?;
         let matches = r#match.map(read_examples).transpose()?.unwrap_or_default();
@@ -643,7 +695,9 @@ fn rule_builtins(builder: &mut GlobalsBuilder) {
                 justification: justification.clone(),
             })
             .collect();
+        let span = file_call_span(eval);
         let mut collector = rule_collector(eval);
+        collector.record_call(span, decision_word);
         if let Some(sense) = decision.sense() {
             for rule in &rules {
                 let subjects = if is_spelled {
@@ -686,14 +740,18 @@ fn rule_builtins(builder: &mut GlobalsBuilder) {
             ))
             .into());
         }
-        let decision = match decision {
+        let decision_word = decision;
+        let decision = match decision_word {
             "deny" => Decision::Forbidden,
             other => Decision::parse(other)?,
         };
         read_justification(justification)?;
         let host = normalize_network_rule_host(host).map_err(RuleFileError::InvalidRule)?;
+        let span = file_call_span(eval);
+        let mut collector = rule_collector(eval);
+        collector.record_call(span, decision_word);
         if let Some(sense) = decision.sense() {
-            rule_collector(eval).add(ProviderAskRule {
+            collector.add(ProviderAskRule {
                 kind: RememberedScopeKind::Project,
                 sense,
                 action: ProviderAskActionKind::Network,
