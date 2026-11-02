@@ -27,7 +27,7 @@ fn a_kept_memory_file_is_logged_without_the_homes_path() {
 
     let texts = recorded.texts();
     let kept = Path::new("memories").join("one.md").display().to_string();
-    assert!(texts.iter().any(|text| *text == kept), "{texts:?}");
+    assert!(texts.contains(&kept), "{texts:?}");
     let home_path = home.display().to_string();
     assert!(
         texts.iter().all(|text| !text.contains(&home_path)),
