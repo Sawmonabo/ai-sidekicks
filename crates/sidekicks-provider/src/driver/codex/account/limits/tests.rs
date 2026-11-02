@@ -236,8 +236,8 @@ impl Fixture {
     }
 }
 
-// Killed by the windows filed or answered under another account than the home's, by the plan the
-// reply named dropped, by the account read's email dropped or its plan not taken where the reply
+// Killed by the read's windows pushed beside the whole set the observer records (recorded twice
+// per read), by the plan the reply named dropped, by the account read's email dropped or its plan not taken where the reply
 // names none, by the read sent on the service the account resolves to rather than its
 // home's own (that home's start fails, so no figures come), and by the reset credits left
 // unwritten or kept when the next read carried none.
@@ -315,17 +315,9 @@ async fn a_snapshot_becomes_windows_under_the_home_s_account_and_its_credits_lan
         ),
         (None, Some("pro"))
     );
+    // The observer records the whole set the read answered, so the read pushes none of its own.
     let recorded = lock(&fixture.recorded.0).clone();
-    assert_eq!(recorded.len(), 1, "{recorded:?}");
-    let (filed_under, windows) = &recorded[0];
-    assert_eq!(filed_under, &fixture.account_id);
-    assert_eq!(
-        windows
-            .iter()
-            .map(|window| (window.limit_id.as_str(), window.window_mins))
-            .collect::<Vec<_>>(),
-        [("codex", 300), ("codex", 10_080)]
-    );
+    assert!(recorded.is_empty(), "{recorded:?}");
     assert_eq!(credits_after_first, Some(3));
     assert_eq!(fixture.reset_credits(), None);
 }

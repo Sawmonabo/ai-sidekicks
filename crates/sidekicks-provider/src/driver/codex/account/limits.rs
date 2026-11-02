@@ -215,7 +215,7 @@ async fn read_limits(
     service
         .ensure_started(service.dependencies().startup_timeout)
         .await?;
-    match rate_limits.read(service).await {
+    match rate_limits.read_whole(service).await {
         Ok(read) => Ok(LimitsRead::Read {
             read,
             account: read_codex_account(&*service.connection()?, CODEX_AUTH_PROBE_TIMEOUT).await?,
