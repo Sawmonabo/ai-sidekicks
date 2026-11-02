@@ -22,6 +22,7 @@ pub mod session_level_follower;
 pub mod session_resume_reader;
 pub mod session_rules;
 pub mod session_wake;
+pub mod tool_call_status_publisher;
 pub(crate) mod tool_server_route;
 pub mod turn_reading_publisher;
 pub mod usage_sink;
