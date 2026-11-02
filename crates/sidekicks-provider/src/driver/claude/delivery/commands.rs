@@ -107,6 +107,13 @@ struct ClaudeListedTask {
     description: Option<String>,
 }
 
+impl ClaudeListedTask {
+    // Whether the listed task is one of the session's running commands.
+    fn is_command(&self) -> bool {
+        is_command_task(non_empty(self.task_type.as_deref()))
+    }
+}
+
 // The `command` of a Bash or Monitor call's input.
 #[derive(Deserialize)]
 struct ClaudeCommandCallInput {
@@ -162,17 +169,12 @@ impl ClaudeTaskFrame {
             .then(|| self.listed_entries().map(|(task_id, _)| task_id))
     }
 
-    // Each task a background list names by a non-empty id, with its kind where it names one.
-    fn listed_entries(&self) -> impl Iterator<Item = (&str, Option<&str>)> {
+    // Each task a background list names by a non-empty id, with its entry.
+    fn listed_entries(&self) -> impl Iterator<Item = (&str, &ClaudeListedTask)> {
         self.tasks
             .iter()
             .flat_map(|tasks| &tasks.0)
-            .filter_map(|entry| {
-                Some((
-                    non_empty(entry.task_id.as_deref())?,
-                    non_empty(entry.task_type.as_deref()),
-                ))
-            })
+            .filter_map(|entry| Some((non_empty(entry.task_id.as_deref())?, entry)))
     }
 
     /// How a finished task ended: `completed`, `failed` or `stopped`.
@@ -422,24 +424,21 @@ impl ClaudeCommandTasks {
     ) -> Vec<CommandStart> {
         self.listed_other_task_ids = frame
             .listed_entries()
-            .filter(|(_, task_type)| !is_command_task(*task_type))
+            .filter(|(_, entry)| !entry.is_command())
             .map(|(task_id, _)| task_id.to_owned())
             .collect();
-        let listed_ids: Vec<&str> = frame
+        let listed_commands: Vec<(&str, &ClaudeListedTask)> = frame
             .listed_entries()
-            .filter(|(_, task_type)| is_command_task(*task_type))
-            .map(|(task_id, _)| task_id)
+            .filter(|(_, entry)| entry.is_command())
             .collect();
         self.tasks.retain(|task_id, task| {
-            !task.start.is_backgrounded || listed_ids.contains(&&**task_id)
+            !task.start.is_backgrounded
+                || listed_commands
+                    .iter()
+                    .any(|(listed_id, _)| *listed_id == task_id.as_str())
         });
         let mut listed = Vec::new();
-        for entry in frame.tasks.iter().flat_map(|tasks| &tasks.0) {
-            let Some(task_id) = non_empty(entry.task_id.as_deref())
-                .filter(|_| is_command_task(non_empty(entry.task_type.as_deref())))
-            else {
-                continue;
-            };
+        for (task_id, entry) in listed_commands {
             if let Some(task) = self.tasks.get_mut(task_id) {
                 task.start.is_backgrounded = true;
                 task.start.can_move_to_background = false;
