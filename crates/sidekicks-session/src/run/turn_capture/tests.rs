@@ -118,7 +118,8 @@ impl Fixture {
 
     async fn end_turn(&self, run_id: RunId, turn_number: u64) {
         let turn_number = SafeInt::new(turn_number).expect("the test's turns are safe integers");
-        self.engine
+        let written = self
+            .engine
             .record_turn_end(
                 run_id,
                 ProviderTurnEnd {
@@ -127,7 +128,9 @@ impl Fixture {
                 },
             )
             .await
-            .expect("the turn's end is written");
+            .expect("the turn's end is written")
+            .log_resend_failure(run_id);
+        assert!(written, "the turn's end is no duplicate");
     }
 
     // The session's one capture folder, which a capture made.

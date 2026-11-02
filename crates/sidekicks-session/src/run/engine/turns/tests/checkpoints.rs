@@ -106,7 +106,7 @@ async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_star
     let first_sequence = send(&appender, session_id, run_id, first).await;
     assert_eq!(start(&engine, run_id, Some(first)).await, Some(1));
     send(&appender, session_id, run_id, steer).await;
-    engine
+    let is_turn_one_ended = engine
         .record_turn_end(
             run_id,
             ProviderTurnEnd {
@@ -115,7 +115,9 @@ async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_star
             },
         )
         .await
-        .expect("turn 1's end is written");
+        .expect("turn 1's end is written")
+        .log_resend_failure(run_id);
+    assert!(is_turn_one_ended);
     let second_sequence = send(&appender, session_id, run_id, second).await;
     assert_eq!(start(&engine, run_id, Some(second)).await, Some(2));
     assert_eq!(start(&engine, run_id, None).await, Some(3));
