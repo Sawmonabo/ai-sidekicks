@@ -304,7 +304,6 @@ fn read_hook_input(
     })
 }
 
-// An empty string Codex sends reads as absent.
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
