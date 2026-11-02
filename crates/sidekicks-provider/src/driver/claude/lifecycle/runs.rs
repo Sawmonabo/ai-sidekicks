@@ -199,12 +199,11 @@ impl ClaudeDriver {
         .await?)
     }
 
-    /// The session's commands, as one group carrying the params' run and binding: a live
-    /// session's as its process declared them, once any restart in flight settles; a resting
-    /// session's from a process that keeps nothing, started in the folder its runs work in on the
-    /// binding's account, which concurrent reads of the session on that account share and none
-    /// keeps. Fails as
-    /// the live list fails, as the folder or the account's environment cannot be read, and as a
+    /// The session's commands, as one group carrying the params' run and binding: a live session's
+    /// as its process declared them, once any restart in flight settles; a resting session's from a
+    /// process that keeps nothing, started in the folder its runs work in on the binding's account,
+    /// which concurrent reads of the session on that account share and none keeps. Fails as the
+    /// live list fails, as the folder or the account's environment cannot be read, and as a
     /// session's start fails where the read fails.
     pub(crate) async fn list_provider_commands(
         &self,
