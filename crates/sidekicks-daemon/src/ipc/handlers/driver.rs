@@ -168,10 +168,11 @@ async fn list_terminal_sessions(
     })
 }
 
-// A descriptor's fixed words on the wire.
+// A descriptor's fixed words on the wire; the provider table's build check holds them to the
+// declaration text's rules.
 fn declaration_text(text: &'static str) -> ProviderDeclarationText {
     ProviderDeclarationText::new(text.to_owned())
-        .expect("a descriptor's words are short and not blank")
+        .expect("the provider table's build check holds a descriptor's words")
 }
 
 // Each installed provider's catalog, the session's own provider first and read against its bound
