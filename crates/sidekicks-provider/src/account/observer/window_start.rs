@@ -464,7 +464,7 @@ mod tests {
 
     use super::WINDOW_START_JOB;
     use crate::account::observer::ladder::wire_instant;
-    use crate::account::observer::tests::{
+    use crate::account::observer::test_fixture::{
         Fixture, ScriptedLegs, TestClock, claude, codex, new_clock, usage_rows,
     };
     use crate::account::registry::{AccountSettingsChange, RegisteredAccount};

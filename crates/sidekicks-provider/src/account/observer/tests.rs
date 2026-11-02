@@ -1,508 +1,26 @@
-use std::collections::{HashMap, VecDeque};
-use std::error::Error;
-use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, SystemTime};
 
-use futures::FutureExt as _;
-use futures::future::BoxFuture;
 use rstest::rstest;
-use secrecy::{ExposeSecret as _, SecretString};
 use sidekicks_contracts::provider::account::record::{
-    BillingMode, CredentialGeneration, ProviderAccountHealthState, ProviderAccountId,
-    ProviderAuthMode,
+    CredentialGeneration, ProviderAccountHealthState, ProviderAccountNotification,
 };
-use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_platforms::{WakeHelperStatus, WallClock, WallClockWait};
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::scheduler::Scheduler;
-use sidekicks_store::credential_store::SecretKeychain;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use tokio::sync::{Notify, Semaphore, watch};
+use tokio::sync::{Notify, Semaphore};
 
-use super::{
-    AccountLiveTurns, AccountReadAnswer, ProviderAccountObserver, ProviderAccountObserverDeps,
-    ReadAsker,
-};
-use crate::account::home_lock::AccountHomeLock;
-use crate::account::registry::{
-    AccountAdmission, HealthObservation, PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY,
-    ProviderAccountRegistry, RegisteredAccount,
-};
-use crate::account::token_custody::ProviderTokenCustody;
-use crate::account::token_custody::tests::ScriptedKeychain;
-use crate::account::wake_helper::{MachineWakeHelper, ScriptedWakeHelper};
+use super::test_fixture::{Fixture, ScriptedLegs, figures, new_clock, read_reading};
+use super::{AccountReadAnswer, ReadAsker};
+use crate::account::registry::HealthObservation;
 use crate::driver::contract::account::{
-    ObservedAccountIdentity, ProviderAccountFigures, ProviderObservation, ProviderObserveLegs,
-    ProviderWindowTurnLegs, TokenLimitsReading, WindowTurnAnswer, WindowTurnSpend,
+    ObservedAccountIdentity, ProviderAccountFigures, ProviderObservation,
 };
-use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
-use crate::driver::test_registry::new_session_id;
-use crate::driver::{
-    AccountFoldersError, CurrentProviderAccount, ProviderAccountFolders, ProviderAccountReader,
-};
-use crate::port::usage_sink::{MeteredUsage, ProviderQuotaWindow, UsageSink};
-use crate::usage_delta_accountant::UsageAxisCounts;
-
-// A wall clock the test sets; nothing here arms its timer.
-pub(super) struct TestClock(Mutex<SystemTime>);
-
-impl TestClock {
-    pub(super) fn advance(&self, by: Duration) {
-        *lock(&self.0) += by;
-    }
-}
-
-impl WallClock for TestClock {
-    fn now(&self) -> SystemTime {
-        *lock(&self.0)
-    }
-
-    fn arm(&self, _instant: SystemTime) -> std::io::Result<()> {
-        Ok(())
-    }
-
-    fn disarm(&self) -> std::io::Result<()> {
-        Ok(())
-    }
-
-    fn wait(&self) -> WallClockWait<'_> {
-        Box::pin(std::future::pending())
-    }
-}
-
-// Limits reads answering the scripted answers in turn, `None` a read that failed; with a gate, each
-// read tells `entered` and waits for a permit.
-#[derive(Default)]
-pub(super) struct ScriptedLegs {
-    answers: Mutex<VecDeque<Option<ProviderObservation>>>,
-    read_count: AtomicUsize,
-    reading_now: AtomicUsize,
-    most_at_once: AtomicUsize,
-    gate: Option<(Arc<Semaphore>, Arc<Notify>)>,
-}
-
-impl ScriptedLegs {
-    fn answering(answers: impl IntoIterator<Item = Option<ProviderObservation>>) -> Self {
-        Self {
-            answers: Mutex::new(answers.into_iter().collect()),
-            ..Self::default()
-        }
-    }
-
-    pub(super) fn reads(&self) -> usize {
-        self.read_count.load(Ordering::SeqCst)
-    }
-}
-
-// What each scripted smallest turn spends.
-pub(super) fn turn_spend() -> WindowTurnSpend {
-    let count = |count| SafeInt::new(count);
-    WindowTurnSpend {
-        model_id: Some(FreeFormText::new("haiku".to_owned()).expect("a model id")),
-        input_tokens: count(395),
-        output_tokens: count(51),
-        cache_read_tokens: None,
-        cache_write_tokens: None,
-        reasoning_tokens: None,
-    }
-}
-
-// Smallest turns that each spend `turn_spend()`, counting the window starts and keeping each
-// token a limits read was handed.
-#[derive(Default)]
-pub(super) struct ScriptedTurns {
-    window_starts: AtomicUsize,
-    tokens_read: Mutex<Vec<String>>,
-}
-
-impl ScriptedTurns {
-    pub(super) fn window_starts(&self) -> usize {
-        self.window_starts.load(Ordering::SeqCst)
-    }
-
-    pub(super) fn tokens_read(&self) -> Vec<String> {
-        lock(&self.tokens_read).clone()
-    }
-}
-
-impl ProviderWindowTurnLegs for ScriptedTurns {
-    fn start_window(
-        &self,
-        _provider_account_id: ProviderAccountId,
-        _folders: ProviderAccountFolders,
-    ) -> BoxFuture<'_, Result<WindowTurnAnswer, DriverError>> {
-        self.window_starts.fetch_add(1, Ordering::SeqCst);
-        async { Ok(WindowTurnAnswer::Spent(turn_spend())) }.boxed()
-    }
-
-    fn read_token_limits<'call>(
-        &'call self,
-        _provider_account_id: &'call ProviderAccountId,
-        _folders: &'call ProviderAccountFolders,
-        token: &'call SecretString,
-    ) -> BoxFuture<'call, Result<TokenLimitsReading, DriverError>> {
-        lock(&self.tokens_read).push(token.expose_secret().to_owned());
-        async {
-            Ok(TokenLimitsReading {
-                observation: ProviderObservation::Figures(figures()),
-                spend: Some(turn_spend()),
-            })
-        }
-        .boxed()
-    }
-}
-
-impl ProviderObserveLegs for ScriptedLegs {
-    fn observe(
-        &self,
-        _provider_account_id: ProviderAccountId,
-        _folders: ProviderAccountFolders,
-    ) -> BoxFuture<'_, Result<ProviderObservation, DriverError>> {
-        async move {
-            self.read_count.fetch_add(1, Ordering::SeqCst);
-            let at_once = self.reading_now.fetch_add(1, Ordering::SeqCst) + 1;
-            self.most_at_once.fetch_max(at_once, Ordering::SeqCst);
-            if let Some((permits, entered)) = &self.gate {
-                entered.notify_one();
-                permits
-                    .acquire()
-                    .await
-                    .expect("the gate stays open")
-                    .forget();
-            }
-            self.reading_now.fetch_sub(1, Ordering::SeqCst);
-            let answer = lock(&self.answers)
-                .pop_front()
-                .unwrap_or(Some(ProviderObservation::Figures(figures())));
-            answer.ok_or_else(|| DriverError::from(AccountFoldersError::NotFound))
-        }
-        .boxed()
-    }
-
-    fn reads_one_at_a_time(&self) -> bool {
-        true
-    }
-
-    fn reads_at_turn_end(&self) -> bool {
-        true
-    }
-}
-
-// A read's figures that name one five-hour window and nothing of the account.
-pub(super) fn figures() -> ProviderAccountFigures {
-    ProviderAccountFigures {
-        windows: vec![ProviderQuotaWindow {
-            limit_id: "session".to_owned(),
-            window_mins: 300,
-            used_percent: 40.0,
-            resets_at: None,
-        }],
-        ..ProviderAccountFigures::default()
-    }
-}
-
-// Each whole set of quota windows the observer recorded, with its account.
-#[derive(Default)]
-pub(super) struct RecordedWholeSets(Mutex<Vec<(ProviderAccountId, Vec<ProviderQuotaWindow>)>>);
-
-impl RecordedWholeSets {
-    pub(super) fn sets(&self) -> Vec<(ProviderAccountId, Vec<ProviderQuotaWindow>)> {
-        lock(&self.0).clone()
-    }
-}
-
-impl UsageSink for RecordedWholeSets {
-    fn record_metered(
-        &self,
-        _metered: MeteredUsage,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        async { Ok(()) }.boxed()
-    }
-
-    fn record_quota_windows(
-        &self,
-        _provider: ProviderId,
-        _provider_account_id: ProviderAccountId,
-        _windows: Vec<ProviderQuotaWindow>,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        async { Err("the observer records only whole sets".into()) }.boxed()
-    }
-
-    fn record_whole_quota_windows(
-        &self,
-        _provider: ProviderId,
-        provider_account_id: ProviderAccountId,
-        windows: Vec<ProviderQuotaWindow>,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        lock(&self.0).push((provider_account_id, windows));
-        async { Ok(()) }.boxed()
-    }
-
-    fn read_prior_emitted(
-        &self,
-        _session_id: SessionId,
-        _thread_id: String,
-    ) -> BoxFuture<'_, Result<UsageAxisCounts, Box<dyn Error + Send + Sync>>> {
-        async { Ok(UsageAxisCounts::default()) }.boxed()
-    }
-}
-
-#[derive(Default)]
-pub(super) struct TestLiveTurns(pub(super) AtomicBool);
-
-impl AccountLiveTurns for TestLiveTurns {
-    fn sessions_with_live_turns(&self, _provider_account_id: &ProviderAccountId) -> Vec<SessionId> {
-        if self.0.load(Ordering::SeqCst) {
-            vec![new_session_id()]
-        } else {
-            Vec::new()
-        }
-    }
-}
-
-// An accounts reader answering every account's folders as its home.
-struct HomeFolders(Arc<ProviderAccountRegistry>);
-
-impl ProviderAccountReader for HomeFolders {
-    fn resolve_account_folders(
-        &self,
-        provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
-        async move {
-            let Ok(account) = self.0.read(provider_account_id).await else {
-                return Err(AccountFoldersError::NotFound);
-            };
-            let home = account.credential_home.path().to_path_buf();
-            Ok(ProviderAccountFolders {
-                configuration_folder: home.clone(),
-                credential_store_folder: home,
-            })
-        }
-        .boxed()
-    }
-
-    fn current_account(
-        &self,
-        _provider_id: ProviderId,
-    ) -> BoxFuture<'_, Result<CurrentProviderAccount, Box<dyn Error + Send + Sync>>> {
-        async { Err("no current account in the observer's tests".into()) }.boxed()
-    }
-
-    fn read_credential_generation(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>> {
-        async { Err("no generation in the observer's tests".into()) }.boxed()
-    }
-
-    fn read_observed_auth_mode(
-        &self,
-
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>> {
-        async { Ok(None) }.boxed()
-    }
-
-    fn read_sealed_token(
-        &self,
-        _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn Error + Send + Sync>>> {
-        async { Ok(None) }.boxed()
-    }
-}
-
-pub(super) fn claude() -> ProviderId {
-    ProviderId::new("claude".to_owned()).expect("the Claude Code provider id")
-}
-
-pub(super) fn codex() -> ProviderId {
-    ProviderId::new("codex".to_owned()).expect("the Codex provider id")
-}
-
-pub(super) struct Fixture {
-    pub(super) registry: Arc<ProviderAccountRegistry>,
-    pub(super) writer: Arc<DatabaseWriter>,
-    pub(super) home_lock: Arc<AccountHomeLock>,
-    pub(super) live_turns: Arc<TestLiveTurns>,
-    pub(super) clock: Arc<TestClock>,
-    pub(super) scheduler: Arc<Scheduler>,
-    pub(super) keychain: Arc<ScriptedKeychain>,
-    pub(super) legs: Arc<ScriptedLegs>,
-    pub(super) turns: HashMap<ProviderId, Arc<ScriptedTurns>>,
-    pub(super) usage: Arc<RecordedWholeSets>,
-    pub(super) wakes: Arc<ScriptedWakeHelper>,
-    pub(super) observer: ProviderAccountObserver,
-}
-
-impl Fixture {
-    // An observer over `database` reading through `legs`, on `clock`, with scripted turns on
-    // Claude Code and Codex.
-    pub(super) async fn open(
-        database: &TestDatabase,
-        data_folder: &Path,
-        clock: Arc<TestClock>,
-        legs: ScriptedLegs,
-    ) -> Self {
-        let writer = Arc::new(
-            DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-                .await
-                .expect("the writer opens its database"),
-        );
-        let reads = Arc::new(DatabaseReadPool::new(
-            database.path(),
-            PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY,
-        ));
-        let registry = Arc::new(ProviderAccountRegistry::new(
-            Arc::clone(&reads),
-            Arc::clone(&writer),
-            data_folder.to_owned(),
-        ));
-        let home_lock = Arc::new(AccountHomeLock::default());
-        let live_turns = Arc::new(TestLiveTurns::default());
-        let scheduler = Arc::new(Scheduler::start(
-            Arc::clone(&clock) as Arc<dyn WallClock>,
-            None,
-            watch::channel(0).1,
-        ));
-        let keychain = Arc::new(ScriptedKeychain::default());
-        let legs = Arc::new(legs);
-        let turns: HashMap<ProviderId, Arc<ScriptedTurns>> = [claude(), codex()]
-            .into_iter()
-            .map(|provider| (provider, Arc::default()))
-            .collect();
-        let window_turn_legs = turns
-            .iter()
-            .map(|(provider, turns)| {
-                (
-                    provider.clone(),
-                    Arc::clone(turns) as Arc<dyn ProviderWindowTurnLegs>,
-                )
-            })
-            .collect();
-        let usage = Arc::new(RecordedWholeSets::default());
-        let wakes = Arc::new(ScriptedWakeHelper::new(WakeHelperStatus::Installed));
-        let observer = ProviderAccountObserver::new(ProviderAccountObserverDeps {
-            registry: Arc::clone(&registry),
-            account_reader: Arc::new(HomeFolders(Arc::clone(&registry))),
-            legs: HashMap::from([(claude(), Arc::clone(&legs) as Arc<dyn ProviderObserveLegs>)]),
-            window_turn_legs,
-            token_custody: Arc::new(ProviderTokenCustody::new(
-                Arc::clone(&registry),
-                Arc::clone(&keychain) as Arc<dyn SecretKeychain>,
-                HashMap::new(),
-            )),
-            database_reads: reads,
-            database_writer: Arc::clone(&writer),
-            usage: Arc::clone(&usage) as Arc<dyn UsageSink>,
-            live_turns: Arc::clone(&live_turns) as Arc<dyn AccountLiveTurns>,
-            home_lock: Arc::clone(&home_lock),
-            scheduler: Arc::clone(&scheduler),
-            wall_clock: Arc::clone(&clock) as Arc<dyn WallClock>,
-            wake_helper: Some(Arc::clone(&wakes) as Arc<dyn MachineWakeHelper>),
-        });
-        Self {
-            registry,
-            writer,
-            home_lock,
-            live_turns,
-            clock,
-            scheduler,
-            keychain,
-            legs,
-            turns,
-            usage,
-            wakes,
-            observer,
-        }
-    }
-
-    // Admits a signed-in Claude Code account, observed at the clock's time.
-    pub(super) async fn register(&self) -> RegisteredAccount {
-        self.register_on(claude(), None).await
-    }
-
-    // Admits a signed-in `provider` account whose status read reported `observed_auth_mode`.
-    pub(super) async fn register_on(
-        &self,
-        provider: ProviderId,
-        observed_auth_mode: Option<ProviderAuthMode>,
-    ) -> RegisteredAccount {
-        let minted = self.registry.mint(provider).expect("the account is minted");
-        self.registry
-            .admit(
-                &minted,
-                &AccountAdmission {
-                    display_label: None,
-                    billing_mode: BillingMode::Subscription,
-                    health: Some(HealthObservation {
-                        state: ProviderAccountHealthState::Authenticated,
-                        observed_at: super::ladder::wire_instant(self.clock.now()),
-                    }),
-                    observed_auth_mode,
-                },
-            )
-            .await
-            .expect("the account is admitted")
-    }
-
-    pub(super) async fn read(
-        &self,
-        account: &RegisteredAccount,
-        asker: ReadAsker,
-    ) -> AccountReadAnswer {
-        self.observer
-            .shared
-            .read(account.account_id.clone(), asker)
-            .await
-            .expect("the account is observed")
-    }
-}
-
-// Each usage row of `account`: its session and the generation it was charged to.
-pub(super) fn usage_rows(
-    database: &TestDatabase,
-    account: &RegisteredAccount,
-) -> Vec<(Option<String>, i64)> {
-    let connection = rusqlite::Connection::open(database.path()).expect("the database opens");
-    let mut statement = connection
-        .prepare(
-            "SELECT session_id, observed_credential_generation
-               FROM provider_account_usage_turns WHERE account_id = ?",
-        )
-        .expect("the rows' query prepares");
-    statement
-        .query_map([account.account_id.as_str()], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })
-        .expect("the rows read")
-        .collect::<Result<_, _>>()
-        .expect("each row reads")
-}
-
-pub(super) fn new_clock() -> Arc<TestClock> {
-    Arc::new(TestClock(Mutex::new(SystemTime::now())))
-}
 
 fn generation(value: u64) -> CredentialGeneration {
     serde_json::from_value(value.into()).expect("a test generation")
-}
-
-pub(super) fn read_reading(answer: AccountReadAnswer) -> super::AccountReading {
-    match answer {
-        AccountReadAnswer::Read(reading) => reading,
-        other @ (AccountReadAnswer::Held { .. } | AccountReadAnswer::NotNow { .. }) => {
-            panic!("a read was taken, not {other:?}")
-        }
-    }
 }
 
 // What the account's stored health is after the reads.
@@ -514,11 +32,13 @@ enum Stored {
     AtLastRead(ProviderAccountHealthState),
 }
 
-// Table T2 over cadence reads, each a hold's length past the last: what each answer stores, where
+// Cadence reads, each a hold's length past the last: what each answer stores as the health, where
 // the ladder stands and that no background write moves the generation. Killed by a refused or
 // unanswered read stored as a reading (the health reads signed in at the read's time), by the
 // ladder not climbing or not cleared, by a login gone held on the ladder, by `indeterminate` at
-// the first refusal or never, and by a background write that moves the generation.
+// the first refusal or never, by a background write that moves the generation, and by a read
+// that rewrote the row not published as the account it now is, or one that wrote nothing
+// published.
 #[rstest]
 #[case::figures_clear_the_ladder(
     vec![Some(ProviderObservation::RefusedInBand), Some(ProviderObservation::Figures(figures()))],
@@ -561,7 +81,7 @@ enum Stored {
     1
 )]
 #[tokio::test]
-async fn each_answer_stores_what_table_t2_says(
+async fn each_answer_stores_its_health_and_ladder_place_and_never_moves_the_generation(
     #[case] answers: Vec<Option<ProviderObservation>>,
     #[case] stored: Stored,
     #[case] rung: u32,
@@ -600,6 +120,13 @@ async fn each_answer_stores_what_table_t2_says(
     };
     assert_eq!(read.health, expected);
     assert_eq!(read.credential_generation, generation(1));
+    let published = match stored {
+        Stored::Unchanged => Vec::new(),
+        Stored::AtLastRead(_) => vec![ProviderAccountNotification::AccountChanged {
+            account: read.to_provider_account(),
+        }],
+    };
+    assert_eq!(fixture.notifications.published(), published);
     let hold = fixture
         .registry
         .read_hold(account.account_id.clone())
@@ -694,6 +221,47 @@ async fn no_read_runs_while_a_turn_is_live_or_a_sign_in_holds_the_home() {
     drop(sign_in);
 
     read_reading(fixture.read(&account, ReadAsker::CheckNow).await);
+    assert_eq!(fixture.legs.reads(), 1);
+}
+
+// A turn-end read the live turn turns away leaves the account's interval as it was, so the
+// five-minute read still comes when it was due rather than a whole interval after the turn's end.
+// Killed by the interval restarted before the turn-end read has answered figures.
+#[tokio::test(start_paused = true)]
+async fn a_turn_end_read_turned_away_leaves_the_next_read_when_it_was_due() {
+    let database = TestDatabase::new(schema_parts());
+    let data_folder = tempfile::tempdir().expect("a data folder");
+    let fixture = Fixture::open(
+        &database,
+        data_folder.path(),
+        new_clock(),
+        ScriptedLegs::default(),
+    )
+    .await;
+    let account = fixture.register().await;
+    fixture
+        .observer
+        .watch(&account)
+        .expect("the account is scheduled");
+    tokio::time::advance(Duration::from_mins(4)).await;
+
+    fixture.live_turns.0.store(true, Ordering::SeqCst);
+    fixture
+        .observer
+        .shared
+        .read_at_turn_end(account.account_id.clone())
+        .await
+        .expect("the turn-end read answers");
+    fixture.live_turns.0.store(false, Ordering::SeqCst);
+    assert_eq!(fixture.legs.reads(), 0);
+
+    tokio::time::advance(Duration::from_secs(61)).await;
+    for _ in 0..50 {
+        if fixture.legs.reads() == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
     assert_eq!(fixture.legs.reads(), 1);
 }
 

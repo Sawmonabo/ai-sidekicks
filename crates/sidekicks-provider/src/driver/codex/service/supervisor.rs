@@ -10,6 +10,7 @@
 pub(crate) mod connection_events;
 pub(crate) mod drain;
 pub(crate) mod events;
+mod rate_limit_readings;
 mod reconnect;
 pub(crate) mod routing;
 mod runner;
@@ -71,7 +72,6 @@ use crate::driver::codex::transport::connection::{
 };
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::codex::transport::socket::{CodexSocketWait, dial_codex_service_socket};
-use crate::driver::codex::usage_limit_signal::CodexRateLimitObservation;
 use crate::driver::codex::version::CODEX_CLIENT_NAME;
 use crate::driver::contract::error::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
@@ -198,7 +198,8 @@ pub(crate) struct CodexService {
     // The ticket of the connection whose frames are routed; an older one's are not.
     routed_dial: AtomicU64,
     threads: Arc<Mutex<CodexServiceThreads>>,
-    routing: Mutex<CodexServiceRouting>,
+    // Shared with the hook a complete rate-limit read's answer runs on the reader.
+    routing: Arc<Mutex<CodexServiceRouting>>,
     // The executor relay its first account start made; a terminal service never has one.
     exec_relay: OnceLock<Arc<CodexExecRelay>>,
 }
@@ -242,7 +243,7 @@ impl CodexService {
                     }
                 }),
             ))),
-            routing: Mutex::default(),
+            routing: Arc::default(),
             exec_relay: OnceLock::new(),
         });
         tokio::spawn(ServiceRunner::new(Arc::downgrade(&service), received).run());
@@ -348,16 +349,6 @@ impl CodexService {
             | CodexHomeKind::PersonalFolder
             | CodexHomeKind::CapabilityRead => self.home.provider_account_id().cloned(),
         }
-    }
-
-    /// The account's rate-limit readings this service has seen.
-    pub(crate) fn rate_limit_observation(&self) -> CodexRateLimitObservation {
-        self.lock_routing().rate_limits.clone()
-    }
-
-    /// Replaces the account's rate-limit readings with a complete read's.
-    pub(crate) fn store_rate_limit_read(&self, observation: CodexRateLimitObservation) {
-        self.lock_routing().rate_limits = observation;
     }
 
     /// The queue of every session attached to the service.

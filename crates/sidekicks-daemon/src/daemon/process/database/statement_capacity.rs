@@ -35,6 +35,7 @@ use sidekicks_session::questions::service::QUESTION_STATEMENT_CAPACITY;
 use sidekicks_session::readings::READINGS_STATEMENT_CAPACITY;
 use sidekicks_session::related::ranking::RELATED_RANKING_STATEMENT_CAPACITY;
 use sidekicks_session::review_note::store::REVIEW_NOTE_STORE_STATEMENT_CAPACITY;
+use sidekicks_session::run::agent::RUN_AGENT_STATEMENT_CAPACITY;
 use sidekicks_session::run::binding_cursors::RUN_BINDING_CURSORS_STATEMENT_CAPACITY;
 use sidekicks_session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
 use sidekicks_session::run::folders::SESSION_LIVE_RUN_FOLDERS_STATEMENT_CAPACITY;
@@ -129,7 +130,6 @@ pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + RESTART_SETTLE_STATEMENT_CAPACITY
     + RETENTION_STATEMENT_CAPACITY
     + REVIEW_NOTE_STORE_STATEMENT_CAPACITY
-    // The reviewer denials' set and the run engine's each hold the run agent reader's.
     + REVIEWER_DENIALS_STATEMENT_CAPACITY
     + RUN_BINDING_CURSORS_STATEMENT_CAPACITY
     + RUN_ENGINE_STATEMENT_CAPACITY
@@ -166,4 +166,7 @@ pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + WORKSPACE_SERVICE_STATEMENT_CAPACITY
     + WORKTREE_CREATOR_STATEMENT_CAPACITY
     + WORKTREE_SERVICE_STATEMENT_CAPACITY
-    + WORKTREE_STATUS_READER_STATEMENT_CAPACITY;
+    + WORKTREE_STATUS_READER_STATEMENT_CAPACITY
+    // The reviewer denials', the run engine's and the live run folders' sets each hold the run
+    // agent reader's, which is counted once.
+    - 2 * RUN_AGENT_STATEMENT_CAPACITY;

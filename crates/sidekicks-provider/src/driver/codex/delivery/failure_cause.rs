@@ -57,8 +57,12 @@ pub(crate) async fn read_codex_turn_failure_cause(
             return Some(RunFailureCause::FlexCapacityUnavailable { origin });
         }
         Some(CODEX_USAGE_LIMIT_EXCEEDED_ERROR) => {
-            // The readings as they stand at this frame, taken before the generation read awaits.
-            let observation = record.service.rate_limit_observation();
+            // The readings of the account the conversation ran on at this frame, taken before the
+            // generation read awaits: a switch that landed on the service since the frame arrived
+            // left them behind, so the limit is still charged to that account.
+            let observation = record
+                .service
+                .rate_limit_observation_of(&record.provider_account_id);
             match read_conversation_credential_generation(record, provider_accounts).await {
                 Ok(credential_generation) => {
                     if let Some(signal) = classify_codex_usage_limit_signal(

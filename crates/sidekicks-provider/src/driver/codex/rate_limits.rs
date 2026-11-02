@@ -1,7 +1,8 @@
 //! The account's rate-limit readings as the daemon records them: a complete read at each start and
-//! reconnect of a service, kept as the service's readings, and each window whose reading changed,
-//! read or pushed, handed to the usage record as the quota windows of the account the service runs
-//! on, which stamps them with the account's credential generation.
+//! reconnect of a service, kept as the service's readings at its answer's place among the pushes,
+//! and each window whose reading changed, read or pushed, handed to the usage record as the quota
+//! windows of the account the service ran on as the reading arrived, in arrival order, which the
+//! record stamps with the account's credential generation.
 
 use std::collections::HashMap;
 use std::mem;
@@ -15,7 +16,7 @@ use sidekicks_std::port_registration::PortRegistration;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::GetAccountRateLimitsParams;
-use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::service::supervisor::{CodexService, CodexServiceId};
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::usage_limit_signal::{
     CODEX_ACCOUNT_RATE_LIMITS_READ_METHOD, CodexRateLimitObservation,
@@ -36,11 +37,12 @@ pub(crate) struct CodexRateLimitFiling {
     filings: Arc<KeyedLock<ProviderAccountId>>,
 }
 
-// The windows last recorded for each account, and whether a reading with no account to record
-// under was logged.
+// The windows last recorded for each account with the service and arrival of the reading they
+// came from, and whether a reading with no account to record under was logged.
 #[derive(Default)]
 struct FiledRateLimits {
     windows_by_account: HashMap<ProviderAccountId, Vec<ProviderQuotaWindow>>,
+    arrival_by_account: HashMap<ProviderAccountId, (CodexServiceId, u64)>,
     is_unfiled_reading_logged: bool,
 }
 
@@ -66,22 +68,23 @@ impl CodexRateLimitFiling {
         }
     }
 
-    /// Reads the account's rate limits whole on `service`, keeps them as its readings, files the
-    /// windows that moved and answers what the reply said. Fails as the read fails, the readings then left as
-    /// they were.
+    /// Reads the account's rate limits whole on `service`, keeps them as its readings at the
+    /// answer's place among the service's frames, files the windows that moved and answers what
+    /// the reply said. Fails as the read fails, the readings then left as they were.
     pub(crate) async fn read(
         &self,
         service: &CodexService,
     ) -> Result<CodexRateLimitRead, CodexError> {
         let reply = service
             .connection()?
-            .request(
+            .request_ordered(
                 CODEX_ACCOUNT_RATE_LIMITS_READ_METHOD,
                 // The reset-credit details cost Codex a second lookup the rows never carry.
                 &GetAccountRateLimitsParams {
                     exclude_reset_credit_details: Some(true),
                     supports_luna_reserve: None,
                 },
+                service.rate_limit_read_hook(),
             )
             .await?;
         let reply: Value =
@@ -105,19 +108,20 @@ impl CodexRateLimitFiling {
                 .and_then(Value::as_u64)
                 .and_then(|count| u32::try_from(count).ok()),
         };
-        service.store_rate_limit_read(observation);
         self.file(service).await;
         Ok(read)
     }
 
-    /// Records `service`'s readings as they stand under the account it runs on, the switching
-    /// service's the one it carries: the windows whose reading changed since the account's last
-    /// recording, in one sparse set; a set the record refused is recorded again with the next
-    /// reading. A service on no account, the terminal service on the person's own folder, names
-    /// none, which the record requires, so its readings stay unrecorded, logged once; so do
-    /// readings that come before the usage record registers.
+    /// Records `service`'s readings as they stand under the account it ran on as they arrived, the
+    /// switching service's the one it carried: the windows whose reading changed since the
+    /// account's last recording, in one sparse set; a reading older in the service's arrival order
+    /// than one already recorded is not recorded, so the newer set stands. A set the record
+    /// refused is recorded again with the next reading. A service on no account, the terminal
+    /// service on the person's own folder, names none, which the record requires, so its readings
+    /// stay unrecorded, logged once; so do readings that come before the usage record registers.
     pub(crate) async fn file(&self, service: &CodexService) {
-        let Some(provider_account_id) = service.provider_account_id() else {
+        let reading = service.rate_limit_reading();
+        let Some(provider_account_id) = reading.provider_account_id else {
             if !mem::replace(&mut lock(&self.filed).is_unfiled_reading_logged, true) {
                 tracing::debug!(
                     "the codex service's rate limits name no account, so no usage row is filed"
@@ -129,16 +133,27 @@ impl CodexRateLimitFiling {
             return;
         };
         // Held through the recording, so a reading one clone is recording is not recorded again
-        // by another.
+        // by another, and one taken earlier is not recorded after it.
         let _filing = self.filings.acquire(provider_account_id.clone()).await;
-        let windows = compose_codex_quota_windows(&service.rate_limit_observation());
-        let changed = select_changed_codex_quota_windows(
-            lock(&self.filed)
-                .windows_by_account
+        let arrival = (service.id(), reading.arrival);
+        let windows = compose_codex_quota_windows(&reading.observation);
+        let changed = {
+            let filed = lock(&self.filed);
+            if filed
+                .arrival_by_account
                 .get(&provider_account_id)
-                .map_or(&[], Vec::as_slice),
-            &windows,
-        );
+                .is_some_and(|filed| is_not_newer(arrival, *filed))
+            {
+                return;
+            }
+            select_changed_codex_quota_windows(
+                filed
+                    .windows_by_account
+                    .get(&provider_account_id)
+                    .map_or(&[], Vec::as_slice),
+                &windows,
+            )
+        };
         if changed.is_empty() {
             return;
         }
@@ -155,8 +170,14 @@ impl CodexRateLimitFiling {
                 "the codex account's rate limits could not be recorded"
             );
         }
+        let mut filed = lock(&self.filed);
+        if recorded.is_ok() {
+            filed
+                .arrival_by_account
+                .insert(provider_account_id.clone(), arrival);
+        }
         keep_recorded_codex_quota_windows(
-            lock(&self.filed)
+            filed
                 .windows_by_account
                 .entry(provider_account_id)
                 .or_default(),
@@ -164,6 +185,12 @@ impl CodexRateLimitFiling {
             recorded.is_ok(),
         );
     }
+}
+
+// Whether a reading at `arrival` is no newer than the one recorded at `filed`: arrivals compare
+// only within one service, so a reading from another service is always taken.
+fn is_not_newer(arrival: (CodexServiceId, u64), filed: (CodexServiceId, u64)) -> bool {
+    arrival.0 == filed.0 && arrival.1 <= filed.1
 }
 
 // The windows of `windows` that `filed` does not hold as they are: a window whose reading is
@@ -215,14 +242,22 @@ fn compose_codex_quota_windows(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
     use serde_json::{Value, json};
+    use sidekicks_std::port_registration::PortRegistration;
 
     use super::{
-        ProviderQuotaWindow, compose_codex_quota_windows, keep_recorded_codex_quota_windows,
-        select_changed_codex_quota_windows,
+        CodexRateLimitFiling, ProviderQuotaWindow, compose_codex_quota_windows,
+        keep_recorded_codex_quota_windows, select_changed_codex_quota_windows,
     };
     use crate::account::observer::window_store::tests::{
         Reading, append, file as file_reading, log_with_account, rows,
+    };
+    use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
+    use crate::driver::codex::usage_limit_signal::{
+        CODEX_ACCOUNT_RATE_LIMITS_READ_METHOD, CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD,
     };
     use crate::driver::codex::usage_limit_signal::{
         observe_codex_rate_limit_read, observe_codex_rate_limit_update,
@@ -312,5 +347,50 @@ mod tests {
             compose_codex_quota_windows(&pushed)[1..],
             "only the secondary window is recorded"
         );
+    }
+
+    // A push that arrives after a complete read's answer is newer than the read, so the readings
+    // keep the push. Killed by storing the read's readings once its request returns, which lands
+    // them over a push the reader merged meanwhile, so the older set wins.
+    #[tokio::test]
+    async fn a_push_after_a_read_s_answer_stays_over_the_read() {
+        let mut scripted = start_scripted_codex_service();
+        let filing = CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage")));
+        let five_hours = |used| json!({"usedPercent": used, "windowDurationMins": 300});
+        let service = Arc::clone(&scripted.service);
+        let script = &mut scripted.script;
+        let answer_then_push = async {
+            let read = script.next_sent().await;
+            assert_eq!(read["method"], CODEX_ACCOUNT_RATE_LIMITS_READ_METHOD);
+            script.answer(
+                &read,
+                &json!({"rateLimits": {"limitId": "codex", "primary": five_hours(10)}}),
+            );
+            script.send(&json!({
+                "jsonrpc": "2.0",
+                "method": CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD,
+                "params": {"rateLimits": {"limitId": "codex", "primary": five_hours(20)}},
+            }));
+        };
+
+        let (read, ()) = tokio::join!(filing.read(&service), answer_then_push);
+        // The read's answer and the push are each one change of the readings.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while service.rate_limit_reading().arrival < 2 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the reader routes the push");
+        let used = |windows: &[ProviderQuotaWindow]| {
+            windows
+                .iter()
+                .map(|window| window.used_percent)
+                .collect::<Vec<_>>()
+        };
+        let readings = compose_codex_quota_windows(&service.rate_limit_reading().observation);
+
+        assert_eq!(used(&read.expect("the read is answered").windows), [10.0]);
+        assert_eq!(used(&readings), [20.0]);
     }
 }

@@ -70,7 +70,7 @@ mod tests {
     use sidekicks_store::database::writer::test_file::TestDatabase;
 
     use crate::account::observer::ReadAsker;
-    use crate::account::observer::tests::{
+    use crate::account::observer::test_fixture::{
         Fixture, ScriptedLegs, claude, figures, new_clock, read_reading, usage_rows,
     };
     use crate::driver::contract::account::ProviderObservation;

@@ -367,11 +367,10 @@ fn catalog_unreadable(detail: &str) -> ModelCatalogUnreadable {
     }
 }
 
+// Reports a catalog that could not be read, naming the account whose home it is and never the
+// home's path.
 fn report_window_read_failed(service: &CodexService, detail: &str, slug: Option<&str>) {
-    let mut details = Map::from_iter([(
-        "codexHome".to_owned(),
-        json!(service.home().codex_home.to_string_lossy()),
-    )]);
+    let mut details = Map::new();
     if let Some(slug) = slug {
         details.insert("slug".to_owned(), json!(slug));
     }
@@ -383,4 +382,40 @@ fn report_window_read_failed(service: &CodexService, detail: &str, slug: Option<
         disposition_reason: detail.to_owned(),
         details,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+
+    use super::read_codex_service_model_windows;
+    use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
+    use crate::driver::diagnostics::RecordedEvents;
+
+    // A catalog read that failed is reported with no field naming the service's home, whose path
+    // is an account's credential home. Killed by the home's path put back among the details.
+    #[tokio::test]
+    async fn a_failed_catalog_read_names_no_home_path() {
+        let scripted = start_scripted_codex_service();
+        let codex_home = scripted.service.home().codex_home.display().to_string();
+        let failure = io::Error::other("the catalog dump could not be run");
+        let recorded = RecordedEvents::default();
+
+        recorded.record_during(|| {
+            read_codex_service_model_windows(Err(&failure), &scripted.service);
+        });
+
+        assert_eq!(
+            recorded.counters(),
+            ["driver.modelWindow.readFailed".to_owned()]
+        );
+        assert!(
+            recorded
+                .texts()
+                .iter()
+                .all(|text| !text.contains(&codex_home)),
+            "{:?}",
+            recorded.texts()
+        );
+    }
 }

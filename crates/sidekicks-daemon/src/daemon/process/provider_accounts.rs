@@ -3,8 +3,9 @@
 //! background observer over each provider's own legs, the sign-in broker and the sources the
 //! `provider.account.*` methods act through, the current-account switch, and the machine's wake
 //! helper where the system has one; and, once the recovery pass has run, the observer's schedule,
-//! its follow of each metered turn, and the move of each session a stop left on another account
-//! than its provider's current one.
+//! its follow of each metered turn, the publishing of each quota reading the window projection
+//! keeps, and the move of each session a stop left on another account than its provider's current
+//! one.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -12,17 +13,24 @@ use std::sync::Arc;
 
 use serde::Deserialize as _;
 use sidekicks_contracts::event::registry::SessionEventType;
-use sidekicks_contracts::event::usage::UsageTokenCountRecordedPayload;
+use sidekicks_contracts::event::usage::{
+    DEFAULT_RATE_LIMIT_ID, UsageRateLimitUpdatedPayload, UsageTokenCountRecordedPayload,
+};
+use sidekicks_contracts::provider::account::record::ProviderAccountNotification;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_platforms::{Spawner, WallClock, wake_helper};
+use sidekicks_provider::account::errors::ProviderAccountRegistryError;
 use sidekicks_provider::account::home_lock::AccountHomeLock;
+use sidekicks_provider::account::observer::window_store::read_usage_windows;
 use sidekicks_provider::account::observer::{
     AccountLiveTurns, ProviderAccountObserver, ProviderAccountObserverDeps,
 };
 use sidekicks_provider::account::registry::ProviderAccountRegistry;
 use sidekicks_provider::account::resolver::ProviderAccounts;
-use sidekicks_provider::account::sign_in::{ProviderSignInBroker, SignedInAccountWatcher};
+use sidekicks_provider::account::sign_in::{
+    ProviderAccountNotificationPublisher, ProviderSignInBroker, SignedInAccountWatcher,
+};
 use sidekicks_provider::account::token_custody::ProviderTokenCustody;
 use sidekicks_provider::account::wake_helper::{MachineWakeHelper, SystemWakeHelper};
 use sidekicks_provider::driver::ProviderAccountReader;
@@ -157,6 +165,7 @@ pub(crate) async fn build_provider_account_plane(
     }
     let home_lock = Arc::new(AccountHomeLock::default());
     let live_turns: Arc<dyn AccountLiveTurns> = binding_cursors;
+    let publisher = Arc::new(ProviderAccountNotifications::new());
     let observer = Arc::new(ProviderAccountObserver::new(ProviderAccountObserverDeps {
         registry: Arc::clone(&registry),
         account_reader: Arc::clone(&reader),
@@ -171,13 +180,14 @@ pub(crate) async fn build_provider_account_plane(
         scheduler,
         wall_clock: clock,
         wake_helper: wake_helper.clone(),
+        publisher: Arc::clone(&publisher) as _,
     }));
-    let publisher = Arc::new(ProviderAccountNotifications::new());
     let sign_in = Arc::new(ProviderSignInBroker::new(
         Arc::clone(&registry),
         sign_in_legs,
         Arc::clone(&publisher) as _,
         Arc::clone(&observer) as Arc<dyn SignedInAccountWatcher>,
+        Arc::clone(&home_lock),
     ));
     let account_switch = Arc::new(AccountSwitch::new(AccountSwitchDeps {
         accounts: Arc::clone(&registry),
@@ -201,8 +211,8 @@ pub(crate) async fn build_provider_account_plane(
             memory_import_legs,
             home_lock,
             live_turns,
-            publisher,
-            database_reads: reads,
+            publisher: Arc::clone(&publisher),
+            database_reads: Arc::clone(&reads),
             machine_device_id: machine_device_id.clone(),
             wake_helper,
             account_switch: Arc::clone(&account_switch),
@@ -211,9 +221,11 @@ pub(crate) async fn build_provider_account_plane(
         registry,
         observation: ProviderAccountObservation {
             observer,
-            turn_ends: None,
+            usage_events: None,
             account_switch,
             machine_device_id,
+            reads,
+            publisher,
         },
     }
 }
@@ -267,21 +279,25 @@ pub(super) fn collect_provider_account_legs(providers: &ProviderRegistry) -> Pro
     legs_set
 }
 
-/// The background observer, and its follow of each metered turn once started, beside the switch
-/// that moves the sessions a stop left behind.
+/// The background observer, and its follow of each metered turn and each quota reading once
+/// started, beside the switch that moves the sessions a stop left behind.
 pub(crate) struct ProviderAccountObservation {
     observer: Arc<ProviderAccountObserver>,
-    turn_ends: Option<FollowerAttachment>,
+    usage_events: Option<FollowerAttachment>,
     account_switch: Arc<AccountSwitch>,
     machine_device_id: DeviceId,
+    // The window projection's reads, and where each reading it keeps goes out.
+    reads: Arc<DatabaseReadPool>,
+    publisher: Arc<ProviderAccountNotifications>,
 }
 
 impl ProviderAccountObservation {
     /// Moves each session a stop left on another account than its provider's current one onto
-    /// it, schedules every registered account's reads and window starts, and has each turn metered
-    /// on an account end that account's turn. Fails when those sessions or the accounts cannot be
-    /// read or the scheduler has stopped. Runs inside the daemon's runtime, which each turn's end
-    /// is read on.
+    /// it, schedules every registered account's reads and window starts, has each turn metered
+    /// on an account end that account's turn, and publishes each quota reading as the window
+    /// projection keeps it. Fails when those sessions or the accounts cannot be read or the
+    /// scheduler has stopped. Runs inside the daemon's runtime, which each turn's end and each
+    /// reading is read on.
     pub(crate) async fn start(
         &mut self,
         followers: &Arc<SessionEventFollowers>,
@@ -293,14 +309,27 @@ impl ProviderAccountObservation {
             .map_err(DaemonStartError::AccountFollow)?;
         self.observer.start().await?;
         let observer = Arc::clone(&self.observer);
+        let (reads, publisher) = (Arc::clone(&self.reads), Arc::clone(&self.publisher));
         let runtime = Handle::current();
-        // Runs on the writer's pump, so it only reads the account and hands the end on.
-        self.turn_ends = Some(followers.follow_all(move |event| {
-            if event.envelope.event_type() == SessionEventType::UsageTokenCountRecorded {
+        // Runs on the writer's pump, so it only reads the event and hands it on.
+        self.usage_events = Some(followers.follow_all(move |event| {
+            let event_type = event.envelope.event_type();
+            if event_type == SessionEventType::UsageTokenCountRecorded {
                 let recorded =
                     UsageTokenCountRecordedPayload::deserialize(event.envelope.payload())?;
                 let _runtime = runtime.enter();
                 observer.turn_ended(recorded.provider_account_id);
+            } else if event_type == SessionEventType::UsageRateLimitUpdated {
+                let updated = UsageRateLimitUpdatedPayload::deserialize(event.envelope.payload())?;
+                let (reads, publisher) = (Arc::clone(&reads), Arc::clone(&publisher));
+                runtime.spawn(async move {
+                    if let Err(error) = publish_usage_window(&reads, &*publisher, &updated).await {
+                        tracing::warn!(
+                            error = &error as &(dyn std::error::Error + 'static),
+                            "a quota reading was not published; the next list reads it"
+                        );
+                    }
+                });
             }
             Ok(())
         }));
@@ -310,7 +339,36 @@ impl ProviderAccountObservation {
     /// Ends the follow and every account's job, timer and the wake watch; a read under way
     /// finishes.
     pub(crate) fn stop(&mut self) {
-        self.turn_ends = None;
+        self.usage_events = None;
         self.observer.stop();
     }
+}
+
+/// Publishes the window `updated` names as the window projection now keeps it, the newest reading
+/// of that account, limit and length; nothing where the projection keeps none, as for a reading it
+/// takes no row for. Fails when the stored readings cannot be read.
+pub(super) async fn publish_usage_window(
+    reads: &DatabaseReadPool,
+    publisher: &dyn ProviderAccountNotificationPublisher,
+    updated: &UsageRateLimitUpdatedPayload,
+) -> Result<(), ProviderAccountRegistryError> {
+    let limit_id = updated
+        .limit_id
+        .as_ref()
+        .map_or(DEFAULT_RATE_LIMIT_ID, |limit_id| limit_id.as_str());
+    let window = read_usage_windows(reads, Some(updated.provider.clone()))
+        .await?
+        .into_iter()
+        .find(|window| {
+            window.account_id == updated.provider_account_id
+                && window.limit_id.as_str() == limit_id
+                && i64::try_from(window.window_mins.get()).ok() == Some(updated.window_mins.get())
+        });
+    if let Some(window) = window {
+        publisher.publish(ProviderAccountNotification::UsageWindowUpdated {
+            account_id: window.account_id.clone(),
+            window,
+        });
+    }
+    Ok(())
 }

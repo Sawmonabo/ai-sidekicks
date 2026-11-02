@@ -354,6 +354,7 @@ impl MethodInputs {
         let clock: Arc<dyn WallClock> = Arc::new(TestWallClock::default());
         let home_lock = Arc::new(AccountHomeLock::default());
         let wake_helper = wake_helper as Arc<dyn MachineWakeHelper>;
+        let publisher = Arc::new(ProviderAccountNotifications::new());
         let observer = Arc::new(ProviderAccountObserver::new(ProviderAccountObserverDeps {
             registry: Arc::clone(&accounts),
             account_reader: Arc::clone(&account_reader),
@@ -372,8 +373,8 @@ impl MethodInputs {
             )),
             wall_clock: clock,
             wake_helper: Some(Arc::clone(&wake_helper)),
+            publisher: Arc::clone(&publisher) as _,
         }));
-        let publisher = Arc::new(ProviderAccountNotifications::new());
         let providers = Arc::new(registry_of_first_provider(Arc::new(
             MockProviderDriver::new(),
         )));
@@ -401,6 +402,7 @@ impl MethodInputs {
                     HashMap::new(),
                     Arc::clone(&publisher) as _,
                     Arc::clone(&observer) as Arc<dyn SignedInAccountWatcher>,
+                    Arc::clone(&home_lock),
                 )),
                 token_custody,
                 observer,

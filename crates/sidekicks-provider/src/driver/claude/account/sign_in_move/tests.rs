@@ -192,6 +192,7 @@ impl Fixture {
             )]),
             Arc::new(Unheard),
             Arc::new(Unheard),
+            Arc::new(AccountHomeLock::default()),
         );
         Self {
             data_folder,

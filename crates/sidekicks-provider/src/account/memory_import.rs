@@ -181,3 +181,6 @@ fn copy_failure(error: TreeCopyError) -> io::Error {
 
 #[cfg(test)]
 pub(crate) mod test_fixture;
+
+#[cfg(test)]
+mod tests;

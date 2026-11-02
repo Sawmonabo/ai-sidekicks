@@ -19,7 +19,6 @@ use super::CodexAccountLegs;
 use crate::driver::codex::service::registry::switching_home;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::inbound::{CodexAccountMove, CodexSessionInbound};
-use crate::driver::codex::usage_limit_signal::CodexRateLimitObservation;
 use crate::driver::contract::account::{FirstRequestAfterMove, SessionAccountMove, SessionToMove};
 use crate::driver::contract::error::DriverError;
 
@@ -84,15 +83,12 @@ async fn switch_service(
     service
         .ensure_started(legs.dependencies.startup_timeout)
         .await?;
-    let connection = service.connection()?;
     let acknowledged = Arc::clone(&service);
     let carried = to.clone();
     service
         .dependencies()
         .switching
-        .hand_switch(&connection, to, move || {
-            // A limit reached on the account left never parks work on the one carried now.
-            acknowledged.store_rate_limit_read(CodexRateLimitObservation::default());
+        .hand_switch(&service, to, move || {
             for (session, moved) in queued {
                 // A queue that takes nothing drops `moved`, which moves the session at once.
                 let _taken = acknowledged.push_session_item(
