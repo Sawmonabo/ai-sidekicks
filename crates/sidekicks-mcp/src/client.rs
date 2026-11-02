@@ -336,7 +336,7 @@ mod tests {
         let after = Arc::clone(&old);
         let waiter = tokio::spawn(async move {
             standing
-                .replacement(Some(&after), &McpServerEndpoint::stdio())
+                .replacement(Some(&after), &McpServerEndpoint::stdio(), &|_| {})
                 .await
         });
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -370,7 +370,11 @@ mod tests {
         let address = McpServerAddress::new("http://127.0.0.1:1/mcp").expect("a loopback address");
         let mut waiter = tokio::spawn(async move {
             standing
-                .replacement(Some(&old), &McpServerEndpoint::at_address(&address))
+                .replacement(
+                    Some(&old),
+                    &McpServerEndpoint::at_address(&address),
+                    &|_| {},
+                )
                 .await
         });
 
@@ -402,7 +406,7 @@ mod tests {
         let standing = client.standing_connection(session_id, &name);
         let waiter = tokio::spawn(async move {
             standing
-                .replacement(Some(&old), &McpServerEndpoint::stdio())
+                .replacement(Some(&old), &McpServerEndpoint::stdio(), &|_| {})
                 .await
         });
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -426,7 +430,7 @@ mod tests {
         let standing = client.standing_connection(session_id, &name);
         let waiter = tokio::spawn(async move {
             standing
-                .replacement(Some(&old), &McpServerEndpoint::stdio())
+                .replacement(Some(&old), &McpServerEndpoint::stdio(), &|_| {})
                 .await
         });
         tokio::time::sleep(Duration::from_secs(1)).await;

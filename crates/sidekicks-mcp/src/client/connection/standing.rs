@@ -118,13 +118,16 @@ impl McpStandingConnection {
         Ok(Arc::clone(connection))
     }
 
-    /// Waits for a live connection other than `after`, any when `None`, that reaches `endpoint`.
-    /// Ends early when the client stops or is dropped, then when the session closes, the stop read
+    /// Waits for a live connection other than `after`, any when `None`, that reaches `endpoint`,
+    /// telling `show_absence` why none is at the start and at each publication: no connection is
+    /// published, the one published reaches another endpoint, or `None` while it is `after`. Ends
+    /// early when the client stops or is dropped, then when the session closes, the stop read
     /// first; never times out.
     pub(crate) async fn replacement(
         &self,
         after: Option<&Arc<McpServerConnection>>,
         endpoint: &McpServerEndpoint,
+        show_absence: &impl Fn(Option<McpConnectionAbsence>),
     ) -> McpReplacement {
         let mut live = self.live.clone();
         loop {
@@ -134,15 +137,17 @@ impl McpStandingConnection {
             if self.closed.is_cancelled() {
                 return McpReplacement::SessionClosed;
             }
-            {
-                let published = live.borrow_and_update();
-                if let Some(connection) = published.as_ref()
-                    && after.is_none_or(|after| !Arc::ptr_eq(connection, after))
-                    && connection.endpoint == *endpoint
-                {
-                    return McpReplacement::Replaced(Arc::clone(connection));
+            let absence = match live.borrow_and_update().as_ref() {
+                None => Some(McpConnectionAbsence::NotConfigured),
+                Some(connection) if connection.endpoint != *endpoint => {
+                    Some(McpConnectionAbsence::Reconfigured)
                 }
-            }
+                Some(connection) if after.is_some_and(|after| Arc::ptr_eq(connection, after)) => {
+                    None
+                }
+                Some(connection) => return McpReplacement::Replaced(Arc::clone(connection)),
+            };
+            show_absence(absence);
             tokio::select! {
                 biased;
                 () = self.stopping.cancelled() => return McpReplacement::ClientStopping,

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use serde_json::json;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
-use tokio::time::{Duration, timeout};
+use tokio::time::{Duration, Instant, timeout};
 use tokio_util::sync::CancellationToken;
 
 use crate::client::connection::standing::McpStandingConnection;
@@ -286,9 +286,10 @@ async fn a_question_answered_while_its_servers_address_changed_fails_at_once_and
     );
 }
 
-// Mutations: in `wait_for_replacement`, leave the contact `Reached` while no connection is live;
-// in `follow_across_reconnects`, end at `ConnectionClosed` without waiting; or leave the wait
-// unraced against the session's close.
+// Mutations: in `wait_for_replacement`, leave the contact `Reached` while no connection is live,
+// or read why none is only once, so the server added again at another address still reads
+// `NotConfigured`; in `follow_across_reconnects`, end at `ConnectionClosed` without waiting; or
+// leave the wait unraced against the session's close.
 #[tokio::test(start_paused = true)]
 async fn a_task_whose_server_is_no_longer_configured_reads_so_and_waits_until_the_close() {
     let fixture = fixture_at_address().await;
@@ -323,6 +324,60 @@ async fn a_task_whose_server_is_no_longer_configured_reads_so_and_waits_until_th
                 fixture.receipts(),
                 [address_task_receipt("accepted", false)],
                 "the task waits in flight"
+            );
+            let (elsewhere, _other) = fixture
+                .open(working_task_server(), Some(&other_address()))
+                .await;
+            feed.publish(Some(Arc::new(elsewhere)));
+            until(|| *contact.borrow() == Reconfigured).await;
+            feed.close().await;
+        },
+    );
+    let (end, written) = dispatched.expect("the call is dispatched").complete().await;
+
+    assert_eq!(
+        end.expect("the call ends"),
+        McpToolCallEnd::ConnectionClosed
+    );
+    assert!(matches!(written, Err(McpCallCompletionError::Settled)));
+    assert_eq!(fixture.receipts(), [address_task_receipt("unknown", true)]);
+}
+
+// Mutation: in `wait_for_connection`, run no clock while the connection that ended is still the
+// one published, so the contact reads `Reached` with nothing polled.
+#[tokio::test(start_paused = true)]
+async fn a_task_whose_connection_ends_with_no_reconnect_reads_lost_after_300_s() {
+    let fixture = fixture_at_address().await;
+    let (standing, feed) = McpStandingConnection::new(CancellationToken::new());
+    let (opened, server) = fixture
+        .open(working_task_server(), fixture.address.as_ref())
+        .await;
+    let connection = Arc::new(opened);
+    feed.publish(Some(Arc::clone(&connection)));
+    let contact = contact();
+    let uncanceled = CancellationToken::new();
+
+    let (dispatched, ()) = tokio::join!(
+        fixture
+            .dispatch
+            .call(&standing, track_call(), &contact, &uncanceled),
+        async {
+            until(|| !server.requests("tasks/get").is_empty()).await;
+            // Its transport ends on its own: the connection stays published, nothing replaces it.
+            connection.close().await;
+            let closed_at = Instant::now();
+            let mut seen = contact.subscribe();
+            timeout(
+                Duration::from_secs(400),
+                seen.wait_for(|state| *state == Lost),
+            )
+            .await
+            .expect("the contact reads lost")
+            .expect("the contact stays open");
+            assert!(
+                closed_at.elapsed() >= Duration::from_secs(300),
+                "lost only after 300 s, not {:?}",
+                closed_at.elapsed()
             );
             feed.close().await;
         },

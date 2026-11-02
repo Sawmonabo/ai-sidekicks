@@ -4,9 +4,11 @@
 //! kept questions and its asked keys; a stdio server's task died with its process, so its end
 //! stays unknown.
 //!
-//! - While it waits, the contact reads at once why no connection of the task's endpoint is live:
-//!   none is (`NotConfigured`), or the live one reaches another address (`Reconfigured`). The
-//!   re-bind writes back the arm the contact held before, a refused cancel's included.
+//! - While it waits, the contact reads why no connection of the task's endpoint is live, read
+//!   again at each publication: none is (`NotConfigured`), or the live one reaches another address
+//!   (`Reconfigured`). While the connection that ended is still the one published, as when its
+//!   transport ended on its own, nothing reaches the server, so the contact reads `Lost` once the
+//!   wait has lasted 300 s. The re-bind writes back the arm the contact held before.
 //! - The wait never times out. The session's close ends it with the end unknown, which the
 //!   dispatch writes; the caller's cancel ends it unknown for the caller to write, as a live end,
 //!   so a backgrounded call's hand-off stays owed; the client's stop ends it writing nothing. A
@@ -21,6 +23,7 @@ use std::sync::{Arc, Mutex};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::client::connection::McpServerConnection;
@@ -30,6 +33,7 @@ use crate::client::connection::standing::{
 use crate::client::dispatch::{
     CallHandleSink, CallRace, McpDispatchedCall, McpToolDispatch, McpToolDispatchError, race_call,
 };
+use crate::client::poll::CONTACT_LOST_AFTER;
 use crate::client::tasks::{
     McpServerEndpoint, McpTaskContact, McpTaskGeneration, McpTaskResumption, McpToolCallEnd,
     McpToolCallError,
@@ -190,7 +194,8 @@ async fn wait_for_replacement(
 }
 
 /// Waits for a live connection other than `after` that reaches `endpoint`, `contact` reading
-/// meanwhile why none is and, once one is, the arm it held before. A wait that ends otherwise
+/// meanwhile why none is, read again at each publication, `Lost` once 300 s pass while `after` is
+/// still the one published, and, once one is, the arm it held before. A wait that ends otherwise
 /// gives the race its end unknown: written by the dispatch at the session's close and by the
 /// caller at its cancel, and nothing written at the client's stop.
 async fn wait_for_connection(
@@ -201,24 +206,40 @@ async fn wait_for_connection(
     cancellation: &CancellationToken,
 ) -> Result<Arc<McpServerConnection>, CallRace> {
     let held = *contact.borrow();
-    let absence = match standing.live(endpoint) {
-        Ok(_live) => None,
-        Err(McpConnectionAbsence::NotConfigured) => Some(McpTaskContact::NotConfigured),
-        Err(McpConnectionAbsence::Reconfigured) => Some(McpTaskContact::Reconfigured),
+    let lost_at = Instant::now() + CONTACT_LOST_AFTER;
+    let show_absence = |absence: Option<McpConnectionAbsence>| {
+        let arm = match absence {
+            Some(McpConnectionAbsence::NotConfigured) => McpTaskContact::NotConfigured,
+            Some(McpConnectionAbsence::Reconfigured) => McpTaskContact::Reconfigured,
+            // The connection that ended is still published, so nothing reaches the server.
+            None if Instant::now() >= lost_at => McpTaskContact::Lost,
+            None => held,
+        };
+        contact.send_if_modified(|state| {
+            let is_new = *state != arm;
+            *state = arm;
+            is_new
+        });
     };
-    if let Some(absence) = absence {
-        contact.send_modify(|state| *state = absence);
-    }
+    let mut is_lost_due = false;
     // The replacement's wait reads the client's stop first, then the session's close, so a stop
-    // that also cancels writes nothing.
-    let replaced = tokio::select! {
-        biased;
-        replaced = standing.replacement(after, endpoint) => Some(replaced),
-        () = cancellation.cancelled() => None,
+    // that also cancels writes nothing. Lost's clock coming due starts the wait again, which reads
+    // the absence anew.
+    let replaced = loop {
+        tokio::select! {
+            biased;
+            replaced = standing.replacement(after, endpoint, &show_absence) => break Some(replaced),
+            () = cancellation.cancelled() => break None,
+            () = tokio::time::sleep_until(lost_at), if !is_lost_due => is_lost_due = true,
+        }
     };
     match replaced {
         Some(McpReplacement::Replaced(replacement)) => {
-            if absence.is_some() {
+            let is_absence_shown = matches!(
+                *contact.borrow(),
+                McpTaskContact::NotConfigured | McpTaskContact::Reconfigured
+            );
+            if is_absence_shown {
                 contact.send_modify(|state| *state = held);
             }
             Ok(replacement)
