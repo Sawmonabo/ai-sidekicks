@@ -230,6 +230,7 @@ CREATE TABLE workflow_steps (
   wait_account_id   TEXT,                        -- a step waiting on 'account': the spent provider account, which workflow.run.attention.list groups by, so every run waiting on one account presents as one entry
   wait_deadline_at  TEXT,                        -- the instant a step waiting on a person gives up, set only where its Timeout is
   wait_started_at   TEXT,                        -- when the step started waiting, set exactly while status = 'waiting'; the attention list's waiting-since and its oldest-first order read it
+  wait_id           TEXT,                        -- the waitId a person's answer names, from the step's workflow.phase.suspended, set exactly while a wait on 'approval', 'form' or 'reply' holds the step and unique where set, so an answer finds its run and step after a restart
   started_at        TEXT NOT NULL,
   finished_at       TEXT,                          -- NULL until the step settles
   -- The payload refs a step panel reads, each stored as the JSON WorkflowPayloadRef shape so a
