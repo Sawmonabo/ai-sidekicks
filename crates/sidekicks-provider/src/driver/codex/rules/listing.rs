@@ -193,7 +193,7 @@ pub(crate) async fn read_codex_protected_paths(
             entries.push(ProviderProtectedPath::Project {
                 pattern,
                 source_path: source_path.clone(),
-                repo_mount_id: project.repo_mount_id.clone(),
+                repo_mount_id: project.repo_mount_id,
             });
         }
     }
@@ -219,7 +219,7 @@ async fn list_rules(
     }
     for project in sources.projects.iter().filter(|project| project.is_trusted) {
         let scope = ProviderStandingRuleScope::Project {
-            repo_mount_id: project.repo_mount_id.clone(),
+            repo_mount_id: project.repo_mount_id,
         };
         for home in sources.account_homes {
             let project_sources = rule_sources(sources, home, &project.project_folder, true);
