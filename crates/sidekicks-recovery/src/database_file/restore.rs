@@ -52,10 +52,6 @@ use crate::database_file::copy::copy_file_replacing;
 use crate::database_file::newest_backup::{BackupManifestError, read_backup_manifest};
 use crate::database_file::{SHARED_MEMORY_SUFFIX, WRITE_AHEAD_LOG_SUFFIX};
 
-/// The arguments the daemon's own program is started with to restore a backup; the backup's
-/// folder follows them.
-pub const DATABASE_RESTORE_MODE: [&str; 2] = ["database", "restore"];
-
 // The SQLite file header's first bytes, and where in the header its `user_version` sits.
 const SQLITE_HEADER_MAGIC: &[u8; 16] = b"SQLite format 3\0";
 const USER_VERSION_OFFSET: usize = 60;
