@@ -72,10 +72,6 @@ pub(crate) enum ClaudeControlRequest {
         servers: BTreeMap<String, ClaudeToolServerEntry>,
     },
     /// Delivers one MCP JSON-RPC message from a tool server the daemon hosts in-process.
-    #[expect(
-        dead_code,
-        reason = "the tool-server front relays each in-process server's own messages in it"
-    )]
     McpMessage {
         /// The server, as `initialize` or `mcp_set_servers` named it.
         server_name: String,

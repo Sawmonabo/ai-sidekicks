@@ -15,7 +15,7 @@ use crate::driver::callback_tool::{CallbackToolDispatcher, CallbackToolInvocatio
 /// calls with. Dropping it releases the spawn's registry; a spawn that never established calls
 /// [`CallbackToolSpawnBinding::rollback`] instead.
 #[must_use = "dropping the binding releases the spawn's callback-tool registry"]
-pub(crate) struct CallbackToolSpawnBinding {
+pub struct CallbackToolSpawnBinding {
     /// Whether the spawn offers its tools, and which.
     pub(crate) admission: CallbackToolAdmission,
     /// Answers each call; bound even on a withholding, so a stray call is a recorded refusal.
@@ -47,7 +47,7 @@ impl Drop for CallbackToolSpawnBinding {
 
 /// Installs the registry `request` asks for and binds its dispatcher to that installation, so a
 /// later spawn's registry never answers this spawn's calls.
-pub(crate) fn bind_callback_tools_for_spawn(
+pub fn bind_callback_tools_for_spawn(
     host: &Arc<CallbackToolHost>,
     request: CallbackToolSpawnRequest,
 ) -> CallbackToolSpawnBinding {

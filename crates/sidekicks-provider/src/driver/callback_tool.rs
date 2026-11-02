@@ -52,5 +52,5 @@ pub enum CallbackToolResult {
 
 /// The token-bound dispatcher for one spawn: the `sidekicks` tool route calls it for each
 /// callback-tool call and answers the provider with what it returns.
-pub(crate) type CallbackToolDispatcher =
+pub type CallbackToolDispatcher =
     Arc<dyn Fn(CallbackToolInvocation) -> BoxFuture<'static, CallbackToolResult> + Send + Sync>;

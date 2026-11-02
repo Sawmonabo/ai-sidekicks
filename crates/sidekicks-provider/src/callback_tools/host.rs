@@ -77,7 +77,7 @@ pub trait CallbackToolApprovalSeam: Send + Sync {
 }
 
 /// Runs a call the seam allowed, so it never checks authorization again.
-pub(crate) trait CallbackToolExecutor: Send + Sync {
+pub trait CallbackToolExecutor: Send + Sync {
     /// Runs `invocation` and answers it. An error when it could not run, which the host answers
     /// `failed`.
     fn execute(
@@ -89,7 +89,7 @@ pub(crate) trait CallbackToolExecutor: Send + Sync {
 /// How one call settled, for the tool activity row it lands as.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
-pub(crate) enum CallbackToolActivityDisposition {
+pub enum CallbackToolActivityDisposition {
     /// The tool ran and completed.
     Completed,
     /// The seam denied it.
@@ -108,23 +108,23 @@ pub(crate) enum CallbackToolActivityDisposition {
 
 /// One settled call as the event pipeline records it; the pipeline builds the event itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CallbackToolActivityRecord {
+pub struct CallbackToolActivityRecord {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The run whose turn made the call.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// The tool called.
-    pub(crate) tool_name: FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>,
+    pub tool_name: FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>,
     /// The provider's id for the call, unchanged, since a tool's start and end pair on it.
-    pub(crate) tool_call_id: ToolCallId,
+    pub tool_call_id: ToolCallId,
     /// How it settled.
-    pub(crate) disposition: CallbackToolActivityDisposition,
+    pub disposition: CallbackToolActivityDisposition,
     /// How it was adjudicated; `None` when it was refused before adjudication.
-    pub(crate) approval_basis: Option<CallbackToolApprovalBasis>,
+    pub approval_basis: Option<CallbackToolApprovalBasis>,
 }
 
 /// Lands each settled call as an ordinary tool activity row.
-pub(crate) trait CallbackToolActivitySink: Send + Sync {
+pub trait CallbackToolActivitySink: Send + Sync {
     /// Records `record`. An error when it could not, which the host logs; the call's answer
     /// stands.
     fn record<'a>(
@@ -166,15 +166,15 @@ impl Eq for CallbackToolRegistryToken {}
 
 /// What one spawn asks of the host.
 #[derive(Clone, Debug)]
-pub(crate) struct CallbackToolSpawnRequest {
+pub struct CallbackToolSpawnRequest {
     /// The session the spawn serves.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The spawn's provider.
-    pub(crate) provider: ProviderId,
+    pub provider: ProviderId,
     /// The callback tools the session asks to offer.
-    pub(crate) requested_tools: Vec<SessionCallbackTool>,
+    pub requested_tools: Vec<SessionCallbackTool>,
     /// Why the provider cannot register tools in this spawn; `None` when it can.
-    pub(crate) provider_registration_unavailable: Option<String>,
+    pub provider_registration_unavailable: Option<String>,
 }
 
 /// Whether a spawn may offer its tools to the provider.
@@ -257,14 +257,7 @@ pub struct CallbackToolHost {
 impl CallbackToolHost {
     /// A host with no registry installed. Without `approval_seam` every registry is withheld at
     /// spawn and every call is answered `denied`.
-    #[cfg_attr(
-        not(any(test, feature = "test-support")),
-        expect(
-            dead_code,
-            reason = "the callback tools' approval route builds the host"
-        )
-    )]
-    pub(crate) fn new(
+    pub fn new(
         executor: Arc<dyn CallbackToolExecutor>,
         activity_sink: Arc<dyn CallbackToolActivitySink>,
         approval_seam: Option<Arc<dyn CallbackToolApprovalSeam>>,
@@ -279,11 +272,7 @@ impl CallbackToolHost {
 
     /// Answers a call whose arguments the `sidekicks` route's received check refused, as `failed`
     /// with `fault`, recording the refusal and the activity like any other.
-    #[expect(
-        dead_code,
-        reason = "the callback tools' approval route builds the host"
-    )]
-    pub(crate) async fn refuse_invalid_arguments(
+    pub async fn refuse_invalid_arguments(
         &self,
         session_id: SessionId,
         run_id: RunId,
