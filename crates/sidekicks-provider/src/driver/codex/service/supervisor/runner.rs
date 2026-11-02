@@ -27,6 +27,7 @@ use crate::driver::codex::service::start_lock::{CodexStartLock, take_codex_start
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::drain::drain_lasting_service;
 use crate::driver::codex::service::supervisor::reconnect::reconnect_wait;
+use crate::driver::codex::service::supervisor::refusals::SharedCodexError;
 use crate::driver::codex::service::supervisor::start::kept_records::retire_own_record;
 use crate::driver::codex::service::supervisor::start::{
     CodexServiceProcess, StartedService, connect, read_codex_loaded_threads, read_service_version,
@@ -285,7 +286,7 @@ impl ServiceRunner {
             SupervisorAction::ReportStartFailed(failure) => {
                 CodexTransportDiagnostic::ServiceStartFailed {
                     provider_account_id: service.provider_account_id(),
-                    error: Box::new(super::SharedCodexError(failure)),
+                    error: Box::new(SharedCodexError(failure)),
                 }
                 .report();
             }

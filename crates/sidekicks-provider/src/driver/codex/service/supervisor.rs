@@ -12,6 +12,7 @@ pub(crate) mod drain;
 pub(crate) mod events;
 mod rate_limit_readings;
 mod reconnect;
+pub(crate) mod refusals;
 pub(crate) mod routing;
 mod runner;
 pub(crate) mod start;
@@ -49,6 +50,9 @@ use crate::driver::codex::service::record::LastingServiceRecordFile;
 use crate::driver::codex::service::supervisor::connection_events::ServiceConnectionEvents;
 use crate::driver::codex::service::supervisor::drain::LastingServiceDrains;
 use crate::driver::codex::service::supervisor::events::CodexServiceEvents;
+use crate::driver::codex::service::supervisor::refusals::{
+    crash_loop_refusal, shut_down_refusal, start_failure,
+};
 use crate::driver::codex::service::supervisor::routing::{
     CODEX_CONFIG_WARNING_METHOD, CodexServiceRouting,
 };
@@ -401,10 +405,7 @@ impl CodexService {
                 match current {
                     CodexServiceAvailability::Up => return Ok(()),
                     CodexServiceAvailability::StartFailed(failure) => {
-                        return Err(CodexError::Transport {
-                            detail: "The Codex service could not be started.".to_owned(),
-                            cause: Some(Box::new(SharedCodexError(failure))),
-                        });
+                        return Err(start_failure(failure));
                     }
                     CodexServiceAvailability::CrashLoop => return Err(crash_loop_refusal()),
                     CodexServiceAvailability::ShutDown => return Err(shut_down_refusal()),
@@ -866,25 +867,5 @@ impl CodexService {
         let mut availability = self.availability.subscribe();
         // The sender lives in the service, which outlives this wait.
         let _reached = availability.wait_for(is_reached).await;
-    }
-}
-
-/// A start's failure shared by every caller that waited on it.
-#[derive(Debug, thiserror::Error)]
-#[error(transparent)]
-struct SharedCodexError(Arc<CodexError>);
-
-fn crash_loop_refusal() -> CodexError {
-    CodexError::Transport {
-        detail: "The Codex service ended too many times in a short window and was not restarted."
-            .to_owned(),
-        cause: None,
-    }
-}
-
-fn shut_down_refusal() -> CodexError {
-    CodexError::Transport {
-        detail: "The Codex service was shut down with the daemon.".to_owned(),
-        cause: None,
     }
 }
