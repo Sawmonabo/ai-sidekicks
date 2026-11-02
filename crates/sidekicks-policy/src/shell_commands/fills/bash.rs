@@ -2,16 +2,19 @@
 //! each here-document start the parser misreads put in single quotes, and each fill placed by the
 //! nodes around its placeholder. The reading places a fill for a POSIX shell and for cmd.exe.
 
+use std::collections::VecDeque;
 use std::ops::Range;
 
 use tree_sitter::{Node, Tree};
 
 use super::{CommandLineFills, FillPlace, FillPlacing, FillRefusal, is_escaped};
+use crate::shell_commands::listed_programs::{command_wrapper, folded_program_name};
 use crate::shell_commands::reading_forms::{
     ARITHMETIC_TEST_OPERATORS, HereDocumentParts, is_reading_expanded_body,
 };
-use crate::shell_commands::words::{WordBuilder, node_text};
-use crate::shell_commands::{ShellLineReader, commands_in};
+use crate::shell_commands::words::{Word, WordBuilder, WordText, node_text};
+use crate::shell_commands::wrappers::{WrapperRead, take_wrapper_words};
+use crate::shell_commands::{ShellLineReader, commands_in, is_variable_assignment};
 
 /// The `${…}` operators whose word bash expands as a pattern, in a context of its own that no
 /// enclosing double quotes reach.
@@ -40,6 +43,13 @@ enum OperandNames {
 
 /// The builtins named by their command name whose words a name word can be.
 const NAME_WORD_BUILTINS: &[NameWordBuiltin] = &[
+    NameWordBuiltin {
+        names: &["unset"],
+        value_options: "",
+        name_options: "",
+        operand_names: OperandNames::All,
+        reads_options_past_operands: false,
+    },
     NameWordBuiltin {
         names: &["read"],
         value_options: "adinNptu",
@@ -95,6 +105,10 @@ impl ShellLineReader {
         })
     }
 }
+
+/// The declaration builtins: the parser reads one as a declaration only when its bare name starts
+/// the command, so one reached any other way, through `builtin` or a quoted name, is a command.
+const DECLARATION_BUILTINS: &[&str] = &["declare", "typeset", "local", "export", "readonly"];
 
 /// Each fill's place under bash's grammar, in line order. The line is parsed once as written and,
 /// when a here-document start needs it, once more requoted; every fill is refused on a line either
@@ -263,6 +277,13 @@ impl<'s> PlaceWalk<'s> {
             }
             "expansion" => self.pass_expansion(current, child)?,
             "arithmetic_expansion" | "subscript" => return Err(FillRefusal::Arithmetic),
+            "array" => {
+                if let Some(child) = child
+                    && is_in_an_open_subscript(child, self.text, self.placeholder.start)
+                {
+                    return Err(FillRefusal::Arithmetic);
+                }
+            }
             "compound_statement" if current.child(0).is_some_and(|open| open.kind() == "((") => {
                 return Err(FillRefusal::Arithmetic);
             }
@@ -372,7 +393,9 @@ impl<'s> PlaceWalk<'s> {
         if flags.contains('i') && matches!(keyword, "declare" | "typeset" | "local") {
             return Err(FillRefusal::Arithmetic);
         }
-        let names_a_variable = flags.contains('n');
+        // `-n` makes a name reference only in these; `export -n` takes the export off.
+        let names_a_variable =
+            flags.contains('n') && matches!(keyword, "declare" | "typeset" | "local");
         let holds_an_array = flags.contains(['a', 'A']);
         let child_text = node_text(child, self.text);
         let is_name_word = if child.kind() == "variable_assignment" {
@@ -404,42 +427,130 @@ impl<'s> PlaceWalk<'s> {
         }
     }
 
-    /// A fill in a simple command's argument: any of `let`'s is arithmetic, and a name word of a
-    /// builtin that reads one refuses it. A fill in the command's name is a named residual.
+    /// A fill in a simple command's argument, read against the program the command runs past any
+    /// wrapper before it, as `builtin` or `command`, its name dequoted and folded as a file system
+    /// that ignores case reads it: any of `let`'s arguments is arithmetic, any of a declaration
+    /// builtin's is refused as a name word, and so is a name word of a builtin that reads one. A
+    /// fill in the command's name or a wrapper's own words is a named residual.
     fn pass_command(&self, command: Node<'s>, child: Node<'s>) -> Result<(), FillRefusal> {
         let Some(name) = command.child_by_field_name("name") else {
             return Ok(());
         };
         let mut cursor = command.walk();
-        let arguments: Vec<Node<'s>> = command
-            .children_by_field_name("argument", &mut cursor)
+        let nodes: Vec<Node<'s>> = std::iter::once(name)
+            .chain(command.children_by_field_name("argument", &mut cursor))
             .collect();
-        let Some(index) = arguments
+        let mut builder = WordBuilder::new(self.text);
+        let node_words: Vec<Word> = nodes.iter().map(|node| builder.push_word(*node)).collect();
+        let Some(target) = nodes
             .iter()
-            .position(|argument| argument.id() == child.id())
+            .position(|node| node.id() == child.id())
+            .map(|index| node_words[index])
         else {
             return Ok(());
         };
-        let program = node_text(name, self.text);
+        let (program, arguments) = program_past_wrappers(&mut builder, &node_words);
+        let Some(index) = arguments.iter().position(|word| *word == target) else {
+            return Ok(());
+        };
+        let program = folded_program_name(&builder.view(program).chars().collect::<String>());
         if program == "let" {
             return Err(FillRefusal::Arithmetic);
         }
+        if DECLARATION_BUILTINS.contains(&program.as_str()) {
+            return Err(FillRefusal::NameWord);
+        }
         let Some(builtin) = NAME_WORD_BUILTINS
             .iter()
-            .find(|builtin| builtin.names.contains(&program))
+            .find(|builtin| builtin.names.contains(&program.as_str()))
         else {
             return Ok(());
         };
-        let words: Vec<&str> = arguments
+        let words: Vec<String> = arguments
             .iter()
-            .map(|argument| node_text(*argument, self.text))
+            .map(|word| builder.view(*word).chars().collect())
             .collect();
+        let words: Vec<&str> = words.iter().map(String::as_str).collect();
         if is_name_word(builtin, &words, index) {
             Err(FillRefusal::NameWord)
         } else {
             Ok(())
         }
     }
+}
+
+/// The program a command's `words`, its name first, run past the wrappers before it, read as the
+/// line's reading reads them with any folder taken off, and the words after it; a wrapper whose
+/// own words leave it the program, or leave no command after them, is the program.
+fn program_past_wrappers(builder: &mut WordBuilder<'_>, words: &[Word]) -> (Word, Vec<Word>) {
+    let mut pending: VecDeque<Word> = words.iter().copied().collect();
+    let mut taken = Vec::new();
+    let mut program = without_folder(
+        builder,
+        pending
+            .pop_front()
+            .expect("a command's words start with its name"),
+    );
+    while let Some(wrapper) = command_wrapper(builder.view(program)) {
+        if let WrapperRead::WrapperIsProgram =
+            take_wrapper_words(builder, wrapper, &mut pending, &mut taken)
+        {
+            break;
+        }
+        // An assignment after a wrapper is the wrapper's own, as env reads it.
+        while pending
+            .front()
+            .is_some_and(|word| is_variable_assignment(builder.view(*word)))
+        {
+            pending.pop_front();
+        }
+        let Some(next) = pending.pop_front() else {
+            break;
+        };
+        program = without_folder(builder, next);
+    }
+    (program, pending.into())
+}
+
+/// `word` with any folder before its name taken off, as `/usr/bin/env` names `env`.
+fn without_folder(builder: &mut WordBuilder<'_>, word: Word) -> Word {
+    builder
+        .basename(word)
+        .map_or(word, |(without_folder, _)| without_folder)
+}
+
+/// Whether the placeholder at `at` sits in an array element's `[…]` left open before it, which
+/// bash evaluates as arithmetic: the element runs from the first of the parts joined to `part`
+/// with no blank between, `part` the array's child holding the placeholder, and its `[` and `]`
+/// are counted outside quotes.
+fn is_in_an_open_subscript(part: Node<'_>, text: &str, at: usize) -> bool {
+    let mut first = part;
+    while let Some(previous) = first.prev_sibling()
+        && previous.end_byte() == first.start_byte()
+        && previous.kind() != "("
+    {
+        first = previous;
+    }
+    let element = &text[first.start_byte()..at];
+    if !element.starts_with('[') {
+        return false;
+    }
+    let mut depth = 0_usize;
+    let mut quote = None;
+    let mut bytes = element.bytes();
+    while let Some(byte) = bytes.next() {
+        match (quote, byte) {
+            (None | Some(b'"'), b'\\') => {
+                bytes.next();
+            }
+            (None, b'\'' | b'"') => quote = Some(byte),
+            (Some(open), _) if byte == open => quote = None,
+            (None, b'[') => depth += 1,
+            (None, b']') => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    depth > 0
 }
 
 /// The `heredoc_start` of the redirect `body` belongs to.

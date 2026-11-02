@@ -342,6 +342,7 @@ mod tests {
     #[case::in_a_string("echo \"a {{ x }}\"")]
     #[case::in_a_substitution_in_a_string("echo \"$(echo {{ x }})\"")]
     #[case::between_escaped_quotes("echo \\\"{{ x }}\\\"")]
+    #[case::an_unexported_value("export -n a={{ x }}")]
     fn a_save_accepts_a_fill_where_every_reading_expands_it(#[case] line: &str) {
         assert_eq!(save(line, LIMIT), vec![Ok(())]);
     }
@@ -399,6 +400,25 @@ mod tests {
     #[case::declare_n_quoted("declare -n r=\"{{ x }}\"", FillRefusal::NameWord)]
     #[case::declare_array("declare -a \"a=({{ x }})\"", FillRefusal::NameWord)]
     #[case::declare_array_value("declare -a a=\"({{ x }})\"", FillRefusal::NameWord)]
+    #[case::an_array_index("a=([{{ x }}]=v)", FillRefusal::Arithmetic)]
+    #[case::an_array_index_quoted("a=([\"{{ x }}\"]=v)", FillRefusal::Arithmetic)]
+    #[case::an_appended_array_index("a+=([{{ x }}]=v)", FillRefusal::Arithmetic)]
+    #[case::a_declared_array_index("declare -a a=([{{ x }}]=v)", FillRefusal::Arithmetic)]
+    #[case::a_declared_array_index_in_a_quoted_value(
+        "declare -a a=\"([{{ x }}]=v)\"",
+        FillRefusal::NameWord
+    )]
+    #[case::a_declared_array_index_in_a_quoted_word(
+        "declare -a \"a=([{{ x }}]=v)\"",
+        FillRefusal::NameWord
+    )]
+    #[case::let_through_builtin("builtin let {{ x }}", FillRefusal::Arithmetic)]
+    #[case::read_through_command("command read {{ x }}", FillRefusal::NameWord)]
+    #[case::printf_v_through_builtin("builtin printf -v {{ x }} a", FillRefusal::NameWord)]
+    #[case::read_escaped("\\read {{ x }}", FillRefusal::NameWord)]
+    #[case::read_quoted_name("\"read\" {{ x }}", FillRefusal::NameWord)]
+    #[case::unset_through_builtin("builtin unset {{ x }}", FillRefusal::NameWord)]
+    #[case::declare_through_builtin("builtin declare -n r={{ x }}", FillRefusal::NameWord)]
     fn a_save_refuses_a_fill_by_the_rule_of_its_place(
         #[case] line: &str,
         #[case] refusal: FillRefusal,
