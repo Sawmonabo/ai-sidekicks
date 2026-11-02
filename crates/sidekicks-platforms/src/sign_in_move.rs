@@ -10,7 +10,7 @@
 use std::io;
 use std::path::PathBuf;
 
-use crate::{AtomicWriteError, CredentialStoreError};
+use crate::CredentialStoreError;
 
 /// The steps one sign-in's move runs, each timed against the caller's step bound: read from its
 /// source, written at its destination, read back and deleted from its source. A move whose every
@@ -47,9 +47,10 @@ pub enum SignInMoveError {
     /// The sign-in's file could not be read, removed or flushed.
     #[error("the sign-in file could not be used")]
     File(#[source] io::Error),
-    /// The sign-in's file could not be written.
-    #[error("the sign-in file could not be written")]
-    Write(#[source] AtomicWriteError),
+    /// The sign-in's file could not be written, for the reason its kind names; the write's own
+    /// error is not kept, since it can name the file's folder.
+    #[error("the sign-in file could not be written: {0}")]
+    Write(io::ErrorKind),
     /// The sign-in's file holds something other than UTF-8 text, which no keychain item holds.
     #[error("the sign-in file is not text")]
     NotText,

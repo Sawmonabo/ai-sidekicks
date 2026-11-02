@@ -248,7 +248,7 @@ impl SignInPlace for SignInFile<'_> {
             SIGN_IN_FILE_MODE,
             LeftoverSweep::Swept,
         )
-        .map_err(SignInMoveError::Write)?;
+        .map_err(|refusal| SignInMoveError::Write(refusal.failure.kind()))?;
         self.flush_folder()
     }
 
