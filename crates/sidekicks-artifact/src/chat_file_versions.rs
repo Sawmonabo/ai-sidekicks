@@ -78,6 +78,9 @@ use self::tool_claims::{ClaimedVersion, claimed_version};
 /// The media type a folder's manifest records.
 const FOLDER_MEDIA_TYPE: &str = "inode/directory";
 
+// How much of a file one read of a tool's claim takes.
+const CLAIM_READ_CHUNK_BYTES: usize = 64 * 1024;
+
 // The newest version's digest of a chat folder's path, or none for a path with no version yet.
 const NEWEST_CONTENT_HASH_SQL: &str = "SELECT content_hash FROM artifact_manifests
   WHERE repo_mount_id = @repoMountId AND workspace_path = @workspacePath

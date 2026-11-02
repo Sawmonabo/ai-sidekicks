@@ -13,7 +13,7 @@ use std::path::Path;
 
 use sidekicks_std::missing_entry::is_missing_entry;
 
-use super::COPY_CHUNK_BYTES;
+use super::CLAIM_READ_CHUNK_BYTES;
 
 /// The byte-order mark of a UTF-8 file.
 const UTF8_BOM: &[u8] = &[0xEF, 0xBB, 0xBF];
@@ -131,7 +131,7 @@ pub(super) fn check_claim(
     {
         return Ok(ClaimCheck::Differs);
     }
-    let mut chunk = vec![0; COPY_CHUNK_BYTES];
+    let mut chunk = vec![0; CLAIM_READ_CHUNK_BYTES];
     let mut read = fill_chunk(&mut file, &mut chunk)?;
     let (encoding, bom_len) = TextEncoding::of_leading(&chunk[..read]);
     if !sizes.admits(encoding, bom_len, file_size) {
@@ -163,7 +163,7 @@ pub(super) fn check_claim(
 /// first 4096 characters favor, CRLF when its CRLF pairs outnumber its lone LFs; none when that
 /// chunk is in neither encoding.
 pub(super) fn read_text_form(mut file: impl Read) -> io::Result<Option<TextForm>> {
-    let mut chunk = vec![0; COPY_CHUNK_BYTES];
+    let mut chunk = vec![0; CLAIM_READ_CHUNK_BYTES];
     let read = fill_chunk(&mut file, &mut chunk)?;
     let is_whole_file = read < chunk.len();
     let (encoding, bom_len) = TextEncoding::of_leading(&chunk[..read]);
