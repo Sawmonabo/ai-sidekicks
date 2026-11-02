@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
-use jsonata_core::ast::{AstNode, PathStep, Stage};
+use jsonata_core::ast::AstNode;
 use jsonata_core::evaluator::{Context, Evaluator, EvaluatorError, EvaluatorOptions, HostFnResult};
 use jsonata_core::parser::{ParserError, parse};
 use jsonata_core::value::{JArray, JValue};
@@ -39,11 +39,23 @@ use tokio::sync::oneshot::error::RecvError;
 use crate::definitions::kept_values::WorkflowKeptValue;
 use crate::expressions::key_order::to_jsonata_value;
 use crate::expressions::lineage::{LineageError, StepKey, StepOutputs, walk_paired_item};
+use crate::expressions::syntax_tree::find_in_syntax_tree;
 use crate::runs::creation::WorkflowRunTrigger;
 
 /// The call `$now` formats the run's instant with, so a picture and a time zone read exactly as
 /// `$fromMillis` reads them.
 const INSTANT_TEXT_CALL: &str = "$fromMillis($instantMillis, $picture, $timezone)";
+
+/// The binding that answers a labeled node's params, `$params('<label>')`.
+const PARAMS_BINDING: &str = "params";
+
+/// Every item reader, in the order they are registered.
+const ITEM_PICKS: [ItemPick; 4] = [
+    ItemPick::All,
+    ItemPick::First,
+    ItemPick::Last,
+    ItemPick::Linked,
+];
 
 /// What a step's expressions read, handed to the evaluator thread once when the step is
 /// dispatched. The run's shared data is held by `Arc`, so the steps of one run share it.
@@ -276,19 +288,14 @@ impl StepBindings {
             item_index,
             lineage_error: Rc::clone(lineage_error),
         });
-        for pick in [
-            ItemPick::All,
-            ItemPick::First,
-            ItemPick::Last,
-            ItemPick::Linked,
-        ] {
+        for pick in ITEM_PICKS {
             let reader = Rc::clone(&reader);
             evaluator
                 .register_fn(pick.name(), move |args: &[JValue]| reader.items(pick, args))
                 .expect("no item reader's name is a built-in's");
         }
         evaluator
-            .register_fn("params", move |args: &[JValue]| reader.params(args))
+            .register_fn(PARAMS_BINDING, move |args: &[JValue]| reader.params(args))
             .expect("params is no built-in's name");
         let call = Rc::clone(&self.instant_text_call);
         let millis = self.instant_millis;
@@ -430,7 +437,7 @@ impl ItemReader {
 
     /// The params of the node `args` labels, as the document stores them.
     fn params(&self, args: &[JValue]) -> HostFnResult {
-        let Some(label) = label_argument("params", args)? else {
+        let Some(label) = label_argument(PARAMS_BINDING, args)? else {
             return Err(EvaluatorError::TypeError(
                 "$params() takes a node's label".to_owned(),
             ));
@@ -505,79 +512,24 @@ fn is_credential_name(name: &str) -> bool {
     environment_name_refusal(name) == Some(EnvironmentNameRefusalReason::CredentialShaped)
 }
 
-/// The first credential-shaped name `node` reads from `$env`, as `$env.NAME` or
-/// `$lookup($env, 'NAME')`.
+/// The first credential-shaped name `node` or any node inside it reads from `$env`, as `$env.NAME`
+/// or `$lookup($env, 'NAME')`.
 fn credential_environment_name(node: &AstNode) -> Option<&str> {
-    if let Some(name) = environment_read(node).filter(|name| is_credential_name(name)) {
-        return Some(name);
-    }
-    match node {
-        AstNode::String(_)
-        | AstNode::Name(_)
-        | AstNode::Number(_)
-        | AstNode::Boolean(_)
-        | AstNode::Null
-        | AstNode::Undefined
-        | AstNode::Placeholder
-        | AstNode::Regex { .. }
-        | AstNode::Variable(_)
-        | AstNode::ParentVariable(_)
-        | AstNode::Wildcard
-        | AstNode::Descendant
-        | AstNode::Parent(_) => None,
-        AstNode::Path { steps } => steps.iter().find_map(step_credential_environment_name),
-        AstNode::Binary { lhs, rhs, .. } => {
-            credential_environment_name(lhs).or_else(|| credential_environment_name(rhs))
-        }
-        AstNode::Unary { operand, .. } => credential_environment_name(operand),
-        AstNode::Function { args, .. } => args.iter().find_map(credential_environment_name),
-        AstNode::Call { procedure, args } => credential_environment_name(procedure)
-            .or_else(|| args.iter().find_map(credential_environment_name)),
-        AstNode::Lambda { body, .. } => credential_environment_name(body),
-        AstNode::Array(elements) | AstNode::Block(elements) | AstNode::ArrayGroup(elements) => {
-            elements.iter().find_map(credential_environment_name)
-        }
-        AstNode::Object(pairs) => pairs.iter().find_map(|(key, value)| {
-            credential_environment_name(key).or_else(|| credential_environment_name(value))
-        }),
-        AstNode::ObjectTransform { input, pattern } => {
-            credential_environment_name(input).or_else(|| {
-                pattern.iter().find_map(|(key, value)| {
-                    credential_environment_name(key).or_else(|| credential_environment_name(value))
-                })
-            })
-        }
-        AstNode::Conditional {
-            condition,
-            then_branch,
-            else_branch,
-        } => credential_environment_name(condition)
-            .or_else(|| credential_environment_name(then_branch))
-            .or_else(|| else_branch.as_deref().and_then(credential_environment_name)),
-        AstNode::FunctionApplication(inner) => credential_environment_name(inner),
-        AstNode::Sort { input, terms } => credential_environment_name(input).or_else(|| {
-            terms
-                .iter()
-                .find_map(|(term, _)| credential_environment_name(term))
-        }),
-        AstNode::Transform {
-            location,
-            update,
-            delete,
-        } => credential_environment_name(location)
-            .or_else(|| credential_environment_name(update))
-            .or_else(|| delete.as_deref().and_then(credential_environment_name)),
-    }
+    find_in_syntax_tree(node, &mut |inner| {
+        environment_read(inner).filter(|name| is_credential_name(name))
+    })
 }
 
-/// The first credential-shaped name a path step or its filters read from `$env`.
-fn step_credential_environment_name(step: &PathStep) -> Option<&str> {
-    credential_environment_name(&step.node).or_else(|| {
-        step.stages.iter().find_map(|stage| match stage {
-            Stage::Filter(filter) => credential_environment_name(filter),
-            Stage::KeepArray | Stage::Index(_) => None,
-        })
-    })
+/// Whether `name` is an item reader's, which a node's label argument names a node to: `all`,
+/// `first`, `last` or `item`.
+pub(crate) fn is_item_reader_name(name: &str) -> bool {
+    ITEM_PICKS.iter().any(|pick| pick.name() == name)
+}
+
+/// Whether the binding `name`, called with a string, reads that string as a node's label: an item
+/// reader or `params`.
+pub(crate) fn reads_a_label(name: &str) -> bool {
+    is_item_reader_name(name) || name == PARAMS_BINDING
 }
 
 /// The name `node` itself reads from `$env`, as `$env.NAME` or `$lookup($env, 'NAME')`.

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -8,20 +9,22 @@ use sidekicks_contracts::workflow::definition::builder::{
     NewWorkflowDraftUpdateRequest, SavedWorkflowDraftUpdateRequest, WorkflowDraftUpdateRequest,
 };
 use sidekicks_contracts::workflow::definition::document::{
-    WORKFLOW_NAME_MAX_LEN, WorkflowDefinitionId, WorkflowDocument, WorkflowVersionId,
+    WORKFLOW_NAME_MAX_LEN, WorkflowDefinitionId, WorkflowDocument, WorkflowNodeId,
+    WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::definition::methods::{
     WorkflowCreateOrigin, WorkflowDefinitionCreateRequest, WorkflowDefinitionCreateResponse,
     WorkflowDefinitionUpdateRequest,
 };
 use sidekicks_contracts::workflow::definition::refusals::WorkflowDefinitionFinding;
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
 use super::{
     WORKFLOW_DEFINITION_STORE_STATEMENT_CAPACITY, WorkflowDefinitionStore,
-    WorkflowDefinitionStoreError, WorkflowSaveAuthor,
+    WorkflowDefinitionStoreError, WorkflowNodeKindRules, WorkflowSaveAuthor,
 };
 use crate::definitions::drafts::{WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY, WorkflowDraftStore};
 use crate::definitions::errors::DefinitionRefusal;
@@ -53,8 +56,16 @@ fn saved_document(name: &str, path: &str) -> WorkflowDocument {
     serde_json::from_value(document(name, path)).expect("the test's document reads")
 }
 
-/// The store and the draft store over one test database holding the workflow tables.
-async fn open_stores(database: &TestDatabase) -> (WorkflowDefinitionStore, WorkflowDraftStore) {
+/// A shell-line bound far past every command line here.
+const SHELL_LINE_LIMIT: usize = 4_096;
+
+/// The store and the draft store over one test database holding the workflow tables, the store
+/// reading command lines inside a bound of `shell_line_limit` bytes and knowing one kind, the
+/// command step `developer.shell`, whose line is its `command` param.
+async fn open_stores(
+    database: &TestDatabase,
+    shell_line_limit: usize,
+) -> (WorkflowDefinitionStore, WorkflowDraftStore) {
     let writer = Arc::new(
         DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await
@@ -70,7 +81,18 @@ async fn open_stores(database: &TestDatabase) -> (WorkflowDefinitionStore, Workf
         WorkflowDefinitionStore::new(
             Arc::clone(&pool),
             Arc::clone(&writer),
-            Box::new(|_node| None),
+            Box::new(|node| {
+                (node.kind.0.as_str() == "developer.shell").then(|| WorkflowNodeKindRules {
+                    handles: serde_json::from_value(json!({
+                        "category": "developer",
+                        "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
+                        "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+                    }))
+                    .expect("the test's handles read"),
+                    shell_line_param: Some("command"),
+                })
+            }),
+            Arc::new(ShellLineReadingBound::new(shell_line_limit)),
         ),
         WorkflowDraftStore::new(pool, writer),
     )
@@ -152,7 +174,7 @@ fn update(definition_id: WorkflowDefinitionId, name: &str) -> WorkflowDefinition
 #[tokio::test]
 async fn a_save_clears_its_draft_and_a_refused_name_leaves_nothing() {
     let database = TestDatabase::new(schema_parts());
-    let (store, drafts) = open_stores(&database).await;
+    let (store, drafts) = open_stores(&database, SHELL_LINE_LIMIT).await;
     let nightly = create(&store, "Nightly").await;
     let weekly = create(&store, "Weekly").await;
     hold_draft(&drafts, nightly).await;
@@ -199,7 +221,7 @@ async fn a_save_clears_its_draft_and_a_refused_name_leaves_nothing() {
 #[tokio::test]
 async fn a_create_from_the_new_workflow_draft_clears_it_and_an_import_leaves_it() {
     let database = TestDatabase::new(schema_parts());
-    let (store, drafts) = open_stores(&database).await;
+    let (store, drafts) = open_stores(&database, SHELL_LINE_LIMIT).await;
     let hold_new_draft = || async {
         drafts
             .update(&WorkflowDraftUpdateRequest::New(
@@ -260,7 +282,7 @@ fn definition_name(rows: &Connection, definition_id: WorkflowDefinitionId) -> St
 #[tokio::test]
 async fn a_duplicate_takes_a_free_copy_name_and_its_source_locks_only_for_the_same_content() {
     let database = TestDatabase::new(schema_parts());
-    let (store, _drafts) = open_stores(&database).await;
+    let (store, _drafts) = open_stores(&database, SHELL_LINE_LIMIT).await;
     let source = create_from(
         &store,
         "Nightly",
@@ -356,4 +378,111 @@ async fn a_duplicate_takes_a_free_copy_name_and_its_source_locks_only_for_the_sa
         })
         .expect("the test counts the workflows");
     assert_eq!(definition_count, 6, "the two sources and their four copies");
+}
+
+/// Which of the three saves a test runs.
+#[derive(Clone, Copy, Debug)]
+enum SavePath {
+    Create,
+    Duplicate,
+    Update,
+}
+
+/// A document of `name` whose trigger feeds one command step running `command`.
+fn command_document(name: &str, command: &str) -> WorkflowDocument {
+    let mut document = document(name, "notes.md");
+    document["nodes"][0] = json!({
+        "id": "run", "kind": "developer.shell", "kindVersion": 1, "name": "Run tests",
+        "order": 0, "params": { "command": command },
+    });
+    document["edges"][0]["target"] = json!("run");
+    serde_json::from_value(document).expect("the test's document reads")
+}
+
+/// A create, a Duplicate and an update each refuse a command step whose fill does not expand, with
+/// the reason naming the fill, and one whose line is past the shell-line bound's limit, which no
+/// reading reads; none writes a version. Mutations: check the fills on one save path only; read
+/// the line with a reader of no bound's limit; refuse no fill.
+#[rstest]
+#[tokio::test]
+async fn every_save_refuses_a_command_fill_that_does_not_expand(
+    #[values(SavePath::Create, SavePath::Duplicate, SavePath::Update)] path: SavePath,
+    #[values(
+        (SHELL_LINE_LIMIT, "=echo '{{ $json.x }}'", "Fill 1 sits in single quotes"),
+        (8, "=echo {{ $json.x }}", "Fill 1 is on a line a reading could not read whole"),
+    )]
+    line_case: (usize, &str, &str),
+) {
+    let (shell_line_limit, command, reason) = line_case;
+    let database = TestDatabase::new(schema_parts());
+    let (store, _drafts) = open_stores(&database, shell_line_limit).await;
+    let source = create_from(
+        &store,
+        "Nightly",
+        "notes.md",
+        WorkflowCreateOrigin::FileImport {},
+    )
+    .await
+    .expect("the create commits");
+    let document = command_document("Checks", command);
+    let refused = match path {
+        SavePath::Create => store
+            .create(
+                &WorkflowDefinitionCreateRequest {
+                    document,
+                    origin: WorkflowCreateOrigin::FileImport {},
+                },
+                &author(),
+            )
+            .await
+            .map(|_| ()),
+        SavePath::Duplicate => store
+            .create(
+                &WorkflowDefinitionCreateRequest {
+                    document,
+                    origin: duplicate_of(source.workflow_version_id),
+                },
+                &author(),
+            )
+            .await
+            .map(|_| ()),
+        SavePath::Update => store
+            .update(
+                &WorkflowDefinitionUpdateRequest {
+                    definition_id: source.definition_id,
+                    expected_version_number: SafeInt::new(1).expect("one is a version number"),
+                    document,
+                    restored_version_number: None,
+                },
+                &author(),
+            )
+            .await
+            .map(|_| ()),
+    };
+
+    let Err(WorkflowDefinitionStoreError::Refused(DefinitionRefusal::Refused { findings })) =
+        refused
+    else {
+        panic!("the {path:?} is refused with findings, not {refused:?}");
+    };
+    let [WorkflowDefinitionFinding::ExpressionNotExpanded { node_ids, detail }] =
+        findings.as_slice()
+    else {
+        panic!("the {path:?} is refused for its fill alone, not {findings:?}");
+    };
+    assert_eq!(
+        node_ids
+            .iter()
+            .map(WorkflowNodeId::as_str)
+            .collect::<Vec<_>>(),
+        ["run"]
+    );
+    assert!(detail.as_str().starts_with(reason), "{detail:?}");
+    let versions: i64 = database
+        .reader()
+        .query_row("SELECT COUNT(*) FROM workflow_versions", [], |row| {
+            row.get(0)
+        })
+        .expect("the test counts the versions");
+    assert_eq!(versions, 1, "only the source's version is written");
 }
