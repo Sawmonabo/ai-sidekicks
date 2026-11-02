@@ -26,8 +26,9 @@ use crate::driver::run_control::ReattachedHelper;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// Reopens the helper `thread_id` on `connection` as it stands, with no setting, and answers its
-/// newest turn, `None` where it holds none. Fails as the resume does, a parent not loaded among
-/// Codex's refusals.
+/// newest turn, `None` where it holds none; Codex answers a resume that asks for its newest-turn
+/// page, as this one does, with the page or a refusal, so a reply with no page holds no turn.
+/// Fails as the resume does, a parent not loaded among Codex's refusals.
 pub(crate) async fn reopen_codex_helper(
     connection: &CodexAppServerConnection,
     thread_id: &str,
