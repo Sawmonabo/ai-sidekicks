@@ -140,7 +140,7 @@ enum ExportError {
 // panicked frees it too and publishes the failure.
 struct RunningExport {
     jobs: Arc<Mutex<ExportJobs>>,
-    progress: watch::Sender<DataExportProgress>,
+    progress: watch::Sender<Option<DataExportProgress>>,
     ended: Option<DataExportProgress>,
 }
 
@@ -161,13 +161,13 @@ impl Drop for RunningExport {
                 message: FreeFormText::new("The export stopped unexpectedly.".to_owned())
                     .expect("the message is text without NUL"),
             });
-        self.progress.send_replace(ended);
+        self.progress.send_replace(Some(ended));
     }
 }
 
 // One export this run of the service started: its progress and its stop.
 struct ExportJob {
-    progress: watch::Sender<DataExportProgress>,
+    progress: watch::Sender<Option<DataExportProgress>>,
     stop: CancellationToken,
 }
 
@@ -222,11 +222,8 @@ impl DataExports {
             Err(failure) => return Err(DataExportStartRefusal::Folder(failure)),
         }
         let job_id = DataExportJobId::try_from(mint_uuid_v7()).expect("a minted UUID is a job id");
-        let zero = SafeInt::new(0).expect("zero is a safe integer");
-        let (progress, _) = watch::channel(DataExportProgress::Running {
-            sessions_exported: zero,
-            sessions_total: zero,
-        });
+        // Nothing is said until the export knows how many sessions it holds.
+        let (progress, _) = watch::channel(None);
         let stop = CancellationToken::new();
         jobs.running = Some(job_id);
         jobs.jobs.insert(
@@ -250,11 +247,12 @@ impl DataExports {
         Ok(job_id)
     }
 
-    /// The progress of `job_id` as it changes, `None` for a job this run did not start.
+    /// The progress of `job_id` as it changes, which holds `None` until the export has counted its
+    /// sessions; `None` for a job this run did not start.
     pub(crate) fn follow(
         &self,
         job_id: DataExportJobId,
-    ) -> Option<watch::Receiver<DataExportProgress>> {
+    ) -> Option<watch::Receiver<Option<DataExportProgress>>> {
         let jobs = lock(&self.jobs);
         jobs.jobs.get(&job_id).map(|job| job.progress.subscribe())
     }
@@ -279,21 +277,24 @@ pub(crate) fn is_finished(progress: &DataExportProgress) -> bool {
 async fn run_export(
     deps: &DataExportDeps,
     destination: &Path,
-    progress: &watch::Sender<DataExportProgress>,
+    progress: &watch::Sender<Option<DataExportProgress>>,
     stop: &CancellationToken,
 ) -> DataExportProgress {
     let written = match write_export(deps, destination, progress, stop).await {
-        Ok(()) if stop.is_cancelled() => {
+        Ok(_) if stop.is_cancelled() => {
             return DataExportProgress::Canceled {
                 path: folder_path(destination),
             };
         }
-        Ok(()) => folder_bytes(destination.to_path_buf()).await,
+        Ok(sessions_exported) => folder_bytes(destination.to_path_buf())
+            .await
+            .map(|total_bytes| (sessions_exported, total_bytes)),
         Err(failure) => Err(failure),
     };
     match written {
-        Ok(total_bytes) => DataExportProgress::Completed {
+        Ok((sessions_exported, total_bytes)) => DataExportProgress::Completed {
             path: folder_path(destination),
+            sessions_exported,
             total_bytes: SafeInt::new(total_bytes).expect("an export's bytes are a safe integer"),
         },
         Err(failure) => {
@@ -317,12 +318,14 @@ async fn run_export(
     }
 }
 
+// Writes every session, the accounts and the README into `destination`, answering how many
+// sessions it holds; a cancel stops it between sessions.
 async fn write_export(
     deps: &DataExportDeps,
     destination: &Path,
-    progress: &watch::Sender<DataExportProgress>,
+    progress: &watch::Sender<Option<DataExportProgress>>,
     stop: &CancellationToken,
-) -> Result<(), ExportError> {
+) -> Result<SafeInt<0>, ExportError> {
     let session_ids = deps.reads.read(ReadLength::Long, read_session_ids).await?;
     let total = session_count(session_ids.len());
     let sessions_folder = destination.join(SESSIONS_FOLDER_NAME);
@@ -331,12 +334,12 @@ async fn write_export(
     fs::create_dir_all(&files_folder)?;
     for (exported, session_id) in session_ids.into_iter().enumerate() {
         if stop.is_cancelled() {
-            return Ok(());
+            return Ok(session_count(exported));
         }
-        progress.send_replace(DataExportProgress::Running {
+        progress.send_replace(Some(DataExportProgress::Running {
             sessions_exported: session_count(exported),
             sessions_total: total,
-        });
+        }));
         let sessions_folder = sessions_folder.clone();
         let files_folder = files_folder.clone();
         let payloads = Arc::clone(&deps.payloads);
@@ -363,7 +366,7 @@ async fn write_export(
         destination.join(README_FILE_NAME),
         README_LINES.join("\n\n") + "\n",
     )?;
-    Ok(())
+    Ok(total)
 }
 
 fn session_count(count: usize) -> SafeInt<0> {

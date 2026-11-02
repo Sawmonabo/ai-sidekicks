@@ -23,6 +23,7 @@ describe("daemon.dataExport and its progress stream", () => {
     accepts(progressMethod.emissionSchema, {
       state: "completed",
       path: "/Users/me/sidekicks-export-2026-09-29",
+      sessionsExported: 1204,
       totalBytes: 1_200_000_000,
     });
     accepts(progressMethod.emissionSchema, { state: "failed", message: "The disk is full." });

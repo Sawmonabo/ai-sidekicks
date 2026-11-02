@@ -131,10 +131,12 @@ pub enum DataExportProgress {
         /// The sessions the export holds.
         sessions_total: SafeInt<0>,
     },
-    /// The export finished: the folder and its size.
+    /// The export finished: the folder, the sessions it holds and its size.
     Completed {
         /// The folder written.
         path: FilesystemPath,
+        /// The sessions exported.
+        sessions_exported: SafeInt<0>,
         /// Its size in bytes.
         total_bytes: SafeInt<0>,
     },

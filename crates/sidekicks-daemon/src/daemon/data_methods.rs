@@ -94,17 +94,23 @@ pub(crate) fn register_data_methods(
     })
 }
 
-// Sends the job's progress as it stands, then each change, and ends the stream once the job ends.
+// Sends the job's progress as it stands, then each change, once the job has counted its sessions,
+// and ends the stream once the job ends.
 fn follow_progress(
-    mut progress: watch::Receiver<DataExportProgress>,
+    mut progress: watch::Receiver<Option<DataExportProgress>>,
     outlet: LatestValueOutlet<DataExportProgress>,
 ) -> impl FnOnce() + Send + use<> {
     let following = tokio::spawn(async move {
         loop {
             let current = progress.borrow_and_update().clone();
-            let has_ended = is_finished(&current);
-            outlet.send(current);
-            if has_ended || progress.changed().await.is_err() {
+            if let Some(current) = current {
+                let has_ended = is_finished(&current);
+                outlet.send(current);
+                if has_ended {
+                    break;
+                }
+            }
+            if progress.changed().await.is_err() {
                 break;
             }
         }
