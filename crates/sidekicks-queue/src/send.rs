@@ -47,7 +47,7 @@ use crate::recorder::{
 };
 use crate::refusals::{
     UnreturnedReason, change_refused, left_queue_refusal, queue_item_not_found,
-    review_retry_refusal, unreturned_refusal,
+    retry_extras_refusal, unreturned_refusal,
 };
 use crate::run_lifecycle::QueueRunLifecycle;
 
@@ -257,8 +257,8 @@ impl QueueSends {
     /// review as the same review, the send's words unread, and a plan message as the same plan
     /// message. Called under `hold`; refuses an item the lead's queue of the session does not
     /// hold, an edit of a waiting review or plan message, one that has left the queue otherwise, a
-    /// retry of a message or a plan message in other words than its own, and a review's retry that
-    /// carries files, skills, an answered question or a speed.
+    /// retry of a message or a plan message in other words than its own, and a review's or a plan
+    /// message's retry that carries files, skills, an answered question or a speed.
     pub(crate) async fn replace(
         &self,
         hold: &KeyHold<'_, SessionId>,
@@ -274,19 +274,9 @@ impl QueueSends {
             .ok_or_else(|| queue_item_not_found(replaces_queue_item_id))?;
         match (&replaces.body, &replaces.state) {
             (QueueItemBody::Review { target }, RecordedQueueItemState::NotDelivered { .. }) => {
-                let body = &message.body;
-                let carried = [
-                    ("attachments", body.attachments.is_some()),
-                    ("skills", body.skills.is_some()),
-                    ("answersQuestionId", body.answers_question_id.is_some()),
-                    ("outputSpeedForTurn", body.output_speed_for_turn.is_some()),
-                ];
-                let members: Vec<&str> = carried
-                    .into_iter()
-                    .filter_map(|(member, is_carried)| is_carried.then_some(member))
-                    .collect();
+                let members = message_extras(&message.body);
                 if !members.is_empty() {
-                    return Err(review_retry_refusal(replaces.id, &members).into());
+                    return Err(retry_extras_refusal(replaces.id, "a review", &members).into());
                 }
                 let item = QueueSendItem::Review {
                     item_id: message.item_id,
@@ -311,6 +301,12 @@ impl QueueSends {
             ) => {
                 if message.body.content != *text {
                     return Err(not_own_words_refusal(replaces.id).into());
+                }
+                let members = message_extras(&message.body);
+                if !members.is_empty() {
+                    return Err(
+                        retry_extras_refusal(replaces.id, "a plan message", &members).into(),
+                    );
                 }
                 let item = QueueSendItem::PlanMessage {
                     item_id: message.item_id,
@@ -598,6 +594,20 @@ fn new_item(
         replaces_queue_item_id,
         now: WireInstant::now(),
     }
+}
+
+// The members of `body` only a person's message takes, by their wire names: its files, skills,
+// answered question and speed.
+fn message_extras(body: &QueueMessageBody) -> Vec<&'static str> {
+    [
+        ("attachments", body.attachments.is_some()),
+        ("skills", body.skills.is_some()),
+        ("answersQuestionId", body.answers_question_id.is_some()),
+        ("outputSpeedForTurn", body.output_speed_for_turn.is_some()),
+    ]
+    .into_iter()
+    .filter_map(|(member, is_carried)| is_carried.then_some(member))
+    .collect()
 }
 
 // The refusal of a retry of `queue_item_id`, read not delivered, in other words than its own.

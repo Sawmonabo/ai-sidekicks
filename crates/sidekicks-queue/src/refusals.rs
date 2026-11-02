@@ -68,13 +68,17 @@ pub(crate) fn unreturned_refusal(
     }
 }
 
-/// The refusal of a retry of the review `queue_item_id` that carries `members`, a message's files,
-/// skills, answered question or speed, which a review cannot take.
-pub(crate) fn review_retry_refusal(queue_item_id: QueueItemId, members: &[&str]) -> DomainError {
+/// The refusal of a retry of `queue_item_id`, `item_kind` (a review or a plan message), that
+/// carries `members`, a message's files, skills, answered question or speed, which neither takes.
+pub(crate) fn retry_extras_refusal(
+    queue_item_id: QueueItemId,
+    item_kind: &str,
+    members: &[&str],
+) -> DomainError {
     change_refused(
         AgentQueueItemChangeRefusedReason::ReviewExtras,
         &format!(
-            "Queue item {queue_item_id} is a review, whose retry carries no {}",
+            "Queue item {queue_item_id} is {item_kind}, whose retry carries no {}",
             members.join(", ")
         ),
     )

@@ -1,10 +1,11 @@
 //! A person's send: into a paused run, which it resumes, into a session whose lead run changes
 //! between the send's read and its write, with a skill its provider does not list, and repeated
-//! under its key after its account was removed; a review queued as the session's next item,
-//! which opens a run of its own, takes no edit and is sent again once not delivered, a retry
-//! carrying none of a message's extras; and a plan message, which goes as a review does, opens its
-//! run as a message carrying its plan, takes no edit, is sent again only in its own words, and is
-//! removed by a person only when it builds the plan, never when it seeds a hand-off.
+//! under its key after its account was removed; a review queued as the session's next item, which
+//! opens a run of its own, takes no edit and is sent again once not delivered, a retry carrying
+//! none of a message's extras; and a plan message, which goes as a review does, opens its run as a
+//! message carrying its plan, takes no edit, is sent again only in its own words and with none of a
+//! message's extras, and is removed by a person only when it builds the plan, never when it seeds a
+//! hand-off.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -12,6 +13,8 @@ use std::sync::atomic::Ordering;
 use futures::FutureExt as _;
 use serde_json::json;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
+use sidekicks_contracts::artifacts::attachment_reference::AttachmentReferenceList;
+use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::plan::PlanId;
@@ -776,6 +779,48 @@ async fn a_plan_message_not_delivered_goes_again_only_in_its_own_words() {
     assert_eq!(
         fixture.sent_message_payload(retried_id)["planMessage"],
         json!({ "planId": plan_id, "kind": "seed" })
+    );
+}
+
+// A retry of a plan message not delivered, in its own words but carrying files, is refused
+// `agent.queueItem.changeRefused`, `reviewExtras`, as a review's is, and the failed plan message
+// stays not delivered, nothing written. Killed by a retry that queues the plan message and drops
+// the files.
+#[tokio::test]
+async fn a_plan_message_s_retry_carrying_files_is_refused() {
+    let calls = Arc::new(DriverCalls::default());
+    calls.start_failures_left.store(1, Ordering::SeqCst);
+    let fixture = fixture(recording_driver(&calls)).await;
+    let failed_id = fixture
+        .send_plan_message(new_plan_id(), PlanMessageKind::Seed, client_key())
+        .await;
+    fixture.queue.stop().await;
+
+    let retried = fixture
+        .replace_item_carrying(failed_id, |request| {
+            request.content =
+                FreeFormText::new(PLAN_MESSAGE_TEXT.to_owned()).expect("a test message");
+            request.attachments = Some(AttachmentReferenceList(vec![
+                ArtifactId::try_from(mint_uuid_v7()).expect("a minted UUID is an artifact id"),
+            ]));
+        })
+        .await;
+    fixture.queue.stop().await;
+
+    let Err(QueueError::Refused(DomainError { code, detail, .. })) = retried else {
+        panic!("the retry is refused, got {retried:?}");
+    };
+    assert_eq!(code, RefusalCode::AgentQueueItemChangeRefused);
+    assert_eq!(
+        detail.expect("the refusal names its reason")["reason"],
+        json!("reviewExtras")
+    );
+    assert_eq!(fixture.count_items(), 1);
+    assert_eq!(
+        fixture.stored_state(failed_id),
+        RecordedQueueItemState::NotDelivered {
+            reason: QueueItemNotDeliveredReason::Failed {}
+        }
     );
 }
 
