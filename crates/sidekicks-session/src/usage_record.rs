@@ -18,7 +18,8 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::event::usage::{
-    UsageRateLimitUpdatedPayload, UsageRateLimitWindowKey, UsageTokenCountRecordedPayload,
+    DEFAULT_RATE_LIMIT_ID, UsageRateLimitUpdatedPayload, UsageRateLimitWindowKey,
+    UsageTokenCountRecordedPayload,
 };
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -52,15 +53,15 @@ use crate::run::engine::usage_tallies::{RunUsageTally, RunUsageTallySlot, TokenL
 use crate::run::inbound::{InboundDispatchError, RunInboundDispatch};
 use crate::transcript::turn_attribution::TurnAttributionError;
 use crate::usage_record::reads::{
-    MeteredTarget, read_credential_generation, read_metered_target, read_prior_emitted,
-    read_tally_seed, read_turn_opening,
+    MeteredTarget, StoredQuotaWindow, read_credential_generation, read_metered_target,
+    read_prior_emitted, read_stored_windows, read_tally_seed, read_turn_opening,
 };
 
 /// The statements the usage record prepares on the shared read pool: a binding, an account's
-/// credential generation, a helper's run, a run's state, its admitted token limit and its token
-/// count, the turn a provider's turn id opened with the run's rollbacks and turns before it, and a
-/// thread's prior counts.
-pub const USAGE_RECORD_STATEMENT_CAPACITY: usize = 10;
+/// credential generation and its stored quota windows, a helper's run, a run's state, its admitted
+/// token limit and its token count, the turn a provider's turn id opened with the run's rollbacks
+/// and turns before it, and a thread's prior counts.
+pub const USAGE_RECORD_STATEMENT_CAPACITY: usize = 11;
 
 // The windows of an account's whole set, as each window's row carries them.
 type UsageRateLimitWholeSet = BoundedVec<UsageRateLimitWindowKey, 1, { usize::MAX }>;
@@ -333,7 +334,8 @@ impl UsageRecord {
 
     // Files each window as one row under the machine's sentinel session, stamped with the
     // account's credential generation read now, each marked with every window of the set where
-    // the set is the account's whole one.
+    // the set is the account's whole one. A whole set that says nothing the stored windows do not
+    // files nothing, so a read every few minutes grows the log only when a figure moved.
     async fn record_windows(
         &self,
         provider: ProviderId,
@@ -350,20 +352,36 @@ impl UsageRecord {
             None
         };
         let read_account_id = provider_account_id.clone();
-        let credential_generation = self
+        let (credential_generation, stored) = self
             .pool
             .read(ReadLength::Short, move |reader| {
-                read_credential_generation(reader, read_account_id)
+                let stored = if is_whole_set {
+                    Some(read_stored_windows(reader, &read_account_id)?)
+                } else {
+                    None
+                };
+                Ok::<_, UsageRecordError>((
+                    read_credential_generation(reader, read_account_id)?,
+                    stored,
+                ))
             })
             .await?;
-        for window in windows {
-            let row = quota_window_row(
-                window,
-                provider.clone(),
-                provider_account_id.clone(),
-                credential_generation,
-                whole_set.clone(),
-            )?;
+        let rows = windows
+            .into_iter()
+            .map(|window| {
+                quota_window_row(
+                    window,
+                    provider.clone(),
+                    provider_account_id.clone(),
+                    credential_generation,
+                    whole_set.clone(),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if stored.is_some_and(|stored| is_stored_set(&rows, &stored)) {
+            return Ok(());
+        }
+        for row in rows {
             self.dispatch
                 .dispatch(InboundDelivery::MachineEvent {
                     row: MachineScopedRow::UsageRateLimitUpdated(row),
@@ -492,6 +510,26 @@ fn whole_set_keys(
         })
         .collect::<Result<Vec<_>, UsageRecordError>>()?;
     Ok(BoundedVec::new(keys).expect("the caller hands a set of at least one window"))
+}
+
+// Whether `rows`, an account's whole set, are the stored windows as they stand: the same windows,
+// each with the same share used, reset and generation.
+fn is_stored_set(rows: &[UsageRateLimitUpdatedPayload], stored: &[StoredQuotaWindow]) -> bool {
+    rows.len() == stored.len()
+        && rows.iter().all(|row| {
+            let limit_id = row
+                .limit_id
+                .as_ref()
+                .map_or(DEFAULT_RATE_LIMIT_ID, BoundedText::as_str);
+            stored.iter().any(|window| {
+                window.limit_id == limit_id
+                    && window.window_mins == row.window_mins.get()
+                    && window.used_percent.to_bits() == row.used_percent.get().to_bits()
+                    && window.resets_at.as_deref()
+                        == row.resets_at.as_ref().map(WireInstant::as_str)
+                    && window.credential_generation == row.credential_generation
+            })
+        })
 }
 
 // One window's `usage.rateLimit.updated` row.
