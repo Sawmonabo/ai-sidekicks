@@ -2,7 +2,9 @@
 //! the drain bound has passed, with the grace before the kill, and a process whose identity no
 //! longer matches the one the daemon named is never ended; a daemon on a protocol this client
 //! cannot speak, which refuses every mutating call, is ended at once with a grace that covers the
-//! drain, its identity read from a status this client cannot otherwise read.
+//! drain, its identity read from a status this client cannot otherwise read. A daemon repairing
+//! its database file is stopped on the link it refused, and the ending waits until that link
+//! closes and its socket stops answering.
 
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -262,4 +264,50 @@ async fn a_daemon_on_another_protocol_is_ended_at_once_from_its_identity_read_ra
     );
     assert_eq!(call.grace, DRAIN_BOUND + KILL_GRACE);
     assert!(!process.is_running(), "the ended process still runs");
+}
+
+// Fails when the ending of a repairing daemon answers once the daemon took the stop, before the
+// daemon closed its link or while its socket still answers, so the start that follows meets it.
+#[tokio::test]
+async fn a_repairing_daemon_s_stop_ends_only_once_its_socket_stops_answering() {
+    const LINGER: Duration = Duration::from_millis(300);
+    let folder = tempfile::tempdir().expect("a temporary folder");
+    let run_folder = stand_in_run_folder(&folder);
+    let listener = listen(&run_folder);
+    let (terms, _calls) = recording_terms();
+    let terms = DaemonEndingTerms {
+        drain_bound: PATIENCE,
+        ..terms
+    };
+
+    let mut ending = start_stop(&run_folder, &terms);
+    let mut daemon = accept(&listener).await;
+    let initialize = daemon.next_message().await;
+    daemon
+        .refuse_with_fields(
+            &initialize["id"],
+            RefusalCode::DaemonRepairing,
+            json!({ "progress": { "done": 1, "total": 2 } }),
+        )
+        .await;
+    let stop = daemon.next_message().await;
+    assert_eq!(stop["method"], "daemon.stop");
+    daemon
+        .answer(&stop["id"], json!({ "accepted": true }))
+        .await;
+    let is_ended_with_link_open = tokio::time::timeout(LINGER, &mut ending).await.is_ok();
+    drop(daemon);
+    let is_ended_while_listening = tokio::time::timeout(LINGER, &mut ending).await.is_ok();
+    drop(listener);
+    let end = ended(ending).await;
+
+    assert!(
+        !is_ended_with_link_open,
+        "the ending answered before the daemon closed its link"
+    );
+    assert!(
+        !is_ended_while_listening,
+        "the ending answered while the socket still answered"
+    );
+    assert_eq!(end, DaemonEnd::StoppedWhileRepairing);
 }

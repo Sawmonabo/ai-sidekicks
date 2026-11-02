@@ -192,6 +192,7 @@ impl DaemonConnection {
                 Ok(OpenedConnection::Repairing(RepairingConnection {
                     details: refusal.read_repairing_details(),
                     client,
+                    link,
                 }))
             }
         }
@@ -294,6 +295,7 @@ pub enum OpenedConnection {
 pub struct RepairingConnection {
     details: DaemonRepairingDetails,
     client: JsonRpcClient,
+    link: Link,
 }
 
 impl RepairingConnection {
@@ -302,14 +304,16 @@ impl RepairingConnection {
         self.details
     }
 
-    /// Sends `daemon.stop`, which ends the repair and the daemon, then closes the link. Fails with
-    /// the link's fault where it ended before the answer.
+    /// Sends `daemon.stop`, which ends the repair and the daemon, waits once the daemon took it
+    /// for the daemon to close the link as it ends, then closes it. Fails with the link's fault
+    /// where it ended before the answer.
     pub async fn stop(self) -> Result<(), ClientError> {
         self.send::<DaemonStop>().await
     }
 
-    /// Sends `daemon.restart`, which ends the repair and the daemon as a stop does, then closes
-    /// the link. Fails with the link's fault where it ended before the answer.
+    /// Sends `daemon.restart`, which ends the repair and the daemon as a stop does, and waits for
+    /// the link as [`Self::stop`] does. Fails with the link's fault where it ended before the
+    /// answer.
     pub async fn restart(self) -> Result<(), ClientError> {
         self.send::<DaemonRestart>().await
     }
@@ -319,6 +323,10 @@ impl RepairingConnection {
         M: Method<Params = EmptyPayload, Result = DaemonLifecycleAccepted> + 'static,
     {
         let answer = self.client.call::<M>(&EmptyPayload {}).await;
+        if answer.is_ok() {
+            // The daemon closes the link only as it ends; the fault is the end itself.
+            let _fault = self.link.ended().await;
+        }
         self.client.close().await;
         answer.map(|DaemonLifecycleAccepted { accepted: _ }| ())
     }

@@ -4,8 +4,9 @@
 //! watch keeps a link that frames still reach, and a lost link is opened again on the client's
 //! schedule, each attempt held to the handshake deadline, until the reopen window passes and only a
 //! retry reopens it, and a close while an attempt runs ends it and starts no other. A daemon
-//! repairing its database file keeps the link it refused for the repairing form's stop, and each of
-//! its refusals moves the handshake wait's deadline on.
+//! repairing its database file keeps the link it refused for the repairing form's stop, which ends
+//! once the daemon closes that link, and each of its refusals moves the handshake wait's deadline
+//! on.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -436,6 +437,8 @@ async fn a_close_while_an_attempt_runs_ends_the_attempt_and_starts_no_other() {
     assert_eq!(daemons.attempted_at().len(), attempted_at_close);
 }
 
+// Fails when the repairing daemon's refused link is not kept for the stop, or the stop ends at the
+// daemon's answer rather than once the daemon closes the link as it ends.
 #[tokio::test]
 async fn a_repairing_daemon_keeps_the_refused_link_and_the_stop_sent_on_it_reaches_the_daemon() {
     let folder = tempfile::tempdir().expect("a temporary folder");
@@ -467,7 +470,7 @@ async fn a_repairing_daemon_keeps_the_refused_link_and_the_stop_sent_on_it_reach
         progress
     );
 
-    let stopping = tokio::spawn(repairing.stop());
+    let mut stopping = tokio::spawn(repairing.stop());
     let stop = tokio::time::timeout(PATIENCE, daemon.next_message())
         .await
         .expect("the stop reaches the daemon on the refused link");
@@ -475,6 +478,14 @@ async fn a_repairing_daemon_keeps_the_refused_link_and_the_stop_sent_on_it_reach
     daemon
         .answer(&stop["id"], json!({ "accepted": true }))
         .await;
+    let is_stopped_with_link_open = tokio::time::timeout(Duration::from_millis(300), &mut stopping)
+        .await
+        .is_ok();
+    assert!(
+        !is_stopped_with_link_open,
+        "the stop ended before the daemon closed its link"
+    );
+    drop(daemon);
     tokio::time::timeout(PATIENCE, stopping)
         .await
         .expect("the stop ends")

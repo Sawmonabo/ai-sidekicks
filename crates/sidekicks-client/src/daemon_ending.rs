@@ -4,7 +4,8 @@
 //! gives the daemon's own drain its whole bound to end the process; only a process still running
 //! after that is ended by the system, and one that never answered the request, or speaks a
 //! protocol this client cannot, is ended at once with a grace that still covers the drain. A daemon
-//! repairing its database file is stopped on the link it refused, and nothing answering is a daemon
+//! repairing its database file is stopped on the link it refused and waited for, within the drain
+//! bound, until it closes that link and its socket stops answering; nothing answering is a daemon
 //! not running.
 
 use std::io;
@@ -21,10 +22,12 @@ use sidekicks_contracts::daemon::status::DaemonStatusRead;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::process_identity::ProcessIdentity;
 use sidekicks_platforms::{ChildEnd, PinnedProcess, pin_identified_process};
-use tokio::time::{Instant, sleep_until, timeout};
+use tokio::time::{Instant, sleep, sleep_until, timeout};
 use tokio_util::sync::CancellationToken;
 
-use crate::daemon_connection::{DaemonConnection, DaemonConnector, OpenedConnection};
+use crate::daemon_connection::{
+    DaemonConnection, DaemonConnector, LINK_REOPEN_BACKOFF_MS, OpenedConnection,
+};
 use crate::error::ClientError;
 use crate::transport::json_rpc::{JsonRpcClient, typed_request};
 use crate::{DAEMON_FLUSH_WAIT, DAEMON_KILL_GRACE};
@@ -107,25 +110,48 @@ pub enum DaemonEndingError {
     /// The task ending the daemon's process stopped before it answered.
     #[error("The ending of the background service's process stopped")]
     EndTask(#[source] tokio::task::JoinError),
+    /// The daemon repairing its database file took the stop or restart, but still held its link
+    /// open or answered at its socket once the drain bound passed.
+    #[error(
+        "The background service took the stop but still answered {} ms later",
+        waited.as_millis()
+    )]
+    RepairingNotEnded {
+        /// How long the ending waited.
+        waited: Duration,
+    },
 }
 
 /// Ends the daemon `connector` reaches with `verb`, within `terms`; answers which end took
 /// effect. Fails as [`DaemonEndingError`] names, a connect that fails other than with nothing
 /// answering among them.
-pub async fn end_daemon<C: DaemonConnector>(
+pub async fn end_daemon<C: DaemonConnector + Clone>(
     connector: C,
     verb: DaemonEndingVerb,
     terms: &DaemonEndingTerms,
 ) -> Result<DaemonEnd, DaemonEndingError> {
+    let probe = connector.clone();
     let connection = match DaemonConnection::connect_or_repairing(connector).await {
         Ok(OpenedConnection::Open(connection)) => connection,
-        // The repairing daemon ends on either verb by itself; it has no process to follow here.
+        // The repairing daemon ends on either verb by itself; it has no process to follow here, so
+        // the ending waits for its link to close and its socket to stop answering, within the
+        // drain bound, before a start that follows can meet it.
         Ok(OpenedConnection::Repairing(repairing)) => {
-            match verb {
-                DaemonEndingVerb::Stop => repairing.stop().await?,
-                DaemonEndingVerb::Restart => repairing.restart().await?,
-            }
-            return Ok(DaemonEnd::StoppedWhileRepairing);
+            let ending = async {
+                match verb {
+                    DaemonEndingVerb::Stop => repairing.stop().await?,
+                    DaemonEndingVerb::Restart => repairing.restart().await?,
+                }
+                wait_until_not_answering(&probe).await
+            };
+            return match timeout(terms.drain_bound, ending).await {
+                Ok(ended) => ended
+                    .map(|()| DaemonEnd::StoppedWhileRepairing)
+                    .map_err(DaemonEndingError::from),
+                Err(_elapsed) => Err(DaemonEndingError::RepairingNotEnded {
+                    waited: terms.drain_bound,
+                }),
+            };
         }
         Err(ClientError::Unavailable { .. }) => return Ok(DaemonEnd::NotRunning),
         Err(error) => return Err(error.into()),
@@ -229,6 +255,22 @@ async fn flush(client: &JsonRpcClient, flush_wait: Duration) {
         Err(_elapsed) => {
             tracing::warn!("The background service did not flush within the wait before its stop");
         }
+    }
+}
+
+/// Waits until nothing answers at `connector`'s socket, trying again after each wait of the
+/// reconnect schedule, its last repeated. Fails as an open fails other than with nothing answering.
+async fn wait_until_not_answering<C: DaemonConnector>(connector: &C) -> Result<(), ClientError> {
+    let last_wait = LINK_REOPEN_BACKOFF_MS[LINK_REOPEN_BACKOFF_MS.len() - 1];
+    let mut waits = LINK_REOPEN_BACKOFF_MS.iter().copied();
+    loop {
+        match connector.open_stream().await {
+            Err(ClientError::Unavailable { .. }) => return Ok(()),
+            Err(error) => return Err(error),
+            Ok(_answering) => {}
+        }
+        let wait = waits.next().unwrap_or(last_wait);
+        sleep(Duration::from_millis(wait)).await;
     }
 }
 
