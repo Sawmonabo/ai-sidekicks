@@ -37,7 +37,7 @@ use crate::account::registry::{
     AccountAdmission, HealthObservation, PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY,
     ProviderAccountRegistry, RegisteredAccount,
 };
-use crate::account::sign_in::{AccountsSigningIn, ProviderAccountNotificationPublisher};
+use crate::account::sign_in::{AccountsInFlight, ProviderAccountNotificationPublisher};
 use crate::account::token_custody::ProviderTokenCustody;
 use crate::account::token_custody::tests::ScriptedKeychain;
 use crate::account::wake_helper::{MachineWakeHelper, ScriptedWakeHelper};
@@ -359,7 +359,7 @@ pub(super) struct Fixture {
     pub(super) registry: Arc<ProviderAccountRegistry>,
     pub(super) writer: Arc<DatabaseWriter>,
     pub(super) home_lock: Arc<AccountHomeLock>,
-    pub(super) signing_in: Arc<AccountsSigningIn>,
+    pub(super) accounts_in_flight: Arc<AccountsInFlight>,
     pub(super) live_turns: Arc<TestLiveTurns>,
     pub(super) clock: Arc<TestClock>,
     pub(super) scheduler: Arc<Scheduler>,
@@ -396,7 +396,7 @@ impl Fixture {
             data_folder.to_owned(),
         ));
         let home_lock = Arc::new(AccountHomeLock::default());
-        let signing_in = Arc::new(AccountsSigningIn::default());
+        let accounts_in_flight = Arc::new(AccountsInFlight::default());
         let live_turns = Arc::new(TestLiveTurns::default());
         let scheduler = Arc::new(Scheduler::start(
             Arc::clone(&clock) as Arc<dyn WallClock>,
@@ -435,7 +435,7 @@ impl Fixture {
             database_writer: Arc::clone(&writer),
             usage: Arc::clone(&usage) as Arc<dyn UsageSink>,
             live_turns: Arc::clone(&live_turns) as Arc<dyn AccountLiveTurns>,
-            signing_in: Arc::clone(&signing_in),
+            accounts_in_flight: Arc::clone(&accounts_in_flight),
             home_lock: Arc::clone(&home_lock),
             scheduler: Arc::clone(&scheduler),
             wall_clock: Arc::clone(&clock) as Arc<dyn WallClock>,
@@ -446,7 +446,7 @@ impl Fixture {
             registry,
             writer,
             home_lock,
-            signing_in,
+            accounts_in_flight,
             live_turns,
             clock,
             scheduler,

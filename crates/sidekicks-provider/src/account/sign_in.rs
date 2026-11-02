@@ -75,40 +75,40 @@ pub trait SignedInAccountWatcher: Send + Sync {
     fn watch_signed_in(&self, account: &RegisteredAccount);
 }
 
-/// The accounts with a sign-in, a switch onto them or a home's reset in flight, each marked from
-/// its start until it settles, one mark per account at a time: the broker, a switch and a reset
-/// each take the mark in the same step that finds it free, so none of them starts in a home
-/// another is using, and the observer reads none of them.
+/// The accounts with a sign-in, a switch onto them or a home's reset in flight, each from its start
+/// until it settles, one act per account at a time: the broker, a switch and a reset each begin in
+/// the same step that finds the account free, so none of them starts in a home another is using,
+/// and the observer reads none of them.
 #[derive(Default)]
-pub struct AccountsSigningIn(Mutex<HashSet<ProviderAccountId>>);
+pub struct AccountsInFlight(Mutex<HashSet<ProviderAccountId>>);
 
-impl AccountsSigningIn {
+impl AccountsInFlight {
     /// Whether `account_id` has a sign-in, a switch onto it or its home's reset in flight.
-    pub fn is_signing_in(&self, account_id: &ProviderAccountId) -> bool {
+    pub fn is_in_flight(&self, account_id: &ProviderAccountId) -> bool {
         lock(&self.0).contains(account_id)
     }
 
-    /// Marks `account_id` until the answered mark is dropped; `None` where it is marked already, by
-    /// a sign-in, a switch onto it or its home's reset.
-    pub fn mark(self: &Arc<Self>, account_id: ProviderAccountId) -> Option<AccountMark> {
+    /// Puts `account_id` in flight until the answered guard is dropped; `None` where it is in
+    /// flight already, by a sign-in, a switch onto it or its home's reset.
+    pub fn begin(self: &Arc<Self>, account_id: ProviderAccountId) -> Option<InFlightGuard> {
         if !lock(&self.0).insert(account_id.clone()) {
             return None;
         }
-        Some(AccountMark {
+        Some(InFlightGuard {
             accounts: Arc::clone(self),
             account_id,
         })
     }
 }
 
-/// One account's mark in [`AccountsSigningIn`], held by the act that took it and let go when
+/// One account's place in [`AccountsInFlight`], held by the act that began it and let go when
 /// dropped.
-pub struct AccountMark {
-    accounts: Arc<AccountsSigningIn>,
+pub struct InFlightGuard {
+    accounts: Arc<AccountsInFlight>,
     account_id: ProviderAccountId,
 }
 
-impl Drop for AccountMark {
+impl Drop for InFlightGuard {
     fn drop(&mut self) {
         lock(&self.accounts.0).remove(&self.account_id);
     }
@@ -171,16 +171,16 @@ pub struct ProviderSignInBroker {
 
 impl ProviderSignInBroker {
     /// A broker writing through `registry`, starting each provider's flow through its entry in
-    /// `legs` and storing its end under the account's hold on `home_lock`, marking each account in
-    /// `signing_in` while its attempt runs, sending its notifications to `publisher` and each
-    /// account it signs in to `watcher`.
+    /// `legs` and storing its end under the account's hold on `home_lock`, holding each account in
+    /// `accounts_in_flight` while its attempt runs, sending its notifications to `publisher` and
+    /// each account it signs in to `watcher`.
     pub fn new(
         registry: Arc<ProviderAccountRegistry>,
         legs: HashMap<ProviderId, Arc<dyn ProviderSignInLegs>>,
         publisher: Arc<dyn ProviderAccountNotificationPublisher>,
         watcher: Arc<dyn SignedInAccountWatcher>,
         home_lock: Arc<AccountHomeLock>,
-        signing_in: Arc<AccountsSigningIn>,
+        accounts_in_flight: Arc<AccountsInFlight>,
     ) -> Self {
         Self {
             attempt: AttemptServices {
@@ -188,7 +188,7 @@ impl ProviderSignInBroker {
                 publisher,
                 watcher,
                 home_lock,
-                signing_in,
+                accounts_in_flight,
                 attempts: Arc::new(Mutex::new(LiveAttempts::default())),
             },
             legs,
@@ -286,7 +286,7 @@ impl ProviderSignInBroker {
 }
 
 /// What an attempt reaches beyond its own flow: the registry, the notification publisher, the
-/// watcher of a signed-in account, the lock on account homes, the accounts signing in and the
+/// watcher of a signed-in account, the lock on account homes, the accounts in flight and the
 /// broker's live attempts.
 #[derive(Clone)]
 struct AttemptServices {
@@ -294,24 +294,24 @@ struct AttemptServices {
     publisher: Arc<dyn ProviderAccountNotificationPublisher>,
     watcher: Arc<dyn SignedInAccountWatcher>,
     home_lock: Arc<AccountHomeLock>,
-    signing_in: Arc<AccountsSigningIn>,
+    accounts_in_flight: Arc<AccountsInFlight>,
     attempts: Arc<Mutex<LiveAttempts>>,
 }
 
 impl AttemptServices {
-    // Holds `account_id`'s one mark until the attempt settles or its start fails.
+    // Holds `account_id` in flight until the attempt settles or its start fails.
     fn reserve(
         &self,
         account_id: ProviderAccountId,
         home: CredentialHome,
         minted: Option<MintedAccount>,
     ) -> Result<Reservation, ProviderSignInError> {
-        let mark = self
-            .signing_in
-            .mark(account_id.clone())
+        let in_flight_guard = self
+            .accounts_in_flight
+            .begin(account_id.clone())
             .ok_or(ProviderSignInError::InFlight)?;
         Ok(Reservation {
-            _mark: mark,
+            _in_flight_guard: in_flight_guard,
             services: self.clone(),
             account_id,
             home,
@@ -336,7 +336,7 @@ struct LiveAttempt {
 /// An account's sign-in slot, held from the start until the attempt settles. Dropped, it frees
 /// the slot and removes a minted home no row took, so a failed or abandoned start leaves neither.
 struct Reservation {
-    _mark: AccountMark,
+    _in_flight_guard: InFlightGuard,
     services: AttemptServices,
     account_id: ProviderAccountId,
     home: CredentialHome,

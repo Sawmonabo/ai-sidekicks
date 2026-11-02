@@ -285,7 +285,7 @@ async fn a_probe_during_a_sign_in_writes_nothing_and_the_sign_in_saves() {
         Arc::clone(&fixture.notifications) as _,
         Arc::new(RecordingWatcher::default()),
         Arc::clone(&fixture.home_lock),
-        Arc::clone(&fixture.signing_in),
+        Arc::clone(&fixture.accounts_in_flight),
     );
     broker
         .start(

@@ -12,6 +12,11 @@ use std::path::PathBuf;
 
 use crate::{AtomicWriteError, CredentialStoreError};
 
+/// The steps one sign-in's move runs, each timed against the caller's step bound: read from its
+/// source, written at its destination, read back and deleted from its source. A move whose every
+/// step keeps within that bound ends within this many bounds for each sign-in.
+pub const SIGN_IN_MOVE_STEPS: u32 = 4;
+
 /// One sign-in to move: its keychain item, by service and account, and the file it moves to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeychainSignIn {

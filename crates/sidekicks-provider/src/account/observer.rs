@@ -51,7 +51,7 @@ use crate::account::registry::{
     HealthObservation, HealthObserver, ProviderAccountRegistry, RegisteredAccount,
 };
 use crate::account::sign_in::{
-    AccountsSigningIn, ProviderAccountNotificationPublisher, SignedInAccountWatcher,
+    AccountsInFlight, ProviderAccountNotificationPublisher, SignedInAccountWatcher,
 };
 use crate::account::token_custody::{ProviderTokenCustody, TokenCustodyError};
 use crate::account::wake_helper::MachineWakeHelper;
@@ -106,8 +106,9 @@ pub struct ProviderAccountObserverDeps {
     pub usage: Arc<dyn UsageSink>,
     /// Whether a turn is live on an account.
     pub live_turns: Arc<dyn AccountLiveTurns>,
-    /// The accounts with a sign-in in flight, which no read runs on.
-    pub signing_in: Arc<AccountsSigningIn>,
+    /// The accounts with a sign-in, a switch onto them or a home's reset in flight, which no read
+    /// runs on.
+    pub accounts_in_flight: Arc<AccountsInFlight>,
     /// The lock every act in an account's home takes.
     pub home_lock: Arc<AccountHomeLock>,
     /// The daemon's scheduler, which runs each account's job and tells each wake.
@@ -251,7 +252,7 @@ struct ObserverShared {
     // One per provider whose reads run one at a time; its window turns take it too.
     one_reader_at_a_time: HashMap<ProviderId, Arc<tokio::sync::Mutex<()>>>,
     live_turns: Arc<dyn AccountLiveTurns>,
-    signing_in: Arc<AccountsSigningIn>,
+    accounts_in_flight: Arc<AccountsInFlight>,
     scheduler: Arc<Scheduler>,
     wall_clock: Arc<dyn WallClock>,
     reads: AccountHomeFlights<SharedReading>,
@@ -288,7 +289,7 @@ impl ProviderAccountObserver {
                 publisher: deps.publisher,
                 one_reader_at_a_time,
                 live_turns: deps.live_turns,
-                signing_in: deps.signing_in,
+                accounts_in_flight: deps.accounts_in_flight,
                 scheduler: Arc::clone(&deps.scheduler),
                 wall_clock: deps.wall_clock,
                 reads: AccountHomeFlights::new(Arc::clone(&deps.home_lock)),
@@ -562,10 +563,10 @@ impl ObserverShared {
             .reads
             .run_if_free(provider_account_id.clone(), move || {
                 async move {
-                    // Read under the home's hold: a sign-in marks its account before it holds the
-                    // home to note the generation its save compares, so a read either finds the
-                    // mark or is stored before that note.
-                    if shared.signing_in.is_signing_in(&account.account_id) {
+                    // Read under the home's hold: a sign-in puts its account in flight before it
+                    // holds the home to note the generation its save compares, so a read either
+                    // finds it in flight or is stored before that note.
+                    if shared.accounts_in_flight.is_in_flight(&account.account_id) {
                         return Ok(None);
                     }
                     shared

@@ -3,32 +3,31 @@
 //! keychain is not used: into the files while the service runs while the person is logged out, and
 //! back once that service is removed. The direction is where the daemon's own secrets go, read from
 //! their place record, so a move stopped partway finishes on the next call the same way. Each
-//! account moves under its home's lock and never while a sign-in or a turn holds that home. The
-//! keychain is read first outside that lock, and every keychain call is bounded, since a locked
-//! keychain or an access prompt may never answer: a step past its bound stops the move before the
-//! next, and the whole move under the lock is bounded too, so a prompt left open never keeps the
-//! home from a sign-in, the observer or a reset. Past that bound the home is let go and the account
-//! is unmovable until its last call ends, so no second move runs beside it; that call may still
-//! land once the home is free. A move stopped mid-write leaves a temporary file beside the sign-in
-//! file, which the daemon's start sweeps.
+//! account moves under its home's lock and never while another act in flight or a turn holds that
+//! home. The keychain is read first outside that lock, and every keychain call is bounded, since a
+//! locked keychain or an access prompt may never answer: a step past its bound stops the move
+//! before the next, and the whole move under the lock is bounded by its steps' bounds together,
+//! past which the home's lock is let go. The account is held in flight from the hold until its last
+//! call ends, past that bound too, so no sign-in, switch, reset, observation or second move enters
+//! the home while a call may still write there. A move stopped mid-write leaves a temporary file
+//! beside the sign-in file, which the daemon's start sweeps.
 #![cfg_attr(
     not(test),
     expect(dead_code, reason = "the logged-out service's install and uninstall")
 )]
 
-use std::collections::HashSet;
 use std::io;
 use std::path::PathBuf;
 use std::slice;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_TERMINAL_DRAIN_MS;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::{
-    CredentialStore, KeychainSignIn, SignInMoveError, create_missing_private_folders, sign_in_move,
+    CredentialStore, KeychainSignIn, SIGN_IN_MOVE_STEPS, SignInMoveError,
+    create_missing_private_folders, sign_in_move,
 };
-use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::credential_store::KeychainRefusal;
 use sidekicks_store::credential_store::place::{
     PlaceRecord, SecretsPlace, read_record, record_path,
@@ -39,7 +38,7 @@ use crate::account::home_lock::AccountHomeLock;
 use crate::account::observer::AccountLiveTurns;
 use crate::account::registry::{ProviderAccountRegistry, RegisteredAccount};
 use crate::account::resolver::credential_home_folders;
-use crate::account::sign_in::AccountsSigningIn;
+use crate::account::sign_in::AccountsInFlight;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::ClaudeAccountLegs;
 use crate::driver::claude::account::credentials::{
@@ -55,51 +54,17 @@ pub(crate) struct ClaudeSignInMoveBounds<'a> {
     pub(crate) registry: &'a ProviderAccountRegistry,
     /// The lock every act in an account's home takes, which an observation holds while it reads.
     pub(crate) home_lock: &'a AccountHomeLock,
-    /// The accounts with a sign-in in flight, each of which holds its account's home.
-    pub(crate) signing_in: &'a AccountsSigningIn,
+    /// The accounts with a sign-in, a switch onto them, a home's reset or a move in flight, each of
+    /// which holds its account's home, and where the move holds each account it moves.
+    pub(crate) accounts_in_flight: &'a Arc<AccountsInFlight>,
     /// The turns live on each account, each of which holds its account's home.
     pub(crate) live_turns: &'a dyn AccountLiveTurns,
     /// The person's login keychain.
     pub(crate) keychain: &'a CredentialStore,
-    /// How long one keychain call, and one account's whole move under its home's lock, may run
-    /// before the move stops, [`CLAUDE_SIGN_IN_MOVE_KEYCHAIN_WAIT`] outside a test.
+    /// How long one keychain call may run before the move stops,
+    /// [`CLAUDE_SIGN_IN_MOVE_KEYCHAIN_WAIT`] outside a test; one account's whole move under its
+    /// home's lock may run that long for each of its steps.
     pub(crate) keychain_wait: Duration,
-    /// The accounts whose move outlasted its bound and still runs, kept across moves.
-    pub(crate) unmovable: &'a ClaudeUnmovableSignIns,
-}
-
-/// The accounts whose sign-in move outlasted its bound and still runs on its blocking thread, each
-/// unmovable until that move ends.
-#[derive(Clone, Default)]
-pub(crate) struct ClaudeUnmovableSignIns(Arc<Mutex<HashSet<ProviderAccountId>>>);
-
-impl ClaudeUnmovableSignIns {
-    // Whether a move of `provider_account_id` outlasted its bound and still runs.
-    fn contains(&self, provider_account_id: &ProviderAccountId) -> bool {
-        lock(&self.0).contains(provider_account_id)
-    }
-
-    // Marks `provider_account_id` unmovable until the answered mark is dropped, which the move's
-    // blocking task does as it ends.
-    fn mark(&self, provider_account_id: ProviderAccountId) -> UnmovableMark {
-        lock(&self.0).insert(provider_account_id.clone());
-        UnmovableMark {
-            accounts: self.clone(),
-            provider_account_id,
-        }
-    }
-}
-
-// One account's mark in `ClaudeUnmovableSignIns`, let go when dropped.
-struct UnmovableMark {
-    accounts: ClaudeUnmovableSignIns,
-    provider_account_id: ProviderAccountId,
-}
-
-impl Drop for UnmovableMark {
-    fn drop(&mut self) {
-        lock(&self.accounts.0).remove(&self.provider_account_id);
-    }
 }
 
 /// Why the move stopped; every account before the one it names is moved, and that account's
@@ -112,8 +77,9 @@ pub(crate) enum ClaudeSignInMoveError {
     /// The registered accounts could not be listed.
     #[error(transparent)]
     Accounts(#[from] ProviderAccountRegistryError),
-    /// A sign-in or a turn holds the account's home, so its sign-in is left where it is.
-    #[error("a sign-in or a turn holds the Claude Code account's home")]
+    /// A sign-in, a switch, a reset, an earlier move whose call still runs or a turn holds the
+    /// account's home, so its sign-in is left where it is.
+    #[error("another act or a turn holds the Claude Code account's home")]
     HomeInUse {
         /// The account.
         provider_account_id: ProviderAccountId,
@@ -130,9 +96,9 @@ pub(crate) enum ClaudeSignInMoveError {
     /// The move's blocking task ended without an answer.
     #[error("the sign-in move ended without an answer")]
     Stopped(#[source] tokio::task::JoinError),
-    /// A keychain call or the account's whole move did not answer within the bound, as a prompt
-    /// left open does not, or an earlier move of the account whose call still runs; the move
-    /// stopped, and the account's sign-in is where it was or in both places.
+    /// A keychain call or the account's whole move did not answer within its bound, as a prompt
+    /// left open does not; the move stopped, and the account's sign-in is where it was or in both
+    /// places.
     #[error("the keychain did not answer for the Claude Code account in time")]
     KeychainUnanswered {
         /// The account.
@@ -156,12 +122,12 @@ impl ClaudeAccountLegs {
     /// says the secrets go: into the files for the service run while logged out, back into the
     /// keychain for the operating system's store, and nothing where no record or a Linux file is
     /// kept, or on a system with no move. Each account moves under its home's hold, after any
-    /// observation there ends, for at most the bound, past which the hold is let go and the
-    /// account stays unmovable until its move ends. Fails at once with
-    /// [`ClaudeSignInMoveError::HomeInUse`] at the first account a sign-in or a turn holds, with
-    /// [`ClaudeSignInMoveError::KeychainUnanswered`] where a keychain call or the move outlasts its
-    /// bound or the account is unmovable, and otherwise as [`ClaudeSignInMoveError`] says; the
-    /// next call finishes the move.
+    /// observation there ends, for at most its steps' bounds together, past which the hold is let
+    /// go while the account stays in flight until its move ends. Fails at once with
+    /// [`ClaudeSignInMoveError::HomeInUse`] at the first account another act in flight or a turn
+    /// holds, with [`ClaudeSignInMoveError::KeychainUnanswered`] where a keychain call or the move
+    /// outlasts its bound, and otherwise as [`ClaudeSignInMoveError`] says; the next call
+    /// finishes the move.
     pub(crate) async fn move_sign_ins(
         &self,
         bounds: ClaudeSignInMoveBounds<'_>,
@@ -180,11 +146,6 @@ impl ClaudeAccountLegs {
         let accounts = bounds.registry.list(Some(DESCRIPTOR.provider_id())).await?;
         for account in &accounts {
             let provider_account_id = &account.account_id;
-            if bounds.unmovable.contains(provider_account_id) {
-                return Err(ClaudeSignInMoveError::KeychainUnanswered {
-                    provider_account_id: provider_account_id.clone(),
-                });
-            }
             // Refused before any wait, as the hold below may wait behind an observation.
             if is_home_in_use(&bounds, provider_account_id) {
                 return Err(ClaudeSignInMoveError::HomeInUse {
@@ -222,19 +183,26 @@ impl ClaudeAccountLegs {
             })
             .await?;
             let _hold = bounds.home_lock.hold(provider_account_id.clone()).await;
-            if is_home_in_use(&bounds, provider_account_id) {
+            // Taken in the step that finds the account free, and held by the task below.
+            let Some(in_flight_guard) =
+                bounds.accounts_in_flight.begin(provider_account_id.clone())
+            else {
+                return Err(ClaudeSignInMoveError::HomeInUse {
+                    provider_account_id: provider_account_id.clone(),
+                });
+            };
+            if has_live_turns(&bounds, provider_account_id) {
                 return Err(ClaudeSignInMoveError::HomeInUse {
                     provider_account_id: provider_account_id.clone(),
                 });
             }
             let keychain = bounds.keychain.clone();
             let step_bound = bounds.keychain_wait;
-            // Unmovable until the task ends, whether or not the hold outlasts it.
-            let running = bounds.unmovable.mark(provider_account_id.clone());
             // The move bounds each of its own steps, so a step past its bound stops it before the
-            // next; the whole task is bounded here, so a step that never answers lets the home go.
+            // next; the whole task is bounded here, so a step that never answers lets the home go,
+            // while the account stays in flight until the task ends.
             let moving = tokio::task::spawn_blocking(move || {
-                let _running = running;
+                let _in_flight_guard = in_flight_guard;
                 match direction {
                     MoveDirection::IntoFiles => {
                         let folder = sign_in
@@ -256,7 +224,8 @@ impl ClaudeAccountLegs {
                     )?),
                 }
             });
-            let Ok(joined) = tokio::time::timeout(bounds.keychain_wait, moving).await else {
+            let whole_move_bound = bounds.keychain_wait * SIGN_IN_MOVE_STEPS;
+            let Ok(joined) = tokio::time::timeout(whole_move_bound, moving).await else {
                 return Err(ClaudeSignInMoveError::KeychainUnanswered {
                     provider_account_id: provider_account_id.clone(),
                 });
@@ -308,16 +277,24 @@ fn sign_in_file(account: &RegisteredAccount) -> PathBuf {
         .join(CLAUDE_CREDENTIALS_FILE)
 }
 
-// Whether a sign-in in flight or a live turn holds `provider_account_id`'s home.
+// Whether another act in flight or a live turn holds `provider_account_id`'s home.
 fn is_home_in_use(
     bounds: &ClaudeSignInMoveBounds<'_>,
     provider_account_id: &ProviderAccountId,
 ) -> bool {
-    bounds.signing_in.is_signing_in(provider_account_id)
-        || !bounds
-            .live_turns
-            .sessions_with_live_turns(provider_account_id)
-            .is_empty()
+    bounds.accounts_in_flight.is_in_flight(provider_account_id)
+        || has_live_turns(bounds, provider_account_id)
+}
+
+// Whether a turn is live on `provider_account_id`.
+fn has_live_turns(
+    bounds: &ClaudeSignInMoveBounds<'_>,
+    provider_account_id: &ProviderAccountId,
+) -> bool {
+    !bounds
+        .live_turns
+        .sessions_with_live_turns(provider_account_id)
+        .is_empty()
 }
 
 // Runs the blocking keychain `call` for `provider_account_id`'s sign-in on a blocking thread and
