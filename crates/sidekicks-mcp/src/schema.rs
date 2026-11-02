@@ -16,7 +16,9 @@ use crate::command_receipts::{CommandAcceptance, CommandOutcome};
 /// A governance mutation's receipt status: written `pending` before the provider is touched, and
 /// `committed` with the saved response in the same write as the mutation's own rows. Stored by its
 /// camelCase name.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::IntoStaticStr, strum::VariantArray)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, strum::EnumString, strum::IntoStaticStr, strum::VariantArray,
+)]
 #[strum(serialize_all = "camelCase")]
 pub(crate) enum McpMutationReceiptStatus {
     /// The intent is recorded and the mutation has not finished.
