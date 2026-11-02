@@ -70,6 +70,7 @@ use sidekicks_store::events::session::appender::{
     SessionEventLinkage, UnsequencedEventEnvelope,
 };
 use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
+use sidekicks_store::events::session::insert::TOOL_CALL_ID_PAYLOAD_KEY;
 use sidekicks_store::events::session::skipped_ranges::outside_skipped_ranges_sql;
 
 use crate::refusals::{reviewer_denial_not_found, reviewer_denial_not_overridable};
@@ -84,11 +85,12 @@ static SELECT_BLOCKED_CALL_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT id FROM session_events AS event
   WHERE session_id = @session_id AND type = '{}' AND run_id = @run_id
-    AND json_extract(payload, '$.toolCallId') = @tool_call_id
+    AND json_extract(payload, '$.{}') = @tool_call_id
     AND {}
   ORDER BY sequence DESC
   LIMIT 1",
         SessionEventType::AgentToolCallInvoked.as_str(),
+        TOOL_CALL_ID_PAYLOAD_KEY,
         outside_skipped_ranges_sql("event")
     )
 });
