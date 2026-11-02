@@ -585,9 +585,10 @@ fn an_answer_that_does_not_fit_names_the_first_check_it_breaks(
     );
 }
 
-// Whoever raised a card hears a decline's words, and a run's end settles every wait on the run's
-// cards, one whose row a rebuild dropped among them. Killed by dropping `decline_reason` and by
-// settling a run's waits by the rows it read.
+// Whoever raised a card hears a decline's words and the instant its resolve recorded, and a run's
+// end settles every wait on the run's cards, one whose row a rebuild dropped among them. Killed by
+// dropping `decline_reason`, by a second clock read at the settle, and by settling a run's waits by
+// the rows it read.
 #[tokio::test]
 async fn a_raised_card_hears_how_it_settled() {
     let fixture = ApprovalFixture::without_holds().await;
@@ -598,7 +599,7 @@ async fn a_raised_card_hears_how_it_settled() {
         &client_id(),
         json!({ "declineReason": "not on main" }),
     );
-    fixture
+    let resolved = fixture
         .service
         .resolve(&decline, device())
         .await
@@ -609,6 +610,7 @@ async fn a_raised_card_hears_how_it_settled() {
             .expect("the decline settles its waiter"),
         RaisedRequestSettlement::Rejected {
             decline_reason: Some(from_json(json!("not on main"))),
+            resolved_at: resolved.response.resolved_at,
         }
     );
     let dropped = fixture

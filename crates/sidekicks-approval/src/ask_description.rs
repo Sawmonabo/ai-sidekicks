@@ -171,8 +171,13 @@ fn may_allow_stand_on(
 ) -> bool {
     !ask.rule_scopes.is_empty()
         && !ask.is_provider_flagged
-        && category != ApprovalCategory::DestructiveGit
-        && subject.is_some()
+        && may_allow_stand_over(category, subject)
+}
+
+/// Whether a standing allow may stand on an action of `category` whose rule names `subject`,
+/// whoever raised its card: never on destructive git, and never without a subject to name.
+pub(crate) fn may_allow_stand_over(category: ApprovalCategory, subject: Option<&str>) -> bool {
+    category != ApprovalCategory::DestructiveGit && subject.is_some()
 }
 
 fn command_subject_of(command: ShellCommand<'_>) -> Option<String> {
@@ -342,7 +347,9 @@ fn is_package_name_word(word: impl WordText) -> bool {
         })
 }
 
-fn category_of(
+/// What a card over `action` is about: a command whose line runs destructive git anywhere is
+/// `destructiveGit`. `reading` is as [`describe_provider_ask`] takes it.
+pub(crate) fn category_of(
     reader: &mut ShellLineReader,
     reading: Option<&ShellLineReading>,
     action: &ProviderAskAction,

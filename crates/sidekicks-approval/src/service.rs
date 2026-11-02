@@ -97,6 +97,8 @@ pub(crate) enum RaisedRequestSettlement {
     Rejected {
         /// The `why not` words, where the person typed any.
         decline_reason: Option<NonEmptyText>,
+        /// When the decline was recorded, the instant its resolve wrote.
+        resolved_at: WireInstant,
     },
     /// It ended unanswered.
     Canceled,
@@ -436,6 +438,7 @@ impl ApprovalService {
                 ApprovalDecision::Approved => RaisedRequestSettlement::Approved,
                 ApprovalDecision::Rejected => RaisedRequestSettlement::Rejected {
                     decline_reason: resolution.decline_reason.clone(),
+                    resolved_at: resolved_at.clone(),
                 },
             },
         );
