@@ -333,10 +333,18 @@ async fn a_newer_plan_supersedes_the_older_waiting_one_in_its_own_write() {
 }
 
 // A handed-off plan whose fresh session went before its first turn waits again, holding no
-// request, live and on rebuild. Killed by every hold's end read through the held request's
-// statement, which reopens a plan only while it waits.
+// request, live and on rebuild; where a newer plan of its session already waits, that one stands
+// and the handed-off plan reopens, so one plan waits. Killed by every hold's end read through the
+// held request's statement, which reopens a plan only while it waits, and by the newer-plan guard
+// removed, which leaves two plans waiting.
+#[rstest]
+#[case::alone(false, "waiting 0 -")]
+#[case::beside_a_newer_waiting_plan(true, "open 0 -")]
 #[tokio::test]
-async fn a_hand_off_whose_fresh_session_went_puts_its_plan_back_up() {
+async fn a_hand_off_whose_fresh_session_went_puts_its_plan_back_up(
+    #[case] newer_waits: bool,
+    #[case] handed_off_row: &str,
+) {
     let fixture = Fixture::new().await;
     let session_id = fixture.store.session_id;
     let plan_id = fixture.take(true).await;
@@ -359,34 +367,57 @@ async fn a_hand_off_whose_fresh_session_went_puts_its_plan_back_up() {
         &device_id,
         &WireInstant::now(),
     );
+    let append = |event, statement| {
+        fixture.store.appender.append(
+            event,
+            SessionEventLinkage {
+                transactional_prelude: vec![statement],
+                ..SessionEventLinkage::default()
+            },
+        )
+    };
+    append(handed_off, verdict)
+        .await
+        .expect("the hand-off is written");
+    let newer = if newer_waits {
+        Some(fixture.take(true).await)
+    } else {
+        None
+    };
     let (statement, ended) =
         hold_end_write(session_id, plan_id, PlanHoldEndedReason::FreshSessionGone);
-    for (event, statement) in [(handed_off, verdict), (ended, statement)] {
-        fixture
-            .store
-            .appender
-            .append(
-                event,
-                SessionEventLinkage {
-                    transactional_prelude: vec![statement],
-                    ..SessionEventLinkage::default()
-                },
-            )
-            .await
-            .expect("the plan's event is written");
-    }
+    append(ended, statement)
+        .await
+        .expect("the hold's end is written");
     let plan_row_sql = "SELECT state || ' ' || holds_request || ' ' || \
         coalesce(fresh_session_id, '-') FROM plans WHERE id = ?1";
+    let session_rows_sql = "SELECT id || ' ' || state || ' ' || holds_request || ' ' || \
+        coalesce(fresh_session_id, '-') FROM plans WHERE session_id = ?1 ORDER BY id";
 
-    let live = fixture
-        .store
-        .read_rows(plan_row_sql, plan_id.text().as_str());
-    assert_eq!(live, ["waiting 0 -"]);
-    rebuild_plans(&fixture).await;
     assert_eq!(
         fixture
             .store
             .read_rows(plan_row_sql, plan_id.text().as_str()),
+        [handed_off_row]
+    );
+    if let Some(newer) = newer {
+        assert_eq!(fixture.state(newer), "waiting");
+    }
+    assert_eq!(
+        fixture.store.read_rows(
+            "SELECT CAST(count(*) AS TEXT) FROM plans WHERE session_id = ?1 AND state = 'waiting'",
+            session_id.text().as_str(),
+        ),
+        ["1"]
+    );
+    let live = fixture
+        .store
+        .read_rows(session_rows_sql, session_id.text().as_str());
+    rebuild_plans(&fixture).await;
+    assert_eq!(
+        fixture
+            .store
+            .read_rows(session_rows_sql, session_id.text().as_str()),
         live
     );
 }

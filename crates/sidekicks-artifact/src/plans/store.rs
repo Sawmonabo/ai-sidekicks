@@ -55,13 +55,19 @@ static SUPERSEDE_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // Puts a handed-off plan whose fresh session went before its first turn back up to wait, holding
-// no request, its verdict cleared.
+// no request, its verdict cleared; where a newer plan of its session already waits, that one
+// stands and this one reopens as a superseded plan does, so one card stands at a time.
 static WAIT_AGAIN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE plans
-  SET state = '{waiting}', holds_request = 0, fresh_session_id = NULL, resolved_by = NULL,
-      resolved_at = NULL
+  SET state = CASE WHEN EXISTS (
+        SELECT 1 FROM plans AS newer
+        WHERE newer.session_id = plans.session_id AND newer.state = '{waiting}'
+          AND (newer.created_at, newer.id) > (plans.created_at, plans.id)
+      ) THEN '{open}' ELSE '{waiting}' END,
+      holds_request = 0, fresh_session_id = NULL, resolved_by = NULL, resolved_at = NULL
   WHERE id = @planId AND state = '{handed_off}'",
+        open = <&'static str>::from(PlanState::Open),
         waiting = <&'static str>::from(PlanState::Waiting),
         handed_off = <&'static str>::from(PlanState::HandedOff)
     )
@@ -131,9 +137,9 @@ pub(crate) fn insert_plan_statement(
 }
 
 /// Ends `plan_id`'s hold for `reason`: a newer plan's supersede reopens it whether or not it holds
-/// a request, a fresh session gone puts the handed-off plan back up to wait, and every other end
-/// reopens it only while it waits on a request its driver holds. Refused unless the plan stands as
-/// its reason needs.
+/// a request, a fresh session gone puts the handed-off plan back up to wait unless a newer plan of
+/// its session waits, which reopens it instead, and every other end reopens it only while it waits
+/// on a request its driver holds. Refused unless the plan stands as its reason needs.
 pub(crate) fn hold_end_statement(plan_id: &PlanId, reason: PlanHoldEndedReason) -> WriteStatement {
     let sql = match reason {
         PlanHoldEndedReason::Superseded => SUPERSEDE_SQL.as_str(),
