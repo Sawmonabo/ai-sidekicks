@@ -740,6 +740,7 @@ pub(crate) async fn register_method_inputs(
                 read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
             }),
             turn_readings: Arc::clone(&session.turn_readings),
+            tool_call_statuses: Arc::clone(&session.tool_call_statuses),
             context_readings: Arc::clone(&session.context_readings),
             providers: Arc::clone(&registry),
             run_queue: RunQueueMethods {
