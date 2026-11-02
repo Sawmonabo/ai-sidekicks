@@ -53,10 +53,10 @@ const FILES_LINE: &str = "With this on, sign-ins and secrets are kept in files r
                           account alone, because a service that runs while you are logged out \
                           cannot reach the login keychain.\n";
 
-/// The warning for a service no login agent ran, stopped for a takeover that then failed, which
-/// nothing starts again.
-const LASTING_SERVICE_STOPPED_LINE: &str = "warning: the background service was stopped and stays stopped. Start it again with sidekicks \
-     daemon start.\n";
+/// The warning for a service a takeover that then failed stopped, which nothing starts again: one
+/// no login agent ran, or the app's agent's, which only the app loads again.
+const SERVICE_LEFT_STOPPED_LINE: &str = "warning: the background service was stopped and stays \
+                                         stopped. Start it again with sidekicks daemon start.\n";
 
 /// The line for this account's system service already installed, with no login agent beside it.
 const ALREADY_INSTALLED_LINE: &str =
@@ -259,14 +259,14 @@ pub(crate) fn install_while_signed_out<Output: Write, ErrorOutput: Write>(
         was_agent_loaded,
         program,
     };
-    let mut is_lasting_service_stopped = false;
+    let mut is_service_left_stopped = false;
     let taken = run_listening_for_ctrl_c(async |ctrl_c| {
-        takeover.run(ctrl_c, &mut is_lasting_service_stopped).await
+        takeover.run(ctrl_c, &mut is_service_left_stopped).await
     });
-    if taken.is_err() && is_lasting_service_stopped {
+    if taken.is_err() && is_service_left_stopped {
         context
             .stderr
-            .write_all(LASTING_SERVICE_STOPPED_LINE.as_bytes())?;
+            .write_all(SERVICE_LEFT_STOPPED_LINE.as_bytes())?;
     }
     taken?;
     remove_replaced_agent(&registration, owner)?;
@@ -323,7 +323,10 @@ fn install_as_root<Output: Write, ErrorOutput: Write>(
     context.stdout.write_all(FILES_LINE.as_bytes())?;
     context.stdout.flush()?;
     if let Err(failure) = registration.boot_out_agent() {
-        let put_back = restore_agent_steps(registration, owner, was_agent_loaded);
+        let put_back = warn_left_stopped(
+            &mut context.stderr,
+            restore_agent_steps(registration, owner, was_agent_loaded),
+        )?;
         return Err(join_put_back(
             registration_failure(failure, "could not unload the login agent"),
             put_back,
@@ -333,7 +336,10 @@ fn install_as_root<Output: Write, ErrorOutput: Write>(
         Ok(install_system_service(registration, &program, owner).await)
     })?;
     if let Err(failure) = installed {
-        let put_back = restore_agent_steps(registration, owner, was_agent_loaded);
+        let put_back = warn_left_stopped(
+            &mut context.stderr,
+            restore_agent_steps(registration, owner, was_agent_loaded),
+        )?;
         return Err(match failure {
             InstallFailure::Refused(cause) => refused(cause, put_back),
             InstallFailure::Other(failure) => join_put_back(failure, put_back),
@@ -495,12 +501,12 @@ struct Takeover {
 impl Takeover {
     /// Stops the running service, moves the secrets into their files, unloads the login agent and
     /// installs the system service; a later step's failure puts the earlier ones back first. Sets
-    /// `is_lasting_service_stopped` where it stopped a service no login agent ran, which no
-    /// put-back starts again.
+    /// `is_service_left_stopped` where it stopped a service no put-back starts again: one no login
+    /// agent ran, or the app's agent's once unloaded.
     async fn run(
         &self,
         ctrl_c: &mut CtrlCListener,
-        is_lasting_service_stopped: &mut bool,
+        is_service_left_stopped: &mut bool,
     ) -> anyhow::Result<()> {
         // A service that is not running is already stopped.
         let ended = end_running_daemon(
@@ -509,7 +515,7 @@ impl Takeover {
             ctrl_c,
         )
         .await?;
-        *is_lasting_service_stopped = !self.was_agent_loaded && ended != DaemonEnd::NotRunning;
+        *is_service_left_stopped = !self.was_agent_loaded && ended != DaemonEnd::NotRunning;
         let moved = run_offline_mode(
             &self.program,
             secrets_move_arguments(SecretsMoveDestination::LoggedOutServiceFile),
@@ -517,7 +523,10 @@ impl Takeover {
         .await;
         if let Err(refusal) = moved {
             // A refused move changed nothing, so only the stopped agent is started again.
-            return Err(join_put_back(refusal, self.restore_agent().await));
+            return Err(join_put_back(
+                refusal,
+                self.restore_agent(is_service_left_stopped).await,
+            ));
         }
         if self.owner != ServiceOwner::None {
             let registration = self.registration;
@@ -528,7 +537,10 @@ impl Takeover {
             })
             .await;
             if let Err(failure) = booted_out {
-                return Err(join_put_back(failure, self.put_back().await));
+                return Err(join_put_back(
+                    failure,
+                    self.put_back(is_service_left_stopped).await,
+                ));
             }
         }
         let Err(failure) =
@@ -536,34 +548,40 @@ impl Takeover {
         else {
             return Ok(());
         };
-        let put_back = self.put_back().await;
+        let put_back = self.put_back(is_service_left_stopped).await;
         Err(match failure {
             InstallFailure::Refused(cause) => refused(cause, put_back),
             InstallFailure::Other(failure) => join_put_back(failure, put_back),
         })
     }
 
-    /// Moves the secrets back into the login keychain, then puts the login agent back. Fails as
-    /// the moves mode or [`Self::restore_agent`] does.
-    async fn put_back(&self) -> anyhow::Result<()> {
+    /// Moves the secrets back into the login keychain, then puts the login agent back, setting
+    /// `is_service_left_stopped` as [`Self::restore_agent`] does. Fails as the moves mode or
+    /// [`Self::restore_agent`] does.
+    async fn put_back(&self, is_service_left_stopped: &mut bool) -> anyhow::Result<()> {
         run_offline_mode(
             &self.program,
             secrets_move_arguments(SecretsMoveDestination::OperatingSystem),
         )
         .await
         .context("could not move the secrets back into the login keychain")?;
-        self.restore_agent().await
+        self.restore_agent(is_service_left_stopped).await
     }
 
-    /// Starts the login agent again where it was loaded: started where it is still loaded, and the
-    /// command line's own kept list loaded again where it was unloaded. The app's agent, once
-    /// unloaded, is loaded again by the app at its next start or the next login. Fails as the
-    /// service manager does.
-    async fn restore_agent(&self) -> anyhow::Result<()> {
+    /// Starts the login agent again where it was loaded, as [`restore_agent_steps`] does, and
+    /// sets `is_service_left_stopped` where its service stays stopped. Fails as the service
+    /// manager does.
+    async fn restore_agent(&self, is_service_left_stopped: &mut bool) -> anyhow::Result<()> {
         let registration = self.registration;
         let owner = self.owner;
         let was_agent_loaded = self.was_agent_loaded;
-        run_blocking(move || restore_agent_steps(&registration, owner, was_agent_loaded)).await
+        let is_left_stopped =
+            run_blocking(move || restore_agent_steps(&registration, owner, was_agent_loaded))
+                .await?;
+        if is_left_stopped {
+            *is_service_left_stopped = true;
+        }
+        Ok(())
     }
 }
 
@@ -603,16 +621,16 @@ async fn install_system_service(
 
 /// Starts the login agent again through `registration` where it `was_agent_loaded`: started where
 /// it is still loaded, and the command line's own kept list loaded again as it is for a
-/// `CommandLine` `owner` where it was unloaded, since the unload leaves the list on disk. The app's
-/// agent, once unloaded, is loaded again by the app at its next start or the next login. Fails as
-/// the service manager does.
+/// `CommandLine` `owner` where it was unloaded, since the unload leaves the list on disk. Answers
+/// whether its service stays stopped: the app's agent, once unloaded, is loaded again only by the
+/// app at its next start or the next login. Fails as the service manager does.
 fn restore_agent_steps(
     registration: &impl LoggedOutServiceRegistration,
     owner: ServiceOwner,
     was_agent_loaded: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     if !was_agent_loaded {
-        return Ok(());
+        return Ok(false);
     }
     let is_loaded = registration.is_agent_loaded().map_err(|failure| {
         registration_failure(failure, "could not read whether the login agent is loaded")
@@ -621,12 +639,29 @@ fn restore_agent_steps(
         registration.kickstart().map_err(|failure| {
             registration_failure(failure, "could not start the login agent again")
         })?;
-    } else if owner == ServiceOwner::CommandLine {
-        registration.bootstrap_agent().map_err(|failure| {
-            registration_failure(failure, "could not load the login agent again")
-        })?;
+        return Ok(false);
     }
-    Ok(())
+    match owner {
+        ServiceOwner::CommandLine => {
+            registration.bootstrap_agent().map_err(|failure| {
+                registration_failure(failure, "could not load the login agent again")
+            })?;
+            Ok(false)
+        }
+        ServiceOwner::App | ServiceOwner::None => Ok(true),
+    }
+}
+
+/// `put_back`'s outcome, with the warning that the service stays stopped written on `stderr` where
+/// the put-back left it stopped. Fails as the write does.
+fn warn_left_stopped(
+    stderr: &mut impl Write,
+    put_back: anyhow::Result<bool>,
+) -> io::Result<anyhow::Result<()>> {
+    if matches!(put_back, Ok(true)) {
+        stderr.write_all(SERVICE_LEFT_STOPPED_LINE.as_bytes())?;
+    }
+    Ok(put_back.map(|_is_left_stopped| ()))
 }
 
 /// How the system service's install failed: a refusal the person is told as one, or any other
@@ -686,16 +721,21 @@ mod tests {
         ServiceInstall, ServiceOwner, ServiceRegistrationError, Spawner, SystemServiceOwner,
     };
 
-    use super::{LoggedOutServiceRefusal, LoggedOutServiceRegistration, install_as_root};
+    use super::{
+        LoggedOutServiceRefusal, LoggedOutServiceRegistration, install_as_root, restore_agent_steps,
+    };
     use crate::command_context::CommandContext;
     use crate::commands::daemon::registration::LoginRegistration;
     use crate::exit_codes::CommandFailure;
 
-    /// A run under `sudo` for an account whose command line agent is loaded and whose home is
-    /// `home`, which records the agent's unload and refuses to install anything.
+    /// A run under `sudo` for an account whose login agent reads as `is_agent_loaded` and whose
+    /// home is `home`, which records the agent's unload and its load from the kept list and refuses
+    /// to install anything.
     struct SudoRegistration {
         home: PathBuf,
+        is_agent_loaded: bool,
         is_booted_out: Cell<bool>,
+        is_bootstrapped: Cell<bool>,
     }
 
     impl LoginRegistration for SudoRegistration {
@@ -721,7 +761,7 @@ mod tests {
         }
 
         fn is_agent_loaded(&self) -> Result<bool, ServiceRegistrationError> {
-            Ok(true)
+            Ok(self.is_agent_loaded)
         }
 
         fn boot_out_agent(&self) -> Result<(), ServiceRegistrationError> {
@@ -734,7 +774,8 @@ mod tests {
         }
 
         fn bootstrap_agent(&self) -> Result<(), ServiceRegistrationError> {
-            unreachable!("nothing was unloaded, so nothing is loaded again")
+            self.is_bootstrapped.set(true);
+            Ok(())
         }
 
         fn account_home(&self) -> Result<PathBuf, ServiceRegistrationError> {
@@ -777,7 +818,9 @@ mod tests {
             .expect("the record is written");
         let registration = SudoRegistration {
             home: home.path().to_path_buf(),
+            is_agent_loaded: true,
             is_booted_out: Cell::new(false),
+            is_bootstrapped: Cell::new(false),
         };
         let mut context = CommandContext {
             stdout: Vec::new(),
@@ -814,5 +857,30 @@ mod tests {
             context.stdout.is_empty(),
             "the run printed before it refused"
         );
+    }
+
+    // Fails when the put-back leaves the command line's own unloaded agent out (no load from its
+    // kept list is recorded), and when it does not answer that the app's unloaded agent's service
+    // stays stopped, so no warning is written.
+    #[rstest]
+    #[case::command_line(ServiceOwner::CommandLine, true, false)]
+    #[case::app(ServiceOwner::App, false, true)]
+    fn an_unloaded_agent_is_loaded_again_or_named_as_left_stopped(
+        #[case] owner: ServiceOwner,
+        #[case] is_bootstrap_expected: bool,
+        #[case] is_left_stopped_expected: bool,
+    ) {
+        let registration = SudoRegistration {
+            home: PathBuf::new(),
+            is_agent_loaded: false,
+            is_booted_out: Cell::new(false),
+            is_bootstrapped: Cell::new(false),
+        };
+
+        let is_left_stopped =
+            restore_agent_steps(&registration, owner, true).expect("the put-back succeeds");
+
+        assert_eq!(is_left_stopped, is_left_stopped_expected);
+        assert_eq!(registration.is_bootstrapped.get(), is_bootstrap_expected);
     }
 }
