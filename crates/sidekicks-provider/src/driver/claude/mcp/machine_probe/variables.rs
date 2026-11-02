@@ -1,5 +1,6 @@
 //! How a probed entry's `${VAR}` references are filled, as Claude Code fills a server's entry when
-//! it loads it: a plugin's own placeholders first, then each variable from the probe's environment,
+//! it loads it: a plugin's own placeholders first, which a sign-in's entry also takes, since Claude
+//! Code fills them only in a plugin's own files, then each variable from the probe's environment,
 //! a credential variable read as empty. A program's command, arguments and environment blank a
 //! covered name only where it is set; a remote server's address and headers blank it whether set or
 //! not and ignore its `:-default`, so no credential leaves for a server the entry names. The lists
@@ -9,20 +10,30 @@ use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use regex::{Captures, Regex};
+use serde_json::Value;
 use sidekicks_ipc::redaction::scrub_credentials;
 
+use crate::driver::claude::mcp::config::ClaudePluginFolders;
 use crate::driver::claude::session::transport::control::ClaudeToolServerEntry;
 
 /// What a plugin's placeholders read: `${CLAUDE_PLUGIN_ROOT}` its install root,
-/// `${CLAUDE_PLUGIN_DATA}` its data folder and `${CLAUDE_PROJECT_DIR}` the root the probe runs
+/// `${CLAUDE_PLUGIN_DATA}` its data folder and `${CLAUDE_PROJECT_DIR}` the root the process runs
 /// at, left as written where it runs at none.
-pub(super) struct ClaudePluginPlaceholders {
-    /// The plugin's install root.
-    pub(super) root: String,
-    /// The plugin's data folder.
-    pub(super) data: String,
-    /// The root the probe's process runs at.
-    pub(super) project: Option<String>,
+pub(crate) struct ClaudePluginPlaceholders {
+    root: String,
+    data: String,
+    project: Option<String>,
+}
+
+impl ClaudePluginPlaceholders {
+    /// The placeholders of the plugin installed at `folders`, for a process at `project`.
+    pub(crate) fn new(folders: &ClaudePluginFolders, project: Option<String>) -> Self {
+        Self {
+            root: folders.root.to_string_lossy().into_owned(),
+            data: folders.data.to_string_lossy().into_owned(),
+            project,
+        }
+    }
 }
 
 // Where a filled value goes: to a program the probe starts, or to a remote server.
@@ -309,6 +320,30 @@ pub(super) fn expand_entry_variables(
             headers: expand_values(headers, ValueSink::Remote),
         },
         sdk @ ClaudeToolServerEntry::Sdk { .. } => sdk,
+    }
+}
+
+/// `entry` with a plugin's placeholders filled in every text it holds, its member names left as
+/// written, for an entry Claude Code loads from a file of the daemon's.
+pub(crate) fn fill_entry_plugin_placeholders(
+    entry: Value,
+    plugin: &ClaudePluginPlaceholders,
+) -> Value {
+    match entry {
+        Value::String(text) => Value::String(fill_plugin_placeholders(&text, plugin)),
+        Value::Array(items) => Value::Array(
+            items
+                .into_iter()
+                .map(|item| fill_entry_plugin_placeholders(item, plugin))
+                .collect(),
+        ),
+        Value::Object(members) => Value::Object(
+            members
+                .into_iter()
+                .map(|(name, value)| (name, fill_entry_plugin_placeholders(value, plugin)))
+                .collect(),
+        ),
+        other @ (Value::Null | Value::Bool(_) | Value::Number(_)) => other,
     }
 }
 

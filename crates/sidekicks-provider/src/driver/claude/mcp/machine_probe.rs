@@ -14,7 +14,7 @@
 
 mod plugin_load;
 pub(crate) mod sent_entry;
-mod variables;
+pub(super) mod variables;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

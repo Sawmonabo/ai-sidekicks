@@ -32,7 +32,12 @@ use crate::driver::claude::account_credentials::{
     ClaudeCredentialReadError, ClaudeSignInReader, ClaudeStoredCredentials,
     SECURE_STORAGE_FOLDER_VARIABLE, read_claude_credential_file,
 };
-use crate::driver::claude::mcp::config::{ClaudePersonConfigFiles, ClaudeServerEntryReader};
+use crate::driver::claude::mcp::config::{
+    ClaudeDeclaredEntry, ClaudePersonConfigFiles, ClaudeServerEntryReader,
+};
+use crate::driver::claude::mcp::machine_probe::variables::{
+    ClaudePluginPlaceholders, fill_entry_plugin_placeholders,
+};
 use crate::driver::claude::mcp::organization::has_readable_managed_mcp_file;
 use crate::driver::claude::session::account_servers::{
     ClaudeAccountReadAsk, ClaudeAccountServerReads,
@@ -142,8 +147,8 @@ pub(crate) type ClaudeMcpSignInChannel = Arc<dyn ClaudeProcessChannel>;
 
 /// Where a sign-in reads the server's entry and the saved sign-in, and makes its own folder.
 pub(crate) struct ClaudeSignInSources<'sources> {
-    /// The person's home folder, holding `.claude.json`.
-    pub(crate) home_folder: &'sources Path,
+    /// The person's own config files, as their environment places them.
+    pub(crate) person: &'sources ClaudePersonConfigFiles,
     /// The daemon's plugin home for Claude Code.
     pub(crate) plugin_home: &'sources Path,
     /// The folder Claude Code reads its managed settings from; `None` where the system has none.
@@ -301,7 +306,8 @@ fn sign_in_parent(data_folder: &Path) -> PathBuf {
 }
 
 // The entry the sign-in's servers file declares for `binding`'s server: the person's own, re-read
-// with its values, for a user, local, project or plugin server; an organization's as `account`'s
+// with its values, for a user, local, project or plugin server, a plugin's placeholders filled,
+// since Claude Code fills them only in the plugin's own files; an organization's as `account`'s
 // managed settings declare it; and none for a server of an administrator's MCP file, which the
 // process then loads itself. Fails with `NoPersonServerEntry` for a connector, whose sign-in is
 // the account's own, and with `ServerEntryGone` where the entry is gone.
@@ -337,12 +343,22 @@ async fn read_sign_in_entry(
         | McpServerBindingRef::Local { .. }
         | McpServerBindingRef::Project { .. }
         | McpServerBindingRef::Plugin { .. } => {
-            let person = ClaudePersonConfigFiles::resolve(&[], sources.home_folder).await;
-            ClaudeServerEntryReader::new(&person, sources.plugin_home)
+            ClaudeServerEntryReader::new(sources.person, sources.plugin_home)
                 .read(binding)
                 .await
                 .map_err(|error| internal(Box::new(error)))?
-                .map(|declared| declared.entry)
+                .map(
+                    |ClaudeDeclaredEntry {
+                         entry,
+                         plugin_folders,
+                     }| match plugin_folders {
+                        Some(folders) => fill_entry_plugin_placeholders(
+                            entry,
+                            &ClaudePluginPlaceholders::new(&folders, None),
+                        ),
+                        None => entry,
+                    },
+                )
         }
     };
     match entry {

@@ -12,18 +12,21 @@ use tokio::sync::oneshot;
 use url::Url;
 
 use super::{CLAUDE_MCP_SIGN_IN_FOLDER, read_claude_saved_sign_in};
-use crate::driver::claude::DESCRIPTOR;
+use crate::driver::DriverServices;
 use crate::driver::claude::account_credentials::{
     CLAUDE_CREDENTIALS_FILE, SECURE_STORAGE_FOLDER_VARIABLE, claude_keychain_account,
     claude_keychain_service,
 };
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
-use crate::driver::claude::session::scripted::driver::ScriptedDriver;
+use crate::driver::claude::session::scripted::driver::{ScriptedDriver, sandbox_cannot_run};
 use crate::driver::claude::session::scripted::starts::ScriptedSignInPlace;
+use crate::driver::claude::{ClaudeDriver, DESCRIPTOR};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
     ProviderSignInBrowser, ProviderSignInTakeover, ProviderSignInTakeoverRequest,
 };
+use crate::port::inbound_dispatch::InboundDispatch;
+use crate::port::run_host::RunHost;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The server signed in to.
@@ -269,10 +272,10 @@ async fn a_sign_in_saved_in_the_keychain_is_read_and_its_item_removed() {
     assert!(item.is_none(), "the sign-in's keychain item is removed");
 }
 
-// A plugin's server signs in with the entry its plugin's file declares, handed to the process
-// whole; a connector, which has no entry of the person's, answers the typed arm before any
-// process starts. Killed by a plugin binding read as having no entry, and by a connector read as
-// any other failure.
+// A plugin's server signs in with the entry its plugin's file declares, handed to the process with
+// the plugin's placeholders filled; a connector, which has no entry of the person's, answers the
+// typed arm before any process starts. Killed by a plugin binding read as having no entry, by its
+// placeholders left as written, and by a connector read as any other failure.
 #[tokio::test]
 async fn a_plugin_binding_signs_in_with_its_entry_and_a_connector_reads_the_no_entry_arm() {
     let scripted = ScriptedDriver::new();
@@ -285,10 +288,15 @@ async fn a_plugin_binding_signs_in_with_its_entry_and_a_connector_reads_the_no_e
         json!({"plugins": {"tools@market": [{"installPath": plugin_root}]}}).to_string(),
     )
     .expect("the install is recorded");
-    let entry = json!({"type": "http", "url": SERVER_ADDRESS, "oauth": {"clientId": "client-one"}});
+    let entry = json!({
+        "type": "http",
+        "url": SERVER_ADDRESS,
+        "headers": {"X-Plugin": "${CLAUDE_PLUGIN_ROOT}/key", "X-Data": "${CLAUDE_PLUGIN_DATA}"},
+        "oauth": {"clientId": "client-one"},
+    });
     std::fs::write(
         plugin_root.join(".mcp.json"),
-        json!({"mcpServers": {SERVER_NAME: entry.clone()}}).to_string(),
+        json!({"mcpServers": {SERVER_NAME: entry}}).to_string(),
     )
     .expect("the plugin's servers are written");
     scripted.starts.script_mcp_sign_in(
@@ -316,7 +324,16 @@ async fn a_plugin_binding_signs_in_with_its_entry_and_a_connector_reads_the_no_e
         .try_into()
         .ok()
         .expect("one");
-    assert_eq!(start.servers, json!({"mcpServers": {SERVER_NAME: entry}}));
+    let filled = json!({
+        "type": "http",
+        "url": SERVER_ADDRESS,
+        "headers": {
+            "X-Plugin": format!("{}/key", plugin_root.display()),
+            "X-Data": plugins.join("plugins").join("data").join("tools-market").display().to_string(),
+        },
+        "oauth": {"clientId": "client-one"},
+    });
+    assert_eq!(start.servers, json!({"mcpServers": {SERVER_NAME: filled}}));
     assert!(start.loads_only_its_servers);
 
     let connector = McpServerBindingRef::Connector {
@@ -335,6 +352,75 @@ async fn a_plugin_binding_signs_in_with_its_entry_and_a_connector_reads_the_no_e
         "a connector reads the no-entry arm, not {refused:?}"
     );
     assert!(scripted.starts.take_sign_in_starts().is_empty());
+}
+
+// A person whose environment sets `CLAUDE_CONFIG_DIR` keeps their servers in that folder's
+// `.claude.json`, and the sign-in reads the entry there, not the one in the home. Killed by a read
+// that resolves the person's files with no environment.
+#[tokio::test]
+async fn a_user_entry_is_read_from_the_config_folder_the_persons_environment_names() {
+    let scripted = ScriptedDriver::new();
+    let config_folder = scripted.folder.path().join("person-config");
+    std::fs::create_dir_all(&config_folder).expect("the person's config folder is made");
+    std::fs::create_dir_all(&scripted.home).expect("the person's home is made");
+    std::fs::write(config_folder.join(".claude.json"), PERSON_CONFIG)
+        .expect("the person's config is written");
+    std::fs::write(
+        scripted.home.join(".claude.json"),
+        json!({"mcpServers": {SERVER_NAME: {"type": "http", "url": "https://home.example.test"}}})
+            .to_string(),
+    )
+    .expect("a config the person's environment does not read is written");
+    let services = DriverServices {
+        base_environment: Arc::from([
+            ("HOME".to_owned(), scripted.home.display().to_string()),
+            (
+                "CLAUDE_CONFIG_DIR".to_owned(),
+                config_folder.display().to_string(),
+            ),
+        ]),
+        ..scripted.services
+    };
+    let host: Arc<dyn RunHost> = scripted.engine.clone();
+    let dispatch: Arc<dyn InboundDispatch> = scripted.engine.clone();
+    let driver = ClaudeDriver::with_engine(
+        &services,
+        scripted.starts.clone(),
+        scripted.starts.keychain.clone(),
+        &host,
+        &dispatch,
+        sandbox_cannot_run,
+    )
+    .expect("the session pieces compose");
+    scripted.starts.script_mcp_sign_in(
+        custom_scheme_channel(),
+        json!({"mcpOAuth": {"docs|key": saved(SERVER_NAME, SERVER_ADDRESS, "access-one")}}),
+        ScriptedSignInPlace::File,
+    );
+    let (request, opened, returned) = request(user_binding());
+    let signing_in = tokio::spawn(async move { driver.sign_in_with_own_client(request).await });
+    opened
+        .await
+        .expect("the authorization address is handed out");
+    returned
+        .send(Url::parse(RETURNED_URL).expect("an address"))
+        .expect("the sign-in waits for the browser");
+
+    signing_in
+        .await
+        .expect("the sign-in runs")
+        .expect("the sign-in reads back");
+
+    let [start] = scripted
+        .starts
+        .take_sign_in_starts()
+        .try_into()
+        .ok()
+        .expect("one");
+    assert_eq!(
+        start.servers,
+        json!({"mcpServers": {SERVER_NAME: {"type": "http", "url": SERVER_ADDRESS}}})
+    );
 }
 
 // A sign-in dropped while it waits for the browser leaves no folder, and the start's sweep removes

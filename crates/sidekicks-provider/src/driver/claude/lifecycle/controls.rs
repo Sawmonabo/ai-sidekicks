@@ -29,6 +29,7 @@ use super::{ClaudeDriver, internal};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::capabilities::resolve_claude_model_catalog;
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
+use crate::driver::claude::mcp::config::ClaudePersonConfigFiles;
 use crate::driver::claude::mcp::sign_in::{
     ClaudeSignInSources, remove_left_claude_sign_ins, sign_in_with_claude_client,
 };
@@ -774,10 +775,15 @@ impl ClaudeDriver {
     ) -> Result<ProviderSignInTakeover, DriverError> {
         let plugin_home = plugin_home(&self.sources.home_folder, &DESCRIPTOR.provider_id());
         let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
+        let person = ClaudePersonConfigFiles::resolve(
+            &self.sources.base_environment,
+            &self.sources.home_folder,
+        )
+        .await;
         sign_in_with_claude_client(
             &*self.starts,
             ClaudeSignInSources {
-                home_folder: &self.sources.home_folder,
+                person: &person,
                 plugin_home: &plugin_home,
                 managed_settings_folder: managed_settings_folder.as_deref(),
                 data_folder: &self.sources.data_folder,

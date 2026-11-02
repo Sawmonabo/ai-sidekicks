@@ -10,7 +10,7 @@ mod entry;
 mod plugin_manifest;
 mod policy;
 
-pub(crate) use self::entry::{ClaudeDeclaredEntry, ClaudeServerEntryReader};
+pub(crate) use self::entry::{ClaudeDeclaredEntry, ClaudePluginFolders, ClaudeServerEntryReader};
 
 use std::collections::BTreeMap;
 use std::io::ErrorKind;
