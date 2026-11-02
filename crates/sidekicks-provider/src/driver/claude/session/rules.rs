@@ -10,6 +10,8 @@
 //! over a force push or a branch delete is never handed over: the daemon answers each ask it
 //! covers.
 
+mod listing;
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
