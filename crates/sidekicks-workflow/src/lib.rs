@@ -6,6 +6,6 @@ pub mod definitions;
 pub(crate) mod not_found;
 pub mod runs;
 pub mod schema;
-pub(crate) mod secrets;
+pub mod secrets;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_rows;
