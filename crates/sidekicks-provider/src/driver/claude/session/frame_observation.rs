@@ -67,7 +67,7 @@ pub(crate) struct ClaudeStreamFrameRead {
     #[serde(default, deserialize_with = "read_lenient")]
     usage: Option<ClaudeTokenUsage>,
     #[serde(default, deserialize_with = "read_lenient")]
-    commands: Option<LenientList<ClaudeListedCommand>>,
+    commands: Option<LenientList<ClaudeChangedCommand>>,
     #[serde(default, deserialize_with = "read_lenient")]
     slash_commands: Option<LenientList<String>>,
     #[serde(default, deserialize_with = "read_lenient")]
@@ -136,9 +136,9 @@ struct ClaudeTokenUsage {
     output_tokens: Option<Box<RawValue>>,
 }
 
-// One entry of a whole `/` list.
+// One entry of the whole `/` list a `system/commands_changed` frame carries.
 #[derive(Deserialize)]
-struct ClaudeListedCommand {
+struct ClaudeChangedCommand {
     #[serde(default, deserialize_with = "read_lenient")]
     name: Option<String>,
 }
@@ -149,7 +149,7 @@ lenient_object!(
     ClaudeResultBlock,
     ClaudeTaskPatch,
     ClaudeTokenUsage,
-    ClaudeListedCommand
+    ClaudeChangedCommand
 );
 
 impl ClaudeStreamFrameRead {
