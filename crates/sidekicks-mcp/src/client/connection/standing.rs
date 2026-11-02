@@ -1,24 +1,33 @@
 //! A session's connection to one tool server across its Reconnects: the live connection, which
 //! the client publishes each time it opens one, so an answer given after a Reconnect reaches the
-//! new connection.
+//! new connection; and the marks that say the session closed or the client is stopping.
 
 use std::sync::Arc;
 
 use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 
 use crate::client::connection::McpServerConnection;
 use crate::client::tasks::McpServerEndpoint;
 
 /// A session's connection to one tool server, which reads the live connection at each use. Every
-/// clone reads the same publications.
+/// clone reads the same publications and marks.
 #[derive(Clone)]
 pub(crate) struct McpStandingConnection {
     live: watch::Receiver<Option<Arc<McpServerConnection>>>,
+    /// Set when the session's connections close.
+    closed: CancellationToken,
+    /// The client's one mark, set when the daemon stops.
+    stopping: CancellationToken,
 }
 
-/// Where the client publishes a standing connection's live connection.
+/// Where the client publishes a standing connection's live connection, and closes it.
 pub(crate) struct McpStandingConnectionFeed {
     live: watch::Sender<Option<Arc<McpServerConnection>>>,
+    closed: CancellationToken,
+    /// The work that uses the standing connection, which its close waits for.
+    tracker: TaskTracker,
 }
 
 /// Why a standing connection has no live connection of the endpoint asked for.
@@ -32,21 +41,42 @@ pub(crate) enum McpConnectionAbsence {
     Reconfigured,
 }
 
+/// How a wait for the connection that replaces another ends.
+pub(crate) enum McpReplacement {
+    /// A new live connection of the endpoint asked for.
+    Replaced(
+        #[cfg_attr(
+            not(test),
+            expect(
+                dead_code,
+                reason = "the dispatch re-binds a task's follow to it after a Reconnect"
+            )
+        )]
+        Arc<McpServerConnection>,
+    ),
+    /// The session's connections closed.
+    SessionClosed,
+    /// The client is stopping, or is gone.
+    ClientStopping,
+}
+
 impl McpStandingConnection {
-    /// A standing connection with no live connection yet, and the feed that publishes one.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the client publishes each session's live connection to a tool server \
-                      through it"
-        )
-    )]
-    pub(crate) fn new() -> (Self, McpStandingConnectionFeed) {
+    /// A standing connection with no live connection yet, reading the client's `stopping` mark,
+    /// and the feed that publishes one.
+    pub(crate) fn new(stopping: CancellationToken) -> (Self, McpStandingConnectionFeed) {
         let (sender, receiver) = watch::channel(None);
+        let closed = CancellationToken::new();
         (
-            Self { live: receiver },
-            McpStandingConnectionFeed { live: sender },
+            Self {
+                live: receiver,
+                closed: closed.clone(),
+                stopping,
+            },
+            McpStandingConnectionFeed {
+                live: sender,
+                closed,
+                tracker: TaskTracker::new(),
+            },
         )
     }
 
@@ -63,23 +93,75 @@ impl McpStandingConnection {
         }
         Ok(Arc::clone(connection))
     }
+
+    /// Waits for a live connection other than `after` that reaches `endpoint`. Ends early when the
+    /// client stops or is dropped, then when the session closes, the stop read first; never times
+    /// out.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the dispatch re-binds a task's follow through it after a Reconnect"
+        )
+    )]
+    pub(crate) async fn replacement(
+        &self,
+        after: &Arc<McpServerConnection>,
+        endpoint: &McpServerEndpoint,
+    ) -> McpReplacement {
+        let mut live = self.live.clone();
+        loop {
+            if self.stopping.is_cancelled() {
+                return McpReplacement::ClientStopping;
+            }
+            if self.closed.is_cancelled() {
+                return McpReplacement::SessionClosed;
+            }
+            {
+                let published = live.borrow_and_update();
+                if let Some(connection) = published.as_ref()
+                    && !Arc::ptr_eq(connection, after)
+                    && connection.endpoint == *endpoint
+                {
+                    return McpReplacement::Replaced(Arc::clone(connection));
+                }
+            }
+            tokio::select! {
+                biased;
+                () = self.stopping.cancelled() => return McpReplacement::ClientStopping,
+                () = self.closed.cancelled() => return McpReplacement::SessionClosed,
+                changed = live.changed() => {
+                    // The feed is dropped only with its client.
+                    if changed.is_err() {
+                        return McpReplacement::ClientStopping;
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl McpStandingConnectionFeed {
     /// Publishes `connection` as the live connection, `None` for none, and returns the one it
     /// replaced, so the caller can close it.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the client publishes each session's live connection to a tool server \
-                      through it"
-        )
-    )]
     pub(crate) fn publish(
         &self,
         connection: Option<Arc<McpServerConnection>>,
     ) -> Option<Arc<McpServerConnection>> {
         self.live.send_replace(connection)
+    }
+
+    /// The live connection, if one is published.
+    pub(crate) fn current(&self) -> Option<Arc<McpServerConnection>> {
+        self.live.borrow().clone()
+    }
+
+    /// Marks the standing connection closed, waits for the work it tracks to end, then takes the
+    /// live connection down, so no clone keeps it, and returns it for the caller to close.
+    pub(crate) async fn close(&self) -> Option<Arc<McpServerConnection>> {
+        self.closed.cancel();
+        self.tracker.close();
+        self.tracker.wait().await;
+        self.publish(None)
     }
 }

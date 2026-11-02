@@ -21,6 +21,7 @@ use sidekicks_std::port_registration::PortRegistration;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 
 use crate::client::McpClient;
 use crate::client::connection::standing::McpStandingConnection;
@@ -118,7 +119,7 @@ pub(super) async fn call_tool_as_dispatched(
         .is_task_tool(&call.dispatch.tool_name)
         .await
         .expect("the server's tools read");
-    let (standing, feed) = McpStandingConnection::new();
+    let (standing, feed) = McpStandingConnection::new(CancellationToken::new());
     feed.publish(Some(Arc::clone(connection)));
     connection
         .call_tool(&standing, call, is_task_tool, sink, contact)
