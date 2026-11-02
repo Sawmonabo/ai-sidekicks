@@ -1,8 +1,9 @@
 //! The service's registration to start at login: which registration owns it, its install, its
-//! start, its removal, and whether a person is logged in at the screen; and the system service
-//! that runs it while its account is logged out, behind an administrator's password. A system that registers
-//! the service supplies the registration in its own module; on any other system the registration
-//! type has no value, so [`service_registration`] answers `None` there and nothing else is called.
+//! start, its removal, whether the person turned it off, and whether a person is logged in at the
+//! screen; and the system service that runs it while its account is logged out, behind an
+//! administrator's password. A system that registers the service supplies the registration in its
+//! own module; on any other system the registration type has no value, so
+//! [`service_registration`] answers `None` there and nothing else is called.
 
 use std::io;
 use std::path::PathBuf;
@@ -16,7 +17,8 @@ pub enum ServiceOwner {
     /// The app's registration: the system has the service loaded and the command line wrote no
     /// registration of its own.
     App,
-    /// No registration: nothing starts the service at login.
+    /// No registration: nothing starts the service at login, or this run's home is not the
+    /// account's own, where no registered service could answer it.
     None,
 }
 
@@ -118,6 +120,12 @@ pub enum ServiceRegistrationError {
         #[source]
         source: io::Error,
     },
+    /// The system answered a login item status this build does not know.
+    #[error("the system answered the unknown login item status {value}")]
+    UnknownLoginItemStatus {
+        /// The status's number.
+        value: isize,
+    },
     /// The registration's file could not be removed.
     #[error("the service's registration at {} could not be removed", path.display())]
     Remove {
@@ -147,6 +155,11 @@ impl ServiceRegistration {
         &self,
         _daemon_program: &std::path::Path,
     ) -> Result<ServiceInstall, ServiceRegistrationError> {
+        match *self {}
+    }
+
+    /// Whether the person turned the registration off; never called, since no value exists.
+    pub fn is_turned_off(&self) -> Result<bool, ServiceRegistrationError> {
         match *self {}
     }
 
