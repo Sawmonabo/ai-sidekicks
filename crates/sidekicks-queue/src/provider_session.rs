@@ -204,6 +204,12 @@ impl ProviderSessions {
         }
     }
 
+    /// The epoch cursors of every session's bindings, which name the binding a session runs on now
+    /// and fence an undo's conversation cut.
+    pub(crate) fn binding_cursors(&self) -> &RunBindingCursors {
+        &self.deps.binding_cursors
+    }
+
     /// The posture the session's process runs at, which each of its runs is requested at: the open
     /// one's, else the one it opens at on `provider_account_id`. Fails with
     /// [`ProviderSessionError::NoPosture`] for a session whose lead runs at none, and as the

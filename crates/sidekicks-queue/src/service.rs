@@ -6,11 +6,14 @@
 //! never interleave; a skill pick is resolved before the lock, so a read waiting at the memory gate
 //! never holds the session's writes. A change to a message a provider was handed takes it back
 //! first, and one the provider does not give back reads not delivered and leaves the change. A send
-//! into a paused or pausing run resumes it once the lock is let go.
+//! into a paused or pausing run resumes it once the lock is let go, or once an undo holding the
+//! session lets go. An undo holds the session's lead while it cuts the conversation, and its
+//! release sends the edited message ahead of every send held meanwhile.
 
 mod interrupt;
 #[cfg(test)]
 mod tests;
+mod undo;
 pub mod withdrawal;
 
 use std::sync::{Arc, LazyLock, Weak};
@@ -80,11 +83,14 @@ use crate::session_lock::{QueueSessionLock, UnreleasedInterrupts};
 /// session's newest lead run that has not ended and its current lead run, the sessions with a lead
 /// message waiting for a run that ended or has not started, a session's interrupts whose release
 /// left their choice unsettled and the sessions holding one, the trigger of a run's newest
-/// interrupted end, and the queue stream's reads of the changes after a cursor and of the waiting
-/// items from the first place and after a place. Its other reads (a session's queue, the messages
-/// waiting for a run, a run's row, its provider, its agent and account, a session's state, its lead
-/// and its step bound) are in the idle sleep's, the run engine's and the run pause's sets.
-pub const RUN_QUEUE_STATEMENT_CAPACITY: usize = 12;
+/// interrupted end, the queue stream's reads of the changes after a cursor and of the waiting
+/// items from the first place and after a place, and an undo's reads: a checkpoint by its message
+/// and by its snapshot, a session's lead runs after one, its live runs and their open turns, and
+/// its ended runs holding an open turn. Its other reads (a session's queue, the messages waiting
+/// for a run, a run's row, its provider, its agent and account, a session's state, its lead and its
+/// step bound, a binding by its id and the events at a sequence) are in the idle sleep's, the run
+/// engine's, the run pause's, the binding store's and the snapshot list's sets.
+pub const RUN_QUEUE_STATEMENT_CAPACITY: usize = 18;
 
 // The detail of a queued run ended because every message it was queued for was removed.
 static EMPTIED_RUN_DETAIL: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
@@ -135,6 +141,13 @@ pub struct RunQueue {
     writer: Arc<DatabaseWriter>,
     pauses: Arc<RunPauseControl>,
     engine: Arc<RunEngine>,
+    // The drivers, whose conversation cut an undo asks for.
+    providers: Arc<ProviderRegistry>,
+    // The provider sessions, whose binding cursors an undo's cut is fenced on.
+    provider_sessions: Arc<ProviderSessions>,
+    // Where each damaged session's log stops being readable, which an undo's read of its message
+    // keeps to.
+    read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     recorder: Arc<QueueRecorder>,
     delivery: QueueDelivery,
     admission: Arc<QueueAdmission>,
@@ -175,6 +188,11 @@ impl RunQueue {
         }));
         let session_lock = Arc::new(QueueSessionLock::new());
         let openings = Arc::new(RunOpenings::default());
+        let undo_reads = (
+            Arc::clone(&providers),
+            Arc::clone(&provider_sessions),
+            Arc::clone(&read_damaged_from_sequence),
+        );
         let mut parts = None;
         let lifecycle = Arc::new_cyclic(|lifecycle: &Weak<QueueRunLifecycle>| {
             let delivery = QueueDelivery::new(QueueDeliveryDeps {
@@ -226,6 +244,7 @@ impl RunQueue {
             let lifecycle = Arc::clone(&lifecycle);
             followers.follow_all(move |event| lifecycle.observe(event))
         };
+        let (providers, provider_sessions, read_damaged_from_sequence) = undo_reads;
         Arc::new_cyclic(|this: &Weak<Self>| {
             let unreleased: Weak<dyn UnreleasedInterrupts> = this.clone();
             session_lock.settle_with(unreleased);
@@ -234,6 +253,9 @@ impl RunQueue {
                 writer,
                 pauses,
                 engine,
+                providers,
+                provider_sessions,
+                read_damaged_from_sequence,
                 recorder,
                 delivery,
                 admission,
@@ -285,7 +307,8 @@ impl RunQueue {
     /// give back, an edit of a waiting review, a retry of a message in other words, a review's
     /// retry carrying files, skills, an answered question or a speed, a skill pick the provider
     /// does not list or whose read waited past the delivery timeout, a send the store cannot keep
-    /// and one whose lead run kept moving under it, writing nothing.
+    /// and one whose lead run kept moving under it, writing nothing. A send into a paused run while
+    /// an undo holds the session leaves the run's resume to the undo's release.
     pub async fn create(
         &self,
         request: AgentQueueItemCreateRequest,
@@ -345,7 +368,9 @@ impl RunQueue {
                 }
             }
         };
-        if let Some((run_id, run)) = written.resumes {
+        if let Some((run_id, run)) = written.resumes
+            && !self.delivery.is_held_for_undo(session_id)
+        {
             self.resume_for_send(run_id, run.version).await;
         }
         Ok(created_response_of(written.item))
