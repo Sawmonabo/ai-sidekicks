@@ -64,19 +64,16 @@ pub(crate) async fn wait_at_gate(
         None => {}
     }
     let hold_started_at = WireInstant::now();
-    let held = |hold_started_at: &WireInstant| StepReportKind::WaitingOnPool {
-        hold_started_at: hold_started_at.clone(),
-    };
-    if send(
+    if let Some(end) = send_hold(
         reports,
         &step,
         hold_started_at.clone(),
-        held(&hold_started_at),
+        &hold_started_at,
+        cancel,
     )
     .await
-    .is_err()
     {
-        return GateWaitEnd::ReportsClosed;
+        return end;
     }
     let repeat = tokio::time::sleep(POOL_WAIT_REPEAT);
     tokio::pin!(repeat);
@@ -108,13 +105,35 @@ pub(crate) async fn wait_at_gate(
                 }
             }
             () = &mut repeat => {
-                if send(reports, &step, WireInstant::now(), held(&hold_started_at)).await.is_err() {
-                    return GateWaitEnd::ReportsClosed;
+                let sent = send_hold(reports, &step, WireInstant::now(), &hold_started_at, cancel);
+                if let Some(end) = sent.await {
+                    return end;
                 }
                 let next = repeat.deadline() + POOL_WAIT_REPEAT;
                 repeat.as_mut().reset(next);
             }
         }
+    }
+}
+
+// Sends `step`'s hold report made at `at`, unless `cancel` fires first, so a full channel never
+// keeps a canceled step waiting; `Some` is how the wait ends.
+async fn send_hold(
+    reports: &mpsc::Sender<StepReport>,
+    step: &WorkflowStepKey,
+    at: WireInstant,
+    hold_started_at: &WireInstant,
+    cancel: &CancellationToken,
+) -> Option<GateWaitEnd> {
+    let held = StepReportKind::WaitingOnPool {
+        hold_started_at: hold_started_at.clone(),
+    };
+    tokio::select! {
+        biased;
+        () = cancel.cancelled() => Some(GateWaitEnd::Canceled {
+            hold_started_at: Some(hold_started_at.clone()),
+        }),
+        sent = send(reports, step, at, held) => sent.err().map(|ReportsClosed| GateWaitEnd::ReportsClosed),
     }
 }
 
@@ -336,8 +355,8 @@ mod tests {
     }
 
     /// A step the gate already admitted reports no hold; a cancel or a closed gate ends a held
-    /// wait with the hold's first instant. Mutations: a hold written for a step the gate already
-    /// admitted; a cancel ignored while held.
+    /// wait at once with the hold's first instant. Mutations: a hold written for a step the gate
+    /// already admitted; a cancel ignored while held, which the timeout catches.
     #[rstest]
     #[case::already_admitted(Ending::AlreadyAdmitted)]
     #[case::canceled_while_held(Ending::Cancel)]
@@ -373,8 +392,45 @@ mod tests {
                 }
             }
         };
-        assert_eq!(wait.await.expect("the wait ends"), expected);
+        let end = tokio::time::timeout(Duration::from_secs(1), wait)
+            .await
+            .expect("the wait ends before a repeat")
+            .expect("the wait's task ends");
+        assert_eq!(end, expected);
         assert!(received.recv().await.is_none());
+    }
+
+    /// A step canceled while its hold report waits on a full channel ends `Canceled` at once.
+    /// Mutations: send the hold without watching the cancel.
+    #[tokio::test(start_paused = true)]
+    async fn a_hold_blocked_on_a_full_channel_still_ends_on_cancel() {
+        let (_gate, admission) = watch::channel(None);
+        let cancel = CancellationToken::new();
+        let (reports, _received) = mpsc::channel(1);
+        reports
+            .try_send(StepReport {
+                step: step(),
+                at: WireInstant::now(),
+                kind: StepReportKind::Progressed,
+            })
+            .expect("the channel takes one report");
+        let step_cancel = cancel.clone();
+        let wait =
+            tokio::spawn(
+                async move { wait_at_gate(step(), admission, &step_cancel, &reports).await },
+            );
+        tokio::task::yield_now().await;
+        cancel.cancel();
+        let end = tokio::time::timeout(Duration::from_secs(1), wait)
+            .await
+            .expect("the wait ends at once")
+            .expect("the wait's task ends");
+        assert!(matches!(
+            end,
+            GateWaitEnd::Canceled {
+                hold_started_at: Some(_)
+            }
+        ));
     }
 
     /// A turn waits for every earlier turn, not only the one just before it, and not for the
