@@ -24,6 +24,7 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
 
+use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
@@ -45,17 +46,18 @@ use crate::driver::run_control::{
 };
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
-    CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverResumeResult,
-    MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
-    ProviderCommandsListener, ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams,
-    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, StartingLevel,
-    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
-    UpdateSessionModeParams,
+    CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverHandoverBriefResult,
+    DriverResumeResult, ExportHandoverBriefParams, MoveSessionToForkParams,
+    MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
+    ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
+    SessionCommandAnswer, SetSessionGoalParams, StartingLevel, StartingLevelParams,
+    SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 
+pub mod account;
 pub mod error;
 pub mod params_and_results;
 pub mod sign_in;
@@ -499,6 +501,15 @@ pub trait ProviderDriver: Send + Sync {
         params: AskSideQuestionParams,
     ) -> BoxFuture<'_, Result<(), DriverError>>;
 
+    /// Takes the session's summary for a hand-over brief on a throwaway copy of its conversation,
+    /// the session's own conversation left as it was and starting no turn; the copy's one turn is
+    /// metered on the session's binding. Answers the provider's own summary, or where it cannot be
+    /// read the copy's answer to the fixed template, saying which; fails as the copy's turn fails.
+    fn export_handover_brief(
+        &self,
+        params: ExportHandoverBriefParams,
+    ) -> BoxFuture<'_, Result<DriverHandoverBriefResult, DriverError>>;
+
     /// Follows the session's live command list (gated on `providerCommands`): `listener` gets the
     /// current list and each change until the returned subscription drops.
     fn subscribe_provider_commands(
@@ -515,6 +526,14 @@ pub trait ProviderDriver: Send + Sync {
     /// The inbox addresses the daemon holds for every session, where this provider's sessions
     /// must answer them; `None` for a provider whose sessions answer no inbox.
     fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>>;
+
+    /// The provider's own acts on one account's home, one object built with the driver, which
+    /// the account plane runs every provider's account acts through.
+    fn account_legs(&self) -> Arc<dyn ProviderAccountLegs>;
+
+    /// Drops what the driver keeps in memory for `provider_account_id`'s account, which has been
+    /// removed; an account it keeps nothing for is left as it is.
+    fn forget_account(&self, provider_account_id: &ProviderAccountId);
 
     /// Deletes what the provider keeps for its own diagnosis in account home `home` from before
     /// `cutoff`, beyond the descriptor's folders, which the expiry deletes itself, and answers the

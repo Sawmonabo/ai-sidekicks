@@ -16,7 +16,7 @@ use sidekicks_platforms::CredentialStore;
 use zeroize::Zeroizing;
 
 use super::{ClaudeConnectorMarks, ClaudeOrganizationMarks};
-use crate::driver::claude::account_credentials::{ClaudeAiSignIn, ClaudeSignInReader};
+use crate::driver::claude::account::credentials::{ClaudeAiSignIn, ClaudeSignInReader};
 use crate::driver::claude::mcp::config::ClaudeMcpConfigReading;
 use crate::driver::claude::mcp::connectors::{
     ClaudeAccountServerAnswers, read_claude_account_servers,

@@ -14,11 +14,12 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use secrecy::SecretString;
 use serde_json::Value;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::CredentialStore;
 use tokio::sync::{Notify, mpsc, oneshot};
 
 use super::channel::{ScriptedAnswer, ScriptedChannel};
-use crate::driver::claude::account_credentials::{
+use crate::driver::claude::account::credentials::{
     CLAUDE_CREDENTIALS_FILE, SECURE_STORAGE_FOLDER_VARIABLE, claude_keychain_account,
     claude_keychain_service,
 };
@@ -28,6 +29,7 @@ use crate::driver::claude::mcp::machine_probe::ClaudeMcpProbeProcessRequest;
 use crate::driver::claude::mcp::sign_in::ClaudeMcpSignInStart;
 use crate::driver::claude::session::answered_commands::ClaudeAttachedAdvisor;
 use crate::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
+use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{ClaudeProcessListener, ClaudeStreamFrame};
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
@@ -61,6 +63,8 @@ pub(crate) struct ScriptedStartRecord {
     pub(crate) conversation: ClaudeConversationStart,
     /// Where its frames, requests and exit go.
     pub(crate) listener: Arc<dyn ClaudeProcessListener>,
+    /// The account its readers would name, as the launch hands it to them.
+    pub(crate) account: ClaudeProcessAccount,
     /// The advisor it starts with.
     pub(crate) advisor: ClaudeSessionAdvisor,
     /// The step bound it starts with.
@@ -80,6 +84,8 @@ pub(crate) struct ScriptedOneTurnRecord {
     pub(crate) resume_handle: Option<String>,
     /// The mode it runs in in place of its level's own.
     pub(crate) permission_mode: Option<ClaudePermissionMode>,
+    /// The one message it is sent.
+    pub(crate) text: String,
 }
 
 #[derive(Default)]
@@ -324,6 +330,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 tables.started.push(ScriptedStartRecord {
                     conversation: request.conversation,
                     listener: request.listener,
+                    account: request.account,
                     advisor: request.spawn.legs.advisor.clone(),
                     step_bound: request.spawn.step_bound,
                     permission_mode: request.permission_mode,
@@ -394,6 +401,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 model: request.spawn.legs.model.clone(),
                 resume_handle: request.resume_handle,
                 permission_mode: request.permission_mode,
+                text: request.text.text.clone(),
             });
             tables
                 .one_turn_environments
@@ -406,6 +414,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
     fn probe_sign_in(
         &self,
         _environment: Vec<(String, String)>,
+        _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<String, ClaudeLaunchError>> {
         async { Err(spawn_failure("no sign-in scripted")) }.boxed()
     }
@@ -413,6 +422,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
     fn read_model_catalog(
         &self,
         environment: Vec<(String, String)>,
+        _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<ClaudeModelCatalogReading, ClaudeLaunchError>> {
         let initialize = {
             let mut tables = self.lock();

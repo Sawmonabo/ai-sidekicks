@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use rstest::rstest;
 use rusqlite::params;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
@@ -27,10 +28,13 @@ use sidekicks_contracts::transcript::turn_attribution::{
 };
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::registry::test_provider;
 use sidekicks_provider::driver::test_registry::new_run_id;
-use sidekicks_provider::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
+use sidekicks_provider::port::usage_sink::{
+    MeteredUsage, MeteredUsageOwner, ProviderQuotaWindow, UsageSink,
+};
 use sidekicks_provider::usage_delta_accountant::{
     MeteredUsageDelta, UsageAxisCounts, UsageDiagnosticBand,
 };
@@ -574,4 +578,88 @@ async fn a_report_past_the_limit_returns_before_its_stop_answers() {
         Some(TokenLimitStop::Stopped)
     );
     assert_eq!(harness.stored(RECORDED, "inputTokens").len(), 2);
+}
+
+// When the account's five-hour window resets in the stored reading.
+const STORED_RESET: &str = "2026-11-01T05:00:00Z";
+
+// A quota window of the account's whole set as a limits read answers it.
+fn quota_window(limit_id: &str, used_percent: f64, resets_at: &str) -> ProviderQuotaWindow {
+    ProviderQuotaWindow {
+        limit_id: limit_id.to_owned(),
+        window_mins: 300,
+        used_percent,
+        resets_at: Some(resets_at.parse().expect("a test reset instant")),
+    }
+}
+
+// The rows the record filed under the machine's sentinel session.
+fn rate_limit_rows(database: &TestDatabase) -> i64 {
+    database
+        .reader()
+        .query_row(
+            "SELECT count(*) FROM session_events WHERE type = 'usage.rateLimit.updated'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("the rows count")
+}
+
+// A whole set that says nothing the stored windows do not files no row, and one with a share, a
+// reset, a generation, a window more or a window fewer than they hold files the whole set. Killed
+// by the comparison dropped (a row for the unchanged set) and by any one of those left out of it
+// (no row for that change).
+#[rstest]
+#[case::the_stored_set(vec![quota_window("session", 40.0, STORED_RESET)], 1, false, 0)]
+#[case::a_share_moved(vec![quota_window("session", 41.0, STORED_RESET)], 1, false, 1)]
+#[case::a_reset_moved(vec![quota_window("session", 40.0, "2026-11-01T10:00:00Z")], 1, false, 1)]
+#[case::a_generation_risen(vec![quota_window("session", 40.0, STORED_RESET)], 1, true, 1)]
+#[case::a_window_more(
+    vec![quota_window("session", 40.0, STORED_RESET), quota_window("weekly", 10.0, STORED_RESET)],
+    1,
+    false,
+    2
+)]
+#[case::a_window_fewer(vec![quota_window("session", 40.0, STORED_RESET)], 2, false, 1)]
+#[tokio::test]
+async fn a_whole_set_files_rows_only_when_it_moved_from_the_stored_windows(
+    #[case] windows: Vec<ProviderQuotaWindow>,
+    #[case] stored_windows: usize,
+    #[case] is_signed_in_again: bool,
+    #[case] rows: i64,
+) {
+    let harness = Harness::new(None, false).await;
+    let connection = harness.database.reader();
+    let stored_reset =
+        WireInstant::from_timestamp(STORED_RESET.parse().expect("a test reset instant"))
+            .expect("the reset is a wire instant");
+    for (limit_id, used_percent) in [("session", 40.0), ("weekly", 10.0)]
+        .into_iter()
+        .take(stored_windows)
+    {
+        connection
+            .execute(
+                "INSERT INTO provider_account_usage_windows (account_id, limit_id, window_mins,
+                   used_percent, resets_at, observed_at, observed_credential_generation, source)
+                 VALUES (?1, ?2, 300, ?3, ?4, '2026-11-01T00:00:00.000Z', 1, 'probe')",
+                params![ACCOUNT, limit_id, used_percent, stored_reset.as_str()],
+            )
+            .expect("the test stores a window");
+    }
+    if is_signed_in_again {
+        connection
+            .execute(
+                "UPDATE provider_accounts SET credential_generation = 2 WHERE account_id = ?1",
+                [ACCOUNT],
+            )
+            .expect("the test signs the account in again");
+    }
+
+    harness
+        .record
+        .record_whole_quota_windows(test_provider(), account(), windows)
+        .await
+        .expect("the set is recorded");
+
+    assert_eq!(rate_limit_rows(&harness.database), rows);
 }

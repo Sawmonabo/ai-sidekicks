@@ -45,6 +45,7 @@ use crate::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeMcpSetServersReply, ClaudeToolServerEntry,
 };
 use crate::driver::claude::session::transport::mcp_status::ClaudeMcpStatusReply;
+use crate::driver::claude::spawn::arguments::CLAUDE_NO_MCP_SERVERS;
 use crate::driver::claude::spawn::launch::control_only::{
     ClaudeShortProcessArrival, compose_claude_control_only_arguments,
 };
@@ -302,7 +303,7 @@ pub(crate) async fn probe_claude_mcp_servers(
         }
         let mut arguments = compose_claude_control_only_arguments(None);
         if !sources.has_managed_mcp_file {
-            arguments.push("--strict-mcp-config".to_owned());
+            arguments.push(CLAUDE_NO_MCP_SERVERS.to_owned());
         }
         let mut plugin_folders: Vec<&Path> = Vec::new();
         for server in &plugin_servers {

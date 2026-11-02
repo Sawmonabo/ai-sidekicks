@@ -36,7 +36,8 @@ use tokio::time::Instant;
 
 use self::body::{ClaudeFrameBody, read_frame_members};
 use self::daemon_ends::ClaudeStreamDialogPorts;
-pub(crate) use self::session::{ClaudeSessionStream, ClaudeSessionStreams};
+use self::session::CLAUDE_LOGIN_REFUSAL;
+pub(crate) use self::session::{ClaudeFirstRequest, ClaudeSessionStream, ClaudeSessionStreams};
 use crate::command::running_set::RunningCommandSets;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
@@ -52,6 +53,7 @@ use crate::driver::claude::delivery::system::{
     read_claude_refusal_without_fallback, read_claude_warning, read_claude_worker_shutdown_reason,
 };
 use crate::driver::claude::delivery::turn_end::ClaudeTerminalReason;
+use crate::driver::claude::delivery::turn_readings::is_claude_message_start;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::rate_limit_windows::{
@@ -235,7 +237,7 @@ impl ClaudeDeliveryStream {
         {
             session
                 .permission_mode()
-                .note_report(mode, frame_kind, &session.provider_account_id);
+                .note_report(mode, frame_kind, &session.provider_account_id());
         }
         if kind == ClaudeWireFrameKind::CommandLifecycle {
             self.read_command_lifecycle(session, &members);
@@ -361,6 +363,9 @@ impl ClaudeDeliveryStream {
                     .await;
             }
             ClaudeWireFrameKind::SystemApiRetry => {
+                if members.get("error").and_then(Value::as_str) == Some(CLAUDE_LOGIN_REFUSAL) {
+                    session.settle_first_request(ClaudeFirstRequest::LoginRefused);
+                }
                 let retried = read_claude_api_retry(&members, session.session_id, lead.run_id);
                 let row = LateAppendableRow::UsageApiRequestRetried(retried);
                 self.send_row(session, &lead, row, frame_kind).await;
@@ -416,6 +421,11 @@ impl ClaudeDeliveryStream {
             ClaudeWireFrameKind::StreamEvent => self.stream_event(session, &lead, &frame.text),
             ClaudeWireFrameKind::Assistant => {
                 if let Some(message) = message {
+                    // An answered request is heard at its `message_start`, since a reply begun
+                    // before an account move goes on streaming its messages after it.
+                    if message.error() == Some(CLAUDE_LOGIN_REFUSAL) {
+                        session.settle_first_request(ClaudeFirstRequest::LoginRefused);
+                    }
                     let usage = frame.observation.message_usage.as_ref();
                     self.assistant(session, &lead, &message, usage).await;
                 }
@@ -573,6 +583,7 @@ impl ClaudeDeliveryStream {
             .dialogs
             .observe_assistant_error(lead.run_id, frame.error())
             .await;
+        let provider_account_id = session.provider_account_id();
         let (pieces, rows, counts_step, tasks) = {
             let mut readings = session.lock();
             readings.command_tasks.observe_calls(frame);
@@ -593,7 +604,10 @@ impl ClaudeDeliveryStream {
                 && frame.provider_message_id().is_some_and(|message_id| {
                     readings.counted_step_messages.insert(message_id.to_owned())
                 });
-            let (pieces, unstreamed) = readings.streamed_blocks.finish(frame, rows);
+            let (pieces, unstreamed) =
+                readings
+                    .streamed_blocks
+                    .finish(frame, rows, &provider_account_id);
             let key = frame
                 .uuid()
                 .map(|uuid| ClaudeMessageKey::Uuid(uuid.to_owned()));
@@ -669,9 +683,16 @@ impl ClaudeDeliveryStream {
             session_id: session.session_id,
             run_id: lead.run_id,
         };
+        // Only a reply opened after an account move is the moved account's first request.
+        if session.is_watching_first_request() && is_claude_message_start(text) {
+            session.settle_first_request(ClaudeFirstRequest::Answered);
+        }
+        let provider_account_id = session.provider_account_id();
         let usage = {
             let mut readings = session.lock();
-            readings.streamed_blocks.observe(text, run, Instant::now());
+            readings
+                .streamed_blocks
+                .observe(text, run, &provider_account_id, Instant::now());
             readings.turn_readings.observe_stream_event(text)
         };
         if let (Some(usage), Some(publisher)) = (usage, self.dependencies.turn_readings.port()) {
@@ -696,17 +717,14 @@ impl ClaudeDeliveryStream {
         let Some(sink) = self.dependencies.usage.port() else {
             return;
         };
+        let provider_account_id = session.provider_account_id();
         let windows = read_claude_quota_windows(
             members,
             &self.dependencies.usage_probe_models,
-            &session.provider_account_id,
+            &provider_account_id,
         );
         if let Err(error) = sink
-            .record_quota_windows(
-                DESCRIPTOR.provider_id(),
-                session.provider_account_id.clone(),
-                windows,
-            )
+            .record_quota_windows(DESCRIPTOR.provider_id(), provider_account_id, windows)
             .await
         {
             report_engine_failure(session, "the quota windows", &*error);
@@ -747,7 +765,7 @@ fn record_unmapped(
 ) {
     lock(reports).report(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
-        provider_account_id: Some(session.provider_account_id.clone()),
+        provider_account_id: Some(session.provider_account_id()),
         kind: DriverDiagnosticKind::UnmappedWireKind,
         raw_wire_type: Some(frame_kind.to_owned()),
         disposition_reason: disposition_reason.to_owned(),

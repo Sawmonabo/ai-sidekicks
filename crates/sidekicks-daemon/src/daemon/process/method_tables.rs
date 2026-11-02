@@ -68,6 +68,9 @@ use crate::ipc::handlers::mcp::{McpMethodSources, register_mcp_methods};
 use crate::ipc::handlers::presence::register_presence_methods;
 use crate::ipc::handlers::project::clone::register_project_clone_methods;
 use crate::ipc::handlers::project::register_project_methods;
+use crate::ipc::handlers::provider_account::{
+    ProviderAccountMethodSources, register_provider_account_methods,
+};
 use crate::ipc::handlers::question::register_question_resolve;
 use crate::ipc::handlers::repo::branches::register_repo_branches;
 use crate::ipc::handlers::repo::mount::register_repo_mounts;
@@ -202,10 +205,12 @@ pub(crate) struct MethodTableServices {
     pub(crate) session_working_folders: Arc<SessionWorkingFolders>,
     /// The machine settings file, where a create keeps the last lead pick.
     pub(crate) machine_settings_file: Arc<MachineSettingsFile>,
+    /// What the provider account methods act through.
+    pub(crate) provider_accounts: ProviderAccountMethodSources,
 }
 
 /// Registers every method table on `builder`, each once, grouped by owner: the daemon's own, its
-/// data, the drivers, the approvals, the runs and their agents' commands and turns, the MCP
+/// data, the drivers, the provider accounts, the approvals, the runs and their agents' commands and turns, the MCP
 /// servers, the sessions, attention, the repositories, the projects, the folders, workspaces and
 /// worktrees, the sessions' create and convert, the machine's folders and the devices present. The
 /// handshake, the subscriptions' cancel and the artifact store's table are registered by the start
@@ -224,6 +229,7 @@ pub(crate) fn register_method_tables(
     register_retention_methods(builder, services.retention)?;
     register_data_methods(builder, services.data)?;
     register_driver_methods(builder, &services.driver_methods)?;
+    register_provider_account_methods(builder, services.provider_accounts)?;
     register_approval_methods(builder, &services.approval_methods)?;
     register_run_control(builder, &services.run_control)?;
     register_run_queue(builder, &services.run_queue)?;

@@ -386,7 +386,11 @@ mod tests {
         can_mcp_sign_in_return_to_daemon_receiver: false,
         account_home_diagnostic_folders: &[],
         account_home_conversation_folders: &[],
+        account_home_memory_folder: None,
+        switching_home_folder: None,
+        account_home_credential_store_folder: &[],
         shell_prefix_command: None,
+        token_limits_read_by_turn: false,
     };
 
     /// A second registered provider, whose credential home no row may set either, and whose

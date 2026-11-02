@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
+use crate::keychain::KeychainRefusalCause;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::provider::account::record::readiness::ProviderSignInExpiredRemedy;
@@ -21,6 +22,7 @@ use crate::provider::account::sign_in::{
     ProviderAccountCredentialHomeResetRequest, ProviderAccountCredentialHomeResetResponse,
     ProviderAccountRegisterRequest, ProviderAccountRegisterResponse,
     ProviderAccountSignInAttemptCancelRequest, ProviderAccountSignInAttemptCancelResponse,
+    ProviderAccountSignInCodeSubmitRequest, ProviderAccountSignInCodeSubmitResponse,
     ProviderAccountSignInRequest, ProviderAccountSignInResponse,
 };
 use crate::provider::id::ProviderId;
@@ -33,6 +35,7 @@ use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::list::BoundedVec;
 use crate::wire::text::FreeFormText;
+use crate::workflow::run::id::WorkflowRunId;
 
 ts_constants! {
     /// The longest model id on a usage row, as the provider names it.
@@ -47,11 +50,19 @@ ts_constants! {
     /// The provider has accounts but none is current, so a run's account is ambiguous and it is
     /// not admitted.
     PROVIDER_ACCOUNT_CURRENT_NOT_SET_CODE = RefusalCode::ProviderAccountCurrentNotSet;
-    /// A run bound to the account is live, so it is not removed; the refusal names the sessions.
+    /// A run bound to the account is live, or a workflow step waits on it, so it is not removed;
+    /// the refusal names the sessions or the workflow runs.
     PROVIDER_ACCOUNT_IN_USE_CODE = RefusalCode::ProviderAccountInUse;
+    /// The place the daemon keeps its secrets would not destroy the account's token, so the
+    /// removal stopped; the account no longer reads as registered and the next start finishes it.
+    PROVIDER_ACCOUNT_CREDENTIAL_DESTROY_REFUSED_CODE =
+        RefusalCode::ProviderAccountCredentialDestroyRefused;
     /// The named account is not signed in, so it is refused as a switch target before anything
     /// moves.
     PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE = RefusalCode::ProviderAccountNotAuthenticated;
+    /// The account's one memory import has already run, so it is not run again.
+    PROVIDER_ACCOUNT_MEMORY_ALREADY_IMPORTED_CODE =
+        RefusalCode::ProviderAccountMemoryAlreadyImported;
 }
 
 /// Edits an account's descriptive settings; an omitted member is unchanged. The provider, the
@@ -106,8 +117,10 @@ pub struct ProviderAccountUpdateRequest {
     pub wake_for_window_start_enabled: Option<bool>,
 }
 
-/// Whether the helper that wakes this computer for a window start is installed; one that did not
-/// install leaves the switch off and gives its reason.
+/// Where the helper that wakes this computer for a window start stands. The update reply reads
+/// `installed` or `notInstalled`, one that did not install leaving the switch off and giving its
+/// reason; `daemon.status.read` reads `installed`, `turnedOff` (turned off in the system's login
+/// items) or `missing`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "state",
@@ -123,6 +136,10 @@ pub enum ProviderWakeHelperState {
         /// Why, in the installer's own words.
         reason: FreeFormText<PROVIDER_WAKE_HELPER_REASON_MAX_LEN>,
     },
+    /// Turned off in the system's login items, on macOS alone; nothing wakes the computer.
+    TurnedOff {},
+    /// Gone while an account's wake switch is on; nothing wakes the computer.
+    Missing {},
 }
 
 /// The updated account.
@@ -163,12 +180,34 @@ pub struct ProviderAccountDeleteResponse {
     pub removed: True,
 }
 
-/// The sessions whose live runs block a removal; at least one is named.
+/// What holds the account a removal refused: the sessions whose live runs are on it, or the
+/// workflow runs with a step parked waiting on it; at least one is named either way.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "heldBy",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum ProviderAccountInUseDetails {
+    /// Sessions run on the account.
+    Sessions {
+        /// The sessions.
+        session_ids: BoundedVec<SessionId, 1, { usize::MAX }>,
+    },
+    /// Workflow runs have a step parked waiting on the account, which no session runs yet.
+    WaitingSteps {
+        /// The workflow runs.
+        workflow_run_ids: BoundedVec<WorkflowRunId, 1, { usize::MAX }>,
+    },
+}
+
+/// The details of a refused destroy of the account's sealed token.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ProviderAccountInUseDetails {
-    /// The sessions.
-    pub session_ids: BoundedVec<SessionId, 1, { usize::MAX }>,
+pub struct ProviderAccountCredentialDestroyRefusedDetails {
+    /// Why the keychain could not be used.
+    pub cause: KeychainRefusalCause,
 }
 
 /// Makes this account its provider's current account, the one the default mark sits on. New
@@ -244,7 +283,7 @@ pub struct ProviderAccountProbeResponse {
 }
 
 /// Copies the person's own provider memory into this account's home, once, never overwriting a
-/// file, and answers with the outcome the account keeps, so a repeat never copies twice.
+/// file, and answers with the outcome the account keeps; a repeat is refused and copies nothing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -397,6 +436,7 @@ methods! {
                 ProviderAccountDisplayLabelTaken,
                 ProviderAccountCurrentConflict,
                 ProviderAccountCredentialHomeUnavailable,
+                ProviderAccountSignInInFlight,
             ],
         },
         /// Edits an account's descriptive settings.
@@ -420,6 +460,7 @@ methods! {
                 ProviderAccountPermissionDenied,
                 ProviderAccountNotFound,
                 ProviderAccountInUse,
+                ProviderAccountCredentialDestroyRefused,
             ],
         },
         /// Makes an account its provider's current one.
@@ -433,6 +474,7 @@ methods! {
                 ProviderAccountNotAuthenticated,
                 ProviderAccountCurrentConflict,
                 ProviderAccountCredentialHomeUnavailable,
+                ProviderAccountSignInInFlight,
             ],
         },
         /// Checks an account's health now.
@@ -455,6 +497,7 @@ methods! {
                 ProviderAccountPermissionDenied,
                 ProviderAccountNotFound,
                 ProviderAccountCredentialHomeUnavailable,
+                ProviderAccountSignInInFlight,
             ],
         },
         /// Starts the provider's own interactive sign-in.
@@ -469,6 +512,13 @@ methods! {
                 ProviderAccountSignInUnsupported,
                 ProviderAccountCredentialHomeUnavailable,
             ],
+        },
+        /// Sends the code a sign-in page shows to the sign-in waiting for it.
+        ProviderAccountSignInCodeSubmit = mutation "provider.account.signInCode.submit" {
+            mutating: true,
+            params: ProviderAccountSignInCodeSubmitRequest,
+            result: ProviderAccountSignInCodeSubmitResponse,
+            refusals: [ProviderAccountPermissionDenied],
         },
         /// Cancels a sign-in attempt.
         ProviderAccountSignInAttemptCancel = mutation "provider.account.signInAttempt.cancel" {
@@ -485,6 +535,7 @@ methods! {
             refusals: [
                 ProviderAccountPermissionDenied,
                 ProviderAccountNotFound,
+                ProviderAccountMemoryAlreadyImported,
                 ProviderAccountCredentialHomeUnavailable,
             ],
         },
@@ -510,6 +561,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ProviderAccountDeleteRequest>(),
         Definition::read::<ProviderAccountDeleteResponse>(),
         Definition::read::<ProviderAccountInUseDetails>().checked(),
+        Definition::read::<ProviderAccountCredentialDestroyRefusedDetails>().checked(),
         Definition::read::<ProviderAccountCurrentUpdateRequest>(),
         Definition::read::<ProviderAccountMovingSession>(),
         Definition::read::<ProviderAccountCurrentUpdateResponse>(),

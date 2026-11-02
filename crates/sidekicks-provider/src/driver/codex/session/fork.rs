@@ -9,6 +9,7 @@ pub(crate) mod config_change;
 
 use std::sync::Arc;
 
+use serde_json::Map;
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::controls::methods::SessionMode;
@@ -24,6 +25,7 @@ use crate::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::driver::codex::output_speed::{
     compose_codex_service_tier, read_codex_declared_tier, resolve_codex_output_speed_level,
 };
+use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::calls::CodexSessionTask;
 use crate::driver::codex::session::controls::update_codex_session_mode;
@@ -243,13 +245,26 @@ pub(crate) async fn move_codex_session_to_fork(
 }
 
 /// Points the binding of the session's first run at the conversation the session is on, recording
-/// with it each conversation a fork left before the session had a binding. Fails as the binding's
-/// write does, those conversations still owed to the next write.
+/// with it each conversation a fork left before the session had a binding, and keeps on it the
+/// switching home where that home holds the conversation, which every later binding of the session
+/// carries on. Fails as a binding's write does, those conversations still owed to the next write.
 pub(crate) async fn bind_codex_first_run(
     record: &mut CodexSessionRecord,
     bindings: &dyn RuntimeBindingWriter,
     binding_id: &RuntimeBindingId,
 ) -> Result<(), CodexError> {
+    let home = CodexConversationHome::of_service(record.service.home());
+    if home == CodexConversationHome::Switching {
+        let mut runtime_metadata = Map::new();
+        home.keep_in(&mut runtime_metadata);
+        bindings
+            .keep_recovery_data(binding_id.clone(), runtime_metadata)
+            .await
+            .map_err(|cause| CodexError::PortFailed {
+                port: RUNTIME_BINDING_STORE_PORT,
+                cause,
+            })?;
+    }
     if record.left_thread_ids_awaiting_binding.is_empty() {
         return Ok(());
     }

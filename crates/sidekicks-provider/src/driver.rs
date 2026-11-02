@@ -7,11 +7,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
+use secrecy::SecretString;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
-use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
+use sidekicks_contracts::provider::account::record::{
+    CredentialGeneration, ProviderAccountId, ProviderAuthMode,
+};
 use sidekicks_contracts::provider::id::{ProviderId, is_provider_id};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::voice::VoiceKind;
@@ -74,12 +77,6 @@ pub(crate) mod unified_diff;
 
 /// The fixed facts a provider's driver declares about itself, the same for every installed build,
 /// account, model and session; what depends on those comes from the driver's methods.
-#[expect(
-    dead_code,
-    reason = "the provider list, the daemon's start, the capability report, the spawn \
-              environment, the managed-settings checks, the memory gate and the sandboxed \
-              permission level's check read each descriptor's facts"
-)]
 pub struct ProviderDescriptor {
     /// The provider's id: a lowercase letter, then up to 31 lowercase letters, digits or hyphens.
     pub id: &'static str,
@@ -90,8 +87,10 @@ pub struct ProviderDescriptor {
     /// page.
     pub release_notes_address: fn(&str) -> String,
     /// Each plan id the provider sends and the word a person reads it as.
+    #[expect(dead_code, reason = "the provider list's section reads it")]
     pub(crate) plan_words: &'static [(&'static str, &'static str)],
     /// The provider's built-in tools in its own spelling, each with the words the picker draws.
+    #[expect(dead_code, reason = "the provider list's section reads it")]
     pub(crate) built_in_tools: &'static [(&'static str, &'static str)],
     /// How the provider's command is found on each kind of operating system.
     pub(crate) command: ProviderCommand,
@@ -125,12 +124,16 @@ pub struct ProviderDescriptor {
     /// The variables a Terminal pane's shell is given while `Simplify for a screen reader` is on.
     pub(crate) screen_reader_environment_names: &'static [&'static str],
     /// The voice kinds the provider offers, each at most once.
+    #[expect(dead_code, reason = "the provider list's section reads it")]
     pub(crate) voice_kinds: &'static [VoiceKind],
     /// The transports its tool servers are reached over.
+    #[expect(dead_code, reason = "the provider list's section reads it")]
     pub(crate) mcp_transports: &'static [McpTransport],
     /// The tool-server declaration members it reads beyond the shared ones.
+    #[expect(dead_code, reason = "the provider list's section reads it")]
     pub(crate) mcp_config_members: &'static [McpDeclaredConfigMember],
     /// The most characters it takes in a skill's name, where it sets a limit of its own.
+    #[expect(dead_code, reason = "the provider list's section reads it")]
     pub(crate) skill_name_max_length: Option<u64>,
     /// The forms of the provider's own command whose work would outlive the call, which no agent
     /// in a session may run, and the switch that turns them off; `None` where it has none.
@@ -149,10 +152,25 @@ pub struct ProviderDescriptor {
     /// and their files in, which hold no credential; a backup keeps them in each account home the
     /// app manages.
     pub(crate) account_home_conversation_folders: &'static [&'static [&'static str]],
+    /// The folder, as components under an account home, the provider keeps its agents' memory in
+    /// across every project, which each home the app manages links to the daemon's own
+    /// agent-memory folder; `None` where the provider keeps no such folder in its home.
+    pub(crate) account_home_memory_folder: Option<&'static [&'static str]>,
+    /// The folder under the daemon's data folder of the home the provider's one switching service
+    /// runs in, apart from every account home, carrying every session that follows the current
+    /// account; `None` where the provider runs no such service. A backup and the diagnostic expiry
+    /// treat it as they treat an account home.
+    pub(crate) switching_home_folder: Option<&'static str>,
+    /// The folder, as components under an account home, the provider keeps the account's sign-in
+    /// in, apart from the configuration folder a session reads; empty where the home is both.
+    pub(crate) account_home_credential_store_folder: &'static [&'static str],
     /// How the provider runs every shell command through the command wrapper's link, as one line
     /// handed over as the link's one argument; `None` where the provider starts its commands
     /// through the daemon's relay instead.
     pub(crate) shell_prefix_command: Option<ShellPrefixCommand>,
+    /// Whether a pasted token's limits are read by a turn, since the token's own scope cannot read
+    /// them; the turn's answer is the reading.
+    pub(crate) token_limits_read_by_turn: bool,
 }
 
 /// A provider's contract with the command wrapper's link when it prefixes every shell command it
@@ -564,8 +582,9 @@ pub trait SessionSpawnContextResolver: Send + Sync {
     ) -> BoxFuture<'_, Result<PathBuf, Box<dyn Error + Send + Sync>>>;
 }
 
-/// Reads the accounts a provider runs on: an account's folders before any session runs on it, and
-/// its credential generation. The daemon registers it on [`DriverPorts::provider_accounts`].
+/// Reads the accounts a provider runs on: an account's folders before any session runs on it, its
+/// credential generation, how it signs in and its sealed token. The daemon registers it on
+/// [`DriverPorts::provider_accounts`].
 pub trait ProviderAccountReader: Send + Sync {
     /// The folders of `provider_account_id`'s account, read with no session, before one exists.
     /// Fails as [`AccountFoldersError`] says.
@@ -588,6 +607,22 @@ pub trait ProviderAccountReader: Send + Sync {
         &self,
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>>;
+
+    /// How `provider_account_id`'s account signs in, as the provider last reported it; `None` where
+    /// no reading was stored. A pasted token's account reads `OauthToken`, and only that account
+    /// has a token sealed to read. Fails when the account is not registered or cannot be read.
+    fn read_observed_auth_mode(
+        &self,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>>;
+
+    /// The token sealed for `provider_account_id`'s account, which only the provider's own child
+    /// is handed; `None` where the account signs in through its home instead. Fails when the
+    /// keychain refuses the read.
+    fn read_sealed_token(
+        &self,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn Error + Send + Sync>>>;
 }
 
 /// Why an account's folders could not be resolved: the account is not registered, its home is not

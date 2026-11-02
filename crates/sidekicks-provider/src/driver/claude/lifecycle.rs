@@ -11,7 +11,6 @@ mod tests;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::commands::{
     ProviderCommandBinding, ProviderCommandListResponse,
 };
@@ -28,7 +27,8 @@ use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::DriverServices;
 use crate::driver::attachments::AttachmentResolver;
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::claude::account_credentials::ClaudeSignInReader;
+use crate::driver::claude::account::ClaudeAccountLegs;
+use crate::driver::claude::account::credentials::ClaudeSignInReader;
 use crate::driver::claude::delivery::commands::{ClaudeCommandChannels, ClaudeCommandPrograms};
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
 use crate::driver::claude::delivery::requests::answers::{
@@ -97,8 +97,11 @@ pub(crate) struct ClaudeDriver {
     staged_changes: StagedChangesWorktrees,
     pending_compactions: PendingCompactionRegistry,
     shell_lines: Arc<ShellLineReadingBound>,
-    usage_probe_models: Arc<ClaudeUsageProbeModels>,
+    /// The model each account's latest limits read named for its weekly window over one model.
+    pub(crate) usage_probe_models: Arc<ClaudeUsageProbeModels>,
     inbox_addresser: Arc<ClaudeRegisteredPlacesAddresser>,
+    /// Claude Code's own acts on one account's home, which the account plane runs.
+    pub(crate) account_legs: Arc<ClaudeAccountLegs>,
     // One capability read at a time, since each makes and removes the same folder.
     capability_read: tokio::sync::Mutex<()>,
     parts: OnceLock<Arc<ClaudeSessionParts>>,
@@ -117,29 +120,39 @@ pub(crate) struct ClaudeSessionParts {
     /// Applies steers and interruptions.
     pub(crate) interventions: Arc<ClaudeInterventions>,
     cuts: Arc<ClaudeConversationCuts>,
-    session_controls: Arc<ClaudeSessionControls>,
+    /// Build or Plan, side questions, reviews and the other controls on a whole session.
+    pub(crate) session_controls: Arc<ClaudeSessionControls>,
     goals: Arc<ClaudeGoalCommands>,
     reviewer: Arc<ClaudeReviewerCapture>,
+}
+
+/// The launcher every Claude Code process the driver keeps starts through, over `services`'
+/// handles: the spawner, the child records, the process table, the accounts port and the data
+/// folder.
+pub(crate) fn compose_claude_launcher(services: &DriverServices) -> Arc<ClaudeProcessLauncher> {
+    Arc::new(ClaudeProcessLauncher::new(
+        services.spawner.clone(),
+        Arc::clone(&services.child_records),
+        Arc::clone(&services.processes),
+        Arc::clone(&services.ports.provider_accounts),
+        &services.data_folder,
+    ))
 }
 
 impl ClaudeDriver {
     /// The driver over the shared services, starting every process from the installed build the
     /// command names. Stores handles and does no I/O.
     pub(crate) fn new(services: &DriverServices) -> Self {
-        let launcher = Arc::new(ClaudeProcessLauncher::new(
-            services.spawner.clone(),
-            Arc::clone(&services.child_records),
-            Arc::clone(&services.processes),
-            &services.data_folder,
-        ));
+        let launcher = compose_claude_launcher(services);
         let starts = Arc::new(ClaudeInstalledBuild::new(
-            launcher,
+            Arc::clone(&launcher),
             Arc::clone(&services.command_search),
             services.home_folder.clone(),
         ));
         Self::with_sign_in(
             services,
             starts,
+            launcher,
             ClaudeSignInReader::system(),
             check_claude_command_sandbox,
         )
@@ -169,6 +182,7 @@ impl ClaudeDriver {
         Self::with_sign_in(
             services,
             starts,
+            compose_claude_launcher(services),
             ClaudeSignInReader::with_keychain(keychain),
             command_sandbox_check,
         )
@@ -180,9 +194,11 @@ impl ClaudeDriver {
     fn with_sign_in(
         services: &DriverServices,
         starts: Arc<dyn ClaudeProcessStarts>,
+        launcher: Arc<ClaudeProcessLauncher>,
         sign_in: ClaudeSignInReader,
         command_sandbox_check: ClaudeCommandSandboxCheck,
     ) -> Self {
+        let usage_probe_models: Arc<ClaudeUsageProbeModels> = Arc::default();
         let link_folder = program_link_folder(&services.data_folder);
         let sources = Arc::new(ClaudeSpawnSources {
             spawner: services.spawner.clone(),
@@ -225,10 +241,15 @@ impl ClaudeDriver {
             staged_changes: services.staged_changes.clone(),
             pending_compactions: services.pending_compactions.clone(),
             shell_lines: Arc::clone(&services.shell_lines),
-            usage_probe_models: Arc::default(),
+            usage_probe_models: Arc::clone(&usage_probe_models),
             inbox_addresser: Arc::new(ClaudeRegisteredPlacesAddresser::new(Arc::clone(
                 &services.ports.session_places,
             ))),
+            account_legs: Arc::new(ClaudeAccountLegs::new(
+                services,
+                launcher,
+                usage_probe_models,
+            )),
             capability_read: tokio::sync::Mutex::default(),
             parts: OnceLock::new(),
         }
@@ -265,17 +286,6 @@ impl ClaudeDriver {
         // Two first calls may both compose; the one set first is kept, and the other, which
         // started nothing, is dropped.
         Ok(self.parts.get_or_init(|| composed))
-    }
-
-    /// Keeps the model display name `account`'s latest `get_usage` read named in its
-    /// `model_scoped`, which a later event's weekly window over one model on that account is named
-    /// for.
-    #[expect(
-        dead_code,
-        reason = "the account's limits read names the model its scoped weekly window covers"
-    )]
-    pub(crate) fn note_usage_probe_model(&self, account: ProviderAccountId, display_name: String) {
-        self.usage_probe_models.note(account, display_name);
     }
 
     /// The session pieces once composed; `None` before any session call composed them, when no
@@ -485,6 +495,8 @@ impl ClaudeDriver {
         });
         let (restarts, run_start, run_controls, interventions, session_controls) =
             composed.expect("the establishment's composition ran");
+        self.account_legs
+            .attach_sessions(Arc::downgrade(&establishment));
         Ok(ClaudeSessionParts {
             establishment,
             restarts,
@@ -518,7 +530,7 @@ fn compose_command_list_reader(
         let live = slots.live_session(session_id)?;
         let binding = ProviderCommandBinding {
             provider_name: DESCRIPTOR.provider_id(),
-            provider_account_id: live.admitted_provider_account_id.clone(),
+            provider_account_id: live.admitted_provider_account_id(),
         };
         let run_id = routes.lead_run_on(session_id).map(|lead| lead.run_id);
         let group = handshakes

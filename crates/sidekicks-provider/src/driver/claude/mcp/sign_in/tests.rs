@@ -16,7 +16,7 @@ use url::Url;
 use super::CLAUDE_MCP_SIGN_IN_FOLDER;
 use super::saved_credentials::read_claude_saved_sign_in;
 use crate::driver::DriverServices;
-use crate::driver::claude::account_credentials::{
+use crate::driver::claude::account::credentials::{
     CLAUDE_CREDENTIALS_FILE, SECURE_STORAGE_FOLDER_VARIABLE, claude_keychain_account,
     claude_keychain_service,
 };

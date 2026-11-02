@@ -1,7 +1,7 @@
-//! The account homes the app manages, from the accounts table, and the folders each provider's
-//! descriptor names in them: the ones it writes for its own diagnosis, which hold no session's
-//! files, so only `Delete old data` removes those, and the ones that hold its conversations, which
-//! a backup keeps.
+//! The account homes the app manages, from the accounts table, each provider's switching home
+//! under the data folder, and the folders each provider's descriptor names in them: the ones it
+//! writes for its own diagnosis, which hold no session's files, so only `Delete old data` removes
+//! those, and the ones that hold its conversations, which a backup keeps.
 
 use std::path::{Path, PathBuf};
 
@@ -37,6 +37,30 @@ pub struct AccountHome {
     pub provider: String,
     /// The account's home folder.
     pub home: PathBuf,
+}
+
+/// One provider's switching home, apart from every account home, where its one switching service
+/// keeps the conversations of every session that followed the current account.
+pub struct SwitchingHome {
+    /// The provider's id.
+    pub provider: String,
+    /// The home folder.
+    pub home: PathBuf,
+}
+
+/// The switching home under the daemon's `data_folder` of each provider in `providers` whose
+/// descriptor names one, whether or not its service ever ran.
+pub fn switching_homes(providers: &ProviderRegistry, data_folder: &Path) -> Vec<SwitchingHome> {
+    providers
+        .drivers()
+        .filter_map(|(provider, _)| {
+            let folder = providers.descriptor(provider).ok()?.switching_home_folder?;
+            Some(SwitchingHome {
+                provider: provider.as_str().to_owned(),
+                home: data_folder.join(folder),
+            })
+        })
+        .collect()
 }
 
 /// Every account home in the accounts table, the query's time on the pool's thread charged to

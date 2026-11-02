@@ -32,47 +32,48 @@ const RELATIVE_PREFIX: &str = "./";
 // Headers the client owns, which Codex drops from a server's entry.
 const CLIENT_OWNED_HEADERS: [&str; 2] = ["authorization", "mcp-session-id"];
 
-/// The servers of the plugin at `plugin_root`, by name, as entries of Codex's config, where its
-/// root `plugin.json` names this format's schema; `None` where it has no such manifest and Codex
-/// reads the plugin in its own format. A server Codex refuses is logged and skipped, and the data
-/// folder its programs are given is made in the plugin's folder. Fails as a
-/// file cannot be read or is not of the format's shape, or the manifest names a version of the
-/// format Codex does not read.
+/// The servers of the plugin at `plugin_root`, which logs name by `plugin_key`, by name, as
+/// entries of Codex's config, where its root `plugin.json` names this format's schema; `None`
+/// where it has no such manifest and Codex reads the plugin in its own format. A server Codex
+/// refuses is logged and skipped, and the data folder its programs are given is made in the
+/// plugin's folder. Fails as a file cannot be read or is not of the format's shape, or the
+/// manifest names a version of the format Codex does not read.
 pub(super) async fn read_agent_format_servers(
     plugin_root: &Path,
+    plugin_key: &str,
 ) -> Result<Option<Map<String, Value>>, PluginFileReadError> {
-    let manifest_path = plugin_root.join(MANIFEST_FILE);
+    let manifest_file = Path::new(MANIFEST_FILE);
     // Codex takes no link and nothing but a file as the manifest, and then reads no manifest.
-    match tokio::fs::symlink_metadata(&manifest_path).await {
+    match tokio::fs::symlink_metadata(plugin_root.join(manifest_file)).await {
         Ok(metadata) if !metadata.file_type().is_file() => return Ok(Some(Map::new())),
         Ok(_metadata) => {}
         Err(failure) if failure.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(failure) => {
             return Err(PluginFileReadError::Unreadable {
-                path: manifest_path,
+                file: manifest_file.to_path_buf(),
                 failure,
             });
         }
     }
-    let Some(manifest) = read_json_file(&manifest_path).await? else {
+    let Some(manifest) = read_json_file(plugin_root, manifest_file).await? else {
         return Ok(None);
     };
     match manifest.get("$schema").and_then(Value::as_str) {
         Some(MANIFEST_SCHEMA) => {}
         Some(schema) if schema.starts_with(SCHEMA_PREFIX) => {
             return Err(PluginFileReadError::Malformed {
-                path: manifest_path,
+                file: manifest_file.to_path_buf(),
                 failure: None,
             });
         }
         Some(_) | None => return Ok(None),
     }
-    let mcp_path = plugin_root.join(MCP_FILE);
-    match tokio::fs::symlink_metadata(&mcp_path).await {
+    let mcp_file = Path::new(MCP_FILE);
+    match tokio::fs::symlink_metadata(plugin_root.join(mcp_file)).await {
         Ok(metadata) if metadata.file_type().is_file() => {}
         Ok(_metadata) => {
             tracing::warn!(
-                file = %mcp_path.display(),
+                plugin = %plugin_key,
                 "an agent plugin's mcp file is not a file; it declares no servers"
             );
             return Ok(Some(Map::new()));
@@ -80,19 +81,19 @@ pub(super) async fn read_agent_format_servers(
         Err(failure) if failure.kind() == io::ErrorKind::NotFound => return Ok(Some(Map::new())),
         Err(failure) => {
             return Err(PluginFileReadError::Unreadable {
-                path: mcp_path,
+                file: mcp_file.to_path_buf(),
                 failure,
             });
         }
     }
-    let Some(file) = read_json_file(&mcp_path).await? else {
+    let Some(file) = read_json_file(plugin_root, mcp_file).await? else {
         return Ok(Some(Map::new()));
     };
     let file = AgentFormatMcpFile::deserialize(&file)
         .ok()
         .filter(|file| file.schema == MCP_SCHEMA)
-        .ok_or(PluginFileReadError::Malformed {
-            path: mcp_path,
+        .ok_or_else(|| PluginFileReadError::Malformed {
+            file: mcp_file.to_path_buf(),
             failure: None,
         })?;
     let folders = PluginFolders {
@@ -110,7 +111,7 @@ pub(super) async fn read_agent_format_servers(
             }
             Err(reason) => tracing::warn!(
                 server = %name,
-                plugin = %plugin_root.display(),
+                plugin = %plugin_key,
                 reason = %reason,
                 "codex skips an agent plugin's server; it is not declared"
             ),
@@ -120,7 +121,7 @@ pub(super) async fn read_agent_format_servers(
     let has_programs = servers.values().any(|entry| entry.get("command").is_some());
     if has_programs && let Err(failure) = tokio::fs::create_dir_all(&folders.data).await {
         tracing::warn!(
-            folder = %folders.data.display(),
+            plugin = %plugin_key,
             error = &failure as &(dyn std::error::Error + 'static),
             "an agent plugin's data folder cannot be made; codex skips its programs"
         );

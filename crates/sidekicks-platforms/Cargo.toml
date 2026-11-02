@@ -13,10 +13,11 @@ ignored = [
   "command-fds",
   # The link to an agent's memory folder on Windows.
   "junction",
-  # The wake helper's status, read through the system's service management.
-  "objc2-foundation",
-  "objc2-service-management",
 ]
+
+[[bin]]
+name = "sidekicks-wake-helper"
+path = "src/bin/wake_helper.rs"
 
 [dependencies]
 alacritty_terminal.workspace = true
@@ -60,6 +61,7 @@ zbus.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store.workspace = true
+base16ct.workspace = true
 block2.workspace = true
 dispatch2 = { workspace = true, features = ["libc", "std"] }
 mach2.workspace = true
@@ -71,6 +73,8 @@ objc2-security = { workspace = true, features = ["CSCommon", "SecCode", "SecRequ
 objc2-service-management.workspace = true
 plist.workspace = true
 security-framework.workspace = true
+sha2.workspace = true
+subtle.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 async-io.workspace = true

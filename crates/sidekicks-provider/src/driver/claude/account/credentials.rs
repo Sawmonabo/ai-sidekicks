@@ -99,8 +99,9 @@ impl ClaudeSignInReader {
     /// The sign-in of the Claude Code process `environment` starts: the environment's own token,
     /// with the scopes Claude Code gives it, else the record in its credential folder's file, else
     /// the keychain item named for that folder. A sign-in token file descriptor the environment
-    /// names is passed over, since the daemon's spawn closes every inherited descriptor and Claude
-    /// Code then signs in with the stored record. Where none holds a record with an access token
+    /// names is passed over: the daemon withholds that variable from every environment it
+    /// composes and sets it only as it starts a process, on a pipe that process alone reads. Where
+    /// none holds a record with an access token
     /// it is absent, unless a store that may hold one could not be read; each reason is logged at
     /// debug.
     pub(crate) async fn read(&self, environment: &[(String, String)]) -> ClaudeSignInReading {
@@ -499,7 +500,8 @@ fn read_handed_token_scopes(environment: &[(String, String)]) -> Vec<String> {
 }
 
 // The folder Claude Code started in `environment` keeps its sign-in in: the secure-storage folder
-// where named, the default home where it is named empty, else the config home, in NFC.
+// where named, the default home where it is named empty, else the config home, in NFC. `None`
+// where no home is known at all.
 fn claude_credential_folder(environment: &[(String, String)]) -> Option<PathBuf> {
     let rules = PathRules::NATIVE;
     let folder = match rules.environment_value(environment, SECURE_STORAGE_FOLDER_VARIABLE) {
@@ -581,7 +583,8 @@ mod tests {
     use tracing_subscriber::layer::SubscriberExt;
 
     use super::{
-        ClaudeSignInReader, ClaudeSignInReading, claude_keychain_account, claude_keychain_service,
+        ClaudeSignInReader, ClaudeSignInReading, SECURE_STORAGE_FOLDER_VARIABLE,
+        claude_keychain_account, claude_keychain_service,
     };
 
     // A token no log line may hold.
@@ -627,7 +630,7 @@ mod tests {
                 folder.path().display().to_string(),
             ),
             (
-                "CLAUDE_SECURESTORAGE_CONFIG_DIR".to_owned(),
+                SECURE_STORAGE_FOLDER_VARIABLE.to_owned(),
                 folder.path().display().to_string(),
             ),
             ("USER".to_owned(), "tester".to_owned()),
@@ -770,13 +773,13 @@ mod tests {
 
         assert_eq!(service(&[]), "Claude Code-credentials");
         assert_eq!(
-            service(&[("CLAUDE_SECURESTORAGE_CONFIG_DIR", ""), config_home]),
+            service(&[(SECURE_STORAGE_FOLDER_VARIABLE, ""), config_home]),
             "Claude Code-credentials"
         );
         assert_eq!(service(&[config_home]), "Claude Code-credentials-22d54fbb");
         assert_eq!(
             service(&[
-                ("CLAUDE_SECURESTORAGE_CONFIG_DIR", "/accounts/work/secure"),
+                (SECURE_STORAGE_FOLDER_VARIABLE, "/accounts/work/secure"),
                 config_home
             ]),
             "Claude Code-credentials-c8d32363"
@@ -784,7 +787,7 @@ mod tests {
         // A decomposed `é` salts as the composed one.
         assert_eq!(
             service(&[(
-                "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+                SECURE_STORAGE_FOLDER_VARIABLE,
                 "/accounts/re\u{301}sume\u{301}"
             )]),
             "Claude Code-credentials-bdce0c9c"

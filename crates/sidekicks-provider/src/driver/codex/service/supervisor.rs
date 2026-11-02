@@ -10,6 +10,7 @@
 pub(crate) mod connection_events;
 pub(crate) mod drain;
 pub(crate) mod events;
+mod rate_limit_readings;
 mod reconnect;
 pub(crate) mod routing;
 mod runner;
@@ -19,6 +20,7 @@ pub(crate) mod test_service;
 #[cfg(test)]
 mod tests;
 mod transition;
+mod windows_sandbox;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -27,8 +29,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
 use futures::future::{BoxFuture, join_all};
-use serde::Deserialize;
-use serde_json::value::RawValue;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_platforms::Spawner;
@@ -41,7 +42,7 @@ use crate::driver::child_records::DaemonChildRecords;
 use crate::driver::codex::exec_relay::{CodexExecRelay, CodexExecRelayDependencies};
 use crate::driver::codex::server_requests::CodexServerRequestResponder;
 use crate::driver::codex::service::asks::CodexServiceAsks;
-use crate::driver::codex::service::home::{CodexServiceHome, CodexServiceKind};
+use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::record::LastingServiceRecordFile;
 use crate::driver::codex::service::supervisor::connection_events::ServiceConnectionEvents;
 use crate::driver::codex::service::supervisor::drain::LastingServiceDrains;
@@ -56,6 +57,7 @@ use crate::driver::codex::service::supervisor::transition::state::SupervisorStat
 use crate::driver::codex::service::supervisor::transition::{
     CodexServiceAvailability, Supervision,
 };
+use crate::driver::codex::service::switching::CodexSwitchingAccount;
 use crate::driver::codex::service::threads::{CodexServiceThreads, ThreadClaim};
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
 use crate::driver::codex::session::errors::{
@@ -66,20 +68,16 @@ use crate::driver::codex::session::state::CODEX_THREAD_FRAME_ROUTER_CONFIG;
 use crate::driver::codex::shells::CodexShellKind;
 use crate::driver::codex::transport::connection::{
     CODEX_REQUEST_TIMEOUT, CodexAppServerConnection, CodexConnectionEvents,
-    CodexConnectionHandlers, open_codex_connection, read_codex_object,
+    CodexConnectionHandlers, open_codex_connection,
 };
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::codex::transport::socket::{CodexSocketWait, dial_codex_service_socket};
-use crate::driver::codex::usage_limit_signal::CodexRateLimitObservation;
 use crate::driver::codex::version::CODEX_CLIENT_NAME;
 use crate::driver::contract::error::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::spawned_version::{ResolvedProviderExecutable, SpawnedProviderVersionReading};
-
-/// The ask that reads whether the service may run a sandboxed command on Windows.
-const WINDOWS_SANDBOX_READINESS_METHOD: &str = "windowsSandbox/readiness";
 
 /// How long a resume waits for a conversation to unload from a service: the one it leaves for a
 /// new build, or the one closing it.
@@ -136,6 +134,8 @@ pub(crate) struct CodexServiceDependencies {
     pub(crate) tasks: TaskTracker,
     /// What the account services' executor relays start and report through.
     pub(crate) exec_relay: Arc<CodexExecRelayDependencies>,
+    /// The account the switching service carries and how its tokens are found and handed.
+    pub(crate) switching: Arc<CodexSwitchingAccount>,
 }
 
 /// The socket one service listens on.
@@ -162,23 +162,6 @@ pub(crate) struct CodexServiceId(u64);
 
 // The next service id; ids never repeat within a daemon.
 static NEXT_SERVICE_ID: AtomicU64 = AtomicU64::new(1);
-
-/// What `windowsSandbox/readiness` says of the service's sandbox.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum CodexWindowsSandboxReadiness {
-    /// The sandbox runs commands.
-    Ready,
-    /// It is not set up, or the reply named a status this daemon does not know.
-    NotConfigured,
-    /// It needs an update first.
-    UpdateRequired,
-}
-
-// The member of a `windowsSandbox/readiness` reply the read reads.
-#[derive(Deserialize)]
-struct WindowsSandboxReadinessReply {
-    status: Option<Box<RawValue>>,
-}
 
 /// The connection, version and process of the service while it is up.
 #[derive(Default)]
@@ -215,7 +198,8 @@ pub(crate) struct CodexService {
     // The ticket of the connection whose frames are routed; an older one's are not.
     routed_dial: AtomicU64,
     threads: Arc<Mutex<CodexServiceThreads>>,
-    routing: Mutex<CodexServiceRouting>,
+    // Shared with the hook a complete rate-limit read's answer runs on the reader.
+    routing: Arc<Mutex<CodexServiceRouting>>,
     // The executor relay its first account start made; a terminal service never has one.
     exec_relay: OnceLock<Arc<CodexExecRelay>>,
 }
@@ -259,7 +243,7 @@ impl CodexService {
                     }
                 }),
             ))),
-            routing: Mutex::default(),
+            routing: Arc::default(),
             exec_relay: OnceLock::new(),
         });
         tokio::spawn(ServiceRunner::new(Arc::downgrade(&service), received).run());
@@ -355,14 +339,17 @@ impl CodexService {
         self.lock_live().version.clone()
     }
 
-    /// The account's rate-limit readings this service has seen.
-    pub(crate) fn rate_limit_observation(&self) -> CodexRateLimitObservation {
-        self.lock_routing().rate_limits.clone()
-    }
-
-    /// Replaces the account's rate-limit readings with a complete read's.
-    pub(crate) fn store_rate_limit_read(&self, observation: CodexRateLimitObservation) {
-        self.lock_routing().rate_limits = observation;
+    /// The account the service runs on: its home's, or the one the switching service carries;
+    /// `None` on the person's own folder, the capability read's, an MCP sign-in's, and a switching
+    /// service handed no account yet.
+    pub(crate) fn provider_account_id(&self) -> Option<ProviderAccountId> {
+        match &self.home.kind {
+            CodexHomeKind::Switching => self.dependencies.switching.carried_account(),
+            CodexHomeKind::Account(_)
+            | CodexHomeKind::PersonalFolder
+            | CodexHomeKind::CapabilityRead
+            | CodexHomeKind::McpSignIn => self.home.provider_account_id().cloned(),
+        }
     }
 
     /// The queue of every session attached to the service.
@@ -760,22 +747,6 @@ impl CodexService {
         }
     }
 
-    /// Whether the service's Windows sandbox runs commands: only `Ready` offers it; a status this
-    /// daemon does not know reads as not configured, never as ready. Fails as the request does.
-    #[expect(
-        dead_code,
-        reason = "the sandboxed permission level's check asks the service on Windows"
-    )]
-    pub(crate) async fn read_windows_sandbox_readiness(
-        &self,
-    ) -> Result<CodexWindowsSandboxReadiness, CodexError> {
-        let reply = self
-            .connection()?
-            .request(WINDOWS_SANDBOX_READINESS_METHOD, &())
-            .await?;
-        Ok(read_windows_sandbox_readiness(&reply))
-    }
-
     /// The handlers of the connection the ticket `dial` opens: its frames routed on its reader,
     /// its asks to their sessions, its drop and drain to the runner.
     fn connection_handlers(self: &Arc<Self>, dial: u64) -> CodexConnectionHandlers {
@@ -866,18 +837,6 @@ impl CodexService {
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
 struct SharedCodexError(Arc<CodexError>);
-
-/// The readiness a `windowsSandbox/readiness` reply names.
-fn read_windows_sandbox_readiness(reply: &RawValue) -> CodexWindowsSandboxReadiness {
-    let status = read_codex_object::<WindowsSandboxReadinessReply>(reply.get())
-        .and_then(|reply| reply.status)
-        .and_then(|status| serde_json::from_str::<String>(status.get()).ok());
-    match status.as_deref() {
-        Some("ready") => CodexWindowsSandboxReadiness::Ready,
-        Some("updateRequired") => CodexWindowsSandboxReadiness::UpdateRequired,
-        Some(_) | None => CodexWindowsSandboxReadiness::NotConfigured,
-    }
-}
 
 fn crash_loop_refusal() -> CodexError {
     CodexError::Transport {

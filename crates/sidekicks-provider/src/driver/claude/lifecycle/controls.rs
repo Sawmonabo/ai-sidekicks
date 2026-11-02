@@ -1,8 +1,7 @@
 //! A session's controls and the reads of Claude Code itself: the starting level and a level move,
 //! a revoked rule, the models, modes, capabilities and sign-in, the Settings rows and the session
 //! options, the mode, the commands the daemon answers, a side question, a review, the command list
-//! a screen follows, each session's inbox addresser, and the sign-in to an MCP server through
-//! Claude Code's own client.
+//! a screen follows, and each session's inbox addresser.
 
 use std::collections::HashSet;
 use std::error::Error;
@@ -23,20 +22,17 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
 use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::data_folder::plugin_home;
 
-use super::{ClaudeDriver, internal};
+use super::{ClaudeDriver, ClaudeSessionParts, internal};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::capabilities::resolve_claude_model_catalog;
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
-use crate::driver::claude::mcp::config::ClaudePersonConfigFiles;
-use crate::driver::claude::mcp::sign_in::{
-    ClaudeSignInSources, remove_left_claude_sign_ins, sign_in_with_claude_client,
-};
+use crate::driver::claude::frame_routing::read_prior_emitted;
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::controls::{
-    ClaudeSideQuestionCopy, claude_full_model_id, one_turn_legs, without_credential_prompts,
+    ClaudeCopyComposition, ClaudeSideQuestionCopy, claude_full_model_id, without_credential_prompts,
 };
+use crate::driver::claude::session::conversation_home::read_claude_conversation_home;
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
 };
@@ -70,7 +66,6 @@ use crate::driver::contract::params_and_results::ProviderCommandsSubscription;
 use crate::driver::contract::params_and_results::{
     GetCapabilitiesResult, ListModelsParams, ListModesParams, ProviderReportedLevel,
 };
-use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::read_current_account;
 use crate::driver::session_control::{
@@ -81,6 +76,8 @@ use crate::driver::session_control::{
     permission_level_not_offered,
 };
 use crate::port::session_inbox_address::SessionInboxAddresser;
+
+mod mcp_sign_in;
 
 /// The model a read of the build's own choices runs on: Claude Code's pointer to its recommended
 /// model, which every account's catalog lists.
@@ -127,7 +124,11 @@ impl ClaudeDriver {
             .account_environment(&params.provider_account_id)
             .await?;
         let (offered, repository) = tokio::join!(
-            self.read_offered_levels(&environment, &params.working_folder),
+            self.read_offered_levels(
+                &environment,
+                &params.working_folder,
+                params.provider_account_id.clone(),
+            ),
             self.read_repository(&params.working_folder),
         );
         let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
@@ -348,12 +349,8 @@ impl ClaudeDriver {
                     .resolve_spawn_context(session_id, provider_account_id.clone())
                     .await
                     .map_err(DriverError::Internal)?;
-                self.sources.account_process_environment(
-                    &context.account_folders,
-                    &provider_account_id,
-                    &[],
-                    &[],
-                )?
+                self.sources
+                    .account_process_environment(&context.account_folders, &[], &[])?
             }
             None => {
                 self.sources
@@ -361,7 +358,10 @@ impl ClaudeDriver {
                     .await?
             }
         };
-        let reading = self.starts.read_model_catalog(environment.clone()).await?;
+        let reading = self
+            .starts
+            .read_model_catalog(environment.clone(), provider_account_id)
+            .await?;
         resolve_claude_model_catalog(reading, &self.figures.current(), &environment)
     }
 
@@ -408,7 +408,7 @@ impl ClaudeDriver {
                 params
                     .provider_account_id
                     .as_ref()
-                    .is_none_or(|named| *named == live.admitted_provider_account_id)
+                    .is_none_or(|named| *named == live.admitted_provider_account_id())
             });
         let offered = if let Some(live) = live {
             let legs = &live.spawn_bound_legs;
@@ -443,21 +443,26 @@ impl ClaudeDriver {
                     .resolve_spawn_context(session_id, provider_account_id.clone())
                     .await
                     .map_err(DriverError::Internal)?;
-                let environment = self.sources.account_process_environment(
-                    &context.account_folders,
-                    &provider_account_id,
-                    &[],
-                    &[],
-                )?;
-                self.read_offered_levels(&environment, &context.working_directory)
-                    .await
+                let environment =
+                    self.sources
+                        .account_process_environment(&context.account_folders, &[], &[])?;
+                self.read_offered_levels(
+                    &environment,
+                    &context.working_directory,
+                    provider_account_id,
+                )
+                .await
             } else {
                 let environment = self
                     .sources
                     .account_environment(&provider_account_id)
                     .await?;
-                self.read_offered_levels(&environment, &self.sources.home_folder)
-                    .await
+                self.read_offered_levels(
+                    &environment,
+                    &self.sources.home_folder,
+                    provider_account_id,
+                )
+                .await
             }
         };
         Ok(list_claude_modes(|level| {
@@ -466,15 +471,17 @@ impl ClaudeDriver {
     }
 
     /// Which levels the account `environment` composes and this system run in `working_folder`:
-    /// the account's catalog and the command sandbox, read at once. A catalog that cannot be read
-    /// offers no Reviewed and is recorded.
+    /// `provider_account_id`'s catalog and the command sandbox, read at once. A catalog that cannot
+    /// be read offers no Reviewed and is recorded.
     async fn read_offered_levels(
         &self,
         environment: &[(String, String)],
         working_folder: &Path,
+        provider_account_id: ProviderAccountId,
     ) -> ClaudeOfferedLevels {
         let (catalog, can_run_sandbox) = tokio::join!(
-            self.starts.read_model_catalog(environment.to_vec()),
+            self.starts
+                .read_model_catalog(environment.to_vec(), provider_account_id),
             read_claude_sandbox_support(&self.sources, environment, working_folder, None),
         );
         let auto_mode_models = match catalog {
@@ -544,21 +551,31 @@ impl ClaudeDriver {
             .sources
             .account_environment(&provider_account_id)
             .await?;
-        Ok(match self.starts.probe_sign_in(environment).await {
-            Ok(detail) => build_auth_probe_result(DriverAuthProbeStatus::Authenticated, &detail),
-            Err(error) => {
-                let is_signed_out = matches!(
-                    &error,
-                    ClaudeLaunchError::Session(ClaudeSessionError::AuthenticationRequired { .. })
-                );
-                let status = if is_signed_out {
-                    DriverAuthProbeStatus::Unauthenticated
-                } else {
-                    DriverAuthProbeStatus::Indeterminate
-                };
-                build_auth_probe_result(status, &error.to_string())
-            }
-        })
+        Ok(
+            match self
+                .starts
+                .probe_sign_in(environment, provider_account_id)
+                .await
+            {
+                Ok(detail) => {
+                    build_auth_probe_result(DriverAuthProbeStatus::Authenticated, &detail)
+                }
+                Err(error) => {
+                    let is_signed_out = matches!(
+                        &error,
+                        ClaudeLaunchError::Session(
+                            ClaudeSessionError::AuthenticationRequired { .. }
+                        )
+                    );
+                    let status = if is_signed_out {
+                        DriverAuthProbeStatus::Unauthenticated
+                    } else {
+                        DriverAuthProbeStatus::Indeterminate
+                    };
+                    build_auth_probe_result(status, &error.to_string())
+                }
+            },
+        )
     }
 
     /// `Output style` and `Advisor`, each with the app's pick in `app_values` or what a new
@@ -584,6 +601,7 @@ impl ClaudeDriver {
             spawn_environment: environment,
             working_directory: self.sources.home_folder.clone(),
             model: CLAUDE_DEFAULT_MODEL.to_owned(),
+            provider_account_id,
         };
         let (choices, settings) = tokio::join!(
             self.figures.read_command_choices(&place),
@@ -695,23 +713,7 @@ impl ClaudeDriver {
     ) -> Result<(), DriverError> {
         let parts = self.parts()?;
         let session_id = params.session_id;
-        let copy = match parts.run_start.live_session(session_id) {
-            Ok(live) => ready(Ok(ClaudeSideQuestionCopy {
-                legs: without_credential_prompts(one_turn_legs(&live, None, None)),
-                provider_account_id: live.admitted_provider_account_id.clone(),
-                parent_provider_session_id: live.provider_session_id.clone(),
-            }))
-            .boxed(),
-            Err(no_live_session) => match params.resume {
-                Some(resume) => compose_resting_side_question_copy(
-                    Arc::clone(&self.sources),
-                    Arc::clone(&self.starts),
-                    resume,
-                )
-                .boxed(),
-                None => return Err(no_live_session.into()),
-            },
-        };
+        let copy = self.compose_copy(parts, session_id, params.resume)?;
         let hold = parts
             .establishment
             .task_services
@@ -729,6 +731,32 @@ impl ClaudeDriver {
                 hold,
             )
             .await
+    }
+
+    /// The copy of `session_id`'s conversation a one-turn process runs on: the live process's own,
+    /// else the one `resume` names, composed once awaited. Fails `NoLiveSession` for a session at
+    /// rest with no resume material.
+    pub(crate) fn compose_copy(
+        &self,
+        parts: &ClaudeSessionParts,
+        session_id: SessionId,
+        resume: Option<ResumeSessionParams>,
+    ) -> Result<ClaudeCopyComposition, DriverError> {
+        Ok(match parts.run_start.live_session(session_id) {
+            Ok(live) => {
+                let parent = parts.interventions.session_thread_cumulative(&live)?;
+                ready(Ok(ClaudeSideQuestionCopy::of_live(&live, parent))).boxed()
+            }
+            Err(no_live_session) => match resume {
+                Some(resume) => compose_resting_side_question_copy(
+                    Arc::clone(&self.sources),
+                    Arc::clone(&self.starts),
+                    resume,
+                )
+                .boxed(),
+                None => return Err(no_live_session.into()),
+            },
+        })
     }
 
     /// Follows the session's live command list; while the session pieces cannot be composed no
@@ -767,52 +795,6 @@ impl ClaudeDriver {
 }
 
 impl ClaudeDriver {
-    /// Signs in to `request`'s server through Claude Code's own client, in a process whose config
-    /// and credential folders are one the daemon makes for the sign-in and deletes after. Fails as
-    /// the sign-in through Claude Code fails.
-    pub(crate) async fn sign_in_with_own_client(
-        &self,
-        request: ProviderSignInTakeoverRequest,
-    ) -> Result<ProviderSignInTakeover, DriverError> {
-        let plugin_home = plugin_home(&self.sources.home_folder, &DESCRIPTOR.provider_id());
-        let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
-        let person = ClaudePersonConfigFiles::resolve(
-            &self.sources.base_environment,
-            &self.sources.home_folder,
-        )
-        .await;
-        sign_in_with_claude_client(
-            &*self.starts,
-            ClaudeSignInSources {
-                person: &person,
-                plugin_home: &plugin_home,
-                managed_settings_folder: managed_settings_folder.as_deref(),
-                data_folder: &self.sources.data_folder,
-                account_servers: &self.account_servers,
-                credentials: &self.credentials,
-            },
-            |folder| self.sign_in_environment(folder),
-            request,
-        )
-        .await
-    }
-
-    /// Removes the folders, and their keychain items, of MCP sign-ins a stopped daemon left.
-    /// Fails as the folders' removal fails.
-    pub(crate) async fn remove_left_sign_in_folders(&self) -> Result<(), DriverError> {
-        remove_left_claude_sign_ins(&self.credentials, &self.sources.data_folder, |folder| {
-            self.sign_in_environment(folder)
-        })
-        .await
-    }
-
-    // The environment of an MCP sign-in's process on its own `folder`, which also names the
-    // keychain item the process files the sign-in under.
-    fn sign_in_environment(&self, folder: &Path) -> Result<Vec<(String, String)>, DriverError> {
-        self.sources
-            .process_environment(ClaudeProcessHome::Throwaway { folder }, &[], &[])
-    }
-
     // The folder the capability read makes and removes, under the daemon's data folder.
     fn capability_read_folder(&self) -> PathBuf {
         self.sources.data_folder.join(CLAUDE_CAPABILITY_READ_FOLDER)
@@ -844,9 +826,11 @@ fn account_config_folder(environment: &[(String, String)]) -> PathBuf {
         .expect("every Claude Code home names its config folder")
 }
 
-// The copy of a session at rest, from its resume material: the legs a resume starts with, with no
-// callback tools and on the full id of its model, which the build's catalog resolves since no
-// process of the session declared it. Fails as the context, the legs or the catalog cannot be read.
+// The copy of a session at rest, from its resume material: the legs a resume starts with, in the
+// home that holds its conversation, with no callback tools and on the full id of its model, which
+// the build's catalog resolves since no process of the session declared it, and the daemon's
+// emitted sum for it as the parent's cumulative. Fails as the context, the legs or the catalog
+// cannot be read.
 async fn compose_resting_side_question_copy(
     sources: Arc<ClaudeSpawnSources>,
     starts: Arc<dyn ClaudeProcessStarts>,
@@ -859,7 +843,8 @@ async fn compose_resting_side_question_copy(
         resume.provider_account_id.clone(),
         &resume.row_values,
     )
-    .await?;
+    .await?
+    .in_conversation_home(read_claude_conversation_home(&resume.runtime_metadata).as_deref());
     let legs = build_claude_spawn_bound_legs(
         ClaudeSpawnLegsRequest {
             session_id: resume.session_id,
@@ -869,7 +854,6 @@ async fn compose_resting_side_question_copy(
             tool_servers: resume.tool_servers,
             output_schema: None,
             on_mcp_server_status: None,
-            provider_account_id: resume.provider_account_id.clone(),
             command_channel: None,
             context,
             continues_interrupted_turn: false,
@@ -878,9 +862,18 @@ async fn compose_resting_side_question_copy(
     )
     .await?;
     let catalog = starts
-        .read_model_catalog(legs.spawn_environment.clone())
+        .read_model_catalog(
+            legs.spawn_environment.clone(),
+            resume.provider_account_id.clone(),
+        )
         .await?;
     let declaration = read_claude_initialize_declaration(catalog.initialize.as_deref());
+    let parent_cumulative = read_prior_emitted(
+        &sources.ports.usage,
+        resume.session_id,
+        &resume.resume_handle,
+    )
+    .await;
     Ok(ClaudeSideQuestionCopy {
         legs: ClaudeSpawnBoundLegs {
             model: claude_full_model_id(&declaration, &legs.model),
@@ -888,5 +881,6 @@ async fn compose_resting_side_question_copy(
         },
         provider_account_id: resume.provider_account_id,
         parent_provider_session_id: resume.resume_handle,
+        parent_cumulative,
     })
 }

@@ -11,11 +11,14 @@ use std::time::Duration;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use secrecy::SecretString;
 use serde_json::{Map, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
+use sidekicks_contracts::provider::account::record::{
+    CredentialGeneration, ProviderAccountId, ProviderAuthMode,
+};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
@@ -46,7 +49,7 @@ use crate::driver::contract::params_and_results::DriverCliVersionReport;
 use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::ports::SessionRelaunchListener;
 use crate::driver::schema::schema_parts;
-use crate::driver::session_control::{CreateSessionParams, DriverResumeResult};
+use crate::driver::session_control::{CreateSessionParams, DriverResumeResult, SessionAccountPin};
 use crate::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
 use crate::driver::{
     AccountFoldersError, CommandSandboxAvailability, CurrentProviderAccount, DriverServices,
@@ -65,11 +68,32 @@ use crate::runtime_binding::test_store::{spawn_config_on, test_provider_account_
 /// The statements the driver's read pool caches.
 const POOL_STATEMENT_CAPACITY: usize = 16;
 
-// Every session runs in one folder, and every account on the folders given and is the current one,
-// with the advisor the session store recorded as its own and the step bound set last.
+/// The accounts a test registers, each with its own folders and how it signs in; every other
+/// account runs on the fixture's folders and reports no sign-in mode.
+#[derive(Default)]
+pub(crate) struct ScriptedAccounts {
+    accounts: Mutex<HashMap<ProviderAccountId, (ProviderAccountFolders, Option<ProviderAuthMode>)>>,
+}
+
+impl ScriptedAccounts {
+    /// Registers `provider_account_id` on `folders`, signing in as `auth_mode` reports.
+    pub(crate) fn register(
+        &self,
+        provider_account_id: ProviderAccountId,
+        folders: ProviderAccountFolders,
+        auth_mode: Option<ProviderAuthMode>,
+    ) {
+        lock(&self.accounts).insert(provider_account_id, (folders, auth_mode));
+    }
+}
+
+// Every session runs in one folder, and every account on its registered folders, else on the
+// folders given, and is the current one, with the advisor the session store recorded as its own
+// and the step bound set last.
 struct FolderContexts {
     work: PathBuf,
     account_folders: ProviderAccountFolders,
+    accounts: Arc<ScriptedAccounts>,
     advisors: Arc<RecordedAdvisors>,
     step_bound: Arc<Mutex<Option<SafeInt<1>>>>,
 }
@@ -78,10 +102,10 @@ impl SessionSpawnContextResolver for FolderContexts {
     fn resolve_spawn_context(
         &self,
         session_id: SessionId,
-        _provider_account_id: ProviderAccountId,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn std::error::Error + Send + Sync>>> {
         let working_directory = self.work.clone();
-        let account_folders = self.account_folders.clone();
+        let account_folders = self.folders_of(&provider_account_id);
         let advisor_model = lock(&self.advisors.advisors).get(&session_id).cloned();
         let step_bound = *lock(&self.step_bound);
         async move {
@@ -110,9 +134,9 @@ impl SessionSpawnContextResolver for FolderContexts {
 impl ProviderAccountReader for FolderContexts {
     fn resolve_account_folders(
         &self,
-        _provider_account_id: ProviderAccountId,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
-        let account_folders = self.account_folders.clone();
+        let account_folders = self.folders_of(&provider_account_id);
         async move { Ok(account_folders) }.boxed()
     }
 
@@ -130,6 +154,35 @@ impl ProviderAccountReader for FolderContexts {
     ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn std::error::Error + Send + Sync>>> {
         async { Err("the scripted sessions read no account's credential generation".into()) }
             .boxed()
+    }
+
+    fn read_observed_auth_mode(
+        &self,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn std::error::Error + Send + Sync>>>
+    {
+        let auth_mode = lock(&self.accounts.accounts)
+            .get(&provider_account_id)
+            .and_then(|(_, auth_mode)| *auth_mode);
+        async move { Ok(auth_mode) }.boxed()
+    }
+
+    fn read_sealed_token(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn std::error::Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
+    }
+}
+
+impl FolderContexts {
+    fn folders_of(&self, provider_account_id: &ProviderAccountId) -> ProviderAccountFolders {
+        lock(&self.accounts.accounts)
+            .get(provider_account_id)
+            .map_or_else(
+                || self.account_folders.clone(),
+                |(folders, _)| folders.clone(),
+            )
     }
 }
 
@@ -271,6 +324,10 @@ pub(crate) struct ScriptedDriver {
     pub(crate) attachments: Arc<ScriptedAttachments>,
     /// The relaunches it reported.
     pub(crate) relaunches: Arc<RecordedRelaunches>,
+    /// The accounts its sessions run on.
+    pub(crate) accounts: Arc<ScriptedAccounts>,
+    /// The binding writes the driver made.
+    pub(crate) bindings: Arc<TakenBindingWrites>,
     /// The advisors its spawn contexts answer, which a test registers as the session store.
     pub(crate) advisors: Arc<RecordedAdvisors>,
     /// The step bound its spawn contexts answer for every session; `None` until a test sets one.
@@ -326,6 +383,21 @@ impl ScriptedDriver {
         account_folders: Option<ProviderAccountFolders>,
         sandbox_check: ClaudeCommandSandboxCheck,
     ) -> Self {
+        Self::build(account_folders, sandbox_check, true)
+    }
+
+    /// The driver of [`Self::new`] before the daemon registered its callback tool host.
+    pub(crate) fn before_the_callback_tool_host() -> Self {
+        Self::build(None, sandbox_cannot_run, false)
+    }
+
+    // The driver over `account_folders` and `sandbox_check`, its callback tool host registered
+    // where `is_host_registered`.
+    fn build(
+        account_folders: Option<ProviderAccountFolders>,
+        sandbox_check: ClaudeCommandSandboxCheck,
+        is_host_registered: bool,
+    ) -> Self {
         let folder = tempfile::tempdir().expect("the test makes a temporary folder");
         let database = TestDatabase::new(schema_parts());
         drop(
@@ -336,6 +408,8 @@ impl ScriptedDriver {
         let work = folder.path().join("work");
         std::fs::create_dir_all(&work).expect("the working folder is made");
         let attachments = Arc::new(ScriptedAttachments::default());
+        let bindings = Arc::new(TakenBindingWrites::default());
+        let accounts = Arc::new(ScriptedAccounts::default());
         let base = DriverServices {
             attachments: attachments.clone(),
             staged_changes: scripted_staged_changes(),
@@ -351,7 +425,7 @@ impl ScriptedDriver {
                 &home,
                 folder.path().join("session-token"),
             )),
-            runtime_bindings: Arc::new(TakenBindingWrites),
+            runtime_bindings: Arc::clone(&bindings) as _,
             ..test_driver_services()
         };
         let ports = &base.ports;
@@ -364,6 +438,7 @@ impl ScriptedDriver {
                 configuration_folder: default_folder.clone(),
                 credential_store_folder: default_folder,
             }),
+            accounts: Arc::clone(&accounts),
             advisors: Arc::clone(&advisors),
             step_bound: Arc::clone(&step_bound),
         });
@@ -378,10 +453,12 @@ impl ScriptedDriver {
         let recording = Arc::new(RecordingPorts::default());
         let usage = Arc::new(RecordingUsage::default());
         let relaunches = Arc::new(RecordedRelaunches::default());
-        ports
-            .callback_tool_host
-            .register(test_callback_tool_host())
-            .expect("the host registers once");
+        if is_host_registered {
+            ports
+                .callback_tool_host
+                .register(test_callback_tool_host())
+                .expect("the host registers once");
+        }
         register_scripted_ports(ports, &recording);
         ports
             .usage
@@ -423,6 +500,8 @@ impl ScriptedDriver {
             usage,
             attachments,
             relaunches,
+            accounts,
+            bindings,
             advisors,
             step_bound,
             services: base,
@@ -452,12 +531,14 @@ impl ScriptedDriver {
     }
 
     /// Records the leg of a session that ran and now rests, as the run engine reads it back: a
-    /// binding that names conversation `resume_handle` on `provider_account_id`'s account.
+    /// binding that names conversation `resume_handle` on `provider_account_id`'s account, holding
+    /// the provider's recovery data `runtime_metadata`.
     pub(crate) fn record_session_leg(
         &self,
         session_id: SessionId,
         provider_account_id: ProviderAccountId,
         resume_handle: &str,
+        runtime_metadata: Map<String, serde_json::Value>,
     ) {
         let recorded_at = "2026-01-01T00:00:00.000Z".to_owned();
         self.engine.set_session_leg(
@@ -475,7 +556,7 @@ impl ScriptedDriver {
                 resume_handle: Some(resume_handle.to_owned()),
                 resolved_executable_path: "/opt/provider/bin".to_owned(),
                 spawn_config: spawn_config_on(provider_account_id),
-                runtime_metadata: Map::new(),
+                runtime_metadata,
                 created_at: recorded_at.clone(),
                 updated_at: recorded_at,
             },
@@ -553,6 +634,7 @@ pub(crate) fn create_params(session_id: SessionId) -> CreateSessionParams {
         tool_servers: None,
         output_schema: None,
         provider_account_id: test_provider_account_id(),
+        account_pin: SessionAccountPin::Pinned,
         on_mcp_server_status: None,
     }
 }
