@@ -9,7 +9,8 @@
 //! it still read queued; a process not settled within that same timeout fails the start
 //! `provider.unavailable`. An interrupt that ends a run during its start leaves the opening to the
 //! interrupt's choice. No start or continue reads its opening while an undo holds the session: it
-//! waits for the undo's release, then opens with the item that release reserved.
+//! waits for the undo's release, then opens with the item that release reserved; one that leaves
+//! before that read, whatever the exit, drops the reservation and writes nothing for it.
 //!
 //! The place the gate grants is the run's until it ends: the run lifecycle parks it while the run
 //! waits on a person, and while it rests interrupted with its provider process alive, so a continue
@@ -434,6 +435,7 @@ impl QueueAdmission {
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<(), QueueError> {
+        let pending = self.pending_reservation(run_id);
         let (provider, provider_account_id, driver) =
             self.read_run_driver(session_id, run_id).await?;
         match self
@@ -447,12 +449,10 @@ impl QueueAdmission {
             .await?
         {
             Placed::Admitted => {}
-            Placed::Released => {
-                self.drop_reservation(run_id);
-                return Ok(());
-            }
+            Placed::Released => return Ok(()),
             Placed::TimedOut => {
-                self.drop_reservation(run_id);
+                // The resend ends not delivered with the rest, its reservation dropped first.
+                drop(pending);
                 let hold = self.deps.session_lock.hold_session(session_id).await;
                 return self
                     .end_undelivered(&hold, run_id, QueueItemNotDeliveredReason::TimedOut {})
@@ -473,7 +473,7 @@ impl QueueAdmission {
             } else {
                 Vec::new()
             };
-            self.take_opening(run_id, &candidates)
+            self.take_opening(pending, &candidates)
         };
         let Some(opening) = opening else {
             return Ok(());

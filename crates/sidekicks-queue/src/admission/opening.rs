@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::error::Error;
+use std::mem::ManuallyDrop;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt as _;
@@ -85,7 +86,37 @@ impl OpeningMessages for RunOpenings {
     }
 }
 
+/// The reservation of a run whose start or continue has not yet read its opening: dropped, with
+/// no write, at whatever exit leaves before that read, and handed to the read by
+/// [`QueueAdmission::take_opening`], which consumes it.
+pub(super) struct PendingReservation<'admission> {
+    admission: &'admission QueueAdmission,
+    run_id: RunId,
+}
+
+impl PendingReservation<'_> {
+    // The run, the guard spent without its drop.
+    fn into_run_id(self) -> RunId {
+        ManuallyDrop::new(self).run_id
+    }
+}
+
+impl Drop for PendingReservation<'_> {
+    fn drop(&mut self) {
+        self.admission.drop_reservation(self.run_id);
+    }
+}
+
 impl QueueAdmission {
+    /// Guards the reservation of `run_id` for its start or continue, taken first thing, so an exit
+    /// before the read of its opening, an error among them, leaves no reservation behind.
+    pub(super) fn pending_reservation(&self, run_id: RunId) -> PendingReservation<'_> {
+        PendingReservation {
+            admission: self,
+            run_id,
+        }
+    }
+
     /// Takes the session's queue lock for a read of a run's opening, once no undo holds the
     /// session: while one does, the lock is let go until the undo's release and taken again, as
     /// often as another undo holds it meanwhile. Answers only a hold taken with no undo holding.
@@ -107,15 +138,16 @@ impl QueueAdmission {
         }
     }
 
-    /// Records the opening of `run_id` among `candidates`, the waiting items its read found, and
-    /// answers it: the item reserved for the run when `candidates` still holds it, else the first.
-    /// The run's reservation is taken whatever is answered, so a read that finds nothing to open
-    /// with leaves none behind. Called under the session's queue lock.
+    /// Records the opening of the run `pending` guards among `candidates`, the waiting items its
+    /// read found, and answers it: the item reserved for the run when `candidates` still holds it,
+    /// else the first. The run's reservation is taken whatever is answered, so a read that finds
+    /// nothing to open with leaves none behind. Called under the session's queue lock.
     pub(super) fn take_opening(
         &self,
-        run_id: RunId,
+        pending: PendingReservation<'_>,
         candidates: &[QueueItemRecord],
     ) -> Option<QueueItemRecord> {
+        let run_id = pending.into_run_id();
         let mut table = self.deps.openings.lock();
         let reserved = table.reserved_by_run.remove(&run_id);
         let opening = reserved

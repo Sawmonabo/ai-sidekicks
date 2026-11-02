@@ -32,6 +32,7 @@ impl QueueAdmission {
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<(), QueueError> {
+        let pending = self.pending_reservation(run_id);
         let (provider, provider_account_id, driver) =
             self.read_run_driver(session_id, run_id).await?;
         if !self
@@ -44,7 +45,6 @@ impl QueueAdmission {
             )
             .await?
         {
-            self.drop_reservation(run_id);
             return Ok(());
         }
         let execution_posture = self
@@ -70,7 +70,7 @@ impl QueueAdmission {
             let (messages, own_run_items): (Vec<_>, Vec<_>) = lead_waiting
                 .into_iter()
                 .partition(|item| item.body.as_message().is_some());
-            let head = self.take_opening(run_id, &messages);
+            let head = self.take_opening(pending, &messages);
             let own_run_id = if head.is_none() && !own_run_items.is_empty() {
                 Some(
                     self.queue_own_run_items(&hold, &own_run_items, provider_account_id)
