@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use futures::FutureExt;
 use jiff::tz::TimeZone;
-use serde_json::{Map, json};
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowName, WorkflowNodeId,
 };
@@ -36,10 +36,15 @@ fn step_key(id: &str) -> StepKey {
     }
 }
 
+/// An item whose `json` is `json`.
+fn item(json: Value) -> WorkflowItem {
+    serde_json::from_value(json!({ "json": json })).expect("an item")
+}
+
 fn named_items(names: &[&str]) -> Vec<WorkflowItem> {
     names
         .iter()
-        .map(|name| serde_json::from_value(json!({ "json": { "name": name } })).expect("an item"))
+        .map(|name| item(json!({ "name": name })))
         .collect()
 }
 
@@ -77,6 +82,26 @@ fn template(text: &str) -> ParamTemplate {
         TemplateText::Expression(template) => ParamTemplate::from(&template),
         TemplateText::Literal(literal) => unreachable!("{literal} is no template"),
     }
+}
+
+/// What the template `text` answers for one input item whose `json` is `item_json`.
+async fn evaluated(item_json: Value, text: &str) -> Value {
+    let evaluator = ExpressionEvaluator::start().expect("the thread starts");
+    let step = evaluator
+        .open_step(
+            bindings(vec![item(item_json)], no_steps()),
+            vec![template(text)],
+            &CancellationToken::new(),
+        )
+        .await
+        .expect("the step opens");
+    let [value] = step
+        .evaluate_item(0)
+        .await
+        .expect("the item evaluates")
+        .try_into()
+        .expect("one template gives one value");
+    value
 }
 
 /// Each item is evaluated with its own index: a joined template is a string of its parts, and a
@@ -240,4 +265,64 @@ async fn now_formats_the_runs_instant() {
             vec![json!("2025-03-04")]
         );
     }
+}
+
+/// A regex class takes JavaScript's meaning: `\d` is `[0-9]`, so an Arabic-Indic digit is none.
+#[tokio::test]
+async fn a_regex_digit_class_is_ascii() {
+    assert_eq!(
+        evaluated(json!({}), r#"={{ $contains("٣", /\d/) }}"#).await,
+        json!(false)
+    );
+}
+
+/// On a real clock: a step canceled 50 ms into a `$distinct` over fifty thousand distinct
+/// numbers, over a billion comparisons uncanceled, ends `Canceled` within 72 ms of the cancel,
+/// since the cancel is read at every element and not only once the call returns.
+#[tokio::test]
+async fn a_canceled_distinct_ends_within_its_bound() {
+    let evaluator = ExpressionEvaluator::start().expect("the thread starts");
+    let cancel = CancellationToken::new();
+    let step = evaluator
+        .open_step(
+            bindings(named_items(&["Ada"]), no_steps()),
+            vec![template("={{ $distinct([1..50000]) }}")],
+            &cancel,
+        )
+        .await
+        .expect("the step opens");
+    let value = step.evaluate_item(0);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let canceled_at = Instant::now();
+    cancel.cancel();
+    assert!(matches!(value.await, Err(ExpressionError::Canceled)));
+    assert!(canceled_at.elapsed() < Duration::from_millis(72));
+}
+
+/// Object keys read in JavaScript's own-key order, the array-index keys first in ascending number
+/// and every other key in its written order, both in an object an expression builds and in an
+/// item's `json`, nested ones too.
+#[tokio::test]
+async fn object_keys_read_in_javascript_order() {
+    assert_eq!(
+        evaluated(json!({}), r#"={{ $keys({"b":1,"2":2}) }}"#).await,
+        json!(["2", "b"])
+    );
+    assert_eq!(
+        evaluated(
+            json!({ "b": 1, "2": 2, "1": 3, "4294967295": 4, "01": 5 }),
+            "={{ $keys($json) }}"
+        )
+        .await,
+        json!(["1", "2", "b", "4294967295", "01"])
+    );
+    assert_eq!(
+        evaluated(
+            json!({ "rows": [{ "z": 1, "10": 2, "9": 3, "0": 4 }] }),
+            "={{ $keys($json.rows[0]) }}"
+        )
+        .await,
+        json!(["0", "9", "10", "z"])
+    );
 }
