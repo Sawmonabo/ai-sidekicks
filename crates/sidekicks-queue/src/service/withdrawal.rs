@@ -13,7 +13,6 @@ use sidekicks_store::database::connection::read_pool::ReadLength;
 use super::RunQueue;
 use crate::delivery::QueueWithdrawal;
 use crate::error::QueueError;
-use crate::refusals::UnreturnedReason;
 
 /// What the withdrawal of a plan message found.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,33 +61,23 @@ impl RunQueue {
         Ok(Some(withdrawal))
     }
 
-    // Takes the waiting `item` back from delivery and cancels it: given back, as a person's
-    // removal does; not given back, so it now reads not delivered, outright. One the provider took,
-    // or a starting run opens with, stays.
+    // Takes the waiting `item` back from delivery and cancels it once given back, as a person's
+    // removal does. No hand takes a plan message, so its provider never holds one: one not given
+    // back is a starting run's opening, which stays.
     async fn withdraw_queued(
         &self,
         hold: &KeyHold<'_, SessionId>,
         item: QueueItemRecord,
     ) -> Result<PlanMessageWithdrawal, QueueError> {
-        let withdrawal = self
+        let withdrawals = self
             .delivery
             .take_back(hold, std::slice::from_ref(&item))
-            .await?
-            .get(&item.id)
-            .copied()
-            .unwrap_or(QueueWithdrawal::Unreturned(UnreturnedReason::Taken));
-        match withdrawal {
-            QueueWithdrawal::Returned => {
-                self.settle_canceled(hold, item).await?;
-                Ok(PlanMessageWithdrawal::Canceled)
-            }
-            QueueWithdrawal::Unreturned(UnreturnedReason::NotDelivered) => {
-                self.cancel_undelivered(&item).await
-            }
-            QueueWithdrawal::Unreturned(UnreturnedReason::Taken) => {
-                Ok(PlanMessageWithdrawal::Taken)
-            }
+            .await?;
+        if withdrawals.get(&item.id) != Some(&QueueWithdrawal::Returned) {
+            return Ok(PlanMessageWithdrawal::Taken);
         }
+        self.settle_canceled(hold, item).await?;
+        Ok(PlanMessageWithdrawal::Canceled)
     }
 
     // Cancels `item`, read not delivered, so no retry sends it again. Its hand is kept, so a
