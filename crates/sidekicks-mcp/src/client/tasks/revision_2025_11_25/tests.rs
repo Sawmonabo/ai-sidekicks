@@ -10,7 +10,7 @@ use crate::client::tasks::{
 use crate::client::test_server::{
     CountingSink, Reply, Responder, board_accepted, board_answer, board_form,
     call_tool_as_dispatched, contact, method_not_found, open_test_server, test_client, text_result,
-    track_call, track_task_handle, v1_initialize_result,
+    track_call, track_task_handle, tracked_end, v1_initialize_result,
 };
 
 /// A 2025-11-25 server whose `track` tool runs only as a task `task-1`, answering `tasks/get`
@@ -99,15 +99,7 @@ async fn a_2025_11_25_task_keeps_its_handle_and_interval_and_asks_its_question_o
         card.answer_open(board_answer()),
     );
 
-    assert_eq!(
-        end.expect("the call ends"),
-        McpToolCallEnd::Answered {
-            result: text_result("tracked")
-                .as_object()
-                .expect("an object")
-                .clone(),
-        }
-    );
+    assert_eq!(end.expect("the call ends"), tracked_end());
     assert_eq!(card.taken().len(), 1, "the question is asked once");
     assert_eq!(
         (question.session_id, question.run_id),
@@ -418,7 +410,7 @@ fn cancel_server(
     method_not_found,
     "completed",
     McpTaskCancelOutcome::Refused,
-    tracked(),
+    tracked_end(),
     1
 )]
 #[case::not_declared(
@@ -426,7 +418,7 @@ fn cancel_server(
     || status_reply("cancelled"),
     "completed",
     McpTaskCancelOutcome::Refused,
-    tracked(),
+    tracked_end(),
     0
 )]
 #[tokio::test(start_paused = true)]
@@ -495,13 +487,6 @@ async fn a_2025_11_25_cancel_is_taken_or_refused_and_the_follow_reads_the_end(
             0,
             "a canceled task has no result"
         );
-    }
-}
-
-/// The end of a call whose task answered [`text_result`] `tracked`.
-fn tracked() -> McpToolCallEnd {
-    McpToolCallEnd::Answered {
-        result: object(text_result("tracked")),
     }
 }
 

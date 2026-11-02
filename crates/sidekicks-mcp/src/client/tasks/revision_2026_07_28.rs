@@ -351,7 +351,7 @@ mod tests {
     use crate::client::test_server::{
         CountingSink, Reply, Responder, TestServer, board_accepted, board_answer, board_form,
         call_tool_as_dispatched, contact, method_not_found, open_test_server, test_client,
-        text_result, track_call, track_task_handle,
+        text_result, track_call, track_task_handle, tracked_end,
     };
 
     /// A 2026-07-28 server declaring tasks, whose `tools/call` starts task `task-1` and whose
@@ -434,15 +434,6 @@ mod tests {
             .collect()
     }
 
-    fn answered() -> McpToolCallEnd {
-        McpToolCallEnd::Answered {
-            result: text_result("tracked")
-                .as_object()
-                .expect("an object")
-                .clone(),
-        }
-    }
-
     // Mutations: move `observe_mcp_task_acceptance` after `follow_task`; in `poll_once`, drop
     // the `asked` check, which asks k1 again, or insert a key into `asked` before its question is
     // taken, or ignore the take's answer, so k2, refused while the run waits on k1, is never asked
@@ -485,7 +476,7 @@ mod tests {
         .await
         .expect("both questions are asked and the task ends");
 
-        assert_eq!(end.expect("the call ends"), answered());
+        assert_eq!(end.expect("the call ends"), tracked_end());
         assert_eq!(
             sink.recorded(),
             vec![(0, track_task_handle(McpTaskGeneration::V2))],
@@ -602,7 +593,7 @@ mod tests {
         .await
         .expect("the task ends");
 
-        assert_eq!(end.expect("the call ends"), answered());
+        assert_eq!(end.expect("the call ends"), tracked_end());
         let expected: Vec<(String, Value)> = (0..16)
             .map(|number| (format!("r{number:02}"), json!({ "roots": [] })))
             .collect();

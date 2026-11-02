@@ -366,3 +366,10 @@ pub(super) fn board_accepted() -> Value {
 pub(super) fn text_result(text: &str) -> Value {
     json!({ "content": [{ "type": "text", "text": text }] })
 }
+
+/// The end of a call answered with [`text_result`] `tracked`.
+pub(super) fn tracked_end() -> McpToolCallEnd {
+    McpToolCallEnd::Answered {
+        result: serde_json::from_value(text_result("tracked")).expect("an object"),
+    }
+}
