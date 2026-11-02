@@ -166,12 +166,9 @@ impl ClaudeSessionInboxes {
     }
 
     /// The reply waits of messages sent to terminal sessions, for a send to await its reply.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the Claude driver's send to a terminal session awaits its reply"
-        )
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's send to a terminal session awaits its reply"
     )]
     pub(crate) fn peer_replies(&self) -> &Arc<ClaudePeerReplies> {
         &self.peer_replies

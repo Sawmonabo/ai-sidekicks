@@ -132,23 +132,22 @@ impl ClaudePeerReplies {
             })?
             .to_path_buf();
         let (start_offset, source) =
-            match find_claude_conversation_file(&config_folder, &session_id).await? {
-                Some(file) => (
+            if let Some(file) = find_claude_conversation_file(&config_folder, &session_id).await? {
+                (
                     tokio::fs::metadata(&file).await?.len(),
                     Some(TranscriptSource::File(file)),
-                ),
-                None => {
-                    let source = receiver.working_folder.as_deref().map(|working_folder| {
-                        let folder = config_folder
-                            .join("projects")
-                            .join(claude_project_key(working_folder));
-                        TranscriptSource::Folder {
-                            file: folder.join(format!("{session_id}.jsonl")),
-                            folder,
-                        }
-                    });
-                    (0, source)
-                }
+                )
+            } else {
+                let source = receiver.working_folder.as_deref().map(|working_folder| {
+                    let folder = config_folder
+                        .join("projects")
+                        .join(claude_project_key(working_folder));
+                    TranscriptSource::Folder {
+                        file: folder.join(format!("{session_id}.jsonl")),
+                        folder,
+                    }
+                });
+                (0, source)
             };
         let key = TranscriptKey {
             config_folder,

@@ -72,6 +72,13 @@ struct RegistryFile {
 /// The config folders whose registries name the Claude Code sessions on this machine: the
 /// person's own, from `base_environment`, then each Claude account's home, a folder already listed
 /// skipped. Fails when the accounts cannot be read.
+#[cfg_attr(
+    test,
+    expect(
+        dead_code,
+        reason = "the send hook and the target resolver read the running sessions"
+    )
+)]
 pub(crate) async fn read_claude_registry_folders(
     base_environment: &[(String, String)],
     accounts: &ProviderAccountRegistry,
