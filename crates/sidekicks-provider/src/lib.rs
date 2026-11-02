@@ -1,8 +1,9 @@
 //! Providers: the driver interface and the table of providers, a driver's reports and requests to
 //! the run engine and the ports it reaches the daemon through, a run's execution posture,
-//! background work, the record of each provider's builds, the code every provider shares, and each
-//! provider's own driver. It sits over std, store, ipc, workspace and policy and is taken by mcp,
-//! shell, session, approval, queue, artifact, recovery and the program.
+//! background work, the record of each provider's builds, each provider's command in each place it
+//! runs, the code every provider shares, and each provider's own driver. It sits over std, store,
+//! ipc, workspace and policy and is taken by mcp, shell, session, approval, queue, artifact,
+//! recovery and the program.
 
 pub mod account_homes;
 pub mod background_work;
@@ -18,6 +19,7 @@ pub mod driver;
 pub(crate) mod event_disposition;
 pub mod hand_over;
 pub mod inbound_json;
+pub mod installation;
 pub mod left_conversations;
 pub(crate) mod lenient_json;
 pub mod mcp;
