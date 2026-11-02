@@ -1,13 +1,17 @@
 //! The service's registration to start at login: which registration owns it, its install, its
 //! start, its removal, whether the person turned it off, and whether a person is logged in at the
 //! screen; and the system service that runs it while its account is logged out, behind an
-//! administrator's password. A system that registers the service supplies the registration in its
-//! own module; on any other system the registration type has no value, so
-//! [`service_registration`] answers `None` there and nothing else is called.
+//! administrator's password. Under `sudo` it acts for the account that ran `sudo`, never for root.
+//! A system that registers the service supplies the registration in its own module; on any other
+//! system the registration type has no value, so [`service_registration`] answers `None` there and
+//! nothing else is called.
 
 use std::io;
 use std::path::PathBuf;
 use std::process::ExitStatus;
+
+#[cfg(target_os = "macos")]
+use crate::macos::administrator_prompt::AdministratorPromptError;
 
 /// Which registration starts the service at login on this computer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,7 +60,8 @@ pub enum ServiceRegistrationError {
     /// The account has no home folder, where the registration's file lives.
     #[error("this account has no home folder")]
     NoHomeFolder,
-    /// The system's service manager could not be started for a step.
+    /// The system's service manager, or the program a root step runs, could not be started for a
+    /// step.
     #[error("the service manager could not be started to {step}")]
     Start {
         /// The step it was started for, such as `bootstrap`.
@@ -65,8 +70,8 @@ pub enum ServiceRegistrationError {
         #[source]
         source: io::Error,
     },
-    /// The system's service manager refused a step: its exit status, which a caller may read, and
-    /// what it wrote on its error stream.
+    /// The system's service manager, or the program a root step runs, refused a step: its exit
+    /// status, which a caller may read, and what it wrote on its error stream.
     #[error("the service manager refused to {step} ({status}): {message}")]
     Refused {
         /// The refused step, such as `bootstrap`.
@@ -84,7 +89,8 @@ pub enum ServiceRegistrationError {
         source: io::Error,
     },
     /// The run has root's rights but names no other account it acts for: `sudo` was not used, it
-    /// was used from root, or the account it names has no entry.
+    /// was used from root, or the account it names has no entry. Every step that acts for the
+    /// account fails with it.
     #[error("running as root, but no account other than root ran sudo")]
     NoInvokingAccount,
     /// The person canceled the administrator password prompt.
@@ -135,6 +141,34 @@ pub enum ServiceRegistrationError {
         #[source]
         source: io::Error,
     },
+}
+
+#[cfg(target_os = "macos")]
+impl From<AdministratorPromptError> for ServiceRegistrationError {
+    fn from(failure: AdministratorPromptError) -> Self {
+        match failure {
+            AdministratorPromptError::Start { step, source } => Self::Start { step, source },
+            AdministratorPromptError::Refused {
+                step,
+                status,
+                message,
+            } => Self::Refused {
+                step,
+                status,
+                message,
+            },
+            AdministratorPromptError::Canceled => Self::Canceled,
+            AdministratorPromptError::AdministratorRefused {
+                step,
+                number,
+                message,
+            } => Self::AdministratorRefused {
+                step,
+                number,
+                message,
+            },
+        }
+    }
 }
 
 /// The service's registration on a system with none built: the type has no value, so no method is
@@ -189,8 +223,9 @@ impl ServiceRegistration {
     }
 
     /// Installs the system service; never called, since no value exists.
-    pub fn install_system_service(
+    pub async fn install_system_service(
         &self,
+        _spawner: &crate::Spawner,
         _daemon_program: &std::path::Path,
         _is_app_installed: bool,
     ) -> Result<(), ServiceRegistrationError> {
@@ -198,7 +233,30 @@ impl ServiceRegistration {
     }
 
     /// Removes the system service; never called, since no value exists.
-    pub fn uninstall_system_service(&self) -> Result<(), ServiceRegistrationError> {
+    pub async fn uninstall_system_service(
+        &self,
+        _spawner: &crate::Spawner,
+    ) -> Result<(), ServiceRegistrationError> {
+        match *self {}
+    }
+
+    /// The account's home folder; never called, since no value exists.
+    pub fn account_home(&self) -> Result<PathBuf, ServiceRegistrationError> {
+        match *self {}
+    }
+
+    /// Whether the login agent is loaded; never called, since no value exists.
+    pub fn is_agent_loaded(&self) -> Result<bool, ServiceRegistrationError> {
+        match *self {}
+    }
+
+    /// Unloads the login agent; never called, since no value exists.
+    pub fn boot_out_agent(&self) -> Result<(), ServiceRegistrationError> {
+        match *self {}
+    }
+
+    /// Why this build refuses the system service; never called, since no value exists.
+    pub fn system_service_refusal(&self) -> Option<&'static str> {
         match *self {}
     }
 }
