@@ -3,10 +3,11 @@
 //! daemon's service log files and each provider service's log and kept tail in `logs/`, every
 //! diagnostic bucket, the crash dumps and crash reports, and the provider diagnostic folders in
 //! each account home and each provider's switching home, and asks each such home's driver to
-//! expire what its provider keeps there beyond those folders. A file still being written, the one the service log holds open, a running
-//! provider service's log, a partial crash dump or a crash-safe write's temporary file in either
-//! crash folder, which the crash pass removes itself once no writer holds it, is never deleted, and
-//! a running service's log past its cap is cut instead. A file in `logs/` that is no diagnostic log
+//! expire what its provider keeps there beyond those folders. A file still being written, the one
+//! the service log holds open, a running provider service's log, a partial crash dump or a
+//! crash-safe write's temporary file in either crash folder, which the crash pass removes itself
+//! once no writer holds it, is never deleted, and a running service's log past its cap is cut
+//! instead. A file in `logs/` that is no diagnostic log
 //! is never touched, and no folder is removed. A file that cannot be read, cut or deleted is told
 //! in the service log and the pass goes on. Each pass is metered against its processor budget.
 

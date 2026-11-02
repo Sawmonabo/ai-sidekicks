@@ -182,8 +182,8 @@ impl AccountSwitch {
     /// Makes `account_id` its provider's current account for `actor`, then moves every running
     /// session of that provider not already on it. Answers once the mark has moved; the moves land
     /// after, under the provider's lock. Refused `provider.account.notFound` for an account not
-    /// registered or being removed, `provider.account.credentialHome.unavailable` for a home that is
-    /// gone and `provider.account.notAuthenticated` with the account's remedy for a sign-in its
+    /// registered or being removed, `provider.account.credentialHome.unavailable` for a home that
+    /// is gone and `provider.account.notAuthenticated` with the account's remedy for a sign-in its
     /// stored reading says is gone, each with the mark unmoved and no session sent anything.
     pub(crate) async fn make_current(
         self: &Arc<Self>,
@@ -375,9 +375,9 @@ impl AccountSwitch {
         Ok(leads)
     }
 
-    // Moves every lead of `plan` onto its account, grouped by the account each leaves, settling each
-    // at its acknowledgment, then frees the provider's lock and answers the watch of each moved
-    // lead's first request on the new account, which ends once every one has settled.
+    // Moves every lead of `plan` onto its account, grouped by the account each leaves, settling
+    // each at its acknowledgment, then frees the provider's lock and answers the watch of each
+    // moved lead's first request on the new account, which ends once every one has settled.
     async fn carry_out(
         self: &Arc<Self>,
         plan: SwitchPlan,
