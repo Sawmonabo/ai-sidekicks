@@ -205,7 +205,7 @@ pub(crate) struct ClaudeStreamSession {
     pub(crate) tool_server_tasks: ClaudeToolServerTasks,
     /// What the working line reads about the lead's running turn.
     pub(crate) turn_readings: ClaudeTurnReadings,
-    /// Whether the open turn already took a message other than a peer message it started with.
+    /// Whether the open turn already took a message.
     pub(crate) has_turn_message: bool,
 }
 
