@@ -45,7 +45,7 @@ use tokio::sync::oneshot;
 
 use crate::account::credential_home::CredentialHome;
 use crate::account::errors::ProviderAccountRegistryError;
-use crate::account::home_lock::AccountHomeLock;
+use crate::account::home_lock::{AccountHomeLock, SigningInMark};
 use crate::account::registry::{
     AccountAdmission, MintedAccount, ProviderAccountRegistry, RegisteredAccount,
 };
@@ -420,6 +420,7 @@ impl AttemptServices {
         };
         Ok(Reservation {
             _in_flight_guard: in_flight_guard,
+            signing_in: None,
             services: self.clone(),
             attempt_id,
             account_id,
@@ -511,6 +512,8 @@ enum AttemptStage {
 /// none of them.
 struct Reservation {
     _in_flight_guard: InFlightGuard,
+    // The home's mark as signing in, from the flow's start until it ends.
+    signing_in: Option<SigningInMark>,
     services: AttemptServices,
     attempt_id: AttemptId,
     account_id: ProviderAccountId,
@@ -522,10 +525,11 @@ struct Reservation {
 }
 
 impl Reservation {
-    // Takes the account's home, notes a registered account's credential generation, starts the
-    // flow in it, lets the home go and answers `answer` whether the flow started, then runs the
-    // attempt to its end. A caller that stopped waiting before the home was free starts nothing;
-    // one that stopped after leaves the started flow to run to its end.
+    // Takes the account's home once a renewal running there has ended, marks it as signing in,
+    // notes a registered account's credential generation, starts the flow in it, lets the home go
+    // and answers `answer` whether the flow started, then runs the attempt to its end. A caller
+    // that stopped waiting before the home was free starts nothing; one that stopped after leaves
+    // the started flow to run to its end.
     async fn run_attempt(
         mut self,
         legs: Arc<dyn ProviderSignInLegs>,
@@ -540,6 +544,7 @@ impl Reservation {
                 return;
             }
         };
+        self.signing_in = Some(home_lock.mark_signing_in(self.account_id.clone()));
         if self.minted.is_none() {
             let read = self.services.registry.read(self.account_id.clone()).await;
             match read {
@@ -655,6 +660,8 @@ impl Attempt {
                 Some(()) = code_prompts.next() => self.mark_waiting_for_code(),
             }
         };
+        // The flow has ended, so a renewal may run in the home again once its hold is free.
+        drop(self.reservation.signing_in.take());
         // Settling from the flow's end: no code submit or cancel reaches it and it no longer holds
         // the machine's one slot, while a start on its account meets it by name until it settles.
         {

@@ -743,3 +743,62 @@ async fn a_cancel_while_the_flow_starts_cancels_it_once_started() {
     };
     assert_eq!(outcome, ProviderSignInOutcome::Canceled);
 }
+
+// A sign-in started while a renewal holds the account's home starts its flow only once the
+// renewal let the home go, and marks the home as signing in from then until the flow ends.
+// Killed by the flow started under the renewal's hold, by no mark (a renewal would run beside the
+// flow), and by the mark kept past the flow's end.
+#[tokio::test]
+async fn a_sign_in_waits_out_a_renewal_and_marks_its_home_while_the_flow_runs() {
+    let database = TestDatabase::new(schema_parts());
+    let data_folder = tempfile::tempdir().expect("a data folder");
+    let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
+    let registry = Arc::new(registry);
+    let account = register(&registry, "claude").await;
+    let (flow_sender, mut flows) = mpsc::unbounded();
+    let legs = Arc::new(ScriptedLegs {
+        status: Status::Read {
+            is_account_named: true,
+        },
+        flows: flow_sender,
+        homes: Mutex::new(Vec::new()),
+        holds_machine_slot: false,
+    });
+    let (published_sender, mut published) = mpsc::unbounded();
+    let home_lock = Arc::new(AccountHomeLock::default());
+    let broker = ProviderSignInBroker::new(
+        registry,
+        HashMap::from([(provider("claude"), legs as Arc<dyn ProviderSignInLegs>)]),
+        Arc::new(RecordingPublisher(published_sender)),
+        Arc::new(RecordingWatcher::default()),
+        Arc::clone(&home_lock),
+        Arc::default(),
+    );
+    let request = ProviderAccountSignInRequest::Registered(RegisteredAccountSignIn {
+        account_id: account.account_id.clone(),
+    });
+    let renewal = home_lock.hold(account.account_id.clone()).await;
+
+    let waited_out = async {
+        assert!(
+            tokio::time::timeout(HELD_HOME_WAIT, flows.next())
+                .await
+                .is_err(),
+            "the flow started while the renewal held the home"
+        );
+        assert!(!home_lock.is_signing_in(&account.account_id));
+        drop(renewal);
+        flows
+            .next()
+            .await
+            .expect("the flow starts once the home is free")
+    };
+    let (started, flow) =
+        tokio::join!(broker.start(request, SignInOrigin::ThisMachine), waited_out);
+    started.expect("the sign-in starts");
+
+    assert!(home_lock.is_signing_in(&account.account_id));
+    flow.finish(ProviderSignInEnd::Finished);
+    next_notification(&mut published).await;
+    assert!(!home_lock.is_signing_in(&account.account_id));
+}

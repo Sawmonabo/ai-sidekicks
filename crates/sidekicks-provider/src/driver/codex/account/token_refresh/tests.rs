@@ -292,6 +292,29 @@ async fn a_refresh_after_the_home_was_renewed_answers_without_a_renewal() {
     );
 }
 
+// Killed by a renewal run in a home a sign-in's flow runs in: the home's service would see a
+// renewing read beside the flow, and the refresh would be answered with tokens.
+#[tokio::test]
+async fn a_refresh_while_a_sign_in_runs_in_the_home_is_refused_with_no_renewal() {
+    let mut fixture = Fixture::new().await;
+    fixture.carry().await;
+    let signing_in = fixture
+        .home_lock
+        .mark_signing_in(fixture.account_id.clone());
+
+    fixture.switching.script.send(&refresh_request("main"));
+
+    assert_eq!(
+        fixture.switching.script.next_sent().await,
+        refusal_answer("main")
+    );
+    assert!(
+        fixture.home.script.sent.try_recv().is_err(),
+        "a renewing read ran beside the sign-in"
+    );
+    drop(signing_in);
+}
+
 // Killed by no memory of a dead renewal (a second read for the retry), by a refresher on every
 // service (the pinned one answering anything but `-32601`), by a refusal naming a token, and by a
 // refresh moving the account's generation or health.

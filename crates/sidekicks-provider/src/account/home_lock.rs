@@ -7,8 +7,11 @@
 //!   act holds the home or once the home is free. It runs in a task of its own, so it keeps the
 //!   home until it ends even after every asker stops waiting, and leaves no act behind that would
 //!   hold the home for ever.
+//! - A sign-in holds the home only while its flow starts, never across the person's browser step,
+//!   so it marks the home as signing in for the flow's life; a renewal finding the mark skips the
+//!   home rather than run the provider there beside the flow.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
@@ -22,6 +25,7 @@ use tokio::task::JoinError;
 #[derive(Default)]
 pub struct AccountHomeLock {
     holds: KeyedLock<ProviderAccountId>,
+    signing_in: Arc<Mutex<HashSet<ProviderAccountId>>>,
 }
 
 impl AccountHomeLock {
@@ -32,6 +36,33 @@ impl AccountHomeLock {
         provider_account_id: ProviderAccountId,
     ) -> KeyHold<'_, ProviderAccountId> {
         self.holds.acquire(provider_account_id).await
+    }
+
+    /// Marks `provider_account_id`'s home as one a sign-in's flow runs in until the answered mark
+    /// drops. Taken under the home's hold, so a renewal running there has ended first.
+    pub fn mark_signing_in(&self, provider_account_id: ProviderAccountId) -> SigningInMark {
+        lock(&self.signing_in).insert(provider_account_id.clone());
+        SigningInMark {
+            signing_in: Arc::clone(&self.signing_in),
+            provider_account_id,
+        }
+    }
+
+    /// Whether a sign-in's flow runs in `provider_account_id`'s home; read under the home's hold.
+    pub fn is_signing_in(&self, provider_account_id: &ProviderAccountId) -> bool {
+        lock(&self.signing_in).contains(provider_account_id)
+    }
+}
+
+/// A home's mark as one a sign-in's flow runs in, let go when dropped.
+pub struct SigningInMark {
+    signing_in: Arc<Mutex<HashSet<ProviderAccountId>>>,
+    provider_account_id: ProviderAccountId,
+}
+
+impl Drop for SigningInMark {
+    fn drop(&mut self) {
+        lock(&self.signing_in).remove(&self.provider_account_id);
     }
 }
 
