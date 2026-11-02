@@ -49,7 +49,9 @@ use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
 use crate::port::session_message_reading_publisher::{
     SessionMessageReading, SessionMessageReadingPublisher,
 };
-use crate::port::usage_sink::{MeteredUsage, ProviderQuotaWindow, UsageSink};
+use crate::port::usage_sink::{
+    MeteredUsage, PricedRequest, ProviderQuotaWindow, RecordedUsage, UsageSink,
+};
 use crate::runtime_binding::store::RuntimeBindingRebind;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::usage_delta_accountant::UsageAxisCounts;
@@ -207,9 +209,16 @@ impl UsageSink for RecordingUsage {
     fn record_metered(
         &self,
         metered: MeteredUsage,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<Option<RecordedUsage>, Box<dyn Error + Send + Sync>>> {
         lock(&self.metered).push(metered);
-        ready(Ok(())).boxed()
+        ready(Ok(None)).boxed()
+    }
+
+    fn record_cost(
+        &self,
+        _request: PricedRequest,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        ready(Err("the scripted usage record prices no request".into())).boxed()
     }
 
     fn read_prior_emitted(

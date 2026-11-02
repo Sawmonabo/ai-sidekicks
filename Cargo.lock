@@ -8888,6 +8888,7 @@ dependencies = [
  "opentelemetry-proto",
  "process-wrap",
  "proptest",
+ "prost",
  "regex",
  "regex-lite",
  "reqwest",

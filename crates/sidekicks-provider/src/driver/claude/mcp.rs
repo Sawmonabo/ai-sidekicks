@@ -1,13 +1,14 @@
 //! Claude Code's MCP servers as the driver reads them: the person's own config, each account's
 //! connectors and organization servers, Claude Code's precedence over them, the machine probe of
-//! the bindings no live session reads, and the sign-in to one server through Claude Code's own
-//! client.
+//! the bindings no live session reads, the sign-in to one server through Claude Code's own client,
+//! and the names a person may give a server.
 
 pub(crate) mod config;
 pub(crate) mod connectors;
 pub(crate) mod machine_probe;
 pub(crate) mod organization;
 pub(crate) mod precedence;
+pub(crate) mod server_name;
 pub(crate) mod sign_in;
 
 use std::path::{Path, PathBuf};
