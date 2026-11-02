@@ -1,10 +1,12 @@
-//! The latest readings the drivers publish, each kept until its run or session ends: a session's
-//! context reading and a run's turn readings. A subscriber reads the held reading at once and then
-//! only the newest after each change, so a slow one never reads a queue of stale readings. A
-//! reading published after its session closed is dropped, the closed sessions kept until purged.
+//! The latest readings the drivers publish, each kept until its run, tool call or session ends: a
+//! session's context reading, a run's turn readings and the status line under each running tool
+//! call. A subscriber reads the held reading at once and then only the newest after each change, so
+//! a slow one never reads a queue of stale readings. A reading published after its session closed
+//! is dropped, the closed sessions kept until purged.
 
 pub mod context;
 mod latest;
+pub mod tool_call_status;
 pub mod turn;
 
 use std::collections::HashSet;
