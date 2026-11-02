@@ -8,9 +8,8 @@ use std::collections::BTreeMap;
 
 use bytes::Bytes;
 use serde_json::value::RawValue;
-use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_contracts::jsonrpc::issue::{Issue, received_issues};
-use sidekicks_contracts::jsonrpc::message::{JsonRpcError, JsonRpcErrorData};
+use sidekicks_contracts::jsonrpc::message::JsonRpcError;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::method::ProcedureType;
 use sidekicks_contracts::method_descriptor;
@@ -32,14 +31,14 @@ pub fn checked_request(
     is_subscription: bool,
 ) -> Result<RawRequest, JsonRpcError> {
     let descriptor = method_descriptor(method).ok_or_else(|| {
-        refusal(
+        JsonRpcError::refusal(
             RefusalCode::RequestMethodNotFound,
             format!("No method {method} is declared"),
             None,
         )
     })?;
     if (descriptor.procedure_type == ProcedureType::Subscription) != is_subscription {
-        return Err(refusal(
+        return Err(JsonRpcError::refusal(
             RefusalCode::RequestMethodNotAllowed,
             format!("{method} is not called this way"),
             None,
@@ -50,7 +49,7 @@ pub fn checked_request(
     if let Err(refused) = (descriptor.check_params)(params.get().as_bytes(), attachments.clone()) {
         return Err(match received_issues(refused) {
             Ok(issues) => params_refusal(method, "break its contract", issues),
-            Err(error) => internal_error(format!(
+            Err(error) => JsonRpcError::internal(format!(
                 "The contract check of {method} could not be built: {error}"
             )),
         });
@@ -72,7 +71,7 @@ pub fn wire_error(error: &ClientError) -> JsonRpcError {
             message: remote.message.clone(),
             data: remote.data.clone(),
         },
-        ClientError::Unavailable { reason, .. } => refusal(
+        ClientError::Unavailable { reason, .. } => JsonRpcError::refusal(
             RefusalCode::ConnectionUnavailable,
             error_text(error),
             serde_json::to_value(reason).ok().and_then(|reason| {
@@ -83,42 +82,18 @@ pub fn wire_error(error: &ClientError) -> JsonRpcError {
         ClientError::Reply { .. }
         | ClientError::Request { .. }
         | ClientError::RunFolder(_)
-        | ClientError::Token { .. } => internal_error(error_text(error)),
+        | ClientError::Token { .. } => JsonRpcError::internal(error_text(error)),
     }
 }
 
 fn params_refusal(method: &str, what: &str, issues: Vec<Issue>) -> JsonRpcError {
     let issues = serde_json::to_value(issues).expect("an issue is plain text and lists");
     let fields = BTreeMap::from([("issues".to_owned(), AnyValue(issues))]);
-    refusal(
+    JsonRpcError::refusal(
         RefusalCode::RequestParamsInvalid,
         format!("The params of {method} {what}"),
         JsonRecord::new(fields),
     )
-}
-
-/// A refusal this client answers itself, in the shape the daemon answers one.
-fn refusal(code: RefusalCode, message: String, fields: Option<JsonRecord>) -> JsonRpcError {
-    JsonRpcError {
-        code: SafeSignedInt::new(i64::from(code.json_rpc_code().code()))
-            .expect("a JSON-RPC code is a safe integer"),
-        message,
-        data: Some(JsonRpcErrorData {
-            refusal: code.as_str().to_owned(),
-            category: code.category(),
-            fields,
-        }),
-    }
-}
-
-/// An internal failure in the wire's error shape: `-32603` with `message` and no `data`.
-pub fn internal_error(message: String) -> JsonRpcError {
-    JsonRpcError {
-        code: SafeSignedInt::new(i64::from(JsonRpcErrorCode::InternalError.code()))
-            .expect("a JSON-RPC code is a safe integer"),
-        message,
-        data: None,
-    }
 }
 
 /// `error` and each of its causes, joined.

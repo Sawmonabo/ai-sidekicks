@@ -107,7 +107,7 @@ pub async fn connect(on_state: Callback<String>) -> ConnectOutcome {
     let endpoint = match DaemonEndpoint::this_machine() {
         Ok(endpoint) => endpoint,
         Err(error) => {
-            return refused(wire_value(&untyped_call::internal_error(format!(
+            return refused(wire_value(&JsonRpcError::internal(format!(
                 "This system has no run folder for the service: {error}"
             ))));
         }

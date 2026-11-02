@@ -6,11 +6,9 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::jsonrpc::error_code::JsonRpcErrorCode;
-use crate::jsonrpc::message::{JsonRpcError, JsonRpcErrorData};
+use crate::jsonrpc::message::JsonRpcError;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::wire::AnyValue;
-use crate::wire::integer::SafeSignedInt;
 use crate::wire::record::JsonRecord;
 
 /// A mode's answer, `{"result": …}` or `{"error": …}` as a JSON-RPC response carries them; the
@@ -27,28 +25,12 @@ pub enum DaemonModeOutcome<T> {
 impl<T> DaemonModeOutcome<T> {
     /// The refusal `code` with `message` for a person and `fields` as its `data.fields`.
     pub fn refused(code: RefusalCode, message: String, fields: BTreeMap<String, AnyValue>) -> Self {
-        Self::Error(JsonRpcError {
-            code: json_rpc_code(code.json_rpc_code()),
-            message,
-            data: Some(JsonRpcErrorData {
-                refusal: code.as_str().to_owned(),
-                category: code.category(),
-                fields: JsonRecord::new(fields).filter(|record| !record.as_map().is_empty()),
-            }),
-        })
+        let fields = JsonRecord::new(fields).filter(|record| !record.as_map().is_empty());
+        Self::Error(JsonRpcError::refusal(code, message, fields))
     }
 
     /// A failure inside the mode: `-32603` with `message` and no `data`.
     pub fn failed(message: String) -> Self {
-        Self::Error(JsonRpcError {
-            code: json_rpc_code(JsonRpcErrorCode::InternalError),
-            message,
-            data: None,
-        })
+        Self::Error(JsonRpcError::internal(message))
     }
-}
-
-// The error's numeric code as the wire carries it.
-fn json_rpc_code(code: JsonRpcErrorCode) -> SafeSignedInt {
-    SafeSignedInt::new(i64::from(code.code())).expect("a JSON-RPC error code is a safe integer")
 }
