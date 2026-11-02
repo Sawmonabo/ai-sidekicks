@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use sidekicks_contracts::event::envelope::SourcePosition;
-use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -27,7 +26,7 @@ use super::{TURN_CAPTURE_STATEMENT_CAPACITY, TurnCapture};
 use crate::checkpoints::schema::schema_parts;
 use crate::run::engine::RunEngine;
 use crate::run::engine::test_fixture::{insert_running_run, test_engine};
-use crate::run::epochs::ConfirmedCut;
+use crate::run::engine::undo::RunCut;
 use crate::run::state_change::RunStateChangeCompanions;
 
 /// A run of its own session in a repository whose execution root is a folder below its checkout,
@@ -232,19 +231,14 @@ async fn a_late_end_after_a_rollback_and_a_restart_lands_where_its_turn_started(
     fixture.start_turn(fixture.run_id).await;
     fixture.end_turn(fixture.run_id, 1).await;
     capturing.stop().await;
-    let cut = ConfirmedCut::InPlace {
-        binding_id: RuntimeBindingId::new("binding".to_owned()).expect("a binding id"),
-        point: SourcePosition(SafeInt::ZERO),
+    let cut = RunCut {
+        run_id: fixture.run_id,
+        target_position: SourcePosition(SafeInt::ZERO),
     };
     let hold = SESSION_APPEND_LOCK.acquire(fixture.session_id).await;
     fixture
         .engine
-        .roll_back(
-            fixture.run_id,
-            &cut,
-            RunStateChangeCompanions::default(),
-            &hold,
-        )
+        .roll_back(cut, Vec::new(), RunStateChangeCompanions::default(), &hold)
         .await
         .expect("the rollback is written");
     drop(hold);

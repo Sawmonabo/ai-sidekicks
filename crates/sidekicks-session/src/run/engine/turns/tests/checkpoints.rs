@@ -5,7 +5,6 @@ use std::sync::Arc;
 use serde_json::json;
 use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::event_cursor::encode_event_cursor;
@@ -28,7 +27,7 @@ use crate::checkpoints::schema::schema_parts;
 use crate::checkpoints::store::{list_checkpoints, read_checkpoint};
 use crate::run::engine::RunEngine;
 use crate::run::engine::test_fixture::{end_run_aside, insert_running_run, test_engine};
-use crate::run::epochs::ConfirmedCut;
+use crate::run::engine::undo::RunCut;
 use crate::run::state_change::RunStateChangeCompanions;
 
 // Appends the person's message that queue item `item` sends to `run_id`, under the item's id as
@@ -74,6 +73,22 @@ async fn start(engine: &RunEngine, run_id: RunId, opening: Option<QueueItemId>) 
         .map(|started| started.turn_number.get())
 }
 
+// Writes the completed end of turn `turn_number` of `run_id`, asserting it is no duplicate.
+async fn end(engine: &Arc<RunEngine>, run_id: RunId, turn_number: u64) {
+    let is_written = engine
+        .record_turn_end(
+            run_id,
+            ProviderTurnEnd {
+                turn_number: SafeInt::new(turn_number).expect("a small turn"),
+                outcome: TurnOutcome::Completed,
+            },
+        )
+        .await
+        .expect("the turn's end is written")
+        .log_resend_failure(run_id);
+    assert!(is_written, "turn {turn_number}'s end is no duplicate");
+}
+
 fn minted_item() -> QueueItemId {
     QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id")
 }
@@ -106,18 +121,7 @@ async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_star
     let first_sequence = send(&appender, session_id, run_id, first).await;
     assert_eq!(start(&engine, run_id, Some(first)).await, Some(1));
     send(&appender, session_id, run_id, steer).await;
-    let is_turn_one_ended = engine
-        .record_turn_end(
-            run_id,
-            ProviderTurnEnd {
-                turn_number: SafeInt::new(1).expect("a small turn"),
-                outcome: TurnOutcome::Completed,
-            },
-        )
-        .await
-        .expect("turn 1's end is written")
-        .log_resend_failure(run_id);
-    assert!(is_turn_one_ended);
+    end(&engine, run_id, 1).await;
     let second_sequence = send(&appender, session_id, run_id, second).await;
     assert_eq!(start(&engine, run_id, Some(second)).await, Some(2));
     assert_eq!(start(&engine, run_id, None).await, Some(3));
@@ -126,14 +130,18 @@ async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_star
         Some(4),
         "a start naming a message already kept still lands"
     );
+    // A rollback refuses a run holding a turn with no end.
+    for turn_number in 2..=4 {
+        end(&engine, run_id, turn_number).await;
+    }
     let hold = SESSION_APPEND_LOCK.acquire(session_id).await;
     engine
         .roll_back(
-            run_id,
-            &ConfirmedCut::InPlace {
-                binding_id: RuntimeBindingId::new("binding".to_owned()).expect("a binding id"),
-                point: SourcePosition(SafeInt::ZERO),
+            RunCut {
+                run_id,
+                target_position: SourcePosition(SafeInt::ZERO),
             },
+            Vec::new(),
             RunStateChangeCompanions::default(),
             &hold,
         )

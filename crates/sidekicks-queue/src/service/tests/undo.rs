@@ -143,8 +143,6 @@ impl Fixture {
                 epoch: SourceEpoch(SafeInt::ZERO),
                 position: position(TARGET_TURN),
             },
-            head: None,
-            tree: None,
         };
         self.log
             .writer
