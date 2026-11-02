@@ -11,7 +11,6 @@ mod tests;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::commands::{
     ProviderCommandBinding, ProviderCommandListResponse,
 };
@@ -262,17 +261,6 @@ impl ClaudeDriver {
         // Two first calls may both compose; the one set first is kept, and the other, which
         // started nothing, is dropped.
         Ok(self.parts.get_or_init(|| composed))
-    }
-
-    /// Keeps the model display name `account`'s latest `get_usage` read named in its
-    /// `model_scoped`, which a later event's weekly window over one model on that account is named
-    /// for.
-    #[expect(
-        dead_code,
-        reason = "the account's limits read names the model its scoped weekly window covers"
-    )]
-    pub(crate) fn note_usage_probe_model(&self, account: ProviderAccountId, display_name: String) {
-        self.usage_probe_models.note(account, display_name);
     }
 
     /// The session pieces once composed; `None` before any session call composed them, when no

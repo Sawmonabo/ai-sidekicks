@@ -16,10 +16,10 @@ use sidekicks_std::mutex_lock::lock;
 use crate::port::usage_sink::ProviderQuotaWindow;
 
 /// The five-hour window's length in minutes.
-const SESSION_WINDOW_MINUTES: i64 = 300;
+pub(crate) const SESSION_WINDOW_MINUTES: i64 = 300;
 
 /// A weekly window's length in minutes.
-const WEEKLY_WINDOW_MINUTES: i64 = 10_080;
+pub(crate) const WEEKLY_WINDOW_MINUTES: i64 = 10_080;
 
 /// The model display name each account's latest limits read named for its weekly window over one
 /// model, which every process on the account reads its events' windows by.
@@ -175,5 +175,37 @@ mod tests {
             .map(|window| (window.limit_id.as_str(), window.window_mins))
             .collect();
         assert_eq!(read, Vec::from_iter(expected));
+    }
+
+    // The event 2.1.316 sent on an account with no five-hour limit names only its weekly window.
+    // Killed by a `session` window read where the event names no `five_hour`.
+    #[test]
+    fn an_event_without_five_hour_reads_no_session_window() {
+        let members = json!({
+            "type": "rate_limit_event",
+            "rate_limit_info": {
+                "status": "allowed",
+                "resetsAt": 1_793_973_600,
+                "rateLimitType": "seven_day",
+                "overageStatus": "rejected",
+                "overageDisabledReason": "org_level_disabled",
+                "isUsingOverage": false,
+                "unifiedWindows": {"seven_day": {
+                    "utilization": 0.46, "resetsAt": 1_793_973_600, "status": "allowed"
+                }}
+            }
+        });
+
+        let windows = read_claude_quota_windows(
+            members.as_object().expect("the members are an object"),
+            &ClaudeUsageProbeModels::default(),
+            &account(ACCOUNT),
+        );
+
+        let read: Vec<(&str, i64)> = windows
+            .iter()
+            .map(|window| (window.limit_id.as_str(), window.window_mins))
+            .collect();
+        assert_eq!(read, [("weekly_all", 10_080)]);
     }
 }

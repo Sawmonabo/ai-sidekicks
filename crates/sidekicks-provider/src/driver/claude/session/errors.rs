@@ -326,6 +326,7 @@ fn missing_capability(subtype: ClaudeControlSubtype) -> Option<DriverCapabilityF
         | ClaudeControlSubtype::StopTask
         | ClaudeControlSubtype::SetModel
         | ClaudeControlSubtype::GetBinaryVersion
+        | ClaudeControlSubtype::GetUsage
         | ClaudeControlSubtype::McpMessage
         | ClaudeControlSubtype::BackgroundTasks
         | ClaudeControlSubtype::GenerateSessionTitle

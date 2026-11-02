@@ -2,15 +2,12 @@
 //! daemon makes for the read over the account's own credential store and handed the token on its
 //! pipe, whose `initialize` reply names the token as its sign-in or names none.
 
-use std::io;
-
 use secrecy::SecretString;
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_platforms::remove_tree;
 
 use crate::driver::ProviderAccountFolders;
 use crate::driver::claude::account::ClaudeAccountLegs;
+use crate::driver::claude::account::read_folder::run_in_read_folder;
 use crate::driver::claude::spawn::environment::{ClaudeAccountFolders, ClaudeProcessHome};
 use crate::driver::claude::spawn::launch::control_only::probe_claude_sign_in;
 use crate::driver::contract::error::DriverError;
@@ -28,48 +25,31 @@ pub(super) async fn read_claude_token_status(
     folders: &ProviderAccountFolders,
     token: &SecretString,
 ) -> Result<Option<ProviderAuthMode>, DriverError> {
-    let folder = CLAUDE_TOKEN_STATUS_FOLDER
-        .iter()
-        .fold(legs.data_folder.clone(), |folder, name| folder.join(name))
-        .join(mint_uuid_v7().to_string());
-    tokio::fs::create_dir_all(&folder)
-        .await
-        .map_err(|error| DriverError::Internal(Box::new(error)))?;
-    let read = async {
-        let folders = ClaudeAccountFolders::from(folders);
-        let executable = legs
-            .resolve_build_on(ClaudeProcessHome::AccountStore {
-                folder: &folder,
-                credential_store_folder: &folders.credential_store_folder,
-            })
+    run_in_read_folder(
+        &legs.data_folder,
+        &CLAUDE_TOKEN_STATUS_FOLDER,
+        async |folder| {
+            let folders = ClaudeAccountFolders::from(folders);
+            let executable = legs
+                .resolve_build_on(ClaudeProcessHome::AccountStore {
+                    folder,
+                    credential_store_folder: &folders.credential_store_folder,
+                })
+                .await?;
+            let sources = probe_claude_sign_in(
+                &legs.launcher,
+                &executable,
+                Some(provider_account_id.clone()),
+                Some(token.clone()),
+            )
             .await?;
-        let sources = probe_claude_sign_in(
-            &legs.launcher,
-            &executable,
-            Some(provider_account_id.clone()),
-            Some(token.clone()),
-        )
-        .await?;
-        Ok(sources
-            .token_source()
-            .is_some()
-            .then_some(ProviderAuthMode::OauthToken))
-    }
-    .await;
-    // The read's answer stands whether or not its folder goes.
-    let removed_folder = folder.clone();
-    let removed = tokio::task::spawn_blocking(move || remove_tree(&removed_folder))
-        .await
-        .map_err(io::Error::other)
-        .and_then(|removed| removed);
-    if let Err(error) = removed {
-        tracing::warn!(
-            error = &error as &(dyn std::error::Error + 'static),
-            folder = %folder.display(),
-            "a Claude Code token status read's folder could not be removed"
-        );
-    }
-    read
+            Ok(sources
+                .token_source()
+                .is_some()
+                .then_some(ProviderAuthMode::OauthToken))
+        },
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -84,6 +64,7 @@ mod tests {
 
     use super::CLAUDE_TOKEN_STATUS_FOLDER;
     use crate::driver::ProviderAccountFolders;
+    use crate::driver::claude::account::read_folder::compose_reads_folder;
     use crate::driver::claude::account::test_account_legs;
     use crate::driver::contract::account::ProviderTokenStatusLegs;
     use crate::driver::test_registry::test_driver_services;
@@ -165,11 +146,7 @@ cat > /dev/null
             .trim_end()
             .split_once('|')
             .expect("both homes are recorded");
-        let reads_folder = CLAUDE_TOKEN_STATUS_FOLDER
-            .iter()
-            .fold(services.data_folder.clone(), |folder, name| {
-                folder.join(name)
-            });
+        let reads_folder = compose_reads_folder(&services.data_folder, &CLAUDE_TOKEN_STATUS_FOLDER);
         assert!(
             Path::new(config_folder).starts_with(&reads_folder),
             "the read's configuration home is its own folder: {config_folder}"
