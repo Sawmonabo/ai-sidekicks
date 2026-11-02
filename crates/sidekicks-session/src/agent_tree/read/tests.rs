@@ -193,7 +193,9 @@ impl SessionLog {
         parent_child_handle: Option<UuidTextForm>,
         started_at: &str,
     ) -> UuidTextForm {
-        let (handle, statement) = insert_node(&NewAgentTreeNode {
+        let handle = UuidTextForm::from(mint_uuid_v7());
+        let statement = insert_node(&NewAgentTreeNode {
+            child_handle: handle,
             session_id: self.session_id,
             provider_name: ProviderId::new(HELPER_PROVIDER.to_owned()).expect("a provider id"),
             subagent_id: subagent_id.to_owned(),
