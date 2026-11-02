@@ -41,8 +41,8 @@ use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
     FindTakenMessagesParams, HelperStopOutcome, HelperStopParams, InterruptRunRequest,
-    OverrideDenialParams, PauseRunParams, PickedSkill, ResumeRunParams, TakenMessages,
-    WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
+    OverrideDenialParams, PauseRunParams, PickedSkill, ReattachHelpersParams, ResumeRunParams,
+    TakenMessages, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
@@ -446,6 +446,22 @@ pub trait ProviderDriver: Send + Sync {
         &self,
         params: HelperStopParams,
     ) -> BoxFuture<'_, Result<HelperStopOutcome, DriverError>>;
+
+    /// Attaches what the provider still holds of `params.helpers` after a restart, in the order
+    /// given, parents first; a helper it can no longer attach is left as the restart's settle
+    /// recorded it. Fails only for a session the driver no longer runs.
+    #[expect(
+        unused_variables,
+        reason = "only a driver whose helpers outlive its process reads the helpers"
+    )]
+    fn reattach_helpers(
+        &self,
+        params: ReattachHelpersParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        // A provider whose helpers end with its process holds none past a restart, so it answers
+        // at once; a helper's continuation arrives as a new start the daemon reads off its tree.
+        Box::pin(async { Ok(()) })
+    }
 
     /// The output-speed state the provider last declared for the session's live binding, as sent;
     /// `None` with no live binding or no declaration yet, which means unread, never off. A read of

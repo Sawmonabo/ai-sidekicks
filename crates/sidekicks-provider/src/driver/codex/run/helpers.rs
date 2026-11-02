@@ -1,6 +1,9 @@
 //! A Codex helper stopped alone, its lead going on: the person's interrupt of the helper's run, and
 //! its stop from the console. Both stop the running turn of the helper's own conversation, read as
-//! its newest turn, and end the commands that turn left running.
+//! its newest turn, and end the commands that turn left running. Also a session's helpers
+//! reopened after a restart.
+
+use std::error::Error;
 
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
@@ -15,12 +18,13 @@ use crate::driver::codex::session::background_terminals::end_codex_running_comma
 use crate::driver::codex::session::calls::call_codex_session;
 use crate::driver::codex::session::detached_conversation::CODEX_DETACHED_INTERRUPT_DEADLINE;
 use crate::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
+use crate::driver::codex::session::establishment::helpers::reopen_codex_helper;
 use crate::driver::codex::session::history::read_codex_newest_turn;
 use crate::driver::codex::session::inbound::CodexSessionCall;
 use crate::driver::codex::session::owed_turn_ends::read_codex_listed_turn;
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::driver::contract::error::DriverError;
-use crate::driver::run_control::{HelperStopOutcome, HelperStopParams};
+use crate::driver::run_control::{HelperStopOutcome, HelperStopParams, ReattachHelpersParams};
 
 impl CodexRunControl {
     /// Interrupts a helper's running turn on its own conversation and ends the commands it left
@@ -69,6 +73,41 @@ impl CodexRunControl {
                 .end_helper_interrupt(params.run_id);
         }
         stopped
+    }
+
+    /// Reopens each of `params.helpers` that holds no helper route, in the order given, parents
+    /// first, ancestors included, since Codex reopens a helper only once its parent is loaded: a
+    /// helper an adoption reopened holds a route. Reopening an unloaded helper loads it, which has
+    /// Codex record the turn the restart cut as interrupted. A refused reopen is logged and the
+    /// rest go on. Fails only for a session not live or a service not running.
+    pub(crate) async fn reattach_helpers(
+        &self,
+        params: &ReattachHelpersParams,
+    ) -> Result<(), CodexError> {
+        let inbound = self.dependencies.slots.require_live(params.session_id)?;
+        let reading = call_codex_session(&inbound, |reply| CodexSessionCall::ReadSession {
+            thread_id: None,
+            reply,
+        })
+        .await?;
+        let connection = reading.connection?;
+        for helper in &params.helpers {
+            if self.dependencies.run_routes.has_helper_route(helper.run_id) {
+                continue;
+            }
+            // A Codex helper's id is its own conversation's.
+            if let Err(error) = reopen_codex_helper(&connection, helper.subagent_id.as_str()).await
+            {
+                tracing::warn!(
+                    session_id = %params.session_id,
+                    run_id = %helper.run_id,
+                    thread_id = %helper.subagent_id.as_str(),
+                    error = &error as &(dyn Error + 'static),
+                    "codex refused the reopen of a helper after a restart"
+                );
+            }
+        }
+        Ok(())
     }
 
     // Stops the helper conversation `thread_id` by its newest turn, within the detached interrupt's
@@ -150,6 +189,15 @@ impl CodexDriver {
         params: HelperStopParams,
     ) -> Result<HelperStopOutcome, DriverError> {
         Ok(self.parts()?.run_control.stop_child_run(&params).await?)
+    }
+
+    /// Reopens a session's helpers after a restart; see the run control's re-attach. Fails only
+    /// for a session not live.
+    pub(crate) async fn reattach_helpers(
+        &self,
+        params: ReattachHelpersParams,
+    ) -> Result<(), DriverError> {
+        Ok(self.parts()?.run_control.reattach_helpers(&params).await?)
     }
 }
 
