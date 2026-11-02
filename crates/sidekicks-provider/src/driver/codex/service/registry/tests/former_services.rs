@@ -381,7 +381,10 @@ async fn the_erase_ends_every_recorded_service_a_draining_one_too_and_answers_ea
     reused_record
         .lock()
         .expect("the records lock")
-        .write(&LastingServiceRecord::launched(reused))
+        .write(&LastingServiceRecord::launched(
+            reused,
+            home_socket_path(&services.folder.path().join("reused")),
+        ))
         .expect("the record is written");
     let unreadable_record = recorded_file_in(&services, "unreadable");
     drop(

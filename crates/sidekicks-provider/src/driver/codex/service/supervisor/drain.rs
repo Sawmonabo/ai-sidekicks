@@ -275,7 +275,10 @@ mod tests {
                 .expect("the record file is named");
         let locked = Arc::new(record_file.lock().expect("the records lock"));
         locked
-            .write(&LastingServiceRecord::launched(process.clone()))
+            .write(&LastingServiceRecord::launched(
+                process.clone(),
+                folder.join("codex.sock"),
+            ))
             .expect("the record is kept");
         let lasting = repin_lasting_codex_service(process)
             .expect("the process table reads")

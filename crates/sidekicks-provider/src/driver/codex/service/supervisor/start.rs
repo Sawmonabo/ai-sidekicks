@@ -362,7 +362,10 @@ pub(super) async fn launch_lasting_service(
             .await
             .map_err(|error| start_failed("The Codex service could not be started.", error))?;
     let record_file = locked.file().clone();
-    let launched = LastingServiceRecord::launched(lasting.record().clone());
+    let launched = LastingServiceRecord::launched(
+        lasting.record().clone(),
+        service.socket.home_socket.clone(),
+    );
     if let Err(error) = on_record(locked, move |locked| locked.write(&launched)).await {
         return Err(StartFailure {
             error: record_unkept(error),
@@ -381,7 +384,10 @@ pub(super) async fn launch_lasting_service(
         cancel,
     )
     .await;
-    let answered = LastingServiceRecord::launched(lasting.record().clone());
+    let answered = LastingServiceRecord::launched(
+        lasting.record().clone(),
+        service.socket.home_socket.clone(),
+    );
     let process = CodexServiceProcess::Lasting {
         service: lasting,
         record_file,

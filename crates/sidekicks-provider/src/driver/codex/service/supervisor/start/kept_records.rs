@@ -143,29 +143,31 @@ impl KeptRecordEnd {
     }
 }
 
-/// Lets go of a former lasting service its record no longer pins: ends what it left running, then
-/// removes the record, so the fresh start that follows leaves no tree of the former one running;
-/// what it left that cannot be ended is logged. Fails when the record cannot be removed.
+/// Lets go of a former lasting service its record no longer pins: ends what it left running and
+/// takes the home's link off its socket, then removes the record, so the fresh start that follows
+/// leaves no tree of the former one running; what it left that cannot be ended, and a link that
+/// cannot be taken off, is logged. Fails when the record cannot be removed.
 pub(super) async fn retire_former_service(
     locked: &Arc<LockedServiceRecord>,
-    record: ProcessRecord,
+    record: LastingServiceRecord,
 ) -> Result<(), StartFailure> {
     end_former_service(locked, record).await.reported()
 }
 
-// Ends what the former service `record` names left running, then removes its record held under
-// `locked`.
+// Ends what the former service `record` names left running and takes the home's link off its
+// socket, then removes its record held under `locked`.
 async fn end_former_service(
     locked: &Arc<LockedServiceRecord>,
-    record: ProcessRecord,
+    record: LastingServiceRecord,
 ) -> KeptRecordEnd {
     let entry = codex_lasting_service_environment_entry();
-    let ended = tokio::task::spawn_blocking(move || record.end_survivors(&entry))
+    let process = record.process.clone();
+    let ended = tokio::task::spawn_blocking(move || process.end_survivors(&entry))
         .await
         .map_err(io::Error::other)
         .and_then(|ended| ended);
     const LEFT_RUNNING: &str = "What a former Codex service left running could not be ended.";
-    let unended = match ended {
+    let mut unended: Vec<CodexError> = match ended {
         Ok(end) => end
             .unended
             .into_iter()
@@ -173,10 +175,30 @@ async fn end_former_service(
             .collect(),
         Err(error) => vec![start_failed(LEFT_RUNNING, error).error],
     };
+    unended.extend(clear_home_link(&record).await);
     KeptRecordEnd {
         unended,
         settled: remove_record(locked).await,
     }
+}
+
+// Takes the home's link off the socket where `record`'s ended service really listened, while the
+// link still names it, so a plain `codex` finds the home's socket free; answers why it could not.
+async fn clear_home_link(record: &LastingServiceRecord) -> Option<CodexError> {
+    let physical_socket = record.physical_socket.clone()?;
+    let home_socket = record.home_socket.clone();
+    tokio::task::spawn_blocking(move || clear_socket_link_of(&home_socket, &physical_socket))
+        .await
+        .map_err(io::Error::other)
+        .and_then(|cleared| cleared)
+        .err()
+        .map(|error| {
+            start_failed(
+                "The Codex folder's socket link could not be taken off an ended service.",
+                error,
+            )
+            .error
+        })
 }
 
 /// Retires the record `locked` holds, when one is kept: the service it names is stopped where it
@@ -196,7 +218,8 @@ pub(super) async fn retire_kept_record(
 }
 
 // The one end of the service `record`, held under `locked`, names: stopped over `control_socket`
-// where it still runs, or what it left ended where it is gone, and the record removed either way;
+// where it still runs, or what it left ended where it is gone, the home's link taken off its
+// socket once it is, and the record removed either way;
 // one draining is left to its drain, which removes its record, unless `ends_draining`.
 async fn end_recorded_service(
     locked: &Arc<LockedServiceRecord>,
@@ -206,19 +229,20 @@ async fn end_recorded_service(
 ) -> KeptRecordEnd {
     let lasting = match repin(record.process.clone()).await {
         Ok(Some(lasting)) => lasting,
-        Ok(None) => return end_former_service(locked, record.process).await,
+        Ok(None) => return end_former_service(locked, record).await,
         Err(failure) => return KeptRecordEnd::settled_only(Err(failure)),
     };
     if record.is_draining && !ends_draining {
         return KeptRecordEnd::settled_only(Ok(()));
     }
-    let stopped = lasting.stop(SERVICE_STOP_GRACE, control_socket).await;
+    let unended = match lasting.stop(SERVICE_STOP_GRACE, control_socket).await {
+        Ok(_) => clear_home_link(&record).await.into_iter().collect(),
+        Err(error) => {
+            vec![start_failed("A former Codex service could not be stopped.", error).error]
+        }
+    };
     KeptRecordEnd {
-        unended: stopped
-            .err()
-            .map(|error| start_failed("A former Codex service could not be stopped.", error).error)
-            .into_iter()
-            .collect(),
+        unended,
         settled: remove_record(locked).await,
     }
 }
@@ -245,7 +269,7 @@ pub(super) async fn take_kept_service(
         && let Some(physical_socket) = record.physical_socket
     {
         let Some(lasting) = repin(record.process.clone()).await? else {
-            retire_former_service(locked, record.process).await?;
+            retire_former_service(locked, record).await?;
             return Ok(None);
         };
         return Ok(Some((lasting, physical_socket)));
@@ -475,7 +499,7 @@ pub(super) async fn reconcile_kept_records(
             });
         } else {
             ended_services.push(record.process.clone());
-            retire_former_service(&kept_locked, record.process).await?;
+            retire_former_service(&kept_locked, record).await?;
         }
     }
     let link_target = read_socket_link(service.socket_path()).map_err(|error| {
@@ -735,6 +759,7 @@ mod tests {
             serde_json::from_str(r#"{"id":1,"start":1,"boot":"b"}"#).expect("the record reads");
         LastingServiceRecord {
             process,
+            home_socket: PathBuf::from(HOME),
             physical_socket: Some(PathBuf::from(socket)),
             is_draining,
         }
