@@ -62,6 +62,7 @@ pub mod idle_sleep;
 pub mod mcp_server;
 pub mod message_handing;
 pub mod ports;
+pub(crate) mod prior_usage;
 pub(crate) mod question_answers;
 pub mod registry;
 pub(crate) mod reorder_buffer;

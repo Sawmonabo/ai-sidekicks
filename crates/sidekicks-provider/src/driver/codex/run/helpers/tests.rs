@@ -8,6 +8,7 @@ use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentId;
+use sidekicks_std::port_registration::PortRegistration;
 
 use crate::driver::codex::session::detached_conversation::CODEX_DETACHED_INTERRUPT_DEADLINE;
 use crate::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
@@ -16,10 +17,10 @@ use crate::driver::run_control::{
     HelperStopOutcome, HelperStopParams, ReattachHelpersParams, ReattachedHelper,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
+use crate::port::usage_sink::UsageSink;
 use crate::run::delivery::LateAppendableRow;
 use crate::run::state_entry::RunStateEntry;
 use crate::runtime_binding::store::mint_runtime_binding_id;
-use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// The helper's own conversation, which is its id.
 const HELPER_THREAD: &str = "helper-thread";
@@ -279,6 +280,11 @@ async fn a_failed_helper_interrupt_leaves_its_end_unmarked(#[case] helper_stop_k
     );
 }
 
+// A usage record with no port registered, which bases a restored helper's usage at zero.
+fn no_usage_record() -> PortRegistration<Arc<dyn UsageSink>> {
+    PortRegistration::new("usage")
+}
+
 // A helper re-attached after a restart, as the session's tree holds it, on its conversation
 // `thread_id`.
 fn reattached(run_id: RunId, thread_id: &str, parent: Option<&str>) -> ReattachedHelper {
@@ -351,7 +357,7 @@ async fn reattached_helpers_reopen_in_order_past_a_refusal() {
         DEADLOCK_BOUND,
         Box::pin(async {
             tokio::join!(
-                task.drive(control.reattach_helpers(&params, vec![UsageAxisCounts::default(); 3])),
+                task.drive(control.reattach_helpers(&params, &no_usage_record())),
                 service_side
             )
         }),
@@ -368,22 +374,43 @@ async fn reattached_helpers_reopen_in_order_past_a_refusal() {
 
 // A helper reopened after a restart is registered on the session's service and in its routing and
 // bound to its existing child run, so a turn it ends afterwards, sent through the service, ends
-// that run with its `subagent.completed` row; no new run is started. Kills: the service
-// registration missing (the service drops the frame and the wait runs out), and the routing's
-// registration or the child run's binding missing (the run never moves).
+// that run with its `subagent.completed` row; no new run is started. The ancestor listed only for
+// its place in the tree is reopened first and bound to nothing. Kills: the service registration
+// missing (the service drops the frame and the wait runs out), the routing's registration or the
+// child run's binding missing (the run never moves), and a helper whose run was not live bound
+// all the same (the ancestor holds a route).
 #[tokio::test(start_paused = true)]
 async fn a_reattached_helpers_later_turn_reaches_its_run() {
     let mut session = TestCodexSession::start().await;
     session.task.record.binding_id = Some(mint_runtime_binding_id());
-    let helper_run = new_run_id();
+    let (ancestor_run, helper_run) = (new_run_id(), new_run_id());
     let params = ReattachHelpersParams {
         session_id: session.task.record.session_id,
-        helpers: vec![reattached(helper_run, "helper-reopened", None)],
+        helpers: vec![
+            ReattachedHelper {
+                was_live: false,
+                ..reattached(ancestor_run, "helper-ancestor", None)
+            },
+            reattached(helper_run, "helper-reopened", Some("helper-ancestor")),
+        ],
     };
     let control = Arc::clone(&session.task.run_control);
+    let run_routes = Arc::clone(&session.task.run_routes);
     let task = &mut session.task;
     let script = &mut session.scripted.script;
     let service_side = async {
+        let ancestor = script.next_sent().await;
+        assert_eq!(ancestor["params"]["threadId"], "helper-ancestor");
+        script.answer(
+            &ancestor,
+            &json!({
+                "thread": {"id": "helper-ancestor", "sessionId": "codex-session"},
+                "initialTurnsPage": {
+                    "data": [{"id": "ancestor-turn", "status": "completed"}],
+                    "nextCursor": null,
+                },
+            }),
+        );
         let reopened = script.next_sent().await;
         assert_eq!(reopened["params"]["threadId"], "helper-reopened");
         script.answer(
@@ -401,7 +428,7 @@ async fn a_reattached_helpers_later_turn_reaches_its_run() {
         DEADLOCK_BOUND,
         Box::pin(async {
             tokio::join!(
-                task.drive(control.reattach_helpers(&params, vec![UsageAxisCounts::default()])),
+                task.drive(control.reattach_helpers(&params, &no_usage_record())),
                 service_side
             )
         }),
@@ -409,6 +436,10 @@ async fn a_reattached_helpers_later_turn_reaches_its_run() {
     .await
     .expect("the re-attach is answered");
     assert!(reattached.is_ok(), "{reattached:?}");
+    assert!(
+        !run_routes.has_helper_route(ancestor_run),
+        "the ancestor's ended run holds no route"
+    );
 
     session.scripted.script.send(&json!({
         "jsonrpc": "2.0",

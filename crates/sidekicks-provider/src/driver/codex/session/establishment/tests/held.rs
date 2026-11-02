@@ -29,6 +29,7 @@ use crate::port::run_host::test_host::EngineCall;
 use crate::run::delivery::LateAppendableRow;
 use crate::run::state_entry::RunStateEntry;
 use crate::run::turn_end::TurnOutcome;
+use crate::usage_delta_accountant::UsageAxisCounts;
 
 // The held turn's end the daemon writes for `run_id`: the first turn the test's engine opened on
 // the run, interrupted by the restart.
@@ -108,7 +109,10 @@ async fn open_held_running_continuation(session: &mut TestCodexSession, folder: 
             .held_continuation_turn_ids
             .contains(CONTINUATION_TURN)
     );
-    let opened = session.establishment(folder).open(established, None).await;
+    let opened = session
+        .establishment(folder)
+        .open(established, UsageAxisCounts::default())
+        .await;
     session.task.record = opened.record;
     session.task.routing = opened.routing;
     run_id
@@ -138,7 +142,7 @@ async fn a_held_leads_ended_continuation_leaves_the_run_waiting() {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let opened = session
         .establishment(folder.path())
-        .open(established, None)
+        .open(established, UsageAxisCounts::default())
         .await;
 
     assert_eq!(session.engine.moves_of_run(run_id), Vec::new());
@@ -243,7 +247,7 @@ async fn a_held_helpers_ended_turn_leaves_its_run_waiting() {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let opened = session
         .establishment(folder.path())
-        .open(established, None)
+        .open(established, UsageAxisCounts::default())
         .await;
 
     assert_eq!(session.engine.moves_of_run(helper_run_id), Vec::new());
@@ -290,7 +294,7 @@ async fn a_stopped_held_helper_ends_as_its_stop() {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let opened = session
         .establishment(folder.path())
-        .open(established, None)
+        .open(established, UsageAxisCounts::default())
         .await;
     session.task.record = opened.record;
     session.task.routing = opened.routing;

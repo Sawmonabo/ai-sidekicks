@@ -16,6 +16,7 @@ use crate::driver::session_control::{LiveRunResume, ProviderTurnAnswer};
 use crate::driver::test_registry::new_run_id;
 use crate::run::delivery::LateAppendableRow;
 use crate::run::state_entry::RunStateEntry;
+use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// The helpers' newest turn.
 pub(super) const HELPER_TURN: &str = "turn-helper";
@@ -157,7 +158,7 @@ async fn an_adopted_helper_is_answered_from_its_newest_turn(
     let established = adoption.established.expect("the session is established");
     session
         .establishment(folder.path())
-        .open(established, None)
+        .open(established, UsageAxisCounts::default())
         .await;
 
     let deliveries = session.engine.deliveries();

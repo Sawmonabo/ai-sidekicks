@@ -367,15 +367,16 @@ impl CodexSessionEstablishment {
     }
 
     /// Opens an established conversation on its service: its routing band binds it, its usage
-    /// based at zero for a fresh one and at `prior_emitted` for a resumed one, since the provider's
-    /// counter survives a resume, and binds again each helper an adoption holds; the session's
-    /// queue is attached, the conversation and its helpers registered and its held frames
-    /// delivered, and the claim let go; last, each turn an adoption bound that Codex listed as
-    /// over, and each restored helper's newest turn listed over, is ended as Codex ended it.
+    /// based at zero for a fresh one, which leaves `prior_emitted` unread, and at `prior_emitted`
+    /// for a resumed one, since the provider's counter survives a resume, and binds again each
+    /// helper an adoption holds; the session's queue is attached, the conversation and its helpers
+    /// registered and its held frames delivered, and the claim let go; last, each turn an adoption
+    /// bound that Codex listed as over, and each restored helper's newest turn listed over, is
+    /// ended as Codex ended it.
     pub(crate) async fn open(
         &self,
         established: CodexEstablishedSession,
-        prior_emitted: Option<UsageAxisCounts>,
+        prior_emitted: UsageAxisCounts,
     ) -> CodexOpenedSession {
         let CodexEstablishedSession {
             mut record,
@@ -392,7 +393,7 @@ impl CodexSessionEstablishment {
                 .provider_commands
                 .discard_listing(record.session_id);
             ThreadBaseEstablishment::Resume {
-                prior_emitted_cumulative: prior_emitted.unwrap_or_default(),
+                prior_emitted_cumulative: prior_emitted,
             }
         } else {
             ThreadBaseEstablishment::Fresh
