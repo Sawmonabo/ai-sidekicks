@@ -79,7 +79,8 @@ printf '%s\n' '{{"type":"turn.completed","usage":{{"input_tokens":1200,"cached_i
 
 // Killed by the turn run in another home than the account's (the default one, or the home a
 // session's account resolves to), in a project folder, by a second run, by the account's MCP
-// servers left on, by the small model dropped, and by the cached input left inside the input.
+// servers left on, by the small model dropped, by the home's file store dropped, and by the
+// cached input left inside the input.
 #[tokio::test(flavor = "multi_thread")]
 async fn one_exec_runs_in_the_account_s_home_and_its_counts_are_the_spend() {
     let scratch = tempfile::tempdir().expect("a scratch folder is made");
@@ -160,6 +161,7 @@ async fn one_exec_runs_in_the_account_s_home_and_its_counts_are_the_spend() {
     assert_eq!(arguments[exec_at..], CODEX_WINDOW_TURN_ARGUMENTS);
     let overrides = read_exec_overrides(arguments);
     assert_eq!(overrides["model"], json!(CODEX_SMALL_MODEL));
+    assert_eq!(overrides["cli_auth_credentials_store"], json!("file"));
     assert_eq!(
         overrides["mcp_servers"],
         json!({"docs": {"enabled": false}})

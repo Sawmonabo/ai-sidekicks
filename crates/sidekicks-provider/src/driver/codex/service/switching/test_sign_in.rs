@@ -56,12 +56,15 @@ fn compose_jwt(claims: &Value) -> String {
 }
 
 /// An accounts reader resolving each account it holds to its Codex home, with `current` the
-/// provider's current account.
+/// provider's current account; an account in `api_keys` signs in with its pasted key, every other
+/// through `ChatGPT`.
 pub(crate) struct AccountHomes {
     /// Each account's Codex home.
     pub(crate) homes: HashMap<ProviderAccountId, PathBuf>,
     /// The current account.
     pub(crate) current: ProviderAccountId,
+    /// The key sealed for each account that signs in with a pasted API key.
+    pub(crate) api_keys: HashMap<ProviderAccountId, SecretString>,
 }
 
 impl AccountHomes {
@@ -112,15 +115,21 @@ impl ProviderAccountReader for AccountHomes {
 
     fn read_observed_auth_mode(
         &self,
-        _provider_account_id: ProviderAccountId,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>> {
-        async { Ok(Some(ProviderAuthMode::OauthSubscription)) }.boxed()
+        let mode = if self.api_keys.contains_key(&provider_account_id) {
+            ProviderAuthMode::ApiKey
+        } else {
+            ProviderAuthMode::OauthSubscription
+        };
+        async move { Ok(Some(mode)) }.boxed()
     }
 
     fn read_sealed_token(
         &self,
-        _provider_account_id: ProviderAccountId,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn Error + Send + Sync>>> {
-        async { Ok(None) }.boxed()
+        let key = self.api_keys.get(&provider_account_id).cloned();
+        async move { Ok(key) }.boxed()
     }
 }

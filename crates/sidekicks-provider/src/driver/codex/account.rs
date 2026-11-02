@@ -32,7 +32,9 @@ use crate::driver::ProviderAccountFolders;
 use crate::driver::codex::account::token_refresh::{CodexRenewalFlights, CodexTokenRenewer};
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
-use crate::driver::codex::service::registry::{CodexServiceRegistry, home_socket_path};
+use crate::driver::codex::service::registry::{
+    CodexServiceRegistry, home_config_overrides, home_socket_path,
+};
 use crate::driver::codex::service::supervisor::drain::LastingServiceDrains;
 use crate::driver::codex::service::supervisor::{
     CodexService, CodexServiceDependencies, CodexServiceSocket,
@@ -46,12 +48,13 @@ use crate::driver::contract::account::{
 use crate::driver::contract::error::DriverError;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 
-/// The switch that keeps a short-lived service's sign-in in the home's own `auth.json`, as on
-/// every Codex process of an account home.
-const CODEX_FILE_CREDENTIAL_STORE: &str = "cli_auth_credentials_store=\"file\"";
+/// The switch every Codex process of an account home carries, which keeps its sign-in in the
+/// home's own `auth.json`.
+pub(crate) const CODEX_FILE_CREDENTIAL_STORE: &str = "cli_auth_credentials_store=\"file\"";
 
 /// The switch that keeps a service's sign-in in its process's memory alone, so it writes no
-/// `auth.json`: the switching service's, which runs on tokens the daemon hands it.
+/// `auth.json`: the switching service's, which runs on tokens the daemon hands it, and an API-key
+/// home's, which runs on the key it is handed.
 pub(crate) const CODEX_EPHEMERAL_CREDENTIAL_STORE: &str =
     "cli_auth_credentials_store=\"ephemeral\"";
 
@@ -154,18 +157,17 @@ impl CodexAccountLegs {
             };
         }
         let home_socket = home_socket_path(&codex_home);
+        let kind = CodexHomeKind::Account(provider_account_id);
+        let config_overrides = home_config_overrides(&kind);
         let service = CodexService::new(
-            CodexServiceHome {
-                codex_home,
-                kind: CodexHomeKind::Account(provider_account_id),
-            },
+            CodexServiceHome { codex_home, kind },
             CodexServiceSocket {
                 path: home_socket.clone(),
                 home_socket,
             },
             CodexServiceKind::Account,
             Arc::clone(&self.short_lived_dependencies),
-            Vec::new(),
+            config_overrides,
         );
         HomeService {
             service,
@@ -307,14 +309,12 @@ impl ProviderMemoryImportLegs for CodexAccountLegs {
 }
 
 // What every short-lived service runs on, composed once, since nothing in it names a home: the
-// driver's own services' dependencies with the file credential store added, and drains of their
-// own, shared by every short-lived service, each killing its service once a stop's grace passes
-// and called off with the driver's own drains.
+// driver's own services' dependencies, and drains of their own, shared by every short-lived
+// service, each killing its service once a stop's grace passes and called off with the driver's
+// own drains.
 fn compose_short_lived_dependencies(
     shared: &CodexServiceDependencies,
 ) -> Arc<CodexServiceDependencies> {
-    let mut additional_config_overrides = shared.additional_config_overrides.clone();
-    additional_config_overrides.push(CODEX_FILE_CREDENTIAL_STORE.to_owned());
     Arc::new(CodexServiceDependencies {
         spawner: shared.spawner.clone(),
         provider_services: Arc::clone(&shared.provider_services),
@@ -323,7 +323,7 @@ fn compose_short_lived_dependencies(
         program: Arc::clone(&shared.program),
         data_folder: shared.data_folder.clone(),
         logs_folder: shared.logs_folder.clone(),
-        additional_config_overrides,
+        additional_config_overrides: shared.additional_config_overrides.clone(),
         startup_timeout: shared.startup_timeout,
         dispatches_hook_mode: shared.dispatches_hook_mode,
         session_shell_kind: shared.session_shell_kind,

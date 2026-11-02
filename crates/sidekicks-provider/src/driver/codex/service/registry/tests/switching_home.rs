@@ -128,6 +128,7 @@ fn sign_in(dependencies: &CodexServiceDependencies, account_home: &Path) {
     AccountHomes {
         homes: HashMap::from([(test_provider_account_id(), account_home.to_owned())]),
         current: test_provider_account_id(),
+        api_keys: HashMap::new(),
     }
     .register_on(dependencies.switching.provider_accounts());
 }

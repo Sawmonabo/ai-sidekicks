@@ -26,7 +26,9 @@ use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 
 use crate::driver::codex::DESCRIPTOR;
-use crate::driver::codex::account::CODEX_EPHEMERAL_CREDENTIAL_STORE;
+use crate::driver::codex::account::{
+    CODEX_EPHEMERAL_CREDENTIAL_STORE, CODEX_FILE_CREDENTIAL_STORE,
+};
 use crate::driver::codex::service::home::{
     CodexConversationHome, CodexHomeKind, CodexServiceHome, CodexServiceKind,
 };
@@ -63,9 +65,10 @@ const CODEX_MCP_SIGN_IN_FOLDER: &str = "codex-sign-in";
 
 /// Resolves which Codex home a session's account runs in, and the one home terminal reach runs on.
 pub(crate) trait CodexHomeResolver: Send + Sync {
-    /// The home of `provider_account_id`'s account, never a folder outside the account's home.
-    /// Fails with `provider.account.notFound` or `provider.account.credentialHome.unavailable`,
-    /// and as the accounts' read fails.
+    /// The home of `provider_account_id`'s account, never a folder outside the account's home, of
+    /// the API-key kind where the account signs in with a pasted key. Fails with
+    /// `provider.account.notFound` or `provider.account.credentialHome.unavailable`, and as the
+    /// accounts' read fails.
     fn codex_home_for<'call>(
         &'call self,
         provider_account_id: &'call ProviderAccountId,
@@ -161,6 +164,7 @@ impl CodexServiceRegistry {
         let kind = match home.kind {
             CodexHomeKind::PersonalFolder => CodexServiceKind::Terminal,
             CodexHomeKind::Account(_)
+            | CodexHomeKind::ApiKeyAccount(_)
             | CodexHomeKind::Switching
             | CodexHomeKind::CapabilityRead
             | CodexHomeKind::McpSignIn => CodexServiceKind::Account,
@@ -626,16 +630,28 @@ fn is_terminal_reach_home(home: &CodexServiceHome) -> bool {
     home.kind == CodexHomeKind::PersonalFolder
 }
 
-// The `-c` switches a service on a home of `kind` carries of its own: the switching service keeps
-// the sign-in it is handed in its memory alone, and every other takes none.
-fn home_config_overrides(kind: &CodexHomeKind) -> Vec<String> {
+/// The `-c` switches every Codex process on a home of `kind` carries of its own: an account home
+/// keeps its sign-in in its own `auth.json`, the API-key home and the switching home keep the
+/// sign-in they are handed in the process's memory alone, and every other home takes none.
+pub(crate) fn home_config_overrides(kind: &CodexHomeKind) -> Vec<String> {
     match kind {
-        CodexHomeKind::Switching => vec![CODEX_EPHEMERAL_CREDENTIAL_STORE.to_owned()],
-        CodexHomeKind::Account(_)
-        | CodexHomeKind::PersonalFolder
+        CodexHomeKind::Account(_) => vec![CODEX_FILE_CREDENTIAL_STORE.to_owned()],
+        CodexHomeKind::ApiKeyAccount(_) | CodexHomeKind::Switching => {
+            vec![CODEX_EPHEMERAL_CREDENTIAL_STORE.to_owned()]
+        }
+        CodexHomeKind::PersonalFolder
         | CodexHomeKind::CapabilityRead
         | CodexHomeKind::McpSignIn => Vec::new(),
     }
+}
+
+/// The switches of [`home_config_overrides`] as the `-c` pairs a `codex exec` or another short
+/// command on a home of `kind` starts with, before its own arguments.
+pub(crate) fn home_exec_switches(kind: &CodexHomeKind) -> Vec<String> {
+    home_config_overrides(kind)
+        .into_iter()
+        .flat_map(|config_override| ["-c".to_owned(), config_override])
+        .collect()
 }
 
 /// The switching service's home: its folder under the daemon's `data_folder`.

@@ -167,7 +167,7 @@ pub(super) async fn start_codex_service(
             cause: Some(Box::new(error)),
         })?;
     match service.home().kind {
-        CodexHomeKind::Account(_) | CodexHomeKind::Switching => {
+        CodexHomeKind::Account(_) | CodexHomeKind::ApiKeyAccount(_) | CodexHomeKind::Switching => {
             start_relayed_service(&service, launch, &cancel, &executable).await
         }
         CodexHomeKind::CapabilityRead | CodexHomeKind::McpSignIn => {
@@ -222,6 +222,7 @@ async fn start_relayed_service(
                     .await
             }
             CodexHomeKind::Account(_)
+            | CodexHomeKind::ApiKeyAccount(_)
             | CodexHomeKind::PersonalFolder
             | CodexHomeKind::CapabilityRead
             | CodexHomeKind::McpSignIn => Ok(()),

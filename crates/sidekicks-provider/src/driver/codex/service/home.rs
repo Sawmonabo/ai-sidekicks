@@ -9,7 +9,7 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use serde_json::{Map, Value};
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 use sidekicks_platforms::PathRules;
 use sidekicks_std::port_registration::PortRegistration;
 
@@ -26,6 +26,9 @@ const CODEX_PERSONAL_HOME_FOLDER_NAME: &str = ".codex";
 pub(crate) enum CodexHomeKind {
     /// The home the app manages for the account it names.
     Account(ProviderAccountId),
+    /// The home the app manages for an account signed in with a pasted API key; its service keeps
+    /// the key it is handed in memory alone.
+    ApiKeyAccount(ProviderAccountId),
     /// The daemon's own home under its data folder, apart from every account home, where the one
     /// switching service runs on tokens the daemon hands it, carrying every session that follows
     /// the provider's current account; it keeps no sign-in of its own.
@@ -55,7 +58,8 @@ impl CodexServiceHome {
     /// and the folders the capability read and an MCP sign-in run in.
     pub(crate) fn provider_account_id(&self) -> Option<&ProviderAccountId> {
         match &self.kind {
-            CodexHomeKind::Account(provider_account_id) => Some(provider_account_id),
+            CodexHomeKind::Account(provider_account_id)
+            | CodexHomeKind::ApiKeyAccount(provider_account_id) => Some(provider_account_id),
             CodexHomeKind::Switching
             | CodexHomeKind::PersonalFolder
             | CodexHomeKind::CapabilityRead
@@ -86,6 +90,7 @@ impl CodexConversationHome {
         match home.kind {
             CodexHomeKind::Switching => Self::Switching,
             CodexHomeKind::Account(_)
+            | CodexHomeKind::ApiKeyAccount(_)
             | CodexHomeKind::PersonalFolder
             | CodexHomeKind::CapabilityRead
             | CodexHomeKind::McpSignIn => Self::Account,
@@ -189,15 +194,25 @@ impl CodexHomeResolver for CodexHomes {
         provider_account_id: &'call ProviderAccountId,
     ) -> BoxFuture<'call, Result<CodexServiceHome, DriverError>> {
         async move {
-            let folders = self
+            let accounts = self
                 .provider_accounts
                 .require_port()
-                .map_err(|error| DriverError::Internal(Box::new(error)))?
+                .map_err(|error| DriverError::Internal(Box::new(error)))?;
+            let folders = accounts
                 .resolve_account_folders(provider_account_id.clone())
                 .await?;
+            let mode = accounts
+                .read_observed_auth_mode(provider_account_id.clone())
+                .await
+                .map_err(DriverError::Internal)?;
+            let kind = if mode == Some(ProviderAuthMode::ApiKey) {
+                CodexHomeKind::ApiKeyAccount(provider_account_id.clone())
+            } else {
+                CodexHomeKind::Account(provider_account_id.clone())
+            };
             Ok(CodexServiceHome {
                 codex_home: folders.configuration_folder,
-                kind: CodexHomeKind::Account(provider_account_id.clone()),
+                kind,
             })
         }
         .boxed()

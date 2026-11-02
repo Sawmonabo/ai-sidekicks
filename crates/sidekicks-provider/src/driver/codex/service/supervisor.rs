@@ -346,6 +346,7 @@ impl CodexService {
         match &self.home.kind {
             CodexHomeKind::Switching => self.dependencies.switching.carried_account(),
             CodexHomeKind::Account(_)
+            | CodexHomeKind::ApiKeyAccount(_)
             | CodexHomeKind::PersonalFolder
             | CodexHomeKind::CapabilityRead
             | CodexHomeKind::McpSignIn => self.home.provider_account_id().cloned(),
@@ -519,6 +520,7 @@ impl CodexService {
                 Some(Arc::clone(&self.dependencies.switching) as Arc<dyn CodexTokenRefresher>)
             }
             CodexHomeKind::Account(_)
+            | CodexHomeKind::ApiKeyAccount(_)
             | CodexHomeKind::PersonalFolder
             | CodexHomeKind::CapabilityRead
             | CodexHomeKind::McpSignIn => None,

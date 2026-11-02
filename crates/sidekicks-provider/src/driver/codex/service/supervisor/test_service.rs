@@ -377,6 +377,7 @@ fn start_scripted_codex_service_on(
     let codex_home = match home_kind {
         CodexHomeKind::Switching => switching_home(&dependencies.data_folder),
         CodexHomeKind::Account(_)
+        | CodexHomeKind::ApiKeyAccount(_)
         | CodexHomeKind::PersonalFolder
         | CodexHomeKind::CapabilityRead
         | CodexHomeKind::McpSignIn => folder.path().join("home"),

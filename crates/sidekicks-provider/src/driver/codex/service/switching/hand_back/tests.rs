@@ -72,6 +72,7 @@ impl Fixture {
         AccountHomes {
             homes,
             current: left.clone(),
+            api_keys: HashMap::new(),
         }
         .register_on(switching.dependencies.switching.provider_accounts());
         let registry = CodexServiceRegistry::holding(&switching);

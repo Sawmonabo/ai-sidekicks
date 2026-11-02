@@ -108,6 +108,7 @@ impl Fixture {
         AccountHomes {
             homes: homes.clone(),
             current: left.clone(),
+            api_keys: HashMap::new(),
         }
         .register_on(scripted.dependencies.switching.provider_accounts());
         let accounts = Arc::new(PortRegistration::new("provider account registry"));

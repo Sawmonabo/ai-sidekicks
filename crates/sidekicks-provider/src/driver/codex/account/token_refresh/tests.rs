@@ -127,6 +127,7 @@ impl Fixture {
         AccountHomes {
             homes: HashMap::from([(account_id.clone(), codex_home.clone())]),
             current: account_id.clone(),
+            api_keys: HashMap::new(),
         }
         .register_on(switching.dependencies.switching.provider_accounts());
         let home_lock = Arc::new(AccountHomeLock::default());
@@ -460,6 +461,7 @@ async fn an_account_read_on_a_dead_handed_login_asks_for_fresh_tokens() {
     AccountHomes {
         homes: HashMap::from([(test_provider_account_id(), dead_home)]),
         current: test_provider_account_id(),
+        api_keys: HashMap::new(),
     }
     .register_on(dependencies.switching.provider_accounts());
     let legs = probe_legs(&folder, &dependencies);
