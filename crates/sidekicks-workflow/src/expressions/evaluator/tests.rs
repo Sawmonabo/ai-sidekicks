@@ -1,23 +1,17 @@
-use std::collections::HashMap;
-use std::sync::{Arc, mpsc};
+use std::pin::pin;
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use futures::FutureExt;
-use jiff::tz::TimeZone;
+use futures::poll;
 use serde_json::{Map, Value, json};
-use sidekicks_contracts::workflow::definition::document::{
-    WorkflowDefinitionId, WorkflowName, WorkflowNodeId,
-};
+use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
 use sidekicks_contracts::workflow::definition::expression_template::{TemplateText, read_template};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
-use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_contracts::workflow::run::trigger::WorkflowTriggerKind;
 use tokio_util::sync::CancellationToken;
 
 use super::{ExpressionEvaluator, JOB_CAPACITY, OpenSteps, ParamTemplate};
-use crate::expressions::bindings::{ExpressionBindings, ExpressionError};
+use crate::expressions::bindings::{ExpressionError, test_expression_bindings};
 use crate::expressions::lineage::{StepKey, StepOutput, StepOutputs};
-use crate::runs::creation::WorkflowRunTrigger;
 
 /// An evaluation that runs until its step is canceled: each of a hundred thousand elements sums
 /// a hundred thousand more, the cancel read at every element.
@@ -49,31 +43,6 @@ fn named_items(names: &[&str]) -> Vec<WorkflowItem> {
         .collect()
 }
 
-/// The step `current` of a run over the nodes `L` and `current` that started at 15:00 UTC on
-/// 4 March 2025, reading `input` and `steps`.
-fn bindings(input: Vec<WorkflowItem>, steps: StepOutputs) -> ExpressionBindings {
-    ExpressionBindings {
-        step: step_key("current"),
-        input_items: input.into(),
-        steps: Arc::new(steps),
-        node_params: Arc::new(HashMap::new()),
-        run_index: 0,
-        run_started_at: "2025-03-04T15:00:00Z".parse().expect("an instant"),
-        time_zone: TimeZone::UTC,
-        environment_rows: Arc::new([]),
-        run_variables: Arc::new(Map::new()),
-        kept_values: Arc::new([]),
-        run_id: WorkflowRunId::new("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e62").expect("a run id"),
-        run_trigger: WorkflowRunTrigger {
-            kind: WorkflowTriggerKind::Manual,
-            node_id: node_id("L"),
-        },
-        workflow_id: WorkflowDefinitionId::new("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e60")
-            .expect("a definition id"),
-        workflow_name: WorkflowName::new("Nightly".to_owned()).expect("a name"),
-    }
-}
-
 fn no_steps() -> StepOutputs {
     StepOutputs::new(["L", "current"].map(|label| (node_id(label), label.to_owned())))
 }
@@ -90,7 +59,7 @@ async fn evaluated(item_json: Value, text: &str) -> Value {
     let evaluator = ExpressionEvaluator::start().expect("the thread starts");
     let step = evaluator
         .open_step(
-            bindings(vec![item(item_json)], no_steps()),
+            test_expression_bindings(vec![item(item_json)], no_steps()),
             vec![template(text)],
             &CancellationToken::new(),
         )
@@ -113,7 +82,7 @@ async fn each_item_evaluates_with_its_own_index() {
     let names = ["Ada", "Bob", "Cy"];
     let step = evaluator
         .open_step(
-            bindings(named_items(&names), no_steps()),
+            test_expression_bindings(named_items(&names), no_steps()),
             vec![
                 template("=Hi {{ $json.name }}, item {{ $itemIndex }}"),
                 template("={{ $json }}"),
@@ -142,7 +111,7 @@ async fn a_canceled_step_ends_alone() {
     let long_cancel = CancellationToken::new();
     let long = evaluator
         .open_step(
-            bindings(named_items(&["Ada"]), no_steps()),
+            test_expression_bindings(named_items(&["Ada"]), no_steps()),
             vec![template(UNENDING)],
             &long_cancel,
         )
@@ -150,14 +119,17 @@ async fn a_canceled_step_ends_alone() {
         .expect("the step opens");
     let sibling = evaluator
         .open_step(
-            bindings(named_items(&["Ada"]), no_steps()),
+            test_expression_bindings(named_items(&["Ada"]), no_steps()),
             vec![template("={{ $json.name }}")],
             &CancellationToken::new(),
         )
         .await
         .expect("the step opens");
-    let long_value = long.evaluate_item(0);
-    let sibling_value = sibling.evaluate_item(0);
+    // Each evaluation is queued at its first poll.
+    let mut long_value = pin!(long.evaluate_item(0));
+    let mut sibling_value = pin!(sibling.evaluate_item(0));
+    assert!(poll!(long_value.as_mut()).is_pending());
+    assert!(poll!(sibling_value.as_mut()).is_pending());
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let canceled_at = Instant::now();
@@ -199,7 +171,7 @@ async fn a_label_reads_the_first_output_of_the_latest_run() {
     let evaluator = ExpressionEvaluator::start().expect("the thread starts");
     let step = evaluator
         .open_step(
-            bindings(named_items(&["Ada"]), steps),
+            test_expression_bindings(named_items(&["Ada"]), steps),
             vec![template(
                 "={{ [$all('L').json.name, $first('L').json.name, $last('L').json.name] }}",
             )],
@@ -213,14 +185,15 @@ async fn a_label_reads_the_first_output_of_the_latest_run() {
     );
 }
 
-/// With the thread held and 256 jobs waiting, one more is refused at once, never waited for, and
-/// the waiting ones all run once the thread is free.
+/// With the thread held and 256 jobs waiting, one more waits for room rather than being refused,
+/// and all of them, the one that waited too, run once the thread is free. Mutations: refuse the
+/// next job at once; drop a job while it waits for room.
 #[tokio::test]
-async fn a_full_channel_refuses_the_next_job() {
+async fn a_full_channel_holds_the_next_job_until_there_is_room() {
     let evaluator = ExpressionEvaluator::start().expect("the thread starts");
     let step = evaluator
         .open_step(
-            bindings(named_items(&["Ada"]), no_steps()),
+            test_expression_bindings(named_items(&["Ada"]), no_steps()),
             vec![template("={{ $json.name }}")],
             &CancellationToken::new(),
         )
@@ -233,15 +206,19 @@ async fn a_full_channel_refuses_the_next_job() {
             started.send(()).expect("the test waits for the start");
             released.recv().expect("the test releases the thread");
         }))
-        .expect("the holding job is queued");
+        .await;
     has_started.recv().expect("the thread runs the holding job");
 
-    let waiting: Vec<_> = (0..JOB_CAPACITY).map(|_| step.evaluate_item(0)).collect();
-    assert!(matches!(
-        step.evaluate_item(0).now_or_never(),
-        Some(Err(ExpressionError::EvaluatorBusy))
-    ));
+    let mut waiting: Vec<_> = (0..JOB_CAPACITY)
+        .map(|_| Box::pin(step.evaluate_item(0)))
+        .collect();
+    for value in &mut waiting {
+        assert!(poll!(value.as_mut()).is_pending());
+    }
+    let mut next = Box::pin(step.evaluate_item(0));
+    assert!(poll!(next.as_mut()).is_pending());
     release.send(()).expect("the holding job waits");
+    waiting.push(next);
     for value in waiting {
         assert_eq!(value.await.expect("the item evaluates"), vec![json!("Ada")]);
     }
@@ -254,7 +231,7 @@ async fn now_formats_the_runs_instant() {
     let evaluator = ExpressionEvaluator::start().expect("the thread starts");
     let step = evaluator
         .open_step(
-            bindings(named_items(&["Ada", "Bob"]), no_steps()),
+            test_expression_bindings(named_items(&["Ada", "Bob"]), no_steps()),
             vec![template("={{ $now('[Y0001]-[M01]-[D01]') }}")],
             &CancellationToken::new(),
         )
@@ -286,13 +263,15 @@ async fn a_canceled_distinct_ends_within_its_bound() {
     let cancel = CancellationToken::new();
     let step = evaluator
         .open_step(
-            bindings(named_items(&["Ada"]), no_steps()),
+            test_expression_bindings(named_items(&["Ada"]), no_steps()),
             vec![template("={{ $distinct([1..50000]) }}")],
             &cancel,
         )
         .await
         .expect("the step opens");
-    let value = step.evaluate_item(0);
+    // The evaluation is queued at its first poll.
+    let mut value = pin!(step.evaluate_item(0));
+    assert!(poll!(value.as_mut()).is_pending());
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let canceled_at = Instant::now();

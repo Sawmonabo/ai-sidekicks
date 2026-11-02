@@ -12,12 +12,13 @@
 )]
 
 use std::collections::HashSet;
+use std::convert::Infallible;
 use std::iter;
 
 use jsonata_core::ast::AstNode;
 use jsonata_core::functions::string::build_regex;
 use jsonata_core::parser::parse;
-use serde_json::Value;
+use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::WorkflowNode;
 use sidekicks_contracts::workflow::definition::expression_template::{
@@ -29,6 +30,7 @@ use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use tokio::task::JoinError;
 
 use crate::expressions::bindings::{is_item_reader_name, reads_a_label};
+use crate::expressions::param_strings::walk_param_strings;
 use crate::expressions::syntax_tree::find_in_syntax_tree;
 
 /// The expression findings of `trigger` and then `nodes`, in that order, at most one per node and
@@ -49,11 +51,7 @@ pub(crate) async fn check_expressions(
     let mut findings = Vec::new();
     for node in iter::once(trigger).chain(nodes) {
         let mut check = NodeExpressions::default();
-        let line_param = shell_line_param(node);
-        for (param_id, value) in node.params.as_map() {
-            let is_line = line_param == Some(param_id.as_str());
-            check.read_value(&value.0, is_line, &labels);
-        }
+        check.read_params(&node.params, shell_line_param(node), &labels);
         let node_ids = || vec![node.id.clone()];
         if check.is_unparsable {
             findings.push(WorkflowDefinitionFinding::ExpressionUnparsable {
@@ -93,11 +91,16 @@ struct NodeExpressions {
 }
 
 impl NodeExpressions {
-    /// Reads every string `value` holds, in arrays and objects too; `is_line` marks the param
-    /// holding the node's shell line, whose own string is its command line.
-    fn read_value(&mut self, value: &Value, is_line: bool, labels: &HashSet<&str>) {
-        match value {
-            Value::String(text) => match read_template(text) {
+    /// Reads every string `params` hold, in arrays and objects too; the string of the param
+    /// `line_param` names, at its top level, is the node's command line.
+    fn read_params(
+        &mut self,
+        params: &JsonRecord,
+        line_param: Option<&str>,
+        labels: &HashSet<&str>,
+    ) {
+        let Ok(()) = walk_param_strings(params, |path, text| {
+            match read_template(text) {
                 Ok(TemplateText::Literal(_)) => {}
                 Ok(TemplateText::Expression(template)) => {
                     for part in template.parts() {
@@ -105,24 +108,14 @@ impl NodeExpressions {
                             self.read_expression(expression, labels);
                         }
                     }
-                    if is_line {
+                    if path.segments.is_empty() && line_param == Some(path.param.as_str()) {
                         self.command_line = Some(CommandLineFills::new(&template));
                     }
                 }
                 Err(TemplateError::Unclosed { .. }) => self.is_unparsable = true,
-            },
-            Value::Array(entries) => {
-                for entry in entries {
-                    self.read_value(entry, false, labels);
-                }
             }
-            Value::Object(members) => {
-                for entry in members.values() {
-                    self.read_value(entry, false, labels);
-                }
-            }
-            Value::Null | Value::Bool(_) | Value::Number(_) => {}
-        }
+            Ok::<(), Infallible>(())
+        });
     }
 
     /// Parses one part once and notes each rule it breaks.

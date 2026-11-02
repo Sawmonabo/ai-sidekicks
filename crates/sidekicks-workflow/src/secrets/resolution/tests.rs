@@ -4,14 +4,21 @@ use std::sync::{Arc, Mutex};
 use futures::future::BoxFuture;
 use rusqlite::{Connection, params};
 use secrecy::{ExposeSecret, SecretString};
+use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::project::ProjectId;
+use sidekicks_contracts::wire::record::JsonRecord;
+use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_std::keyed_lock::HeldWorkEnd;
 use sidekicks_store::credential_store::{KeychainRefusal, SecretKeychain};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
-use super::{StepSecretRefusal, find_step_secrets, resolve_step_secrets};
+use super::{
+    STEP_SECRET_STATEMENT_CAPACITY, StepSecretRefusal, find_step_secrets, resolve_node_secrets,
+    resolve_step_secrets,
+};
 use crate::schema::schema_parts;
 use crate::secrets::store::WorkflowSecretStore;
 
@@ -184,6 +191,74 @@ async fn an_unmarked_parameters_reference_never_resolves() {
         .await
         .expect("nothing is resolved");
 
+    assert!(resolved.is_empty(), "{resolved:?}");
+    assert!(keychain.reads().is_empty(), "{:?}", keychain.reads());
+}
+
+/// A kind holding a repeating collection `headers`, whose field `value` is sensitive and whose
+/// field `name` is not, beside a plain leaf `url`.
+fn headers_kind() -> WorkflowNodeKindSpec {
+    serde_json::from_value(json!({
+        "kind": "test.request", "version": 1, "category": "developer",
+        "displayName": "Request", "description": "A request with headers.",
+        "icon": "globe", "inputs": [], "outputs": [], "outputsDeriveFromParams": false,
+        "params": [
+            {
+                "id": "headers", "label": "Headers", "type": "collection", "multiple": true,
+                "fields": [
+                    { "id": "name", "label": "Name", "type": "string" },
+                    { "id": "value", "label": "Value", "type": "string", "sensitive": true },
+                ],
+            },
+            { "id": "url", "label": "URL", "type": "string" },
+        ],
+    }))
+    .expect("the test kind's spec reads")
+}
+
+/// A reference in a nested sensitive leaf resolves under its path, while the same reference in a
+/// plain leaf and in the collection's plain field resolves to nothing; a node with no sensitive
+/// string resolves to nothing and asks the keychain nothing. Mutations: walk only the top level,
+/// so the nested secret never resolves; resolve a reference whose leaf is not sensitive.
+#[tokio::test]
+async fn a_nested_sensitive_leaf_resolves_under_its_path() {
+    let database = TestDatabase::new(schema_parts());
+    database_with_secrets(&database);
+    let pool = DatabaseReadPool::new(database.path(), STEP_SECRET_STATEMENT_CAPACITY);
+    let kind = headers_kind();
+    let resolve = async |params: serde_json::Value, keychain: Arc<ScriptedKeychain>| {
+        let params: JsonRecord = serde_json::from_value(params).expect("the test's params read");
+        let store = WorkflowSecretStore::new(keychain as Arc<dyn SecretKeychain>);
+        resolve_node_secrets(&pool, &store, None, &kind, &params)
+            .await
+            .expect("the node's secrets resolve")
+    };
+
+    let keychain = ScriptedKeychain::holding(false);
+    let resolved = resolve(
+        json!({
+            "headers": [{
+                "name": "secret://shared/deploy-key",
+                "value": "secret://shared/deploy-key",
+            }],
+            "url": "secret://shared/deploy-key",
+        }),
+        Arc::clone(&keychain),
+    )
+    .await;
+    let [only] = resolved.as_slice() else {
+        panic!("only the sensitive leaf resolves: {resolved:?}");
+    };
+    assert_eq!(only.parameter, "headers[0].value");
+    assert_eq!(only.value.expose_secret(), SHARED_VALUE);
+    assert_eq!(keychain.reads(), vec![SHARED_ID.to_owned()]);
+
+    let keychain = ScriptedKeychain::holding(false);
+    let resolved = resolve(
+        json!({ "headers": [{ "name": "secret://shared/deploy-key" }], "url": "plain" }),
+        Arc::clone(&keychain),
+    )
+    .await;
     assert!(resolved.is_empty(), "{resolved:?}");
     assert!(keychain.reads().is_empty(), "{:?}", keychain.reads());
 }
