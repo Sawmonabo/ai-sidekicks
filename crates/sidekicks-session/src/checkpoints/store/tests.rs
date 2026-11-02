@@ -1,6 +1,5 @@
 //! The checkpoint store's tests: the version an undo puts back per path, a version kept without a
-//! copy named as such, an undo's outcome saved once under its key, and a checkpoint refused for a
-//! run with no row.
+//! copy named as such, and an undo's outcome saved once under its key.
 
 use rusqlite::ffi;
 use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
@@ -23,10 +22,9 @@ use super::{
     insert_version_statement, read_restore, versions_after,
 };
 use crate::checkpoints::schema::{CheckpointVersionContent, CheckpointVersionLeg, schema_parts};
-use crate::run::engine::test_fixture::insert_running_run;
 
-/// A database on the checkpoint schema holding one running run, and the writer every write of the
-/// test goes through, which holds the schema's references.
+/// A database on the checkpoint schema, the writer every write of the test goes through, which
+/// holds the schema's references, and the session and run its checkpoints name.
 struct Fixture {
     database: TestDatabase,
     writer: DatabaseWriter,
@@ -42,7 +40,6 @@ impl Fixture {
             .expect("the writer opens its database");
         let session_id = test_session_id();
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        insert_running_run(&database, session_id, run_id);
         Self {
             database,
             writer,
@@ -217,22 +214,5 @@ async fn an_undo_outcome_is_saved_once_under_its_key() {
     assert_eq!(
         read_restore(&fixture.database.reader(), &key).expect("the outcome reads"),
         Some(first)
-    );
-}
-
-#[tokio::test]
-async fn a_checkpoint_of_an_unknown_run_is_refused() {
-    let fixture = Fixture::new().await;
-    let mut checkpoint = fixture.checkpoint(2);
-    checkpoint.run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-
-    let refusal = fixture
-        .writer
-        .write(vec![insert_checkpoint_statement(&checkpoint)])
-        .await
-        .expect_err("a checkpoint of a run with no row is refused");
-    assert_eq!(
-        extended_code(&refusal),
-        Some(ffi::SQLITE_CONSTRAINT_FOREIGNKEY)
     );
 }

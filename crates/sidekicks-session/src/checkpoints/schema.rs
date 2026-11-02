@@ -81,7 +81,7 @@ CREATE TABLE session_checkpoints (
   checkpoint_id     TEXT PRIMARY KEY,           -- the snapshot id a client names it by
   session_id        TEXT NOT NULL,
   message_sequence  INTEGER NOT NULL CHECK(message_sequence >= 0), -- the prompt's place in the log
-  run_id            TEXT NOT NULL REFERENCES runs(run_id),
+  run_id            TEXT NOT NULL,
   epoch             INTEGER NOT NULL CHECK(epoch >= 0),     -- the run's execution epoch
   position          INTEGER NOT NULL CHECK(position >= 0),  -- the turn's position in it
   head              TEXT,                       -- the checkout's HEAD, NULL when it had none

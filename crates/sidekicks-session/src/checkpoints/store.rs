@@ -261,7 +261,7 @@ pub enum CheckpointReadError {
 struct StoredCheckpointMemberInvalid(&'static str);
 
 /// The checkpoint row `checkpoint` writes at its turn's start. Refused by SQLite when its id or
-/// its prompt is already kept, or when its run has no row.
+/// its prompt is already kept.
 pub fn insert_checkpoint_statement(checkpoint: &Checkpoint) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(INSERT_CHECKPOINT_SQL.as_str()),
