@@ -58,9 +58,19 @@ pub(crate) fn pinned_outputs(
         return None;
     }
     let pinned = pin_data?.as_map().get(node.id.as_str())?;
-    let mut outputs = vec![pinned.iter().cloned().map(pinned_item).collect::<Vec<_>>()];
+    let items = pinned.iter().cloned().map(pinned_item).collect();
+    Some(place_on_first_output(items, main_output_count))
+}
+
+/// The outputs of a step that gives `items` whole: `items` on the first main output and every
+/// other of its `main_output_count` outputs empty, one output at the least.
+pub(crate) fn place_on_first_output(
+    items: Vec<WorkflowItem>,
+    main_output_count: usize,
+) -> Vec<Vec<WorkflowItem>> {
+    let mut outputs = vec![items];
     outputs.resize_with(main_output_count.max(1), Vec::new);
-    Some(outputs)
+    outputs
 }
 
 /// The inputs an execute-once node runs over: every input list, of every input handle, cut to

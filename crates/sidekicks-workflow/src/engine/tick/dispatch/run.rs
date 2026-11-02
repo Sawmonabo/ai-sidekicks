@@ -93,7 +93,7 @@ impl StepDispatch {
 /// Runs the step's executor over `inputs`: once, or for a per-item kind once per item of its one
 /// main input, in order, each call reading its own item as item 0, their outputs joined in call
 /// order. A failing call ends the step there, carrying the call's index.
-async fn execute(
+pub(super) async fn execute(
     kind: &NodeKind,
     context: &StepContext,
     inputs: Vec<Vec<WorkflowItem>>,

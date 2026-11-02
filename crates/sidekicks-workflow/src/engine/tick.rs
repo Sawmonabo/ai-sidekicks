@@ -230,17 +230,17 @@ pub(crate) enum StepSettlement {
         log_lines: Vec<String>,
     },
     /// The provider account of the step's agent run is spent; the step waits on it.
-    #[cfg_attr(
-        test,
-        expect(
-            dead_code,
-            reason = "the agent step's flow, which settles a step on a spent account"
-        )
-    )]
     AccountSpent {
         /// The spent account.
         provider_account_id: ProviderAccountId,
         /// The step's agent run, kept to resume when the account is back.
+        #[cfg_attr(
+            test,
+            expect(
+                dead_code,
+                reason = "the account wait, which resumes the run when the account is back"
+            )
+        )]
         run: Box<dyn AgentStepRun>,
     },
     /// The step was canceled. A step canceled while the gate held it adds its hold to the step's

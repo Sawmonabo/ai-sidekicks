@@ -1,7 +1,9 @@
 //! The tick's dispatch: it decides in the tick's turn how each step the walk readies is admitted,
 //! and a driver task per step waits at the memory gate where its kind asks, launches it, runs its
-//! executor and settles it, sending every later report to the tick.
+//! executor and settles it, sending every later report to the tick. An agent step's driver
+//! creates the step's agent run, which waits at the gate itself, and follows the run to its end.
 
+mod agent_step;
 mod launch;
 mod run;
 #[cfg(test)]
@@ -15,7 +17,7 @@ use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
+use sidekicks_contracts::workflow::definition::document::{WorkflowNode, WorkflowNodeId};
 use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -30,7 +32,7 @@ use super::{ReadyStep, RunScope, RunSnapshot, StepReport, StepReportKind, StepSe
 use crate::engine::ports::{EnginePorts, StepAdmissionTicket, StepAdmissionWork, WorkflowNodeKey};
 use crate::expressions::evaluator::ExpressionEvaluator;
 use crate::kinds::{
-    NodeKindTable, StepAdmissionNeed, StepAdmissionShape, StepFailure, uncoded_step_error,
+    NodeKind, NodeKindTable, StepAdmissionNeed, StepAdmissionShape, StepFailure, uncoded_step_error,
 };
 use crate::secrets::redaction::RunRedaction;
 use crate::secrets::store::WorkflowSecretStore;
@@ -92,9 +94,10 @@ impl StepDispatch {
     /// Dispatches `ready`, a step of the run of `scope`, reading `snapshot`, deciding in this turn
     /// how it is admitted. A kind or version the table does not list fails at once, and a node
     /// pinned in a manual run settles with its pinned items, both with no task. A step the memory
-    /// gate does not weigh is admitted at once and its driver spawned; a step the gate weighs
-    /// takes its turn in the entry line and its driver reports its hold and its admission. Answers
-    /// the step's cancel and the reports the tick writes this turn. Must be called inside tokio.
+    /// gate does not weigh is admitted at once and its driver spawned; a step the gate weighs, and
+    /// an agent step, whose run joins the gate, takes its turn in the entry line, and its driver
+    /// reports its hold and its admission. Answers the step's cancel and the reports the tick
+    /// writes this turn. Must be called inside tokio.
     pub(crate) fn dispatch(
         &self,
         scope: &Arc<RunScope>,
@@ -193,7 +196,40 @@ impl StepDispatch {
                     reports: Vec::new(),
                 }
             }
+            StepAdmissionNeed::OwnRun => {
+                // Taken here for the same order: the run's creation is the step's entry.
+                let turn = self.gate_entries.take_turn();
+                tokio::spawn(self.clone().drive_agent_step(
+                    Arc::clone(scope),
+                    snapshot.clone(),
+                    ready,
+                    cancel.clone(),
+                    turn,
+                ));
+                DispatchedStep {
+                    cancel,
+                    reports: Vec::new(),
+                }
+            }
         }
+    }
+
+    /// The node of `step`, a step of the run of `scope`, and its kind, both of which the dispatch
+    /// found when it dispatched the step.
+    fn look_up_step<'scope>(
+        &self,
+        scope: &'scope RunScope,
+        step: &WorkflowStepKey,
+    ) -> (&'scope WorkflowNode, &NodeKind) {
+        let node = scope
+            .nodes
+            .get(&step.node_id)
+            .expect("the dispatch found the step's node in the run's nodes");
+        let kind = self
+            .kinds
+            .kind_of(node)
+            .expect("the dispatch found the node's kind in the table");
+        (node, kind)
     }
 
     /// Drives `ready`, a step the memory gate weighs as `shape`, to its admission: measures what
@@ -209,10 +245,7 @@ impl StepDispatch {
         shape: StepAdmissionShape,
         turn: GateEntryTurn,
     ) {
-        let node = scope
-            .nodes
-            .get(&ready.step.node_id)
-            .expect("the dispatch found the step's node in the run's nodes");
+        let (node, _kind) = self.look_up_step(&scope, &ready.step);
         let step = ready.step.clone();
         let node_key = WorkflowNodeKey::new(scope.workflow_id, &node.id);
         let work = match shape {
@@ -247,12 +280,7 @@ impl StepDispatch {
                 }
             },
         };
-        let is_canceled_in_line = tokio::select! {
-            biased;
-            () = cancel.cancelled() => true,
-            () = turn.wait() => false,
-        };
-        if is_canceled_in_line {
+        if is_canceled_in_line(&turn, &cancel).await {
             drop(turn);
             let canceled = StepSettlement::Canceled {
                 hold_started_at: None,
@@ -305,14 +333,7 @@ impl StepDispatch {
         cancel: CancellationToken,
         admission: Option<Arc<dyn StepAdmissionTicket>>,
     ) {
-        let node = scope
-            .nodes
-            .get(&ready.step.node_id)
-            .expect("the dispatch found the step's node in the run's nodes");
-        let kind = self
-            .kinds
-            .kind_of(node)
-            .expect("the dispatch found the node's kind in the table");
+        let (node, kind) = self.look_up_step(&scope, &ready.step);
         let step = ready.step.clone();
         let launched = self
             .launch(
@@ -327,18 +348,8 @@ impl StepDispatch {
         let context = match launched {
             Ok(context) => context,
             Err(failure) => {
-                // A cancel during the launch comes back as the launch's own failure.
-                let settlement = if cancel.is_cancelled() {
-                    StepSettlement::Canceled {
-                        hold_started_at: None,
-                        is_sibling_failure: false,
-                    }
-                } else {
-                    StepSettlement::Failed {
-                        failure: fill_step_failure(failure, &node.id, &scope.redaction),
-                        log_lines: Vec::new(),
-                    }
-                };
+                let settlement =
+                    settle_launch_failure(failure, &cancel, &node.id, &scope.redaction);
                 self.report(&step, &cancel, StepReportKind::Settled(settlement))
                     .await;
                 drop(admission);
@@ -378,6 +389,37 @@ impl StepDispatch {
             cancel.cancel();
         }
         is_taken
+    }
+}
+
+/// Waits for `turn` in the entry line, answering whether the step's `cancel` came first.
+async fn is_canceled_in_line(turn: &GateEntryTurn, cancel: &CancellationToken) -> bool {
+    tokio::select! {
+        biased;
+        () = cancel.cancelled() => true,
+        () = turn.wait() => false,
+    }
+}
+
+/// The settlement of a step whose launch failed with `failure`: canceled when its `cancel` is,
+/// since a cancel during the launch comes back as the launch's own failure, else failed on node
+/// `node_id` with its message scrubbed through `redaction`.
+fn settle_launch_failure(
+    failure: StepFailure,
+    cancel: &CancellationToken,
+    node_id: &WorkflowNodeId,
+    redaction: &RunRedaction,
+) -> StepSettlement {
+    if cancel.is_cancelled() {
+        StepSettlement::Canceled {
+            hold_started_at: None,
+            is_sibling_failure: false,
+        }
+    } else {
+        StepSettlement::Failed {
+            failure: fill_step_failure(failure, node_id, redaction),
+            log_lines: Vec::new(),
+        }
     }
 }
 

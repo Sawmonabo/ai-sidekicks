@@ -77,13 +77,16 @@ pub(crate) enum StepAdmissionShape {
     },
 }
 
-/// How a kind's step is admitted: at once, or after a wait at the memory gate.
+/// How a kind's step is admitted: at once, after a wait at the memory gate, or with the agent run
+/// it creates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum StepAdmissionNeed {
     /// The gate does not weigh the step, so it is admitted in the turn that readies it.
     Unweighed,
     /// The step waits at the gate, reserved by what it runs.
     Gate(StepAdmissionShape),
+    /// An agent step, whose run joins the gate when it is created.
+    OwnRun,
 }
 
 /// What a step's run asks of the engine: its output, a wait on a person, or an agent run, which

@@ -33,14 +33,14 @@ use crate::schema::schema_parts;
 use crate::secrets::redaction::RunRedaction;
 
 /// The longest a test waits on a report or a signal.
-const WAIT: Duration = Duration::from_secs(10);
+pub(super) const WAIT: Duration = Duration::from_secs(10);
 
 /// The run's secret, which a failure's message must never carry.
 const SECRET: &str = "hunter2secretXYZ";
 
 /// What a test executor does.
 #[derive(Clone, Copy)]
-enum Script {
+pub(super) enum Script {
     /// Records how many items each input holds and whether it holds a gate ticket, marks progress,
     /// sets the run variable `answer`, waits for the test's release, then passes its inputs on.
     Progress,
@@ -53,13 +53,13 @@ enum Script {
     AwaitCancel,
     /// Fails with a coded failure whose message holds the run's secret.
     FailWithSecret,
-    /// Asks for an agent run.
+    /// Asks for an agent run carrying the params of its item 0.
     AskAgentRun,
 }
 
 /// What a test executor saw, and the signals between it and the test.
 #[derive(Default)]
-struct ExecutorProbe {
+pub(super) struct ExecutorProbe {
     /// Lets a waiting executor go on.
     release: Notify,
     /// What each call saw, in call order.
@@ -138,13 +138,19 @@ impl NodeExecutor for ScriptedExecutor {
                     }))
                     .expect("the test's failure reads"),
                 ))),
-                Script::AskAgentRun => Ok(StepOutcome::AgentRun(AgentStepRequest {
-                    session_id: context.session_id,
-                    step: context.step.clone(),
-                    node_key: context.node_key.clone(),
-                    permission_level: context.permission_level,
-                    params: Map::new(),
-                })),
+                Script::AskAgentRun => {
+                    let params = context
+                        .item_params(0)
+                        .await
+                        .expect("the item's params evaluate");
+                    Ok(StepOutcome::AgentRun(AgentStepRequest {
+                        session_id: context.session_id,
+                        step: context.step.clone(),
+                        node_key: context.node_key.clone(),
+                        permission_level: context.permission_level,
+                        params: Map::clone(&params),
+                    }))
+                }
             }
         })
     }
@@ -157,7 +163,7 @@ impl NodeExecutor for ScriptedExecutor {
 /// The kind `test.step` at version 1, one main input and output and a sensitive `token` param,
 /// run once per item when `is_per_item`, its executor following `script` and its steps needing
 /// `need` from the memory gate.
-fn scripted_kind(
+pub(super) fn scripted_kind(
     script: Script,
     need: StepAdmissionNeed,
     probe: &Arc<ExecutorProbe>,
@@ -187,7 +193,7 @@ fn scripted_kind(
 
 /// The node `step` of `test.step` at version 1 with no params, each member of `settings` laid
 /// over it.
-fn test_node(settings: &Value) -> WorkflowNode {
+pub(super) fn test_node(settings: &Value) -> WorkflowNode {
     let mut node = json!({
         "id": "step", "kind": "test.step", "kindVersion": 1, "name": "Step", "order": 0,
         "params": {},
@@ -199,7 +205,7 @@ fn test_node(settings: &Value) -> WorkflowNode {
 }
 
 /// `report` of step `step` as JSON, reading every member it carries.
-fn report_json(report: &StepReport, step: &WorkflowStepKey) -> Value {
+pub(super) fn report_json(report: &StepReport, step: &WorkflowStepKey) -> Value {
     assert_eq!(&report.step, step);
     match &report.kind {
         StepReportKind::WaitingOnPool { hold_started_at } => {
@@ -255,7 +261,10 @@ fn settlement_json(settlement: &StepSettlement) -> Value {
         } => json!({ "personWait": {
             "wait": format!("{wait:?}"), "isAdmitted": admission.is_some(), "logLines": log_lines,
         } }),
-        StepSettlement::AccountSpent { .. } => panic!("no test step spends an account"),
+        StepSettlement::AccountSpent {
+            provider_account_id,
+            run: _,
+        } => json!({ "accountSpent": { "providerAccountId": provider_account_id } }),
         StepSettlement::Canceled {
             hold_started_at,
             is_sibling_failure,
@@ -266,7 +275,7 @@ fn settlement_json(settlement: &StepSettlement) -> Value {
 }
 
 /// The next report on `received` as JSON, `None` once every driver ended.
-async fn next_report(
+pub(super) async fn next_report(
     received: &mut mpsc::Receiver<StepReport>,
     step: &WorkflowStepKey,
 ) -> Option<Value> {
