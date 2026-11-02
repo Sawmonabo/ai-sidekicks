@@ -15,7 +15,8 @@ use super::ProviderAccountMethodSources;
 
 /// Registers `provider.account.current.update`: the account now current and the sessions being
 /// moved onto it, refused as the switch refuses, the mark unmoved. Publishes the account made
-/// current and the one it left. Fails the start when the method is already registered.
+/// current and the one it left where the mark moved. Fails the start when the method is already
+/// registered.
 pub(super) fn register_provider_account_current_update(
     registry: &mut MethodRegistryBuilder,
     sources: &Arc<ProviderAccountMethodSources>,
@@ -33,11 +34,14 @@ pub(super) fn register_provider_account_current_update(
                     .await?;
                 // The moves land on their own, after the answer.
                 drop(made.settled);
-                // The account made current goes out even where none was current before it.
-                if let Some(left) = &made.left {
-                    sources.publish_change(method, &device, left);
+                // The account made current goes out even where none was current before it, and
+                // neither goes out where the mark already stood on it.
+                if made.is_mark_moved {
+                    if let Some(left) = &made.left {
+                        sources.publish_change(method, &device, left);
+                    }
+                    sources.publish_change(method, &device, &made.account);
                 }
-                sources.publish_change(method, &device, &made.account);
                 Ok(ProviderAccountCurrentUpdateResponse {
                     account: made.account.to_provider_account(),
                     moving_sessions: made

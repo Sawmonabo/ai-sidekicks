@@ -164,6 +164,10 @@ static RECORD_MEMORY_IMPORT_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// Whether another account of the provider holds the folded name, as the unique name compares it.
+const DISPLAY_LABEL_HELD_SQL: &str = "SELECT EXISTS (SELECT 1 FROM provider_accounts \
+     WHERE provider = ?1 AND display_label_folded = ?2 AND account_id != ?3)";
+
 static CHANGE_SETTINGS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE provider_accounts
@@ -604,6 +608,34 @@ impl ProviderAccountRegistry {
         }])
         .await
         .map(drop)
+    }
+
+    /// Refuses [`ProviderAccountRegistryError::DisplayLabelTaken`] where another account of
+    /// `provider` than `account_id`, one being removed among them, holds `display_label`'s fold,
+    /// which a rename to it would break. Fails when the accounts cannot be read.
+    pub async fn check_display_label_free(
+        &self,
+        provider: ProviderId,
+        account_id: ProviderAccountId,
+        display_label: &DisplayLabel,
+    ) -> Result<(), ProviderAccountRegistryError> {
+        let folded = fold_name(display_label.as_str());
+        let is_held = self
+            .reads
+            .read(ReadLength::Short, move |connection| {
+                connection
+                    .prepare_cached(DISPLAY_LABEL_HELD_SQL)?
+                    .query_row(
+                        (provider.as_str(), folded.as_str(), account_id.as_str()),
+                        |row| row.get::<_, bool>(0),
+                    )
+                    .map_err(ProviderAccountRegistryError::from)
+            })
+            .await?;
+        if is_held {
+            return Err(ProviderAccountRegistryError::DisplayLabelTaken);
+        }
+        Ok(())
     }
 
     /// Changes `account_id`'s settings as `change` names and answers the account. Fails with
