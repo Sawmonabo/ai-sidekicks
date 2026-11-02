@@ -24,6 +24,20 @@ impl AsksFixture {
         self.read_texts("SELECT approval_request_id FROM approval_kept_answers")
     }
 
+    /// The cards whose kept answer the session's continue still owes.
+    async fn owed_cards(&self) -> Vec<String> {
+        let approvals = &self.check.approvals;
+        approvals
+            .service
+            .kept_answers()
+            .owed_continues(approvals.session_id)
+            .await
+            .expect("the owed continues read")
+            .into_iter()
+            .map(|owed| owed.approval_request_id.text().as_str().to_owned())
+            .collect()
+    }
+
     /// Waits until the fixture's run reads `state`.
     async fn wait_for_run_state(&self, state: &str) {
         let approvals = &self.check.approvals;
@@ -40,9 +54,11 @@ impl AsksFixture {
 // An answer to a pending card whose ask the restarted intake does not hold is recorded and kept,
 // not refused, and its run reads `running` once the answer returns; the call made again under a
 // new tool call id with the same input takes the kept answer at once with no card, and a third
-// such call raises its own card. Killed by keeping the withdraw-and-refuse branch, by a call hand
-// whose claim is not checked (the third call is answered too), and by a reconcile left spawned
-// (the run still reads `waitingForApproval` when the answer returns).
+// such call raises its own card. The continue owes the answer until the call made again takes
+// it. Killed by keeping the withdraw-and-refuse branch, by a call hand whose claim is not checked
+// (the third call is answered too), by a reconcile left spawned (the run still reads
+// `waitingForApproval` when the answer returns), and by the continue still owing an answer the
+// call made again took.
 #[tokio::test]
 async fn an_answer_no_live_request_holds_is_kept_and_answers_the_call_made_again_once() {
     let fixture = AsksFixture::moving_its_run().await;
@@ -68,6 +84,7 @@ async fn an_answer_no_live_request_holds_is_kept_and_answers_the_call_made_again
     assert_eq!(fixture.kept_cards(), std::slice::from_ref(&card));
     assert_eq!(approvals.run_state(approvals.run_id), "running");
     assert_eq!(fixture.handed(), []);
+    assert_eq!(fixture.owed_cards().await, std::slice::from_ref(&card));
 
     restarted
         .take_ask(fixture.publish("ask-2", "b"))
@@ -76,6 +93,7 @@ async fn an_answer_no_live_request_holds_is_kept_and_answers_the_call_made_again
     assert_eq!(fixture.pending_cards(), Vec::<String>::new());
     assert_eq!(fixture.handed(), [plain_allow()]);
     assert_eq!(fixture.handed_under(), ["ask-2"]);
+    assert_eq!(fixture.owed_cards().await, Vec::<String>::new());
 
     restarted
         .take_ask(fixture.publish("ask-3", "c"))

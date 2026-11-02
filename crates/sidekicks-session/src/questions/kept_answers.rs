@@ -50,10 +50,11 @@ const KEPT_CALL_ANSWERS_SQL: &str = "SELECT kept.question_id, kept.answer, kept.
   WHERE kept.run_id = @runId AND kept.call_handed_at IS NULL
     AND questions.input_digest = @inputDigest";
 
-// The session's kept answers no continue took yet.
+// The session's kept answers neither a continue nor the question asked again took yet, since an
+// answer the question asked again took is not repeated to the agent.
 const OWED_CONTINUES_SQL: &str = "SELECT question_id, run_id, answer, kept_at
   FROM question_kept_answers
-  WHERE session_id = @sessionId AND continue_handed_at IS NULL";
+  WHERE session_id = @sessionId AND continue_handed_at IS NULL AND call_handed_at IS NULL";
 
 /// A kept answer a run's continue still owes its agent: the question and what the person said.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -140,11 +141,14 @@ impl KeptSecretAnswers {
         lock(&self.0).get_mut(question_id)?.answers.take()
     }
 
-    // The session's answers no continue holds, with when each was kept.
+    // The session's answers neither a continue nor the question asked again holds, with when each
+    // was kept.
     fn owed(&self, session_id: SessionId) -> Vec<(String, QuestionId, RunId, String)> {
         lock(&self.0)
             .iter()
-            .filter(|(_, kept)| kept.session_id == session_id && !kept.is_continue_handed)
+            .filter(|(_, kept)| {
+                kept.session_id == session_id && !kept.is_continue_handed && kept.answers.is_some()
+            })
             .map(|(question_id, kept)| {
                 (
                     kept.kept_at.as_str().to_owned(),
@@ -190,8 +194,9 @@ pub(crate) fn insert_kept_answer_statement(
 }
 
 impl QuestionsService {
-    /// Every kept answer the session's runs' continues still owe, oldest first. Fails as the read
-    /// fails, or where the log holds no `question.asked` for a kept answer's question.
+    /// Every kept answer the session's runs' continues still owe, oldest first: one the question
+    /// asked again did not take. Fails as the read fails, or where the log holds no
+    /// `question.asked` for a kept answer's question.
     pub async fn owed_continues(
         &self,
         session_id: SessionId,

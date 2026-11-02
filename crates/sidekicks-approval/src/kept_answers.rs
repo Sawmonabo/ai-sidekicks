@@ -49,11 +49,15 @@ static SELECT_KEPT_CALL_REQUESTS_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// A kept answer the call made again already took is not repeated to the agent, and a workflow
+// step's card, which no agent's call holds (no ask and no tool call), is owed to no continue.
 static SELECT_OWED_CONTINUES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "{SELECT_REQUESTS_SQL}
   JOIN approval_kept_answers AS kept ON kept.approval_request_id = request.id
   WHERE kept.session_id = ? AND kept.continue_handed_at IS NULL
+    AND kept.call_handed_at IS NULL
+    AND (request.ask_id IS NOT NULL OR request.tool_call_id IS NOT NULL)
     AND resolution.request_id IS NOT NULL
   ORDER BY kept.kept_at, request.id"
     )
@@ -93,8 +97,8 @@ impl KeptAnswers {
         Self { reads, writer }
     }
 
-    /// Every kept answer the session's runs' continues still owe, oldest first. Fails as the read
-    /// fails.
+    /// Every kept answer the session's runs' continues still owe, oldest first: one no call made
+    /// again took, to a card an agent's call raised. Fails as the read fails.
     pub async fn owed_continues(
         &self,
         session_id: SessionId,
