@@ -105,29 +105,31 @@ impl CodexPluginServer {
 
 /// The servers each plugin in `plugin_home` declares, read-only and bound to their plugin, with the
 /// entries their files write. A malformed server entry is skipped, and a plugin whose files cannot
-/// be read is logged and declares none.
+/// be read is logged and declares none. A log names a plugin by its key, never by its folder.
 pub(crate) async fn read_plugin_server_entries(plugin_home: &Path) -> Vec<CodexPluginServer> {
     let cache = PLUGIN_CACHE_FOLDER
         .iter()
         .fold(plugin_home.to_path_buf(), |folder, name| folder.join(name));
     let mut servers: Vec<CodexPluginServer> = Vec::new();
-    for marketplace in list_folder_names(&cache).await {
+    for marketplace in list_folder_names(&cache, "the plugin cache").await {
         let marketplace_folder = cache.join(&marketplace);
-        for plugin in list_folder_names(&marketplace_folder).await {
+        for plugin in list_folder_names(&marketplace_folder, &marketplace).await {
             let Ok(plugin_name) = PluginToken::new(plugin.clone()) else {
                 continue;
             };
+            let plugin_key = format!("{plugin}@{marketplace}");
             let plugin_folder = marketplace_folder.join(&plugin);
-            let Some(version) = pick_active_version(list_folder_names(&plugin_folder).await) else {
+            let Some(version) =
+                pick_active_version(list_folder_names(&plugin_folder, &plugin_key).await)
+            else {
                 continue;
             };
             let plugin_root = plugin_folder.join(version);
-            let entries = match read_plugin_server_map(&plugin_root).await {
+            let entries = match read_plugin_server_map(&plugin_root, &plugin_key).await {
                 Ok(entries) => entries,
                 Err(error) => {
                     tracing::warn!(
-                        plugin = %plugin,
-                        marketplace = %marketplace,
+                        plugin = %plugin_key,
                         error = &error as &(dyn Error + 'static),
                         "a codex plugin's mcp servers could not be read; it declares none"
                     );
@@ -166,7 +168,7 @@ pub(crate) async fn read_plugin_server_entries(plugin_home: &Path) -> Vec<CodexP
                         tool_defaults: declared.tool_defaults,
                         organization_managed: None,
                     },
-                    plugin_key: format!("{plugin}@{marketplace}"),
+                    plugin_key: plugin_key.clone(),
                     entry,
                     plugin_root: plugin_root.clone(),
                 });
@@ -176,23 +178,24 @@ pub(crate) async fn read_plugin_server_entries(plugin_home: &Path) -> Vec<CodexP
     servers
 }
 
-/// Why one plugin's servers could not be read.
+/// Why one plugin's servers could not be read. A file is named inside the plugin's folder, never
+/// by its full path, which may lie under the person's own folder.
 #[derive(Debug, thiserror::Error)]
 enum PluginFileReadError {
     /// A file could not be read.
-    #[error("{} could not be read", path.display())]
+    #[error("{} could not be read", file.display())]
     Unreadable {
-        /// The file.
-        path: PathBuf,
+        /// The file, inside the plugin's folder.
+        file: PathBuf,
         /// The system's error.
         #[source]
         failure: io::Error,
     },
     /// A file is not JSON of the shape Codex reads.
-    #[error("{} is not a plugin manifest or MCP file Codex reads", path.display())]
+    #[error("{} is not a plugin manifest or MCP file Codex reads", file.display())]
     Malformed {
-        /// The file.
-        path: PathBuf,
+        /// The file, inside the plugin's folder.
+        file: PathBuf,
         /// The parse error, where the file is not JSON at all.
         #[source]
         failure: Option<serde_json::Error>,
@@ -206,46 +209,48 @@ struct CodexPluginManifest {
     mcp_servers: Option<Value>,
 }
 
-// The servers of the plugin in `plugin_root`, by name: none where it has no manifest. A plugin in
-// the Agent Plugins format is read in its own format first, as Codex reads it.
+// The servers of the plugin in `plugin_root`, which logs name by `plugin_key`, by name: none
+// where it has no manifest. A plugin in the Agent Plugins format is read in its own format first,
+// as Codex reads it.
 async fn read_plugin_server_map(
     plugin_root: &Path,
+    plugin_key: &str,
 ) -> Result<Map<String, Value>, PluginFileReadError> {
-    if let Some(servers) = read_agent_format_servers(plugin_root).await? {
+    if let Some(servers) = read_agent_format_servers(plugin_root, plugin_key).await? {
         return Ok(servers);
     }
     let mut manifest = None;
     for [folder, file] in MANIFEST_PATHS {
-        let path = plugin_root.join(folder).join(file);
-        if let Some(value) = read_json_file(&path).await? {
-            manifest = Some((path, value));
+        let manifest_file = Path::new(folder).join(file);
+        if let Some(value) = read_json_file(plugin_root, &manifest_file).await? {
+            manifest = Some((manifest_file, value));
             break;
         }
     }
-    let Some((manifest_path, manifest)) = manifest else {
+    let Some((manifest_file, manifest)) = manifest else {
         return Ok(Map::new());
     };
     let manifest = CodexPluginManifest::deserialize(&manifest).map_err(|failure| {
         PluginFileReadError::Malformed {
-            path: manifest_path.clone(),
+            file: manifest_file.clone(),
             failure: Some(failure),
         }
     })?;
     let mcp_file = match manifest.mcp_servers {
         Some(inline @ Value::Object(_)) => {
             return read_server_map(inline).ok_or(PluginFileReadError::Malformed {
-                path: manifest_path,
+                file: manifest_file,
                 failure: None,
             });
         }
         // Codex ignores a path that leaves the plugin's folder, and then reads the default file.
         Some(Value::String(path)) => resolve_manifest_path(plugin_root, &path)
-            .unwrap_or_else(|| plugin_root.join(DEFAULT_MCP_FILE)),
-        Some(_) | None => plugin_root.join(DEFAULT_MCP_FILE),
+            .unwrap_or_else(|| PathBuf::from(DEFAULT_MCP_FILE)),
+        Some(_) | None => PathBuf::from(DEFAULT_MCP_FILE),
     };
-    match read_json_file(&mcp_file).await? {
+    match read_json_file(plugin_root, &mcp_file).await? {
         Some(file) => read_server_map(file).ok_or(PluginFileReadError::Malformed {
-            path: mcp_file,
+            file: mcp_file,
             failure: None,
         }),
         None => Ok(Map::new()),
@@ -267,10 +272,10 @@ fn read_server_map(file: Value) -> Option<Map<String, Value>> {
     }
 }
 
-// The file a manifest's `./`-relative path names in `plugin_root`; `None` for a path Codex
-// refuses: one without the prefix, one naming the folder itself, one that climbs out by a `..`
-// between the system's own separators, and one that joins outside the folder, by a rooted or
-// absolute part.
+// The file a manifest's `./`-relative path names in `plugin_root`, inside that folder; `None` for
+// a path Codex refuses: one without the prefix, one naming the folder itself, one that climbs out
+// by a `..` between the system's own separators, and one that joins outside the folder, by a
+// rooted or absolute part.
 fn resolve_manifest_path(plugin_root: &Path, path: &str) -> Option<PathBuf> {
     let relative = path.strip_prefix(MANIFEST_PATH_PREFIX)?;
     if relative.is_empty()
@@ -280,18 +285,23 @@ fn resolve_manifest_path(plugin_root: &Path, path: &str) -> Option<PathBuf> {
     {
         return None;
     }
-    let file = plugin_root.join(relative);
-    file.starts_with(plugin_root).then_some(file)
+    plugin_root
+        .join(relative)
+        .starts_with(plugin_root)
+        .then(|| PathBuf::from(relative))
 }
 
-// The JSON in `path`; `None` where there is no such file.
-async fn read_json_file(path: &Path) -> Result<Option<Value>, PluginFileReadError> {
-    let bytes = match tokio::fs::read(path).await {
+// The JSON in `file` inside `plugin_root`; `None` where there is no such file.
+async fn read_json_file(
+    plugin_root: &Path,
+    file: &Path,
+) -> Result<Option<Value>, PluginFileReadError> {
+    let bytes = match tokio::fs::read(plugin_root.join(file)).await {
         Ok(bytes) => bytes,
         Err(failure) if failure.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(failure) => {
             return Err(PluginFileReadError::Unreadable {
-                path: path.to_path_buf(),
+                file: file.to_path_buf(),
                 failure,
             });
         }
@@ -299,14 +309,14 @@ async fn read_json_file(path: &Path) -> Result<Option<Value>, PluginFileReadErro
     serde_json::from_str(&decode_inbound_json(&bytes))
         .map(Some)
         .map_err(|failure| PluginFileReadError::Malformed {
-            path: path.to_path_buf(),
+            file: file.to_path_buf(),
             failure: Some(failure),
         })
 }
 
 // The names of the folders in `folder`, sorted; none where it cannot be listed, which is logged
-// unless it is absent.
-async fn list_folder_names(folder: &Path) -> Vec<String> {
+// unless it is absent, naming the folder by `listed`, what it lists, never by its path.
+async fn list_folder_names(folder: &Path, listed: &str) -> Vec<String> {
     let listed = async {
         let mut entries = tokio::fs::read_dir(folder).await?;
         let mut names = Vec::new();
@@ -328,7 +338,7 @@ async fn list_folder_names(folder: &Path) -> Vec<String> {
         Err(failure) if failure.kind() == io::ErrorKind::NotFound => Vec::new(),
         Err(failure) => {
             tracing::warn!(
-                folder = %folder.display(),
+                listed = %listed,
                 error = &failure as &(dyn Error + 'static),
                 "a codex plugin folder could not be listed; its plugins declare no servers"
             );
