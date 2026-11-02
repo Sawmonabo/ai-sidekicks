@@ -11,8 +11,6 @@ publish.workspace = true
 ignored = [
   # The token prices read from what the providers report.
   "opentelemetry-proto",
-  # Editing the providers' and tool servers' TOML settings in place.
-  "toml_edit",
 ]
 
 [lib]
