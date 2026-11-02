@@ -1,7 +1,8 @@
 //! Reading and editing Claude Code's settings files. A read the daemon only consults takes a file
-//! that is absent, not the daemon's to read, or not a settings object as setting nothing. An edit
-//! holds the file's lock across its read and write, changes the file in place with every other byte
-//! kept, and refuses a file that is not a strict JSON object, never overwriting it.
+//! that is absent, not the daemon's to read, or not a settings object as setting nothing; one key is
+//! read across every file in Claude Code's own precedence. An edit holds the file's lock across its
+//! read and write, changes the file in place with every other byte kept, and refuses a file that is
+//! not a strict JSON object, never overwriting it.
 
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
@@ -11,11 +12,20 @@ use jsonc_parser::ParseOptions;
 use jsonc_parser::cst::{CstInputValue, CstObject, CstRootNode};
 use serde::de::IgnoredAny;
 use serde_json::{Map, Value};
+use sidekicks_platforms::PathRules;
 use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
 use sidekicks_std::file::real_location::resolve_real_location;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::missing_entry::MissingEntry;
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
 
+use crate::driver::claude::session::ignored_settings::{
+    ClaudeSettingsReadError, find_claude_setting, read_claude_managed_setting,
+};
+use crate::driver::claude::session::rules::{
+    CLAUDE_SHARED_SETTINGS_FILE, ClaudeProjectFolder, local_settings_path,
+    resolve_claude_local_settings_file, settings_path,
+};
 use crate::inbound_json::decode_inbound_json;
 
 // Held on a settings file the daemon edits across its read and write, so two edits never drop each
@@ -64,6 +74,34 @@ pub(crate) enum ClaudeSettingsFileError {
     },
 }
 
+/// Which tier of Claude Code's settings set a key: Claude Code takes some values only from a file
+/// the person or an administrator controls, never from the project's own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClaudeSettingsSource {
+    /// An administrator's managed file.
+    Managed,
+    /// The project's local or shared file.
+    Project,
+    /// The person's own file.
+    Person,
+}
+
+/// Where a session's Claude Code settings are read from: the administrator's managed folder, the
+/// session's working folder with what places its local file, and the account home's own settings
+/// file.
+pub(crate) struct ClaudeSettingsSources<'a> {
+    /// The folder Claude Code reads an administrator's settings from; `None` where it names none.
+    pub(crate) managed_settings_folder: Option<&'a Path>,
+    /// The session's working folder, with what Claude Code reads to place its local settings.
+    pub(crate) project_folder: &'a ClaudeProjectFolder<'a>,
+    /// The person's own home folder, which places the project's local file.
+    pub(crate) home_folder: &'a Path,
+    /// The account home's own settings file, `settings.json` in its config folder.
+    pub(crate) account_settings_file: &'a Path,
+    /// How the place the session runs in spells paths.
+    pub(crate) path_rules: PathRules,
+}
+
 /// Whether a file-system failure means the daemon cannot read the path, rather than a fault: the
 /// path is absent, runs through a file, or is not the daemon's to read.
 pub(crate) fn is_unreadable_path(error: &io::Error) -> bool {
@@ -87,6 +125,68 @@ pub(crate) async fn read_claude_settings_file(
     let parsed = serde_json::from_str::<Value>(&decode_inbound_json(&bytes));
     if let Ok(Value::Object(settings)) = parsed {
         return Ok(Some(settings));
+    }
+    Ok(None)
+}
+
+/// The first value `select` takes at `key_path` and the tier that set it, in Claude Code's own
+/// precedence: the managed settings, then the project's local files, its shared file, then the
+/// account home's own; `None` where no file sets it. Fails with every settings file that could not
+/// be read, since it may have set the key.
+pub(crate) async fn read_claude_setting<Setting>(
+    sources: &ClaudeSettingsSources<'_>,
+    key_path: &[&str],
+    select: impl Fn(&Value) -> Option<Setting>,
+) -> Result<Option<(ClaudeSettingsSource, Setting)>, SettleFailures<ClaudeSettingsReadError>> {
+    if let Some(managed_settings_folder) = sources.managed_settings_folder {
+        let managed = read_claude_managed_setting(managed_settings_folder, key_path, &select).await;
+        settle_all(
+            managed
+                .failures
+                .into_iter()
+                .map(Err)
+                .collect::<Vec<Result<(), _>>>(),
+            "reading Claude Code's managed settings",
+        )?;
+        if let Some(setting) = managed.deciding {
+            return Ok(Some((ClaudeSettingsSource::Managed, setting.value)));
+        }
+    }
+    let working_folder = sources.project_folder.working_folder;
+    let local_settings = resolve_claude_local_settings_file(
+        sources.project_folder,
+        sources.home_folder,
+        sources.path_rules,
+    )
+    .path;
+    let working_local_settings = local_settings_path(working_folder);
+    let mut files = vec![(ClaudeSettingsSource::Project, local_settings.clone())];
+    // Claude Code reads the folder's own local file too where it keeps the project's elsewhere.
+    if working_local_settings != local_settings {
+        files.push((ClaudeSettingsSource::Project, working_local_settings));
+    }
+    files.push((
+        ClaudeSettingsSource::Project,
+        settings_path(working_folder, CLAUDE_SHARED_SETTINGS_FILE),
+    ));
+    files.push((
+        ClaudeSettingsSource::Person,
+        sources.account_settings_file.to_path_buf(),
+    ));
+    for (source, file) in files {
+        let settings = read_claude_settings_file(&file).await.map_err(|failure| {
+            SettleFailures::One(ClaudeSettingsReadError {
+                path: file.clone(),
+                failure,
+            })
+        })?;
+        let value = settings
+            .as_ref()
+            .and_then(|settings| find_claude_setting(settings, key_path))
+            .and_then(&select);
+        if let Some(value) = value {
+            return Ok(Some((source, value)));
+        }
     }
     Ok(None)
 }
@@ -225,5 +325,102 @@ fn cst_input_value(value: &Value) -> CstInputValue {
                 .map(|(name, member)| (name.clone(), cst_input_value(member)))
                 .collect(),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::Path;
+
+    use rstest::rstest;
+    use serde_json::Value;
+    use sidekicks_platforms::PathRules;
+
+    use super::{ClaudeSettingsSource, ClaudeSettingsSources, read_claude_setting};
+    use crate::driver::claude::session::rules::ClaudeProjectFolder;
+
+    // Writes `contents` to `file`, making its folder, where the case names one.
+    fn write_settings(file: &Path, contents: Option<&str>) {
+        let Some(contents) = contents else {
+            return;
+        };
+        fs::create_dir_all(file.parent().expect("a settings file sits in a folder"))
+            .expect("the settings folder is made");
+        fs::write(file, contents).expect("the settings file is written");
+    }
+
+    // Killed by an account-first walk, by a dropped managed tier or one read after the files, by
+    // the account read before the shared file or the shared file tagged as the person's, which
+    // would start a cloned project's `bypassPermissions` at YOLO, or by a reader that answers a
+    // default where no file sets the key.
+    #[rstest]
+    #[case::local_over_account(
+        None,
+        Some(r#"{"autoMemoryEnabled": true}"#),
+        None,
+        Some(r#"{"autoMemoryEnabled": false}"#),
+        Some((ClaudeSettingsSource::Project, true)),
+    )]
+    #[case::managed_over_local(
+        Some(r#"{"autoMemoryEnabled": false}"#),
+        Some(r#"{"autoMemoryEnabled": true}"#),
+        None,
+        None,
+        Some((ClaudeSettingsSource::Managed, false)),
+    )]
+    #[case::shared_over_account(
+        None,
+        None,
+        Some(r#"{"autoMemoryEnabled": false}"#),
+        Some(r#"{"autoMemoryEnabled": true}"#),
+        Some((ClaudeSettingsSource::Project, false)),
+    )]
+    #[case::nothing_set(None, None, None, None, None)]
+    #[tokio::test]
+    async fn the_first_settings_file_that_sets_a_key_decides_it(
+        #[case] managed: Option<&str>,
+        #[case] local: Option<&str>,
+        #[case] shared: Option<&str>,
+        #[case] account: Option<&str>,
+        #[case] expected: Option<(ClaudeSettingsSource, bool)>,
+    ) {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let managed_folder = scratch.path().join("managed");
+        let working_folder = scratch.path().join("work");
+        let home_folder = scratch.path().join("home");
+        let account_settings_file = scratch.path().join("account").join("settings.json");
+        fs::create_dir_all(&managed_folder).expect("the managed folder is made");
+        fs::create_dir_all(&working_folder).expect("the working folder is made");
+        write_settings(&managed_folder.join("managed-settings.json"), managed);
+        write_settings(
+            &working_folder.join(".claude").join("settings.local.json"),
+            local,
+        );
+        write_settings(
+            &working_folder.join(".claude").join("settings.json"),
+            shared,
+        );
+        write_settings(&account_settings_file, account);
+        let project_folder = ClaudeProjectFolder {
+            working_folder: &working_folder,
+            repository: None,
+        };
+
+        let setting = read_claude_setting(
+            &ClaudeSettingsSources {
+                managed_settings_folder: Some(&managed_folder),
+                project_folder: &project_folder,
+                home_folder: &home_folder,
+                account_settings_file: &account_settings_file,
+                path_rules: PathRules::NATIVE,
+            },
+            &["autoMemoryEnabled"],
+            Value::as_bool,
+        )
+        .await
+        .expect("every settings file reads");
+
+        assert_eq!(setting, expected);
     }
 }
