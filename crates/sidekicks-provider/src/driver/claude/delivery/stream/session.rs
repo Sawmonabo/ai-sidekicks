@@ -21,6 +21,7 @@ use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::arrivals::{ClaudeArrivalSender, ClaudeTurnAtRead};
 use crate::driver::claude::session::permission_mode::ClaudePermissionModeRecord;
+use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::diagnostics::OnceReportedDiagnostics;
 
 /// Claude Code's error word for a request refused for its login.
@@ -39,8 +40,9 @@ pub(crate) enum ClaudeFirstRequest {
 /// an await, and its queue.
 pub(crate) struct ClaudeSessionStream {
     pub(super) session_id: SessionId,
-    // The account the process runs on, moved where it acknowledged a switch among its frames.
-    provider_account_id: Mutex<ProviderAccountId>,
+    // The account the process runs on, shared with its readers and moved where it acknowledged a
+    // switch among its frames.
+    account: ClaudeProcessAccount,
     pub(super) step_bound: Option<SafeInt<1>>,
     readings: Mutex<ClaudeStreamSession>,
     arrivals: ClaudeArrivalSender,
@@ -73,7 +75,7 @@ impl ClaudeSessionStream {
         Self {
             session_id: arrivals.session_id(),
             readings: Mutex::new(ClaudeStreamSession::new()),
-            provider_account_id: Mutex::new(provider_account_id),
+            account: ClaudeProcessAccount::new(Some(provider_account_id)),
             step_bound,
             arrivals,
             routes,
@@ -128,13 +130,21 @@ impl ClaudeSessionStream {
     /// The account the process runs on now: the one it started on, or the one a switch it
     /// acknowledged moved it onto.
     pub(crate) fn provider_account_id(&self) -> ProviderAccountId {
-        lock(&self.provider_account_id).clone()
+        self.account
+            .read()
+            .expect("a session's stream is made on an account and only ever moved onto another")
     }
 
-    // Moves the stream onto `provider_account_id`'s account, where the process acknowledged the
-    // switch, so every frame read after it is that account's.
+    /// The account the process runs on, which its launch hands its readers so each diagnostic
+    /// names the account the stream is on.
+    pub(crate) fn account(&self) -> ClaudeProcessAccount {
+        self.account.clone()
+    }
+
+    // Moves the stream and the process's readers onto `provider_account_id`'s account, where the
+    // process acknowledged the switch, so every frame read after it is that account's.
     pub(super) fn move_account(&self, provider_account_id: ProviderAccountId) {
-        *lock(&self.provider_account_id) = provider_account_id;
+        self.account.move_to(provider_account_id);
     }
 
     /// Answers `watch` how the process's next request goes; a watch held before is dropped, which

@@ -224,12 +224,12 @@ async fn run_naming_turn(
         .run_one_turn(ClaudeOneTurnRequest {
             spawn: ClaudeSessionSpawn {
                 legs,
-                provider_account_id,
                 session_rules: &[],
                 step_bound: None,
                 in_process_servers: None,
                 path_rules: PathRules::NATIVE,
             },
+            provider_account_id,
             resume_handle: None,
             permission_mode: None,
             text,

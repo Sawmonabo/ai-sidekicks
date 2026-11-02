@@ -20,6 +20,7 @@ use crate::driver::claude::mcp::machine_probe::{
 };
 use crate::driver::claude::session::answered_commands::ClaudeAttachedAdvisor;
 use crate::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
+use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{ClaudeProcessListener, ClaudeStreamFrame};
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
@@ -53,6 +54,8 @@ pub(crate) struct ScriptedStartRecord {
     pub(crate) conversation: ClaudeConversationStart,
     /// Where its frames, requests and exit go.
     pub(crate) listener: Arc<dyn ClaudeProcessListener>,
+    /// The account its readers would name, as the launch hands it to them.
+    pub(crate) account: ClaudeProcessAccount,
     /// The advisor it starts with.
     pub(crate) advisor: ClaudeSessionAdvisor,
     /// The step bound it starts with.
@@ -246,6 +249,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 tables.started.push(ScriptedStartRecord {
                     conversation: request.conversation,
                     listener: request.listener,
+                    account: request.account,
                     advisor: request.spawn.legs.advisor.clone(),
                     step_bound: request.spawn.step_bound,
                     permission_mode: request.permission_mode,

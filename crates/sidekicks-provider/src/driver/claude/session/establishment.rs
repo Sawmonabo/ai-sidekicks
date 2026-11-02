@@ -616,7 +616,6 @@ impl ClaudeSessionEstablishment {
             .start_session(ClaudeBringUpRequest {
                 spawn: ClaudeSessionSpawn {
                     legs: &legs,
-                    provider_account_id: provider_account_id.clone(),
                     session_rules: &session_rules,
                     step_bound: step_bound
                         .map(|bound| u32::try_from(bound.get()).unwrap_or(u32::MAX)),
@@ -624,6 +623,7 @@ impl ClaudeSessionEstablishment {
                     path_rules: PathRules::NATIVE,
                 },
                 provider_session_id: provider_session_id.clone(),
+                account: stream.account(),
                 conversation,
                 listener,
                 turn_holds: Some(crate::driver::claude::session::process::ClaudeTurnHolds {

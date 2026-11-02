@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use serde_json::value::RawValue;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_platforms::PathRules;
 use sidekicks_policy::ask_rule::ProviderAskRule;
@@ -21,6 +20,7 @@ use crate::driver::claude::session::answered_commands::{
 };
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::permission_level::claude_permission_mode_for;
+use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{
     ClaudeCodeProcess, ClaudeProcessLaunch, ClaudeProcessListener, ClaudeTurnHolds,
 };
@@ -50,8 +50,6 @@ use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 pub(crate) struct ClaudeSessionSpawn<'a> {
     /// The legs the process starts with.
     pub(crate) legs: &'a ClaudeSpawnBoundLegs,
-    /// The account the process runs on.
-    pub(crate) provider_account_id: ProviderAccountId,
     /// The session's own standing rules, carried in its `--settings`.
     pub(crate) session_rules: &'a [ProviderAskRule],
     /// The session's step bound, `None` where it sets none.
@@ -68,6 +66,8 @@ pub(crate) struct ClaudeBringUpRequest<'a> {
     pub(crate) spawn: ClaudeSessionSpawn<'a>,
     /// The conversation the process runs, named in its diagnostics.
     pub(crate) provider_session_id: String,
+    /// The account the process runs on, a session's shared with its stream.
+    pub(crate) account: ClaudeProcessAccount,
     /// How the conversation starts.
     pub(crate) conversation: ClaudeConversationStart,
     /// Takes what the process writes.
@@ -167,7 +167,7 @@ pub(crate) async fn bring_up_claude_process(
                 environment: executable.environment.clone(),
                 working_folder: legs.working_directory.clone(),
                 provider_session_id: request.provider_session_id,
-                provider_account_id: Some(spawn.provider_account_id),
+                account: request.account,
                 token: None,
             },
             request.listener,
@@ -261,8 +261,8 @@ mod tests {
     use tokio::runtime::Handle;
 
     use super::{
-        ClaudeBringUpRequest, ClaudePermissionMode, ClaudeSessionSpawn, ClaudeSpawnBoundLegs,
-        bring_up_claude_process, claude_spawn_permission_mode,
+        ClaudeBringUpRequest, ClaudePermissionMode, ClaudeProcessAccount, ClaudeSessionSpawn,
+        ClaudeSpawnBoundLegs, bring_up_claude_process, claude_spawn_permission_mode,
     };
     use crate::background_work::BackgroundWorkForms;
     use crate::command::running_set::unbound_running_command_sets;
@@ -412,13 +412,13 @@ mod tests {
             ClaudeBringUpRequest {
                 spawn: ClaudeSessionSpawn {
                     legs: &legs,
-                    provider_account_id: test_provider_account_id(),
                     session_rules: &[],
                     step_bound: None,
                     in_process_servers: None,
                     path_rules: PathRules::NATIVE,
                 },
                 provider_session_id: "fork".to_owned(),
+                account: ClaudeProcessAccount::new(Some(test_provider_account_id())),
                 conversation: ClaudeConversationStart::Fork {
                     resume_handle: "predecessor".to_owned(),
                     forked_provider_session_id: "fork".to_owned(),

@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio_util::sync::CancellationToken;
@@ -18,6 +19,7 @@ use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::driver::claude::delivery::system::read_claude_refusal_without_fallback;
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::driver::claude::hooks::callbacks::answer_claude_request;
+use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{ClaudeCodeProcess, ClaudeStreamFrame};
 use crate::driver::claude::session::tool_server_calls::{
     ClaudeToolServerCallContext, ClaudeToolServerCalls,
@@ -52,6 +54,8 @@ const CLAUDE_ONE_TURN_ASK_DENIAL: &str =
 pub(crate) struct ClaudeOneTurnRequest<'a> {
     /// What the session's processes are spawned from.
     pub(crate) spawn: ClaudeSessionSpawn<'a>,
+    /// The account the turn runs on.
+    pub(crate) provider_account_id: ProviderAccountId,
     /// The conversation copied; `None` starts from an empty one.
     pub(crate) resume_handle: Option<String>,
     /// The mode the turn runs in in place of its level's own; `None` keeps the level's.
@@ -145,7 +149,7 @@ pub(crate) async fn run_claude_one_turn(
 ) -> Result<ClaudeOneTurnReply, ClaudeLaunchError> {
     let session_id = request.spawn.legs.session_id;
     let servers = request.spawn.in_process_servers.cloned();
-    let provider_account_id = request.spawn.provider_account_id.clone();
+    let provider_account_id = request.provider_account_id;
     let command_channel = request.spawn.legs.command_channel.clone();
     let apart_run = command_channel
         .as_deref()
@@ -157,6 +161,7 @@ pub(crate) async fn run_claude_one_turn(
         ClaudeBringUpRequest {
             spawn: request.spawn,
             provider_session_id: mint_uuid_v7().to_string(),
+            account: ClaudeProcessAccount::new(Some(provider_account_id.clone())),
             conversation: ClaudeConversationStart::Unkept {
                 resume_handle: request.resume_handle,
             },

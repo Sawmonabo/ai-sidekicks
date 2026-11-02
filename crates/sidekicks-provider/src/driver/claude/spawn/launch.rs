@@ -164,9 +164,9 @@ impl ClaudeProcessLauncher {
             return Err(ClaudeLaunchError::Stopping);
         }
         if launch.token.is_none()
-            && let Some(provider_account_id) = &launch.provider_account_id
+            && let Some(provider_account_id) = launch.account.read()
         {
-            launch.token = self.read_token_account_token(provider_account_id).await?;
+            launch.token = self.read_token_account_token(&provider_account_id).await?;
         }
         let process = Arc::new(
             ClaudeCodeProcess::start(

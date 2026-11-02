@@ -10,7 +10,6 @@ use std::sync::{Arc, Weak};
 
 use futures::StreamExt;
 use serde_json::Map;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::ChildEnd;
 use tokio::io::AsyncRead;
 use tokio::sync::watch;
@@ -24,6 +23,7 @@ use crate::driver::claude::session::control_requests::{
 use crate::driver::claude::session::frame_observation::{
     ClaudeStartupHookChange, ClaudeStreamFrameRead,
 };
+use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{
     ClaudeChildEnds, ClaudeProcessListener, ClaudeStreamFrame, ClaudeTurnHolds,
 };
@@ -39,29 +39,58 @@ pub(crate) const CLAUDE_OUTPUT_LINE_MAX_BYTES: usize = 32 * 1024 * 1024;
 
 /// What one process's output reader holds while it reads.
 pub(crate) struct ClaudeOutputReader {
-    /// The process's pending control requests, which its answers settle.
-    pub(crate) requests: ClaudeControlRequests,
-    /// Reads the process's control frames.
-    pub(crate) control_frames: ClaudeControlFrameReader,
-    /// Takes each frame and request in order.
-    pub(crate) listener: Arc<dyn ClaudeProcessListener>,
-    /// The session turn a lead `result` releases, for a session's process.
-    pub(crate) turn_holds: Option<ClaudeTurnHolds>,
-    /// How many start-up hooks are running, which `initialize`'s wait does not count.
-    pub(crate) startup_hooks: watch::Sender<usize>,
-    /// Asks the process to end when a line passes the ceiling or the output fails to read; gone
-    /// once the process's handle dropped, which kills it.
-    pub(crate) ends: Weak<ClaudeChildEnds>,
-    /// The lines that were no frame, reported once per process.
-    pub(crate) unmapped_lines: OnceReportedDiagnostics,
-    /// The provider session the process runs, named in each diagnostic.
-    pub(crate) provider_session_id: String,
-    /// The account whose home the process runs on, named in each diagnostic; `None` for a short
-    /// read that names no account.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    // The process's pending control requests, which its answers settle.
+    requests: ClaudeControlRequests,
+    // Reads the process's control frames.
+    control_frames: ClaudeControlFrameReader,
+    // Takes each frame and request in order.
+    listener: Arc<dyn ClaudeProcessListener>,
+    // The session turn a lead `result` releases, for a session's process.
+    turn_holds: Option<ClaudeTurnHolds>,
+    // How many start-up hooks are running, which `initialize`'s wait does not count.
+    startup_hooks: watch::Sender<usize>,
+    // Asks the process to end when a line passes the ceiling or the output fails to read; gone
+    // once the process's handle dropped, which kills it.
+    ends: Weak<ClaudeChildEnds>,
+    // The lines that were no frame, reported once per process.
+    unmapped_lines: OnceReportedDiagnostics,
+    // The provider session the process runs, named in each diagnostic.
+    provider_session_id: String,
+    // The account the process runs on, read at each diagnostic, so one after a switch names the
+    // account it moved onto.
+    account: ClaudeProcessAccount,
 }
 
 impl ClaudeOutputReader {
+    /// A reader settling `requests`, handing frames and requests to `listener`, releasing
+    /// `turn_holds`' turn at a turn-ending lead `result`, counting start-up hooks into
+    /// `startup_hooks` and asking `ends` to end the process on a failed read; its diagnostics, and
+    /// its control-frame reader's, name `provider_session_id` and `account` as it is at each one.
+    pub(crate) fn new(
+        requests: ClaudeControlRequests,
+        listener: Arc<dyn ClaudeProcessListener>,
+        turn_holds: Option<ClaudeTurnHolds>,
+        startup_hooks: watch::Sender<usize>,
+        ends: Weak<ClaudeChildEnds>,
+        provider_session_id: String,
+        account: ClaudeProcessAccount,
+    ) -> Self {
+        Self {
+            requests,
+            control_frames: ClaudeControlFrameReader::new(
+                account.clone(),
+                provider_session_id.clone(),
+            ),
+            listener,
+            turn_holds,
+            startup_hooks,
+            ends,
+            unmapped_lines: OnceReportedDiagnostics::default(),
+            provider_session_id,
+            account,
+        }
+    }
+
     /// Reads `output` to its end, or until a line passes the ceiling, which records the
     /// diagnostic, or the output fails to read, which logs it; either asks the process to stop.
     pub(crate) async fn read<Output: AsyncRead + Unpin>(mut self, output: Output) {
@@ -206,7 +235,7 @@ impl ClaudeOutputReader {
         }
         DriverDiagnosticRecord {
             provider: DESCRIPTOR.provider_id(),
-            provider_account_id: self.provider_account_id.clone(),
+            provider_account_id: self.account.read(),
             kind,
             raw_wire_type: None,
             disposition_reason: disposition_reason.to_owned(),
@@ -238,6 +267,7 @@ mod tests {
     use crate::driver::claude::session::control_requests::{
         ClaudeAccountMoveMarker, ClaudeControlRequests,
     };
+    use crate::driver::claude::session::process::account::ClaudeProcessAccount;
     use crate::driver::claude::session::process::{
         ClaudeChildEnds, ClaudeProcessEnd, ClaudeProcessListener, ClaudeStreamFrame,
     };
@@ -246,11 +276,9 @@ mod tests {
         SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
     };
     use crate::driver::claude::session::transport::control::ClaudeControlSubtype;
-    use crate::driver::claude::session::transport::inbound::{
-        ClaudeControlFrameReader, ClaudeInboundRequestEvent,
-    };
+    use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
     use crate::driver::claude::session::transport::user_message::ClaudeWriteAttempt;
-    use crate::driver::diagnostics::{OnceReportedDiagnostics, RecordedEvents};
+    use crate::driver::diagnostics::RecordedEvents;
     use crate::runtime_binding::store::RuntimeBindingRebind;
     use crate::runtime_binding::test_store::test_provider_account_id;
     use crate::runtime_binding::writer::RuntimeBindingWriter;
@@ -281,17 +309,15 @@ mod tests {
         listener: Arc<HeldFrames>,
         ends: Weak<ClaudeChildEnds>,
     ) -> ClaudeOutputReader {
-        ClaudeOutputReader {
+        ClaudeOutputReader::new(
             requests,
-            control_frames: ClaudeControlFrameReader::new(None, "conversation".to_owned()),
             listener,
-            turn_holds: None,
-            startup_hooks: watch::channel(0).0,
+            None,
+            watch::channel(0).0,
             ends,
-            unmapped_lines: OnceReportedDiagnostics::default(),
-            provider_session_id: "conversation".to_owned(),
-            provider_account_id: None,
-        }
+            "conversation".to_owned(),
+            ClaudeProcessAccount::default(),
+        )
     }
 
     // Killed by handing a control answer to the listener behind the frames instead of settling it

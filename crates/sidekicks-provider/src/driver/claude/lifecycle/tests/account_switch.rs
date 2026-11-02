@@ -4,7 +4,7 @@
 
 use std::path::Path;
 use std::pin::pin;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use futures::poll;
 
@@ -12,6 +12,8 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 use sidekicks_contracts::session::id::SessionId;
+use tokio::io::AsyncWriteExt as _;
+use tokio::sync::watch;
 
 use super::start_params;
 use crate::driver::ProviderAccountFolders;
@@ -19,6 +21,8 @@ use crate::driver::claude::account::credentials::{
     OAUTH_TOKEN_VARIABLE, SECURE_STORAGE_FOLDER_VARIABLE,
 };
 use crate::driver::claude::account::{ClaudeAccountLegs, test_account_legs};
+use crate::driver::claude::session::control_requests::ClaudeControlRequests;
+use crate::driver::claude::session::process::ClaudeOutputReader;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::driver::claude::session::scripted::starts::ScriptedStartRecord;
@@ -29,6 +33,7 @@ use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::contract::account::{
     FirstRequestAfterMove, ProviderSwitchLegs, SessionAccountMove, SessionToMove,
 };
+use crate::driver::diagnostics::{DriverDiagnosticKind, RecordedEvents};
 use crate::driver::test_registry::new_run_id;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
@@ -205,6 +210,48 @@ async fn a_store_switch_points_the_session_at_the_new_store_in_place(#[case] is_
         .map(|(account, _)| account)
         .collect();
     assert_eq!(reported, std::slice::from_ref(&switch.to));
+}
+
+// The session process's output reader, made from its launch's account before an in-place switch,
+// names the account the switch moved the process onto in a diagnostic it records after the switch
+// is acknowledged. Killed by the reader keeping a copy of the account it was made with, and by the
+// launch handed an account of its own rather than the stream's.
+#[tokio::test(start_paused = true)]
+async fn the_output_reader_names_the_account_the_switch_moved_onto() {
+    let switch = SwitchFixture::new(None).await;
+    let (mut provider, output) = tokio::io::duplex(4096);
+    let reading = tokio::spawn(
+        ClaudeOutputReader::new(
+            ClaudeControlRequests::new(Arc::new(|_request_id: &str| {})),
+            Arc::clone(&switch.start.listener),
+            None,
+            watch::channel(0).0,
+            Weak::new(),
+            SCRIPTED_PROVIDER_SESSION_ID.to_owned(),
+            switch.start.account.clone(),
+        )
+        .read(output),
+    );
+
+    drop(switch.switch().await);
+    settle().await;
+    let recorded = RecordedEvents::default();
+    let recording = recorded.record_until_dropped();
+    provider
+        .write_all(b"not a frame\n")
+        .await
+        .expect("the pipe takes the line");
+    drop(provider);
+    reading.await.expect("the reader ends with its output");
+    drop(recording);
+
+    assert_eq!(
+        recorded.field_on(
+            DriverDiagnosticKind::UnmappedWireKind.counter_name(),
+            "provider_account_id"
+        ),
+        [switch.to.as_str()]
+    );
 }
 
 // A token target never reaches the process in place: a busy session starts again only once its

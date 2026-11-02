@@ -17,6 +17,7 @@ use sidekicks_std::port_registration::PortRegistration;
 
 use super::ClaudeProcessLauncher;
 use crate::driver::child_records::UnrecordedChildren;
+use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{
     ClaudeProcessEnd, ClaudeProcessLaunch, ClaudeProcessListener, ClaudeStreamFrame,
 };
@@ -139,7 +140,7 @@ async fn run_stand_in(mode: ProviderAuthMode) -> (tempfile::TempDir, Arc<SealedT
                 ],
                 working_folder: PathBuf::from(folder.path()),
                 provider_session_id: "conversation".to_owned(),
-                provider_account_id: Some(test_provider_account_id()),
+                account: ClaudeProcessAccount::new(Some(test_provider_account_id())),
                 token: None,
             },
             Arc::new(NoSession),

@@ -557,12 +557,12 @@ impl ClaudeSessionControls {
             .run_one_turn(ClaudeOneTurnRequest {
                 spawn: ClaudeSessionSpawn {
                     legs,
-                    provider_account_id,
                     session_rules: &session_rules,
                     step_bound: None,
                     in_process_servers,
                     path_rules: PathRules::NATIVE,
                 },
+                provider_account_id,
                 resume_handle,
                 permission_mode,
                 text: OutboundText {

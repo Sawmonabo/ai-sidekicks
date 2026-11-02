@@ -17,6 +17,7 @@ use tokio::sync::{Mutex, mpsc};
 
 use crate::driver::claude::hooks::registration::compose_claude_initialize_request;
 use crate::driver::claude::session::errors::ClaudeSessionError;
+use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{
     ClaudeCodeProcess, ClaudeProcessEnd, ClaudeProcessLaunch, ClaudeProcessListener,
     ClaudeStreamFrame,
@@ -148,7 +149,7 @@ impl ClaudeShortProcess {
                     environment: executable.environment.clone(),
                     working_folder,
                     provider_session_id: mint_uuid_v7().to_string(),
-                    provider_account_id,
+                    account: ClaudeProcessAccount::new(provider_account_id),
                     token,
                 },
                 listener,
