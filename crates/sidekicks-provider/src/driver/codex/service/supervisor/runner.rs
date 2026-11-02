@@ -17,6 +17,7 @@ use sidekicks_contracts::run::control::{ProcessExit, ProcessExitAfterSilence};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::output_tail::OutputTail;
+use sidekicks_std::retry::jitter::draw_jitter_sample;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -444,19 +445,9 @@ impl ServiceRunner {
         let dialing = Arc::clone(service);
         let cancel = self.pending.child_token();
         tokio::spawn(async move {
-            let sample = match getrandom::u64() {
-                Ok(sample) => sample,
-                Err(error) => {
-                    tracing::warn!(
-                        error = &error as &(dyn std::error::Error + 'static),
-                        "the reconnect wait's jitter could not be drawn; it waits the middle"
-                    );
-                    u64::MAX / 2
-                }
-            };
             tokio::select! {
                 () = cancel.cancelled() => return,
-                () = tokio::time::sleep(reconnect_wait(attempt, sample)) => {}
+                () = tokio::time::sleep(reconnect_wait(attempt, draw_jitter_sample())) => {}
             }
             // The socket of the service's own process, which the home's link may no longer name.
             let socket = dialing

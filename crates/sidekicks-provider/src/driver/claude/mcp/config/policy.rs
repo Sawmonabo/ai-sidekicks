@@ -4,7 +4,7 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_ipc::redaction::scrub_credentials;
 
-use crate::driver::claude::session::ignored_settings::find_claude_setting;
+use crate::driver::claude::session::settings_file::find_claude_setting;
 use crate::driver::mcp_server::read::{McpServerPolicy, McpServerPolicyEntry};
 
 // The settings keys of the allow and deny lists, and the managed switch that keeps only the

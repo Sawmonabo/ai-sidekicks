@@ -100,14 +100,47 @@ pub async fn write_file_atomically_if_changed(
 pub fn write_and_flush(target: &Path, contents: &[u8], mode: u32) -> Result<(), AtomicWriteError> {
     // No sweep of leftovers runs in the folders these writes go to, the person's own among them.
     sidekicks_platforms::replace_file_atomically(target, contents, mode, LeftoverSweep::Unswept)
-        .map_err(|error| AtomicWriteError::Write {
-            path: target.to_path_buf(),
-            failure: CleanupFailures::new(
-                error.failure,
-                error.removal_failure.into_iter().collect(),
-                "writing the file",
-            ),
-        })?;
+        .map_err(|error| write_failure(target, error))?;
+    flush_folder_of(target)
+}
+
+/// Replaces the existing file `target` with `contents` as [`write_and_flush`] does, the new file
+/// keeping the old one's permissions, but only while `is_current`, asked just before the rename,
+/// answers `true`; on `false` nothing is written and the call answers `false`. Fails as
+/// [`write_and_flush`] does, and with `is_current`'s own error as a write failure.
+pub fn write_and_flush_while(
+    target: &Path,
+    contents: &[u8],
+    is_current: impl FnOnce() -> io::Result<bool>,
+) -> Result<bool, AtomicWriteError> {
+    let is_written = sidekicks_platforms::replace_file_atomically_while(
+        target,
+        contents,
+        LeftoverSweep::Unswept,
+        is_current,
+    )
+    .map_err(|error| write_failure(target, error))?;
+    if is_written {
+        flush_folder_of(target)?;
+    }
+    Ok(is_written)
+}
+
+// The platform write's failure, with any failure to remove its temporary file, as the write of
+// `target`.
+fn write_failure(target: &Path, error: sidekicks_platforms::AtomicWriteError) -> AtomicWriteError {
+    AtomicWriteError::Write {
+        path: target.to_path_buf(),
+        failure: CleanupFailures::new(
+            error.failure,
+            error.removal_failure.into_iter().collect(),
+            "writing the file",
+        ),
+    }
+}
+
+// Flushes the folder `target` was just renamed into, so a power loss cannot undo the rename.
+fn flush_folder_of(target: &Path) -> Result<(), AtomicWriteError> {
     let folder = target
         .parent()
         .expect("a path ending in a file name has the folder before it");

@@ -7,12 +7,6 @@ description = "The driver interface, the run ports, shared provider code and eve
 license.workspace = true
 publish.workspace = true
 
-[package.metadata.cargo-shear]
-ignored = [
-  # Editing the providers' and tool servers' TOML settings in place.
-  "toml_edit",
-]
-
 [lib]
 doctest = false
 

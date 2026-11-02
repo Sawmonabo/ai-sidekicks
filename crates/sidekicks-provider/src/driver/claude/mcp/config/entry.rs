@@ -11,7 +11,7 @@ use super::{
     ClaudePersonConfigFiles, InstalledPluginRoot, SERVERS_FILE, read_installed_plugin_roots,
     read_json_file,
 };
-use crate::driver::claude::session::ignored_settings::ClaudeSettingsReadError;
+use crate::driver::claude::session::settings_file::ClaudeSettingsReadError;
 
 // The built-in marketplace that installs plugins from npm packages.
 const NPM_MARKETPLACE: &str = "npm";
