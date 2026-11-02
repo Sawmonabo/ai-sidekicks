@@ -1,5 +1,5 @@
-//! A Codex helper's stop against the scripted service, on paused time: no binding is recorded, so
-//! nothing waits on the database's writer, and the stop's deadline passes without a real wait.
+//! A Codex helper's stop against the scripted service, on paused time, so the stop's deadline is
+//! passed by moving the clock rather than by a real wait.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -107,7 +107,12 @@ async fn a_helpers_stop_answers_from_its_newest_turn(
         assert_eq!(listed["method"], "thread/turns/list");
         assert_eq!(listed["params"]["threadId"], HELPER_THREAD);
         let (status, interrupt_refusal) = match service {
-            ServiceAnswer::Silent => return,
+            ServiceAnswer::Silent => {
+                // Moved past the deadline here rather than left to auto-advance, which a blocking
+                // task in flight would hold back.
+                tokio::time::advance(CODEX_DETACHED_INTERRUPT_DEADLINE).await;
+                return;
+            }
             ServiceAnswer::ListRefused(message) => {
                 script.send(&json!({
                     "jsonrpc": "2.0",
