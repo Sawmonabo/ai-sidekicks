@@ -7,10 +7,12 @@
 //!   no provider left, means no provider's flow admits the server; the launch decides what follows.
 //! - **The browser.** The driver names the address the browser opens, which the launch answers.
 //!   The flow goes on in a task the daemon's stop, a sign-out or a new launch for the server ends.
-//!   The browser comes back to a loopback receiver bound for this flow, whose return is handed to
-//!   the driver whole, and the browser is shown the flow's outcome; a driver that gave up the
-//!   return before naming its address (its provider's own listener takes it) gets no receiver,
-//!   and the listener closes.
+//!   For a driver whose descriptor says its flow can return through the relay, the browser comes
+//!   back to a loopback receiver bound for this flow, whose return is handed to the driver whole,
+//!   and the browser is shown the flow's outcome; a driver that gave up the return before naming
+//!   its address (its provider's own listener took it after all) gets no receiver, and the
+//!   listener closes. A driver whose descriptor says no is given no redirect address and a return
+//!   that is closed already, and no listener is bound for it.
 //! - **The completion.** A completed flow's credentials are kept as the server's sign-in, which
 //!   marks it signed in, unless the server was signed out since the flow began; the provider is
 //!   recorded as the client the server admits, and the completion event is appended; a failed one
@@ -107,7 +109,8 @@ impl SignInService {
     /// admitted first when it names one, each for its account in `provider_accounts`; answers the
     /// address the browser opens once a driver names one, or that no provider's flow admits the
     /// server. Refuses with `mcp.server.signInFailed`, carrying the cause, when the flow's
-    /// listener cannot be bound or the daemon is stopping.
+    /// listener cannot be bound for a driver whose flow returns through it, or the daemon is
+    /// stopping.
     pub(super) async fn run_provider_flow(
         self: &Arc<Self>,
         target: &SignInTarget,
@@ -120,10 +123,6 @@ impl SignInService {
                 binding: Box::new(target.binding.clone()),
                 source,
             };
-        let listener =
-            RedirectListener::bind(None, CallbackPath::PerServer(&server.canonical_address))
-                .await
-                .map_err(|error| failed(Box::new(error)))?;
         let since = self.custody.sign_out_generation(&server.address);
         let stop = self.revocations.token().child_token();
         let flow_id = self
@@ -146,18 +145,45 @@ impl SignInService {
             }
         });
 
+        // The relay's listener, bound for the first driver whose flow can return through it.
+        let mut listener: Option<RedirectListener> = None;
         for (provider, driver) in candidates {
             let Some(provider_account_id) = provider_accounts.get(&provider) else {
                 continue;
             };
+            let can_return_through_relay = self
+                .providers
+                .descriptor(&provider)
+                .expect("a provider the registry lists has its descriptor")
+                .can_mcp_sign_in_return_through_relay;
+            if can_return_through_relay && listener.is_none() {
+                match RedirectListener::bind(
+                    None,
+                    CallbackPath::PerServer(&server.canonical_address),
+                )
+                .await
+                {
+                    Ok(bound) => listener = Some(bound),
+                    Err(error) => {
+                        self.end_provider_flow(&server.canonical_address, Some(flow_id));
+                        return Err(failed(Box::new(error)));
+                    }
+                }
+            }
+            let redirect_url = listener
+                .as_ref()
+                .filter(|_bound| can_return_through_relay)
+                .map(|bound| bound.redirect_url().clone());
             let (authorization_url, opened) = oneshot::channel();
             let (browser_return, returned) = oneshot::channel();
+            // A driver given no redirect address gets a return that is closed already.
+            let browser_return = redirect_url.is_some().then_some(browser_return);
             let request = ProviderSignInTakeoverRequest {
                 provider_account_id: provider_account_id.clone(),
                 binding: target.binding.clone(),
                 root_folder: target.root_folder.clone(),
                 server_address: server.address.clone(),
-                redirect_url: listener.redirect_url().clone(),
+                redirect_url,
                 lifetime: ATTEMPT_LIFETIME,
                 browser: ProviderSignInBrowser {
                     authorization_url,
@@ -183,8 +209,10 @@ impl SignInService {
                     since,
                 };
                 // A driver whose provider's own listener takes the return gave it up already.
-                let listener = (!browser_return.is_closed()).then_some(listener);
-                self.follow_flow(running, flow, listener, &browser_url, browser_return);
+                let relay = browser_return
+                    .filter(|browser_return| !browser_return.is_closed())
+                    .zip(listener.take());
+                self.follow_flow(running, flow, relay, &browser_url);
                 return Ok(ProviderFlowStart::Opened(browser_url));
             }
             let failure: Box<dyn std::error::Error + Send + Sync> = match (&mut flow).await {
@@ -209,20 +237,20 @@ impl SignInService {
         Ok(ProviderFlowStart::NoneAdmits { failure: None })
     }
 
-    // Follows `flow` once its browser opened `browser_url`: serves the browser's return on
-    // `listener`, where the driver waits for one, matched by the `state` the address carries, and
-    // settles the flow when it ends, unless `running`'s stop ends it first.
+    // Follows `flow` once its browser opened `browser_url`: serves the browser's return on the
+    // `relay`'s listener, where the driver waits for one on its sender, matched by the `state` the
+    // address carries, and settles the flow when it ends, unless `running`'s stop ends it first.
     fn follow_flow(
         self: &Arc<Self>,
         running: RunningFlow,
         flow: AbortOnDropHandle<FlowEnd>,
-        listener: Option<RedirectListener>,
+        relay: Option<(oneshot::Sender<Url>, RedirectListener)>,
         browser_url: &Url,
-        browser_return: oneshot::Sender<Url>,
     ) {
+        let (browser_return, listener) = relay.unzip();
         let (outcome, outcome_watch) = watch::channel(None);
         let forward = Arc::new(BrowserReturnForward {
-            browser_return: Mutex::new(Some(browser_return)),
+            browser_return: Mutex::new(browser_return),
             outcome: outcome_watch,
             parked: Mutex::new(None),
         });
@@ -419,437 +447,4 @@ impl RedirectCallbackOwner for BrowserReturnForward {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::{Arc, Mutex};
-    use std::time::{Duration, SystemTime};
-
-    use futures::FutureExt as _;
-    use reqwest::header::{AUTHORIZATION, HeaderValue};
-    use reqwest::{Method, Url};
-    use rstest::rstest;
-    use secrecy::ExposeSecret;
-    use serde_json::Value;
-    use sidekicks_contracts::mcp::server::McpServerBindingRef;
-    use sidekicks_contracts::mcp::server::config::McpServerAddress;
-    use sidekicks_contracts::provider::id::ProviderId;
-    use sidekicks_provider::driver::contract::error::DriverError;
-    use sidekicks_provider::driver::contract::sign_in::{
-        BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInFailure, ProviderSignInTakeover,
-    };
-    use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
-    use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
-    use sidekicks_std::mutex_lock::lock;
-
-    use crate::client::http::McpRequestAuthorizer as _;
-    use crate::sign_in::canonical_server_address;
-    use crate::sign_in::completion_event::SignInFailureReason;
-    use crate::sign_in::service::{ProviderAccounts, SignInTarget};
-    use crate::sign_in::test_service::{
-        FakeAuthorizationServer, FakeServerAnswers, Harness, addressed_target, harness_with,
-        serve_authorization_server, server_name,
-    };
-
-    const PROVIDER_ACCESS_TOKEN: &str = "test-provider-access-token";
-    const PROVIDER_REFRESH_TOKEN: &str = "test-provider-refresh-token";
-    const PROVIDER_CLIENT_ID: &str = "test-provider-client";
-    const PROVIDER_CLIENT_SECRET: &str = "test-provider-client-secret";
-
-    /// What a scripted driver's flow does once asked.
-    #[derive(Clone)]
-    enum ScriptedFlow {
-        /// Fails at once: the provider has no entry of the person's for the binding.
-        NoFlow,
-        /// Opens the browser at its address, then completes with credentials the server at the
-        /// address issued.
-        Completes { issuer: String },
-        /// Opens the browser at its address, then fails: with that kind of sign-in failure, or
-        /// as the driver's own failure for `None`.
-        Fails {
-            failure: Option<ProviderSignInFailure>,
-        },
-    }
-
-    /// The browser address every scripted flow opens.
-    fn scripted_browser_url() -> Url {
-        Url::parse("https://login.example.com/authorize?state=test-state").expect("an address")
-    }
-
-    /// A driver answering every sign-in with `flow`, writing `label` into `calls` when asked.
-    fn scripted_driver(
-        flow: ScriptedFlow,
-        label: &'static str,
-        calls: &Arc<Mutex<Vec<&'static str>>>,
-    ) -> Arc<dyn ProviderDriver> {
-        let calls = Arc::clone(calls);
-        let mut driver = MockProviderDriver::new();
-        driver
-            .expect_sign_in_with_own_client()
-            .returning(move |request| {
-                lock(&calls).push(label);
-                let flow = flow.clone();
-                async move {
-                    let issuer = match flow {
-                        ScriptedFlow::NoFlow => {
-                            return Err(NoPersonServerEntry {
-                                binding: request.binding,
-                            }
-                            .into());
-                        }
-                        ScriptedFlow::Completes { issuer } => issuer,
-                        ScriptedFlow::Fails { failure } => {
-                            request
-                                .browser
-                                .authorization_url
-                                .send(scripted_browser_url())
-                                .expect("the launch waits for the address");
-                            return Err(failure.map_or_else(
-                                || DriverError::Internal("the scripted flow failed".into()),
-                                DriverError::SignInFailed,
-                            ));
-                        }
-                    };
-                    request
-                        .browser
-                        .authorization_url
-                        .send(scripted_browser_url())
-                        .expect("the launch waits for the address");
-                    Ok(ProviderSignInTakeover {
-                        access_token: PROVIDER_ACCESS_TOKEN.to_owned(),
-                        refresh_token: Some(PROVIDER_REFRESH_TOKEN.to_owned()),
-                        // Already past, so the first use renews it.
-                        expires_at: Some(SystemTime::now() - Duration::from_secs(60)),
-                        scopes: vec!["docs.read".to_owned()],
-                        token_type: BEARER_TOKEN_TYPE.to_owned(),
-                        client_id: PROVIDER_CLIENT_ID.to_owned(),
-                        client_secret: Some(PROVIDER_CLIENT_SECRET.to_owned()),
-                        issuer: Some(issuer),
-                    })
-                }
-                .boxed()
-            });
-        Arc::new(driver)
-    }
-
-    /// The providers the harness's registry holds, in its order.
-    fn registered_providers(harness: &Harness) -> Vec<ProviderId> {
-        harness
-            .service
-            .providers
-            .drivers()
-            .map(|(provider, _driver)| provider.clone())
-            .collect()
-    }
-
-    /// A user binding of `provider`'s to the fake server, with every registered provider's account.
-    fn provider_target(
-        harness: &Harness,
-        provider: &ProviderId,
-        server: &FakeAuthorizationServer,
-    ) -> (SignInTarget, ProviderAccounts) {
-        let target = SignInTarget {
-            binding: McpServerBindingRef::User {
-                provider: provider.clone(),
-                server_name: server_name(),
-            },
-            ..addressed_target(&server.base)
-        };
-        let accounts = registered_providers(harness)
-            .into_iter()
-            .map(|provider| (provider, test_provider_account_id()))
-            .collect();
-        (target, accounts)
-    }
-
-    /// The completion events once one is appended.
-    async fn settled_completions(harness: &Harness) -> Vec<Value> {
-        for _ in 0..500 {
-            let completions = harness.completions();
-            if !completions.is_empty() {
-                return completions;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-        panic!("no completion event was appended");
-    }
-
-    /// A server that refused the daemon's registration, whose provider flow then fails, has no
-    /// admitted client written, is not signed in and gets one failure event, whose reason is the
-    /// driver's kind of failure, and not finished in time for the driver's own failure. Killed by
-    /// writing the admitted row when the registration is refused or on a failed flow, and by every
-    /// failure read as one reason.
-    #[rstest]
-    #[case::callback_error(
-        Some(ProviderSignInFailure::CallbackCarriedError),
-        SignInFailureReason::CallbackCarriedError
-    )]
-    #[case::code_not_redeemed(
-        Some(ProviderSignInFailure::CodeNotRedeemed),
-        SignInFailureReason::CodeNotRedeemed
-    )]
-    #[case::not_saved(
-        Some(ProviderSignInFailure::SignInNotSaved),
-        SignInFailureReason::SignInNotSaved
-    )]
-    #[case::not_in_time(
-        Some(ProviderSignInFailure::DidNotFinishInTime),
-        SignInFailureReason::DidNotFinishInTime
-    )]
-    #[case::reply_unreadable(
-        Some(ProviderSignInFailure::ReplyUnreadable),
-        SignInFailureReason::ReplyUnreadable
-    )]
-    #[case::driver_failure(None, SignInFailureReason::DidNotFinishInTime)]
-    #[tokio::test]
-    async fn a_failed_provider_flow_appends_its_reason_and_writes_no_admitted_row(
-        #[case] failure: Option<ProviderSignInFailure>,
-        #[case] expected_reason: SignInFailureReason,
-    ) {
-        let server = serve_authorization_server(FakeServerAnswers {
-            is_registration_refused: true,
-            ..FakeServerAnswers::default()
-        })
-        .await;
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let harness = harness_with(vec![scripted_driver(
-            ScriptedFlow::Fails { failure },
-            "only",
-            &calls,
-        )])
-        .await;
-        let provider = registered_providers(&harness).remove(0);
-        let (target, accounts) = provider_target(&harness, &provider, &server);
-
-        let browser_url = harness
-            .service
-            .launch(&target, &[], &accounts)
-            .await
-            .expect("the provider's flow opens the browser");
-
-        assert_eq!(browser_url, scripted_browser_url());
-        let completions = settled_completions(&harness).await;
-        assert_eq!(completions.len(), 1);
-        assert_eq!(completions[0]["outcome"], "failure");
-        assert_eq!(completions[0]["failureReason"], expected_reason.as_str());
-        let address = McpServerAddress::new(&server.base).expect("a server address");
-        assert_eq!(
-            harness
-                .admitted_clients
-                .read(&address)
-                .await
-                .expect("the admitted client reads"),
-            None
-        );
-        assert!(
-            harness
-                .service
-                .custody
-                .signed_in_addresses()
-                .borrow()
-                .is_empty()
-        );
-    }
-
-    /// The binding's provider's flow is asked first, and the registry's other provider only once
-    /// it finds no entry of the person's for the binding. Killed by asking the providers in the
-    /// registry's order, the binding's provider being second there, and by a missing entry that
-    /// refuses the launch rather than handing on.
-    #[tokio::test]
-    async fn the_bindings_provider_is_tried_before_another() {
-        let server = serve_authorization_server(FakeServerAnswers {
-            is_registration_refused: true,
-            ..FakeServerAnswers::default()
-        })
-        .await;
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let harness = harness_with(vec![
-            scripted_driver(
-                ScriptedFlow::Completes {
-                    issuer: server.base.clone(),
-                },
-                "other",
-                &calls,
-            ),
-            scripted_driver(ScriptedFlow::NoFlow, "binding's", &calls),
-        ])
-        .await;
-        let binding_provider = registered_providers(&harness).remove(1);
-        let (target, accounts) = provider_target(&harness, &binding_provider, &server);
-
-        let browser_url = harness.service.launch(&target, &[], &accounts).await;
-
-        assert_eq!(
-            browser_url.expect("the other provider's flow opens the browser"),
-            scripted_browser_url()
-        );
-        assert_eq!(*lock(&calls), ["binding's", "other"]);
-    }
-
-    /// A completed flow keeps the credentials with the issuer they came from, marks the server
-    /// signed in, records the provider as the admitted client, clearing the mark the daemon's own
-    /// client left, and appends one success event. Killed by a save without the issuer, by no
-    /// mark, and by recording the provider without clearing the mark.
-    #[tokio::test]
-    async fn a_completed_flow_keeps_the_sign_in_with_its_issuer_and_marks_it_signed_in() {
-        let server = serve_authorization_server(FakeServerAnswers::default()).await;
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let harness = harness_with(vec![scripted_driver(
-            ScriptedFlow::Completes {
-                issuer: server.base.clone(),
-            },
-            "only",
-            &calls,
-        )])
-        .await;
-        let provider = registered_providers(&harness).remove(0);
-        let (target, accounts) = provider_target(&harness, &provider, &server);
-        let address = McpServerAddress::new(&server.base).expect("a server address");
-        // The daemon's own client did not finish here before, so the press goes to the provider.
-        harness
-            .admitted_clients
-            .mark_own_client_unfinished(&address)
-            .await
-            .expect("the mark is recorded");
-        let mut signed_in = harness.service.custody.signed_in_addresses();
-
-        harness
-            .service
-            .launch(&target, &[], &accounts)
-            .await
-            .expect("the provider's flow opens the browser");
-
-        let canonical_address = canonical_server_address(&address);
-        tokio::time::timeout(
-            Duration::from_secs(5),
-            signed_in.wait_for(|addresses| addresses.contains(&canonical_address)),
-        )
-        .await
-        .expect("the server is marked signed in")
-        .expect("the service is alive");
-        let held = harness
-            .service
-            .custody
-            .credential_store(&address)
-            .held()
-            .await
-            .expect("the keychain answers")
-            .expect("the sign-in is kept");
-        assert_eq!(
-            held.credentials.issuer.as_deref(),
-            Some(server.base.as_str())
-        );
-        assert_eq!(held.credentials.client_id, PROVIDER_CLIENT_ID);
-        assert_eq!(held.credentials.granted_scopes, ["docs.read"]);
-        let completions = settled_completions(&harness).await;
-        assert_eq!(completions.len(), 1);
-        assert_eq!(completions[0]["outcome"], "success");
-        assert_eq!(completions[0]["provider"], provider.as_str());
-        let admitted = harness
-            .admitted_clients
-            .read(&address)
-            .await
-            .expect("the admitted client reads")
-            .expect("the provider is recorded");
-        assert_eq!(admitted.provider, Some(provider));
-        assert!(!admitted.is_own_client_unfinished);
-    }
-
-    /// A kept provider sign-in whose token ran out, its issuer written with a slash the server's
-    /// metadata leaves off, renews through the daemon's own store with its refresh token and its
-    /// client's secret, keeps that secret for the next renewal, and leaves the person's own saved
-    /// sign-ins byte for byte as they were. Killed by a renewal that reads or writes the person's
-    /// folder, by a kept sign-in that drops the refresh token or the secret, by a renewal save
-    /// that drops the secret, and by an issuer compared as exact text, which forgets the sign-in.
-    #[tokio::test]
-    async fn a_kept_provider_sign_in_renews_through_the_daemons_store_alone() {
-        let person_home = tempfile::tempdir().expect("a person's home folder");
-        let planted: Vec<(std::path::PathBuf, &[u8])> = vec![
-            (
-                person_home.path().join(".claude").join(".credentials.json"),
-                br#"{"mcpOAuth":{"docs":{"accessToken":"test-person-token"}}}"#,
-            ),
-            (
-                person_home.path().join(".codex").join(".credentials.json"),
-                br#"{"docs":{"access_token":"test-person-token"}}"#,
-            ),
-        ];
-        for (path, bytes) in &planted {
-            std::fs::create_dir_all(path.parent().expect("a folder")).expect("the folder is made");
-            std::fs::write(path, bytes).expect("the person's file is planted");
-        }
-        let server = serve_authorization_server(FakeServerAnswers::default()).await;
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let harness = harness_with(vec![scripted_driver(
-            ScriptedFlow::Completes {
-                issuer: format!("{}/", server.base),
-            },
-            "only",
-            &calls,
-        )])
-        .await;
-        let provider = registered_providers(&harness).remove(0);
-        let (target, accounts) = provider_target(&harness, &provider, &server);
-        let address = McpServerAddress::new(&server.base).expect("a server address");
-        harness
-            .admitted_clients
-            .mark_own_client_unfinished(&address)
-            .await
-            .expect("the mark is recorded");
-        harness
-            .service
-            .launch(&target, &[], &accounts)
-            .await
-            .expect("the provider's flow opens the browser");
-        settled_completions(&harness).await;
-
-        let authorizer = harness.authorizer(&server.base).await;
-        let headers = authorizer
-            .authorize(&Method::POST, &server.base, None)
-            .await
-            .expect("the token renews");
-
-        assert!(headers.contains(&(
-            AUTHORIZATION,
-            HeaderValue::from_static("Bearer test-access-token")
-        )));
-        let forms = lock(&server.token_forms).clone();
-        let renewal = forms.last().expect("a token request was sent");
-        for field in [
-            ("grant_type", "refresh_token"),
-            ("refresh_token", PROVIDER_REFRESH_TOKEN),
-            ("client_id", PROVIDER_CLIENT_ID),
-            ("client_secret", PROVIDER_CLIENT_SECRET),
-        ] {
-            assert!(
-                renewal.contains(&(field.0.to_owned(), field.1.to_owned())),
-                "{}",
-                field.0
-            );
-        }
-        let held = harness
-            .service
-            .custody
-            .credential_store(&address)
-            .held()
-            .await
-            .expect("the keychain answers")
-            .expect("the sign-in is kept");
-        let held_tokens =
-            serde_json::to_value(&held.credentials).expect("credentials write as JSON");
-        assert_eq!(
-            held_tokens["token_response"]["access_token"],
-            "test-access-token"
-        );
-        assert_eq!(
-            held.client_secret.as_ref().map(ExposeSecret::expose_secret),
-            Some(PROVIDER_CLIENT_SECRET)
-        );
-        for (path, bytes) in &planted {
-            assert_eq!(
-                std::fs::read(path).expect("the person's file reads"),
-                *bytes,
-                "{}",
-                path.display()
-            );
-        }
-    }
-}
+mod tests;

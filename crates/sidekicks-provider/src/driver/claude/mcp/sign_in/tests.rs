@@ -121,7 +121,7 @@ fn request(
         binding,
         root_folder: None,
         server_address: address(),
-        redirect_url: Url::parse(REDIRECT_URL).expect("an address"),
+        redirect_url: Some(Url::parse(REDIRECT_URL).expect("an address")),
         lifetime: Duration::from_secs(30),
         browser: ProviderSignInBrowser {
             authorization_url,

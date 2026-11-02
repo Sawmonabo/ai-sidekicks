@@ -207,6 +207,8 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     mcp_config_members: &[],
     skill_name_max_length: None,
     callback_tools_asked: true,
+    // Its sign-in takes the relay's address when the authorization server accepts it.
+    can_mcp_sign_in_return_through_relay: true,
     background_work: Some(BackgroundWork {
         // Background sessions and their supervisor, a restart of them, and every form that serves
         // or runs a session from elsewhere: Remote Control, a self-hosted runner, the gateway.

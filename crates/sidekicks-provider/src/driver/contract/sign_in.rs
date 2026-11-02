@@ -28,9 +28,9 @@ pub struct ProviderSignInTakeoverRequest {
     pub root_folder: Option<PathBuf>,
     /// The server's canonical address, the one its sign-in is kept under.
     pub server_address: McpServerAddress,
-    /// The redirect address the daemon's relay serves, sent to a provider whose flow takes one; a
-    /// provider whose own listener takes the browser's return ignores it.
-    pub redirect_url: Url,
+    /// The redirect address the daemon's relay serves, given to a driver whose descriptor says its
+    /// flow can return through the relay, and `None` to one whose own listener takes the return.
+    pub redirect_url: Option<Url>,
     /// How long the flow waits for the person in the browser before it ends unfinished.
     pub lifetime: Duration,
     /// The browser's two legs, which the caller carries.
@@ -45,7 +45,9 @@ pub struct ProviderSignInBrowser {
     /// Takes the authorization address the person's browser opens, sent once.
     pub authorization_url: oneshot::Sender<Url>,
     /// The whole address the browser came back on at the redirect address. It never comes where
-    /// the provider's own listener took the return, and the driver then does not wait for it.
+    /// the provider's own listener takes the return: closed already for a driver given no redirect
+    /// address, and dropped by a driver whose provider's listener takes it, which then does not
+    /// wait for it.
     pub browser_return: oneshot::Receiver<Url>,
 }
 

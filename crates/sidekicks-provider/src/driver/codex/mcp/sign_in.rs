@@ -400,7 +400,7 @@ async fn run_login(
             .ok_or(CodexSignInError::LoginReplyUnreadable)?;
         let authorization_url = Url::parse(&reply.authorization_url)
             .map_err(|_unparsed| CodexSignInError::LoginReplyUnreadable)?;
-        // Codex's own listener takes the browser's return, so none comes to the daemon's relay.
+        // Codex's own listener takes the browser's return; its request's is closed already.
         drop(browser.browser_return);
         browser
             .authorization_url
@@ -544,7 +544,6 @@ mod tests {
     };
     use tokio::sync::oneshot;
     use tokio_tungstenite::tungstenite::Message;
-    use url::Url;
 
     use super::{
         CODEX_CREDENTIALS_FILE, OAUTH_LOGIN_COMPLETED_METHOD, OAUTH_LOGIN_METHOD,
@@ -754,7 +753,9 @@ mod tests {
             Arc::new(OneHome(person_home.clone())),
         );
         let (authorization_url, opened) = oneshot::channel();
-        let (_returned, browser_return) = oneshot::channel();
+        // Codex's own listener takes the return, so its request carries a closed one.
+        let (returned, browser_return) = oneshot::channel();
+        drop(returned);
         let request = ProviderSignInTakeoverRequest {
             provider_account_id: test_provider_account_id(),
             binding: McpServerBindingRef::User {
@@ -763,7 +764,7 @@ mod tests {
             },
             root_folder: None,
             server_address: address(),
-            redirect_url: Url::parse("http://127.0.0.1:1/callback").expect("an address"),
+            redirect_url: None,
             lifetime: Duration::from_secs(30),
             browser: ProviderSignInBrowser {
                 authorization_url,

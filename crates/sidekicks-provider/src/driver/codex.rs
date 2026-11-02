@@ -239,6 +239,8 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     skill_name_max_length: Some(64),
     background_work: None,
     callback_tools_asked: false,
+    // Its login runs its own loopback listener for the browser's return.
+    can_mcp_sign_in_return_through_relay: false,
     // Codex's log folder; the rows its service logs into the home's database the driver's own
     // expiry deletes.
     account_home_diagnostic_folders: &[&["log"]],

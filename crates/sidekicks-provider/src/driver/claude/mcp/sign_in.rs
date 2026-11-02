@@ -277,7 +277,10 @@ pub(crate) async fn sign_in_with_claude_client(
                     folder: folder.path(),
                 },
                 &name,
-                &request.redirect_url,
+                request
+                    .redirect_url
+                    .as_ref()
+                    .expect("a driver whose flow returns through the relay is given its address"),
                 request.lifetime,
                 request.browser,
             ) => exchanged,
@@ -523,16 +526,23 @@ async fn run_sign_in(
     };
     let authorization_url = Url::parse(&authorization_url)
         .map_err(|error| ClaudeSignInError::ReplyUnreadable(Box::new(error)))?;
+    let is_own_listener = reply.redirect_scheme.as_deref() != Some(CUSTOM_REDIRECT_SCHEME);
+    let browser_return = if is_own_listener {
+        // Claude Code's own loopback listener takes the browser's return, so it is given up before
+        // the address goes out and the caller's listener closes as soon as the start settles.
+        drop(browser.browser_return);
+        None
+    } else {
+        Some(browser.browser_return)
+    };
     browser
         .authorization_url
         .send(authorization_url)
         .map_err(|_unsent| ClaudeSignInError::CallerGone)?;
-    if reply.redirect_scheme.as_deref() != Some(CUSTOM_REDIRECT_SCHEME) {
-        // Claude Code's own loopback listener takes the browser's return.
-        drop(browser.browser_return);
+    let Some(browser_return) = browser_return else {
         return Ok(wait_for_saved_sign_in(places, name, lifetime).await?);
-    }
-    let returned = tokio::time::timeout(lifetime, browser.browser_return)
+    };
+    let returned = tokio::time::timeout(lifetime, browser_return)
         .await
         .map_err(|_elapsed| ClaudeSignInError::Unfinished)?
         .map_err(|_dropped| ClaudeSignInError::CallerGone)?;

@@ -383,6 +383,7 @@ mod tests {
         skill_name_max_length: None,
         background_work: None,
         callback_tools_asked: false,
+        can_mcp_sign_in_return_through_relay: false,
         account_home_diagnostic_folders: &[],
         account_home_conversation_folders: &[],
         shell_prefix_command: None,
