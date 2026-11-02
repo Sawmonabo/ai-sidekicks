@@ -1,6 +1,8 @@
 //! The driver methods a client calls: each installed provider's models and modes, the compaction
-//! of one run's context, and the commands an agent's providers publish. Every call is refused by
-//! the session first, then the run or agent it names, then the binding, and only then by a driver.
+//! of one run's context, the commands an agent's providers publish, and the provider sessions
+//! typed in a terminal. A call that names a session is refused by the session first, then the run
+//! or agent it names, then the binding, and only then by a driver; the terminal sessions' list
+//! names none and is refused by none but a driver.
 
 use std::sync::Arc;
 
@@ -9,6 +11,7 @@ use futures::future::{join_all, try_join_all};
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::provider::driver::commands::{
     ProviderCommandBinding, ProviderCommandListResponse,
 };
@@ -20,6 +23,9 @@ use sidekicks_contracts::provider::driver::methods::{
     ProviderModelsListed, ProviderModesFailed, ProviderModesListed, ProviderReadFailure,
 };
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::session::controls::methods::{
+    ProviderTerminalSessionList, ProviderTerminalSessionListResponse,
+};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -87,8 +93,9 @@ impl From<DriverMethodReadError> for HandlerError {
     }
 }
 
-/// Registers `provider.model.list`, `provider.mode.list`, `agent.run.context.compact` and
-/// `provider.command.list` over `sources`. Fails the start when one is already registered.
+/// Registers `provider.model.list`, `provider.mode.list`, `agent.run.context.compact`,
+/// `provider.command.list` and `provider.terminalSession.list` over `sources`. Fails the start
+/// when one is already registered.
 pub(crate) fn register_driver_methods(
     registry: &mut MethodRegistryBuilder,
     sources: &Arc<DriverMethodSources>,
@@ -112,6 +119,30 @@ pub(crate) fn register_driver_methods(
     registry.register::<ProviderCommandList, _>(move |request, _context: HandlerContext| {
         let sources = Arc::clone(&command_sources);
         async move { list_provider_commands(&sources, request).await }.boxed()
+    })?;
+    let terminal_sources = Arc::clone(sources);
+    registry.register::<ProviderTerminalSessionList, _>(
+        move |_: EmptyPayload, _context: HandlerContext| {
+            let sources = Arc::clone(&terminal_sources);
+            async move { list_terminal_sessions(&sources).await }.boxed()
+        },
+    )
+}
+
+// Every driver's sessions typed in a terminal, in the table's order; one driver's failed read
+// fails the call, so a service that is on never reads as holding none.
+async fn list_terminal_sessions(
+    sources: &DriverMethodSources,
+) -> Result<ProviderTerminalSessionListResponse, HandlerError> {
+    let lists = try_join_all(
+        sources
+            .providers
+            .drivers()
+            .map(|(_, driver)| driver.list_terminal_sessions()),
+    )
+    .await?;
+    Ok(ProviderTerminalSessionListResponse {
+        sessions: lists.into_iter().flatten().collect(),
     })
 }
 

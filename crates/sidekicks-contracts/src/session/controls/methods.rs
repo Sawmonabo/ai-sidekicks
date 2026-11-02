@@ -643,7 +643,7 @@ methods! {
             mutating: false,
             params: EmptyPayload,
             result: ProviderTerminalSessionListResponse,
-            refusals: [],
+            refusals: [ProviderUnavailable, ProviderTimeout],
         },
     ];
 }
