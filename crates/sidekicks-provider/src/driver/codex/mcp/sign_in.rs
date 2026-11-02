@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::io::{self, ErrorKind};
+use std::io;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
@@ -19,6 +19,7 @@ use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
+use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_store::data_folder::plugin_home;
 use tokio::sync::mpsc;
 use url::Url;
@@ -439,12 +440,12 @@ async fn read_saved_sign_in(
     name: &McpServerName,
     address: &McpServerAddress,
 ) -> Result<ProviderSignInTakeover, DriverError> {
-    let text = match tokio::fs::read_to_string(folder.join(CODEX_CREDENTIALS_FILE)).await {
-        Ok(text) => text,
-        Err(error) if error.kind() == ErrorKind::NotFound => {
-            return Err(CodexSignInError::NoSavedSignIn.into());
-        }
-        Err(error) => return Err(unreadable(error).into()),
+    let Some(text) = tokio::fs::read_to_string(folder.join(CODEX_CREDENTIALS_FILE))
+        .await
+        .none_if_missing()
+        .map_err(unreadable)?
+    else {
+        return Err(CodexSignInError::NoSavedSignIn.into());
     };
     Ok(read_codex_saved_sign_in(&text, name, address)?)
 }

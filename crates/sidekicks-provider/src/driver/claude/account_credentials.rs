@@ -19,6 +19,7 @@ use serde::Deserialize;
 use sha2::Digest;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_platforms::{CredentialStore, CredentialStoreError, PathRules, login_keychain};
+use sidekicks_std::missing_entry::MissingEntry as _;
 use unicode_normalization::UnicodeNormalization;
 use zeroize::Zeroizing;
 
@@ -247,14 +248,15 @@ pub(crate) async fn read_claude_credential_file(
     let Some(folder) = claude_credential_folder(environment) else {
         return Ok(None);
     };
-    match tokio::fs::read(folder.join(CLAUDE_CREDENTIALS_FILE))
+    let Some(bytes) = tokio::fs::read(folder.join(CLAUDE_CREDENTIALS_FILE))
         .await
         .map(Zeroizing::new)
-    {
-        Ok(bytes) => parse_stored_credentials(&bytes).map(Some),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(ClaudeCredentialReadError::File(error)),
-    }
+        .none_if_missing()
+        .map_err(ClaudeCredentialReadError::File)?
+    else {
+        return Ok(None);
+    };
+    parse_stored_credentials(&bytes).map(Some)
 }
 
 /// Claude Code's stored credentials as the one parse reads them: the claude.ai record and every

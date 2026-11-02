@@ -26,6 +26,7 @@ use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_ipc::redaction::sanitize_failure_reason;
+use sidekicks_std::missing_entry::MissingEntry as _;
 use tokio::sync::{mpsc, watch};
 use tokio::time::{Interval, MissedTickBehavior};
 use url::Url;
@@ -326,10 +327,12 @@ pub(crate) async fn remove_left_claude_sign_ins(
 // Every folder a stopped daemon left under `parent`; none where `parent` is absent.
 async fn list_left_folders(parent: &Path) -> Result<Vec<PathBuf>, DriverError> {
     let internal = |error: std::io::Error| DriverError::Internal(Box::new(error));
-    let mut entries = match tokio::fs::read_dir(parent).await {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(internal(error)),
+    let Some(mut entries) = tokio::fs::read_dir(parent)
+        .await
+        .none_if_missing()
+        .map_err(internal)?
+    else {
+        return Ok(Vec::new());
     };
     let mut folders = Vec::new();
     while let Some(entry) = entries.next_entry().await.map_err(internal)? {
