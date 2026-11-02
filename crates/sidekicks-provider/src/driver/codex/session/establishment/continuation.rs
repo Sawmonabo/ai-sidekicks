@@ -56,7 +56,7 @@ impl CodexSessionEstablishment {
     /// turns are ended in the log as the daemon's restart interrupted them, and one turn started
     /// with Codex's own continuation words is held as the run's next turn: the run answers
     /// `StillRunning`, or `Gone` where Codex refused the turn. On a service the daemon only joined,
-    /// the turn Codex continued it in is adopted instead, as [`Self::adopt_continued_turns`] says.
+    /// the turn Codex continued it in is adopted instead, as `adopt_continued_turns` says.
     /// A run whose cut turn's end could not be written is not taken, and answers as Codex's
     /// listing has it.
     pub(super) async fn continue_cut_runs(
@@ -115,15 +115,15 @@ impl CodexSessionEstablishment {
         continued
     }
 
-    /// Adopts, on a service the daemon only joined, the turn Codex continued each lead's cut turns
-    /// in before the daemon came back, since Codex sends a client that joins later no start of
-    /// it: a lead with no parent, running or waiting on the person, whose continuation the resume's
-    /// page shows. A continuation still running ends the cut turns in the log, is held as the
-    /// run's turn on `binding` and opened after their end, and answers `StillRunning`; one already
-    /// over, on a lead with no stop pending, is held unopened, so its listed end, routed as the
-    /// session opens, opens it and ends the run, and answers `EndedByProvider`. A stopping lead's
-    /// ended continuation, a run whose cut turn's end could not be written, and a lead with no
-    /// continuation are not taken.
+    // Adopts, on a service the daemon only joined, the turn Codex continued each lead's cut turns
+    // in before the daemon came back, since Codex sends a client that joins later no start of
+    // it: a lead with no parent, running or waiting on the person, whose continuation the resume's
+    // page shows. A continuation still running ends the cut turns in the log, is held as the
+    // run's turn on `binding` and opened after their end, and answers `StillRunning`; one already
+    // over, on a lead with no stop pending, is held unopened, so its listed end, routed as the
+    // session opens, opens it and ends the run, and answers `EndedByProvider`. A stopping lead's
+    // ended continuation, a run whose cut turn's end could not be written, and a lead with no
+    // continuation are not taken.
     async fn adopt_continued_turns(
         &self,
         record: &mut CodexSessionRecord,
