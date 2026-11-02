@@ -1,3 +1,4 @@
+mod place_move;
 mod seal_pass;
 mod sealed;
 

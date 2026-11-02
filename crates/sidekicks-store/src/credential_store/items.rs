@@ -41,6 +41,7 @@
 //! it and is never overwritten by it.
 
 mod erase;
+mod place_move;
 mod sealed_file;
 mod state;
 mod status;
