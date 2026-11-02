@@ -23,7 +23,6 @@ use std::sync::{Arc, LazyLock};
 
 use rusqlite::ErrorCode;
 use rusqlite::types::{Type, Value};
-use serde_json::Value as JsonValue;
 use sidekicks_contracts::name_fold::fold_name;
 use sidekicks_contracts::provider::account::record::{
     BillingMode, CredentialGeneration, DisplayLabel, PROVIDER_ACCOUNT_DISPLAY_LABEL_MAX_LEN,
@@ -785,15 +784,19 @@ fn switch_binding(name: &'static str, switch: Option<bool>) -> (Cow<'static, str
     )
 }
 
-/// The generation stored in the column at `index`, read through its wire form, which refuses one
-/// below 1 or past 2^53 − 1.
-pub(crate) fn credential_generation(
-    index: usize,
-    stored: i64,
-) -> rusqlite::Result<CredentialGeneration> {
-    serde_json::from_value(JsonValue::from(stored)).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(index, Type::Integer, Box::new(error))
-    })
+/// The generation `stored` in the column at `index`; one below 1 or past 2^53 − 1 is refused as
+/// a damaged row.
+pub fn credential_generation(index: usize, stored: i64) -> rusqlite::Result<CredentialGeneration> {
+    u64::try_from(stored)
+        .ok()
+        .and_then(CredentialGeneration::new)
+        .ok_or_else(|| {
+            rusqlite::Error::FromSqlConversionFailure(
+                index,
+                Type::Integer,
+                Box::new(StoredValueRefused("credential generation")),
+            )
+        })
 }
 
 /// A stored value its type refuses: a damaged row, never a caller's input.

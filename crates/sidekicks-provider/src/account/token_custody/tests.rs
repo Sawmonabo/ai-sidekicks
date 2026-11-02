@@ -461,10 +461,7 @@ async fn a_resupply_replaces_the_sealed_token_and_never_touches_the_home() {
         fixture.keychain.held(),
         BTreeMap::from([(account_id.as_str().to_owned(), "second".to_owned())])
     );
-    assert_eq!(
-        serde_json::to_value(replaced.credential_generation).expect("the generation writes"),
-        serde_json::json!(2)
-    );
+    assert_eq!(replaced.credential_generation.get(), 2);
     assert_eq!(snapshot(minted.home().path()), home_before);
 }
 

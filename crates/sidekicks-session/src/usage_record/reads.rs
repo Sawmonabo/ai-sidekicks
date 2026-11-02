@@ -5,7 +5,6 @@
 use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension as _, named_params};
-use serde_json::Value;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::usage::UsageContainment;
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
@@ -17,6 +16,7 @@ use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::{EpochPosition, TURN_STARTED_EVENT_TYPE};
+use sidekicks_provider::account::registry::credential_generation;
 use sidekicks_provider::port::usage_sink::MeteredUsageOwner;
 use sidekicks_provider::runtime_binding::store::read_binding;
 use sidekicks_provider::usage_delta_accountant::UsageAxisCounts;
@@ -222,7 +222,7 @@ pub(super) fn read_credential_generation(
     reader
         .prepare_cached(SELECT_CREDENTIAL_GENERATION_SQL)?
         .query_row([provider_account_id.as_str()], |row| {
-            credential_generation_column(row, 0)
+            credential_generation(0, row.get(0)?)
         })
         .optional()?
         .ok_or(UsageRecordError::AccountNotRegistered {
@@ -259,26 +259,11 @@ pub(super) fn read_stored_windows(
                 window_mins: row.get(1)?,
                 used_percent: row.get(2)?,
                 resets_at: row.get(3)?,
-                credential_generation: credential_generation_column(row, 4)?,
+                credential_generation: credential_generation(4, row.get(4)?)?,
             })
         })?
         .collect::<Result<_, _>>()?;
     Ok(windows)
-}
-
-// The generation stored in the column at `index`, read through its wire form.
-fn credential_generation_column(
-    row: &rusqlite::Row<'_>,
-    index: usize,
-) -> rusqlite::Result<CredentialGeneration> {
-    let generation = safe_int_column::<1>(row, index)?;
-    serde_json::from_value(Value::from(generation.get())).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(
-            index,
-            rusqlite::types::Type::Integer,
-            Box::new(error),
-        )
-    })
 }
 
 /// `run_id`'s tally as its log stands, read at its first report: the token limit admitted with it

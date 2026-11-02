@@ -287,10 +287,7 @@ async fn a_removal_shreds_what_the_account_kept_and_leaves_its_home() {
         .read(fixture.account_id().clone())
         .await
         .expect("the account reads");
-    assert_eq!(
-        serde_json::to_value(reset.credential_generation).expect("the generation writes"),
-        serde_json::json!(2)
-    );
+    assert_eq!(reset.credential_generation.get(), 2);
     assert_eq!(
         reset.health.map(|health| health.state),
         Some(ProviderAccountHealthState::ReauthRequired)

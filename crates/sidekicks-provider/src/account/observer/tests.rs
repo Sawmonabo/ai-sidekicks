@@ -36,7 +36,7 @@ use crate::driver::contract::account::{
 use crate::driver::schema::schema_parts;
 
 fn generation(value: u64) -> CredentialGeneration {
-    serde_json::from_value(value.into()).expect("a test generation")
+    CredentialGeneration::new(value).expect("a test generation")
 }
 
 // What the account's stored health is after the reads.

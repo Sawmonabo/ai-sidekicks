@@ -9,7 +9,8 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::event::usage::UsageRateLimitUpdatedPayload;
 use sidekicks_contracts::provider::account::methods::ProviderAccountList;
 use sidekicks_contracts::provider::account::record::{
-    ProviderAccountId, ProviderAccountListRequest, ProviderAccountNotification,
+    CredentialGeneration, ProviderAccountId, ProviderAccountListRequest,
+    ProviderAccountNotification,
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
@@ -145,7 +146,7 @@ fn session_reading(window_mins: i64) -> UsageRateLimitUpdatedPayload {
     UsageRateLimitUpdatedPayload {
         provider: ProviderId::new("codex".to_owned()).expect("a provider id"),
         provider_account_id: ProviderAccountId::new(ACCOUNT_ID.to_owned()).expect("an account id"),
-        credential_generation: serde_json::from_value(1.into()).expect("a generation"),
+        credential_generation: CredentialGeneration::new(1).expect("a generation"),
         limit_id: Some(BoundedText::new("session".to_owned()).expect("a limit id")),
         window_mins: SafeSignedInt::new(window_mins).expect("a window length"),
         used_percent: Number::new(40.0).expect("a share"),
