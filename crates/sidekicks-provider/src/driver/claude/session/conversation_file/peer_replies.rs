@@ -3,8 +3,9 @@
 //! transcript holds the message's record, and at the receiver's idle notice the answer of the turn
 //! the message started, nothing more for one that joined a turn under way, or not delivered where
 //! no record of it came. One watch per transcript follows its appends while a message is awaited
-//! in it, or waits for it to appear in its project folder, and for that folder to appear in the
-//! config folder's `projects` folder; where none runs, the transcript is read once at the notice.
+//! in it, or waits for it to appear in its project folder, for that folder to appear in the config
+//! folder's `projects` folder, and for that to appear in the config folder; where none runs, the
+//! transcript is read once at the notice.
 
 mod fold;
 mod project_key;
@@ -71,7 +72,7 @@ pub(crate) struct ClaudePeerReplyWait {
 }
 
 // Where a watch starts: the transcript, or the project folder it is yet to appear in, inside the
-// `projects` folder the project folder may be yet to appear in.
+// config folder's `projects` folder, either of which may be yet to appear too.
 enum TranscriptSource {
     File(PathBuf),
     Folder {
@@ -364,8 +365,8 @@ async fn drain_watch(drains: Option<mpsc::Sender<oneshot::Sender<()>>>) -> bool 
     drains.send(drained).await.is_ok() && answer.await.is_ok()
 }
 
-// Follows one transcript while a message is awaited in it. A missing `projects` folder and a
-// platform with no watch end it quietly, any other failure is logged; its messages are then read
+// Follows one transcript while a message is awaited in it. A missing config folder and a platform
+// with no watch end it quietly, any other failure is logged; its messages are then read
 // once at their notices.
 async fn watch_transcript(
     replies: Weak<ClaudePeerReplies>,
@@ -403,7 +404,12 @@ async fn follow_transcript(
             projects,
             folder,
             file,
-        } => match await_transcript(&projects, &folder, &file, drain_requests).await? {
+        } => match await_transcript(
+            [&key.config_folder, &projects, &folder, &file],
+            drain_requests,
+        )
+        .await?
+        {
             Arrival::Arrived { drained } => (file, drained),
             Arrival::Unawaited => return Ok(()),
         },
@@ -441,24 +447,26 @@ async fn follow_transcript(
     }
 }
 
-// Waits for the transcript `file` to appear in its project folder `folder`, first for that folder
-// to appear in `projects` where it is not there yet. Fails as a folder cannot be watched or listed.
+// Waits for the transcript to appear, `path` naming the config folder, its `projects` folder, the
+// project folder and the transcript, each inside the one before: each missing entry is awaited in
+// its parent, the outermost first. Fails as a folder cannot be watched or listed.
 async fn await_transcript(
-    projects: &Path,
-    folder: &Path,
-    file: &Path,
+    path: [&Path; 4],
     drain_requests: &mut mpsc::Receiver<oneshot::Sender<()>>,
 ) -> io::Result<Arrival> {
     let mut drained = None;
-    if !tokio::fs::try_exists(folder).await? {
-        match await_arrival(projects, folder, None, drain_requests).await? {
+    for [watched, wanted] in path.array_windows() {
+        if tokio::fs::try_exists(wanted).await? {
+            continue;
+        }
+        match await_arrival(watched, wanted, drained.take(), drain_requests).await? {
             Arrival::Arrived {
-                drained: folder_drained,
-            } => drained = folder_drained,
+                drained: arrival_drained,
+            } => drained = arrival_drained,
             Arrival::Unawaited => return Ok(Arrival::Unawaited),
         }
     }
-    await_arrival(folder, file, drained, drain_requests).await
+    Ok(Arrival::Arrived { drained })
 }
 
 // Waits for `wanted` to appear in the folder `watched`, `drained` handed on where it is already
