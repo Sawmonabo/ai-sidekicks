@@ -32,6 +32,7 @@ use sidekicks_contracts::provider::account::record::{
 };
 use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderAccountRegisterResponse, ProviderAccountSignInResponse,
+    ProviderSignInCancelStatus,
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
@@ -365,7 +366,7 @@ impl ProviderSignInInput for EndlessSignIn {
         unreachable!("no code is pasted")
     }
 
-    fn cancel(&self) -> BoxFuture<'_, Result<(), DriverError>> {
+    fn cancel(&self) -> BoxFuture<'_, Result<ProviderSignInCancelStatus, DriverError>> {
         unreachable!("no sign-in is canceled")
     }
 }

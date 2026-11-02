@@ -404,7 +404,7 @@ pub struct ProviderAccountSignInAttemptCancelRequest {
 pub enum ProviderSignInCancelStatus {
     /// The provider's sign-in was ended.
     Canceled,
-    /// No such attempt was open.
+    /// No such attempt was open, or it had already ended.
     NotFound,
 }
 

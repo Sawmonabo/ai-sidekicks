@@ -15,7 +15,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, PROVIDER_SIGN_IN_USER_CODE_MAX_LEN,
-    PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN,
+    PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN, ProviderSignInCancelStatus,
 };
 use sidekicks_contracts::web_address::HttpsAddress;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -374,7 +374,7 @@ async fn close(connection: &CodexAppServerConnection) {
 }
 
 // A cancel of a running login, answered on its own channel.
-struct CancelInput(oneshot::Sender<Result<(), CodexError>>);
+struct CancelInput(oneshot::Sender<Result<ProviderSignInCancelStatus, CodexError>>);
 
 // A started login, run to its end on its own task.
 struct Login {
@@ -428,7 +428,14 @@ impl Login {
                         let sent = send_cancel(&self.connection, &self.id).await;
                         // A login Codex no longer ran has ended; its completion settles it.
                         let is_canceled = matches!(sent, Ok(true));
-                        if answer.send(sent.map(|_is_running| ())).is_err() {
+                        let status = sent.map(|is_running| {
+                            if is_running {
+                                ProviderSignInCancelStatus::Canceled
+                            } else {
+                                ProviderSignInCancelStatus::NotFound
+                            }
+                        });
+                        if answer.send(status).is_err() {
                             tracing::debug!("a Codex sign-in's cancel stopped waiting");
                         }
                         if is_canceled {
@@ -485,17 +492,16 @@ impl ProviderSignInInput for CodexSignInInput {
         async { Err(CodexAccountSignInError::TakesNoCode.into()) }.boxed()
     }
 
-    fn cancel(&self) -> BoxFuture<'_, Result<(), DriverError>> {
+    fn cancel(&self) -> BoxFuture<'_, Result<ProviderSignInCancelStatus, DriverError>> {
         async move {
             let (answer, answered) = oneshot::channel();
             self.inputs
                 .send(CancelInput(answer))
                 .await
                 .map_err(|_unsent| CodexAccountSignInError::Ended)?;
-            answered
+            Ok(answered
                 .await
-                .map_err(|_unanswered| CodexAccountSignInError::Ended)??;
-            Ok(())
+                .map_err(|_unanswered| CodexAccountSignInError::Ended)??)
         }
         .boxed()
     }

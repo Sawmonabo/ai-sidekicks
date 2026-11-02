@@ -15,7 +15,9 @@ use futures::future::BoxFuture;
 use memchr::memmem;
 use process_wrap::tokio::ChildWrapper;
 use sidekicks_contracts::provider::account::record::ProviderAuthMode;
-use sidekicks_contracts::provider::account::sign_in::PROVIDER_SIGN_IN_CODE_MAX_LEN;
+use sidekicks_contracts::provider::account::sign_in::{
+    PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderSignInCancelStatus,
+};
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{ChildEnd, wrap_child_command};
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader, Take};
@@ -588,12 +590,12 @@ impl ProviderSignInInput for ClaudeSignInInput {
         .boxed()
     }
 
-    fn cancel(&self) -> BoxFuture<'_, Result<(), DriverError>> {
+    fn cancel(&self) -> BoxFuture<'_, Result<ProviderSignInCancelStatus, DriverError>> {
         async move {
             self.send(FlowInput::Cancel)
                 .await?
                 .map_err(ClaudeSignInError::Unstopped)?;
-            Ok(())
+            Ok(ProviderSignInCancelStatus::Canceled)
         }
         .boxed()
     }

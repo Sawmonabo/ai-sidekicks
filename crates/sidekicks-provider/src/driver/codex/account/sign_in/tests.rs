@@ -7,6 +7,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::{
     ProviderAccountHealthState, ProviderAuthMode,
 };
+use sidekicks_contracts::provider::account::sign_in::ProviderSignInCancelStatus;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::writer::test_file::TestDatabase;
@@ -188,13 +189,23 @@ async fn only_a_sign_in_at_this_machine_holds_the_machine_s_one_callback_port() 
 }
 
 // Killed by a cancel that sends nothing to Codex, which would hold its sign-in until it timed out,
-// and by a cancel of a login Codex had already ended read as canceled (its completion is the end).
+// and by a cancel of a login Codex had already ended read or answered as canceled (its completion
+// is the end, and the cancel answers `notFound`).
 #[rstest]
-#[case::running("canceled", ProviderSignInEnd::Canceled)]
-#[case::already_ended("notFound", ProviderSignInEnd::Finished)]
+#[case::running(
+    "canceled",
+    ProviderSignInCancelStatus::Canceled,
+    ProviderSignInEnd::Canceled
+)]
+#[case::already_ended(
+    "notFound",
+    ProviderSignInCancelStatus::NotFound,
+    ProviderSignInEnd::Finished
+)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_cancel_sends_codex_s_own_cancel_for_this_login(
     #[case] status: &'static str,
+    #[case] answered: ProviderSignInCancelStatus,
     #[case] expected: ProviderSignInEnd,
 ) {
     let scripted = start_scripted_codex_service();
@@ -225,11 +236,12 @@ async fn a_cancel_sends_codex_s_own_cancel_for_this_login(
         )
         .await
         .expect("the sign-in starts");
-    handle.input.cancel().await.expect("the cancel is sent");
+    let canceled = handle.input.cancel().await.expect("the cancel is sent");
     let end = tokio::time::timeout(WAIT, handle.completion)
         .await
         .expect("the login ends");
 
+    assert_eq!(canceled, answered);
     assert_eq!(end, expected);
     let cancel = tokio::time::timeout(WAIT, served)
         .await

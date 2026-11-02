@@ -18,7 +18,7 @@ use sidekicks_contracts::provider::account::record::{
 };
 use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, PROVIDER_SIGN_IN_USER_CODE_MAX_LEN,
-    PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN,
+    PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN, ProviderSignInCancelStatus,
 };
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
@@ -179,9 +179,10 @@ pub trait ProviderSignInInput: Send + Sync {
     ) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// Ends this flow through the provider's own cancel, freeing its sign-in slot; the flow's
-    /// completion then answers canceled. Fails with the driver's error where the cancel could not
-    /// be sent.
-    fn cancel(&self) -> BoxFuture<'_, Result<(), DriverError>>;
+    /// completion then answers canceled. Answers `NotFound` for a flow that had already ended on
+    /// its own, whose completion says how. Fails with the driver's error where the cancel could
+    /// not be sent.
+    fn cancel(&self) -> BoxFuture<'_, Result<ProviderSignInCancelStatus, DriverError>>;
 }
 
 /// How the provider's own sign-in flow ended, before any observation of the account.

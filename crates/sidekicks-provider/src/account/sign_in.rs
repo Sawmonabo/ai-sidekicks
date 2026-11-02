@@ -321,8 +321,8 @@ impl ProviderSignInBroker {
 
     /// Cancels attempt `attempt_id` through its provider's own cancel; its end then settles as
     /// canceled. An attempt whose flow is still starting is canceled as soon as it has started.
-    /// An ended attempt or an unknown one answers `notFound`, no refusal. Fails with the driver's
-    /// error where the cancel could not be sent.
+    /// An ended attempt, an unknown one, or one whose flow had already ended on its own answers
+    /// `notFound`, no refusal. Fails with the driver's error where the cancel could not be sent.
     pub async fn cancel(
         &self,
         attempt_id: &AttemptId,
@@ -344,8 +344,7 @@ impl ProviderSignInBroker {
                 }
             }
         };
-        input.cancel().await?;
-        Ok(ProviderSignInCancelStatus::Canceled)
+        Ok(input.cancel().await?)
     }
 
     fn legs_of(

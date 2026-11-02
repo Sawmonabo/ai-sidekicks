@@ -99,13 +99,17 @@ impl ProviderSignInInput for ScriptedInput {
         async { Ok(()) }.boxed()
     }
 
-    fn cancel(&self) -> BoxFuture<'_, Result<(), DriverError>> {
-        if let Some(sender) = lock(&self.end).take() {
-            sender
-                .send(ProviderSignInEnd::Canceled)
-                .expect("the broker awaits the flow's end");
-        }
-        async { Ok(()) }.boxed()
+    fn cancel(&self) -> BoxFuture<'_, Result<ProviderSignInCancelStatus, DriverError>> {
+        let status = match lock(&self.end).take() {
+            Some(sender) => {
+                sender
+                    .send(ProviderSignInEnd::Canceled)
+                    .expect("the broker awaits the flow's end");
+                ProviderSignInCancelStatus::Canceled
+            }
+            None => ProviderSignInCancelStatus::NotFound,
+        };
+        async move { Ok(status) }.boxed()
     }
 }
 
