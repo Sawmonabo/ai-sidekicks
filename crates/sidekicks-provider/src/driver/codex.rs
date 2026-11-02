@@ -224,7 +224,10 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     launch_environment_names: &["CODEX_APP_SERVER_BIN", "CODEX_DAEMON_SHUTDOWN_SOCKET"],
     // The account's own `CODEX_HOME`.
     credential_home_environment_names: &["CODEX_HOME"],
-    withheld_environment_names: &[],
+    withheld_environment_names: &[
+        // Sends the service's sign-in to another issuer than the one its login names.
+        "CODEX_APP_SERVER_LOGIN_ISSUER",
+    ],
     screen_reader_environment_names: &[],
     voice_kinds: &[VoiceKind::Call],
     // It reaches no server over server-sent events.
