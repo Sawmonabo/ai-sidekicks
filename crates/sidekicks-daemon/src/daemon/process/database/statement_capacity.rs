@@ -47,6 +47,7 @@ use sidekicks_session::search::files::service::FILE_SEARCH_STATEMENT_CAPACITY;
 use sidekicks_session::search::index::outbox::OUTBOX_STATEMENT_CAPACITY;
 use sidekicks_session::service::SESSION_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::tags::SESSION_TAG_SERVICE_STATEMENT_CAPACITY;
+use sidekicks_session::transcript::turn_attribution::RUN_STANDING_STATEMENT_CAPACITY;
 use sidekicks_session::usage_record::USAGE_RECORD_STATEMENT_CAPACITY;
 use sidekicks_session::working_folder::SESSION_WORKING_FOLDERS_STATEMENT_CAPACITY;
 use sidekicks_store::events::log_service::EVENT_LOG_STATEMENT_CAPACITY;
@@ -173,4 +174,7 @@ pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + WORKTREE_STATUS_READER_STATEMENT_CAPACITY
     // The reviewer denials', the run engine's and the live run folders' sets each hold the run
     // agent reader's, which is counted once.
-    - 2 * RUN_AGENT_STATEMENT_CAPACITY;
+    - 2 * RUN_AGENT_STATEMENT_CAPACITY
+    // The session service's, the run engine's, the binding cursors' and the turn capture's sets
+    // each hold the read of where a run stands, which is counted once.
+    - 3 * RUN_STANDING_STATEMENT_CAPACITY;

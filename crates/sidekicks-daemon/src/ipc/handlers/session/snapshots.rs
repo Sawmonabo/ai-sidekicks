@@ -23,6 +23,7 @@ use sidekicks_ipc::registry::{
 };
 use sidekicks_session::auto_title::first_words_of;
 use sidekicks_session::checkpoints::store::list_checkpoints;
+use sidekicks_session::run::superseded::SupersededTurnsReadError;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -57,6 +58,9 @@ enum SnapshotListError {
     // SQLite refused a read, or a stored column did not read as its type.
     #[error("the snapshot list's read failed")]
     Read(#[from] rusqlite::Error),
+    // The checkpoints, or the rollbacks that leave some of them out, did not read.
+    #[error("the snapshot list could not read the session's checkpoints")]
+    Checkpoints(#[from] SupersededTurnsReadError),
     // The log refused the read of the checkpoints' prompts.
     #[error("the snapshot list could not read the checkpoints' prompts")]
     Log(#[from] SessionLogReadError),
@@ -77,6 +81,7 @@ impl From<SnapshotListError> for HandlerError {
             SnapshotListError::Refused(refusal) => Self::Refused(refusal),
             fault @ (SnapshotListError::Pool(_)
             | SnapshotListError::Read(_)
+            | SnapshotListError::Checkpoints(_)
             | SnapshotListError::Log(_)
             | SnapshotListError::Event(_)
             | SnapshotListError::NotAPrompt { .. }) => Self::Internal(Box::new(fault)),
@@ -99,8 +104,8 @@ pub(crate) fn register_session_snapshots(
     )
 }
 
-// The session's snapshots in one read: none for a chat, else one per checkpoint whose prompt the
-// log reads, oldest prompt first. A prompt the log does not read, one at or past a damaged
+// The session's snapshots in one read: none for a chat, else one per checkpoint no later rollback
+// took back whose prompt the log reads, oldest prompt first. A prompt the log does not read, one at or past a damaged
 // session's read bound or in a range it skipped, leaves its checkpoint out.
 async fn list_snapshots(
     sources: &SessionSnapshotSources,
@@ -138,7 +143,7 @@ fn read_snapshots(
         }
         SessionShape::Project => {}
     }
-    let checkpoints = list_checkpoints(&snapshot, session_id)?;
+    let checkpoints = list_checkpoints(&snapshot, read_damaged_from_sequence, session_id)?;
     let sequences: Vec<i64> = checkpoints
         .iter()
         .map(|stored| i64::from(stored.checkpoint.message_sequence))

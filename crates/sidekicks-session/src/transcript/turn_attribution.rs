@@ -77,6 +77,9 @@ struct RunFold {
     opened_tool_calls: HashMap<String, EpochPosition>,
 }
 
+/// The statements a read of where a run stands prepares: its rollbacks and its turn starts.
+pub const RUN_STANDING_STATEMENT_CAPACITY: usize = 2;
+
 // Each read seeks the run's rows of one type through the event log's run-and-type index, bounded
 // strictly before the event being seeded, and reads only rows the log can read.
 static SELECT_ROLLBACKS_BEFORE_SQL: LazyLock<String> = LazyLock::new(|| {
