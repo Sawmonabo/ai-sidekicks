@@ -1,15 +1,16 @@
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use sidekicks_provider::port::question::QuestionPort as _;
 use tokio::time::{Duration, Instant, timeout};
 
 use super::read_task;
 use crate::client::tasks::{
-    ElicitationAnswer, McpTaskContact, McpTaskGeneration, McpToolCallEnd, compose_question,
+    ElicitationAnswer, McpTaskCancelOutcome, McpTaskContact, McpTaskGeneration, McpToolCallEnd,
+    compose_question,
 };
 use crate::client::test_server::{
-    CountingSink, Reply, Responder, board_accepted, board_answer, board_form, contact,
-    method_not_found, open_test_server, test_client, text_result, track_call, track_task_handle,
-    v1_initialize_result,
+    CountingSink, Reply, Responder, board_accepted, board_answer, board_form,
+    call_tool_as_dispatched, contact, method_not_found, open_test_server, test_client, text_result,
+    track_call, track_task_handle, v1_initialize_result,
 };
 
 /// A 2025-11-25 server whose `track` tool runs only as a task `task-1`, answering `tasks/get`
@@ -94,7 +95,7 @@ async fn a_2025_11_25_task_keeps_its_handle_and_interval_and_asks_its_question_o
     let sink = CountingSink::new(&server);
     let contact = contact();
     let (end, question) = tokio::join!(
-        connection.call_tool(call, &sink, &contact),
+        call_tool_as_dispatched(&connection, call, &sink, &contact),
         card.answer_open(board_answer()),
     );
 
@@ -151,7 +152,7 @@ async fn a_task_whose_server_stops_answering_reads_contact_lost_at_300_s_and_bac
     let contact = contact();
     let mut seen = contact.subscribe();
     let started = Instant::now();
-    let call = connection.call_tool(track_call(), &sink, &contact);
+    let call = call_tool_as_dispatched(&connection, track_call(), &sink, &contact);
     tokio::pin!(call);
 
     // Bounded so a mutant that never reads lost fails here, not at the runner's kill.
@@ -228,7 +229,7 @@ async fn a_task_whose_question_waits_31_minutes_keeps_one_held_result_and_its_co
     let sink = CountingSink::new(&server);
     let contact = contact();
     let mut seen = contact.subscribe();
-    let call = connection.call_tool(track_call(), &sink, &contact);
+    let call = call_tool_as_dispatched(&connection, track_call(), &sink, &contact);
     tokio::pin!(call);
 
     tokio::select! {
@@ -284,7 +285,7 @@ async fn a_result_held_past_the_answer_while_the_task_works_on_is_never_canceled
     .await;
     let sink = CountingSink::new(&server);
     let contact = contact();
-    let call = connection.call_tool(track_call(), &sink, &contact);
+    let call = call_tool_as_dispatched(&connection, track_call(), &sink, &contact);
     tokio::pin!(call);
 
     tokio::select! {
@@ -329,7 +330,7 @@ async fn a_task_holding_its_result_reads_contact_lost_when_its_polls_go_unanswer
     let contact = contact();
     let mut seen = contact.subscribe();
     let started = Instant::now();
-    let call = connection.call_tool(track_call(), &sink, &contact);
+    let call = call_tool_as_dispatched(&connection, track_call(), &sink, &contact);
     tokio::pin!(call);
 
     tokio::select! {
@@ -365,24 +366,87 @@ async fn a_task_holding_its_result_reads_contact_lost_when_its_polls_go_unanswer
     );
 }
 
-// Mutation: in `tasks.rs`'s `cancel_task`, send the cancel under another method or without
-// `taskId`; or in `poll_once`, poll on past "cancelled".
+/// A 2025-11-25 task server whose `initialize` declares `tasks.cancel` when `is_cancel_declared`,
+/// whose `tasks/cancel` answers through `cancel_reply`, and whose polls read `working` until
+/// `canceled` is set and `after` from then on, its `tasks/result` answering a text result.
+fn cancel_server(
+    is_cancel_declared: bool,
+    cancel_reply: fn() -> Reply,
+    after: &'static str,
+    canceled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> Responder {
+    let mut tasks = task_server(
+        move |_| {
+            if canceled.load(std::sync::atomic::Ordering::SeqCst) {
+                status_reply(after)
+            } else {
+                status_reply("working")
+            }
+        },
+        || Reply::Answer(json!({ "result": text_result("tracked") })),
+    );
+    Box::new(move |method, params| match method {
+        "initialize" => {
+            let mut result = v1_initialize_result();
+            if !is_cancel_declared {
+                result["capabilities"]["tasks"]
+                    .as_object_mut()
+                    .expect("the tasks capability is an object")
+                    .remove("cancel");
+            }
+            Reply::Answer(json!({ "result": result }))
+        }
+        "tasks/cancel" => cancel_reply(),
+        _ => tasks(method, params),
+    })
+}
+
+// Mutations: in `tasks.rs`'s `cancel_task`, read a `-32601` as a failure, which fails the refused
+// case; leave `can_cancel_tasks` unread, which sends the undeclared case's cancel; send the cancel
+// under another method or without `taskId`; or in `poll_once`, poll on past "cancelled".
+#[rstest::rstest]
+#[case::taken(
+    true,
+    || status_reply("cancelled"),
+    "cancelled",
+    McpTaskCancelOutcome::Taken,
+    McpToolCallEnd::Canceled,
+    1
+)]
+#[case::refused_with_method_not_found(
+    true,
+    method_not_found,
+    "completed",
+    McpTaskCancelOutcome::Refused,
+    tracked(),
+    1
+)]
+#[case::not_declared(
+    false,
+    || status_reply("cancelled"),
+    "completed",
+    McpTaskCancelOutcome::Refused,
+    tracked(),
+    0
+)]
 #[tokio::test(start_paused = true)]
-async fn canceling_a_2025_11_25_task_sends_one_cancel_and_the_next_poll_ends_it() {
+async fn a_2025_11_25_cancel_is_taken_or_refused_and_the_follow_reads_the_end(
+    #[case] is_cancel_declared: bool,
+    #[case] cancel_reply: fn() -> Reply,
+    #[case] after: &'static str,
+    #[case] expected_outcome: McpTaskCancelOutcome,
+    #[case] expected_end: McpToolCallEnd,
+    #[case] expected_cancels: usize,
+) {
     let (client, _card) = test_client();
     let canceled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let is_canceled = std::sync::Arc::clone(&canceled);
     let (connection, server) = open_test_server(
         &client,
-        task_server(
-            move |_| {
-                if is_canceled.load(std::sync::atomic::Ordering::SeqCst) {
-                    status_reply("cancelled")
-                } else {
-                    status_reply("working")
-                }
-            },
-            || Reply::Answer(json!({ "error": { "code": -32603, "message": "unasked" } })),
+        cancel_server(
+            is_cancel_declared,
+            cancel_reply,
+            after,
+            std::sync::Arc::clone(&canceled),
         ),
     )
     .await;
@@ -400,29 +464,50 @@ async fn canceling_a_2025_11_25_task_sends_one_cancel_and_the_next_poll_ends_it(
         connection
             .cancel_task(McpTaskGeneration::V1, "task-1")
             .await
-            .expect("the server takes the cancel");
+            .expect("the cancel is taken or refused")
     };
-    let (end, ()) = tokio::join!(connection.call_tool(track_call(), &sink, &contact), cancel);
+    let (end, outcome) = tokio::join!(
+        call_tool_as_dispatched(&connection, track_call(), &sink, &contact),
+        cancel
+    );
 
-    assert_eq!(end.expect("the call ends"), McpToolCallEnd::Canceled);
+    assert_eq!(outcome, expected_outcome);
+    assert_eq!(end.expect("the call ends"), expected_end);
     let cancels = server.requests("tasks/cancel");
-    assert_eq!(cancels.len(), 1);
-    assert_eq!(cancels[0].1["params"]["taskId"], "task-1");
+    assert_eq!(cancels.len(), expected_cancels);
     let polls = server.requests("tasks/get");
-    assert!(
-        polls.last().expect("a poll").0 >= cancels[0].0,
-        "the poll that reads the cancel comes after it"
-    );
-    let polls_after_cancel = polls.iter().filter(|(at, _)| *at >= cancels[0].0).count();
-    assert_eq!(
-        polls_after_cancel, 1,
-        "no poll follows the one reading the end"
-    );
-    assert_eq!(
-        server.requests("tasks/result").len(),
-        0,
-        "a canceled task has no result"
-    );
+    if let Some((canceled_at, cancel)) = cancels.first() {
+        assert_eq!(cancel["params"]["taskId"], "task-1");
+        assert!(
+            polls.last().expect("a poll").0 >= *canceled_at,
+            "a poll comes after the cancel"
+        );
+    }
+    if expected_end == McpToolCallEnd::Canceled {
+        let canceled_at = cancels[0].0;
+        let polls_after_cancel = polls.iter().filter(|(at, _)| *at >= canceled_at).count();
+        assert_eq!(
+            polls_after_cancel, 1,
+            "no poll follows the one reading the end"
+        );
+        assert_eq!(
+            server.requests("tasks/result").len(),
+            0,
+            "a canceled task has no result"
+        );
+    }
+}
+
+/// The end of a call whose task answered [`text_result`] `tracked`.
+fn tracked() -> McpToolCallEnd {
+    McpToolCallEnd::Answered {
+        result: object(text_result("tracked")),
+    }
+}
+
+/// `value`, a JSON object.
+fn object(value: Value) -> Map<String, Value> {
+    serde_json::from_value(value).expect("an object")
 }
 
 /// A 2025-11-25 task whose second poll waits on input, which its `tasks/result` asks for.
@@ -469,8 +554,8 @@ async fn two_sessions_whose_servers_mint_the_same_task_id_each_ask_their_own_que
     };
 
     let (first_end, second_end, questions) = tokio::join!(
-        first.call_tool(first_call, &first_sink, &first_contact),
-        second.call_tool(second_call, &second_sink, &second_contact),
+        call_tool_as_dispatched(&first, first_call, &first_sink, &first_contact),
+        call_tool_as_dispatched(&second, second_call, &second_sink, &second_contact),
         person,
     );
 
@@ -534,7 +619,7 @@ async fn a_server_flooding_status_notifications_is_polled_no_more_often_than_250
 
     let call = timeout(
         Duration::from_secs(60),
-        connection.call_tool(track_call(), &sink, &contact),
+        call_tool_as_dispatched(&connection, track_call(), &sink, &contact),
     );
     let end = tokio::select! {
         end = call => end,
@@ -570,7 +655,12 @@ async fn a_task_question_nobody_waits_on_is_withdrawn_from_the_card(
     let (connection, server) = open_test_server(&client, asking_task_server()).await;
     let sink = CountingSink::new(&server);
     let contact = contact();
-    let mut call = Box::pin(connection.call_tool(track_call(), &sink, &contact));
+    let mut call = Box::pin(call_tool_as_dispatched(
+        &connection,
+        track_call(),
+        &sink,
+        &contact,
+    ));
 
     tokio::select! {
         _ = &mut call => panic!("the call ended before its question was asked"),
@@ -619,7 +709,7 @@ async fn a_task_dropped_while_its_question_waits_for_the_run_withdraws_it() {
     .expect("the card takes the run's other question");
     let sink = CountingSink::new(&server);
     let contact = contact();
-    let mut asking = Box::pin(connection.call_tool(call, &sink, &contact));
+    let mut asking = Box::pin(call_tool_as_dispatched(&connection, call, &sink, &contact));
     tokio::select! {
         _ = &mut asking => panic!("the call ended before its question was asked"),
         () = card.wait_until_waiting(1) => {}
@@ -635,32 +725,52 @@ async fn a_task_dropped_while_its_question_waits_for_the_run_withdraws_it() {
     );
 }
 
-// Mutation: in `read_result`, rebuild the failure from the error's code and message alone,
-// which drops its `data`.
+/// A task's failure with its `data`.
+fn quota_error() -> Value {
+    json!({ "code": -32603, "message": "quota", "data": { "retryAfterMs": 500 } })
+}
+
+// Mutations: in `read_result`, rebuild the failure from the error's code and message alone, which
+// drops its `data`; read every `-32601` as the end unknown, which fails the failed task's case; or
+// read the held result's `-32601` as a failure.
+#[rstest::rstest]
+#[case::failed_with_data(
+    "failed",
+    || Reply::Answer(json!({ "error": quota_error() })),
+    McpToolCallEnd::Failed { error: object(quota_error()) }
+)]
+#[case::failed_with_method_not_found(
+    "failed",
+    method_not_found,
+    McpToolCallEnd::Failed {
+        error: object(json!({ "code": -32601, "message": "Method not found" })),
+    }
+)]
+#[case::held_with_method_not_found(
+    "input_required",
+    method_not_found,
+    McpToolCallEnd::TaskUnknown {
+        error: object(json!({ "code": -32601, "message": "Method not found" })),
+    }
+)]
 #[tokio::test(start_paused = true)]
-async fn a_failed_2025_11_25_task_keeps_its_whole_error() {
+async fn a_2025_11_25_result_error_reads_unknown_before_the_end_and_failed_after(
+    #[case] status: &'static str,
+    #[case] result_reply: fn() -> Reply,
+    #[case] expected_end: McpToolCallEnd,
+) {
     let (client, _card) = test_client();
-    let error = json!({ "code": -32603, "message": "quota", "data": { "retryAfterMs": 500 } });
-    let reply = json!({ "error": error.clone() });
     let (connection, server) = open_test_server(
         &client,
-        task_server(
-            |_| status_reply("failed"),
-            move || Reply::Answer(reply.clone()),
-        ),
+        task_server(move |_| status_reply(status), result_reply),
     )
     .await;
     let sink = CountingSink::new(&server);
 
-    let end = connection
-        .call_tool(track_call(), &sink, &contact())
+    let end = call_tool_as_dispatched(&connection, track_call(), &sink, &contact())
         .await
         .expect("the call ends");
 
-    assert_eq!(
-        end,
-        McpToolCallEnd::Failed {
-            error: error.as_object().expect("an object").clone(),
-        }
-    );
+    assert_eq!(end, expected_end);
+    assert_eq!(server.requests("tasks/get").len(), 1);
 }

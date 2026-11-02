@@ -170,7 +170,8 @@ mod tests {
     use crate::client::tasks::McpToolCallEnd;
     use crate::client::test_server::{
         CountingSink, Reply, Responder, TestServer, board_accepted, board_answer, board_form,
-        contact, method_not_found, open_test_server, test_client, text_result, track_call,
+        call_tool_as_dispatched, contact, method_not_found, open_test_server, test_client,
+        text_result, track_call,
     };
 
     /// A 2025-11-25 server with no tasks whose `tools/call` asks for the board first.
@@ -252,7 +253,7 @@ mod tests {
 
         let (end, question) = timeout(Duration::from_secs(60), async {
             tokio::join!(
-                connection.call_tool(call, &sink, &contact),
+                call_tool_as_dispatched(&connection, call, &sink, &contact),
                 card.answer_open(board_answer()),
             )
         })
@@ -284,13 +285,13 @@ mod tests {
         let first_call = track_call();
         let mut second_call = track_call();
         second_call.run_id = first_call.run_id;
-        let first = connection.call_tool(first_call, &sink, &contact);
+        let first = call_tool_as_dispatched(&connection, first_call, &sink, &contact);
         tokio::pin!(first);
         tokio::select! {
             _ = &mut first => panic!("the first call ended before its question was taken"),
             () = card.wait_until_taken(1) => {}
         }
-        let second = connection.call_tool(second_call, &sink, &contact);
+        let second = call_tool_as_dispatched(&connection, second_call, &sink, &contact);
         tokio::pin!(second);
         tokio::select! {
             _ = &mut first => panic!("the first call ended before its question was answered"),
@@ -344,13 +345,18 @@ mod tests {
         let first_call = track_call();
         let mut second_call = track_call();
         second_call.run_id = first_call.run_id;
-        let first = connection.call_tool(first_call, &sink, &contact);
+        let first = call_tool_as_dispatched(&connection, first_call, &sink, &contact);
         tokio::pin!(first);
         tokio::select! {
             _ = &mut first => panic!("the first call ended before its question was taken"),
             () = card.wait_until_taken(1) => {}
         }
-        let mut second = Box::pin(connection.call_tool(second_call, &sink, &contact));
+        let mut second = Box::pin(call_tool_as_dispatched(
+            &connection,
+            second_call,
+            &sink,
+            &contact,
+        ));
         tokio::select! {
             _ = &mut first => panic!("the first call ended before its question was answered"),
             _ = &mut second => panic!("the second call ended before its question was asked"),
@@ -380,7 +386,7 @@ mod tests {
         let (connection, server) = open_test_server(&client, eliciting_v1_server()).await;
         let sink = CountingSink::new(&server);
         let contact = contact();
-        let call = connection.call_tool(track_call(), &sink, &contact);
+        let call = call_tool_as_dispatched(&connection, track_call(), &sink, &contact);
         tokio::pin!(call);
 
         tokio::select! {
@@ -421,7 +427,7 @@ mod tests {
         let (connection, server) = open_test_server(&client, eliciting_v1_server()).await;
         let sink = CountingSink::new(&server);
         let contact = contact();
-        let call = connection.call_tool(track_call(), &sink, &contact);
+        let call = call_tool_as_dispatched(&connection, track_call(), &sink, &contact);
         tokio::pin!(call);
         tokio::select! {
             _ = &mut call => panic!("the call ended before its question was taken"),

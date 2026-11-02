@@ -28,7 +28,7 @@ use crate::client::raw_copy::{RawLineTee, RawReplyCopy};
 use crate::client::stdio::StdioProcess;
 use crate::client::tasks::{
     McpServerEndpoint, McpTaskContact, McpTaskDispatchIdentity, McpTaskGeneration,
-    McpTaskHandleObservation, McpTaskHandleSink, McpToolCall,
+    McpTaskHandleObservation, McpTaskHandleSink, McpToolCall, McpToolCallEnd, McpToolCallError,
 };
 
 /// What the server does with one request.
@@ -86,14 +86,14 @@ impl TestServer {
     }
 }
 
-/// A 2025-11-25 server's `initialize` result, declaring tasks on `tools/call`.
+/// A 2025-11-25 server's `initialize` result, declaring tasks on `tools/call` and `tasks/cancel`.
 pub(super) fn v1_initialize_result() -> Value {
     json!({
         "protocolVersion": "2025-11-25",
         "capabilities": {
             "tools": {},
             "prompts": { "listChanged": true },
-            "tasks": { "requests": { "tools": { "call": {} } } },
+            "tasks": { "requests": { "tools": { "call": {} } }, "cancel": {} },
         },
         "serverInfo": { "name": "tracker", "version": "1.0.0" },
     })
@@ -102,6 +102,23 @@ pub(super) fn v1_initialize_result() -> Value {
 /// The refusal of a method the server does not serve, `server/discover` on a 2025-11-25 server.
 pub(super) fn method_not_found() -> Reply {
     Reply::Answer(json!({ "error": { "code": -32601, "message": "Method not found" } }))
+}
+
+/// Calls `call`'s tool as the tool call's dispatch does: whether the tool takes a task is read
+/// first, then the call made with that answer.
+pub(super) async fn call_tool_as_dispatched(
+    connection: &McpServerConnection,
+    call: McpToolCall,
+    sink: &dyn McpTaskHandleSink,
+    contact: &watch::Sender<McpTaskContact>,
+) -> Result<McpToolCallEnd, McpToolCallError> {
+    let is_task_tool = connection
+        .is_task_tool(&call.dispatch.tool_name)
+        .await
+        .expect("the server's tools read");
+    connection
+        .call_tool(call, is_task_tool, sink, contact)
+        .await
 }
 
 /// Opens a connection of `client` to a server answering through `responder`, in a new session.

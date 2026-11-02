@@ -26,6 +26,7 @@ use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use rmcp::model::ErrorCode;
 use rmcp::service::ServiceError;
 use serde_json::{Map, Value};
 use sha2::{Digest as _, Sha256};
@@ -185,6 +186,22 @@ pub(crate) enum McpToolCallEnd {
     },
     /// The task was canceled.
     Canceled,
+    /// The server can no longer give the task's end, as a permanent error said, so the outcome
+    /// is unknown.
+    TaskUnknown {
+        /// The JSON-RPC error object that said so, as sent.
+        error: Map<String, Value>,
+    },
+}
+
+/// What a server did with a request to cancel a task.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum McpTaskCancelOutcome {
+    /// The server took the cancel, and the task's poll reads where it ended.
+    Taken,
+    /// The server cancels no task: it declares no `tasks.cancel`, so nothing was sent, or it
+    /// answered `-32601`. The task runs on, and its follow goes on.
+    Refused,
 }
 
 /// Whether a followed task's server still answers its polls: `Lost` once no poll was answered for
@@ -226,8 +243,9 @@ pub(crate) enum McpToolCallError {
 impl McpServerConnection {
     /// Calls a tool and follows it to its end: a task's handle reaches `sink` before the first
     /// poll, `contact` says whether its server still answers, and its questions, like any the
-    /// call asks outside a task, are asked in the call's session and run. Fails as the call or
-    /// the acceptance fails.
+    /// call asks outside a task, are asked in the call's session and run. The caller reads
+    /// `is_task_tool` first, before anything is recorded, and passes its answer. Fails as the call
+    /// or the acceptance fails.
     #[cfg_attr(
         not(test),
         expect(
@@ -239,13 +257,12 @@ impl McpServerConnection {
     pub(crate) async fn call_tool(
         &self,
         call: McpToolCall,
+        is_task_tool: bool,
         sink: &dyn McpTaskHandleSink,
         contact: &watch::Sender<McpTaskContact>,
     ) -> Result<McpToolCallEnd, McpToolCallError> {
         let in_flight = self.calls.track(&call, &self.scope);
-        let ended = if self.task_generation == Some(McpTaskGeneration::V1)
-            && self.is_task_tool(&call.dispatch.tool_name).await?
-        {
+        let ended = if is_task_tool {
             revision_2025_11_25::call_task_tool(self, call, sink, contact).await
         } else {
             revision_2026_07_28::call_tool(self, &in_flight, call, sink, contact).await
@@ -281,7 +298,11 @@ impl McpServerConnection {
     }
 
     /// Asks the server to cancel task `mcp_task_id`, in the protocol of the `mcp_task_generation`
-    /// it was accepted under; the task's poll then reads its end. Fails as the request fails.
+    /// it was accepted under: `Taken` when the server took it, and the task's poll then reads its
+    /// end. `Refused`, with the task's follow going on, when the server declares no
+    /// `tasks.cancel`, so nothing is sent, or answers `-32601` on either protocol. Fails as the
+    /// request fails otherwise, a `-32602` for a task that ended or that the server does not know
+    /// included.
     #[cfg_attr(
         not(test),
         expect(
@@ -294,24 +315,36 @@ impl McpServerConnection {
         &self,
         mcp_task_generation: McpTaskGeneration,
         mcp_task_id: &str,
-    ) -> Result<(), McpToolCallError> {
-        match mcp_task_generation {
-            McpTaskGeneration::V1 => {
-                self.requests
-                    .send_raw(
-                        "tasks/cancel",
-                        Some(serde_json::json!({ "taskId": mcp_task_id })),
-                        RequestWait::Ordinary,
-                    )
-                    .await?;
-            }
-            McpTaskGeneration::V2 => self
-                .requests
-                .cancel_v2_task(mcp_task_id)
-                .await
-                .map_err(McpToolCallError::Service)?,
+    ) -> Result<McpTaskCancelOutcome, McpToolCallError> {
+        if !self.can_cancel_tasks {
+            return Ok(McpTaskCancelOutcome::Refused);
         }
-        Ok(())
+        match mcp_task_generation {
+            McpTaskGeneration::V1 => match self
+                .requests
+                .send_raw(
+                    "tasks/cancel",
+                    Some(serde_json::json!({ "taskId": mcp_task_id })),
+                    RequestWait::Ordinary,
+                )
+                .await
+            {
+                Ok(_) => Ok(McpTaskCancelOutcome::Taken),
+                Err(McpRequestError::Refused { code, .. })
+                    if code == i64::from(ErrorCode::METHOD_NOT_FOUND.0) =>
+                {
+                    Ok(McpTaskCancelOutcome::Refused)
+                }
+                Err(error) => Err(error.into()),
+            },
+            McpTaskGeneration::V2 => match self.requests.cancel_v2_task(mcp_task_id).await {
+                Ok(()) => Ok(McpTaskCancelOutcome::Taken),
+                Err(ServiceError::McpError(error)) if error.code == ErrorCode::METHOD_NOT_FOUND => {
+                    Ok(McpTaskCancelOutcome::Refused)
+                }
+                Err(error) => Err(McpToolCallError::Service(error)),
+            },
+        }
     }
 }
 

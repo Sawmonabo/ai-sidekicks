@@ -5,7 +5,8 @@
 //! - The lifecycle probes `server/discover` and falls back to `initialize`, so a 2026-07-28 server
 //!   and a 2025-11-25 one both connect; a 2026-07-28 server declares the Tasks extension in its
 //!   typed capabilities, a 2025-11-25 one `capabilities.tasks.requests.tools.call` in its raw
-//!   `initialize` reply. The whole start is held to the server's start-up timeout.
+//!   `initialize` reply, beside `capabilities.tasks.cancel` when it takes `tasks/cancel`. The
+//!   whole start is held to the server's start-up timeout.
 //! - Every question the server asks goes on the questions card: one carrying a followed task's
 //!   id under that task's run, any other under the run of the call in flight on the connection,
 //!   and with none in flight it is answered `cancel`, since nobody saw it. While it is open, the
@@ -174,6 +175,9 @@ pub(crate) struct McpServerConnection {
     pub(super) requests: ServerRequests,
     /// The Tasks protocol the server speaks, `None` when it offers no tasks.
     pub(super) task_generation: Option<McpTaskGeneration>,
+    /// Whether the server takes `tasks/cancel`: on a 2025-11-25 server, when it declares
+    /// `tasks.cancel`; on a 2026-07-28 server always, since its Tasks extension carries the method.
+    pub(super) can_cancel_tasks: bool,
     /// The tool calls in flight, with their runs.
     pub(super) calls: Arc<CallsInFlight>,
     /// On a 2025-11-25 server, each tool whose `execution.taskSupport` takes a task.
@@ -244,6 +248,11 @@ impl McpServerConnection {
             .peer()
             .peer_info()
             .is_some_and(|info| info.capabilities.supports_tasks());
+        let can_cancel_tasks = declares_v2_tasks
+            || initialize
+                .as_ref()
+                .and_then(|reply| reply.pointer("/result/capabilities/tasks/cancel"))
+                .is_some();
         let task_generation = if declares_v2_tasks {
             Some(McpTaskGeneration::V2)
         } else if declares_v1_tasks {
@@ -262,6 +271,7 @@ impl McpServerConnection {
             endpoint,
             service,
             task_generation,
+            can_cancel_tasks,
             calls,
             task_tools: Mutex::new(HashSet::new()),
             are_tools_stale,
@@ -287,10 +297,22 @@ impl McpServerConnection {
         }
     }
 
-    /// Whether `tool_name` takes a task on this 2025-11-25 server, its tools read again first
-    /// when the server said they changed. Fails as that read fails, and the tools then stay
-    /// marked changed, so the next task call reads them again.
+    /// Whether `tool_name` takes a task on this server. On a 2025-11-25 server, the answer comes
+    /// from its tools' `execution.taskSupport`, read again first when the server said they
+    /// changed; on any other server it is false, since that server decides per call or takes no
+    /// task. Fails as that read fails, and the tools then stay marked changed, so the next task
+    /// call reads them again.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the tool call's dispatch reads it before it records the call"
+        )
+    )]
     pub(super) async fn is_task_tool(&self, tool_name: &str) -> Result<bool, McpRequestError> {
+        if self.task_generation != Some(McpTaskGeneration::V1) {
+            return Ok(false);
+        }
         if self.are_tools_stale.swap(false, Ordering::AcqRel)
             && let Err(error) = self.read_task_tools().await
         {

@@ -350,8 +350,8 @@ mod tests {
     use crate::client::tasks::{McpTaskGeneration, McpToolCallEnd};
     use crate::client::test_server::{
         CountingSink, Reply, Responder, TestServer, board_accepted, board_answer, board_form,
-        contact, method_not_found, open_test_server, test_client, text_result, track_call,
-        track_task_handle,
+        call_tool_as_dispatched, contact, method_not_found, open_test_server, test_client,
+        text_result, track_call, track_task_handle,
     };
 
     /// A 2026-07-28 server declaring tasks, whose `tools/call` starts task `task-1` and whose
@@ -477,7 +477,10 @@ mod tests {
         };
 
         let (end, (first, second)) = timeout(Duration::from_secs(600), async {
-            tokio::join!(connection.call_tool(call, &sink, &contact), person)
+            tokio::join!(
+                call_tool_as_dispatched(&connection, call, &sink, &contact),
+                person
+            )
         })
         .await
         .expect("both questions are asked and the task ends");
@@ -555,7 +558,7 @@ mod tests {
 
         let end = timeout(
             Duration::from_secs(60),
-            connection.call_tool(track_call(), &sink, &contact),
+            call_tool_as_dispatched(&connection, track_call(), &sink, &contact),
         )
         .await
         .expect("the canceled task ends");
@@ -594,7 +597,7 @@ mod tests {
 
         let end = timeout(
             Duration::from_secs(60),
-            connection.call_tool(track_call(), &sink, &contact),
+            call_tool_as_dispatched(&connection, track_call(), &sink, &contact),
         )
         .await
         .expect("the task ends");

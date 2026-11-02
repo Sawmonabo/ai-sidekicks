@@ -4,11 +4,14 @@
 //! side, whose stream carries the server's `elicitation/create` requests and ends with the result,
 //! and keeps polling `tasks/get` meanwhile, so the task's contact is read from answered polls
 //! however long the person takes.
+//!
+//! A server that answers `tasks/result` with `-32601` before the task ends cannot give its result.
 
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
+use rmcp::model::ErrorCode;
 use serde_json::{Value, json};
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::{Notify, watch};
@@ -114,9 +117,14 @@ async fn poll_once(
             }
             // A hold still waiting is dropped and the result read afresh.
             *lock(held) = None;
-            read_result(&connection.requests, mcp_task_id, RequestWait::Ordinary)
-                .await
-                .map(PollStep::End)
+            read_result(
+                &connection.requests,
+                mcp_task_id,
+                RequestWait::Ordinary,
+                true,
+            )
+            .await
+            .map(PollStep::End)
         }
         status => {
             if status == "input_required" {
@@ -140,7 +148,7 @@ fn hold_result(
     let mcp_task_id = mcp_task_id.to_owned();
     let wake = Arc::clone(wake);
     AbortOnDropHandle::new(tokio::spawn(async move {
-        let read = read_result(&requests, &mcp_task_id, RequestWait::HeldResult).await;
+        let read = read_result(&requests, &mcp_task_id, RequestWait::HeldResult, false).await;
         wake.notify_one();
         read
     }))
@@ -196,18 +204,25 @@ pub(super) async fn read_task(
     })
 }
 
-/// The task's result through `tasks/result`, waiting within `wait`'s bound: the tool's result,
-/// or the JSON-RPC error the task failed with.
+/// The task's result through `tasks/result`, waiting within `wait`'s bound, `has_ended` saying
+/// whether a poll had read the task's terminal status: the tool's result, or the JSON-RPC error
+/// the task failed with. Before the end, a `-32601` reads as the task's end being unknown.
 async fn read_result(
     requests: &ServerRequests,
     mcp_task_id: &str,
     wait: RequestWait,
+    has_ended: bool,
 ) -> Result<McpToolCallEnd, McpRequestError> {
     match requests
         .send_raw("tasks/result", Some(json!({ "taskId": mcp_task_id })), wait)
         .await
     {
         Ok(result) => Ok(McpToolCallEnd::Answered { result }),
+        Err(McpRequestError::Refused { code, error })
+            if !has_ended && code == i64::from(ErrorCode::METHOD_NOT_FOUND.0) =>
+        {
+            Ok(McpToolCallEnd::TaskUnknown { error })
+        }
         Err(McpRequestError::Refused { error, .. }) => Ok(McpToolCallEnd::Failed { error }),
         Err(error) => Err(error),
     }
