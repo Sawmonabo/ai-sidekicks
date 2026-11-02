@@ -10,12 +10,10 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use sidekicks_contracts::daemon::data::DAEMON_LOCK_FILE_NAME;
 use sidekicks_contracts::daemon::mode_outcome::DaemonModeOutcome;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::wire::AnyValue;
-
-/// The lock file, in the data folder.
-const LOCK_FILE_NAME: &str = "daemon.lock";
 
 /// The file the holder writes its process id to, beside the lock file: a locked file cannot be
 /// read on every system.
@@ -113,7 +111,7 @@ impl DataFolderLock {
     /// cannot be opened or locked or the id cannot be written. Blocking, so it runs through
     /// `spawn_blocking`.
     pub fn take(data_folder: &Path) -> Result<Self, DataFolderLockError> {
-        let lock_path = data_folder.join(LOCK_FILE_NAME);
+        let lock_path = data_folder.join(DAEMON_LOCK_FILE_NAME);
         let lock_error = |source| DataFolderLockError::Lock {
             path: lock_path.clone(),
             source,
