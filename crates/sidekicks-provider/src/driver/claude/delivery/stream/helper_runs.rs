@@ -219,3 +219,6 @@ fn lifecycle_wire_type(event_type: SubagentLifecycleEventType) -> &'static str {
         SubagentLifecycleEventType::Completed => "system/task_notification",
     }
 }
+
+#[cfg(test)]
+mod tests;

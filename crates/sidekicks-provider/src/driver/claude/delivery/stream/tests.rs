@@ -24,7 +24,7 @@ use crate::run::state_entry::RunStateEntry;
 use crate::run::turn_end::TurnOutcome;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
-fn init() -> Value {
+pub(super) fn init() -> Value {
     json!({
         "type": "system",
         "subtype": "init",
@@ -33,7 +33,7 @@ fn init() -> Value {
     })
 }
 
-fn result(members: &Value) -> Value {
+pub(super) fn result(members: &Value) -> Value {
     let mut frame = json!({
         "type": "result",
         "subtype": "success",
@@ -550,7 +550,7 @@ fn usage_message(message_id: &str, agent_id: Option<&str>, input: u64, output: u
     frame
 }
 
-fn helper_started(task_id: &str, task_type: &str, tool_use_id: &str) -> Value {
+pub(super) fn helper_started(task_id: &str, task_type: &str, tool_use_id: &str) -> Value {
     json!({
         "type": "system",
         "subtype": "task_started",

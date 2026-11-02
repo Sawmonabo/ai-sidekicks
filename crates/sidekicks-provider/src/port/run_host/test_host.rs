@@ -59,6 +59,8 @@ pub(crate) struct RecordedDelivery {
     pub(crate) is_daemon_interrupt_end: bool,
     /// The run a child run delivery starts beneath.
     pub(crate) parent_run_id: Option<RunId>,
+    /// The helper a child run delivery is for.
+    pub(crate) subagent: Option<crate::run::delivery::ChildRunSubagent>,
     /// The row a session row delivery appends.
     pub(crate) row: Option<LateAppendableRow>,
     /// The session a notice names.
@@ -410,6 +412,7 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
         ended_turn_number: None,
         is_daemon_interrupt_end: false,
         parent_run_id: None,
+        subagent: None,
         row: None,
         session_id: None,
         payload: None,
@@ -439,11 +442,12 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
         InboundDelivery::ChildRun {
             binding,
             parent_run_id,
-            ..
+            subagent,
         } => {
             recorded.kind = "childRun";
             recorded.binding_id = Some(binding.binding_id.clone());
             recorded.parent_run_id = Some(*parent_run_id);
+            recorded.subagent = Some(subagent.clone());
         }
         InboundDelivery::RunMarker { binding, .. } => {
             recorded.kind = "runMarker";
