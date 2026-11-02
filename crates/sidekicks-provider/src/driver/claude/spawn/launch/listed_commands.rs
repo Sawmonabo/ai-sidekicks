@@ -1,7 +1,8 @@
 //! The command list of a session at rest, read from a process that keeps nothing, started in the
-//! session's folder on its account: its `initialize` reply lists the commands the session's own
-//! process would, with no model turn run. The person's hooks are off and their own MCP files are
-//! not loaded, so the read starts nothing of theirs.
+//! session's folder on its account: its `initialize` reply lists the commands and skills, with no
+//! model turn run. The session's own tool servers are not loaded, so their prompts are not in it.
+//! The person's hooks are off, and their own MCP files are loaded only where an administrator's
+//! MCP file is present, since the flag that skips them makes Claude Code exit at start there.
 
 use std::path::PathBuf;
 

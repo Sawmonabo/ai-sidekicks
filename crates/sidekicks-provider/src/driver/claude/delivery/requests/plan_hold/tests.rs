@@ -223,7 +223,11 @@ async fn a_verdict_while_the_take_runs_answers_the_plan_once() {
     PlanVerdict::Build { level: PermissionLevel::Ask },
     json!({
         "behavior": "allow",
-        "updatedPermissions": [{"type": "setMode", "mode": "acceptEdits", "destination": "session"}],
+        "updatedPermissions": [{
+            "type": "setMode",
+            "mode": "acceptEdits",
+            "destination": "session",
+        }],
     }),
 )]
 #[case::build_at_sandboxed(
