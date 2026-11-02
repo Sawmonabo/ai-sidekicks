@@ -28,7 +28,7 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 use tempfile::TempDir;
 use tracing_subscriber::layer::SubscriberExt as _;
 
-use super::{ClaudeSignInMoveBounds, ClaudeSignInMoveError};
+use super::{ClaudeSignInMoveBounds, ClaudeSignInMoveError, call_keychain_within};
 use crate::account::credential_home::CredentialHome;
 use crate::account::home_lock::AccountHomeLock;
 use crate::account::observer::AccountLiveTurns;
@@ -469,4 +469,61 @@ async fn nothing_moves_while_the_home_is_in_use(#[case] home_use: HomeUse) {
         }
         (home_use, answer) => panic!("{home_use:?} answered {answer:?}"),
     }
+}
+
+// A locked keychain refuses the move at once, while an observation holds the account's home: the
+// keychain is read before the home is held, so a refusal or a prompt never waits on, or holds, the
+// home. Killed by the keychain first read under the home's hold.
+#[tokio::test]
+async fn a_locked_keychain_refuses_the_move_without_waiting_on_the_home() {
+    if sign_in_move().is_none() {
+        return;
+    }
+    let fixture = Fixture::new().await;
+    let account = fixture.account(claude()).await;
+    let planted = fixture.plant(&store_folder(&account));
+    fixture.record(SecretsPlace::LoggedOutServiceFile).await;
+    let _observation = fixture.home_lock.hold(account.account_id.clone()).await;
+    fixture
+        .keychain
+        .refuse_next_call(&planted.service, &planted.account);
+
+    let answer = tokio::time::timeout(
+        Duration::from_millis(100),
+        fixture.legs.move_sign_ins(fixture.bounds()),
+    )
+    .await
+    .expect("the refusal comes without waiting for the home");
+
+    assert!(
+        matches!(answer, Err(ClaudeSignInMoveError::Move(_))),
+        "{answer:?}"
+    );
+    assert_eq!(fixture.item(&planted), Some(planted.text()));
+    assert_eq!(planted.file(), None);
+}
+
+// A keychain call that never answers, as an access prompt left open does not, stops the move at
+// its bound naming the account. Killed by the call awaited with no bound.
+#[tokio::test(start_paused = true)]
+async fn a_keychain_call_that_never_answers_stops_the_move_naming_the_account() {
+    let account =
+        ProviderAccountId::new("account-prompted".to_owned()).expect("an account id fits");
+    let (_never_answered, answer) = std::sync::mpsc::channel::<()>();
+
+    let called = call_keychain_within(Duration::from_secs(5), &account, move || {
+        // Ends once the test lets the sender go.
+        drop(answer.recv());
+        Ok(())
+    })
+    .await;
+
+    assert!(
+        matches!(
+            &called,
+            Err(ClaudeSignInMoveError::KeychainUnanswered { provider_account_id })
+                if *provider_account_id == account
+        ),
+        "{called:?}"
+    );
 }
