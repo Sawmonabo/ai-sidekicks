@@ -339,6 +339,7 @@ mod tests {
         BackgroundWork, CommandSandboxNeeds, ProviderCommand, ProviderDescriptor,
         ProviderMemoryEstimates,
     };
+    use crate::tool_server_name::McpServerNameRule;
 
     /// A provider that sets, withholds and reserves names of its own.
     const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
@@ -380,6 +381,8 @@ mod tests {
         voice_kinds: &[],
         mcp_transports: &[],
         mcp_config_members: &[],
+        mcp_server_names: McpServerNameRule::new(|_| true, "any character", |_| None, &[], &[]),
+        is_mcp_local_scope_emulated: false,
         skill_name_max_length: None,
         background_work: None,
         callback_tools_asked: false,
