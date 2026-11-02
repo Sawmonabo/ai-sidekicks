@@ -46,7 +46,7 @@ use sidekicks_provider::port::question::{
 use sidekicks_provider::record_readers::read_non_empty_string;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
-use strum::{IntoStaticStr, VariantArray};
+use strum::{EnumString, IntoStaticStr, VariantArray};
 use tokio::sync::{Notify, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
@@ -66,7 +66,7 @@ pub(crate) struct McpTaskDispatchIdentity {
 
 /// Which MCP Tasks protocol a task handle belongs to, stored beside the handle so recovery polls
 /// it the way its server answers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, IntoStaticStr, VariantArray)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumString, IntoStaticStr, VariantArray)]
 #[strum(serialize_all = "lowercase")]
 pub(crate) enum McpTaskGeneration {
     /// A task on a 2025-11-25 server, whose result `tasks/result` reads.
@@ -103,6 +103,12 @@ impl McpServerEndpoint {
             Self::ADDRESS_PREFIX,
             base16ct::lower::encode_string(&digest)
         ))
+    }
+
+    /// The endpoint as a receipt row stores it, whose form the table's check holds, so it is not
+    /// checked again.
+    pub(crate) fn from_stored(text: String) -> Self {
+        Self(text)
     }
 
     /// The endpoint as stored.

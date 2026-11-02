@@ -60,10 +60,10 @@ fn command_receipts_schema_sql() -> String {
 CREATE TABLE command_receipts (
   id                   TEXT PRIMARY KEY,
   command_id           TEXT NOT NULL UNIQUE,      -- the client-supplied idempotency key
-  run_id               TEXT,
+  run_id               TEXT NOT NULL,
   status               TEXT NOT NULL CHECK(status IN ({receipt_statuses})),
-  -- The two-phase commit: started_at is set once by the claim's compare-and-set, completed_at by
-  -- the terminal write. Claimed and not completed is in flight.
+  -- started_at is set in the write that records the command, and completed_at by its end's write.
+  -- Started and not completed is in flight.
   started_at           TEXT,
   completed_at         TEXT,
   -- The receiver-generated task id from a task-augmented call's acceptance, the one handle the
@@ -96,7 +96,7 @@ CREATE TABLE command_receipts (
   CHECK(delivered <= backgrounded)
 ) STRICT;
 
-CREATE INDEX idx_command_receipts_run ON command_receipts(run_id) WHERE run_id IS NOT NULL;
+CREATE INDEX idx_command_receipts_run ON command_receipts(run_id);
 -- The in-flight receipts the restart's sweep reads.
 CREATE INDEX idx_command_receipts_inflight ON command_receipts(run_id)
   WHERE started_at IS NOT NULL AND completed_at IS NULL;
