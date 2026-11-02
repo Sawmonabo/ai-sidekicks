@@ -1,11 +1,11 @@
 //! The provider account plane at the daemon's start: the account registry, the accounts reader the
-//! drivers resolve folders through, the token custody and its sweep of what a stop left, the
-//! background observer over each provider's own legs, the sign-in broker and the sources the
-//! `provider.account.*` methods act through, the current-account switch, and the machine's wake
-//! helper where the system has one; and, once the recovery pass has run, the observer's schedule,
-//! its follow of each metered turn and each run's end, the publishing of each quota reading the
-//! window projection keeps, and the move of each session a stop left on another account than its
-//! provider's current one.
+//! drivers resolve folders through, the token custody and its sweep of what a stop left, the sweep
+//! of what each provider's stopped sign-in move left, the background observer over each provider's
+//! own legs, the sign-in broker and the sources the `provider.account.*` methods act through, the
+//! current-account switch, and the machine's wake helper where the system has one; and, once the
+//! recovery pass has run, the observer's schedule, its follow of each metered turn and each run's
+//! end, the publishing of each quota reading the window projection keeps, and the move of each
+//! session a stop left on another account than its provider's current one.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -107,8 +107,9 @@ pub(crate) struct ProviderAccountPlane {
     pub(crate) observation: ProviderAccountObservation,
 }
 
-/// Builds the account plane over `start` and sweeps the provider tokens a stop left; a failed
-/// sweep is logged, and the next start sweeps what it left. Runs inside the daemon's runtime.
+/// Builds the account plane over `start` and sweeps the provider tokens a stop left, then what
+/// each provider's stopped sign-in move left; a failed sweep is logged, and the next start sweeps
+/// what it left. Runs inside the daemon's runtime.
 pub(crate) async fn build_provider_account_plane(
     start: ProviderAccountPlaneStart<'_>,
 ) -> ProviderAccountPlane {
@@ -165,6 +166,7 @@ pub(crate) async fn build_provider_account_plane(
             "the provider tokens a stop left were not all swept; the next start sweeps the rest"
         );
     }
+    remove_sign_in_move_leftovers(&account_legs, &registry).await;
     let home_lock = Arc::new(AccountHomeLock::default());
     let signing_in = Arc::new(AccountsSigningIn::default());
     let live_turns: Arc<dyn AccountLiveTurns> = binding_cursors;
@@ -234,6 +236,32 @@ pub(crate) async fn build_provider_account_plane(
             reads,
             publisher,
         },
+    }
+}
+
+// Removes what each provider's stopped sign-in move left beside its accounts, logging each
+// leftover not removed and each provider whose sweep could not run; the next start sweeps again.
+async fn remove_sign_in_move_leftovers(
+    account_legs: &HashMap<ProviderId, Arc<dyn ProviderAccountLegs>>,
+    registry: &ProviderAccountRegistry,
+) {
+    for (provider, legs) in account_legs {
+        match legs.remove_sign_in_move_leftovers(registry).await {
+            Ok(unremoved) => {
+                for failure in unremoved {
+                    tracing::warn!(
+                        provider = provider.as_str(),
+                        error = &failure as &(dyn std::error::Error + 'static),
+                        "a stopped sign-in move's leftover was not removed; the next start sweeps it"
+                    );
+                }
+            }
+            Err(error) => tracing::warn!(
+                provider = provider.as_str(),
+                error = &error as &(dyn std::error::Error + 'static),
+                "a stopped sign-in move's leftovers were not swept; the next start sweeps them"
+            ),
+        }
     }
 }
 

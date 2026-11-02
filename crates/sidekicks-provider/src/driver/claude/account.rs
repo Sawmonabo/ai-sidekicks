@@ -25,6 +25,7 @@ use sidekicks_platforms::{PathRules, Spawner};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
 use crate::account::credential_home::CredentialHome;
+use crate::account::registry::ProviderAccountRegistry;
 use crate::command_search::ProviderCommandSearch;
 use crate::driver::claude::rate_limit_windows::ClaudeUsageProbeModels;
 use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
@@ -139,6 +140,18 @@ impl ProviderAccountLegs for ClaudeAccountLegs {
         folders: ProviderAccountFolders,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
         sign_out::sign_out_claude_home(self, folders).boxed()
+    }
+
+    fn remove_sign_in_move_leftovers<'call>(
+        &'call self,
+        registry: &'call ProviderAccountRegistry,
+    ) -> BoxFuture<'call, Result<Vec<io::Error>, DriverError>> {
+        async move {
+            sign_in_move::remove_claude_sign_in_move_leftovers(registry)
+                .await
+                .map_err(|error| DriverError::Internal(Box::new(error)))
+        }
+        .boxed()
     }
 
     fn observe_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderObserveLegs>> {

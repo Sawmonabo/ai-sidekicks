@@ -151,6 +151,14 @@ impl ProviderAccountLegs for CodexAccountLegs {
         sign_out::sign_out_codex_home(self, provider_account_id, folders).boxed()
     }
 
+    // Codex keeps each sign-in in its home's own file and never moves it, so nothing is left.
+    fn remove_sign_in_move_leftovers<'call>(
+        &'call self,
+        _registry: &'call ProviderAccountRegistry,
+    ) -> BoxFuture<'call, Result<Vec<io::Error>, DriverError>> {
+        async { Ok(Vec::new()) }.boxed()
+    }
+
     fn observe_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderObserveLegs>> {
         Some(self)
     }

@@ -27,7 +27,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::account::credential_home::CredentialHome;
-use crate::account::registry::HealthObservation;
+use crate::account::registry::{HealthObservation, ProviderAccountRegistry};
 use crate::driver::ProviderAccountFolders;
 use crate::driver::contract::error::DriverError;
 use crate::port::usage_sink::ProviderQuotaWindow;
@@ -44,6 +44,16 @@ pub trait ProviderAccountLegs: Send + Sync {
         provider_account_id: ProviderAccountId,
         folders: ProviderAccountFolders,
     ) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// Removes what a move of the provider's sign-ins between the keychain and files, stopped
+    /// mid-write, left beside each of `registry`'s accounts, as the daemon's start does before any
+    /// move can run; nothing for a provider with no such move. Answers each leftover that could
+    /// not be removed, for the caller to log. Fails as the accounts cannot be listed or the sweep
+    /// ended without an answer.
+    fn remove_sign_in_move_leftovers<'call>(
+        &'call self,
+        registry: &'call ProviderAccountRegistry,
+    ) -> BoxFuture<'call, Result<Vec<io::Error>, DriverError>>;
 
     /// These legs as the provider's limits read, which the background observer runs; `None` for a
     /// provider with no limits read, whose accounts are then never observed.

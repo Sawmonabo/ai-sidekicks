@@ -51,6 +51,13 @@ impl ProviderAccountLegs for RecordedSignOuts {
         Box::pin(async { Ok(()) })
     }
 
+    fn remove_sign_in_move_leftovers<'call>(
+        &'call self,
+        _registry: &'call ProviderAccountRegistry,
+    ) -> BoxFuture<'call, Result<Vec<std::io::Error>, DriverError>> {
+        unreachable!("the reset sweeps nothing")
+    }
+
     fn observe_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderObserveLegs>> {
         None
     }
