@@ -29,8 +29,8 @@ pub enum WrittenNameSpelling {
 }
 
 impl WrittenNameSpelling {
-    // `text` spelled this way, onto the end of `written`.
-    fn spell_onto(self, written: &mut String, text: &str) {
+    /// `text` spelled this way, onto the end of `written`.
+    pub(crate) fn spell_onto(self, written: &mut String, text: &str) {
         match self {
             Self::Unchanged => written.push_str(text),
             Self::ToolNameSafe => push_safe_characters(written, text, true),
@@ -55,9 +55,13 @@ fn push_safe_characters(written: &mut String, text: &str, is_hyphen_kept: bool) 
     }));
 }
 
+/// A provider's own writer of a whole tool-server name, given the server's name and the name, for
+/// a provider that cuts or qualifies the name beyond spelling its parts.
+pub type WrittenNameFit = fn(server: &str, name: &str) -> String;
+
 /// One form a provider writes a name of one kind in: the name between an opening and a closing,
 /// after the tool server's name and a joiner for the two tool-server kinds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 pub struct WrittenNameForm {
     /// What the name names.
     pub kind: WrittenNameKind,
@@ -72,14 +76,20 @@ pub struct WrittenNameForm {
     pub server_spelling: WrittenNameSpelling,
     /// How the name is spelled.
     pub name_spelling: WrittenNameSpelling,
+    /// The provider's own writer of the whole name where a server is given, in place of the
+    /// opening, spellings, joiner and closing; `None` where those parts write it.
+    pub fit: Option<WrittenNameFit>,
 }
 
 impl WrittenNameForm {
-    /// `name` written in this form: the opening, then `server` spelled as the form spells it and
-    /// the joiner where a server is given, then the name spelled as the form spells it and the
-    /// closing.
+    /// `name` written in this form: the fit's name where the form has one and a server is given,
+    /// else the opening, then `server` spelled as the form spells it and the joiner where a
+    /// server is given, then the name spelled as the form spells it and the closing.
     #[must_use]
     pub fn write(&self, server: Option<&str>, name: &str) -> String {
+        if let (Some(fit), Some(server)) = (self.fit, server) {
+            return fit(server, name);
+        }
         let mut written = String::from(self.opening);
         if let Some(server) = server {
             self.server_spelling.spell_onto(&mut written, server);

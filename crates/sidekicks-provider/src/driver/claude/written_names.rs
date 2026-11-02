@@ -13,6 +13,7 @@ pub(super) const CLAUDE_WRITTEN_NAME_FORMS: [WrittenNameForm; 7] = [
         closing: "",
         server_spelling: WrittenNameSpelling::Unchanged,
         name_spelling: WrittenNameSpelling::Unchanged,
+        fit: None,
     },
     WrittenNameForm {
         kind: WrittenNameKind::Skill,
@@ -21,6 +22,7 @@ pub(super) const CLAUDE_WRITTEN_NAME_FORMS: [WrittenNameForm; 7] = [
         closing: "",
         server_spelling: WrittenNameSpelling::Unchanged,
         name_spelling: WrittenNameSpelling::Unchanged,
+        fit: None,
     },
     WrittenNameForm {
         kind: WrittenNameKind::Agent,
@@ -29,6 +31,7 @@ pub(super) const CLAUDE_WRITTEN_NAME_FORMS: [WrittenNameForm; 7] = [
         closing: "",
         server_spelling: WrittenNameSpelling::Unchanged,
         name_spelling: WrittenNameSpelling::Unchanged,
+        fit: None,
     },
     WrittenNameForm {
         kind: WrittenNameKind::Agent,
@@ -37,6 +40,7 @@ pub(super) const CLAUDE_WRITTEN_NAME_FORMS: [WrittenNameForm; 7] = [
         closing: " (agent)\"",
         server_spelling: WrittenNameSpelling::Unchanged,
         name_spelling: WrittenNameSpelling::Unchanged,
+        fit: None,
     },
     WrittenNameForm {
         kind: WrittenNameKind::ToolServerTool,
@@ -45,6 +49,7 @@ pub(super) const CLAUDE_WRITTEN_NAME_FORMS: [WrittenNameForm; 7] = [
         closing: "",
         server_spelling: WrittenNameSpelling::ToolNameSafe,
         name_spelling: WrittenNameSpelling::Unchanged,
+        fit: None,
     },
     WrittenNameForm {
         kind: WrittenNameKind::ToolServerPrompt,
@@ -53,6 +58,7 @@ pub(super) const CLAUDE_WRITTEN_NAME_FORMS: [WrittenNameForm; 7] = [
         closing: " (MCP)",
         server_spelling: WrittenNameSpelling::Unchanged,
         name_spelling: WrittenNameSpelling::Unchanged,
+        fit: None,
     },
     WrittenNameForm {
         kind: WrittenNameKind::ToolServerPrompt,
@@ -61,5 +67,6 @@ pub(super) const CLAUDE_WRITTEN_NAME_FORMS: [WrittenNameForm; 7] = [
         closing: "",
         server_spelling: WrittenNameSpelling::ToolNameSafe,
         name_spelling: WrittenNameSpelling::Unchanged,
+        fit: None,
     },
 ];
