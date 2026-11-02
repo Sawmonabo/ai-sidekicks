@@ -26,6 +26,7 @@ use tokio_util::task::TaskTracker;
 
 mod entries;
 pub mod environment;
+pub(crate) mod version;
 
 #[cfg(any(test, feature = "test-support"))]
 use environment::find_git_executable;
@@ -112,6 +113,9 @@ pub enum GitError {
     /// git printed a path this system cannot name.
     #[error("git printed a path this system cannot name")]
     PathText(#[source] io::Error),
+    /// git named no version this code can read.
+    #[error("git named no version this code can read")]
+    UnreadableVersion,
     /// A call given input or a time bound was asked to start, which takes neither: its caller
     /// reads git as it runs and ends it.
     #[error("a started git takes no input and no time bound")]
@@ -166,6 +170,7 @@ impl GitError {
             | Self::OutputTooLarge { .. }
             | Self::Read(_)
             | Self::PathText(_)
+            | Self::UnreadableVersion
             | Self::NotStartable => None,
         }
     }
@@ -353,6 +358,15 @@ pub struct GitRunner {
     limits: GitLimits,
     // Whether the program was built with its file-watch daemon, read once it is first needed.
     has_built_in_file_watch: Arc<OnceCell<bool>>,
+    // The program's version, read once it is first needed.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the snapshot capture and its packing check their git features through it"
+        )
+    )]
+    git_version: Arc<OnceCell<version::GitVersion>>,
     // The ends of the trees of calls that failed, run after the failure is answered.
     tree_ends: TaskTracker,
 }
@@ -373,6 +387,7 @@ impl GitRunner {
             login_environment,
             limits,
             has_built_in_file_watch: Arc::new(OnceCell::new()),
+            git_version: Arc::new(OnceCell::new()),
             tree_ends: TaskTracker::new(),
         }
     }

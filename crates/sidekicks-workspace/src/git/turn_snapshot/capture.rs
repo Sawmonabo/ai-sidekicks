@@ -70,12 +70,21 @@ impl ObjectFormat {
     /// The format `rev-parse --show-object-format` printed in `stdout`. Fails with
     /// `UnrecognizedObjectFormat` for any name but `sha1` and `sha256`.
     pub(crate) fn from_show_object_format(stdout: &[u8]) -> Result<Self, UnrecognizedObjectFormat> {
-        match String::from_utf8_lossy(stdout).trim() {
-            "sha1" => Ok(Self::Sha1),
-            "sha256" => Ok(Self::Sha256),
-            reported => Err(UnrecognizedObjectFormat {
+        let reported = String::from_utf8_lossy(stdout);
+        let reported = reported.trim();
+        [Self::Sha1, Self::Sha256]
+            .into_iter()
+            .find(|format| format.name() == reported)
+            .ok_or_else(|| UnrecognizedObjectFormat {
                 reported: reported.to_owned(),
-            }),
+            })
+    }
+
+    /// The format's name as `--object-format` takes it.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Sha1 => "sha1",
+            Self::Sha256 => "sha256",
         }
     }
 
