@@ -2,7 +2,9 @@
 //! state a command read and the status a shell reports for a program a closed pipe ended, how a run
 //! ends, and the one mapping from a run's failure to its ending.
 
+use std::error::Error;
 use std::io;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use sidekicks_client::error::ClientError;
@@ -93,6 +95,25 @@ pub(crate) struct UnmappedExitCodeError {
 /// cause, and its text is the line `error:` prints.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CommandFailure {
+    /// The background service answered, so a command that needs it stopped was refused before it
+    /// asked or changed anything.
+    #[error(
+        "Stop the background service first: sidekicks daemon stop. Then run sidekicks data \
+         {command} again."
+    )]
+    ServiceRunning {
+        /// The `data` command refused, as the person types it.
+        command: &'static str,
+    },
+    /// The folder named as a backup holds no manifest that reads.
+    #[error("{} holds no backup whose manifest reads", backup.display())]
+    BackupUnreadable {
+        /// The folder named.
+        backup: PathBuf,
+        /// Why its manifest did not read.
+        #[source]
+        source: Box<dyn Error + Send + Sync>,
+    },
     /// The started daemon did not answer the handshake within the wait, so it was ended.
     #[error(
         "The background service did not answer within {} ms of its start, so it was stopped",
@@ -148,22 +169,32 @@ impl CommandFailure {
             Self::StartTimedOut { .. }
             | Self::DaemonExited { .. }
             | Self::InstalledNotAnswering { .. } => ExitCode::Unavailable,
-            Self::ServiceRegistrationMissing | Self::AppOwnsService => ExitCode::Configuration,
+            Self::ServiceRegistrationMissing
+            | Self::AppOwnsService
+            | Self::ServiceRunning { .. } => ExitCode::Configuration,
             Self::RegistrationRefused(_) => ExitCode::Software,
+            Self::BackupUnreadable { .. } => ExitCode::NoInput,
         }
     }
 }
 
 /// The started daemon's exit, then the status file's title and line under it where it has them.
 fn describe_daemon_exit(exit: &ChildExit, cannot_start: Option<&DaemonCannotStart>) -> String {
-    let ended = match &exit.signal_name {
-        Some(signal_name) => format!("on {signal_name}"),
-        None => format!("with exit code {}", exit.exit_code),
-    };
-    let line = format!("The background service ended as it started, {ended}");
+    let line = format!(
+        "The background service ended as it started, {}",
+        describe_child_ending(exit)
+    );
     match cannot_start {
         Some(cannot_start) => format!("{line}\n{}", describe_cannot_start(cannot_start).trim_end()),
         None => line,
+    }
+}
+
+/// How a child process ended, as a line names it: `on SIGINT`, or `with exit code 1`.
+pub(crate) fn describe_child_ending(exit: &ChildExit) -> String {
+    match &exit.signal_name {
+        Some(signal_name) => format!("on {signal_name}"),
+        None => format!("with exit code {}", exit.exit_code),
     }
 }
 

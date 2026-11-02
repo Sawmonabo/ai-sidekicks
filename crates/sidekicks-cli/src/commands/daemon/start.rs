@@ -209,7 +209,7 @@ async fn start_and_wait(
 /// Whether a daemon answers one handshake at `endpoint`, a daemon repairing its database file
 /// among them, whose details go to `on_repairing`. Fails as the handshake does other than as a
 /// starting daemon's does.
-async fn is_daemon_answering(
+pub(crate) async fn is_daemon_answering(
     endpoint: &DaemonEndpoint,
     on_repairing: &mut impl FnMut(DaemonRepairingDetails),
 ) -> Result<bool, ClientError> {

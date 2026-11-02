@@ -51,7 +51,7 @@ pub(crate) fn run_listening_for_ctrl_c<T>(
 
 /// Cancels `cancel` at the first Ctrl-C and answers at the second, so a command whose daemon is
 /// slow to answer the cancel still ends when the person presses Ctrl-C again.
-async fn cancel_on_ctrl_c(ctrl_c: &mut CtrlCListener, cancel: &CancellationToken) {
+pub(crate) async fn cancel_on_ctrl_c(ctrl_c: &mut CtrlCListener, cancel: &CancellationToken) {
     // The listener answers `None` only once the runtime shuts down, which it cannot while the
     // command runs on it.
     ctrl_c.recv().await;

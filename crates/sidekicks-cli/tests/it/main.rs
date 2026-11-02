@@ -3,4 +3,5 @@
 mod closed_pipe;
 mod daemon_install;
 mod daemon_start;
+mod data_modes;
 mod helpers;
