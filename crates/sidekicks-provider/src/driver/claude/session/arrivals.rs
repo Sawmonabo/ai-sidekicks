@@ -22,7 +22,9 @@ use tokio::time::Instant;
 
 use crate::driver::claude::delivery::claude_delivery_origin;
 use crate::driver::claude::delivery::stream::daemon_ends::ClaudeDaemonEndSettlement;
-use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSessionStreams};
+use crate::driver::claude::delivery::stream::{
+    ClaudeFirstRequest, ClaudeSessionStream, ClaudeSessionStreams,
+};
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::driver::claude::frame_routing::{ClaudeFrameRouting, ClaudeRoutedObservation};
 use crate::driver::claude::run::routes::ClaudeBoundRun;
@@ -111,6 +113,8 @@ pub(crate) enum ClaudeOwnDelivery {
         provider_account_id: ProviderAccountId,
         /// Where the move is written.
         bindings: Arc<dyn RuntimeBindingWriter>,
+        /// Answered how the process's next request goes, where the switch listens for it.
+        first_request: Option<oneshot::Sender<ClaudeFirstRequest>>,
     },
 }
 

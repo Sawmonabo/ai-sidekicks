@@ -10,7 +10,7 @@ pub(super) mod account_servers;
 pub(super) mod answered_commands;
 pub(super) mod arrivals;
 pub(super) mod context_reading;
-mod control_requests;
+pub(crate) mod control_requests;
 pub(super) mod controls;
 pub(crate) mod conversation_file;
 pub(crate) mod errors;

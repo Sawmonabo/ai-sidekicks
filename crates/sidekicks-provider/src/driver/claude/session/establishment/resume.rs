@@ -240,7 +240,7 @@ fn runs_as_asked(live: &LiveClaudeSession, params: &ResumeSessionParams) -> bool
     let requested = &live.requested_spawn;
     let settings = lock(&live.settings);
     live.agent_id == params.agent_id
-        && live.admitted_provider_account_id == params.provider_account_id
+        && live.admitted_provider_account_id() == params.provider_account_id
         && legs.tool_servers.as_slice() == params.tool_servers.as_deref().unwrap_or_default()
         && requested.callback_tools.as_deref().unwrap_or_default()
             == params.callback_tools.as_deref().unwrap_or_default()

@@ -39,7 +39,9 @@ use crate::driver::child_records::{
     ChildRecord, ChildSecret, DaemonChildRecords, RecordedChild, spawn_recorded_child,
 };
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
-use crate::driver::claude::session::control_requests::ClaudeControlRequests;
+use crate::driver::claude::session::control_requests::{
+    ClaudeAccountMoveMarker, ClaudeControlRequests,
+};
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
 use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
@@ -266,7 +268,8 @@ impl ClaudeCodeProcess {
         &self,
         request: ClaudeControlRequest,
     ) -> Result<ClaudeControlAnswer, ClaudeSessionError> {
-        let answer = self.send_control_request_within(request, CLAUDE_INITIALIZE_TOTAL_DEADLINE);
+        let answer =
+            self.send_control_request_within(request, CLAUDE_INITIALIZE_TOTAL_DEADLINE, None);
         tokio::select! {
             answered = answer => answered,
             () = wait_out_startup_deadline(self.startup_hooks.clone()) => {
@@ -326,14 +329,20 @@ impl ClaudeCodeProcess {
         self.end.borrow().is_some()
     }
 
-    /// Sends one control request and settles on its answer within `deadline`, failing as
-    /// `send_control_request` does.
+    /// Sends one control request, carrying `account_move` where given, and settles on its answer
+    /// within `deadline`, failing as `send_control_request` does.
     async fn send_control_request_within(
         &self,
         request: ClaudeControlRequest,
         deadline: Duration,
+        account_move: Option<ClaudeAccountMoveMarker>,
     ) -> Result<ClaudeControlAnswer, ClaudeSessionError> {
-        let pending = self.requests.open(request.subtype())?;
+        let pending = match account_move {
+            None => self.requests.open(request.subtype())?,
+            Some(account_move) => self
+                .requests
+                .open_account_move(request.subtype(), account_move)?,
+        };
         let line = compose_line(&ControlRequestLine {
             frame_type: "control_request",
             request_id: &pending.request_id(),
@@ -349,7 +358,16 @@ impl ClaudeProcessChannel for ClaudeCodeProcess {
         &self,
         request: ClaudeControlRequest,
     ) -> BoxFuture<'_, Result<ClaudeControlAnswer, ClaudeSessionError>> {
-        self.send_control_request_within(request, CLAUDE_REQUEST_DEADLINE)
+        self.send_control_request_within(request, CLAUDE_REQUEST_DEADLINE, None)
+            .boxed()
+    }
+
+    fn send_account_move(
+        &self,
+        request: ClaudeControlRequest,
+        account_move: ClaudeAccountMoveMarker,
+    ) -> BoxFuture<'_, Result<ClaudeControlAnswer, ClaudeSessionError>> {
+        self.send_control_request_within(request, CLAUDE_REQUEST_DEADLINE, Some(account_move))
             .boxed()
     }
 

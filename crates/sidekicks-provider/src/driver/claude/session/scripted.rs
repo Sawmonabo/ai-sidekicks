@@ -126,7 +126,7 @@ pub(crate) fn scripted_live_session(
         },
         initialize: ClaudeInitializeDeclaration::default(),
         command_choices: async move { choices }.boxed().shared(),
-        admitted_provider_account_id: test_provider_account_id(),
+        admitted_account: Mutex::new(test_provider_account_id()),
         settings: Mutex::new(ClaudeLiveSettings {
             execution_posture: Some(execution_posture),
             session_mode: SessionMode::Build,

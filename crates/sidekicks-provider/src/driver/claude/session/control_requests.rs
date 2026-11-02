@@ -13,6 +13,8 @@ use std::time::Duration;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use tokio::sync::oneshot;
 
+use crate::driver::claude::delivery::stream::ClaudeFirstRequest;
+
 use crate::driver::claude::session::arrivals::{
     ClaudeArrivalSender, ClaudeOwnDelivery, ClaudeSessionArrival,
 };
@@ -63,6 +65,8 @@ pub(crate) struct ClaudeAccountMoveMarker {
     pub(crate) provider_account_id: ProviderAccountId,
     /// Where the move is written.
     pub(crate) bindings: Arc<dyn RuntimeBindingWriter>,
+    /// Answered how the process's next request after the move goes; `None` where no one listens.
+    pub(crate) first_request: Option<oneshot::Sender<ClaudeFirstRequest>>,
 }
 
 impl ClaudeAccountMoveMarker {
@@ -74,6 +78,7 @@ impl ClaudeAccountMoveMarker {
             ClaudeOwnDelivery::AccountMove {
                 provider_account_id: self.provider_account_id,
                 bindings: self.bindings,
+                first_request: self.first_request,
             },
         ));
         if !is_queued {
@@ -131,13 +136,6 @@ impl ClaudeControlRequests {
     /// Opens a request as [`Self::open`] does, carrying `account_move`, which the answer hands
     /// into the session's queue once the process carried the request out; a refusal, a withdrawal
     /// or the process's exit drops it.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the account switch's Claude Code leg opens its settings request with the move"
-        )
-    )]
     pub(crate) fn open_account_move(
         &self,
         subtype: ClaudeControlSubtype,

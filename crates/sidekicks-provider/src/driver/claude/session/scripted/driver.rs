@@ -68,11 +68,32 @@ use crate::runtime_binding::test_store::{spawn_config_on, test_provider_account_
 /// The statements the driver's read pool caches.
 const POOL_STATEMENT_CAPACITY: usize = 16;
 
-// Every session runs in one folder, and every account on the folders given and is the current one,
-// with the advisor the session store recorded as its own and the step bound set last.
+/// The accounts a test registers, each with its own folders and how it signs in; every other
+/// account runs on the fixture's folders and reports no sign-in mode.
+#[derive(Default)]
+pub(crate) struct ScriptedAccounts {
+    accounts: Mutex<HashMap<ProviderAccountId, (ProviderAccountFolders, Option<ProviderAuthMode>)>>,
+}
+
+impl ScriptedAccounts {
+    /// Registers `provider_account_id` on `folders`, signing in as `auth_mode` reports.
+    pub(crate) fn register(
+        &self,
+        provider_account_id: ProviderAccountId,
+        folders: ProviderAccountFolders,
+        auth_mode: Option<ProviderAuthMode>,
+    ) {
+        lock(&self.accounts).insert(provider_account_id, (folders, auth_mode));
+    }
+}
+
+// Every session runs in one folder, and every account on its registered folders, else on the
+// folders given, and is the current one, with the advisor the session store recorded as its own
+// and the step bound set last.
 struct FolderContexts {
     work: PathBuf,
     account_folders: ProviderAccountFolders,
+    accounts: Arc<ScriptedAccounts>,
     advisors: Arc<RecordedAdvisors>,
     step_bound: Arc<Mutex<Option<SafeInt<1>>>>,
 }
@@ -81,10 +102,10 @@ impl SessionSpawnContextResolver for FolderContexts {
     fn resolve_spawn_context(
         &self,
         session_id: SessionId,
-        _provider_account_id: ProviderAccountId,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn std::error::Error + Send + Sync>>> {
         let working_directory = self.work.clone();
-        let account_folders = self.account_folders.clone();
+        let account_folders = self.folders_of(&provider_account_id);
         let advisor_model = lock(&self.advisors.advisors).get(&session_id).cloned();
         let step_bound = *lock(&self.step_bound);
         async move {
@@ -113,9 +134,9 @@ impl SessionSpawnContextResolver for FolderContexts {
 impl ProviderAccountReader for FolderContexts {
     fn resolve_account_folders(
         &self,
-        _provider_account_id: ProviderAccountId,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
-        let account_folders = self.account_folders.clone();
+        let account_folders = self.folders_of(&provider_account_id);
         async move { Ok(account_folders) }.boxed()
     }
 
@@ -137,11 +158,13 @@ impl ProviderAccountReader for FolderContexts {
 
     fn read_observed_auth_mode(
         &self,
-
-        _provider_account_id: ProviderAccountId,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn std::error::Error + Send + Sync>>>
     {
-        async { Ok(None) }.boxed()
+        let auth_mode = lock(&self.accounts.accounts)
+            .get(&provider_account_id)
+            .and_then(|(_, auth_mode)| *auth_mode);
+        async move { Ok(auth_mode) }.boxed()
     }
 
     fn read_sealed_token(
@@ -149,6 +172,17 @@ impl ProviderAccountReader for FolderContexts {
         _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn std::error::Error + Send + Sync>>> {
         async { Ok(None) }.boxed()
+    }
+}
+
+impl FolderContexts {
+    fn folders_of(&self, provider_account_id: &ProviderAccountId) -> ProviderAccountFolders {
+        lock(&self.accounts.accounts)
+            .get(provider_account_id)
+            .map_or_else(
+                || self.account_folders.clone(),
+                |(folders, _)| folders.clone(),
+            )
     }
 }
 
@@ -290,6 +324,10 @@ pub(crate) struct ScriptedDriver {
     pub(crate) attachments: Arc<ScriptedAttachments>,
     /// The relaunches it reported.
     pub(crate) relaunches: Arc<RecordedRelaunches>,
+    /// The accounts its sessions run on.
+    pub(crate) accounts: Arc<ScriptedAccounts>,
+    /// The binding writes the driver made.
+    pub(crate) bindings: Arc<TakenBindingWrites>,
     /// The advisors its spawn contexts answer, which a test registers as the session store.
     pub(crate) advisors: Arc<RecordedAdvisors>,
     /// The step bound its spawn contexts answer for every session; `None` until a test sets one.
@@ -355,6 +393,8 @@ impl ScriptedDriver {
         let work = folder.path().join("work");
         std::fs::create_dir_all(&work).expect("the working folder is made");
         let attachments = Arc::new(ScriptedAttachments::default());
+        let bindings = Arc::new(TakenBindingWrites::default());
+        let accounts = Arc::new(ScriptedAccounts::default());
         let base = DriverServices {
             attachments: attachments.clone(),
             staged_changes: scripted_staged_changes(),
@@ -370,7 +410,7 @@ impl ScriptedDriver {
                 &home,
                 folder.path().join("session-token"),
             )),
-            runtime_bindings: Arc::new(TakenBindingWrites),
+            runtime_bindings: Arc::clone(&bindings) as _,
             ..test_driver_services()
         };
         let ports = &base.ports;
@@ -383,6 +423,7 @@ impl ScriptedDriver {
                 configuration_folder: default_folder.clone(),
                 credential_store_folder: default_folder,
             }),
+            accounts: Arc::clone(&accounts),
             advisors: Arc::clone(&advisors),
             step_bound: Arc::clone(&step_bound),
         });
@@ -436,6 +477,8 @@ impl ScriptedDriver {
             usage,
             attachments,
             relaunches,
+            accounts,
+            bindings,
             advisors,
             step_bound,
             services: base,

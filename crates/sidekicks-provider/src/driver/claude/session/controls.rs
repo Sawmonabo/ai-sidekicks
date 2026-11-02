@@ -137,7 +137,7 @@ impl ClaudeSideQuestionCopy {
     pub(crate) fn of_live(live: &LiveClaudeSession, parent_cumulative: UsageAxisCounts) -> Self {
         Self {
             legs: without_credential_prompts(one_turn_legs(live, None, None)),
-            provider_account_id: live.admitted_provider_account_id.clone(),
+            provider_account_id: live.admitted_provider_account_id(),
             parent_provider_session_id: live.provider_session_id.clone(),
             parent_cumulative,
         }

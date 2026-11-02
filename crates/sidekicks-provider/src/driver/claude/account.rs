@@ -16,32 +16,48 @@ mod sign_out;
         reason = "the driver hands its account legs to the account plane once it is wired"
     )
 )]
+mod switch;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the driver hands its account legs to the account plane once it is wired"
+    )
+)]
 mod token_status;
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use secrecy::SecretString;
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::{PathRules, Spawner};
 
 use crate::command_search::ProviderCommandSearch;
+use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
 use crate::driver::claude::spawn::environment::{
     ClaudeProcessEnvironmentRequest, ClaudeProcessHome, compose_claude_process_environment,
 };
 use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
 use crate::driver::claude::spawn::launch::installed_build::resolve_claude_build;
-use crate::driver::contract::account::{ProviderAccountLegs, ProviderTokenStatusLegs};
+use crate::driver::contract::account::{
+    ProviderAccountLegs, ProviderSwitchLegs, ProviderTokenStatusLegs, SessionAccountMove,
+    SessionToMove,
+};
 use crate::driver::contract::error::DriverError;
+use crate::driver::ports::DriverPorts;
 use crate::driver::{DriverServices, ProviderAccountFolders};
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::spawn_environment::{ReservedEnvironmentNames, SessionEnvironment};
 use crate::spawned_version::ResolvedProviderExecutable;
 
 /// What Claude Code's account legs start their processes from: the installed build, found as a
 /// session's is, the environment every Claude Code process is composed over, and the driver's
-/// launcher, which every Claude Code process the driver keeps starts through.
+/// launcher, which every Claude Code process the driver keeps starts through; and what a switch
+/// moves: the driver's sessions, their bindings and the accounts they read.
 #[cfg_attr(
     not(test),
     expect(
@@ -57,6 +73,9 @@ pub(crate) struct ClaudeAccountLegs {
     data_folder: PathBuf,
     base_environment: Arc<[(String, String)]>,
     reserved_names: Arc<ReservedEnvironmentNames>,
+    sessions: Weak<ClaudeSessionEstablishment>,
+    bindings: Arc<dyn RuntimeBindingWriter>,
+    ports: Arc<DriverPorts>,
 }
 
 #[cfg_attr(
@@ -67,9 +86,13 @@ pub(crate) struct ClaudeAccountLegs {
     )
 )]
 impl ClaudeAccountLegs {
-    /// The legs over the shared services, starting their kept processes through `launcher`; they
-    /// hold handles and do no I/O.
-    pub(crate) fn new(services: &DriverServices, launcher: Arc<ClaudeProcessLauncher>) -> Self {
+    /// The legs over the shared services, starting their kept processes through `launcher` and
+    /// moving the sessions `sessions` brings up; they hold handles and do no I/O.
+    pub(crate) fn new(
+        services: &DriverServices,
+        launcher: Arc<ClaudeProcessLauncher>,
+        sessions: Weak<ClaudeSessionEstablishment>,
+    ) -> Self {
         Self {
             spawner: services.spawner.clone(),
             launcher,
@@ -78,6 +101,9 @@ impl ClaudeAccountLegs {
             data_folder: services.data_folder.clone(),
             base_environment: Arc::clone(&services.base_environment),
             reserved_names: Arc::clone(&services.reserved_names),
+            sessions,
+            bindings: Arc::clone(&services.runtime_bindings),
+            ports: Arc::clone(&services.ports),
         }
     }
 
@@ -129,10 +155,24 @@ impl ProviderTokenStatusLegs for ClaudeAccountLegs {
     }
 }
 
+impl ProviderSwitchLegs for ClaudeAccountLegs {
+    fn move_sessions(
+        &self,
+        from: ProviderAccountId,
+        to: ProviderAccountId,
+        sessions: Vec<SessionToMove>,
+    ) -> BoxFuture<'_, Vec<Result<SessionAccountMove, (SessionId, DriverError)>>> {
+        switch::move_claude_sessions(self, from, to, sessions).boxed()
+    }
+}
+
 /// The legs over `services`, starting their kept processes through a launcher of their own that
-/// reads tokens through `services`' accounts port.
+/// reads tokens through `services`' accounts port, and moving the sessions `sessions` brings up.
 #[cfg(test)]
-pub(crate) fn test_account_legs(services: &DriverServices) -> ClaudeAccountLegs {
+pub(crate) fn test_account_legs(
+    services: &DriverServices,
+    sessions: Weak<ClaudeSessionEstablishment>,
+) -> ClaudeAccountLegs {
     let launcher = ClaudeProcessLauncher::new(
         services.spawner.clone(),
         Arc::clone(&services.child_records),
@@ -140,5 +180,5 @@ pub(crate) fn test_account_legs(services: &DriverServices) -> ClaudeAccountLegs 
         Arc::clone(&services.ports.provider_accounts),
         &services.data_folder,
     );
-    ClaudeAccountLegs::new(services, Arc::new(launcher))
+    ClaudeAccountLegs::new(services, Arc::new(launcher), sessions)
 }

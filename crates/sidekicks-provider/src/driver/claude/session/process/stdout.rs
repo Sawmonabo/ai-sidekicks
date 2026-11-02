@@ -491,6 +491,7 @@ mod tests {
                     arrivals: session.stream.arrivals().clone(),
                     provider_account_id: moved_to.clone(),
                     bindings: Arc::clone(&bindings) as Arc<dyn RuntimeBindingWriter>,
+                    first_request: None,
                 },
             )
             .expect("an open table takes a request");

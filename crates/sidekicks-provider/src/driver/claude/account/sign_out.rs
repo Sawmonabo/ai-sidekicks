@@ -112,7 +112,7 @@ async fn run_sign_out(
 #[cfg(test)]
 mod tests {
     use std::path::Path;
-    use std::sync::Arc;
+    use std::sync::{Arc, Weak};
 
     use sidekicks_std::file::atomic_write::write_file_atomically;
 
@@ -158,7 +158,7 @@ mod tests {
             "PATH".to_owned(),
             format!("{}:/usr/bin:/bin", programs.display()),
         )]);
-        let legs = test_account_legs(&services);
+        let legs = test_account_legs(&services, Weak::new());
         let named = account_folders(root.path(), "one");
 
         legs.sign_out_home(test_provider_account_id(), named.clone())

@@ -11,6 +11,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::oneshot;
 use tokio::time::Instant;
 
 use crate::driver::claude::delivery::commands::ClaudeHeldCommand;
@@ -21,6 +22,18 @@ use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::arrivals::{ClaudeArrivalSender, ClaudeTurnAtRead};
 use crate::driver::claude::session::permission_mode::ClaudePermissionModeRecord;
 use crate::driver::diagnostics::OnceReportedDiagnostics;
+
+/// Claude Code's error word for a request refused for its login.
+pub(crate) const CLAUDE_LOGIN_REFUSAL: &str = "authentication_failed";
+
+/// How the first request a session's process made after an account move was answered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClaudeFirstRequest {
+    /// The provider answered it.
+    Answered,
+    /// The provider refused it for its login.
+    LoginRefused,
+}
 
 /// One session's stream while its process runs: its readings, behind one lock never held across
 /// an await, and its queue.
@@ -40,6 +53,8 @@ pub(crate) struct ClaudeSessionStream {
     pub(super) unlisted_result_reports: Mutex<OnceReportedDiagnostics>,
     // How many turns the run engine could not number have ended.
     unnumbered_turns: AtomicU64,
+    // Where the next request's answer goes, once an account move asked to hear it.
+    first_request: Mutex<Option<oneshot::Sender<ClaudeFirstRequest>>>,
 }
 
 impl ClaudeSessionStream {
@@ -66,6 +81,7 @@ impl ClaudeSessionStream {
             unheld_reports: Mutex::default(),
             unlisted_result_reports: Mutex::default(),
             unnumbered_turns: AtomicU64::new(0),
+            first_request: Mutex::new(None),
         }
     }
 
@@ -111,6 +127,20 @@ impl ClaudeSessionStream {
     /// The account the process runs on.
     pub(crate) fn provider_account_id(&self) -> &ProviderAccountId {
         &self.provider_account_id
+    }
+
+    /// Answers `watch` how the process's next request goes; a watch held before is dropped, which
+    /// reads as no request seen.
+    pub(crate) fn watch_first_request(&self, watch: oneshot::Sender<ClaudeFirstRequest>) {
+        *lock(&self.first_request) = Some(watch);
+    }
+
+    // Answers the watch on the next request, where one is held.
+    pub(super) fn settle_first_request(&self, outcome: ClaudeFirstRequest) {
+        if let Some(watch) = lock(&self.first_request).take() {
+            // A watcher that stopped waiting needs no answer.
+            watch.send(outcome).unwrap_or(());
+        }
     }
 
     /// The running command `task_id` of the session's own process, where its tasks hold it.
