@@ -73,6 +73,22 @@ static WAIT_AGAIN_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// Once a handed-off plan reads waiting again, reopens every older waiting plan of its session as a
+// superseded plan reopens, so the plan recorded last is the one card that stands.
+static REOPEN_OLDER_WAITING_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE plans SET state = '{open}'
+  WHERE state = '{waiting}' AND EXISTS (
+    SELECT 1 FROM plans AS put_back
+    WHERE put_back.id = @planId AND put_back.state = '{waiting}'
+      AND put_back.session_id = plans.session_id
+      AND (put_back.created_at, put_back.id) > (plans.created_at, plans.id)
+  )",
+        open = <&'static str>::from(PlanState::Open),
+        waiting = <&'static str>::from(PlanState::Waiting)
+    )
+});
+
 // Settles a waiting plan with a verdict.
 static SETTLE_VERDICT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -136,22 +152,30 @@ pub(crate) fn insert_plan_statement(
     }
 }
 
-/// Ends `plan_id`'s hold for `reason`: a newer plan's supersede reopens it whether or not it holds
-/// a request, a fresh session gone puts the handed-off plan back up to wait unless a newer plan of
-/// its session waits, which reopens it instead, and every other end reopens it only while it waits
-/// on a request its driver holds. Refused unless the plan stands as its reason needs.
-pub(crate) fn hold_end_statement(plan_id: &PlanId, reason: PlanHoldEndedReason) -> WriteStatement {
-    let sql = match reason {
-        PlanHoldEndedReason::Superseded => SUPERSEDE_SQL.as_str(),
-        PlanHoldEndedReason::FreshSessionGone => WAIT_AGAIN_SQL.as_str(),
-        PlanHoldEndedReason::Interrupted
-        | PlanHoldEndedReason::Withdrawn
-        | PlanHoldEndedReason::RunEnded => END_HOLD_SQL.as_str(),
-    };
-    WriteStatement {
+/// Ends `plan_id`'s hold for `reason`, in statements run in order in one write: a newer plan's
+/// supersede reopens it whether or not it holds a request, a fresh session gone puts the handed-off
+/// plan back up to wait unless a newer plan of its session waits, which reopens it instead, and
+/// then reopens its session's older waiting plans, and every other end reopens it only while it
+/// waits on a request its driver holds. The first statement refuses the write unless the plan
+/// stands as its reason needs.
+pub(crate) fn hold_end_statements(
+    plan_id: &PlanId,
+    reason: PlanHoldEndedReason,
+) -> Vec<WriteStatement> {
+    let plan_statement = |sql: &'static str, expected_row_count| WriteStatement {
         sql: Cow::Borrowed(sql),
         bindings: StatementBindings::Named(vec![text_binding("@planId", plan_id.text().as_str())]),
-        expected_row_count: Some(1),
+        expected_row_count,
+    };
+    match reason {
+        PlanHoldEndedReason::Superseded => vec![plan_statement(SUPERSEDE_SQL.as_str(), Some(1))],
+        PlanHoldEndedReason::FreshSessionGone => vec![
+            plan_statement(WAIT_AGAIN_SQL.as_str(), Some(1)),
+            plan_statement(REOPEN_OLDER_WAITING_SQL.as_str(), None),
+        ],
+        PlanHoldEndedReason::Interrupted
+        | PlanHoldEndedReason::Withdrawn
+        | PlanHoldEndedReason::RunEnded => vec![plan_statement(END_HOLD_SQL.as_str(), Some(1))],
     }
 }
 
@@ -181,13 +205,13 @@ pub fn settle_verdict_statement(
     }
 }
 
-/// `plan.hold.ended` for `plan_id` of `session_id`, for `reason`, with the statement that reopens
-/// it.
+/// `plan.hold.ended` for `plan_id` of `session_id`, for `reason`, with the statements that reopen
+/// it, run in order in the event's write.
 pub(crate) fn hold_end_write(
     session_id: SessionId,
     plan_id: PlanId,
     reason: PlanHoldEndedReason,
-) -> (WriteStatement, SessionEventDraft) {
+) -> (Vec<WriteStatement>, SessionEventDraft) {
     let event = SessionEventDraft::of_session(
         session_id,
         &SessionEvent::PlanHoldEnded(PlanHoldEndedPayload {
@@ -197,7 +221,7 @@ pub(crate) fn hold_end_write(
         }),
     )
     .expect("a plan.hold.ended payload names only checked ids");
-    (hold_end_statement(&plan_id, reason), event)
+    (hold_end_statements(&plan_id, reason), event)
 }
 
 /// The plans table as a run's end and the session list read it.
@@ -222,7 +246,7 @@ impl PlanHolds for StoredPlanHolds {
         &self,
         held: HeldPlan,
         reason: PlanHoldEndedReason,
-    ) -> (WriteStatement, SessionEventDraft) {
+    ) -> (Vec<WriteStatement>, SessionEventDraft) {
         hold_end_write(held.session_id, held.plan_id, reason)
     }
 

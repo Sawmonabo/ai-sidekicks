@@ -18,7 +18,7 @@ use sidekicks_store::events::projection::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
 
-use crate::plans::store::{hold_end_statement, insert_plan_statement, settle_verdict_statement};
+use crate::plans::store::{hold_end_statements, insert_plan_statement, settle_verdict_statement};
 
 const CLEAR_PLANS_SQL: &str = "DELETE FROM plans WHERE session_id = ?";
 
@@ -98,7 +98,7 @@ impl SessionProjectionFold for PlansProjection {
                 &occurred_at,
             ));
         } else if let SessionEvent::PlanHoldEnded(hold_ended) = event {
-            statements.push(hold_end_statement(&hold_ended.plan_id, hold_ended.reason));
+            statements.extend(hold_end_statements(&hold_ended.plan_id, hold_ended.reason));
         }
         Ok(())
     }

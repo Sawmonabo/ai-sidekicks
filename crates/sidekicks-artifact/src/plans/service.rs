@@ -147,9 +147,9 @@ impl PlansService {
                     let mut transactional_prelude = statements.clone();
                     let mut preceding_events = Vec::with_capacity(older.len() + 1);
                     for &plan_id in &older {
-                        let (statement, ended) =
+                        let (statements, ended) =
                             hold_end_write(session_id, plan_id, PlanHoldEndedReason::Superseded);
-                        transactional_prelude.push(statement);
+                        transactional_prelude.extend(statements);
                         preceding_events.push(ended);
                     }
                     preceding_events.push(published.clone());
@@ -226,13 +226,13 @@ impl PlansService {
 
     // The hold's end in one write, nothing written when the guard finds the plan holding none.
     async fn end_hold(&self, held: HeldPlan, reason: PlanHoldEndedReason) -> Result<(), PlanError> {
-        let (statement, event) = hold_end_write(held.session_id, held.plan_id, reason);
+        let (statements, event) = hold_end_write(held.session_id, held.plan_id, reason);
         let appended = self
             .appender
             .append(
                 event,
                 SessionEventLinkage {
-                    transactional_prelude: vec![statement],
+                    transactional_prelude: statements,
                     ..SessionEventLinkage::default()
                 },
             )

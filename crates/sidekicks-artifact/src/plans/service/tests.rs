@@ -332,63 +332,87 @@ async fn a_newer_plan_supersedes_the_older_waiting_one_in_its_own_write() {
     );
 }
 
+// The newer plan of the session beside the handed-off plan whose fresh session goes.
+#[derive(Clone, Copy)]
+enum NewerPlan {
+    None,
+    Waiting,
+    HandedOffAndGoneAfter,
+}
+
 // A handed-off plan whose fresh session went before its first turn waits again, holding no
-// request, live and on rebuild; where a newer plan of its session already waits, that one stands
-// and the handed-off plan reopens, so one plan waits. Killed by every hold's end read through the
-// held request's statement, which reopens a plan only while it waits, and by the newer-plan guard
-// removed, which leaves two plans waiting.
+// request, live and on rebuild, and the plan recorded last stands: a newer waiting plan keeps its
+// card and the handed-off plan reopens, and a newer handed-off plan whose fresh session goes after
+// it takes the card back and reopens it. One plan waits. Killed by every hold's end read through
+// the held request's statement, which reopens a plan only while it waits, by the newer-plan guard
+// removed, and by the older waiting plans left as they are, each leaving two plans waiting.
 #[rstest]
-#[case::alone(false, "waiting 0 -")]
-#[case::beside_a_newer_waiting_plan(true, "open 0 -")]
+#[case::alone(NewerPlan::None, "waiting 0 -")]
+#[case::beside_a_newer_waiting_plan(NewerPlan::Waiting, "open 0 -")]
+#[case::before_a_newer_hand_off_whose_session_goes(NewerPlan::HandedOffAndGoneAfter, "open 0 -")]
 #[tokio::test]
 async fn a_hand_off_whose_fresh_session_went_puts_its_plan_back_up(
-    #[case] newer_waits: bool,
+    #[case] newer_plan: NewerPlan,
     #[case] handed_off_row: &str,
 ) {
     let fixture = Fixture::new().await;
     let session_id = fixture.store.session_id;
-    let plan_id = fixture.take(true).await;
-    let fresh_session_id = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID");
     let device_id = DeviceId::new("device-1".to_owned()).expect("a test device id");
-    let handed_off = SessionEventDraft::of_session(
-        session_id,
-        &SessionEvent::PlanHandedOff(PlanHandedOffPayload {
-            plan_id,
-            session_id,
-            fresh_session_id,
-            device_id: device_id.clone(),
-        }),
-    )
-    .expect("a plan.handedOff payload names only checked ids");
-    let verdict = settle_verdict_statement(
-        &plan_id,
-        PlanState::HandedOff,
-        Some(&fresh_session_id),
-        &device_id,
-        &WireInstant::now(),
-    );
-    let append = |event, statement| {
+    let append = |event, statements| {
         fixture.store.appender.append(
             event,
             SessionEventLinkage {
-                transactional_prelude: vec![statement],
+                transactional_prelude: statements,
                 ..SessionEventLinkage::default()
             },
         )
     };
-    append(handed_off, verdict)
-        .await
-        .expect("the hand-off is written");
-    let newer = if newer_waits {
-        Some(fixture.take(true).await)
-    } else {
-        None
+    let hand_off = async |plan_id| {
+        let fresh_session_id = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID");
+        let handed_off = SessionEventDraft::of_session(
+            session_id,
+            &SessionEvent::PlanHandedOff(PlanHandedOffPayload {
+                plan_id,
+                session_id,
+                fresh_session_id,
+                device_id: device_id.clone(),
+            }),
+        )
+        .expect("a plan.handedOff payload names only checked ids");
+        let verdict = settle_verdict_statement(
+            &plan_id,
+            PlanState::HandedOff,
+            Some(&fresh_session_id),
+            &device_id,
+            &WireInstant::now(),
+        );
+        append(handed_off, vec![verdict])
+            .await
+            .expect("the hand-off is written");
     };
-    let (statement, ended) =
-        hold_end_write(session_id, plan_id, PlanHoldEndedReason::FreshSessionGone);
-    append(ended, statement)
-        .await
-        .expect("the hold's end is written");
+    let fresh_session_goes = async |plan_id| {
+        let (statements, ended) =
+            hold_end_write(session_id, plan_id, PlanHoldEndedReason::FreshSessionGone);
+        append(ended, statements)
+            .await
+            .expect("the hold's end is written");
+    };
+    let plan_id = fixture.take(true).await;
+    hand_off(plan_id).await;
+    let (newer, goes_after) = match newer_plan {
+        NewerPlan::None => (None, None),
+        NewerPlan::Waiting => (Some(fixture.take(true).await), None),
+        NewerPlan::HandedOffAndGoneAfter => {
+            let newer = fixture.take(true).await;
+            hand_off(newer).await;
+            (Some(newer), Some(newer))
+        }
+    };
+    fresh_session_goes(plan_id).await;
+    if let Some(goes_after) = goes_after {
+        assert_eq!(fixture.state(plan_id), "waiting");
+        fresh_session_goes(goes_after).await;
+    }
     let plan_row_sql = "SELECT state || ' ' || holds_request || ' ' || \
         coalesce(fresh_session_id, '-') FROM plans WHERE id = ?1";
     let session_rows_sql = "SELECT id || ' ' || state || ' ' || holds_request || ' ' || \
