@@ -341,10 +341,9 @@ impl CodexFrameDelivery {
     }
 
     /// Ends a held helper's turn, the `turn/completed` of `turn_params` on its conversation
-    /// `helper_thread_id`, as a held continuation ends: its waiting pieces delivered, the daemon's
-    /// end written on the helper's child run, which stays live and waiting, and its binding and
-    /// route gone. Answers `false`, ending nothing, for a turn not marked held, a helper with no
-    /// bound child run, or a turn the daemon's interrupt stopped, whose end is the run's own.
+    /// `helper_thread_id`, as a held continuation ends: the daemon's end written on the helper's
+    /// child run, which stays live and waiting, and its binding and route gone. Answers `false`,
+    /// ending nothing, for a turn not marked held or a helper with no bound child run.
     pub(crate) async fn end_held_helper_turn(
         &self,
         record: &mut CodexSessionRecord,
@@ -362,12 +361,7 @@ impl CodexFrameDelivery {
         let Some(bound) = &child.bound else {
             return false;
         };
-        if !record.held_continuation_turn_ids.remove(&turn_id)
-            || self
-                .dependencies
-                .run_routes
-                .is_helper_interrupted_by_daemon(bound.child_run_id)
-        {
+        if !record.held_continuation_turn_ids.remove(&turn_id) {
             return false;
         }
         let turn_run = CodexTurnRun {
@@ -381,9 +375,6 @@ impl CodexFrameDelivery {
             },
             ending: CodexTurnEnding::Live,
         };
-        for piece in record.delivery.streamed_text.end_turn(&turn_id) {
-            self.admit_prose_piece(record, &piece.key, piece.text).await;
-        }
         self.end_held_continuation(record, &turn_id, &turn_run)
             .await;
         record

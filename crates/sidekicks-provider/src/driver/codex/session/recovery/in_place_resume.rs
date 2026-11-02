@@ -1,7 +1,7 @@
 //! One conversation's resume in place, run on its session's task: the call that carries it there,
 //! with the binding and function legs it resumes under, the turn ends the resume lists as over
 //! that the daemon still owed the session, and the session's helpers reopened on the new
-//! connection, each registered on its service, a held helper's owed end written as the daemon's.
+//! connection, each registered on its service first.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -91,8 +91,8 @@ struct BoundHelper {
 
 // Reopens, parents first, each helper whose child run the record still binds on the session's
 // connection, registered on its service, and routes the owed end of each whose newest turn the
-// reopen shows over, which a held helper's mark writes as the daemon's. A refused reopen is logged
-// and the rest go on. Answers the frames the ends produced.
+// reopen shows over. A refused reopen is logged and the rest go on. Answers the frames the ends
+// produced.
 async fn reopen_bound_codex_helpers(
     task: &mut CodexSessionTask<'_>,
     dependencies: &CodexSessionCallDependencies,

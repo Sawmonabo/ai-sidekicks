@@ -11,12 +11,15 @@ use sidekicks_contracts::run::subagent::SubagentId;
 
 use crate::driver::codex::session::detached_conversation::CODEX_DETACHED_INTERRUPT_DEADLINE;
 use crate::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
-use crate::driver::codex::session::inbound::CodexSessionInbound;
 use crate::driver::codex::session::test_fixture::TestCodexSession;
 use crate::driver::run_control::{
     HelperStopOutcome, HelperStopParams, ReattachHelpersParams, ReattachedHelper,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
+use crate::run::delivery::LateAppendableRow;
+use crate::run::state_entry::RunStateEntry;
+use crate::runtime_binding::store::mint_runtime_binding_id;
+use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// The helper's own conversation, which is its id.
 const HELPER_THREAD: &str = "helper-thread";
@@ -282,6 +285,7 @@ fn reattached(run_id: RunId, thread_id: &str, parent: Option<&str>) -> Reattache
     let subagent_id = |id: &str| SubagentId::new(id.to_owned()).expect("a helper id");
     ReattachedHelper {
         run_id,
+        parent_run_id: new_run_id(),
         subagent_id: subagent_id(thread_id),
         parent_subagent_id: parent.map(subagent_id),
         start_call_id: None,
@@ -346,7 +350,10 @@ async fn reattached_helpers_reopen_in_order_past_a_refusal() {
     let (reattached, ()) = tokio::time::timeout(
         DEADLOCK_BOUND,
         Box::pin(async {
-            tokio::join!(task.drive(control.reattach_helpers(&params)), service_side)
+            tokio::join!(
+                task.drive(control.reattach_helpers(&params, vec![UsageAxisCounts::default(); 3])),
+                service_side
+            )
         }),
     )
     .await
@@ -359,15 +366,19 @@ async fn reattached_helpers_reopen_in_order_past_a_refusal() {
     );
 }
 
-// A helper reopened after a restart is registered on the session's service, so a frame it sends
-// afterwards reaches the session's queue. Kill: the registration missing (the service drops the
-// frame of a conversation no session names, and the wait runs out).
+// A helper reopened after a restart is registered on the session's service and in its routing and
+// bound to its existing child run, so a turn it ends afterwards, sent through the service, ends
+// that run with its `subagent.completed` row; no new run is started. Kills: the service
+// registration missing (the service drops the frame and the wait runs out), and the routing's
+// registration or the child run's binding missing (the run never moves).
 #[tokio::test(start_paused = true)]
-async fn a_reattached_helpers_later_frame_reaches_its_session() {
+async fn a_reattached_helpers_later_turn_reaches_its_run() {
     let mut session = TestCodexSession::start().await;
+    session.task.record.binding_id = Some(mint_runtime_binding_id());
+    let helper_run = new_run_id();
     let params = ReattachHelpersParams {
         session_id: session.task.record.session_id,
-        helpers: vec![reattached(new_run_id(), "helper-reopened", None)],
+        helpers: vec![reattached(helper_run, "helper-reopened", None)],
     };
     let control = Arc::clone(&session.task.run_control);
     let task = &mut session.task;
@@ -389,7 +400,10 @@ async fn a_reattached_helpers_later_frame_reaches_its_session() {
     let (reattached, ()) = tokio::time::timeout(
         DEADLOCK_BOUND,
         Box::pin(async {
-            tokio::join!(task.drive(control.reattach_helpers(&params)), service_side)
+            tokio::join!(
+                task.drive(control.reattach_helpers(&params, vec![UsageAxisCounts::default()])),
+                service_side
+            )
         }),
     )
     .await
@@ -398,18 +412,35 @@ async fn a_reattached_helpers_later_frame_reaches_its_session() {
 
     session.scripted.script.send(&json!({
         "jsonrpc": "2.0",
-        "method": "turn/started",
-        "params": {"threadId": "helper-reopened", "turn": {"id": "helper-next-turn"}},
+        "method": "turn/completed",
+        "params": {
+            "threadId": "helper-reopened",
+            "turn": {"id": "helper-next-turn", "items": [], "status": "completed"},
+        },
     }));
-    let item = tokio::time::timeout(DEADLOCK_BOUND, session.task.next_item())
+    tokio::time::timeout(DEADLOCK_BOUND, session.task.handle_next())
         .await
         .expect("the helper's frame reaches the session");
 
-    let CodexSessionInbound::Frame { method, params } = item else {
-        panic!("the session's next item is the helper's frame");
-    };
-    assert_eq!(method, "turn/started");
-    let params: serde_json::Value =
-        serde_json::from_str(params.get()).expect("the params are JSON");
-    assert_eq!(params["threadId"], "helper-reopened");
+    assert_eq!(
+        session.engine.moves_of_run(helper_run),
+        vec![RunStateEntry::Completed {
+            intended_close: None
+        }]
+    );
+    let deliveries = session.engine.deliveries();
+    assert!(
+        deliveries.iter().any(|delivery| matches!(
+            &delivery.row,
+            Some(LateAppendableRow::AgentSubagentCompleted(row))
+                if row.child_run_id == Some(helper_run)
+        )),
+        "the helper's end names its run"
+    );
+    assert!(
+        deliveries
+            .iter()
+            .all(|delivery| delivery.subagent.is_none()),
+        "no new child run is started"
+    );
 }

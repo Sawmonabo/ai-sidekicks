@@ -1,14 +1,11 @@
 //! A session's helpers across its service's recovery: each one still bound reopened on the new
-//! connection after a reconnect, a held one's owed end written as the daemon's, and each one's
-//! child run ended with the service's process.
+//! connection after a reconnect, and each one's child run ended with the service's process.
 
 use std::sync::Arc;
 
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
-use sidekicks_contracts::run::events::TurnEndCause;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::{Steps, exit_code, test_recovery};
 use crate::driver::codex::delivery::rows::test_row_run;
@@ -23,9 +20,7 @@ use crate::driver::codex::session::test_fixture::{
 };
 use crate::driver::session_control::DriverResumeResult;
 use crate::port::run_host::test_host::EngineCall;
-use crate::run::delivery::LateAppendableRow;
 use crate::run::state_entry::RunStateEntry;
-use crate::run::turn_end::TurnOutcome;
 use crate::runtime_binding::resume::ResumeFunctionLegs;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 
@@ -134,104 +129,6 @@ async fn a_reconnect_reopens_bound_helpers_and_ends_the_finished_one() {
         }]
     );
     assert_eq!(session.engine.moves_of_run(running_run), Vec::new());
-}
-
-// A helper whose newest turn its adoption marked held, held on the person, has the end that turn
-// owes after a reconnect written as the daemon's: no `subagent.completed` row, so the asks its turn
-// held stay, no move of its run, its binding and route gone and the mark let go. Killed by the
-// owed end routed to the helper's completion (the run completes with its row).
-#[tokio::test(start_paused = true)]
-async fn a_reconnect_leaves_a_held_helper_waiting_past_its_ended_turn() {
-    let mut session = TestCodexSession::start().await;
-    let held_run = start_helper(&mut session, "thread-helper-held").await;
-    session
-        .task
-        .record
-        .held_continuation_turn_ids
-        .insert(HELPER_TURN.to_owned());
-    let folder = tempfile::tempdir().expect("the test makes a folder");
-    let resume = CodexInPlaceResumeCall {
-        establishment: Arc::new(session.establishment(folder.path())),
-        service: Arc::clone(&session.scripted.service),
-        binding_id: mint_runtime_binding_id(),
-        function_legs: ResumeFunctionLegs::default(),
-        writer_left: never_left(),
-    };
-    let settings = session.task.record.thread_settings.clone();
-    let script = &mut session.scripted.script;
-    let service_side = async {
-        loop {
-            let sent = script.next_sent().await;
-            let thread_id = sent["params"]["threadId"].clone();
-            let answer = match sent["method"].as_str() {
-                Some("thread/resume") if thread_id == TEST_THREAD => {
-                    fork_reply(TEST_THREAD, &settings)
-                }
-                Some("thread/resume") => json!({
-                    "thread": {"id": thread_id, "sessionId": "codex-session"},
-                    "initialTurnsPage": {
-                        "data": [{
-                            "id": HELPER_TURN,
-                            "items": [],
-                            "status": "completed",
-                            "completedAt": 1_767_000_000,
-                        }],
-                        "nextCursor": null,
-                    },
-                }),
-                Some("thread/turns/list") => no_turns(),
-                Some("thread/settings/update") => json!({}),
-                Some("account/read") => json!({"account": null}),
-                Some("account/rateLimits/read") => json!({"rateLimits": null}),
-                method => panic!("the service was not asked {method:?}"),
-            };
-            script.answer(&sent, &answer);
-        }
-    };
-    let (mut task, dependencies) = session.task.split();
-    let (outcome, _routed) = tokio::select! {
-        resumed = resume_codex_session_in_place(&mut task, dependencies, resume) => resumed,
-        () = service_side => unreachable!("the service answers until the resume ends"),
-    };
-
-    assert!(matches!(outcome.result, DriverResumeResult::Resumed { .. }));
-    assert_eq!(session.engine.moves_of_run(held_run), Vec::new());
-    let completed_rows = session
-        .engine
-        .deliveries()
-        .into_iter()
-        .filter(|delivery| {
-            matches!(
-                &delivery.row,
-                Some(LateAppendableRow::AgentSubagentCompleted(row))
-                    if row.child_run_id == Some(held_run)
-            )
-        })
-        .count();
-    assert_eq!(completed_rows, 0);
-    let daemon_ends: Vec<EngineCall> = session
-        .engine
-        .calls()
-        .into_iter()
-        .filter(|call| matches!(call, EngineCall::RecordDaemonTurnEnd(..)))
-        .collect();
-    assert_eq!(
-        daemon_ends,
-        vec![EngineCall::RecordDaemonTurnEnd(
-            held_run,
-            SafeInt::<1>::new(1).expect("one is a turn number"),
-            TurnOutcome::Interrupted(Some(TurnEndCause::DaemonRestart)),
-        )]
-    );
-    let record = &session.task.record;
-    assert!(
-        !record
-            .delivery
-            .child_run_by_thread_id
-            .contains_key("thread-helper-held")
-    );
-    assert!(!session.task.run_routes.has_helper_route(held_run));
-    assert!(record.held_continuation_turn_ids.is_empty());
 }
 
 // A service's exit ends a helper's child run though its lead holds no turn, so the engine never

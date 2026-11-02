@@ -13,7 +13,7 @@
 //! reopened on the daemon's connection, which Codex sends its frames on only after that, and an
 //! unloaded one is listed, which loads nothing. A helper Codex runs, or whose newest turn is over,
 //! is bound to its child run again, the end of that turn owed as the session opens; a helper held
-//! on the person has that turn marked held, so its end is the daemon's and the helper waits on.
+//! on the person whose newest turn is over has it marked held, so its end is the daemon's.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -27,12 +27,12 @@ use sidekicks_contracts::turn::ProviderTurnId;
 use tokio::time::Instant;
 
 use super::continuation::{answer_continued_runs, read_cut_turns};
-use super::helpers::{order_parents_first, reopen_codex_helper};
+use super::helpers::{bind_codex_helper_run, order_parents_first, reopen_codex_helper};
 use super::{
     CodexEstablishedSession, CodexHandleResume, CodexResumedThread, CodexSessionEstablishment,
     compose_failed_resume, prepare_adoption, read_resumed_thread, request_thread_resume,
 };
-use crate::driver::codex::delivery::memory::{CodexBoundChildRun, CodexChildRun};
+use crate::driver::codex::delivery::memory::CodexBoundChildRun;
 use crate::driver::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
 use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::service::supervisor::start::read_codex_loaded_threads;
@@ -544,9 +544,10 @@ fn answer_live_runs(
 // Binds a helper Codex runs, or whose newest turn is over, to its child run, started beneath its
 // parent, so its rows and asks land on that run and its end completes it, and routes the run to
 // the helper's conversation, which an interrupt of the run reaches; a helper held on the person is
-// bound the same, its newest turn marked held, so that turn's end is written as the daemon's and
-// the run keeps waiting. Answers it restored, with its newest turn. Any other helper's turn is
-// gone, and a loaded one's conversation is let go on `service`.
+// bound the same, a newest turn of it that is over marked held, so that turn's end is written as
+// the daemon's and the run keeps waiting, while one still running runs on as the run's own.
+// Answers it restored, with its newest turn. Any other helper's turn is gone, and a loaded one's
+// conversation is let go on `service`.
 fn restore_helper(
     record: &mut CodexSessionRecord,
     helper: AdoptedHelper,
@@ -562,22 +563,19 @@ fn restore_helper(
         }
         return None;
     };
-    record.delivery.child_run_by_thread_id.insert(
-        thread_id.clone(),
-        CodexChildRun {
-            bound: Some(CodexBoundChildRun {
-                child_run_id: helper.run_id,
-                parent_run_id: helper.parent_run_id,
-                start_row_event_id: None,
-            }),
-            agent_id: binding.agent_id,
-            binding_id: binding.binding_id.clone(),
-            subagent_id: helper.subagent_id,
-            parent_tool_call_id: None,
+    bind_codex_helper_run(
+        record,
+        run_routes,
+        helper.subagent_id,
+        CodexBoundChildRun {
+            child_run_id: helper.run_id,
+            parent_run_id: helper.parent_run_id,
+            start_row_event_id: None,
         },
+        binding.agent_id,
+        binding.binding_id.clone(),
     );
-    run_routes.bind_helper_run(helper.run_id, record.session_id, &thread_id);
-    if helper.is_held {
+    if helper.is_held && !is_codex_turn_in_progress(&newest_turn.turn) {
         record
             .held_continuation_turn_ids
             .insert(newest_turn.id.clone());

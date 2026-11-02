@@ -25,6 +25,7 @@ use crate::driver::codex::session::owed_turn_ends::read_codex_listed_turn;
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::{HelperStopOutcome, HelperStopParams, ReattachHelpersParams};
+use crate::usage_delta_accountant::UsageAxisCounts;
 
 impl CodexRunControl {
     /// Interrupts a helper's running turn on its own conversation and ends the commands it left
@@ -78,12 +79,15 @@ impl CodexRunControl {
     /// Reopens each of `params.helpers` that holds no helper route, in the order given, parents
     /// first, ancestors included, since Codex reopens a helper only once its parent is loaded: a
     /// helper an adoption reopened holds a route. Each is registered on the session's service
-    /// first, so its frames reach the session. Reopening an unloaded helper loads it, which has
-    /// Codex record the turn the restart cut as interrupted. A refused reopen is logged and the
-    /// rest go on. Fails only for a session not live or a service not running.
+    /// first, so its frames reach the session, and once reopened bound to its child run and
+    /// registered in the session's routing, its usage based on its entry of `prior_emitted`, one
+    /// per helper in the same order. Reopening an unloaded helper loads it, which has Codex record
+    /// the turn the restart cut as interrupted. A refused reopen is logged and the rest go on.
+    /// Fails only for a session not live or a service not running.
     pub(crate) async fn reattach_helpers(
         &self,
         params: &ReattachHelpersParams,
+        prior_emitted: Vec<UsageAxisCounts>,
     ) -> Result<(), CodexError> {
         let inbound = self.dependencies.slots.require_live(params.session_id)?;
         let reading = call_codex_session(&inbound, |reply| CodexSessionCall::ReadSession {
@@ -92,7 +96,7 @@ impl CodexRunControl {
         })
         .await?;
         let connection = reading.connection?;
-        for helper in &params.helpers {
+        for (helper, prior_emitted) in params.helpers.iter().zip(prior_emitted) {
             if self.dependencies.run_routes.has_helper_route(helper.run_id) {
                 continue;
             }
@@ -104,14 +108,22 @@ impl CodexRunControl {
                 helper.subagent_id.as_str(),
             )
             .await;
-            if let Err(error) = reopened {
-                tracing::warn!(
+            match reopened {
+                Ok(_) => {
+                    call_codex_session(&inbound, |reply| CodexSessionCall::RestoreHelper {
+                        helper: Box::new(helper.clone()),
+                        prior_emitted,
+                        reply,
+                    })
+                    .await?;
+                }
+                Err(error) => tracing::warn!(
                     session_id = %params.session_id,
                     run_id = %helper.run_id,
                     thread_id = %helper.subagent_id.as_str(),
                     error = &error as &(dyn Error + 'static),
                     "codex refused the reopen of a helper after a restart"
-                );
+                ),
             }
         }
         Ok(())
@@ -198,13 +210,26 @@ impl CodexDriver {
         Ok(self.parts()?.run_control.stop_child_run(&params).await?)
     }
 
-    /// Reopens a session's helpers after a restart; see the run control's re-attach. Fails only
-    /// for a session not live.
+    /// Reopens a session's helpers after a restart, each one's usage based on what was already
+    /// metered on its conversation; see the run control's re-attach. Fails only for a session not
+    /// live.
     pub(crate) async fn reattach_helpers(
         &self,
         params: ReattachHelpersParams,
     ) -> Result<(), DriverError> {
-        Ok(self.parts()?.run_control.reattach_helpers(&params).await?)
+        let parts = self.parts()?;
+        let mut prior_emitted = Vec::with_capacity(params.helpers.len());
+        for helper in &params.helpers {
+            prior_emitted.push(
+                self.read_prior_emitted(params.session_id, helper.subagent_id.as_str())
+                    .await
+                    .unwrap_or_default(),
+            );
+        }
+        Ok(parts
+            .run_control
+            .reattach_helpers(&params, prior_emitted)
+            .await?)
     }
 }
 

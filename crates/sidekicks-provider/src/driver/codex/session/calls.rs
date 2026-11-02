@@ -22,6 +22,7 @@ use crate::driver::codex::run::turn_end_waiters::{
 };
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::establishment::helpers::restore_reattached_codex_helper;
 use crate::driver::codex::session::fork::config_change::run_codex_config_fork;
 use crate::driver::codex::session::fork::{CodexForkDependencies, move_codex_session_to_fork};
 use crate::driver::codex::session::inbound::{
@@ -142,6 +143,15 @@ pub(crate) async fn run_codex_session_call(
         }
         CodexSessionCall::RunControl(call) => {
             run_codex_run_control_call(call, task.record, &dependencies.runs);
+        }
+        CodexSessionCall::RestoreHelper {
+            helper,
+            prior_emitted,
+            reply,
+        } => {
+            routed =
+                restore_reattached_codex_helper(task, dependencies, *helper, prior_emitted).await;
+            let _unheard = reply.send(());
         }
         CodexSessionCall::StopTurnForRetry {
             run_id,

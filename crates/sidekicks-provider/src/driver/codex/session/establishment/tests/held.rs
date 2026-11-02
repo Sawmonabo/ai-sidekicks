@@ -1,7 +1,8 @@
 //! The continuation a joined service started for a lead held on the person before the daemon came
 //! back: its end, listed at the rejoin or live after it, is written as the daemon's and leaves the
 //! run waiting for the person's answer, until a steer of the person's words reaches it. A helper
-//! held on the person has its newest turn's end written the same way.
+//! held on the person whose newest turn is listed over has that end written the same way; one
+//! whose turn still runs ends as its own.
 
 use std::path::Path;
 
@@ -262,10 +263,11 @@ async fn a_held_helpers_ended_turn_leaves_its_run_waiting() {
     assert!(opened.record.held_continuation_turn_ids.is_empty());
 }
 
-// A held helper whose turn still ran at the adoption and that the person then stops ends as that
-// stop's, never as the daemon's restart: its run ends with its `subagent.completed` row, the end
-// read as the daemon's interrupt, and the mark is let go. Killed by the held end taken on a turn
-// the daemon interrupted (the run never moves and the stop hangs it).
+// A held helper whose turn still runs at the adoption is bound with its turn unmarked, so the turn
+// runs on as the run's own: the person's stop of it ends the run as that stop's, with its
+// `subagent.completed` row and the end read as the daemon's interrupt, never as the restart's.
+// Killed by a running held turn marked (the end is written as the daemon's and the run never
+// moves, so the stop hangs it).
 #[tokio::test(start_paused = true)]
 async fn a_stopped_held_helper_ends_as_its_stop() {
     let mut session = TestCodexSession::start().await;
@@ -279,7 +281,12 @@ async fn a_stopped_held_helper_ends_as_its_stop() {
         vec![loaded("thread-helper-a", "inProgress")],
     )
     .await;
+    assert_eq!(
+        adoption.answer_of(helper_run_id),
+        ProviderTurnAnswer::Waiting
+    );
     let established = adoption.established.expect("the session is established");
+    assert!(established.record.held_continuation_turn_ids.is_empty());
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let opened = session
         .establishment(folder.path())
@@ -304,5 +311,4 @@ async fn a_stopped_held_helper_ends_as_its_stop() {
     );
     assert_eq!(subagent_completed_rows(&session, helper_run_id), 1);
     assert_eq!(turn_ends(&session.engine.calls()).0, Vec::new());
-    assert!(session.task.record.held_continuation_turn_ids.is_empty());
 }

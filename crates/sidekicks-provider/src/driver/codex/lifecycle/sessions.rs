@@ -321,9 +321,10 @@ impl CodexDriver {
         Ok(TakenMessages { taken })
     }
 
-    // The spend the session's conversation emitted before its resume, which its usage is based
-    // on; with no usage sink yet, or an unreadable record, the base starts at zero, logged.
-    async fn read_prior_emitted(
+    /// The spend the session's conversation `thread_id`, its own or a helper's, emitted before its
+    /// resume, which its usage is based on; `None` with no usage sink yet, or an unreadable
+    /// record, logged.
+    pub(crate) async fn read_prior_emitted(
         &self,
         session_id: SessionId,
         thread_id: &str,
