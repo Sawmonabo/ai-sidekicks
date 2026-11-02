@@ -22,6 +22,7 @@ use crate::driver::claude::rate_limit_windows::{
     ClaudeUsageProbeModels, read_claude_quota_windows,
 };
 use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
+use crate::driver::claude::spawn::arguments::CLAUDE_NO_MCP_SERVERS;
 use crate::driver::claude::spawn::environment::{ClaudeAccountFolders, ClaudeProcessHome};
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::driver::claude::spawn::launch::control_only::{
@@ -36,8 +37,10 @@ use crate::lenient_json::read_lenient;
 use crate::usage_delta_accountant::{UsageAxisCounts, compose_one_turn_spend};
 
 /// The smallest turn's command line before its MCP flag and its line: the stream written as frames
-/// so its `rate_limit_event` and `result` can be read, and no conversation kept.
-pub(super) const CLAUDE_WINDOW_TURN_ARGUMENTS: [&str; 12] = [
+/// so its `rate_limit_event` and `result` can be read, no conversation kept, and every MCP tool
+/// denied, since `--tools` reaches only the built-in ones and an administrator's MCP file loads its
+/// servers whatever the flag.
+pub(super) const CLAUDE_WINDOW_TURN_ARGUMENTS: [&str; 14] = [
     "-p",
     "--output-format",
     "stream-json",
@@ -48,13 +51,11 @@ pub(super) const CLAUDE_WINDOW_TURN_ARGUMENTS: [&str; 12] = [
     "",
     "--system-prompt",
     "Reply with ok.",
+    "--disallowedTools",
+    "mcp__*",
     "--disable-slash-commands",
     "--no-session-persistence",
 ];
-
-/// The flag that loads no MCP server but those the command line names, which is none, so no MCP
-/// tool comes on beside `--tools ""`.
-pub(super) const CLAUDE_NO_MCP_SERVERS: &str = "--strict-mcp-config";
 
 /// The one line the smallest turn sends, given on the command line.
 pub(super) const CLAUDE_WINDOW_TURN_LINE: &str = "ok";
