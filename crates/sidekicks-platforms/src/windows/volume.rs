@@ -1,22 +1,61 @@
-//! The volume holding a path on Windows: its root, read by the path's verbatim form, and its
-//! volume GUID path, read through a handle open on the path.
+//! The volume holding a path on Windows: its root, read by the path's verbatim form, which is its
+//! top, and its volume GUID path, read through a handle open on the path, which is its id.
 
-use std::fs::File;
+use std::ffi::OsString;
+use std::fs::{File, OpenOptions};
 use std::io::{self, ErrorKind};
+use std::os::windows::ffi::OsStringExt;
+use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::AsRawHandle;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use windows_sys::Win32::Storage::FileSystem::{
-    GetFinalPathNameByHandleW, GetVolumePathNameW, VOLUME_NAME_GUID,
+    FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
+    FILE_SHARE_WRITE, GetDriveTypeW, GetFinalPathNameByHandleW, GetVolumePathNameW,
+    VOLUME_NAME_GUID,
 };
+use windows_sys::Win32::System::WindowsProgramming::DRIVE_REMOTE;
 
-use crate::windows::real_path::verbatim_path;
+use crate::volume::{Volume, VolumeId};
+use crate::windows::real_path::{strip_verbatim_prefix, verbatim_path};
 
 // The UTF-16 units a volume GUID path's prefix takes before its first separator: `\\?\`.
 const VERBATIM_PREFIX_UNITS: usize = 4;
 
 // Room for a volume GUID path and a short path under it, grown when the path is longer.
 const FIRST_PATH_UNITS: usize = 128;
+
+/// The volume holding `path`, a real path as [`real_path`](crate::real_path) gives it: its top is
+/// the volume's root without the verbatim prefix, so it compares with `real_path`'s paths, and its
+/// id the volume GUID path of a handle open on `path`, the read the clone compare makes. Fails with
+/// `Unsupported` for a network share, which has no volume GUID path, `InvalidInput` when the path
+/// holds a NUL, and the system's error otherwise.
+pub fn read_volume(path: &Path) -> io::Result<Volume> {
+    let root = read_volume_root(path)?;
+    // SAFETY: the root is a live NUL-terminated string.
+    if unsafe { GetDriveTypeW(root.as_ptr()) } == DRIVE_REMOTE {
+        return Err(io::Error::new(
+            ErrorKind::Unsupported,
+            "a network share has no volume GUID path",
+        ));
+    }
+    // A root read by a verbatim path comes back verbatim, and its prefix goes as `real_path`'s
+    // does.
+    let (_, root_units) = root.split_last().expect("the root ends in its NUL");
+    let top = PathBuf::from(OsString::from_wide(&strip_verbatim_prefix(root_units)?));
+    // Opened as `read_clone_refusal` opens a folder, so a file and a folder both open.
+    let opened = OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)?;
+    let id = String::from_utf16(&volume_guid_path(&opened)?)
+        .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))?;
+    Ok(Volume {
+        top,
+        id: VolumeId::new(id),
+    })
+}
 
 /// The root of the volume holding `path`, read by the path's verbatim form, so it comes back
 /// verbatim too (`\\?\C:\`, `\\?\UNC\server\share\`), as UTF-16 units ending in one NUL, the form a
@@ -95,7 +134,8 @@ mod tests {
 
     use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
 
-    use super::volume_guid_path;
+    use super::{read_volume, volume_guid_path};
+    use crate::real_path;
 
     // Fails when the compare takes whole paths, which never match between a file and its folder,
     // or reads anything but the volume GUID path.
@@ -121,5 +161,27 @@ mod tests {
             text.starts_with(r"\\?\Volume{") && text.ends_with(r"}\"),
             "{text} is a volume GUID path"
         );
+    }
+
+    // Fails when the top keeps its verbatim prefix or is not the volume's root, or the id is read
+    // from anything but the volume GUID path.
+    #[test]
+    fn a_file_s_volume_reads_its_drive_root_and_its_volume_guid_path() {
+        let folder = tempfile::tempdir().expect("a scratch folder is made");
+        let path = folder.path().join("file");
+        fs::write(&path, b"a file").expect("the file is written");
+        let path = real_path(&path).expect("the file resolves");
+
+        let volume = read_volume(&path).expect("the file's volume reads");
+        let top = volume.top.to_string_lossy();
+        let id = volume.id.to_string();
+
+        assert!(
+            !top.starts_with(r"\\?\"),
+            "{top} carries no verbatim prefix"
+        );
+        assert!(path.starts_with(&volume.top), "{top} holds the file");
+        assert_eq!(volume.top.parent(), None, "{top} is a drive root");
+        assert!(id.starts_with(r"\\?\Volume{"), "{id} is a volume GUID path");
     }
 }

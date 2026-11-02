@@ -38,9 +38,10 @@ pub fn real_path(path: &Path) -> io::Result<PathBuf> {
     )?)))
 }
 
-// `\\?\UNC\server\share\x` becomes `\\server\share\x` and `\\?\C:\x` becomes `C:\x`; a resolved
-// path with neither prefix is a form no path the system resolved should take.
-fn strip_verbatim_prefix(resolved: &[u16]) -> io::Result<Vec<u16>> {
+/// `resolved` with its verbatim prefix taken off: `\\?\UNC\server\share\x` becomes
+/// `\\server\share\x` and `\\?\C:\x` becomes `C:\x`. Fails with `ERROR_INVALID_HANDLE` for a path
+/// with neither prefix, a form no path the system resolved should take.
+pub(crate) fn strip_verbatim_prefix(resolved: &[u16]) -> io::Result<Vec<u16>> {
     if has_prefix(resolved, VERBATIM_SHARE_PREFIX) {
         // `\\?\UNC\server` keeps the separator before `server` and gains one: `\\server`.
         let after_unc = VERBATIM_SHARE_PREFIX.len() - 1;

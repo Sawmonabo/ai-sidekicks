@@ -128,6 +128,7 @@ mod thread_cpu_time;
 mod tool_memory_cap;
 #[cfg(not(target_os = "linux"))]
 mod user_namespace;
+mod volume;
 mod wake_watch;
 mod wall_clock;
 mod watch;
@@ -217,6 +218,8 @@ pub use linux::user_namespace::can_create_user_namespace;
 #[cfg(target_os = "linux")]
 pub use linux::user_scope::leave_daemon_scope;
 #[cfg(target_os = "linux")]
+pub use linux::volume::read_volume;
+#[cfg(target_os = "linux")]
 pub use linux::windowless_app::launch_app_windowless;
 #[cfg(target_os = "linux")]
 pub use linux::{
@@ -265,6 +268,8 @@ pub use macos::responsibility::become_own_root;
 pub(crate) use macos::running_program::is_program_path_marked_replaced;
 #[cfg(target_os = "macos")]
 pub use macos::session_child::{SessionChild, start_session_child};
+#[cfg(target_os = "macos")]
+pub use macos::volume::read_volume;
 #[cfg(target_os = "macos")]
 pub use macos::windowless_app::launch_app_windowless;
 #[cfg(target_os = "macos")]
@@ -485,6 +490,7 @@ pub use test_program::{harness_test_name, pass_through_start, terminal_taking_st
 pub use tool_memory_cap::TOOL_MEMORY_CAP_ENFORCEABLE;
 #[cfg(not(target_os = "linux"))]
 pub use user_namespace::can_create_user_namespace;
+pub use volume::{NotAVolumeId, Volume, VolumeId};
 pub use wake_watch::WakeWatchError;
 pub use wall_clock::{WallClock, WallClockWait};
 pub use watch::{FileAppendWatch, FolderArrivalWait, FolderArrivalWatch};
@@ -651,6 +657,8 @@ pub use windows::terminal::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::thread_cpu_time::thread_cpu_time;
+#[cfg(target_os = "windows")]
+pub use windows::volume::read_volume;
 #[cfg(target_os = "windows")]
 pub use windows::windowless_app::launch_app_windowless;
 #[cfg(target_os = "windows")]
