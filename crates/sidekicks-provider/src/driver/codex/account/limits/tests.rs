@@ -237,10 +237,10 @@ impl Fixture {
 }
 
 // Killed by the read's windows pushed beside the whole set the observer records (recorded twice
-// per read), by the plan the reply named dropped, by the account read's email dropped or its plan not taken where the reply
-// names none, by the read sent on the service the account resolves to rather than its
-// home's own (that home's start fails, so no figures come), and by the reset credits left
-// unwritten or kept when the next read carried none.
+// per read), by the plan the reply named dropped, by the account read's email dropped or its plan
+// not taken where the reply names none, by the read sent on the service the account resolves to
+// rather than its home's own (that home's start fails, so no figures come), and by the reset
+// credits left unwritten or kept when the next read carried none.
 #[tokio::test]
 async fn a_snapshot_becomes_windows_under_the_home_s_account_and_its_credits_land_in_the_row() {
     let mut fixture = Fixture::new(ProviderAuthMode::OauthSubscription).await;
@@ -276,13 +276,18 @@ async fn a_snapshot_becomes_windows_under_the_home_s_account_and_its_credits_lan
     snapshot_without_plan["planType"] = Value::Null;
     let without_credits = fixture
         .observe(
-            &[(
-                "account/rateLimits/read",
-                json!({"result": {"rateLimits": snapshot_without_plan}}),
-            ), (
-                "account/read",
-                json!({"result": {"account": {"type": "chatgpt", "email": null, "planType": "pro"}}}),
-            )],
+            &[
+                (
+                    "account/rateLimits/read",
+                    json!({"result": {"rateLimits": snapshot_without_plan}}),
+                ),
+                (
+                    "account/read",
+                    json!({"result": {"account": {
+                        "type": "chatgpt", "email": null, "planType": "pro",
+                    }}}),
+                ),
+            ],
             None,
         )
         .await;
@@ -320,6 +325,44 @@ async fn a_snapshot_becomes_windows_under_the_home_s_account_and_its_credits_lan
     assert!(recorded.is_empty(), "{recorded:?}");
     assert_eq!(credits_after_first, Some(3));
     assert_eq!(fixture.reset_credits(), None);
+}
+
+// Killed by a failed account read failing the limits read it follows, which drops its figures.
+#[tokio::test]
+async fn a_failed_account_read_keeps_the_figures_and_names_no_one() {
+    let mut fixture = Fixture::new(ProviderAuthMode::OauthSubscription).await;
+
+    let observed = fixture
+        .observe(
+            &[
+                (
+                    "account/rateLimits/read",
+                    json!({"result": {"rateLimits": {
+                        "limitId": "codex",
+                        "planType": "plus",
+                        "primary": {"usedPercent": 25, "windowDurationMins": 300},
+                    }}}),
+                ),
+                (
+                    "account/read",
+                    json!({"error": {"code": -32603, "message": "the account read failed"}}),
+                ),
+            ],
+            None,
+        )
+        .await;
+
+    let ProviderObservation::Figures(figures) = observed else {
+        panic!("the read answers figures, not {observed:?}");
+    };
+    assert_eq!(figures.windows.len(), 1);
+    assert_eq!(
+        (
+            figures.identity.email.as_ref().map(FreeFormText::as_str),
+            figures.identity.plan.as_ref().map(FreeFormText::as_str),
+        ),
+        (None, Some("plus"))
+    );
 }
 
 // Killed by dropping the mode check: the read would reach the home's service.

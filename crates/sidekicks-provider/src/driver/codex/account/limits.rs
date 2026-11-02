@@ -206,9 +206,9 @@ enum LimitsRead {
 const CODEX_SIGN_IN_REFUSED_STATUS: &str = "failed: 401 Unauthorized;";
 
 // Starts `service` where it is not up, reads its account's limits through `rate_limits` and the
-// account that answered them, which names it, and, on Codex's refusal, reads the home's sign-in
-// without a refresh: none signed in is a lost sign-in, one signed in a refused or throttled read,
-// and an unreadable answer neither.
+// account that answered them, which names it where that read succeeds, and, on Codex's refusal,
+// reads the home's sign-in without a refresh: none signed in is a lost sign-in, one signed in a
+// refused or throttled read, and an unreadable answer neither.
 async fn read_limits(
     rate_limits: &CodexRateLimitFiling,
     service: &CodexService,
@@ -219,7 +219,7 @@ async fn read_limits(
     match rate_limits.read_whole(service).await {
         Ok(read) => Ok(LimitsRead::Read {
             read,
-            account: read_codex_account(&*service.connection()?, CODEX_AUTH_PROBE_TIMEOUT).await?,
+            account: read_naming_account(service).await,
         }),
         Err(CodexError::ProviderRequest { message, .. }) => {
             let status = read_codex_auth_status(&*service.connection()?, CODEX_AUTH_PROBE_TIMEOUT)
@@ -236,6 +236,20 @@ async fn read_limits(
         }
         Err(error) => Err(error.into()),
     }
+}
+
+// The account `service` names after its limits answered; a read that fails names no one, so the
+// figures it follows are kept.
+async fn read_naming_account(service: &CodexService) -> CodexAccountReading {
+    let reading =
+        async { read_codex_account(&*service.connection()?, CODEX_AUTH_PROBE_TIMEOUT).await }.await;
+    reading.unwrap_or_else(|error| {
+        tracing::debug!(
+            error = &error as &(dyn std::error::Error + 'static),
+            "a Codex limits read's account read failed, so it names no one"
+        );
+        CodexAccountReading::Unreadable
+    })
 }
 
 #[cfg(test)]
