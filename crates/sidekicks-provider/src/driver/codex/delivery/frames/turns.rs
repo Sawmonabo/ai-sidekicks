@@ -25,6 +25,7 @@ use crate::driver::codex::delivery::memory::{CodexTurnErrorReading, read_codex_e
 use crate::driver::codex::delivery::notices::{provider_words, release_reroute};
 use crate::driver::codex::delivery::reviewer::end_codex_review_turn;
 use crate::driver::codex::delivery::rows::{CodexRow, CodexRowDelivery, CodexRowRun};
+use crate::driver::codex::run::start::record::add_run_turn;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
 use crate::driver::codex::turn_evidence::{
@@ -101,16 +102,13 @@ impl CodexFrameDelivery {
             && !record.delivery.is_turn_taken_by_no_run(&turn_id)
             && let Some(starting) = record.delivery.starting_turns.pop_front()
         {
-            record.add_active_turn(turn_id.clone(), starting.run_id);
-            if let Some(opening) = starting.opening {
-                record
-                    .delivery
-                    .turn_opening_by_turn_id
-                    .insert(turn_id.clone(), opening);
-            }
-            self.dependencies
-                .run_routes
-                .bind_run(starting.run_id, record.session_id);
+            add_run_turn(
+                &self.dependencies.run_routes,
+                record,
+                turn_id.clone(),
+                starting.run_id,
+                starting.opening,
+            );
         }
         let Some(turn_run) = self.turn_run_for(record, &turn_id) else {
             report_unattributed("turn/started", Some(&turn_id));

@@ -2,11 +2,15 @@
 //! write, and the reads an undo and its dry run take: a checkpoint by the point a request names, a
 //! session's checkpoints, per path the version an undo puts back, the commands no capture covered,
 //! and a saved undo outcome by its key. The shadow rows of files over 10 MiB are in [`shadows`].
+//! A checkpoint whose turn a later undo cut away stands in history that no longer exists, so the
+//! list leaves it out and a read of it refuses.
 //!
 //! A point is a place in the session's log: an undo goes back to before the event at
 //! `before_sequence`, so every checkpoint whose prompt sits at or past it lies after the point.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::LazyLock;
 
 use rusqlite::types::Value as SqlValue;
@@ -24,7 +28,9 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::restore::{
     SessionRestoreOutcome, SessionRestoreTarget, SnapshotId,
 };
-use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
+use sidekicks_contracts::transcript::turn_attribution::{
+    EpochPosition, SupersededTurns, transcript_run_stamp_at,
+};
 use sidekicks_contracts::wire::id::{ClientUuid, IdError, UuidText, UuidTextForm, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -39,6 +45,9 @@ use crate::checkpoints::schema::{
     CheckpointVersionContent, CheckpointVersionKind, CheckpointVersionLeg,
 };
 use crate::checkpoints::store::shadows::ShadowId;
+use crate::run::superseded::{
+    StoredRollbackMismatchError, SupersededTurnsReadError, read_superseded_turns,
+};
 
 // A prompt already kept keeps its first checkpoint: a second turn its message opens writes nothing.
 static INSERT_CHECKPOINT_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -53,18 +62,20 @@ static INSERT_CHECKPOINT_SQL: LazyLock<String> = LazyLock::new(|| {
 
 // The version takes the checkpoint's next sequence, so the order recorded is the order kept.
 const INSERT_VERSION_SQL: &str = "INSERT INTO checkpoint_versions
-  (checkpoint_id, sequence, path, leg, kind, copy_hash, not_kept_reason, parent_real_path,
+  (checkpoint_id, sequence, path, leg, kind, copy_hash, mode, not_kept_reason, parent_real_path,
    window_id, shadow_id)
   VALUES (@checkpointId,
           (SELECT COALESCE(MAX(sequence) + 1, 0) FROM checkpoint_versions
             WHERE checkpoint_id = @checkpointId),
-          @path, @leg, @kind, @copyHash, @notKeptReason, @parentRealPath, @windowId, @shadowId)";
+          @path, @leg, @kind, @copyHash, @mode, @notKeptReason, @parentRealPath, @windowId,
+          @shadowId)";
 
 static OPEN_WINDOW_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO checkpoint_commands
-  (window_id, checkpoint_id, tree_before, head_before, command, tool_call_id, started_at)
-  VALUES (@windowId, @checkpointId, @treeBefore, @headBefore, @command, @toolCallId,
+  (window_id, checkpoint_id, tree_before, head_before, commit_before, command, tool_call_id,
+   started_at)
+  VALUES (@windowId, @checkpointId, @treeBefore, @headBefore, @commitBefore, @command, @toolCallId,
           {DATABASE_NOW_SQL})"
     )
 });
@@ -73,7 +84,8 @@ static OPEN_WINDOW_SQL: LazyLock<String> = LazyLock::new(|| {
 static CLOSE_WINDOW_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE checkpoint_commands
-  SET tree_after = @treeAfter, head_after = @headAfter, covered = @covered,
+  SET tree_after = @treeAfter, head_after = @headAfter, commit_after = @commitAfter,
+      covered = @covered,
       ended_at = {DATABASE_NOW_SQL}
   WHERE window_id = @windowId AND ended_at IS NULL"
     )
@@ -110,7 +122,7 @@ const CHECKPOINTS_OF_SESSION_SQL: &str =
 // Per path, the earliest version of the checkpoints at or past the point: the earliest checkpoint,
 // then the earliest sequence in it. Every kind is kept, so a path with no copy is still named.
 const VERSIONS_AFTER_SQL: &str = "SELECT checkpoint_id, sequence, path, leg, kind, copy_hash,
-       not_kept_reason, parent_real_path, window_id, shadow_id
+       not_kept_reason, parent_real_path, window_id, shadow_id, mode
   FROM (SELECT versions.*,
                ROW_NUMBER() OVER (PARTITION BY versions.path
                                   ORDER BY checkpoints.message_sequence, versions.sequence)
@@ -132,8 +144,8 @@ const UNCOVERED_COMMANDS_SQL: &str = "SELECT commands.window_id, commands.comman
    AND commands.covered = 0
  ORDER BY checkpoints.message_sequence, commands.rowid";
 
-const RESTORE_SQL: &str =
-    "SELECT outcome FROM session_restores WHERE client_idempotency_key = @key";
+const RESTORE_SQL: &str = "SELECT outcome FROM session_restores
+  WHERE client_idempotency_key = @key AND session_id = @sessionId";
 
 /// The daemon-minted id of one command window, which its open and its close name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -207,6 +219,8 @@ pub struct CommandWindowOpening {
     pub tree_before: Option<GitObjectId>,
     /// The checkout's HEAD before, `None` when it had none.
     pub head_before: Option<GitObjectId>,
+    /// The before-capture's commit, `None` when it failed.
+    pub commit_before: Option<GitObjectId>,
     /// The command's text.
     pub command: String,
     /// The provider's tool call that ran it, `None` when no tool call did.
@@ -222,6 +236,8 @@ pub struct CommandWindowClosing {
     pub tree_after: Option<GitObjectId>,
     /// The checkout's HEAD after, `None` when it had none.
     pub head_after: Option<GitObjectId>,
+    /// The after-capture's commit, `None` when it failed.
+    pub commit_after: Option<GitObjectId>,
     /// Whether the before-capture was taken before the command ran.
     pub is_covered: bool,
 }
@@ -246,9 +262,28 @@ pub enum CheckpointReadError {
     /// The target's message cursor names no place in the session's log.
     #[error(transparent)]
     CursorUnresolvable(#[from] SessionEventCursorUnresolvable),
+    /// A later undo cut the conversation back past the checkpoint's turn, so the history it
+    /// stands in no longer exists.
+    #[error("checkpoint {} lies in history a later undo cut away", .checkpoint_id.as_str())]
+    Superseded {
+        /// The checkpoint.
+        checkpoint_id: SnapshotId,
+    },
     /// SQLite failed the read, or a stored column did not read as its type.
     #[error("the checkpoint could not be read")]
     Database(#[from] rusqlite::Error),
+    /// A stored rollback of the checkpoint's run does not match its contract.
+    #[error(transparent)]
+    Rollback(#[from] StoredRollbackMismatchError),
+}
+
+impl From<SupersededTurnsReadError> for CheckpointReadError {
+    fn from(error: SupersededTurnsReadError) -> Self {
+        match error {
+            SupersededTurnsReadError::Database(error) => Self::Database(error),
+            SupersededTurnsReadError::Rollback(error) => Self::Rollback(error),
+        }
+    }
 }
 
 /// A stored checkpoint member that does not read as its type; it names the member only.
@@ -279,8 +314,8 @@ pub fn insert_version_statement(
     checkpoint_id: &SnapshotId,
     version: &CheckpointVersion,
 ) -> WriteStatement {
-    let (copy_hash, not_kept_reason, shadow_id) = match &version.content {
-        CheckpointVersionContent::Copy { hash } => (Some(hash.as_str()), None, None),
+    let (copy, not_kept_reason, shadow_id) = match &version.content {
+        CheckpointVersionContent::Copy { hash, mode } => (Some((hash.as_str(), *mode)), None, None),
         CheckpointVersionContent::Created => (None, None, None),
         CheckpointVersionContent::NotKept { reason } => {
             (None, Some(<&'static str>::from(*reason)), None)
@@ -296,7 +331,13 @@ pub fn insert_version_statement(
             text_binding("@path", version.path.as_str()),
             text_binding("@leg", version.leg.into()),
             text_binding("@kind", kind.into()),
-            nullable_text_binding("@copyHash", copy_hash),
+            nullable_text_binding("@copyHash", copy.map(|(hash, _)| hash)),
+            (
+                Cow::Borrowed("@mode"),
+                copy.map_or(SqlValue::Null, |(_, mode)| {
+                    SqlValue::Integer(i64::from(mode))
+                }),
+            ),
             nullable_text_binding("@notKeptReason", not_kept_reason),
             text_binding("@parentRealPath", version.parent_real_path.as_str()),
             nullable_text_binding("@windowId", window_id.as_ref().map(UuidText::as_str)),
@@ -322,6 +363,10 @@ pub fn open_command_window_statement(opening: &CommandWindowOpening) -> WriteSta
                 "@headBefore",
                 opening.head_before.as_ref().map(GitObjectId::as_str),
             ),
+            nullable_text_binding(
+                "@commitBefore",
+                opening.commit_before.as_ref().map(GitObjectId::as_str),
+            ),
             text_binding("@command", &opening.command),
             nullable_text_binding(
                 "@toolCallId",
@@ -346,6 +391,10 @@ pub fn close_command_window_statement(closing: &CommandWindowClosing) -> WriteSt
             nullable_text_binding(
                 "@headAfter",
                 closing.head_after.as_ref().map(GitObjectId::as_str),
+            ),
+            nullable_text_binding(
+                "@commitAfter",
+                closing.commit_after.as_ref().map(GitObjectId::as_str),
             ),
             (
                 Cow::Borrowed("@covered"),
@@ -376,11 +425,14 @@ pub fn insert_restore_statement(
 }
 
 /// The checkpoint of `session_id` that `target` names: the one before the message its cursor
-/// places, or the snapshot it names. `None` when the session holds no such checkpoint. Fails with
-/// [`CheckpointReadError::CursorUnresolvable`] for a cursor that names no place in the log, and
-/// as SQLite does or when a stored column does not read.
+/// places, or the snapshot it names. `None` when the session holds no such checkpoint. The undos
+/// that superseded it are read from the log as far as `read_damaged_from_sequence` lets it read.
+/// Fails with [`CheckpointReadError::CursorUnresolvable`] for a cursor that names no place in the
+/// log, [`CheckpointReadError::Superseded`] for a checkpoint a later undo cut away, and as SQLite
+/// does or when a stored column or rollback does not read.
 pub fn read_checkpoint(
     connection: &Connection,
+    read_damaged_from_sequence: impl Fn(&SessionId) -> Option<i64>,
     session_id: SessionId,
     target: &SessionRestoreTarget,
 ) -> Result<Option<StoredCheckpoint>, CheckpointReadError> {
@@ -388,12 +440,11 @@ pub fn read_checkpoint(
     let checkpoint = match target {
         SessionRestoreTarget::Message { anchor_cursor } => {
             // The start of the log is no message, so no checkpoint stands there.
-            let Some(sequence) = u64::try_from(decode_event_cursor(anchor_cursor)?)
-                .ok()
-                .and_then(SafeInt::<0>::new)
-            else {
+            let Ok(sequence) = u64::try_from(decode_event_cursor(anchor_cursor)?) else {
                 return Ok(None);
             };
+            let sequence =
+                SafeInt::<0>::new(sequence).expect("a decoded cursor's position is a safe integer");
             connection
                 .prepare_cached(CHECKPOINT_BY_MESSAGE_SQL)?
                 .query_row(
@@ -416,22 +467,62 @@ pub fn read_checkpoint(
             )
             .optional()?,
     };
+    if let Some(stored) = &checkpoint {
+        let turns = read_superseded_turns(
+            connection,
+            read_damaged_from_sequence,
+            &session_id,
+            &stored.checkpoint.run_id,
+        )?;
+        if is_superseded(&turns, &stored.checkpoint) {
+            return Err(CheckpointReadError::Superseded {
+                checkpoint_id: stored.checkpoint.checkpoint_id.clone(),
+            });
+        }
+    }
     Ok(checkpoint)
 }
 
-/// `session_id`'s checkpoints, oldest prompt first. Fails as SQLite does, or when a stored column
-/// does not read.
+/// `session_id`'s checkpoints, oldest prompt first, but those a later undo cut away, read from the
+/// log as far as `read_damaged_from_sequence` lets it read. Fails as SQLite does, or when a stored
+/// column or rollback does not read.
 pub fn list_checkpoints(
     connection: &Connection,
+    read_damaged_from_sequence: impl Fn(&SessionId) -> Option<i64>,
     session_id: SessionId,
-) -> rusqlite::Result<Vec<StoredCheckpoint>> {
-    connection
+) -> Result<Vec<StoredCheckpoint>, SupersededTurnsReadError> {
+    let checkpoints = connection
         .prepare_cached(CHECKPOINTS_OF_SESSION_SQL)?
         .query_map(
             named_params! { "@sessionId": session_id.text().as_str() },
             stored_checkpoint_of,
         )?
-        .collect()
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut turns_by_run: HashMap<RunId, SupersededTurns> = HashMap::new();
+    let mut kept = Vec::with_capacity(checkpoints.len());
+    for stored in checkpoints {
+        let run_id = stored.checkpoint.run_id;
+        let turns = match turns_by_run.entry(run_id) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(read_superseded_turns(
+                connection,
+                &read_damaged_from_sequence,
+                &session_id,
+                &run_id,
+            )?),
+        };
+        if !is_superseded(turns, &stored.checkpoint) {
+            kept.push(stored);
+        }
+    }
+    Ok(kept)
+}
+
+// Whether a rollback of the checkpoint's run cut its turn away.
+fn is_superseded(turns: &SupersededTurns, checkpoint: &Checkpoint) -> bool {
+    transcript_run_stamp_at(turns, checkpoint.turn)
+        .superseded
+        .is_some()
 }
 
 /// Per path, the version an undo of `session_id` to before the log event at `before_sequence`
@@ -482,17 +573,22 @@ pub fn uncovered_commands(
         .collect()
 }
 
-/// The outcome the undo under `key` saved, `None` when no undo used it. Fails as SQLite does, or
-/// when the stored outcome does not read.
+/// The outcome the undo of `session_id` under `key` saved, `None` when no undo of the session used
+/// it. Fails as SQLite does, or when the stored outcome does not read.
 pub fn read_restore(
     connection: &Connection,
+    session_id: SessionId,
     key: &ClientUuid,
 ) -> rusqlite::Result<Option<SessionRestoreOutcome>> {
     connection
         .prepare_cached(RESTORE_SQL)?
-        .query_row(named_params! { "@key": key.as_str() }, |row| {
-            text_column(row, 0, |text| serde_json::from_str(&text))
-        })
+        .query_row(
+            named_params! {
+                "@key": key.as_str(),
+                "@sessionId": session_id.text().as_str(),
+            },
+            |row| text_column(row, 0, |text| serde_json::from_str(&text)),
+        )
         .optional()
 }
 
@@ -532,6 +628,7 @@ fn stored_version_of(row: &Row<'_>) -> rusqlite::Result<StoredCheckpointVersion>
             hash: text_column(row, 5, |text| {
                 Sha256Hex::new(text).ok_or(StoredCheckpointMemberInvalid("copy hash"))
             })?,
+            mode: row.get(10)?,
         },
         CheckpointVersionKind::Created => CheckpointVersionContent::Created,
         CheckpointVersionKind::NotKept => CheckpointVersionContent::NotKept {

@@ -15,7 +15,7 @@ use crate::run::agent::RunAgentReadError;
 use crate::run::daemon_turn::DaemonTurnQueueError;
 use crate::run::limit_interrupter::LimitInterruptFailure;
 use crate::run::refusals::RunRefusal;
-use crate::run::state_change::RunStateChangeError;
+use crate::run::state_change::RunWriteError;
 use crate::transcript::turn_attribution::TurnAttributionError;
 
 /// Why the run engine did not do what it was asked; what each step wrote before the failure is
@@ -28,7 +28,7 @@ pub enum RunEngineError {
     Refused(RunRefusal),
     /// A run state change was not written for a reason other than a refusal of the run.
     #[error("the run state change was not written")]
-    Change(#[source] RunStateChangeError),
+    Change(#[source] RunWriteError),
     /// A terminal hook failed after the run ended; the end is kept.
     #[error(transparent)]
     Released(#[from] RunTerminalReleaseError),
@@ -182,16 +182,16 @@ impl From<RunRefusal> for RunEngineError {
     }
 }
 
-impl From<RunStateChangeError> for RunEngineError {
-    fn from(error: RunStateChangeError) -> Self {
+impl From<RunWriteError> for RunEngineError {
+    fn from(error: RunWriteError) -> Self {
         match error {
-            RunStateChangeError::Refused(refusal) => Self::Refused(refusal),
-            other @ (RunStateChangeError::CompanionRefused { .. }
-            | RunStateChangeError::TurnOpen { .. }
-            | RunStateChangeError::Draft(_)
-            | RunStateChangeError::Append(_)
-            | RunStateChangeError::Database(_)
-            | RunStateChangeError::Pool(_)) => Self::Change(other),
+            RunWriteError::Refused(refusal) => Self::Refused(refusal),
+            other @ (RunWriteError::CompanionRefused { .. }
+            | RunWriteError::TurnOpen { .. }
+            | RunWriteError::Draft(_)
+            | RunWriteError::Append(_)
+            | RunWriteError::Database(_)
+            | RunWriteError::Pool(_)) => Self::Change(other),
         }
     }
 }

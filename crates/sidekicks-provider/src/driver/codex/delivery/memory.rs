@@ -1,8 +1,7 @@
 //! What one Codex session's deliveries remember between frames: each turn's run epoch for the
 //! session's terminal gate, the turn its run opened and the message that opened it, the runs whose
-//! turn is starting, a turn's
-//! last error, the reviewer's and the reroute's pending halves, the helpers' child runs, the prose
-//! being streamed, and the reorder buffer rows pass.
+//! turn is starting, a turn's last error, the reviewer's and the reroute's pending halves, the
+//! helpers' child runs, the prose being streamed, and the reorder buffer rows pass.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;

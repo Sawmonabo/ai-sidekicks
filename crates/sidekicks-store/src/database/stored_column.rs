@@ -88,9 +88,10 @@ pub fn wrong_type_failure(index: usize, value: &SqliteValue) -> rusqlite::Error 
     )
 }
 
-/// A rowid, or a key built from one, as unsigned: SQLite holds it signed, so a negative one fails
-/// the read with `rusqlite::Error::FromSqlConversionFailure`, keeping why.
-pub fn rowid_column(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
+/// An INTEGER read as unsigned, such as a rowid or a key built from one, a size or a count:
+/// SQLite holds it signed, so a negative one fails the read with
+/// `rusqlite::Error::FromSqlConversionFailure`, keeping why.
+pub fn unsigned_integer_column(row: &Row<'_>, index: usize) -> rusqlite::Result<u64> {
     let value: i64 = row.get(index)?;
     u64::try_from(value).map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(index, Type::Integer, Box::new(error))

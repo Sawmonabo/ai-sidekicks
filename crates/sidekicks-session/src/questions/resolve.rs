@@ -41,7 +41,7 @@ use crate::questions::store::{
     QuestionHolder, read_asked, read_question, settle_question_statement,
 };
 use crate::questions::waits::QuestionWaitAnswer;
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 impl QuestionsService {
     /// Answers every question of `request`'s record from `device_id` and answers its state.
@@ -167,13 +167,13 @@ impl QuestionsService {
                         },
                     )
                 },
-                RunStateChangeCompanions {
+                RunWriteCompanions {
                     statements: vec![settle_question_statement(
                         &question_id,
                         QuestionSettledState::Answered,
                     )],
                     preceding_events: vec![turn],
-                    ..RunStateChangeCompanions::default()
+                    ..RunWriteCompanions::default()
                 },
             )
             .await;

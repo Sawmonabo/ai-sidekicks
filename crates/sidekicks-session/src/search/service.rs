@@ -38,7 +38,9 @@ use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_contracts::wire::{False, True};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_search::index::{HeldSearch, IndexRowKind, SearchIndex, SearchIndexError};
-use sidekicks_store::database::stored_column::{optional_text_column, rowid_column, text_column};
+use sidekicks_store::database::stored_column::{
+    optional_text_column, text_column, unsigned_integer_column,
+};
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 
 use crate::search::cursor::{
@@ -522,7 +524,7 @@ fn read_sessions(
     let mut statement = reader.prepare_cached(SESSIONS_BY_KEY_SQL)?;
     let rows = statement.query_map([session_keys_json], |row| {
         Ok((
-            rowid_column(row, 0)?,
+            unsigned_integer_column(row, 0)?,
             SessionRow {
                 session_id: text_column(row, 1, |text| SessionId::new(&text))?,
                 name: optional_text_column(row, 2, FreeFormText::new)?,

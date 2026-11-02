@@ -16,20 +16,22 @@ use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::rewind::RewindConversationResult;
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_provider::runtime_binding::store::mint_runtime_binding_id;
+use sidekicks_session::checkpoints::store::list_checkpoints;
 use sidekicks_session::run::engine::errors::RunEngineError;
-use sidekicks_session::run::state_change::{RunStateChangeCompanions, RunStateChangeError};
+use sidekicks_session::run::state_change::{RunWriteCompanions, RunWriteError};
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::events::session::appender::SessionEventDraft;
 
-use super::{RewindAnswer, Scene, TARGET_TURN, applied_in_place, position, scene, undo_key};
+use super::super::client_key;
+use super::{RewindAnswer, Scene, TARGET_TURN, applied_in_place, position, scene};
 use crate::error::QueueError;
 use crate::service::undo::{ConversationCut, ConversationCutError};
 
 /// The companions recovery passes when it undoes to where both sides agree: its resolution, and
 /// `guard`.
-fn recovery_companions(scene: &Scene, guard: WriteStatement) -> RunStateChangeCompanions {
+fn recovery_companions(scene: &Scene, guard: WriteStatement) -> RunWriteCompanions {
     let session_id = scene.fixture.session_id;
-    let mut companions = RunStateChangeCompanions::default();
+    let mut companions = RunWriteCompanions::default();
     companions.statements = vec![guard];
     companions.preceding_events = vec![
         SessionEventDraft::of_session(
@@ -69,8 +71,10 @@ enum UnwrittenCut {
 }
 
 // A cut the provider took a fallback for or failed, or one a companion statement refuses, writes
-// neither a rollback nor the companion's event and leaves the run's version. Killed by a rollback
-// appended before the provider's answer, and by the companions written apart from the rollback.
+// neither a rollback nor the companion's event and leaves the run's version, and a refusal once
+// the provider cut says the cut went unrecorded. Killed by a rollback appended before the
+// provider's answer, by the companions written apart from the rollback, and by a refused write
+// after the cut answered as a read failure.
 #[rstest]
 #[case::degraded(UnwrittenCut::Degraded)]
 #[case::failed(UnwrittenCut::Failed)]
@@ -94,7 +98,7 @@ async fn a_cut_the_provider_or_a_companion_refuses_writes_nothing(#[case] unwrit
     let companions = recovery_companions(&scene, run_at_version(scene.run_id, 1));
     let hold = fixture
         .queue
-        .hold_for_undo(fixture.session_id, undo_key())
+        .hold_for_undo(fixture.session_id, client_key())
         .await;
 
     let cut = fixture
@@ -114,8 +118,8 @@ async fn a_cut_the_provider_or_a_companion_refuses_writes_nothing(#[case] unwrit
         UnwrittenCut::CompanionRefused => assert!(
             matches!(
                 cut,
-                Err(ConversationCutError::Queue(QueueError::Engine(
-                    RunEngineError::Change(RunStateChangeError::CompanionRefused { .. })
+                Err(ConversationCutError::Unrecorded(QueueError::Engine(
+                    RunEngineError::Change(RunWriteError::CompanionRefused { .. })
                 )))
             ),
             "{cut:?}"
@@ -128,17 +132,16 @@ async fn a_cut_the_provider_or_a_companion_refuses_writes_nothing(#[case] unwrit
 }
 
 // An applied cut lands recovery's resolution, then the target run's rollback at its version plus
-// one and the turn before the target's, in one write, and the session stays held: a send now is
-// recorded and not handed. Killed by the companions written apart, by the point taken as the
-// target turn's own position, and by the hold let go at the cut.
+// one and the turn before the target's, in one write. Killed by the companions written apart, and
+// by the point taken as the target turn's own position.
 #[tokio::test]
-async fn an_applied_cut_lands_with_its_companions_and_keeps_the_hold() {
+async fn an_applied_cut_lands_with_its_companions() {
     let scene = scene(applied_in_place()).await;
     let fixture = &scene.fixture;
     let companions = recovery_companions(&scene, run_at_version(scene.run_id, 2));
     let hold = fixture
         .queue
-        .hold_for_undo(fixture.session_id, undo_key())
+        .hold_for_undo(fixture.session_id, client_key())
         .await;
 
     let cut = fixture
@@ -146,11 +149,6 @@ async fn an_applied_cut_lands_with_its_companions_and_keeps_the_hold() {
         .cut_conversation(&hold, &scene.target, companions)
         .await
         .expect("the cut applies");
-    let sent = fixture
-        .send()
-        .await
-        .expect("a send during the undo is taken");
-    fixture.settle_hands().await;
 
     let ConversationCut::Applied {
         rollbacks,
@@ -180,14 +178,38 @@ async fn an_applied_cut_lands_with_its_companions_and_keeps_the_hold() {
             "agent.run.rolledBack",
         ]
     );
+}
+
+// A checkpoint a cut already cut away is left out of the session's list, and a second cut to it
+// refuses before the provider is asked. Killed by the list keeping a superseded checkpoint, and by
+// the checkpoint's read not refusing one.
+#[tokio::test]
+async fn a_checkpoint_a_cut_cut_away_is_unlisted_and_refused() {
+    let scene = scene(applied_in_place()).await;
+    let fixture = &scene.fixture;
+    let hold = fixture
+        .queue
+        .hold_for_undo(fixture.session_id, client_key())
+        .await;
+    fixture
+        .queue
+        .cut_conversation(&hold, &scene.target, RunWriteCompanions::default())
+        .await
+        .expect("the cut applies");
+
+    let listed = list_checkpoints(&fixture.database.reader(), |_| None, fixture.session_id)
+        .expect("the session's checkpoints read");
+    let again = fixture
+        .queue
+        .cut_conversation(&hold, &scene.target, RunWriteCompanions::default())
+        .await;
+
+    assert!(listed.is_empty(), "{listed:?}");
     assert!(
-        !scene
-            .calls
-            .steers()
-            .iter()
-            .any(|(item_id, _)| *item_id == sent),
-        "the send waits for the undo's release"
+        matches!(again, Err(ConversationCutError::Superseded)),
+        "{again:?}"
     );
+    assert_eq!(scene.rewinds.load(Ordering::SeqCst), 1);
 }
 
 // A cut the provider applied by forking the conversation moves the session onto the fork's
@@ -206,12 +228,12 @@ async fn a_cut_applied_on_a_fork_moves_the_session_to_the_forks_binding() {
     let fixture = &scene.fixture;
     let hold = fixture
         .queue
-        .hold_for_undo(fixture.session_id, undo_key())
+        .hold_for_undo(fixture.session_id, client_key())
         .await;
 
     fixture
         .queue
-        .cut_conversation(&hold, &scene.target, RunStateChangeCompanions::default())
+        .cut_conversation(&hold, &scene.target, RunWriteCompanions::default())
         .await
         .expect("the cut applies");
 
@@ -241,7 +263,7 @@ async fn a_target_in_an_earlier_run_rolls_back_every_later_run_in_one_write() {
     let companions = recovery_companions(&scene, run_at_version(later_run_id, 2));
     let hold = fixture
         .queue
-        .hold_for_undo(fixture.session_id, undo_key())
+        .hold_for_undo(fixture.session_id, client_key())
         .await;
 
     let cut = fixture
@@ -290,12 +312,12 @@ async fn a_cut_waits_for_the_turns_end_before_the_provider_is_asked() {
     fixture.set_run_state(scene.run_id, "interrupted");
     let hold = fixture
         .queue
-        .hold_for_undo(fixture.session_id, undo_key())
+        .hold_for_undo(fixture.session_id, client_key())
         .await;
 
     let refused = fixture
         .queue
-        .cut_conversation(&hold, &scene.target, RunStateChangeCompanions::default())
+        .cut_conversation(&hold, &scene.target, RunWriteCompanions::default())
         .await;
     let rewinds_while_open = scene.rewinds.load(Ordering::SeqCst);
     let version_while_open = fixture.run_version(scene.run_id);
@@ -304,7 +326,7 @@ async fn a_cut_waits_for_the_turns_end_before_the_provider_is_asked() {
         .await;
     let applied = fixture
         .queue
-        .cut_conversation(&hold, &scene.target, RunStateChangeCompanions::default())
+        .cut_conversation(&hold, &scene.target, RunWriteCompanions::default())
         .await;
 
     assert!(

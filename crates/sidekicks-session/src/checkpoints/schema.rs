@@ -43,7 +43,7 @@ pub enum NotKeptReason {
 
 impl NotKeptReason {
     /// The skip an undo names for a path a command changed that kept no copy for this reason;
-    /// `None` for a failed read, which the undo names under its failed files instead.
+    /// `None` for a failed read or clone, which the undo names under its failed files instead.
     pub fn skip_reason(self) -> Option<SessionRestoreSkipReason> {
         match self {
             Self::TooLarge => Some(SessionRestoreSkipReason::TooLarge),
@@ -69,6 +69,9 @@ pub enum CheckpointVersionContent {
     Copy {
         /// The copy's SHA-256, which names its file under the capture folder.
         hash: Sha256Hex,
+        /// The file's permission bits when copied, which an undo puts back: copies of one content
+        /// are shared, so the copy's own mode is the first copier's.
+        mode: u32,
     },
     /// The path was absent before the change, so an undo deletes it.
     Created,
@@ -119,8 +122,12 @@ CREATE TABLE checkpoint_commands (
   checkpoint_id  TEXT NOT NULL REFERENCES session_checkpoints(checkpoint_id),
   tree_before    TEXT,                          -- NULL when the before-capture failed
   head_before    TEXT,
+  -- The captures' commits, whose trailers name the paths each left out; NULL when it failed, and
+  -- the after's until the window closes.
+  commit_before  TEXT,
   tree_after     TEXT,                          -- NULL until it closes, or when that capture failed
   head_after     TEXT,
+  commit_after   TEXT,
   -- Set as it closes; false names it in the dry run's uncovered commands.
   covered        INTEGER CHECK(covered IN (0, 1)),
   command        TEXT NOT NULL,
@@ -188,12 +195,14 @@ CREATE TABLE checkpoint_versions (
   leg               TEXT NOT NULL CHECK(leg IN ({legs})),
   kind              TEXT NOT NULL CHECK(kind IN ({kinds})),
   copy_hash         TEXT,                       -- the copy's SHA-256, present exactly on a copy
+  mode              INTEGER CHECK(mode BETWEEN 0 AND 4095), -- the file's permission bits, on a copy
   not_kept_reason   TEXT CHECK(not_kept_reason IN ({not_kept_reasons})),
   parent_real_path  TEXT NOT NULL,              -- the parent folder's real path when recorded
   window_id         TEXT REFERENCES checkpoint_commands(window_id), -- NULL on an edit
   shadow_id         TEXT REFERENCES checkpoint_shadows(shadow_id), -- present exactly on a shadow
   PRIMARY KEY (checkpoint_id, sequence),
   CHECK((kind = '{copy}') = (copy_hash IS NOT NULL)),
+  CHECK((kind = '{copy}') = (mode IS NOT NULL)),
   CHECK((kind = '{not_kept}') = (not_kept_reason IS NOT NULL)),
   CHECK((kind = '{shadow}') = (shadow_id IS NOT NULL))
 ) STRICT;

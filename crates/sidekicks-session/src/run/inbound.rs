@@ -47,7 +47,7 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use crate::console_state::advisor_model_change_statement;
 use crate::run::engine::errors::RunEngineError;
-use crate::run::engine::turns::run_live_or_turn_open_statement;
+use crate::run::engine::turns::guards::run_live_or_turn_open_statement;
 use crate::run::engine::{RunEngine, SubagentRunStart};
 use crate::run::epochs::{DeliveryAttribution, EpochBinding, EpochCursorError, ExecutionEpochs};
 use crate::run::inbound::absorb::absorb;

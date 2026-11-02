@@ -1,6 +1,7 @@
 //! The messages the daemon wrote to each Claude Code session's live process and has not yet
-//! reported taken, and the newest one per session: a conversation cut names the newest as the last
-//! one Claude Code saw, and a turn too long for the context window hands it back to the person.
+//! reported taken, the newest one per session and those that wait to open its next turn: a
+//! conversation cut names the newest as the last one Claude Code saw, and a turn too long for the
+//! context window hands it back to the person.
 //! The earliest signal that Claude Code took a message reports it once, under the run it was
 //! written for; a steer not yet taken keeps its run going into Claude Code's next turn.
 
@@ -24,12 +25,10 @@ pub(crate) struct ClaudeSentPrompts {
     // Reported or dropped while this process lives, so a later signal for one reports nothing.
     settled_by_session: HashMap<SessionId, HashSet<String>>,
     newest_by_session: HashMap<SessionId, String>,
-    // Each session's newest message that is no steer: a steer lands in the turn running, so only
-    // these open a turn.
-    newest_opening_by_session: HashMap<SessionId, String>,
-    // The message that opened each session's latest turn, so a turn Claude Code starts itself
-    // is never taken for one a message opened.
-    turn_opening_by_session: HashMap<SessionId, String>,
+    // Each session's messages that are no steer written since its last turn opened, oldest first:
+    // a steer lands in the turn running, and Claude Code takes every message waiting into its next
+    // turn, so the oldest of them opens it, as the first of a start's messages does on Codex.
+    unopened_by_session: HashMap<SessionId, Vec<String>>,
 }
 
 impl ClaudeSentPrompts {
@@ -45,8 +44,10 @@ impl ClaudeSentPrompts {
         self.newest_by_session
             .insert(session_id, message_uuid.to_owned());
         if !is_steer {
-            self.newest_opening_by_session
-                .insert(session_id, message_uuid.to_owned());
+            self.unopened_by_session
+                .entry(session_id)
+                .or_default()
+                .push(message_uuid.to_owned());
         }
         self.unreported.insert(
             message_uuid.to_owned(),
@@ -97,12 +98,8 @@ impl ClaudeSentPrompts {
         {
             self.newest_by_session.remove(&session_id);
         }
-        if self
-            .newest_opening_by_session
-            .get(&session_id)
-            .is_some_and(|newest| newest == message_uuid)
-        {
-            self.newest_opening_by_session.remove(&session_id);
+        if let Some(unopened) = self.unopened_by_session.get_mut(&session_id) {
+            unopened.retain(|uuid| uuid != message_uuid);
         }
         self.settled_by_session
             .entry(session_id)
@@ -121,16 +118,13 @@ impl ClaudeSentPrompts {
     }
 
     /// The message that opens the session's turn starting now, its user message's uuid: the
-    /// newest message sent to its process that is no steer, unless that one already opened a
-    /// turn; `None` for a turn Claude Code started itself.
+    /// oldest message sent to its process since its last turn opened that is no steer, the rest
+    /// taken into the same turn; `None` for a turn Claude Code started itself.
     pub(crate) fn take_turn_opening(&mut self, session_id: SessionId) -> Option<String> {
-        let newest = self.newest_opening_by_session.get(&session_id)?;
-        if self.turn_opening_by_session.get(&session_id) == Some(newest) {
-            return None;
-        }
-        self.turn_opening_by_session
-            .insert(session_id, newest.clone());
-        Some(newest.clone())
+        self.unopened_by_session
+            .remove(&session_id)?
+            .into_iter()
+            .next()
     }
 
     /// The newest message sent to the session's process, if one is known.
@@ -142,8 +136,7 @@ impl ClaudeSentPrompts {
     /// which of them were taken.
     pub(crate) fn forget_session(&mut self, session_id: SessionId) {
         self.newest_by_session.remove(&session_id);
-        self.newest_opening_by_session.remove(&session_id);
-        self.turn_opening_by_session.remove(&session_id);
+        self.unopened_by_session.remove(&session_id);
         self.settled_by_session.remove(&session_id);
         self.unreported
             .retain(|_uuid, prompt| prompt.session_id != session_id);
@@ -260,8 +253,8 @@ mod tests {
     }
 
     // Kills: a turn numbered under no message, under the message of the turn before when Claude
-    // Code starts one itself, which would give two turns one provider id, or under a steer that
-    // landed in the turn before.
+    // Code starts one itself, which would give two turns one provider id, under a steer that
+    // landed in the turn before, or under a withdrawn message.
     #[test]
     fn a_turn_takes_the_message_that_opened_it_once() {
         let session_id = session();
@@ -276,7 +269,9 @@ mod tests {
         assert_eq!(prompts.take_turn_opening(session_id), None);
         prompts.record_written(session_id, run_id, "steer", true);
         assert_eq!(prompts.take_turn_opening(session_id), None);
+        prompts.record_written(session_id, run_id, "withdrawn", false);
         prompts.record_written(session_id, run_id, "second", false);
+        assert_eq!(prompts.withdraw(session_id, "withdrawn"), None);
         assert_eq!(
             prompts.take_turn_opening(session_id).as_deref(),
             Some("second")

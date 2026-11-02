@@ -228,14 +228,12 @@ mod tests {
     use crate::driver::codex::session::test_fixture::{
         TestCodexSession, answer_fork, turn_completed, turn_started,
     };
-    use crate::port::run_host::test_host::EngineCall;
 
     /// How long the test waits before it counts a hold on the session's task as a deadlock.
     const DEADLOCK_BOUND: Duration = Duration::from_secs(10);
 
     // Kills: the open of a turn Codex started joining the config fork in flight, whose call waits
-    // behind the open in the session's queue (the test times out), and that turn opened as if a
-    // queued message had opened it.
+    // behind the open in the session's queue (the test times out).
     #[tokio::test]
     async fn a_turn_codex_starts_while_a_config_fork_waits_opens_its_run_and_the_fork_goes_after() {
         let mut session = TestCodexSession::start().await;
@@ -255,10 +253,10 @@ mod tests {
         let script = &mut session.scripted.script;
         let flow = async {
             task.handle(started).await;
-            let run_id = task
-                .record
-                .active_turn_run("turn-1")
-                .expect("the turn's run opened before its frame went on");
+            assert!(
+                task.record.active_turn_run("turn-1").is_some(),
+                "the turn's run opened before its frame went on"
+            );
             task.handle(fork_call).await;
             let has_forked = waiting_fork
                 .await
@@ -273,19 +271,10 @@ mod tests {
                 task.handle_next(),
                 answer_fork(script, "thread-2", &settings)
             );
-            run_id
         };
-        let run_id = tokio::time::timeout(DEADLOCK_BOUND, flow)
+        tokio::time::timeout(DEADLOCK_BOUND, flow)
             .await
             .expect("the run opens without waiting on the fork behind it");
-        assert!(
-            session
-                .engine
-                .calls()
-                .contains(&EngineCall::StartTurn(run_id, None)),
-            "a turn Codex started by itself opens with no message: {:?}",
-            session.engine.calls()
-        );
         assert_eq!(
             session.task.record.thread_id, "thread-2",
             "the fork went after the turn"

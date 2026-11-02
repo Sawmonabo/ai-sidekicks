@@ -28,7 +28,7 @@ use crate::checkpoints::store::{list_checkpoints, read_checkpoint};
 use crate::run::engine::RunEngine;
 use crate::run::engine::test_fixture::{end_run_aside, insert_running_run, test_engine};
 use crate::run::engine::undo::RunCut;
-use crate::run::state_change::RunStateChangeCompanions;
+use crate::run::state_change::RunWriteCompanions;
 
 // Appends the person's message that queue item `item` sends to `run_id`, under the item's id as
 // its correlation id, as the queue records it; answers its sequence.
@@ -100,8 +100,8 @@ fn epoch_position(epoch: u64, position: u64) -> EpochPosition {
     }
 }
 
-// Killed by a row keyed on the turn's number or the start's own sequence, by a steer taken as an
-// opening, by the standing read without this start applied (every position one short), by the
+// Killed by a row keyed on the turn's number or the start's own sequence, by the standing read
+// without this start applied (every position one short), by the
 // epoch not read (the third row in epoch 0), by a second row for P2 or a plain insert refusing the
 // start that names it again, by a row for a turn with no opening, and by a row written apart from
 // its start (one for the ended run's start).
@@ -142,7 +142,7 @@ async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_star
                 target_position: SourcePosition(SafeInt::ZERO),
             },
             Vec::new(),
-            RunStateChangeCompanions::default(),
+            RunWriteCompanions::default(),
             &hold,
         )
         .await
@@ -155,7 +155,7 @@ async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_star
     assert_eq!(start(&engine, run_id, Some(fourth)).await, None);
 
     let reader = database.reader();
-    let stored = list_checkpoints(&reader, session_id).expect("the checkpoints read");
+    let stored = list_checkpoints(&reader, |_| None, session_id).expect("the checkpoints read");
     assert_eq!(
         stored
             .iter()
@@ -179,7 +179,8 @@ async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_star
             SessionRestoreTarget::Message { anchor_cursor },
         ] {
             assert_eq!(
-                read_checkpoint(&reader, session_id, &target).expect("the checkpoint reads"),
+                read_checkpoint(&reader, |_| None, session_id, &target)
+                    .expect("the checkpoint reads"),
                 Some(row.clone()),
                 "{target:?}"
             );

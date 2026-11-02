@@ -82,7 +82,7 @@ use crate::run::engine::{InterruptRoute, RunEngine};
 use crate::run::projection::advance_run_version_statement;
 use crate::run::read::{RunRead, read_run_through};
 use crate::run::refusals::RunRefusal;
-use crate::run::state_change::RunStateChangeCompanions;
+use crate::run::state_change::RunWriteCompanions;
 use crate::run::transitions::states_that_may_enter;
 
 /// The statements the service's reads prepare on its pooled connection that no other reading
@@ -678,7 +678,7 @@ impl InterventionService {
                     accepted_run_version,
                     cause,
                     canceled,
-                    verdict: RunStateChangeCompanions {
+                    verdict: RunWriteCompanions {
                         statements: vec![row_move.clone()],
                         preceding_events: vec![event.clone()],
                         leading_event: None,

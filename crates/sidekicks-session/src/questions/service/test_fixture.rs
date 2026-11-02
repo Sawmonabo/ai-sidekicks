@@ -46,7 +46,7 @@ use crate::questions::schema::schema_parts;
 #[cfg(test)]
 use crate::run::engine::RunEngine;
 use crate::run::engine::test_fixture::{insert_running_run, test_engine};
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 /// Each answer the stand-in driver was handed: its request id and its answers.
 pub(super) type HandedAnswers = Arc<Mutex<Vec<(String, Vec<QuestionAnswer>)>>>;
@@ -127,7 +127,7 @@ impl Fixture {
                     engine
                         .transition(
                             RunStateChange::new(run_id, failed()),
-                            RunStateChangeCompanions::default(),
+                            RunWriteCompanions::default(),
                         )
                         .await
                         .expect("the run ends");

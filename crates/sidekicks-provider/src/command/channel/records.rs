@@ -201,6 +201,8 @@ impl RecordFollower {
                 if let Some(wrapper) = self.wrappers.get_mut(&party) {
                     wrapper.has_begun = true;
                     if let Some(window) = &wrapper.window {
+                        // The window's task stops reading only once its open failed, when the
+                        // command has no window to tell.
                         window
                             .send(WindowCall::Began { is_covered })
                             .unwrap_or_default();
@@ -231,7 +233,18 @@ impl RecordFollower {
                 let row_exit_code: Option<ExitCode> =
                     exit_code.and_then(|code| SafeSignedInt::new(i64::from(code)));
                 self.set.wrapper_exited(session_id, party, row_exit_code);
-                self.close_window(party, CommandWindowEnd::Exited { exit_code, signal });
+                // A wrapper ended before it began, killed while it waited for its `go`, ran
+                // nothing.
+                let end = if self
+                    .wrappers
+                    .get(&party)
+                    .is_some_and(|wrapper| wrapper.has_begun)
+                {
+                    CommandWindowEnd::Exited { exit_code, signal }
+                } else {
+                    CommandWindowEnd::Unrun
+                };
+                self.close_window(party, end);
                 self.release(party).await;
             }
             PartyRecord::Warning { message } => {
@@ -291,6 +304,8 @@ impl RecordFollower {
             .get_mut(&party)
             .and_then(|wrapper| wrapper.window.take())
         {
+            // The window's task stops reading only once its open failed, when there is no window
+            // to close.
             window.send(WindowCall::Close(end)).unwrap_or_default();
         }
     }
@@ -381,7 +396,9 @@ impl RecordFollower {
 
 // Opens `start`'s capture window on a task of its own, which answers the wrapper `go` once the open
 // settled, opened or not, then makes the window's calls in the order they are sent, and closes it
-// untold where they end unclosed. Bounded by the wrapper's records: one `Began` and one close.
+// untold where they end unclosed. Bounded by the wrapper's records: one `Began` and one close. The
+// open has no bound of its own: one that hangs holds the wrapper at its wait for `go` until the
+// provider's timeout on its call ends it, which closes the window unrun once the open settles.
 fn open_window(
     capture: Arc<dyn CommandCapture>,
     start: CommandWindowStart,

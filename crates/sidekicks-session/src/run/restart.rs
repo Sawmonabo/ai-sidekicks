@@ -41,9 +41,9 @@ use crate::interventions::store::{
     unresolved_state_of,
 };
 use crate::queue_store::{QueueItemReader, SELECT_WAITING_FOR_RUN_SQL};
-use crate::run::engine::turns::TURN_END_TYPES_SQL;
+use crate::run::engine::turns::guards::TURN_END_TYPES_SQL;
 use crate::run::read::LiveRun;
-use crate::run::state_change::RunStateChangeCompanions;
+use crate::run::state_change::RunWriteCompanions;
 
 // The run's interrupts that have no outcome yet, the person's or the daemon's own at a limit, in
 // the order they were asked for. An applied one ends its run in the outcome's own write, so a live
@@ -559,8 +559,8 @@ pub(crate) fn applied_pending_interrupts_of(
     run_id: RunId,
     session_id: SessionId,
     pending_interrupts: &[PendingInterrupt],
-) -> Result<RunStateChangeCompanions, SessionEventDraftError> {
-    let mut companions = RunStateChangeCompanions::default();
+) -> Result<RunWriteCompanions, SessionEventDraftError> {
+    let mut companions = RunWriteCompanions::default();
     for pending_interrupt in pending_interrupts {
         companions
             .settled_interventions

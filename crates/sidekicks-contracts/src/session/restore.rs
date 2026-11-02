@@ -484,14 +484,22 @@ methods! {
             mutating: false,
             params: SessionRestorePreviewRequest,
             result: SessionRestorePreviewResponse,
-            refusals: [SessionNotFound, SessionEventCursorUnresolvable],
+            refusals: [
+                SessionNotFound,
+                SessionEventCursorUnresolvable,
+                SessionCheckpointSuperseded,
+            ],
         },
         /// Undoes to a point, with an optional edit and resend.
         SessionRestore = mutation "session.restore" {
             mutating: true,
             params: SessionRestoreRequest,
             result: SessionRestoreOutcome,
-            refusals: [SessionNotFound, SessionEventCursorUnresolvable],
+            refusals: [
+                SessionNotFound,
+                SessionEventCursorUnresolvable,
+                SessionCheckpointSuperseded,
+            ],
         },
         /// Lists a session's snapshots.
         SessionSnapshotList = query "session.snapshot.list" {

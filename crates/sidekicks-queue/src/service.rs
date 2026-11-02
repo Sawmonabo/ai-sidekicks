@@ -85,12 +85,13 @@ use crate::session_lock::{QueueSessionLock, UnreleasedInterrupts};
 /// left their choice unsettled and the sessions holding one, the trigger of a run's newest
 /// interrupted end, the queue stream's reads of the changes after a cursor and of the waiting
 /// items from the first place and after a place, and an undo's reads: a checkpoint by its message
-/// and by its snapshot, a session's lead runs after one, its live runs and their open turns, and
-/// its ended runs holding an open turn. Its other reads (a session's queue, the messages waiting
-/// for a run, a run's row, its provider, its agent and account, a session's state, its lead and its
-/// step bound, a binding by its id and the events at a sequence) are in the idle sleep's, the run
-/// engine's, the run pause's, the binding store's and the snapshot list's sets.
-pub const RUN_QUEUE_STATEMENT_CAPACITY: usize = 18;
+/// and by its snapshot, its run's rollbacks and a session's lead runs after one. Its other reads (a session's queue, the
+/// messages waiting for a run, a run's row, its provider, its agent and account, a session's state,
+/// its lead and its step bound, a binding by its id, the events at a sequence, a session's live
+/// runs with their open turns and its ended runs holding an open turn) are in the idle sleep's, the
+/// run engine's, the run pause's, the binding store's, the snapshot list's, the provider sessions'
+/// and the restart settle's sets.
+pub const RUN_QUEUE_STATEMENT_CAPACITY: usize = 16;
 
 // The detail of a queued run ended because every message it was queued for was removed.
 static EMPTIED_RUN_DETAIL: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
@@ -331,7 +332,7 @@ impl RunQueue {
                 request.skills.clone(),
             )
             .await?;
-        let written = {
+        let (written, is_held_for_undo) = {
             let hold = self.session_lock.hold_session(session_id).await;
             if let Some(saved) = self.read_saved(session_id, &key).await? {
                 return Ok(created_response_of(saved));
@@ -350,7 +351,7 @@ impl RunQueue {
                 },
                 client_idempotency_key: key,
             };
-            match request.replaces_queue_item_id {
+            let written = match request.replaces_queue_item_id {
                 None => {
                     let item = QueueSendItem::Message { message, device_id };
                     self.sends.send(&hold, item, None).await?
@@ -360,10 +361,13 @@ impl RunQueue {
                         .replace(&hold, replaces, message, device_id)
                         .await?
                 }
-            }
+            };
+            // Read under the lock, which an undo's hold and release both take, so a resume owed
+            // here goes either now or at the release, once.
+            (written, self.delivery.is_held_for_undo(session_id))
         };
         if let Some((run_id, run)) = written.resumes
-            && !self.delivery.is_held_for_undo(session_id)
+            && !is_held_for_undo
         {
             // A resume that did not go was logged, and the message waits.
             let _resumed = self.resume_for_send(run_id, run.version).await;

@@ -589,8 +589,9 @@ async fn a_wrapper_s_exit_written_just_before_its_end_settles_its_row() {
 
 // Fails when a line's wrapper is answered `go` before its capture window opened, is answered `go`
 // twice, or when its window is closed before an open still running, closed twice, closed untold
-// at an `Exited` or not told how the command began. Mutations: send `Go` in `take_record` beside
-// the acknowledgment; drop the `Began` arm's window call; drop the `Exited` arm's close; let the
+// at an `Exited`, closed as run at an `Exited` before the command began, or not told how the
+// command began. Mutations: send `Go` in `take_record` beside the acknowledgment; drop the `Began`
+// arm's window call; drop the `Exited` arm's close; close every `Exited` as `Exited`; let the
 // window's task go on past its `Close`.
 #[tokio::test]
 async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
@@ -641,17 +642,29 @@ async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
         sent_requests(&channel, &first_keys, first_id),
         acknowledged_and_go()
     );
+    let exited = PartyRecord::Exited {
+        exit_code: Some(3),
+        signal: None,
+    };
+    write_party_record(&channel, &first_keys, first_id, 3, &exited);
+    assert_eq!(
+        next_call(&mut called).await,
+        CaptureCall::Close(
+            first_id,
+            CommandWindowEnd::Exited {
+                exit_code: Some(3),
+                signal: None,
+            }
+        )
+    );
 
-    // A wrapper that exits while its window still opens has it closed once, after the open.
+    // A wrapper that exits before it began, while its window still opens, has it closed once as
+    // unrun, after the open.
     opens.send_replace(None);
     let (second, second_keys, ready) = started_party(None);
     let second_id = ready[0];
     write_party_record(&channel, &second_keys, second_id, 1, &starting(None));
     assert_eq!(next_call(&mut called).await, CaptureCall::Open(second_id));
-    let exited = PartyRecord::Exited {
-        exit_code: Some(3),
-        signal: None,
-    };
     write_party_record(&channel, &second_keys, second_id, 2, &exited);
     until("the exited wrapper is let go", || {
         channel.party_process(second_id).is_none()
@@ -661,13 +674,7 @@ async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
     opens.send_replace(Some(true));
     assert_eq!(
         next_call(&mut called).await,
-        CaptureCall::Close(
-            second_id,
-            CommandWindowEnd::Exited {
-                exit_code: Some(3),
-                signal: None,
-            }
-        )
+        CaptureCall::Close(second_id, CommandWindowEnd::Unrun)
     );
     no_call(&mut called, "the window closed twice").await;
     follower.abort();

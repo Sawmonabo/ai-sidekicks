@@ -1,6 +1,6 @@
-//! The run side of an undo's conversation cut: the forward `agent.run.rolledBack` of each run a cut
-//! the provider confirmed reaches, all in one write, each advancing its run's version, opening a new
-//! execution epoch, and moving the run through no state.
+//! The run side of an undo's conversation cut: the forward `agent.run.rolledBack` of each run a
+//! cut the provider confirmed reaches, all in one write, each advancing its run's version, opening
+//! a new execution epoch, and moving the run through no state.
 
 #[cfg(test)]
 mod tests;
@@ -13,7 +13,7 @@ use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use crate::run::engine::RunEngine;
 use crate::run::engine::errors::RunEngineError;
 use crate::run::read::RunRead;
-use crate::run::state_change::{RunStateChangeCompanions, rolled_back_event};
+use crate::run::state_change::{RunWriteCompanions, rolled_back_event};
 
 /// One run a conversation cut reaches, and the turn boundary its conversation lands at: every turn
 /// of the run past that position leaves the conversation.
@@ -47,13 +47,13 @@ impl RunEngine {
     ///
     /// [`NotFound`]: crate::run::refusals::RunRefusal::NotFound
     /// [`VersionStale`]: crate::run::refusals::RunRefusal::VersionStale
-    /// [`TurnOpen`]: crate::run::state_change::RunStateChangeError::TurnOpen
-    /// [`CompanionRefused`]: crate::run::state_change::RunStateChangeError::CompanionRefused
+    /// [`TurnOpen`]: crate::run::state_change::RunWriteError::TurnOpen
+    /// [`CompanionRefused`]: crate::run::state_change::RunWriteError::CompanionRefused
     pub async fn roll_back(
         &self,
         cut: RunCut,
         later_cuts: Vec<RunCut>,
-        companions: RunStateChangeCompanions,
+        companions: RunWriteCompanions,
         hold: &SessionAppendHold,
     ) -> Result<Vec<RunRollback>, RunEngineError> {
         let mut cuts = Vec::with_capacity(later_cuts.len() + 1);

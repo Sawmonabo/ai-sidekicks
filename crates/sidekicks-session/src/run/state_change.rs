@@ -35,7 +35,7 @@ use sidekicks_store::events::session::appender::{
     SessionEventLinkage,
 };
 
-use crate::run::engine::turns::open_turns_sql;
+use crate::run::engine::turns::guards::open_turns_sql;
 use crate::run::engine::undo::RunCut;
 use crate::run::projection::{
     RunStateSwap, rolled_back_run_version_statement, swap_run_state_statement,
@@ -255,11 +255,11 @@ impl From<RunStateReport> for RunStateChange {
 pub(crate) type RunEventDraft =
     Arc<dyn Fn(&RunRead) -> Result<SessionEventDraft, SessionEventDraftError> + Send + Sync>;
 
-/// What commits with a run state change in its write: statements run after the run's swap, so one
-/// that reads the run sees the version the change reached, and events appended just before the
-/// change's own. A statement refusing refuses the whole write.
+/// What commits with a run write, a state change or a rollback, in its write: statements run after
+/// the run's row moves, so one that reads the run sees the version the write reached, and events
+/// appended just before the write's own. A statement refusing refuses the whole write.
 #[derive(Clone, Default)]
-pub struct RunStateChangeCompanions {
+pub struct RunWriteCompanions {
     /// Statements run after the swap.
     pub statements: Vec<WriteStatement>,
     /// Events appended just before the change's own.
@@ -275,17 +275,17 @@ pub struct RunStateChangeCompanions {
     pub(crate) settled_choices: Vec<ChoiceDialog>,
 }
 
-/// Why a run state change was not written; nothing of it is kept. Its large failures are boxed so
-/// the engine's error that carries it stays small.
+/// Why a run write, a state change or a rollback, was not written; nothing of it is kept. Its large
+/// failures are boxed so the engine's error that carries it stays small.
 #[derive(Debug, thiserror::Error)]
-pub enum RunStateChangeError {
+pub enum RunWriteError {
     /// The run is unknown, has ended, or is in a state the table does not let it leave for the one
     /// asked.
     #[error(transparent)]
     Refused(#[from] RunRefusal),
     /// One of the companion statements refused the write; `companion_index` is its position among
     /// them, and the write error under it names its position in the whole write.
-    #[error("companion statement {companion_index} of the run state change refused its write")]
+    #[error("companion statement {companion_index} of the run write refused it")]
     CompanionRefused {
         /// The refusing statement's position among the companions.
         companion_index: usize,
@@ -294,7 +294,7 @@ pub enum RunStateChangeError {
         source: Box<SessionEventAppendError>,
     },
     /// The change's event or a preceding one breaks a check of its type.
-    #[error("the run state change's event could not be drafted")]
+    #[error("the run write's event could not be drafted")]
     Draft(#[from] SessionEventDraftError),
     /// A rollback refused because a run it cuts holds a turn with no end, which must end before
     /// the run's conversation is cut.
@@ -307,7 +307,7 @@ pub enum RunStateChangeError {
         source: Box<SessionEventAppendError>,
     },
     /// The event log did not keep the write for a reason other than a guard.
-    #[error("the run state change was not appended")]
+    #[error("the run write was not appended")]
     Append(#[source] Box<SessionEventAppendError>),
     /// SQLite refused the run's read, or a stored column does not read as its type.
     #[error("the run's row could not be read")]
@@ -317,13 +317,13 @@ pub enum RunStateChangeError {
     Pool(#[source] Box<DatabaseReadError>),
 }
 
-impl From<rusqlite::Error> for RunStateChangeError {
+impl From<rusqlite::Error> for RunWriteError {
     fn from(error: rusqlite::Error) -> Self {
         Self::Database(Box::new(error))
     }
 }
 
-impl From<DatabaseReadError> for RunStateChangeError {
+impl From<DatabaseReadError> for RunWriteError {
     fn from(error: DatabaseReadError) -> Self {
         Self::Pool(Box::new(error))
     }
@@ -370,12 +370,12 @@ enum AttemptOutcome {
 }
 
 /// Writes run state changes and rollbacks; the run's row and its event move in the same write.
-pub(crate) struct RunStateChangeWriter {
+pub(crate) struct RunWriter {
     pool: Arc<DatabaseReadPool>,
     appender: Arc<SessionEventAppender>,
 }
 
-impl RunStateChangeWriter {
+impl RunWriter {
     /// A writer reading runs through `pool` and appending through `appender`.
     pub(crate) fn new(pool: Arc<DatabaseReadPool>, appender: Arc<SessionEventAppender>) -> Self {
         Self { pool, appender }
@@ -386,15 +386,15 @@ impl RunStateChangeWriter {
     /// it and the run has not ended, up to a few times. Fails with [`RunRefusal::NotFound`] for an
     /// unknown run, [`RunRefusal::AlreadyEnded`] for a terminal of a run that has ended or whose
     /// run version already holds one, [`RunRefusal::InvalidTransition`] for a move the table does
-    /// not allow from the state the run is in, and [`RunStateChangeError::CompanionRefused`] when a
+    /// not allow from the state the run is in, and [`RunWriteError::CompanionRefused`] when a
     /// companion statement refuses; each refusal writes nothing. Every write goes under `hold`
     /// where the caller holds the run's session.
     pub(crate) async fn write(
         &self,
         change: RunStateChange,
-        companions: RunStateChangeCompanions,
+        companions: RunWriteCompanions,
         hold: Option<&SessionAppendHold>,
-    ) -> Result<RunRead, RunStateChangeError> {
+    ) -> Result<RunRead, RunWriteError> {
         let mut written = self
             .write_retrying(RunWrite::Transition(change), companions, hold)
             .await?;
@@ -406,15 +406,15 @@ impl RunStateChangeWriter {
     /// same order; a run that moved after it was read is read again and the write retried, up to
     /// a few times. `cuts` holds at least one cut. Fails with [`RunRefusal::NotFound`] for an
     /// unknown run, [`RunRefusal::VersionStale`] for a run that kept moving,
-    /// [`RunStateChangeError::TurnOpen`] for a run holding a turn with no end, and
-    /// [`RunStateChangeError::CompanionRefused`] when a companion statement refuses; each refusal
+    /// [`RunWriteError::TurnOpen`] for a run holding a turn with no end, and
+    /// [`RunWriteError::CompanionRefused`] when a companion statement refuses; each refusal
     /// writes nothing.
     pub(crate) async fn roll_back(
         &self,
         cuts: Vec<RunCut>,
-        companions: RunStateChangeCompanions,
+        companions: RunWriteCompanions,
         hold: &SessionAppendHold,
-    ) -> Result<Vec<RunRead>, RunStateChangeError> {
+    ) -> Result<Vec<RunRead>, RunWriteError> {
         self.write_retrying(RunWrite::Rollback { cuts }, companions, Some(hold))
             .await
     }
@@ -424,9 +424,9 @@ impl RunStateChangeWriter {
     async fn write_retrying(
         &self,
         write: RunWrite,
-        companions: RunStateChangeCompanions,
+        companions: RunWriteCompanions,
         hold: Option<&SessionAppendHold>,
-    ) -> Result<Vec<RunRead>, RunStateChangeError> {
+    ) -> Result<Vec<RunRead>, RunWriteError> {
         for attempt in 1..MAX_WRITE_ATTEMPTS {
             if let AttemptOutcome::Written(runs) = self
                 .attempt(write.clone(), companions.clone(), attempt > 1, hold)
@@ -447,10 +447,10 @@ impl RunStateChangeWriter {
     async fn attempt(
         &self,
         write: RunWrite,
-        companions: RunStateChangeCompanions,
+        companions: RunWriteCompanions,
         is_retry: bool,
         hold: Option<&SessionAppendHold>,
-    ) -> Result<AttemptOutcome, RunStateChangeError> {
+    ) -> Result<AttemptOutcome, RunWriteError> {
         let run_id = write.run_id();
         let Some(run) = self.read_run(run_id).await? else {
             return Err(RunRefusal::NotFound { run_id }.into());
@@ -540,7 +540,7 @@ impl RunStateChangeWriter {
                 )
             }
         };
-        let RunStateChangeCompanions {
+        let RunWriteCompanions {
             statements,
             mut preceding_events,
             leading_event,
@@ -574,7 +574,7 @@ impl RunStateChangeWriter {
             return Ok(AttemptOutcome::Written(written));
         };
         let Some(refused_index) = error.refused_statement_index() else {
-            return Err(RunStateChangeError::Append(Box::new(error)));
+            return Err(RunWriteError::Append(Box::new(error)));
         };
         match guard {
             RowGuard::Swap { new_state, index } => {
@@ -597,7 +597,7 @@ impl RunStateChangeWriter {
             RowGuard::Advances { read_versions } => {
                 if let Some(&(cut_run_id, read_version)) = read_versions.get(refused_index / 2) {
                     if refused_index % 2 == 0 {
-                        return Err(RunStateChangeError::TurnOpen {
+                        return Err(RunWriteError::TurnOpen {
                             run_id: cut_run_id,
                             source: Box::new(error),
                         });
@@ -611,9 +611,9 @@ impl RunStateChangeWriter {
         }
         // A statement past the companions is a projection's own, which refuses the write whole.
         if !companions_in_write.contains(&refused_index) {
-            return Err(RunStateChangeError::Append(Box::new(error)));
+            return Err(RunWriteError::Append(Box::new(error)));
         }
-        Err(RunStateChangeError::CompanionRefused {
+        Err(RunWriteError::CompanionRefused {
             companion_index: refused_index - companions_in_write.start,
             source: Box::new(error),
         })
@@ -626,7 +626,7 @@ impl RunStateChangeWriter {
         run_id: RunId,
         new_state: RunStateChangeState,
         refusal: SessionEventAppendError,
-    ) -> Result<RunRefusal, RunStateChangeError> {
+    ) -> Result<RunRefusal, RunWriteError> {
         let Some(now) = self.read_run(run_id).await? else {
             return Ok(RunRefusal::NotFound { run_id });
         };
@@ -655,7 +655,7 @@ impl RunStateChangeWriter {
         run_id: RunId,
         read_version: i64,
         refusal: SessionEventAppendError,
-    ) -> Result<RunRefusal, RunStateChangeError> {
+    ) -> Result<RunRefusal, RunWriteError> {
         let Some(now) = self.read_run(run_id).await? else {
             return Ok(RunRefusal::NotFound { run_id });
         };
@@ -667,7 +667,7 @@ impl RunStateChangeWriter {
         })
     }
 
-    async fn read_run(&self, run_id: RunId) -> Result<Option<RunRead>, RunStateChangeError> {
+    async fn read_run(&self, run_id: RunId) -> Result<Option<RunRead>, RunWriteError> {
         read_run_through(&self.pool, run_id).await
     }
 }

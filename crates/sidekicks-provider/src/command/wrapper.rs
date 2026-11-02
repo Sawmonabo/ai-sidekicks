@@ -46,9 +46,9 @@ pub fn command_wrapper_program_path(program_link_folder: &Path) -> PathBuf {
 pub(crate) const COMMAND_PROVIDER_VARIABLE: &str = "SIDEKICKS_COMMAND_PROVIDER";
 
 /// How long the wrapper waits for the daemon's acknowledgment of its `Starting` before it runs the
-/// command uncovered: ten seconds, and two in a test build, so a test outwaits it.
+/// command uncovered: ten seconds, and four in a test build, so a test outwaits it.
 const GO_WAIT: Duration = if cfg!(test) {
-    Duration::from_secs(2)
+    Duration::from_secs(4)
 } else {
     Duration::from_secs(10)
 };
@@ -389,7 +389,7 @@ fn pass_signals_to_group(state: &SharedState, records: &SharedRecords) {
 /// Runs a provider's line for an agent's `command` with `shell`: its signals passed on from the
 /// start, told to the daemon, started once the daemon answers `go`, or uncovered where no
 /// acknowledgment comes within [`GO_WAIT`], and its end told; the daemon's stop before `go` ends
-/// the wrapper unrun.
+/// the wrapper unrun, and once the command runs kills its process group.
 fn run_line_command(
     process_arguments: &[OsString],
     shell: &Path,
@@ -408,8 +408,9 @@ fn run_line_command(
             process: None,
         },
     );
-    if let Some(mut requests) = requests {
-        match wait_for_go(&mut requests, &records) {
+    let mut requests = requests;
+    if let Some(requests) = requests.as_mut() {
+        match wait_for_go(requests, &records) {
             GoWait::Go { is_covered } => {
                 send_record(&records, &PartyRecord::Began { is_covered });
             }
@@ -421,7 +422,7 @@ fn run_line_command(
             }
         }
     }
-    run_child(shell_line(shell, line), &state, &records, None)
+    run_child(shell_line(shell, line), &state, &records, requests)
 }
 
 /// How the wrapper's wait for the daemon's `go` ended.

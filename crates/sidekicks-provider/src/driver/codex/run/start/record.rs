@@ -498,16 +498,28 @@ pub(crate) fn route_accepted_turn(
         return false;
     }
     if record.active_turn_run(turn_id).is_none() {
-        record.add_active_turn(turn_id.to_owned(), run_id);
-        if let Some(opening) = opening {
-            record
-                .delivery
-                .turn_opening_by_turn_id
-                .insert(turn_id.to_owned(), opening);
-        }
-        run_routes.bind_run(run_id, record.session_id);
+        add_run_turn(run_routes, record, turn_id.to_owned(), run_id, opening);
     }
     true
+}
+
+/// Routes the live turn `turn_id` to `run_id` as the newest, with the message that opened it, and
+/// binds the run to the record's session.
+pub(crate) fn add_run_turn(
+    run_routes: &CodexRunRoutes,
+    record: &mut CodexSessionRecord,
+    turn_id: String,
+    run_id: RunId,
+    opening: Option<QueueItemId>,
+) {
+    if let Some(opening) = opening {
+        record
+            .delivery
+            .turn_opening_by_turn_id
+            .insert(turn_id.clone(), opening);
+    }
+    record.add_active_turn(turn_id, run_id);
+    run_routes.bind_run(run_id, record.session_id);
 }
 
 // A start that left no turn running: a fork owed meanwhile goes on, since no turn's end will come

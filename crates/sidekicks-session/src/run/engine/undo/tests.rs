@@ -33,7 +33,7 @@ use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::test_fixture::{append, insert_running_run, stored_run_state, test_engine};
 use crate::run::projection::RunsProjection;
 use crate::run::read::RunRead;
-use crate::run::state_change::{RunEventDraft, RunStateChangeCompanions, RunStateChangeError};
+use crate::run::state_change::{RunEventDraft, RunWriteCompanions, RunWriteError};
 
 /// One run of a session at version 1, in the state a test sets, and the engine that writes it.
 struct Fixture {
@@ -74,7 +74,7 @@ impl Fixture {
     /// Rolls the run back to turn 3 under the session's append lock, with `companions`.
     async fn roll_back(
         &self,
-        companions: RunStateChangeCompanions,
+        companions: RunWriteCompanions,
     ) -> Result<RunRollback, RunEngineError> {
         let mut rollbacks = self.roll_back_with(Vec::new(), companions).await?;
         Ok(rollbacks.pop().expect("one cut writes one rollback"))
@@ -85,7 +85,7 @@ impl Fixture {
     async fn roll_back_with(
         &self,
         later_cuts: Vec<RunCut>,
-        companions: RunStateChangeCompanions,
+        companions: RunWriteCompanions,
     ) -> Result<Vec<RunRollback>, RunEngineError> {
         let hold = SESSION_APPEND_LOCK.acquire(self.session_id).await;
         let cut = RunCut {
@@ -155,7 +155,7 @@ async fn a_rollback_advances_the_runs_version_and_leaves_its_state() {
     let fixture = Fixture::new(RunState::Running).await;
 
     let rollback = fixture
-        .roll_back(RunStateChangeCompanions::default())
+        .roll_back(RunWriteCompanions::default())
         .await
         .expect("the rollback is written");
 
@@ -233,21 +233,19 @@ async fn a_rollbacks_companions_commit_in_its_write_or_none_does() {
     let fixture = Fixture::new(RunState::Running).await;
 
     let refused = fixture
-        .roll_back(RunStateChangeCompanions {
+        .roll_back(RunWriteCompanions {
             statements: vec![run_at_version_statement(&fixture.run_id, 1)],
             preceding_events: vec![fixture.recovery_resolved()],
-            ..RunStateChangeCompanions::default()
+            ..RunWriteCompanions::default()
         })
         .await;
     assert!(
         matches!(
             refused,
-            Err(RunEngineError::Change(
-                RunStateChangeError::CompanionRefused {
-                    companion_index: 0,
-                    ..
-                }
-            ))
+            Err(RunEngineError::Change(RunWriteError::CompanionRefused {
+                companion_index: 0,
+                ..
+            }))
         ),
         "{refused:?}"
     );
@@ -261,10 +259,10 @@ async fn a_rollbacks_companions_commit_in_its_write_or_none_does() {
     );
 
     fixture
-        .roll_back(RunStateChangeCompanions {
+        .roll_back(RunWriteCompanions {
             statements: vec![run_at_version_statement(&fixture.run_id, 2)],
             preceding_events: vec![fixture.recovery_resolved()],
-            ..RunStateChangeCompanions::default()
+            ..RunWriteCompanions::default()
         })
         .await
         .expect("the rollback and its companions are written");
@@ -299,9 +297,9 @@ async fn a_rollback_of_a_run_that_moved_lands_past_its_new_version() {
     });
 
     let rollback = fixture
-        .roll_back(RunStateChangeCompanions {
+        .roll_back(RunWriteCompanions {
             leading_event: Some(leading_event),
-            ..RunStateChangeCompanions::default()
+            ..RunWriteCompanions::default()
         })
         .await
         .expect("the retry writes the rollback");
@@ -333,12 +331,12 @@ async fn a_cut_of_several_runs_lands_whole_once_no_turn_of_them_is_open() {
     };
 
     let refused = fixture
-        .roll_back_with(later_cuts(), RunStateChangeCompanions::default())
+        .roll_back_with(later_cuts(), RunWriteCompanions::default())
         .await;
     assert!(
         matches!(
             &refused,
-            Err(RunEngineError::Change(RunStateChangeError::TurnOpen { run_id, .. }))
+            Err(RunEngineError::Change(RunWriteError::TurnOpen { run_id, .. }))
                 if *run_id == later_run_id
         ),
         "{refused:?}"
@@ -362,7 +360,7 @@ async fn a_cut_of_several_runs_lands_whole_once_no_turn_of_them_is_open() {
         .append_turn_event(later_run_id, "agent.turn.completed")
         .await;
     let rollbacks = fixture
-        .roll_back_with(later_cuts(), RunStateChangeCompanions::default())
+        .roll_back_with(later_cuts(), RunWriteCompanions::default())
         .await
         .expect("the cut lands once the turn ended");
 

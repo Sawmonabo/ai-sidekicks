@@ -39,7 +39,7 @@ pub struct ShadowPlaces {
     /// `<owner>/captures/large`.
     capture_folder: PathBuf,
     /// The session's folders, `<user folder>/<session id>`, on each volume other than the owner's.
-    session_folders: HashMap<VolumeId, Vec<PathBuf>>,
+    session_folders: HashMap<VolumeId, Vec<VolumeFolder>>,
     /// The time precision of each folder a clone went to.
     time_precisions: HashMap<PathBuf, Duration>,
 }
@@ -57,9 +57,10 @@ pub enum ShadowTaken {
     Taken {
         /// The shadow, for the capture's write to record.
         shadow: Shadow,
-        /// The session's folder on another volume this take made, whether or not the clone into
-        /// it was kept, which the write records too so the purge removes it.
-        new_folder: Option<VolumeFolder>,
+        /// The session's folder on another volume this take cloned into or made, whether or not
+        /// the clone was kept, which the write records, once per session, so the purge removes
+        /// it: named on every take, so a folder a failed write left unrecorded is recorded later.
+        volume_folder: Option<VolumeFolder>,
     },
 }
 
@@ -83,12 +84,12 @@ impl ShadowPlaces {
     ) -> io::Result<Self> {
         let capture_folder = owner_folder.join(CAPTURES_SEGMENT).join(LARGE_SEGMENT);
         create_missing_private_folders(&capture_folder)?;
-        let mut session_folders: HashMap<VolumeId, Vec<PathBuf>> = HashMap::new();
+        let mut session_folders: HashMap<VolumeId, Vec<VolumeFolder>> = HashMap::new();
         for known in volume_folders {
             session_folders
-                .entry(known.volume_id)
+                .entry(known.volume_id.clone())
                 .or_default()
-                .push(PathBuf::from(known.folder.as_str()));
+                .push(known);
         }
         Ok(Self {
             session_id,
@@ -129,7 +130,7 @@ impl ShadowPlaces {
                 taken_at,
                 time_precision,
             },
-            new_folder: placed.new_folder,
+            volume_folder: placed.volume_folder,
         }
     }
 
@@ -147,6 +148,14 @@ impl ShadowPlaces {
             Ok(RegularFileOpen::Opened(file)) => file,
             Ok(RegularFileOpen::Gone) => return Placement::Gone,
             Ok(RegularFileOpen::Link | RegularFileOpen::SpecialFile) => {
+                log_failure(
+                    relative,
+                    "open",
+                    &io::Error::new(
+                        ErrorKind::InvalidInput,
+                        "the path names a link or a special file, not a regular file",
+                    ),
+                );
                 return not_kept(
                     NotKeptReason::Failed,
                     files.facts_at(&checkout.join(relative)).ok(),
@@ -177,7 +186,7 @@ impl ShadowPlaces {
                     },
                     facts: Some(facts),
                     clone_folder: Some(self.capture_folder.clone()),
-                    new_folder: None,
+                    volume_folder: None,
                 });
             }
             Err(CloneOpenFileError::Refused(CloneRefusal::Unsupported)) => {
@@ -200,10 +209,10 @@ impl ShadowPlaces {
                 return not_kept(NotKeptReason::Failed, Some(facts));
             }
         };
-        let (folder, new_folder) = match self.known_folder(&volume.id, checkout) {
-            Some(folder) => (folder, None),
+        let volume_folder = match self.known_folder(&volume.id, checkout) {
+            Some(known) => known,
             None => match self.make_session_folder(files, &volume, checkout) {
-                Ok(Some((folder, row))) => (folder, Some(row)),
+                Ok(Some(made)) => made,
                 Ok(None) => return not_kept(NotKeptReason::NoPlaceOnVolume, Some(facts)),
                 Err(error) => {
                     log_failure(
@@ -215,8 +224,9 @@ impl ShadowPlaces {
                 }
             },
         };
-        // A folder this take made is named whatever the clone answers, so it is recorded and
-        // purged with the session.
+        // The folder is named whatever the clone answers, so it is recorded and purged with the
+        // session.
+        let folder = PathBuf::from(volume_folder.folder.as_str());
         let content = match clone_into(files, &file, &folder, shadow_id) {
             Ok(clone_path) => ShadowContent::Cloned {
                 clone_path,
@@ -249,43 +259,71 @@ impl ShadowPlaces {
             content,
             facts: Some(facts),
             clone_folder,
-            new_folder,
+            volume_folder: Some(volume_folder),
         })
     }
 
     // The session's known folder on `volume_id` that lies outside `checkout`, whose own files
     // never hold a clone.
-    fn known_folder(&self, volume_id: &VolumeId, checkout: &Path) -> Option<PathBuf> {
+    fn known_folder(&self, volume_id: &VolumeId, checkout: &Path) -> Option<VolumeFolder> {
         self.session_folders
             .get(volume_id)?
             .iter()
-            .find(|folder| !folder.starts_with(checkout))
+            .find(|known| !Path::new(known.folder.as_str()).starts_with(checkout))
             .cloned()
     }
 
     // Makes the session's folder in this user's folder on `volume`, outside `checkout`, learns it
-    // and answers it with its row. `None` where the volume holds no place outside the checkout.
+    // and answers its row. `None` where the volume holds no place outside the checkout.
     fn make_session_folder(
         &mut self,
         files: &mut impl ShadowFiles,
         volume: &Volume,
         checkout: &Path,
-    ) -> io::Result<Option<(PathBuf, VolumeFolder)>> {
+    ) -> io::Result<Option<VolumeFolder>> {
         let Some(user_folder) = files.create_volume_folder(volume, checkout)? else {
             return Ok(None);
         };
         let folder = user_folder.join(self.session_id.text().as_str());
-        let recorded = recorded_path(&folder)?;
+        let row = VolumeFolder {
+            volume_id: volume.id.clone(),
+            folder: recorded_path(&folder)?,
+        };
         files.create_session_folder(&folder)?;
         self.session_folders
             .entry(volume.id.clone())
             .or_default()
-            .push(folder.clone());
-        let row = VolumeFolder {
-            volume_id: volume.id.clone(),
-            folder: recorded,
+            .push(row.clone());
+        Ok(Some(row))
+    }
+
+    /// Removes `shadow`'s clone, a clone already gone included; a shadow that kept none removes
+    /// nothing. Fails with `InvalidInput`, removing nothing, for a clone outside the session's
+    /// capture folder and its folders on other volumes, and with the removal's other errors.
+    pub fn remove_shadow_clone(&self, shadow: &Shadow) -> io::Result<()> {
+        let ShadowContent::Cloned { clone_path, .. } = &shadow.content else {
+            return Ok(());
         };
-        Ok(Some((folder, row)))
+        let clone_path = Path::new(clone_path.as_str());
+        let is_in_a_place = clone_path.parent().is_some_and(|folder| {
+            folder == self.capture_folder
+                || self
+                    .session_folders
+                    .values()
+                    .flatten()
+                    .any(|known| folder == Path::new(known.folder.as_str()))
+        });
+        if !is_in_a_place {
+            return Err(io::Error::new(
+                ErrorKind::InvalidInput,
+                "a shadow's clone lies outside the session's shadow folders",
+            ));
+        }
+        match fs::remove_file(clone_path) {
+            Ok(()) => Ok(()),
+            Err(error) if is_gone(&error) => Ok(()),
+            Err(error) => Err(error),
+        }
     }
 
     // The time precision of `folder`, probed at its first clone and kept; the coarsest where the
@@ -323,19 +361,6 @@ pub fn compare_shadow(shadow: &Shadow, now: Option<FileFacts>) -> ShadowComparis
         ShadowComparison::Changed
     } else {
         ShadowComparison::Unchanged
-    }
-}
-
-/// Removes `shadow`'s clone, a clone already gone included; a shadow that kept none removes
-/// nothing. Fails with the removal's other errors.
-pub fn remove_shadow_clone(shadow: &Shadow) -> io::Result<()> {
-    match &shadow.content {
-        ShadowContent::Cloned { clone_path, .. } => match fs::remove_file(clone_path.as_str()) {
-            Ok(()) => Ok(()),
-            Err(error) if is_gone(&error) => Ok(()),
-            Err(error) => Err(error),
-        },
-        ShadowContent::NotKept { .. } => Ok(()),
     }
 }
 
@@ -427,8 +452,8 @@ struct PlacedShadow {
     facts: Option<FileFacts>,
     /// The folder holding the clone, `None` when none was kept.
     clone_folder: Option<PathBuf>,
-    /// The session's folder this placement made on another volume.
-    new_folder: Option<VolumeFolder>,
+    /// The session's folder on another volume this placement cloned into or made.
+    volume_folder: Option<VolumeFolder>,
 }
 
 // A shadow that kept no clone, for `reason`, with the facts read.
@@ -437,7 +462,7 @@ fn not_kept(reason: NotKeptReason, facts: Option<FileFacts>) -> Placement {
         content: ShadowContent::NotKept { reason },
         facts,
         clone_folder: None,
-        new_folder: None,
+        volume_folder: None,
     })
 }
 
@@ -455,9 +480,13 @@ fn clone_into(
     Ok(recorded)
 }
 
-// `path` as a row records it, refused with `InvalidInput` when no row can hold it.
+// `path` as a row records it, refused with `InvalidInput` when no row can hold it, a path that is
+// not UTF-8 among them.
 fn recorded_path(path: &Path) -> io::Result<FilesystemPath> {
-    FilesystemPath::new(path.to_string_lossy().into_owned())
+    let text = path
+        .to_str()
+        .ok_or_else(|| io::Error::new(ErrorKind::InvalidInput, "a recorded path is not UTF-8"))?;
+    FilesystemPath::new(text.to_owned())
         .map_err(|error| io::Error::new(ErrorKind::InvalidInput, error))
 }
 

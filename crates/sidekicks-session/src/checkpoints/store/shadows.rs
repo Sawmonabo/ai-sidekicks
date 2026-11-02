@@ -16,7 +16,7 @@ use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 use sidekicks_store::database::stored_column::{
-    closed_word, optional_text_column, rowid_column, text_column,
+    closed_word, optional_text_column, text_column, unsigned_integer_column,
 };
 
 use crate::checkpoints::schema::NotKeptReason;
@@ -317,7 +317,7 @@ where
 }
 
 // Reads the columns `select_shadows!` takes, in its order. A stored size, link count and time
-// precision are never negative, so `rowid_column` reads each as unsigned.
+// precision are never negative, so `unsigned_integer_column` reads each as unsigned.
 fn shadow_of(row: &Row<'_>) -> rusqlite::Result<Shadow> {
     let content = match optional_text_column(row, 3, FilesystemPath::new)? {
         Some(clone_path) => ShadowContent::Cloned {
@@ -331,8 +331,8 @@ fn shadow_of(row: &Row<'_>) -> rusqlite::Result<Shadow> {
     let facts = match optional_text_column(row, 6, |text| text.parse::<EntryIdentity>())? {
         Some(identity) => Some(FileFacts {
             identity,
-            size: rowid_column(row, 7)?,
-            link_count: rowid_column(row, 8)?,
+            size: unsigned_integer_column(row, 7)?,
+            link_count: unsigned_integer_column(row, 8)?,
             modified: i128::from(row.get::<_, i64>(9)?),
             changed: i128::from(row.get::<_, i64>(10)?),
         }),
@@ -349,6 +349,6 @@ fn shadow_of(row: &Row<'_>) -> rusqlite::Result<Shadow> {
         content,
         facts,
         taken_at,
-        time_precision: Duration::from_nanos(rowid_column(row, 12)?),
+        time_precision: Duration::from_nanos(unsigned_integer_column(row, 12)?),
     })
 }
