@@ -205,8 +205,8 @@ mod tests {
 
     // Killed by the last close's rule reversed or dropped (`call-3` and `call-4` answered), by
     // daemon-settled calls left out (`call-2` missing), by the background row's time read for the
-    // opening's (`call-1` at 09:01), and by a sessions list that counts a settled or closed call
-    // (`B` listed).
+    // opening's (`call-1` at 09:01), and by a sessions list that counts a closed call (`B` listed)
+    // or a daemon-settled one (`D` listed).
     #[test]
     fn the_held_call_read_keeps_open_and_daemon_settled_calls() {
         let database = TestDatabase::new(schema_parts());
@@ -214,6 +214,7 @@ mod tests {
         let session_a = (test_session_id(), test_run_id());
         let session_b = (test_session_id(), test_run_id());
         let session_c = (test_session_id(), test_run_id());
+        let session_d = (test_session_id(), test_run_id());
         let failed = "agent.toolCall.failed";
         let completed = "agent.toolCall.completed";
 
@@ -263,6 +264,15 @@ mod tests {
         write_backgrounded(&writer, session_b, "call-6");
         write_tool_row(&writer, session_b, completed, "call-6", json!({}), LATER);
         write_backgrounded(&writer, session_c, "call-7");
+        write_backgrounded(&writer, session_d, "call-8");
+        write_tool_row(
+            &writer,
+            session_d,
+            failed,
+            "call-8",
+            json!({ "endCause": "processExit" }),
+            LATER,
+        );
         let reader = database.reader();
 
         assert_eq!(
