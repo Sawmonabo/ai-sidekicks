@@ -177,6 +177,7 @@ impl From<RunStateChangeError> for RunEngineError {
         match error {
             RunStateChangeError::Refused(refusal) => Self::Refused(refusal),
             other @ (RunStateChangeError::CompanionRefused { .. }
+            | RunStateChangeError::TurnOpen { .. }
             | RunStateChangeError::Draft(_)
             | RunStateChangeError::Append(_)
             | RunStateChangeError::Database(_)
