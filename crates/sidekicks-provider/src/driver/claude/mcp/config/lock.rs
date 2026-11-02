@@ -160,12 +160,36 @@ fn log_unremoved(removed: io::Result<()>) {
 mod tests {
     use std::fs::{self, FileTimes};
     use std::path::Path;
+    use std::sync::Arc;
     use std::time::{Duration, SystemTime};
 
     use rstest::rstest;
+    use tokio::sync::Notify;
     use tokio::time::Instant;
 
     use super::{ClaudeConfigLock, ClaudeConfigLockError};
+
+    // The real time a take may run before it counts as never answering. The paused tokio clock
+    // stands still while a file call is in flight, so only the wall clock bounds a take that tries
+    // again without waiting.
+    const WALL_CLOCK_BOUND: Duration = Duration::from_secs(5);
+
+    // `ClaudeConfigLock::take`, or `None` once the wall clock passes `WALL_CLOCK_BOUND`.
+    async fn take_within_wall_clock_bound(
+        config: &Path,
+        deadline: Instant,
+    ) -> Option<Result<ClaudeConfigLock, ClaudeConfigLockError>> {
+        let expired = Arc::new(Notify::new());
+        let notifier = Arc::clone(&expired);
+        std::thread::spawn(move || {
+            std::thread::sleep(WALL_CLOCK_BOUND);
+            notifier.notify_one();
+        });
+        tokio::select! {
+            taken = ClaudeConfigLock::take(config, deadline) => Some(taken),
+            () = expired.notified() => None,
+        }
+    }
 
     // Sets the folder's time on the wall clock, which the paused tokio clock does not move, and
     // answers the time as the file system keeps it.
@@ -190,12 +214,9 @@ mod tests {
         let started = Instant::now();
         let deadline = started + Duration::from_secs(10);
 
-        let taken = tokio::time::timeout(
-            Duration::from_secs(60),
-            ClaudeConfigLock::take(&config, deadline),
-        )
-        .await
-        .expect("the take answers by its deadline");
+        let taken = take_within_wall_clock_bound(&config, deadline)
+            .await
+            .expect("the take answers by its deadline");
 
         assert!(matches!(taken, Err(ClaudeConfigLockError::Held)));
         assert_eq!(fs::metadata(&folder).unwrap().modified().unwrap(), timed);
@@ -203,7 +224,9 @@ mod tests {
         assert!(Instant::now() <= deadline);
     }
 
-    // Kills: no stale take; a stale take that waits first; a release that leaves the folder.
+    // Kills: no stale take; a stale take that waits first; a release that leaves the folder,
+    // whether it answers success (a folder holding a file outlives the drop's removal too) or
+    // failure.
     #[tokio::test(start_paused = true)]
     async fn a_stale_lock_folder_is_taken_at_once_and_released() {
         let home = tempfile::tempdir().unwrap();
@@ -221,5 +244,13 @@ mod tests {
         assert!(folder.is_dir());
         lock.release().await.unwrap();
         assert!(!folder.exists());
+
+        let lock = ClaudeConfigLock::take(&config, started + Duration::from_secs(10))
+            .await
+            .unwrap();
+        fs::write(folder.join("held"), b"").unwrap();
+
+        assert!(lock.release().await.is_err());
+        assert!(folder.is_dir());
     }
 }

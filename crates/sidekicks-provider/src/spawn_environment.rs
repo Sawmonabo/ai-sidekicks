@@ -327,6 +327,7 @@ impl EnvironmentByName {
 mod tests {
     use rstest::rstest;
     use sidekicks_contracts::machine::settings::{APP_SET_ENVIRONMENT_NAMES, EnvironmentRow};
+    use sidekicks_contracts::mcp::server::config::McpTransport;
     use sidekicks_contracts::wire::text::{BoundedText, NulFreeText};
     use sidekicks_platforms::{PathRules, PerSystem, SystemFolders};
 
@@ -379,7 +380,7 @@ mod tests {
         withheld_environment_names: &["APP_WITHHELD"],
         screen_reader_environment_names: &[],
         voice_kinds: &[],
-        mcp_transports: &[],
+        mcp_transports: &[McpTransport::Stdio],
         mcp_config_members: &[],
         mcp_server_names: McpServerNameRule::new(|_| true, "any character", |_| None, &[], &[]),
         is_mcp_local_scope_emulated: false,
