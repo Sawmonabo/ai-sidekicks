@@ -14,6 +14,7 @@ mod branch_cancellation;
 mod dispatch;
 pub(crate) mod node_settings;
 mod step_failure;
+mod walk;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
