@@ -210,11 +210,11 @@ pub(crate) struct MethodTableServices {
 }
 
 /// Registers every method table on `builder`, each once, grouped by owner: the daemon's own, its
-/// data, the drivers, the provider accounts, the approvals, the runs and their agents' commands and turns, the MCP
-/// servers, the sessions, attention, the repositories, the projects, the folders, workspaces and
-/// worktrees, the sessions' create and convert, the machine's folders and the devices present. The
-/// handshake, the subscriptions' cancel and the artifact store's table are registered by the start
-/// beside them. Fails when a method is registered twice.
+/// data, the drivers, the provider accounts, the approvals, the runs and their agents' commands
+/// and turns, the MCP servers, the sessions, attention, the repositories, the projects, the
+/// folders, workspaces and worktrees, the sessions' create and convert, the machine's folders and
+/// the devices present. The handshake, the subscriptions' cancel and the artifact store's table
+/// are registered by the start beside them. Fails when a method is registered twice.
 pub(crate) fn register_method_tables(
     builder: &mut MethodRegistryBuilder,
     services: MethodTableServices,
