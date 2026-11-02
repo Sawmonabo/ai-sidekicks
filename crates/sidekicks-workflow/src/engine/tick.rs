@@ -71,8 +71,7 @@ pub(crate) struct RunScope {
     pub(crate) nodes: HashMap<WorkflowNodeId, WorkflowNode>,
     /// Each node's params as the pinned version stores them, by node id.
     pub(crate) node_params: Arc<HashMap<WorkflowNodeId, JsonRecord>>,
-    /// The test items pinned onto nodes, by node id, which a step of a pinned node returns
-    /// instead of running.
+    /// The test items pinned onto nodes, by node id; only a manual run honors them.
     pub(crate) pin_data: Option<Record<String, Vec<WorkflowPinnedItem>>>,
     /// When the run started, the one instant its expressions read as now.
     pub(crate) run_started_at: Timestamp,
