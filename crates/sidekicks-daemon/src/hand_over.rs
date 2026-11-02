@@ -10,14 +10,6 @@
 //!   file and two attempts, a late one included, leave one whole copy.
 //! - The storage folder goes with the fresh session's purge.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the verdict's hand-off writes the fresh session's planning transcript"
-    )
-)]
-
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -86,6 +78,13 @@ pub(crate) enum TranscriptRenderError {
 }
 
 /// Writes a planning session's transcript into a fresh session's storage folder.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the plan verdict's hand-off writes the fresh session's planning transcript"
+    )
+)]
 pub(crate) struct PlanningTranscriptWriter {
     reads: Arc<DatabaseReadPool>,
     read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
@@ -95,6 +94,13 @@ pub(crate) struct PlanningTranscriptWriter {
     publish_pause: sidekicks_std::pause_point::PausePoint,
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the plan verdict's hand-off writes the fresh session's planning transcript"
+    )
+)]
 impl PlanningTranscriptWriter {
     /// A writer reading through `reads`, stopping a damaged session's reads where
     /// `read_damaged_from_sequence` answers, and writing under `data_folder`.

@@ -3,13 +3,6 @@
 //! first loses the writer's own words: each name the planning session knows becomes its
 //! description, or goes where it has none, and its attribution, commit-trailer and fixed sandbox
 //! and approval lines go whole. The pointer is added after that, so nothing rewrites it.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the verdict's hand-off composes the fresh session's seed here"
-    )
-)]
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -36,6 +29,13 @@ const WRITTEN_NAME_OPENINGS: [&str; 4] = ["/", "$", "@", "mcp__"];
 /// One name the planning session knows, spelled as its provider writes it in text, with what it
 /// does.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the plan verdict's hand-off gathers the planning session's names into it"
+    )
+)]
 pub(crate) struct WriterName {
     /// The name exactly as the writer's provider writes it, its sigil included: `/review`,
     /// `$deploy`, `@reviewer`, `mcp__github__create_issue`.
@@ -48,6 +48,13 @@ pub(crate) struct WriterName {
 /// (its skills, agent definitions, tool servers' tools and its provider's own commands) and the
 /// fixed sandbox and approval sentences its provider writes.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the plan verdict's hand-off gathers the planning session's names into it"
+    )
+)]
 pub(crate) struct WriterVocabulary {
     /// The names, each replaced by its description or dropped.
     pub(crate) names: Vec<WriterName>,
@@ -59,6 +66,13 @@ pub(crate) struct WriterVocabulary {
 /// then the pointer naming `transcript_file`, an absolute path. `crossing` holds the writer's
 /// vocabulary when the fresh session runs on another provider, and is `None` on the same one,
 /// where the plan goes as written.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the plan verdict's hand-off composes the fresh session's opening message with it"
+    )
+)]
 pub(crate) fn compose_seed(
     plan_markdown: &str,
     transcript_file: &Path,
@@ -219,31 +233,33 @@ fn is_name_character(character: char) -> bool {
     character.is_alphanumeric() || "_-/:@$\\".contains(character)
 }
 
-/// Whether `rest`, what follows a matched name, leaves it a whole token: a sentence's full stop
-/// ends a name, while a dot before more of a word (`@example.com`) does not.
+/// Whether `rest`, what follows a matched name, leaves it a whole token: a sentence's full stop or
+/// a trailing colon ends a name, while a dot before more of a word (`@example.com`) or a colon
+/// before more of a name does not.
 fn ends_a_name(rest: &str) -> bool {
     let mut characters = rest.chars();
     match characters.next() {
         None => true,
         Some('.') => !characters.next().is_some_and(char::is_alphanumeric),
+        Some(':') => !characters.next().is_some_and(is_name_character),
         Some(next) => !is_name_character(next),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use rstest::rstest;
 
     use super::{WriterName, WriterVocabulary, compose_seed};
+    use crate::hand_over::PLANNING_TRANSCRIPT_FILE_NAME;
 
-    const TRANSCRIPT_FILE: &str = "/data/sessions/fresh/planning-transcript.md";
+    const STORAGE_FOLDER: &str = "/data/sessions/fresh";
 
-    const POINTER: &str = "If you need specific details from the planning conversation (like \
-         exact code snippets, error messages, or content you generated), read its whole \
-         transcript, one plain file at `/data/sessions/fresh/planning-transcript.md`, with your \
-         file tools.";
+    fn transcript_file() -> PathBuf {
+        Path::new(STORAGE_FOLDER).join(PLANNING_TRANSCRIPT_FILE_NAME)
+    }
 
     const SANDBOX_SENTENCE: &str = "Commands run inside the workspace sandbox without network.";
 
@@ -271,13 +287,19 @@ mod tests {
     }
 
     fn seed_of(plan: &str) -> String {
-        format!("Implement the following plan:\n\n{plan}\n\n{POINTER}")
+        let pointer = format!(
+            "If you need specific details from the planning conversation (like exact code \
+             snippets, error messages, or content you generated), read its whole transcript, one \
+             plain file at `{STORAGE_FOLDER}/{PLANNING_TRANSCRIPT_FILE_NAME}`, with your file \
+             tools."
+        );
+        format!("Implement the following plan:\n\n{plan}\n\n{pointer}")
     }
 
     #[test]
     fn same_provider_seed_is_the_opening_the_plan_as_written_and_the_pointer() {
         let plan = "# Plan\n\nRun /review, then $deploy.\nCo-Authored-By: A Writer\n";
-        let seed = compose_seed(plan, Path::new(TRANSCRIPT_FILE), None);
+        let seed = compose_seed(plan, &transcript_file(), None);
         assert_eq!(
             seed,
             seed_of("# Plan\n\nRun /review, then $deploy.\nCo-Authored-By: A Writer")
@@ -285,46 +307,56 @@ mod tests {
     }
 
     #[rstest]
-    #[case::f2_slash_name(
+    #[case::a_slash_name_becomes_its_description(
         "Run /review before merging.",
         "Run review the current diff before merging."
     )]
-    #[case::f2_dollar_name_on_one_line("Then $deploy.", "Then deploy the staging build.")]
-    #[case::f2_at_name("(ask @reviewer)", "(ask a reviewing agent)")]
-    #[case::f3_known_name_without_description(
+    #[case::a_name_before_a_trailing_colon_becomes_its_description(
+        "Run /review: then merge.",
+        "Run review the current diff: then merge."
+    )]
+    #[case::a_dollar_name_s_description_is_one_line(
+        "Then $deploy.",
+        "Then deploy the staging build."
+    )]
+    #[case::an_at_name_becomes_its_description("(ask @reviewer)", "(ask a reviewing agent)")]
+    #[case::a_name_with_no_description_is_dropped(
         "Then call mcp__tracker__create_issue to file it.",
         "Then call to file it."
     )]
-    #[case::f4_unknown_shapes(
+    #[case::paths_addresses_and_prices_stay(
         "Copy /usr/bin/env, mail @example.com, pay $5 and see a/review.",
         "Copy /usr/bin/env, mail @example.com, pay $5 and see a/review."
     )]
-    #[case::f4_longer_unknown_name("Run /review-all.", "Run /review-all.")]
-    #[case::f5_inline_code("Use `/review` here.", "Use `review the current diff` here.")]
-    #[case::f5_code_block(
+    #[case::a_longer_unknown_name_stays("Run /review-all.", "Run /review-all.")]
+    #[case::a_name_in_inline_code_is_rewritten(
+        "Use `/review` here.",
+        "Use `review the current diff` here."
+    )]
+    #[case::names_in_a_code_block_are_rewritten(
         "```\n$deploy\nmcp__tracker__create_issue\n```",
         "```\ndeploy the staging build\n\n```"
     )]
-    #[case::f6_co_authored_by(
+    #[case::a_co_author_line_goes(
         "Step one.\nCo-Authored-By: A Writer\nStep two.",
         "Step one.\nStep two."
     )]
-    #[case::f6_generated_with(
+    #[case::a_generated_with_line_goes(
         "Step one.\n🤖 Generated with [A Tool](https://tool.test)\n",
         "Step one."
     )]
-    #[case::f7_commit_trailer(
+    #[case::commit_trailers_go(
         "Step one.\nSigned-off-by: A Writer\n  Reviewed-by: Another",
         "Step one."
     )]
-    #[case::f7_prose_with_a_colon_stays("Note: stand-by: keep it.", "Note: stand-by: keep it.")]
-    #[case::f8_fixed_sentence(
+    #[case::prose_with_a_colon_stays("Note: stand-by: keep it.", "Note: stand-by: keep it.")]
+    #[case::a_fixed_sentence_goes(
         "Step one.\n> Commands run inside the workspace sandbox without network.\nStep two.",
         "Step one.\nStep two."
     )]
-    fn crossing_seed_follows_table_f(#[case] plan: &str, #[case] rewritten: &str) {
+    fn a_crossing_seed_drops_the_writer_s_own_words(#[case] plan: &str, #[case] rewritten: &str) {
         let vocabulary = writer_vocabulary();
-        let seed = compose_seed(plan, Path::new(TRANSCRIPT_FILE), Some(&vocabulary));
+        let seed = compose_seed(plan, &transcript_file(), Some(&vocabulary));
         assert_eq!(seed, seed_of(rewritten));
     }
 }
