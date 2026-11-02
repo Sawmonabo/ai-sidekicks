@@ -14,6 +14,7 @@ use reqwest::StatusCode;
 use reqwest::header::{
     ACCEPT, ACCEPT_ENCODING, AUTHORIZATION, CONTENT_TYPE, HeaderValue, USER_AGENT,
 };
+use secrecy::SecretString;
 use serde::Deserialize;
 use tokio::sync::OnceCell;
 use tokio::time::Instant;
@@ -159,7 +160,8 @@ impl ClaudeOrganizationMarks {
     }
 
     /// The marks of the connectors on the list of the account whose process `environment`
-    /// started with `settings`, read as the build `build_version` reads it. Not fetched, and not
+    /// started with `settings`, signed in with `handed_token` where it is a token account, read as
+    /// the build `build_version` reads it. Not fetched, and not
     /// read, where Claude Code skips its own fetch for the environment, the settings, an approved
     /// API key, an absent sign-in or its scopes; unread, with the reason logged at debug, where
     /// its sign-in cannot be read, the build reported no version, the account names a host Claude
@@ -167,6 +169,7 @@ impl ClaudeOrganizationMarks {
     pub(crate) async fn read(
         &self,
         environment: &[(String, String)],
+        handed_token: Option<&SecretString>,
         build_version: Option<&str>,
         settings: &ClaudeConnectorFetchSettings,
     ) -> ClaudeConnectorListReading {
@@ -176,7 +179,7 @@ impl ClaudeOrganizationMarks {
         if skips_connector_fetch(environment, settings, is_api_key_approved) {
             return ClaudeConnectorListReading::NotFetched;
         }
-        let sign_in = match self.sign_in.read(environment).await {
+        let sign_in = match self.sign_in.read(environment, handed_token).await {
             ClaudeSignInReading::Absent => return ClaudeConnectorListReading::NotFetched,
             ClaudeSignInReading::Unreadable => return ClaudeConnectorListReading::Unread,
             ClaudeSignInReading::Read(sign_in) => sign_in,

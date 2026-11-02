@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use sha2::Digest;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
@@ -143,15 +143,21 @@ impl ClaudeSignInReader {
     }
 
     /// The sign-in of the Claude Code process `environment` starts: the environment's own token,
-    /// with the scopes Claude Code gives it, else the record in its credential folder's file, else
-    /// the keychain item named for that folder. A sign-in token file descriptor the environment
-    /// names is passed over: the daemon withholds that variable from every environment it
-    /// composes and sets it only as it starts a process, on a pipe that process alone reads. Where
-    /// none holds a record with an access token
-    /// it is absent, unless a store that may hold one could not be read; each reason is logged at
-    /// debug.
-    pub(crate) async fn read(&self, environment: &[(String, String)]) -> ClaudeSignInReading {
-        if let Some(token) = claude_text_variable(environment, OAUTH_TOKEN_VARIABLE) {
+    /// else `handed_token`, the token account's sealed token the daemon hands that process on a
+    /// file descriptor, each with the scopes Claude Code gives a handed token, else the record in
+    /// its credential folder's file, else the keychain item named for that folder. The
+    /// descriptor's variable itself is never read: the daemon withholds it from every environment
+    /// it composes and sets it only as it starts a process, on a pipe that process alone reads.
+    /// Where none holds a record with an access token it is absent, unless a store that may hold
+    /// one could not be read; each reason is logged at debug.
+    pub(crate) async fn read(
+        &self,
+        environment: &[(String, String)],
+        handed_token: Option<&SecretString>,
+    ) -> ClaudeSignInReading {
+        let handed = claude_text_variable(environment, OAUTH_TOKEN_VARIABLE)
+            .or_else(|| handed_token.map(|token| token.expose_secret()));
+        if let Some(token) = handed {
             return ClaudeSignInReading::Read(ClaudeAiSignIn {
                 access_token: Zeroizing::new(token.to_owned()),
                 scopes: read_handed_token_scopes(environment),
@@ -633,6 +639,26 @@ mod tests {
     // A token no log line may hold.
     const PLANTED_TOKEN: &str = "planted-access-token-value";
 
+    // Killed by a token account's sealed token left unread where the environment names no token,
+    // which reads the account as signed in to no one and lists none of its connectors.
+    #[tokio::test]
+    async fn a_token_account_s_sealed_token_is_its_sign_in() {
+        let environment = vec![(
+            "CLAUDE_CODE_OAUTH_SCOPES".to_owned(),
+            "user:inference user:mcp_servers".to_owned(),
+        )];
+        let reader = ClaudeSignInReader::with_keychain(CredentialStore::in_memory());
+        let sealed = SecretString::from(PLANTED_TOKEN);
+
+        let ClaudeSignInReading::Read(sign_in) = reader.read(&environment, Some(&sealed)).await
+        else {
+            panic!("the sealed token is the sign-in");
+        };
+
+        assert_eq!(sign_in.access_token.as_str(), PLANTED_TOKEN);
+        assert_eq!(sign_in.scopes, ["user:inference", "user:mcp_servers"]);
+    }
+
     // A credential file planted under a temporary folder is read, left byte for byte as it was,
     // and no log line of the read holds its token, through a reading, an unreadable file and a
     // keychain item alike. Killed by a write to the file, and by a log line carrying the token.
@@ -664,7 +690,7 @@ mod tests {
         let reader = ClaudeSignInReader::with_keychain(store.clone());
         let (lines, _default) = CapturedLogs::start();
 
-        let ClaudeSignInReading::Read(sign_in) = reader.read(&environment).await else {
+        let ClaudeSignInReading::Read(sign_in) = reader.read(&environment, None).await else {
             panic!("the file's record");
         };
         assert_eq!(sign_in.access_token.as_str(), PLANTED_TOKEN);
@@ -680,7 +706,7 @@ mod tests {
         let unreadable = format!(r#"{{"claudeAiOauth":{{"expiresAt":"{PLANTED_TOKEN}"}}}}"#);
         std::fs::write(&credentials, &unreadable).expect("the file is planted");
         assert!(matches!(
-            reader.read(&environment).await,
+            reader.read(&environment, None).await,
             ClaudeSignInReading::Absent
         ));
         assert_eq!(
@@ -697,7 +723,7 @@ mod tests {
                 &SecretString::from(planted.clone()),
             )
             .expect("the item is planted");
-        let ClaudeSignInReading::Read(sign_in) = reader.read(&environment).await else {
+        let ClaudeSignInReading::Read(sign_in) = reader.read(&environment, None).await else {
             panic!("the keychain item's record");
         };
         assert_eq!(sign_in.access_token.as_str(), PLANTED_TOKEN);
@@ -734,7 +760,7 @@ mod tests {
                 )
                 .collect();
             let reader = reader.clone();
-            async move { reader.read(&environment).await }
+            async move { reader.read(&environment, None).await }
         };
 
         let ClaudeSignInReading::Read(sign_in) =
