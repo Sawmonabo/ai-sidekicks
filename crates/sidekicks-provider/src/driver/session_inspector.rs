@@ -1,5 +1,5 @@
-//! What the daemon hands a driver to read a session's inspector panes, its memory and its hooks,
-//! and to apply the session's `Auto memory` switch.
+//! What the daemon hands a driver to read a session's inspector sections, its memory and its
+//! hooks, and to apply the session's `Auto memory` switch.
 
 use std::path::PathBuf;
 

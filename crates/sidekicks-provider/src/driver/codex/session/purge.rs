@@ -1,6 +1,7 @@
 //! Deleting Codex's own copy of a session's conversations, each on the service of the home that
-//! holds it, the switching home or its account's, and the session's helper role files. Codex refuses to delete a conversation a fork
-//! still builds on, so they go newest first, as the daemon lists them.
+//! holds it, the switching home or its account's, and the session's helper role files. Codex
+//! refuses to delete a conversation a fork still builds on, so they go newest first, as the daemon
+//! lists them.
 
 use std::path::Path;
 use std::time::Duration;
@@ -31,8 +32,9 @@ pub(crate) struct CodexPurgeFailed {
 }
 
 /// Deletes every conversation the session opened with `thread/delete`, newest first, on the
-/// service of the home its binding's recovery data names, started within `start_bound` where it is not running, and the
-/// session's role files under `roles_folder`. Fails with every step that failed.
+/// service of the home its binding's recovery data names, started within `start_bound` where it
+/// is not running, and the session's role files under `roles_folder`. Fails with every step that
+/// failed.
 pub(crate) async fn purge_codex_conversations(
     services: &CodexServiceRegistry,
     roles_folder: &Path,
