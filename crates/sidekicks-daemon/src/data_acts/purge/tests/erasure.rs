@@ -1,6 +1,8 @@
 //! What a purge erases: nothing of a purged session left readable in the file or its log, the
 //! states each caller purges from, and the log's truncation tried until no reader keeps it busy.
 
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rstest::rstest;
@@ -14,6 +16,7 @@ use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStep
 use sidekicks_recovery::status::RECOVERY_STATUS_STATEMENT_CAPACITY;
 use sidekicks_session::run::engine::test_fixture::insert_running_run;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
+use sidekicks_store::data_folder::session_storage_folder;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_workflow::test_rows::{
     TEST_SESSION_ID, TestStep, insert_run, insert_step, insert_workflow_version,
@@ -34,18 +37,38 @@ use crate::data_acts::purge::{SessionPurgeError, SessionPurgeOutcome};
 
 const WAIT: Duration = Duration::from_secs(10);
 
-// A repository holding one snapshot ref of `run_id`, stored as a run context of `session_id`.
+// A repository stored as a run context of `session_id`, and a capture folder in the session's
+// storage folder under `data_folder` holding one snapshot ref of `run_id`: the repository and the
+// capture folder.
 async fn store_run_snapshot(
     connection: &Connection,
     git: &GitRunner,
+    data_folder: &Path,
     session_id: SessionId,
     run_id: RunId,
-) -> TempDir {
+) -> (TempDir, PathBuf) {
     let repository = tempfile::tempdir().expect("a scratch repository");
-    let arguments = |arguments: &[&str]| in_folder(repository.path(), arguments);
-    git.run(None, GitCall::read(arguments(&["init", "--quiet"])))
-        .await
-        .expect("the repository is made");
+    git.run(
+        None,
+        GitCall::read(in_folder(repository.path(), &["init", "--quiet"])),
+    )
+    .await
+    .expect("the repository is made");
+    let capture_folder = session_storage_folder(data_folder, &session_id)
+        .join("captures")
+        .join("repository");
+    git.run(
+        None,
+        GitCall::read([
+            OsString::from("init"),
+            "--quiet".into(),
+            "--bare".into(),
+            capture_folder.clone().into(),
+        ]),
+    )
+    .await
+    .expect("the capture folder is made");
+    let arguments = |arguments: &[&str]| in_folder(&capture_folder, arguments);
     let object = git
         .run(
             None,
@@ -85,7 +108,7 @@ async fn store_run_snapshot(
             ],
         )
         .expect("the test stores the run's context");
-    repository
+    (repository, capture_folder)
 }
 
 fn contains(bytes: &[u8], text: &str) -> bool {
@@ -98,8 +121,8 @@ fn contains(bytes: &[u8], text: &str) -> bool {
 // steps stay), an unsettled release or a spent `Send now` key of the lead run left behind,
 // `secure_delete` off or the truncation skipped (the marker stays in the file or its log), a
 // receipt outside the delete's write or naming another range, a count of live runs that only run
-// state changes move (the purged run stays counted), and a purge that skips a run's snapshot refs
-// (the run's ref stays in its repository).
+// state changes move (the purged run stays counted), and a purge that keeps a run's snapshot refs
+// (the session's capture folder stays).
 #[tokio::test]
 async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log() {
     let fixture = purge_fixture().await;
@@ -111,7 +134,8 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
     let lead_run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     insert_running_run(&fixture.database, session_id, lead_run_id);
     let git = test_git_runner();
-    let repository = store_run_snapshot(&reader, &git, session_id, lead_run_id).await;
+    let (_repository, capture_folder) =
+        store_run_snapshot(&reader, &git, fixture.home.path(), session_id, lead_run_id).await;
     append_event(&fixture.log, session_id, "Read").await;
     append_event(&fixture.log, session_id, MARKER).await;
     append_event(&fixture.log, survivor, "Write").await;
@@ -236,19 +260,9 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
             .expect("the test counts the rows left");
         assert_eq!(left, 0, "no row of {rows} outlives its session");
     }
-    let snapshot_refs = git
-        .run(
-            None,
-            GitCall::read(in_folder(
-                repository.path(),
-                &["for-each-ref", "refs/sidekicks/runs/"],
-            )),
-        )
-        .await
-        .expect("the repository's refs are listed");
     assert!(
-        snapshot_refs.stdout.is_empty(),
-        "the run's snapshot refs are pruned"
+        !capture_folder.exists(),
+        "the run's snapshot refs go with the session's capture folder"
     );
     assert_eq!(event_count(&reader, survivor), 1);
     assert_eq!(

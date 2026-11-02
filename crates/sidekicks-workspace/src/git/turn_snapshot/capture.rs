@@ -7,8 +7,17 @@ use std::time::Duration;
 use jiff::Timestamp;
 use sidekicks_contracts::app_identity::APP_DISPLAY_NAME;
 
-/// Outside the worktree, so scratch indexes never show up in `ls-files -o` or `git status`.
-pub(crate) const SNAPSHOT_INDEX_SEGMENT: &str = ".snapshot-indexes";
+/// Set on every git call that reads or writes an index outside the repository: a split index
+/// would put its shared part in the repository's git folder and could expire one the live index
+/// still uses, and a file-system monitor would answer for the live index, not this one.
+pub(crate) const INDEX_COPY_GUARDS: [&str; 6] = [
+    "-c",
+    "core.splitIndex=false",
+    "-c",
+    "splitIndex.sharedIndexExpire=never",
+    "-c",
+    "core.fsmonitor=false",
+];
 
 /// The same bytes for every snapshot: the message is an object id input, so identity content would
 /// make identical state hash differently. Trailers derived from project state keep that property.

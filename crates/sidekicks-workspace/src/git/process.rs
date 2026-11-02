@@ -359,13 +359,6 @@ pub struct GitRunner {
     // Whether the program was built with its file-watch daemon, read once it is first needed.
     has_built_in_file_watch: Arc<OnceCell<bool>>,
     // The program's version, read once it is first needed.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the snapshot capture and its packing check their git features through it"
-        )
-    )]
     git_version: Arc<OnceCell<version::GitVersion>>,
     // The ends of the trees of calls that failed, run after the failure is answered.
     tree_ends: TaskTracker,

@@ -2,13 +2,6 @@
 //! every capture step writes its objects and its ref into, so a capture leaves the repository's own
 //! `.git` as it was. The repository is attached to each call by `GIT_ALTERNATE_OBJECT_DIRECTORIES`,
 //! never by an `objects/info/alternates` file, so the folder packs alone with nothing attached.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the snapshot service opens each owner's capture folder through it"
-    )
-)]
 
 use std::ffi::{OsStr, OsString};
 use std::io;
@@ -33,6 +26,9 @@ const CAPTURES_SEGMENT: &str = "captures";
 
 /// A git folder's object folder.
 const OBJECTS_SEGMENT: &str = "objects";
+
+/// The folder in a capture folder that holds the indexes captures stage into.
+const INDEXES_SEGMENT: &str = "indexes";
 
 /// The variable naming the object folder a git call writes into.
 const OBJECT_FOLDER_VARIABLE: &str = "GIT_OBJECT_DIRECTORY";
@@ -93,18 +89,14 @@ impl CaptureFolder {
         owner: &Path,
         repository: &Path,
     ) -> Result<Self, CaptureFolderError> {
-        let real_repository = canonical_folder_path(repository)
+        let (capture_folder, name) = Self::locate(owner, repository)
             .await
             .map_err(CaptureFolderError::Io)?;
-        let name = base16ct::lower::encode_string(&Sha256::digest(os_text_stable_bytes(
-            real_repository.as_os_str(),
-        )));
-        let captures = owner.join(CAPTURES_SEGMENT);
-        let capture_folder = Self::new(captures.join(&name), &repository.join(OBJECTS_SEGMENT))?;
         let is_present = tokio::fs::try_exists(&capture_folder.folder)
             .await
             .map_err(CaptureFolderError::Io)?;
         if !is_present {
+            let captures = owner.join(CAPTURES_SEGMENT);
             capture_folder
                 .create(git, place, repository, &captures, &name)
                 .await?;
@@ -112,19 +104,25 @@ impl CaptureFolder {
         Ok(capture_folder)
     }
 
-    /// The repository's own common git folder, `git_common_folder`, written as the capture folder:
-    /// the snapshot refs and objects land in the repository itself. Fails with `Io` for a path this
-    /// system cannot hand git as bytes.
-    pub(crate) fn of_repository(git_common_folder: &Path) -> Result<Self, CaptureFolderError> {
-        Self::new(
-            git_common_folder.to_path_buf(),
-            &git_common_folder.join(OBJECTS_SEGMENT),
-        )
+    /// The capture folder [`open_or_create`](Self::open_or_create) would open for `owner` and the
+    /// repository whose common git folder is `repository`, or `None` when it was never made;
+    /// nothing is made and no git runs. Fails as the file system does.
+    pub(crate) async fn open_existing(owner: &Path, repository: &Path) -> io::Result<Option<Self>> {
+        let (capture_folder, _) = Self::locate(owner, repository).await?;
+        let is_present = tokio::fs::try_exists(&capture_folder.folder).await?;
+        Ok(is_present.then_some(capture_folder))
+    }
+
+    // Where the capture folder of `owner` and `repository` is, made or not, and its name.
+    async fn locate(owner: &Path, repository: &Path) -> io::Result<(Self, String)> {
+        let name = real_path_name(repository).await?;
+        let folder = owner.join(CAPTURES_SEGMENT).join(&name);
+        Ok((Self::new(folder, &repository.join(OBJECTS_SEGMENT))?, name))
     }
 
     // The capture folder at the git folder `folder`, attaching the object folder
     // `repository_objects` to its writes.
-    fn new(folder: PathBuf, repository_objects: &Path) -> Result<Self, CaptureFolderError> {
+    fn new(folder: PathBuf, repository_objects: &Path) -> io::Result<Self> {
         let objects = folder.join(OBJECTS_SEGMENT);
         Ok(Self {
             objects_alternate: quote_alternate(&objects)?,
@@ -137,6 +135,12 @@ impl CaptureFolder {
     /// The git folder the snapshot refs are written in and read from.
     pub(crate) fn folder(&self) -> &Path {
         &self.folder
+    }
+
+    /// The folder holding the indexes captures stage into; made by the first capture that needs
+    /// it.
+    pub(crate) fn indexes_folder(&self) -> PathBuf {
+        self.folder.join(INDEXES_SEGMENT)
     }
 
     /// The variables of a write that must see the repository's history: its objects go to this
@@ -243,6 +247,15 @@ impl CaptureFolder {
     }
 }
 
+/// The sha256 of `folder`'s real path as lowercase hex, so every spelling of one folder gives one
+/// name. Fails as resolving the path does.
+pub(crate) async fn real_path_name(folder: &Path) -> io::Result<String> {
+    let real_folder = canonical_folder_path(folder).await?;
+    Ok(base16ct::lower::encode_string(&Sha256::digest(
+        os_text_stable_bytes(real_folder.as_os_str()),
+    )))
+}
+
 /// `--git-dir=<folder>`, the argument that runs a call against the git folder `folder`.
 pub(crate) fn git_folder_argument(folder: &Path) -> OsString {
     let mut argument = OsString::from("--git-dir=");
@@ -253,8 +266,8 @@ pub(crate) fn git_folder_argument(folder: &Path) -> OsString {
 // `objects` as one entry of git's alternate list, in the C-style quotes git reads there, so a path
 // holding the list's separator or a quote stays one entry. Fails for a path this system cannot
 // give as bytes.
-fn quote_alternate(objects: &Path) -> Result<OsString, CaptureFolderError> {
-    let bytes = os_text_bytes(objects.as_os_str()).map_err(CaptureFolderError::Io)?;
+fn quote_alternate(objects: &Path) -> io::Result<OsString> {
+    let bytes = os_text_bytes(objects.as_os_str())?;
     let mut quoted = Vec::with_capacity(bytes.len() + 2);
     quoted.push(b'"');
     for &byte in bytes.iter() {
@@ -264,9 +277,7 @@ fn quote_alternate(objects: &Path) -> Result<OsString, CaptureFolderError> {
         quoted.push(byte);
     }
     quoted.push(b'"');
-    path_from_program_output(quoted)
-        .map(PathBuf::into_os_string)
-        .map_err(CaptureFolderError::Io)
+    path_from_program_output(quoted).map(PathBuf::into_os_string)
 }
 
 #[cfg(test)]

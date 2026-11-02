@@ -51,7 +51,10 @@ fn a_version_with_no_number_does_not_read() {
 async fn the_running_git_names_a_version_that_reads() {
     let git = test_git_runner();
 
-    let has_missing = git.meets(None, GitFeature::RevListMissing).await;
+    let has_missing = git
+        .version(None)
+        .await
+        .map(|version| version.has(GitFeature::RevListMissing));
 
     assert!(matches!(has_missing, Ok(true)), "got {has_missing:?}");
 }

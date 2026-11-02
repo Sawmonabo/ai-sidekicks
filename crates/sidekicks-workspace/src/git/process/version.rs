@@ -4,11 +4,12 @@
     not(test),
     expect(
         dead_code,
-        reason = "the snapshot capture and its packing check their git features through it"
+        reason = "the snapshot packing checks its own git features through it"
     )
 )]
 
 use std::ffi::OsString;
+use std::fmt;
 use std::path::Path;
 
 use sidekicks_contracts::place::Place;
@@ -24,15 +25,16 @@ pub(crate) enum GitFeature {
     RevParsePathFormat,
     /// `repack --geometric`, from 2.32.
     RepackGeometric,
-    /// The `core.fsync` setting, from 2.36.
+    /// The `core.fsync` setting, with the `reference` component a capture's ref write names, from
+    /// 2.36 (its configuration reference lists `reference` among the components).
     CoreFsync,
     /// `sparse-checkout check-rules`, from 2.41.
     SparseCheckoutCheckRules,
 }
 
 impl GitFeature {
-    // The first release that has the feature.
-    fn floor(self) -> GitVersion {
+    /// The first release that has the feature.
+    pub(crate) fn floor(self) -> GitVersion {
         let minor = match self {
             Self::RevListMissing => 16,
             Self::RevParsePathFormat => 31,
@@ -80,6 +82,12 @@ impl GitVersion {
     }
 }
 
+impl fmt::Display for GitVersion {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}.{}.{}", self.major, self.minor, self.patch)
+    }
+}
+
 // The digits a version part starts with, so a pre-release's `0-rc1` reads as 0; `None` when it
 // starts with none.
 fn leading_number(part: &str) -> Option<u32> {
@@ -88,16 +96,13 @@ fn leading_number(part: &str) -> Option<u32> {
 }
 
 impl GitRunner {
-    /// Whether the git program for a project at `place` has `feature`, its version read once for
-    /// the runner. Fails as [`run`](Self::run) does, and with `UnreadableVersion` when git names no
-    /// version this code can read, never answering that it has the feature.
-    pub(crate) async fn meets(
-        &self,
-        place: Option<&Place>,
-        feature: GitFeature,
-    ) -> Result<bool, GitError> {
+    /// The release of the git program for a project at `place`, read once for the runner, which
+    /// [`GitVersion::has`] checks a feature against. Fails as [`run`](Self::run) does, and with
+    /// `UnreadableVersion` when git names no version this code can read, so no feature is ever
+    /// taken to be there.
+    pub(crate) async fn version(&self, place: Option<&Place>) -> Result<GitVersion, GitError> {
         let executable = self.executable_for(place)?;
-        Ok(self.read_version(executable).await?.has(feature))
+        self.read_version(executable).await
     }
 
     // The version of the git at `executable`, read once for the runner; a failed read is not kept.
@@ -112,6 +117,15 @@ impl GitRunner {
             })
             .await
             .copied()
+    }
+
+    /// This runner with its git taken to be the release `version_output` names, read once already,
+    /// for a test of what an older or newer git does.
+    #[cfg(test)]
+    pub(crate) fn reading_version_as(mut self, version_output: &[u8]) -> Self {
+        let version = GitVersion::from_version_output(version_output).expect("the version reads");
+        self.git_version = std::sync::Arc::new(tokio::sync::OnceCell::new_with(Some(version)));
+        self
     }
 }
 

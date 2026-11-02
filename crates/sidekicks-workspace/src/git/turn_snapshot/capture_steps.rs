@@ -33,9 +33,9 @@ use tokio::task::JoinError;
 use crate::git::GITLINK_MODE;
 use crate::git::process::{GitCall, GitError, GitRunner, in_folder, strip_line_end};
 use crate::git::turn_snapshot::capture::{
-    CORE_SPARSE_CHECKOUT_KEY, ObjectFormat, SKIPPED_EMBEDDED_REPOSITORIES_TRAILER,
-    SNAPSHOT_COMMIT_MESSAGE, SNAPSHOT_IDENTITY_EMAIL, SNAPSHOT_IDENTITY_NAME,
-    SPARSE_BOUNDARY_PATHS_TRAILER, SPARSE_SEED_INDEX_LOCK_ATTEMPTS,
+    CORE_SPARSE_CHECKOUT_KEY, INDEX_COPY_GUARDS, ObjectFormat,
+    SKIPPED_EMBEDDED_REPOSITORIES_TRAILER, SNAPSHOT_COMMIT_MESSAGE, SNAPSHOT_IDENTITY_EMAIL,
+    SNAPSHOT_IDENTITY_NAME, SPARSE_BOUNDARY_PATHS_TRAILER, SPARSE_SEED_INDEX_LOCK_ATTEMPTS,
     SPARSE_SEED_INDEX_LOCK_RETRY_DELAY, SparseListingPartition, UnrecognizedObjectFormat,
     join_nul_terminated_listing, split_nul_terminated_listing_bytes, to_raw_git_date,
 };
@@ -78,9 +78,12 @@ pub(crate) enum CaptureStepError {
     /// The scratch index's name could not be drawn.
     #[error("the scratch index could not be named")]
     ScratchIndexName(#[source] getrandom::Error),
-    /// The folder of scratch indexes could not be made.
-    #[error("the folder of scratch indexes could not be made")]
-    ScratchIndexFolder(#[source] io::Error),
+    /// The capture folder's folder of indexes could not be made.
+    #[error("the capture folder's folder of indexes could not be made")]
+    IndexFolder(#[source] io::Error),
+    /// The kept index, or the HEAD recorded beside it, could not be read or written.
+    #[error("the kept index or the HEAD it was seeded at could not be read or written")]
+    KeptIndex(#[source] io::Error),
     /// Another git held the repository's index lock through every attempt.
     #[error("the repository's index lock stayed taken, so the scratch index was not seeded")]
     IndexLockTaken(#[source] io::Error),
@@ -485,11 +488,28 @@ impl SnapshotCheckout<'_> {
         in_folder(self.root, arguments)
     }
 
-    // The arguments of a capture write in the checkout: the flush pin, then `-C <root>` and
-    // `arguments`.
+    /// The arguments of a git call in the checkout on an index of the capture's own: the index
+    /// guards, then `-C <root>` and `arguments`.
+    pub(crate) fn on_index_copy(&self, arguments: &[&str]) -> Vec<OsString> {
+        let mut call: Vec<OsString> = INDEX_COPY_GUARDS.iter().map(OsString::from).collect();
+        call.extend(self.in_checkout(arguments));
+        call
+    }
+
+    // The arguments of a capture write in the checkout: the flush pin, the index guards, then
+    // `-C <root>` and `arguments`.
     fn write_in_checkout(&self, arguments: &[&str]) -> Vec<OsString> {
         let mut call: Vec<OsString> = CORE_FSYNC_PIN.iter().map(OsString::from).collect();
-        call.extend(self.in_checkout(arguments));
+        call.extend(self.on_index_copy(arguments));
+        call
+    }
+
+    /// `call` writing its objects into the capture folder, the repository attached for the
+    /// history it builds on.
+    pub(crate) fn writing_capture_objects(&self, mut call: GitCall) -> GitCall {
+        for (name, value) in self.capture_folder.write_environment() {
+            call = call.with_environment(name, value);
+        }
         call
     }
 
@@ -502,15 +522,6 @@ impl SnapshotCheckout<'_> {
             .chain([git_folder_argument(self.capture_folder.folder())])
             .chain(arguments.iter().map(OsString::from))
             .collect()
-    }
-
-    // `call` writing its objects into the capture folder, the repository attached for the history
-    // it builds on.
-    fn writing_capture_objects(&self, mut call: GitCall) -> GitCall {
-        for (name, value) in self.capture_folder.write_environment() {
-            call = call.with_environment(name, value);
-        }
-        call
     }
 }
 

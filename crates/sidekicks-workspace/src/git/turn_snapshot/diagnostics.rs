@@ -5,19 +5,25 @@ use std::error::Error;
 use std::io;
 use std::path::PathBuf;
 
+use sidekicks_contracts::place::Place;
 use sidekicks_contracts::run::id::RunId;
 use strum::IntoStaticStr;
 
+use crate::git::process::version::GitVersion;
 use crate::git::turn_snapshot::retention::RunContextKey;
 
 /// The capture steps in order, named on a failed capture. `detectSparseRoot` and
-/// `checkSparseRules` (the matcher failed, or git is older than 2.41) fail closed, never as a
-/// checkout that is not sparse.
+/// `checkSparseRules` (the matcher failed) fail closed, never as a checkout that is not sparse.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
 pub(crate) enum TurnSnapshotCaptureStep {
+    /// The daemon's git is older than every capture call needs, or its version could not be read;
+    /// nothing else ran.
+    GitFloor,
     /// The supplied checkout is not the top level of the working tree holding the execution root.
     VerifyCheckoutRoot,
+    /// Opening, or making, the owner's capture folder for the repository.
+    OpenCaptureFolder,
     /// Making the scratch index the capture stages into.
     PrepareScratchIndex,
     /// Resolving the base commit the snapshot's tree starts from.
@@ -52,19 +58,31 @@ pub enum TurnSnapshotRetentionSkipReason {
     RunContextAbsent,
     /// The row read failed (a closed handle, a schema fault); unlike absent, retry the prune.
     RunContextUnreadable,
-    /// The recorded `git_common_dir` is gone (the repository was removed).
+    /// The owner has no capture folder for the recorded repository: none was made, or it went
+    /// with its owner.
     GitDirAbsent,
-    /// The recorded folder exists but listing its refs failed: permissions, a bad object store, no
-    /// `git`, or a hook folder failure.
+    /// The capture folder could not be reached, or it exists but listing its refs failed:
+    /// permissions, a bad object store, no `git`, or a hook folder failure.
     GitDirUnusable,
     /// The listing succeeded but an `update-ref -d` did not; refs already deleted still count.
     RefDeleteFailed,
 }
 
-/// What the snapshot service reports to the service log. Paths appear on purpose: a diagnostic is
-/// the daemon's own, unlike the typed errors that reach the wire.
+/// What the snapshot service reports to the service log. The paths it names are in the daemon's
+/// own data, never the person's repository: a diagnostic is the daemon's own, unlike the typed
+/// errors that reach the wire.
 #[derive(Debug)]
 pub(crate) enum TurnSnapshotDiagnostic {
+    /// The daemon's git is older than turn snapshots need, so no turn is captured; logged once per
+    /// place for the daemon's run.
+    GitBelowFloor {
+        /// The project's place, `None` for the daemon's own system.
+        place: Option<Place>,
+        /// The release git named.
+        git_version: GitVersion,
+        /// The first release turn snapshots run on.
+        git_floor: GitVersion,
+    },
     /// A turn's snapshot was not captured; the turn ends anyway.
     CaptureFailed {
         /// The run whose turn ended.
@@ -94,7 +112,8 @@ pub(crate) enum TurnSnapshotDiagnostic {
         /// Each skipped repository's path within the checkout.
         skipped_paths: Vec<String>,
     },
-    /// The scratch index could not be removed after a capture, so a surviving file is noticed.
+    /// The scratch index, in the capture folder, could not be removed after a capture, so a
+    /// surviving file is noticed.
     ScratchIndexCleanupFailed {
         /// The run whose turn ended.
         run_id: RunId,
@@ -120,6 +139,16 @@ impl TurnSnapshotDiagnostic {
     /// Logs the diagnostic as one warning on the service log, its failure with every cause.
     pub(crate) fn warn(&self) {
         match self {
+            Self::GitBelowFloor {
+                place,
+                git_version,
+                git_floor,
+            } => tracing::warn!(
+                place = ?place,
+                git_version = %git_version,
+                git_floor = %git_floor,
+                "The daemon's git is older than turn snapshots need, so no turn is captured"
+            ),
             Self::CaptureFailed {
                 run_id,
                 epoch,

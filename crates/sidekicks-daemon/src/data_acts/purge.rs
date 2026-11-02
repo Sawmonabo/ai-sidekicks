@@ -62,6 +62,7 @@ use sidekicks_session::service::SessionService;
 use sidekicks_shell::table::ShellTable;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
+use sidekicks_store::data_folder::session_storage_folder;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -310,17 +311,20 @@ impl SessionPurge {
         remove_session_storage_folder(&deps.data_folder, session_id)
             .await
             .map_err(SessionPurgeError::StorageFolder)?;
+        // The session owns its runs' capture folders, under its storage folder.
+        let owner_folder = session_storage_folder(&deps.data_folder, &session_id);
         for context in &targets.run_contexts {
             let pruned = deps
                 .snapshots
                 .prune_run_refs(
                     targets.place.as_ref(),
                     context.run_key,
+                    &owner_folder,
                     &context.git_common_dir,
                 )
                 .await;
             match pruned {
-                // A repository removed took its refs with it.
+                // A capture folder removed, with the storage folder or before, took its refs.
                 TurnSnapshotPruneOutcome::Pruned { .. }
                 | TurnSnapshotPruneOutcome::Skipped {
                     reason: TurnSnapshotRetentionSkipReason::GitDirAbsent,

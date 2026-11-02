@@ -56,7 +56,6 @@ use sidekicks_session::run::folders::SessionLiveRunFolders;
 use sidekicks_session::search::index::live::LiveIndex;
 use sidekicks_shell::orphan::guard::OrphanGuard;
 use sidekicks_std::error_description::describe_error;
-use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
@@ -371,8 +370,8 @@ pub(crate) async fn register_method_inputs(
         sources: Arc::clone(&worktree_sources) as _,
     }));
     let live_run_folders = Arc::new(SessionLiveRunFolders::new(Arc::clone(&reads)));
-    // The creator's, and the run setup gate's around a run's context write.
-    let checkout_lock = Arc::new(KeyedLock::new());
+    // The creator's, the run setup gate's around a run's context write, and the turn snapshots'.
+    let checkout_lock = Arc::clone(&repo.checkout_lock);
     let worktree_creator = Arc::new(WorktreeCreator::new(WorktreeCreatorDeps {
         git: git.clone(),
         reads: Arc::clone(&reads),
