@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
+use rstest::rstest;
 use secrecy::SecretString;
 use serde_json::{Value, json};
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
@@ -11,7 +12,7 @@ use sidekicks_store::data_folder::plugin_home;
 use tokio::sync::oneshot;
 use url::Url;
 
-use super::{CLAUDE_MCP_SIGN_IN_FOLDER, read_claude_saved_sign_in};
+use super::{CLAUDE_MCP_SIGN_IN_FOLDER, ClaudeSignInError, read_claude_saved_sign_in};
 use crate::driver::DriverServices;
 use crate::driver::claude::account_credentials::{
     CLAUDE_CREDENTIALS_FILE, SECURE_STORAGE_FOLDER_VARIABLE, claude_keychain_account,
@@ -466,6 +467,43 @@ async fn an_error_the_sign_in_process_reports_ends_the_sign_in_with_its_text() {
         .expect("the sign-ins' folder reads")
         .count();
     assert_eq!(left, 0, "the sign-in's own folder is removed");
+}
+
+// An answer to `mcp_authenticate` that does not read, or whose authorization address does not,
+// ends the sign-in as the driver's failure, though a saved sign-in is there to read. Killed by an
+// answer read as having no address, which reads the saved sign-in back as a success.
+#[rstest]
+#[case::reply_unreadable(json!({"authUrl": 5}))]
+#[case::address_unreadable(json!({"authUrl": "not an address"}))]
+#[tokio::test]
+async fn an_unreadable_authenticate_answer_fails_the_sign_in(#[case] answer: Value) {
+    let scripted = ScriptedDriver::new();
+    std::fs::create_dir_all(&scripted.home).expect("the person's home is made");
+    std::fs::write(scripted.home.join(".claude.json"), PERSON_CONFIG)
+        .expect("the person's config is written");
+    let channel = Arc::new(ScriptedChannel::default());
+    channel.answer("mcp_authenticate", ScriptedAnswer::Reply(answer));
+    scripted.starts.script_mcp_sign_in(
+        channel,
+        json!({"mcpOAuth": {"docs|key": saved(SERVER_NAME, SERVER_ADDRESS, "access-one")}}),
+        ScriptedSignInPlace::File,
+        Vec::new(),
+    );
+    let (request, _opened, _returned) = request(user_binding());
+
+    let refused = scripted.driver.sign_in_with_own_client(request).await;
+
+    assert!(
+        matches!(
+            &refused,
+            Err(DriverError::Internal(error))
+                if matches!(
+                    error.downcast_ref::<ClaudeSignInError>(),
+                    Some(ClaudeSignInError::ReplyUnreadable(_))
+                )
+        ),
+        "an unreadable answer is the driver's failure, not {refused:?}"
+    );
 }
 
 // A sign-in dropped while it waits for the browser leaves no folder, and the start's sweep removes

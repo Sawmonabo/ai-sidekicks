@@ -134,6 +134,10 @@ pub(crate) enum ClaudeSignInError {
     /// The sign-in's process ended before the sign-in did.
     #[error("Claude Code's MCP sign-in process ended before the sign-in finished")]
     ProcessEnded,
+    /// The answer to the sign-in's request, or the authorization address in it, did not read as
+    /// Claude Code writes them.
+    #[error("Claude Code's answer to the MCP sign-in request could not be read")]
+    ReplyUnreadable(#[source] Box<dyn Error + Send + Sync>),
 }
 
 /// The error text a Claude Code process reported in a frame, sanitized and cut to a bound.
@@ -457,7 +461,7 @@ struct SavedSignInPlaces<'places> {
 }
 
 // The members of `mcp_authenticate`'s answer the sign-in reads.
-#[derive(Default, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AuthenticateReply {
     #[serde(default)]
@@ -469,7 +473,8 @@ struct AuthenticateReply {
 // Runs the sign-in on `channel`: the authorization address handed out through `browser`, then
 // the browser's return handed back where the daemon's redirect address took it, else the saved
 // sign-in waited for in `places`, each within `lifetime`. An answer with no address needs no
-// person, and the saved sign-in is read as it stands.
+// person, and the saved sign-in is read as it stands; an answer or an address that does not read
+// is the sign-in's failure.
 async fn run_sign_in(
     channel: &dyn ClaudeProcessChannel,
     places: SavedSignInPlaces<'_>,
@@ -484,13 +489,16 @@ async fn run_sign_in(
             redirect_uri: redirect_url.as_str().to_owned(),
         })
         .await?;
-    let reply: AuthenticateReply = answer
-        .response
-        .and_then(|reply| serde_json::from_str(reply.get()).ok())
-        .unwrap_or_default();
-    let Some(authorization_url) = reply.auth_url.and_then(|url| Url::parse(&url).ok()) else {
+    let Some(reply) = answer.response else {
         return Ok(());
     };
+    let reply: AuthenticateReply = serde_json::from_str(reply.get())
+        .map_err(|error| ClaudeSignInError::ReplyUnreadable(Box::new(error)))?;
+    let Some(authorization_url) = reply.auth_url else {
+        return Ok(());
+    };
+    let authorization_url = Url::parse(&authorization_url)
+        .map_err(|error| ClaudeSignInError::ReplyUnreadable(Box::new(error)))?;
     browser
         .authorization_url
         .send(authorization_url)
