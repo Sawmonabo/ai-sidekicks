@@ -2,9 +2,10 @@
 //! helper that launched it, else the lead run, bound by the agent id its frames and requests carry
 //! once the run engine answers, and moved on the helper's own `task_notification`, after which its
 //! route retires. A helper whose run the daemon refused is bound to that ended run all the same,
-//! which absorbs its frames, and is stopped. A helper's start and end are also rows on the run its
-//! start went beneath. The start is dispatched on the session's task before any later arrival, so a
-//! request of the helper finds its run bound.
+//! which absorbs its frames, and is stopped. A helper's new own run clears a stop that is not
+//! final. A helper's start and end are also rows on the run its start went beneath. The start is
+//! dispatched on the session's task before any later arrival, so a request of the helper finds its
+//! run bound.
 
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::subagent::{SubagentId, SubagentLifecyclePayload};
@@ -127,6 +128,10 @@ impl ClaudeDeliveryStream {
                         binding_id: carrier.binding_id.clone(),
                     },
                 );
+                // Its new own run clears a stop that is not final; refused again, it is stopped
+                // again below.
+                lock(&self.dependencies.pauses)
+                    .release_helper(session.session_id, &emission.subagent_id);
             }
             // A refused helper still runs in Claude Code: its next tool use is denied, so it
             // reports and finishes while the lead's turn goes on.
@@ -166,7 +171,8 @@ impl ClaudeDeliveryStream {
         .await;
     }
 
-    // A helper's child run moves on its own `task_notification`, then its route retires.
+    // A helper's child run moves on its own `task_notification`, read with why the daemon stopped
+    // the helper, then its route retires.
     pub(super) async fn end_helper(&self, session: &ClaudeSessionStream, task: &ClaudeTaskFrame) {
         let routes = &self.dependencies.routes;
         let Some(child_run_id) = task
@@ -178,7 +184,9 @@ impl ClaudeDeliveryStream {
         let Some(ClaudeRunRoute::Child(route)) = routes.route_of(child_run_id) else {
             return;
         };
-        let Some(change) = read_claude_helper_end(task, child_run_id) else {
+        let stop = lock(&self.dependencies.pauses)
+            .helper_stop_reason(&session.session_id, &route.agent_id);
+        let Some(change) = read_claude_helper_end(task, child_run_id, stop.as_ref()) else {
             return;
         };
         let delivery = InboundDelivery::RunLifecycle {

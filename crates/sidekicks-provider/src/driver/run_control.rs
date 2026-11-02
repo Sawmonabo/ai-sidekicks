@@ -336,8 +336,8 @@ pub struct RunToolBoundary {
     pub run_id: RunId,
 }
 
-/// Why a helper is stopped alone while its lead goes on; each reason gives the sentence the helper
-/// reads as its next tool use is refused.
+/// Why a helper is stopped; each reason gives the sentence the helper reads as its next tool use is
+/// refused.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HelperStopReason {
     /// The helper's own run passed its token limit.
@@ -347,6 +347,8 @@ pub enum HelperStopReason {
         /// The setup's refusal, whose cause the sentence names.
         refusal: RunSetupRefusal,
     },
+    /// The person stopped the helper from the console with every other running agent; final.
+    StopAll,
 }
 
 impl HelperStopReason {
@@ -367,6 +369,11 @@ impl HelperStopReason {
                 "Stopped: the run could not be set up, because {}. Report what you did and stop.",
                 refusal.cause
             ),
+            Self::StopAll => {
+                "Stopped: the person stopped this agent from the console. It will not \
+                 be resumed; stop now."
+                    .to_owned()
+            }
         }
     }
 }

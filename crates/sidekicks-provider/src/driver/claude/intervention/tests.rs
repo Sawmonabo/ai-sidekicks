@@ -9,8 +9,10 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::mutex_lock::lock;
 
 use super::CLAUDE_INTERRUPT_CANCEL_QUEUED_CAPABILITY;
+use crate::driver::claude::hooks::pause::ClaudePauseAnswer;
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedWrite};
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
@@ -371,6 +373,61 @@ async fn a_helper_move_cut_mid_write_stops_the_process_in_place_of_the_interrupt
     assert_eq!(subtypes, [json!("background_tasks")]);
     assert!(session.channel.writes().contains(&ScriptedWrite::Terminate));
     assert_eq!(response.status, InterventionResultStatus::Applied);
+}
+
+// An interrupt on a helper's run holds that helper at its next tool call, its pause already in
+// effect, and stops the commands it runs, not its lead's, sending no interrupt; a stop Claude Code
+// never answers degrades the interrupt, the hold kept. Killed by no helper arm (an `interrupt` is
+// written), by no hold (the call passes), by no mark of the hold's effect (the hold reports a
+// pause), by leaving the helper's command running, by stopping the lead's command too, and by a
+// failed stop answered `Applied` or failing the interrupt.
+#[rstest]
+#[case::stopped(ScriptedAnswer::Reply(json!({})), InterventionResultStatus::Applied)]
+#[case::unanswered(ScriptedAnswer::Deadline, InterventionResultStatus::Degraded)]
+#[tokio::test(start_paused = true)]
+async fn a_helpers_interrupt_holds_it_and_stops_its_commands_its_lead_going_on(
+    #[case] stop_answer: ScriptedAnswer,
+    #[case] expected_status: InterventionResultStatus,
+) {
+    let session = ScriptedSession::new().await;
+    let lead_run = session.hold_lead_turn("lead");
+    let helper_run = session.bind_helper(lead_run, "agent-1");
+    session.frame(&foreground_task_started(
+        "cmd-1",
+        "local_bash",
+        "call-1",
+        Some("agent-1"),
+    ));
+    session.frame(&foreground_task_started(
+        "cmd-lead",
+        "local_bash",
+        "call-2",
+        None,
+    ));
+    settle().await;
+    session.channel.answer("stop_task", stop_answer);
+
+    let response = apply(
+        &session,
+        interrupt(helper_run, InterruptPendingChoice::NextTurn, false),
+    )
+    .await;
+
+    assert_eq!(response.status, expected_status);
+    let requests = session.channel.control_requests();
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    assert_eq!(requests[0]["subtype"], "stop_task");
+    assert_eq!(requests[0]["task_id"], "cmd-1");
+    assert_eq!(
+        lock(&session.parts.run_controls.pauses).answer_before_tool(
+            &session.session_id,
+            Some("agent-1"),
+            "r1"
+        ),
+        ClaudePauseAnswer::Hold {
+            has_taken_effect: false
+        }
+    );
 }
 
 // Killed by taking the session's steer order only after a steer's files are read, which lets a

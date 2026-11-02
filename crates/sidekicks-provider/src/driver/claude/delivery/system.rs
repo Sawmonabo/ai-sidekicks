@@ -10,7 +10,7 @@ use sidekicks_contracts::event::usage::{
 };
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
-use sidekicks_contracts::run::control::RunFailureCategory;
+use sidekicks_contracts::run::control::{RunFailureCategory, StopTrigger};
 use sidekicks_contracts::run::failure_cause::{RunFailureCause, RunRefusedOrigin};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -20,6 +20,7 @@ use sidekicks_std::text_cut::cut_to_code_points;
 
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::ClaudeTaskFrame;
+use crate::driver::run_control::HelperStopReason;
 use crate::record_readers::{read_count, read_non_empty_string};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
 
@@ -176,15 +177,29 @@ pub(crate) fn read_claude_worker_shutdown_reason(
     read_words(frame, "reason")
 }
 
-/// The move a helper's child run makes on its `task_notification`: `completed` and `failed`
-/// end it as such, `stopped` stops it; any other status reads as `None`.
+/// The move a helper's child run makes on its `task_notification`, read with why the daemon
+/// stopped the helper (`stop`). `completed` ends it completed, or stopped at its token limit when
+/// that limit stopped it; `failed` ends it failed with the summary's words; `stopped` ends it
+/// stopped when the person stopped it with every other agent or its token limit stopped it, and
+/// interrupted otherwise, as Claude Code's own stop or a worker restart. Any other status reads as
+/// `None`.
 pub(crate) fn read_claude_helper_end(
     task: &ClaudeTaskFrame,
     child_run_id: RunId,
+    stop: Option<&HelperStopReason>,
 ) -> Option<RunStateReport> {
+    let stopped_at_token_limit = RunStateEntry::Stopped {
+        intended_close: None,
+        trigger: Some(StopTrigger::TokenLimit),
+    };
     let entry = match task.status()? {
-        "completed" => RunStateEntry::Completed {
-            intended_close: None,
+        "completed" => match stop {
+            Some(HelperStopReason::TokenLimit) => stopped_at_token_limit,
+            Some(HelperStopReason::SetupRefused { .. } | HelperStopReason::StopAll) | None => {
+                RunStateEntry::Completed {
+                    intended_close: None,
+                }
+            }
         },
         "failed" => RunStateEntry::Failed {
             intended_close: None,
@@ -192,9 +207,16 @@ pub(crate) fn read_claude_helper_end(
             provider_failure_detail: task.summary().and_then(read_provider_words),
             process_exit: None,
         },
-        "stopped" => RunStateEntry::Stopped {
-            intended_close: None,
-            trigger: None,
+        "stopped" => match stop {
+            Some(HelperStopReason::StopAll) => RunStateEntry::Stopped {
+                intended_close: None,
+                trigger: None,
+            },
+            Some(HelperStopReason::TokenLimit) => stopped_at_token_limit,
+            Some(HelperStopReason::SetupRefused { .. }) | None => RunStateEntry::Interrupted {
+                intended_close: None,
+                trigger: None,
+            },
         },
         _ => return None,
     };
