@@ -44,6 +44,7 @@ use crate::driver::claude::delivery::stream::{
 };
 use crate::driver::claude::frame_routing::ClaudeFrameRouting;
 use crate::driver::claude::goals::ClaudeGoalCommands;
+use crate::driver::claude::goals::endings::ClaudeGoalEndings;
 use crate::driver::claude::handshake_register::ClaudeHandshakeRegister;
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
@@ -336,6 +337,7 @@ impl ClaudeDriver {
             Arc::clone(dispatch),
             Arc::clone(&streams),
         ));
+        let goal_endings = Arc::new(ClaudeGoalEndings::default());
         let delivery = Arc::new(ClaudeDeliveryStream::new(ClaudeStreamDependencies {
             engine: Arc::clone(engine),
             dispatch: Arc::clone(dispatch),
@@ -354,6 +356,7 @@ impl ClaudeDriver {
             command_output: Arc::clone(&ports.command_output),
             turn_readings: Arc::clone(&ports.turn_readings),
             context: Arc::clone(&context_readings),
+            goal_endings: Arc::clone(&goal_endings),
         }));
         let goals = Arc::new(ClaudeGoalCommands::default());
         let cuts = Arc::new(ClaudeConversationCuts {
@@ -433,6 +436,7 @@ impl ClaudeDriver {
                 helper_steers,
                 interventions: Arc::clone(&interventions),
                 goals: Arc::clone(&goals),
+                goal_endings,
                 self_started: ClaudeSelfStartedTurns {
                     start: run_start.clone(),
                     pauses,

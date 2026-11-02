@@ -8,6 +8,7 @@
 
 mod body;
 pub(crate) mod daemon_ends;
+mod goals;
 mod helper_runs;
 mod rows;
 mod run_end;
@@ -48,11 +49,13 @@ use crate::driver::claude::delivery::reviewer::ClaudeReviewerCapture;
 use crate::driver::claude::delivery::run_readings::{ClaudeMessageKey, ClaudeRowDelivery};
 use crate::driver::claude::delivery::streamed_blocks::ClaudeStreamedRun;
 use crate::driver::claude::delivery::system::{
-    read_claude_api_retry, read_claude_model_reroute, read_claude_provider_status,
-    read_claude_refusal_without_fallback, read_claude_warning, read_claude_worker_shutdown_reason,
+    is_claude_goal_check_cap, read_claude_api_retry, read_claude_model_reroute,
+    read_claude_provider_status, read_claude_refusal_without_fallback, read_claude_warning,
+    read_claude_worker_shutdown_reason,
 };
 use crate::driver::claude::delivery::turn_end::ClaudeTerminalReason;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
+use crate::driver::claude::goals::endings::{ClaudeGoalEndings, GoalEndingInput};
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::rate_limit_windows::{
     ClaudeUsageProbeModels, read_claude_quota_windows,
@@ -107,6 +110,8 @@ pub(crate) struct ClaudeStreamDependencies {
     pub(crate) turn_readings: Arc<PortRegistration<Arc<dyn TurnReadingPublisher>>>,
     /// Each session's context reads, which a lead message's usage reads mid-turn on.
     pub(crate) context: Arc<ClaudeContextReadings>,
+    /// Each session's goal, which the goal lines, records and turn ends classify against.
+    pub(crate) goal_endings: Arc<ClaudeGoalEndings>,
 }
 
 /// What a frame left for the session's task to do beyond its deliveries.
@@ -212,12 +217,17 @@ impl ClaudeDeliveryStream {
                 None => return after,
             }
         };
-        // A helper's own message carries no row of the session's, only the lines of its calls.
+        // A helper's own message carries no row of the session's, only the lines of its calls;
+        // a goal line of its own draws no goal row.
         if is_helper_frame {
             if kind == ClaudeWireFrameKind::Assistant
                 && let ClaudeFrameBody::Message(message) = &body
             {
                 session.lock().command_tasks.observe_calls(message);
+                if let Some(text) = message.text() {
+                    self.classify_goal(session, GoalEndingInput::HelperText(text), frame_kind)
+                        .await;
+                }
             }
             return after;
         }
@@ -399,6 +409,11 @@ impl ClaudeDeliveryStream {
                 after.running_model = self.reroute(session, &lead, frame_kind, &members).await;
                 after.context_read = Some(Some(lead));
             }
+            ClaudeWireFrameKind::SystemNotification => {
+                if is_claude_goal_check_cap(&members) {
+                    session.lock().is_goal_check_capped = true;
+                }
+            }
             ClaudeWireFrameKind::SystemModelRefusalNoFallback => {
                 session.lock().refusal = read_claude_refusal_without_fallback(&members);
             }
@@ -444,7 +459,6 @@ impl ClaudeDeliveryStream {
             | ClaudeWireFrameKind::SystemHookStarted
             | ClaudeWireFrameKind::SystemHookProgress
             | ClaudeWireFrameKind::SystemHookResponse
-            | ClaudeWireFrameKind::SystemNotification
             | ClaudeWireFrameKind::SystemFilesPersisted
             | ClaudeWireFrameKind::SystemToolUseSummary
             | ClaudeWireFrameKind::SystemMemoryRecall
@@ -611,6 +625,10 @@ impl ClaudeDeliveryStream {
         if counts_step && let Err(error) = self.dependencies.engine.count_step(lead.run_id).await {
             report_engine_failure(session, "a step", &*error);
         }
+        if let Some(text) = frame.text() {
+            self.classify_goal(session, GoalEndingInput::LeadText(text), "assistant")
+                .await;
+        }
         if let Some(usage) = usage
             && let Some(row) =
                 self.dependencies
@@ -658,6 +676,18 @@ impl ClaudeDeliveryStream {
             && let Some(uuid) = frame.uuid()
         {
             self.report_taken(session, uuid);
+        }
+        // The goal check's own frames carry no row and are never the person's message; an echo of
+        // a message the daemon sent is no frame of Claude Code's own.
+        if !frame.is_taken_echo() {
+            if frame.is_meta() {
+                self.classify_goal(session, GoalEndingInput::MetaUser, "user")
+                    .await;
+            } else if frame.is_synthetic() {
+                let text = frame.text().unwrap_or_default();
+                self.classify_goal(session, GoalEndingInput::SyntheticUser(text), "user")
+                    .await;
+            }
         }
         self.admit_rows(session, rows, "user").await;
     }

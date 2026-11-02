@@ -4,9 +4,10 @@
 //! member read leniently, and a block that reads as nothing known is left out.
 
 use std::collections::{HashMap, HashSet};
+use std::marker::PhantomData;
 
-use serde::Deserialize;
-use serde::de::IgnoredAny;
+use serde::de::{IgnoredAny, SeqAccess};
+use serde::{Deserialize, Deserializer};
 use serde_json::value::RawValue;
 use sidekicks_contracts::event::declared_variants::{RunAgentOutputPayload, ToolActivityPayload};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
@@ -25,7 +26,10 @@ use crate::driver::claude::delivery::patches::{
 };
 use crate::driver::claude::delivery::system::read_provider_words;
 use crate::driver::reorder_buffer::ReorderPairingRole;
-use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
+use crate::lenient_json::{
+    Lenient, LenientElement, LenientList, LenientVisitor, lenient_object, read_lenient,
+    skip_other_shapes,
+};
 use crate::run::delivery::{DeliveryOperation, LateAppendableRow};
 
 /// A field of a transcript row, as the event's cap holds it.
@@ -45,6 +49,10 @@ pub(crate) struct ClaudeMessageFrame {
     error: Option<String>,
     #[serde(rename = "isReplay", default, deserialize_with = "read_lenient")]
     is_replay: Option<bool>,
+    #[serde(rename = "isSynthetic", default, deserialize_with = "read_lenient")]
+    is_synthetic: Option<bool>,
+    #[serde(rename = "isMeta", default, deserialize_with = "read_lenient")]
+    is_meta: Option<bool>,
     // Only whether it is set, and not `null`, is read.
     #[serde(default)]
     parent_tool_use_id: Option<IgnoredAny>,
@@ -55,13 +63,55 @@ struct ClaudeMessage {
     #[serde(default, deserialize_with = "read_lenient")]
     id: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
-    content: Option<LenientList<ClaudeContentBlock>>,
+    content: Option<ClaudeMessageContent>,
     #[serde(default, deserialize_with = "read_lenient")]
     model: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     stop_reason: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     stop_details: Option<ClaudeStopDetails>,
+}
+
+// A message's content: Claude Code writes a message of its own making as one string, any other as
+// a list of blocks.
+enum ClaudeMessageContent {
+    Text(String),
+    Blocks(Vec<ClaudeContentBlock>),
+}
+
+impl<'de> serde::de::Visitor<'de> for LenientVisitor<ClaudeMessageContent> {
+    type Value = Option<ClaudeMessageContent>;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("any JSON value")
+    }
+
+    fn visit_str<E: serde::de::Error>(self, text: &str) -> Result<Self::Value, E> {
+        Ok(Some(ClaudeMessageContent::Text(text.to_owned())))
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut blocks: A) -> Result<Self::Value, A::Error> {
+        let mut read = Vec::new();
+        while let Some(block) = blocks.next_element::<LenientElement<ClaudeContentBlock>>()? {
+            read.extend(block.0);
+        }
+        Ok(Some(ClaudeMessageContent::Blocks(read)))
+    }
+
+    skip_other_shapes!(
+        visit_bool(bool),
+        visit_i64(i64),
+        visit_u64(u64),
+        visit_f64(f64),
+        visit_unit()
+    );
+    skip_other_shapes!(@map);
+}
+
+impl Lenient for ClaudeMessageContent {
+    fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error> {
+        deserializer.deserialize_any(LenientVisitor::<Self>(PhantomData))
+    }
 }
 
 // What the safety check that refused a message says of it.
@@ -230,6 +280,29 @@ impl ClaudeMessageFrame {
         self.is_replay == Some(true) && self.parent_tool_use_id.is_none()
     }
 
+    /// Whether a `user` frame is one Claude Code made up itself, such as a stop hook's feedback.
+    pub(crate) fn is_synthetic(&self) -> bool {
+        self.is_synthetic == Some(true)
+    }
+
+    /// Whether a `user` frame is a meta message Claude Code wrote, such as a deferred goal check's
+    /// check-in.
+    pub(crate) fn is_meta(&self) -> bool {
+        self.is_meta == Some(true)
+    }
+
+    /// The message's text: its whole content where Claude Code wrote it as one string, else its
+    /// first non-empty text block.
+    pub(crate) fn text(&self) -> Option<&str> {
+        match self.message.as_ref()?.content.as_ref()? {
+            ClaudeMessageContent::Text(text) => Some(text.as_str()),
+            ClaudeMessageContent::Blocks(blocks) => blocks
+                .iter()
+                .filter(|block| block.block_type.as_deref() == Some("text"))
+                .find_map(|block| block.text.as_deref().filter(|text| !text.is_empty())),
+        }
+    }
+
     /// The refusal an `assistant` frame's message ends on (`stop_reason` `refusal`), with the
     /// model that refused and its check's category and explanation; Claude Code sends it whether
     /// or not a `model_refusal_no_fallback` frame follows.
@@ -267,10 +340,14 @@ impl ClaudeMessageFrame {
     }
 
     fn blocks(&self) -> &[ClaudeContentBlock] {
-        self.message
+        match self
+            .message
             .as_ref()
             .and_then(|message| message.content.as_ref())
-            .map_or(&[], |content| &content.0)
+        {
+            Some(ClaudeMessageContent::Blocks(blocks)) => blocks,
+            Some(ClaudeMessageContent::Text(_)) | None => &[],
+        }
     }
 }
 

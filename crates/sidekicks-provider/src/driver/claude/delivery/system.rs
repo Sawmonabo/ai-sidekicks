@@ -1,7 +1,7 @@
 //! What Claude Code's `system` frames say about a run, in the daemon's words: a model switch, the
 //! refusal no other model took, a retried request, a warning, the coarse status, the worker's
-//! shutdown reason and a helper's end. The frames are untrusted, so each member is narrowed, and a
-//! frame that reads as nothing known reads as `None`.
+//! shutdown reason, a helper's end and the cap on a turn's unmet goal checks. The frames are
+//! untrusted, so each member is narrowed, and a frame that reads as nothing known reads as `None`.
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::{
@@ -158,6 +158,15 @@ pub(crate) fn read_claude_api_retry(
         source_epoch: None,
         source_position: None,
     }
+}
+
+// The key of the notification Claude Code sends once it stops a turn's goal checks at its cap on
+// unmet checks in a row.
+const CLAUDE_GOAL_CHECK_CAP_KEY: &str = "stop-hook-block-cap";
+
+/// Whether a `notification` frame is Claude Code's cap on a turn's unmet goal checks.
+pub(crate) fn is_claude_goal_check_cap(frame: &Map<String, Value>) -> bool {
+    frame.get("key").and_then(Value::as_str) == Some(CLAUDE_GOAL_CHECK_CAP_KEY)
 }
 
 /// The reason a `worker_shutting_down` frame gives, where it gives one.

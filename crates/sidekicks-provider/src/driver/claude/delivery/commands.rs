@@ -328,6 +328,11 @@ impl ClaudeCommandTasks {
         self.listed_other_tasks
     }
 
+    /// Whether any command task still runs.
+    pub(crate) fn has_running_task(&self) -> bool {
+        !self.tasks.is_empty()
+    }
+
     /// Forgets every command task: the session's process is gone, and its commands with it.
     pub(crate) fn forget(&mut self) {
         self.calls.clear();

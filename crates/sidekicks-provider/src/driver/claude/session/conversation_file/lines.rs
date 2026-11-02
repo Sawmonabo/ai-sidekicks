@@ -17,13 +17,6 @@ pub(crate) struct ConversationLine<Entry> {
     pub(crate) entry: Entry,
     /// Whether the line ends in its newline; the file's last line may not yet, while Claude Code
     /// is still writing it.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the goal classification's read of the conversation file"
-        )
-    )]
     pub(crate) is_terminated: bool,
 }
 

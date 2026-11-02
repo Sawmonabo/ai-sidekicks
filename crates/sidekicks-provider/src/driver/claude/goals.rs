@@ -4,7 +4,8 @@
 //! that reports no error. One command waits per session; a second replaces the first, which then
 //! reads unanswered.
 
-mod records;
+pub(crate) mod endings;
+pub(crate) mod records;
 
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};

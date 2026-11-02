@@ -16,6 +16,7 @@ use tokio::time::Instant;
 use crate::driver::claude::delivery::commands::ClaudeHeldCommand;
 use crate::driver::claude::delivery::run_readings::{ClaudeOpenTurn, ClaudeStreamSession};
 use crate::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
+use crate::driver::claude::goals::endings::ClaudeProcessGoal;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::arrivals::{ClaudeArrivalSender, ClaudeTurnAtRead};
@@ -28,6 +29,9 @@ pub(crate) struct ClaudeSessionStream {
     pub(super) session_id: SessionId,
     pub(super) provider_account_id: ProviderAccountId,
     pub(super) step_bound: Option<SafeInt<1>>,
+    // The lead whose goal the process carries, and the conversation file its outcomes are read
+    // from.
+    pub(super) goal: ClaudeProcessGoal,
     readings: Mutex<ClaudeStreamSession>,
     arrivals: ClaudeArrivalSender,
     routes: Arc<ClaudeRunRoutes>,
@@ -45,10 +49,12 @@ pub(crate) struct ClaudeSessionStream {
 impl ClaudeSessionStream {
     /// A stream for the process running on `provider_account_id`'s home, counting each turn's
     /// steps against `step_bound`, queuing onto `arrivals` and taking the mode reports into
-    /// `permission_mode`, the process's record the live session shares.
+    /// `permission_mode`, the process's record the live session shares, and reading the goal of
+    /// `goal`'s lead from its conversation file.
     pub(crate) fn new(
         provider_account_id: ProviderAccountId,
         step_bound: Option<SafeInt<1>>,
+        goal: ClaudeProcessGoal,
         arrivals: ClaudeArrivalSender,
         routes: Arc<ClaudeRunRoutes>,
         prompts: Arc<Mutex<ClaudeSentPrompts>>,
@@ -59,6 +65,7 @@ impl ClaudeSessionStream {
             readings: Mutex::new(ClaudeStreamSession::new(provider_account_id.clone())),
             provider_account_id,
             step_bound,
+            goal,
             arrivals,
             routes,
             prompts,

@@ -27,6 +27,7 @@ use crate::driver::claude::delivery::stream::{
     ClaudeDeliveryStream, ClaudeSessionStream, ClaudeSessionStreams,
 };
 use crate::driver::claude::goals::ClaudeGoalCommands;
+use crate::driver::claude::goals::endings::ClaudeGoalEndings;
 use crate::driver::claude::hooks::callbacks::{
     ClaudeRequestRoute, answer_background_work_check, answer_claude_request, route_claude_request,
     route_helper_start,
@@ -81,6 +82,8 @@ pub(crate) struct ClaudeSessionTaskServices {
     pub(crate) interventions: Arc<ClaudeInterventions>,
     /// The goal commands waiting on each session.
     pub(crate) goals: Arc<ClaudeGoalCommands>,
+    /// Each session's goal as its endings leave it.
+    pub(crate) goal_endings: Arc<ClaudeGoalEndings>,
     /// The runs of turns Claude Code starts by itself, and the session's slots and routes.
     pub(crate) self_started: ClaudeSelfStartedTurns,
     /// Each turn's settlement.
@@ -346,6 +349,7 @@ impl ClaudeSessionTask {
         services.dialogs.forget_session(session_id);
         services.reviewer.forget_session(session_id);
         services.goals.forget_session(session_id);
+        services.goal_endings.forget_session(session_id);
         services.interventions.forget_session(session_id);
         services.controls.forget_process(session_id).await;
         lock(&services.prompts).forget_session(session_id);

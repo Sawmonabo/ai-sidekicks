@@ -407,6 +407,14 @@ impl ClaudeRunRoutes {
             .map(|(run_id, _)| *run_id)
     }
 
+    /// Whether a helper of the session still has its child run bound, so it has not ended.
+    pub(crate) fn has_child_run_on(&self, session_id: SessionId) -> bool {
+        self.lock()
+            .children
+            .values()
+            .any(|route| route.session_id == session_id)
+    }
+
     /// Drops every child route on a session whose process is gone; its helpers went with it.
     pub(crate) fn retire_child_routes(&self, session_id: SessionId) {
         self.lock()

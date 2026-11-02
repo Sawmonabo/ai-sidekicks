@@ -51,7 +51,8 @@ pub(crate) enum ClaudeWireFrameKind {
     /// `system/hook_response`: a hook's result, which the hook dispatcher takes; no event.
     #[strum(serialize = "system/hook_response")]
     SystemHookResponse,
-    /// `system/notification`: a notice `system/informational` already carries; no event.
+    /// `system/notification`: a notice `system/informational` already carries, or the cap on a
+    /// turn's unmet goal checks, which marks the turn; no event.
     #[strum(serialize = "system/notification")]
     SystemNotification,
     /// `system/files_persisted`: a file-write summary the tool rows already carry; no event.

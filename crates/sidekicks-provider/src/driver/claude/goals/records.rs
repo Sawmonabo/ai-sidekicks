@@ -1,13 +1,6 @@
 //! The goal checks' outcomes on Claude Code, which never reach the stream: each is a `goal_status`
 //! attachment Claude Code appends to the conversation file, `{"type":"attachment","attachment":
 //! {"type":"goal_status",…}}`, read here from where the last read ended to the file's end.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the goal classification's read of the conversation file"
-    )
-)]
 
 use std::io;
 use std::ops::ControlFlow;
@@ -33,55 +26,46 @@ pub(crate) struct GoalStatusRecord {
     pub(crate) condition: Option<String>,
     /// The check's reason for its outcome.
     pub(crate) reason: Option<String>,
-    /// How many checks the goal took, on a met or failed outcome.
-    pub(crate) iterations: Option<u64>,
-    /// Milliseconds from the goal's set to the outcome.
-    pub(crate) duration_ms: Option<u64>,
-    /// Tokens the session spent from the goal's set to the outcome.
-    pub(crate) tokens: Option<u64>,
 }
 
 /// What one read of the conversation file's tail found.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct GoalStatusTail {
-    /// The last `goal_status` record of the lines read, `None` where there was none.
-    pub(crate) newest: Option<GoalStatusRecord>,
+    /// The `goal_status` records of the lines read, oldest first.
+    pub(crate) records: Vec<GoalStatusRecord>,
     /// The offset after the last line read through its newline, where the next read starts.
     pub(crate) end: u64,
 }
 
-/// Reads the conversation `file` from byte `from` to its end and keeps the newest `goal_status`
-/// record; every other entry, a line past the ceiling and a last line not yet ended by its newline
+/// Reads the conversation `file` from byte `from` to its end and keeps its `goal_status` records in
+/// order; every other entry, a line past the ceiling and a last line not yet ended by its newline
 /// are passed over, the last left for the next read. A file that does not exist reads no record,
 /// `end` at `from`; any other open or read failure surfaces.
 pub(crate) async fn read_goal_status_tail(file: &Path, from: u64) -> io::Result<GoalStatusTail> {
     let Some(opened) = tokio::fs::File::open(file).await.none_if_missing()? else {
         return Ok(GoalStatusTail {
-            newest: None,
+            records: Vec::new(),
             end: from,
         });
     };
-    let mut newest = None;
+    let mut records = Vec::new();
     let end = read_conversation_lines::<AttachmentEntry>(opened, file, from, |line| {
         if line.is_terminated
             && let Some(attachment) = line.entry.attachment
             && attachment.attachment_type.as_deref() == Some(GOAL_STATUS_ATTACHMENT_TYPE)
         {
-            newest = Some(GoalStatusRecord {
+            records.push(GoalStatusRecord {
                 met: attachment.met == Some(true),
                 failed: attachment.failed == Some(true),
                 sentinel: attachment.sentinel == Some(true),
                 condition: attachment.condition,
                 reason: attachment.reason,
-                iterations: attachment.iterations,
-                duration_ms: attachment.duration_ms,
-                tokens: attachment.tokens,
             });
         }
         ControlFlow::Continue(())
     })
     .await?;
-    Ok(GoalStatusTail { newest, end })
+    Ok(GoalStatusTail { records, end })
 }
 
 const GOAL_STATUS_ATTACHMENT_TYPE: &str = "goal_status";
@@ -108,12 +92,6 @@ struct EntryAttachment {
     condition: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     reason: Option<String>,
-    #[serde(default, deserialize_with = "read_lenient")]
-    iterations: Option<u64>,
-    #[serde(rename = "durationMs", default, deserialize_with = "read_lenient")]
-    duration_ms: Option<u64>,
-    #[serde(default, deserialize_with = "read_lenient")]
-    tokens: Option<u64>,
 }
 
 lenient_object!(AttachmentEntry, EntryAttachment);
@@ -152,11 +130,11 @@ mod tests {
         fs::metadata(file).expect("the conversation exists").len()
     }
 
-    // Killed by keeping the first record rather than the newest, by reading from the file's start
+    // Killed by keeping only one record or reversing their order, by reading from the file's start
     // rather than `from`, by an `end` that does not advance, and by an `end` past a last line whose
     // newline has not landed, which would lose the record once its newline lands.
     #[tokio::test]
-    async fn the_tail_keeps_the_newest_record_and_the_next_read_starts_where_it_ended() {
+    async fn the_tail_keeps_its_records_in_order_and_the_next_read_starts_where_it_ended() {
         let folder = tempfile::tempdir().expect("a scratch folder");
         let file = folder.path().join("conversation.jsonl");
         let missing = read_goal_status_tail(&file, 7)
@@ -165,7 +143,7 @@ mod tests {
         assert_eq!(
             missing,
             GoalStatusTail {
-                newest: None,
+                records: Vec::new(),
                 end: 7
             }
         );
@@ -206,15 +184,19 @@ mod tests {
         assert_eq!(
             first,
             GoalStatusTail {
-                newest: Some(GoalStatusRecord {
-                    met: true,
-                    condition: Some("ship it".to_owned()),
-                    reason: Some("it shipped".to_owned()),
-                    iterations: Some(3),
-                    duration_ms: Some(1200),
-                    tokens: Some(40),
-                    ..GoalStatusRecord::default()
-                }),
+                records: vec![
+                    GoalStatusRecord {
+                        sentinel: true,
+                        condition: Some("ship it".to_owned()),
+                        ..GoalStatusRecord::default()
+                    },
+                    GoalStatusRecord {
+                        met: true,
+                        condition: Some("ship it".to_owned()),
+                        reason: Some("it shipped".to_owned()),
+                        ..GoalStatusRecord::default()
+                    },
+                ],
                 end: file_length(&file),
             }
         );
@@ -224,7 +206,7 @@ mod tests {
         assert_eq!(
             unchanged,
             GoalStatusTail {
-                newest: None,
+                records: Vec::new(),
                 end: first.end
             }
         );
@@ -239,7 +221,7 @@ mod tests {
         assert_eq!(
             unended_read,
             GoalStatusTail {
-                newest: None,
+                records: Vec::new(),
                 end: first.end
             }
         );
@@ -250,19 +232,19 @@ mod tests {
         assert_eq!(
             cleared,
             GoalStatusTail {
-                newest: Some(GoalStatusRecord {
+                records: vec![GoalStatusRecord {
                     met: true,
                     sentinel: true,
                     condition: Some("ship it".to_owned()),
                     ..GoalStatusRecord::default()
-                }),
+                }],
                 end: file_length(&file),
             }
         );
     }
 
     // Killed by reading a line whole however long it is (the `take` bound dropped): the long record
-    // would read as the newest. Killed too by dropping the attachment's type check: the queued
+    // would read as a record. Killed too by dropping the attachment's type check: the queued
     // command after the record would read as an unmet record.
     #[tokio::test]
     async fn a_line_past_the_ceiling_and_another_attachment_read_no_record() {
@@ -283,7 +265,7 @@ mod tests {
         assert_eq!(
             past_ceiling,
             GoalStatusTail {
-                newest: None,
+                records: Vec::new(),
                 end: file_length(&file)
             }
         );
@@ -306,11 +288,11 @@ mod tests {
         assert_eq!(
             after,
             GoalStatusTail {
-                newest: Some(GoalStatusRecord {
+                records: vec![GoalStatusRecord {
                     condition: Some("ship it".to_owned()),
                     reason: Some("not yet".to_owned()),
                     ..GoalStatusRecord::default()
-                }),
+                }],
                 end: file_length(&file),
             }
         );
