@@ -244,6 +244,8 @@ async fn close_feeds(feeds: Vec<McpStandingConnectionFeed>) {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+    use std::process::Stdio;
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -253,11 +255,13 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::text::FreeFormText;
+    use sidekicks_platforms::{POSIX_SHELL, Spawner, shell_line_command, wrap_group_child_command};
     use tokio::time::timeout;
 
     use super::McpClient;
     use crate::client::connection::McpServerConnection;
     use crate::client::connection::standing::McpReplacement;
+    use crate::client::stdio::StdioProcess;
     use crate::client::tasks::McpServerEndpoint;
     use crate::client::test_server::{
         Reply, method_not_found, start_test_server, test_client, v1_initialize_result,
@@ -271,11 +275,13 @@ mod tests {
         )
     }
 
-    // A stdio connection of `client` to a server of no tools, in `session_id` to `name`.
+    // A stdio connection of `client` to a server of no tools, in `session_id` to `name`, holding
+    // `process` for its life.
     async fn open(
         client: &McpClient,
         session_id: SessionId,
         name: &McpServerName,
+        process: Option<StdioProcess>,
     ) -> McpServerConnection {
         let (opened, _server) = start_test_server(
             client.connection_scope(session_id, name.clone()),
@@ -284,10 +290,35 @@ mod tests {
                 "tools/list" => Reply::Answer(json!({ "result": { "tools": [] } })),
                 _ => method_not_found(),
             }),
-            None,
+            process,
         )
         .await;
         opened.expect("the test server completes its start")
+    }
+
+    // A process that runs until it is signaled, so a connection holding it waits in its close.
+    async fn lasting_process(
+        client: &McpClient,
+        session_id: SessionId,
+        name: &McpServerName,
+    ) -> StdioProcess {
+        let spawner = Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts");
+        let mut command = shell_line_command(Path::new(POSIX_SHELL), "sleep 60");
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let daemon_pid = std::process::id();
+        let child = spawner
+            .run(move || wrap_group_child_command(command, daemon_pid).spawn())
+            .await
+            .and_then(|spawned| spawned)
+            .expect("the child starts");
+        StdioProcess::supervise(
+            child,
+            None,
+            &client.connection_scope(session_id, name.clone()),
+        )
     }
 
     // Mutation: in `replacement`, leave out the `Arc::ptr_eq` check; the waiter then returns the
@@ -297,7 +328,7 @@ mod tests {
         let (client, _card) = test_client();
         let (session_id, name) = session_and_name();
         let old = client
-            .add_connection(open(&client, session_id, &name).await)
+            .add_connection(open(&client, session_id, &name, None).await)
             .await;
         let standing = client.standing_connection(session_id, &name);
         let after = Arc::clone(&old);
@@ -313,7 +344,7 @@ mod tests {
         );
 
         let new = client
-            .add_connection(open(&client, session_id, &name).await)
+            .add_connection(open(&client, session_id, &name, None).await)
             .await;
         let McpReplacement::Replaced(found) = waiter.await.expect("the waiter ends") else {
             panic!("the waiter finds the replacement");
@@ -331,7 +362,7 @@ mod tests {
         let (client, _card) = test_client();
         let (session_id, name) = session_and_name();
         let old = client
-            .add_connection(open(&client, session_id, &name).await)
+            .add_connection(open(&client, session_id, &name, None).await)
             .await;
         let standing = client.standing_connection(session_id, &name);
         let address = McpServerAddress::new("http://127.0.0.1:1/mcp").expect("a loopback address");
@@ -342,7 +373,7 @@ mod tests {
         });
 
         client
-            .add_connection(open(&client, session_id, &name).await)
+            .add_connection(open(&client, session_id, &name, None).await)
             .await;
         assert!(
             timeout(Duration::from_secs(10), &mut waiter).await.is_err(),
@@ -357,13 +388,14 @@ mod tests {
     }
 
     // Mutation: in `stop`, set the stopping mark after the sessions close; the waiter then reads
-    // the session's close first.
+    // the session's close while the connection's close waits on its process.
     #[tokio::test(start_paused = true)]
     async fn a_waiter_during_the_stop_reads_the_stop() {
         let (client, _card) = test_client();
         let (session_id, name) = session_and_name();
+        let process = lasting_process(&client, session_id, &name).await;
         let old = client
-            .add_connection(open(&client, session_id, &name).await)
+            .add_connection(open(&client, session_id, &name, Some(process)).await)
             .await;
         let standing = client.standing_connection(session_id, &name);
         let waiter = tokio::spawn(async move {
@@ -387,7 +419,7 @@ mod tests {
         let (client, _card) = test_client();
         let (session_id, name) = session_and_name();
         let old = client
-            .add_connection(open(&client, session_id, &name).await)
+            .add_connection(open(&client, session_id, &name, None).await)
             .await;
         let standing = client.standing_connection(session_id, &name);
         let waiter = tokio::spawn(async move {
