@@ -1,0 +1,214 @@
+//! The steps a run has taken so far, as an expression reads them, and the walk back through each
+//! item's `pairedItem` from the current item to the item of an earlier node that it came from.
+
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the evaluator thread, which holds a run's step outputs for its expressions"
+    )
+)]
+
+use std::collections::{BTreeMap, HashMap};
+
+use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
+use sidekicks_contracts::workflow::definition::item::{
+    WorkflowItem, WorkflowPairedItem, WorkflowPairedItems,
+};
+use sidekicks_contracts::workflow::run::step::record::WorkflowStepSource;
+
+/// One execution of a node: the node and which of its executions, counted through the run.
+#[derive(Clone, Debug)]
+pub(crate) struct StepKey {
+    /// The node.
+    pub(crate) node_id: WorkflowNodeId,
+    /// Which execution of it.
+    pub(crate) execution_index: u64,
+}
+
+/// What one execution of a node read and wrote: the feed of each input slot and the items of
+/// each output handle.
+#[derive(Debug)]
+pub(crate) struct StepOutput {
+    /// Per input slot, the output that fed it, or `None` for a slot nothing fed.
+    pub(crate) sources: Vec<Option<WorkflowStepSource>>,
+    /// Per output handle, the items it wrote; empty for a step still running.
+    pub(crate) outputs: Vec<Vec<WorkflowItem>>,
+}
+
+/// A run's steps as its expressions read them: each node's executions in order, and the id index
+/// that resolves a label to its node, so a renamed node is still found by its new label.
+#[derive(Debug, Default)]
+pub(crate) struct StepOutputs {
+    /// Each node's id by its label.
+    node_ids_by_label: HashMap<String, WorkflowNodeId>,
+    /// Each node's label by its id.
+    labels_by_node_id: HashMap<WorkflowNodeId, String>,
+    /// Each node's executions by execution index.
+    steps: HashMap<WorkflowNodeId, BTreeMap<u64, StepOutput>>,
+}
+
+impl StepOutputs {
+    /// The steps of a run over `nodes`, each a node's id and label, before any step ran.
+    pub(crate) fn new(nodes: impl IntoIterator<Item = (WorkflowNodeId, String)>) -> Self {
+        let mut step_outputs = Self::default();
+        for (node_id, label) in nodes {
+            step_outputs
+                .node_ids_by_label
+                .insert(label.clone(), node_id.clone());
+            step_outputs.labels_by_node_id.insert(node_id, label);
+        }
+        step_outputs
+    }
+
+    /// Records what the execution `key` read and wrote, replacing what it held.
+    pub(crate) fn record(&mut self, key: StepKey, output: StepOutput) {
+        self.steps
+            .entry(key.node_id)
+            .or_default()
+            .insert(key.execution_index, output);
+    }
+
+    /// The node labeled `label`; fails with [`LineageError::UnknownLabel`] when no node is.
+    pub(crate) fn node_id(&self, label: &str) -> Result<&WorkflowNodeId, LineageError> {
+        self.node_ids_by_label
+            .get(label)
+            .ok_or_else(|| LineageError::UnknownLabel {
+                label: label.to_owned(),
+            })
+    }
+
+    /// The latest execution of `node_id`, or `None` while it has not run.
+    pub(crate) fn latest_step(&self, node_id: &WorkflowNodeId) -> Option<&StepOutput> {
+        self.steps
+            .get(node_id)
+            .and_then(|executions| executions.last_key_value())
+            .map(|(_, output)| output)
+    }
+
+    /// The execution `key`, or `None` when it has not run.
+    fn step(&self, key: &StepKey) -> Option<&StepOutput> {
+        self.steps
+            .get(&key.node_id)
+            .and_then(|executions| executions.get(&key.execution_index))
+    }
+
+    /// The label a person reads for `node_id`.
+    fn label(&self, node_id: &WorkflowNodeId) -> String {
+        self.labels_by_node_id
+            .get(node_id)
+            .expect("every step runs a node of the run's document, which the labels hold")
+            .clone()
+    }
+}
+
+/// Why `$item('<label>')` found no item: no node has the label, a node on the way back recorded no
+/// lineage for the item, or a node on the way back made the item from several.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum LineageError {
+    /// No node is labeled `label`.
+    #[error("No node is labeled '{label}'.")]
+    UnknownLabel {
+        /// The label the expression named.
+        label: String,
+    },
+    /// `at_node` recorded no item this item came from, so the walk back to `label` stops there.
+    #[error(
+        "Can't follow this item back to '{label}': '{at_node}' doesn't record which item it came \
+         from. Use $first('{label}'), $last('{label}') or $all('{label}')[i] instead."
+    )]
+    LineageMissing {
+        /// The label the expression named.
+        label: String,
+        /// The label of the node whose item has no lineage.
+        at_node: String,
+    },
+    /// `at_node` made this item from several items, so the walk back to `label` has no one answer.
+    #[error(
+        "Can't follow this item back to '{label}': '{at_node}' made it from several items. Use \
+         $first('{label}'), $last('{label}') or $all('{label}')[i] instead."
+    )]
+    Ambiguous {
+        /// The label the expression named.
+        label: String,
+        /// The label of the node that made the item from several.
+        at_node: String,
+    },
+}
+
+/// The item of the node labeled `to_label` that input item `item_index` of the execution `from`
+/// came from, found by walking each item's `pairedItem` back through the slot its `input` names.
+/// Fails with [`LineageError::UnknownLabel`] for a label no node has, with
+/// [`LineageError::LineageMissing`] where an item on the way records no lineage or the walk reaches
+/// a slot nothing fed, and with [`LineageError::Ambiguous`] where an item came from several.
+pub(crate) fn walk_paired_item<'steps>(
+    steps: &'steps StepOutputs,
+    from: &StepKey,
+    item_index: usize,
+    to_label: &str,
+) -> Result<&'steps WorkflowItem, LineageError> {
+    let target = steps.node_id(to_label)?;
+    let lineage_missing = |node_id: &WorkflowNodeId| LineageError::LineageMissing {
+        label: to_label.to_owned(),
+        at_node: steps.label(node_id),
+    };
+    let mut at = from.clone();
+    let mut paired_item = WorkflowPairedItem {
+        item: u64::try_from(item_index)
+            .ok()
+            .and_then(SafeInt::new)
+            .ok_or_else(|| lineage_missing(&at.node_id))?,
+        input: None,
+    };
+    loop {
+        let source = steps
+            .step(&at)
+            .and_then(|step| {
+                let slot = paired_item.input.map_or(0, SafeInt::get);
+                usize::try_from(slot)
+                    .ok()
+                    .and_then(|slot| step.sources.get(slot))
+            })
+            .and_then(Option::as_ref)
+            .ok_or_else(|| lineage_missing(&at.node_id))?;
+        let upstream = StepKey {
+            node_id: source.node_id.clone(),
+            execution_index: source.execution_index.get(),
+        };
+        let item = steps
+            .step(&upstream)
+            .and_then(|step| {
+                usize::try_from(source.output_index.get())
+                    .ok()
+                    .and_then(|output| step.outputs.get(output))
+            })
+            .and_then(|items| {
+                usize::try_from(paired_item.item.get())
+                    .ok()
+                    .and_then(|index| items.get(index))
+            })
+            .ok_or_else(|| lineage_missing(&upstream.node_id))?;
+        if upstream.node_id == *target {
+            return Ok(item);
+        }
+        paired_item = match &item.paired_item {
+            Some(WorkflowPairedItems::One(only)) => *only,
+            Some(WorkflowPairedItems::Many(several)) => match several.as_slice() {
+                [only] => *only,
+                [] => return Err(lineage_missing(&upstream.node_id)),
+                [_, _, ..] => {
+                    return Err(LineageError::Ambiguous {
+                        label: to_label.to_owned(),
+                        at_node: steps.label(&upstream.node_id),
+                    });
+                }
+            },
+            None => return Err(lineage_missing(&upstream.node_id)),
+        };
+        at = upstream;
+    }
+}
+
+#[cfg(test)]
+mod tests;

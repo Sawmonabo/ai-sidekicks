@@ -15,8 +15,6 @@ ignored = [
   "csv",
   # Laying out a workflow an agent wrote with no layout of its own.
   "dugong",
-  # A workflow's expressions.
-  "jsonata-core",
   # The JavaScript engine of a workflow's quick code step and its file-watch trigger's path
   # patterns.
   "rquickjs",

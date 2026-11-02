@@ -1,8 +1,9 @@
-//! Workflows: definitions and their versions, runs, secrets and the agent tools that write them. It
-//! sits over store, ipc and workspace and is taken by the program.
+//! Workflows: definitions and their versions, runs, expressions, secrets and the agent tools that
+//! write them. It sits over store, ipc and workspace and is taken by the program.
 
 pub(crate) mod agent_tools;
 pub mod definitions;
+pub(crate) mod expressions;
 pub(crate) mod not_found;
 pub mod runs;
 pub mod schema;
