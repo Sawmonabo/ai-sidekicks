@@ -37,6 +37,6 @@ pub mod spawn_environment;
 pub(crate) mod spawned_version;
 pub(crate) mod terminal_emission_gate;
 pub(crate) mod thread_frame_router;
-pub(crate) mod tool_server_name;
+pub mod tool_server_name;
 pub(crate) mod turn_evidence;
 pub mod usage_delta_accountant;

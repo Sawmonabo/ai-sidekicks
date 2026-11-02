@@ -7,6 +7,7 @@
 //! once sent.
 
 mod entry;
+mod lock;
 mod plugin_manifest;
 mod policy;
 
