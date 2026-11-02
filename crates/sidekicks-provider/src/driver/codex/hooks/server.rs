@@ -17,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::error::bound_failure_detail;
+use crate::record_readers::filter_non_empty;
 
 /// The sentence a pre-tool call is denied with when its input cannot be read; the model reads it.
 /// It never quotes the input, which holds the tool's arguments.
@@ -289,25 +290,21 @@ fn read_hook_input(
             named: arguments.hook_event_name,
         });
     }
-    let thread_id = non_empty(meta.thread_id).ok_or(HookInputError::NoConversation)?;
+    let thread_id = filter_non_empty(meta.thread_id).ok_or(HookInputError::NoConversation)?;
     Ok(CodexHookInput {
         event,
         thread_id,
-        session_id: non_empty(arguments.session_id),
-        turn_id: non_empty(arguments.turn_id),
-        tool_name: non_empty(arguments.tool_name),
-        tool_use_id: non_empty(arguments.tool_use_id),
+        session_id: filter_non_empty(arguments.session_id),
+        turn_id: filter_non_empty(arguments.turn_id),
+        tool_name: filter_non_empty(arguments.tool_name),
+        tool_use_id: filter_non_empty(arguments.tool_use_id),
         tool_input: arguments.tool_input,
         tool_response: arguments.tool_response,
-        cwd: non_empty(arguments.cwd),
+        cwd: filter_non_empty(arguments.cwd),
     })
 }
 
 // An empty string Codex sends reads as absent.
-fn non_empty(text: Option<String>) -> Option<String> {
-    text.filter(|text| !text.is_empty())
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;

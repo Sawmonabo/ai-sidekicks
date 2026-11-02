@@ -12,6 +12,7 @@ use crate::driver::claude::session::transport::declarations::{
     ClaudeFastModeDeclaration, ClaudeInitializeDeclaration, ClaudeOfferedModel,
 };
 use crate::lenient_json::{LenientList, lenient_object, read_lenient};
+use crate::record_readers::filter_non_empty;
 
 #[derive(Default, Deserialize)]
 struct InitializeReply {
@@ -101,10 +102,6 @@ fn read_reply(reply: Option<&RawValue>) -> InitializeReply {
         .unwrap_or_default()
 }
 
-fn non_empty(text: Option<String>) -> Option<String> {
-    text.filter(|text| !text.is_empty())
-}
-
 /// What `reply` declares about the process's models, styles and fast mode.
 pub(crate) fn read_claude_initialize_declaration(
     reply: Option<&RawValue>,
@@ -113,10 +110,10 @@ pub(crate) fn read_claude_initialize_declaration(
     let mut models = Vec::new();
     let mut auto_mode_models = HashSet::new();
     for row in reply.models.map(|models| models.0).unwrap_or_default() {
-        let Some(value) = non_empty(row.value) else {
+        let Some(value) = filter_non_empty(row.value) else {
             continue;
         };
-        let resolved_model = non_empty(row.resolved_model);
+        let resolved_model = filter_non_empty(row.resolved_model);
         if row.supports_auto_mode == Some(true) {
             auto_mode_models.insert(value.clone());
             auto_mode_models.extend(resolved_model.clone());
@@ -124,14 +121,14 @@ pub(crate) fn read_claude_initialize_declaration(
         models.push(ClaudeOfferedModel {
             value,
             resolved_model,
-            display_name: non_empty(row.display_name),
+            display_name: filter_non_empty(row.display_name),
             effort_levels: row.effort.into_levels(),
         });
     }
     ClaudeInitializeDeclaration {
         fast_mode: ClaudeFastModeDeclaration {
-            fast_mode_state: non_empty(reply.fast_mode_state),
-            fast_mode_disabled_reason: non_empty(reply.fast_mode_disabled_reason),
+            fast_mode_state: filter_non_empty(reply.fast_mode_state),
+            fast_mode_disabled_reason: filter_non_empty(reply.fast_mode_disabled_reason),
         },
         models,
         auto_mode_models,
@@ -139,7 +136,7 @@ pub(crate) fn read_claude_initialize_declaration(
             .available_output_styles
             .map(|styles| styles.0)
             .unwrap_or_default(),
-        output_style: non_empty(reply.output_style),
+        output_style: filter_non_empty(reply.output_style),
     }
 }
 
@@ -154,9 +151,9 @@ pub(crate) fn read_claude_listed_command_rows(
         .into_iter()
         .filter_map(|command| {
             Some(ClaudeListedCommand {
-                name: non_empty(command.name)?,
-                description: non_empty(command.description),
-                argument_hint: non_empty(command.argument_hint),
+                name: filter_non_empty(command.name)?,
+                description: filter_non_empty(command.description),
+                argument_hint: filter_non_empty(command.argument_hint),
             })
         })
         .collect()
