@@ -25,6 +25,7 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use futures::FutureExt as _;
 use futures::future::{BoxFuture, Shared};
 use serde_json::json;
+use sidekicks_contracts::daemon::lifecycle::DaemonPing;
 use sidekicks_contracts::daemon::recovery::{DaemonRepairProgress, DaemonRepairingDetails};
 use sidekicks_contracts::jsonrpc::negotiation::{
     CONNECTION_INITIALIZE_METHOD, ConnectionInitializeRequest, ConnectionInitializeResponse,
@@ -32,6 +33,7 @@ use sidekicks_contracts::jsonrpc::negotiation::{
     SUPPORTED_PROTOCOL_VERSIONS, SUPPORTED_PROTOCOLS_MAX_LEN,
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::method::Method;
 use sidekicks_contracts::provider::hook::PROVIDER_HOOK_CALL_METHOD;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::list::BoundedVec;
@@ -103,10 +105,10 @@ const CALLER_REFUSED_MESSAGE: &str = "The connection was opened by a process thi
      provider service it reaches started, such as a command an agent ran, or by one the system \
      could not name or trace, so nothing is served on it";
 
-/// The message of a call other than the hook method on a connection a provider's hook opened; it
-/// never names the call.
-const PROVIDER_HOOK_ONLY_MESSAGE: &str =
-    "The call was refused because a connection opened by a provider's hook serves only its hook";
+/// The message of a call other than the hook method or the ping on a connection a provider's hook
+/// opened; it never names the call.
+const PROVIDER_HOOK_ONLY_MESSAGE: &str = "The call was refused because a connection opened by a \
+     provider's hook serves only its hook and the ping";
 
 /// The message of a call before the connection's handshake; it never names the call.
 const HANDSHAKE_REQUIRED_MESSAGE: &str =
@@ -301,7 +303,8 @@ impl ProtocolNegotiator {
     }
 
     /// The refusal the gate answers `method` with on `transport`, or `None` when it passes: a
-    /// connection a provider's hook opened passes the hook method alone.
+    /// connection a provider's hook opened passes the hook method and the ping alone, since its
+    /// client pings a link quiet for 5 s and a hook call can run longer.
     fn refusal_of(
         &self,
         method: &str,
@@ -319,7 +322,8 @@ impl ProtocolNegotiator {
                 })
             }
             Some(ConnectionNegotiation::Latched(_, Admission::ProviderHook))
-                if method != PROVIDER_HOOK_CALL_METHOD =>
+                if method != PROVIDER_HOOK_CALL_METHOD
+                    && method != DaemonPing::DESCRIPTOR.method =>
             {
                 Some(DomainError::new(
                     PROVIDER_HOOK_ONLY_MESSAGE,
