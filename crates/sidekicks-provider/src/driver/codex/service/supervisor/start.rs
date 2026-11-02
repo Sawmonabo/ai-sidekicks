@@ -533,19 +533,17 @@ pub(super) fn read_service_version(
 }
 
 // The launch of a service on the native program the build runs, with the launcher's variables
-// set, in the dedicated empty working folder. An account's service also carries the privacy choices
-// read now from the person's own Codex folder, last, so they win over any switch before them; a
-// service on that folder reads them there itself. Fails as that read does.
+// set, in the dedicated empty working folder. Every service carries the privacy choices read now
+// from the person's own Codex folder, last, so they win over any switch before them, whichever
+// home it runs on. Fails as that read does.
 async fn compose_launch(
     service: &CodexService,
     executable: &ResolvedProviderExecutable,
     mut additional_config_overrides: Vec<String>,
     launch_socket: &Path,
 ) -> Result<CodexProcessLaunch, StartFailure> {
-    if service.home().provider_account_id().is_some() {
-        let privacy = read_codex_privacy(&service.dependencies().personal_home).await?;
-        additional_config_overrides.extend(privacy.config_overrides());
-    }
+    let privacy = read_codex_privacy(&service.dependencies().personal_home).await?;
+    additional_config_overrides.extend(privacy.config_overrides());
     let arguments = compose_codex_service_arguments(&CodexServiceCommandLineInput {
         listen_address: service.listen_address(launch_socket),
         additional_config_overrides,

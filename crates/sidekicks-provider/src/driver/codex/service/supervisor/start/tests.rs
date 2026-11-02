@@ -390,11 +390,11 @@ async fn an_account_start_adds_the_relay_environment_before_it_answers() {
     }
 }
 
-// Killed by an account service's launch left without the person's privacy choices, or carrying
-// them before the switches the daemon sets, where an earlier switch loses; and by a launch on the
-// person's own Codex folder carrying them, where Codex reads that folder's file itself.
+// Killed by any service's launch left without the person's privacy choices, the capability read's
+// on the daemon's own empty home among them, or carrying them before the switches the daemon sets,
+// where an earlier switch loses.
 #[tokio::test]
-async fn only_an_account_s_launch_carries_the_person_s_privacy_choices_last() {
+async fn every_launch_carries_the_person_s_privacy_choices_last() {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
     let dependencies = test_codex_service_dependencies(
         folder.path(),
@@ -418,6 +418,13 @@ async fn only_an_account_s_launch_carries_the_person_s_privacy_choices_last() {
             CodexServiceHome {
                 codex_home: folder.path().join("account"),
                 kind: CodexHomeKind::Account(test_provider_account_id()),
+            },
+            CodexServiceKind::Account,
+        ),
+        (
+            CodexServiceHome {
+                codex_home: folder.path().join("capability-read"),
+                kind: CodexHomeKind::CapabilityRead,
             },
             CodexServiceKind::Account,
         ),
@@ -460,22 +467,18 @@ async fn only_an_account_s_launch_carries_the_person_s_privacy_choices_last() {
         launched.push(launch.arguments);
     }
 
-    let [account, personal_folder] = launched.as_slice() else {
-        panic!("two launches");
-    };
-    assert!(
-        account.ends_with(&[
-            "-c".to_owned(),
-            "service.own=1".to_owned(),
-            "-c".to_owned(),
-            "analytics.enabled=false".to_owned(),
-            "-c".to_owned(),
-            "feedback.enabled=false".to_owned(),
-        ]),
-        "{account:?}"
-    );
-    assert!(
-        personal_folder.ends_with(&["-c".to_owned(), "service.own=1".to_owned()]),
-        "{personal_folder:?}"
-    );
+    assert_eq!(launched.len(), 3);
+    for arguments in &launched {
+        assert!(
+            arguments.ends_with(&[
+                "-c".to_owned(),
+                "service.own=1".to_owned(),
+                "-c".to_owned(),
+                "analytics.enabled=false".to_owned(),
+                "-c".to_owned(),
+                "feedback.enabled=false".to_owned(),
+            ]),
+            "{arguments:?}"
+        );
+    }
 }
