@@ -1,3 +1,5 @@
+mod live;
+
 use std::sync::Arc;
 
 use serde_json::json;
@@ -13,7 +15,7 @@ use crate::client::dispatch::{McpCallCompletionError, McpToolDispatchError};
 use crate::client::tasks::McpTaskContact::{NotConfigured, Reached, Reconfigured};
 use crate::client::tasks::{McpServerEndpoint, McpToolCallEnd};
 use crate::client::test_server::{
-    Reply, Responder, board_accepted, board_answer, completed, contact, input_required,
+    Reply, Responder, board_accepted, board_answer, board_form, completed, contact, input_required,
     method_not_found, text_result, track_call, tracked_end, tracker_address, v1_status_reply,
     v2_task_server,
 };
@@ -159,8 +161,8 @@ async fn a_2026_07_28_tasks_open_question_is_kept_across_a_reconnect_and_answere
 }
 
 // Mutations: in `wait_for_replacement`, leave the contact as it was while the server is
-// reconfigured; in `V2TaskAnswer::send`, wait for a connection of the task's endpoint, or send
-// over whatever connection is live.
+// reconfigured; in `V2TaskAnswer::send`, wait for a connection of the task's endpoint, send over
+// whatever connection is live, or report the answer sent.
 #[tokio::test(start_paused = true)]
 async fn a_question_answered_while_its_servers_address_changed_fails_at_once_and_sends_nothing() {
     let fixture = fixture_at_address().await;
@@ -187,22 +189,24 @@ async fn a_question_answered_while_its_servers_address_changed_fails_at_once_and
             seen.wait_for(|state| *state == Reconfigured)
                 .await
                 .expect("the contact stays open");
-            // The test card fails the person's answer by panicking on the answerer's error.
-            let card = Arc::clone(&fixture.card);
-            let answering = tokio::spawn(async move { card.answer_open(board_answer()).await });
-            let answered = timeout(Duration::from_secs(1), answering)
-                .await
-                .expect("the answer fails at once");
+            let answered = timeout(
+                Duration::from_secs(1),
+                fixture.card.try_answer_open(board_answer()),
+            )
+            .await
+            .expect("the answer fails at once");
+            assert_eq!(
+                fixture.card.open_questions().len(),
+                1,
+                "the question stays open to answer after the re-bind"
+            );
             fixture.client.close_session(fixture.session_id).await;
             (other, answered)
         },
     );
     let (end, written) = dispatched.expect("the call is dispatched").complete().await;
 
-    assert!(
-        answered.expect_err("the answer fails").is_panic(),
-        "the answer has no connection to go over"
-    );
+    assert!(answered.is_err(), "the answer has no connection to go over");
     assert!(
         old.requests("tasks/update").is_empty(),
         "nothing is answered over the closed connection"
@@ -343,4 +347,117 @@ async fn a_backgrounded_plain_call_cut_by_the_clients_stop_stays_in_flight() {
         fixture.receipts(),
         [receipt_without_task("accepted", false)]
     );
+}
+
+// Mutation: in `wait_for_replacement`, write the caller's cancel through the session's close,
+// which completes a backgrounded call without its hand-off.
+#[tokio::test(start_paused = true)]
+async fn a_backgrounded_task_canceled_while_waiting_for_its_replacement_keeps_its_hand_off_owed() {
+    let fixture = fixture_at_address().await;
+    let (standing, feed) = McpStandingConnection::new(CancellationToken::new());
+    let (opened, server) = fixture
+        .open(working_task_server(), fixture.address.as_ref())
+        .await;
+    let connection = Arc::new(opened);
+    feed.publish(Some(Arc::clone(&connection)));
+    let contact = contact();
+    let cancellation = CancellationToken::new();
+
+    let (dispatched, ()) = tokio::join!(
+        fixture
+            .dispatch
+            .call(&standing, track_call(), &contact, &cancellation),
+        async {
+            until(|| !server.requests("tasks/get").is_empty()).await;
+            fixture
+                .writer
+                .write(vec![background_statement("command-1")])
+                .await
+                .expect("the call moves to the background");
+            feed.publish(None);
+            connection.close().await;
+            until(|| *contact.borrow() == NotConfigured).await;
+            cancellation.cancel();
+        },
+    );
+    let (end, written) = dispatched.expect("the call is dispatched").complete().await;
+
+    assert_eq!(
+        end.expect("the call ends"),
+        McpToolCallEnd::ConnectionClosed
+    );
+    assert!(
+        matches!(written, Err(McpCallCompletionError::Write(_))),
+        "a backgrounded call's end waits for its hand-off"
+    );
+    assert_eq!(
+        fixture.receipts(),
+        [address_task_receipt("accepted", false)],
+        "the receipt stays in flight until handed over"
+    );
+}
+
+// Mutation: in `call_tool`, await the end of the call's tracking, so a dispatch dropped there
+// leaves the task's watch with nobody holding it and its question open.
+#[tokio::test(start_paused = true)]
+async fn a_dispatch_dropped_as_its_follow_leaves_the_tasks_watch_withdraws_the_tasks_question() {
+    let fixture = fixture_at_address().await;
+    let (standing, feed) = McpStandingConnection::new(CancellationToken::new());
+    let (opened, server) = fixture
+        .open(
+            task_server(|method, earlier| match (method, earlier) {
+                ("tasks/get", 0) => v1_status_reply("working"),
+                ("tasks/get", _) => v1_status_reply("input_required"),
+                ("tasks/result", _) => Reply::AskThenSilent {
+                    request: live::task_elicitation("first"),
+                },
+                _ => method_not_found(),
+            }),
+            fixture.address.as_ref(),
+        )
+        .await;
+    let connection = Arc::new(opened);
+    feed.publish(Some(Arc::clone(&connection)));
+    let contact = contact();
+    let uncanceled = CancellationToken::new();
+    let mut call = Box::pin(
+        fixture
+            .dispatch
+            .call(&standing, track_call(), &contact, &uncanceled),
+    );
+
+    let (task_question, withdraw_gate) = tokio::select! {
+        _ = &mut call => panic!("the call ended before its connection closed"),
+        held = async {
+            until(|| server.requests("tools/call").len() == 1).await;
+            // A question outside the task, asked under the call, which the call's end withdraws.
+            let call_question = json!({
+                "jsonrpc": "2.0",
+                "id": "server-call",
+                "method": "elicitation/create",
+                "params": board_form(),
+            });
+            server
+                .unasked
+                .send(call_question.to_string())
+                .expect("the server is running");
+            fixture.card.wait_until_taken(1).await;
+            // The task's question waits for its run behind the call's.
+            fixture.card.wait_until_waiting(1).await;
+            let task_question = fixture.card.waiting()[0].request_id.clone();
+            // Held, so the end of the call's tracking would wait here if it awaited them.
+            let withdraw_gate = fixture.card.hold_withdrawals();
+            feed.publish(None);
+            connection.close().await;
+            until(|| *contact.borrow() == NotConfigured).await;
+            (task_question, withdraw_gate)
+        } => held,
+    };
+    drop(call);
+
+    until(|| {
+        withdraw_gate.notify_waiters();
+        fixture.card.withdrawals().contains(&task_question)
+    })
+    .await;
 }

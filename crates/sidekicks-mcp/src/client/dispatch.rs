@@ -5,8 +5,9 @@
 //! - The dispatch writes a call's end only when the session's close reaches the call: a plain
 //!   call is dropped, which tells the server it is canceled, and its end is unknown; a task is
 //!   canceled on the still-open connection and its end read once; a task waiting for its
-//!   connection's replacement reads unknown, as it does at the caller's cancel during that wait.
-//!   The caller writes every other end through [`McpDispatchedCall::complete`], or hands it off.
+//!   connection's replacement reads unknown. The caller writes every other end through
+//!   [`McpDispatchedCall::complete`], or hands it off, the unknown end of a caller's cancel during
+//!   that wait included.
 //! - The caller's cancel asks the server to cancel an accepted task beside its follow, which goes
 //!   on to the end the server gives: `failed` after `cancelled`, `completed` when the result came
 //!   first, and on through a refused or failed cancel.
@@ -85,8 +86,7 @@ pub(crate) enum McpToolDispatchError {
 /// Why [`McpDispatchedCall::complete`] wrote no end.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum McpCallCompletionError {
-    /// The dispatch wrote the end itself: at the session's close, or at the caller's cancel while
-    /// the task waited for its connection's replacement.
+    /// The dispatch wrote the end itself, at the session's close.
     #[error("the tool call's end was written by its dispatch")]
     Settled,
     /// The call ended without the server's answer and the client is stopping, so the stop caused
@@ -112,8 +112,8 @@ pub(crate) struct McpDispatchedCall {
     receipt_id: CommandReceiptId,
     end: Result<McpToolCallEnd, McpToolCallError>,
     outcome: CommandOutcome,
-    /// The dispatch's own write of the end, at the session's close or at a cancel during a
-    /// re-bind's wait; `None` when the caller writes it.
+    /// The dispatch's own write of the end, at the session's close; `None` when the caller writes
+    /// it.
     settled_write: Option<Result<(), WriteError>>,
     receipts: CommandReceiptStore,
     /// Read for its stopping mark when the end is written.
@@ -124,8 +124,7 @@ pub(crate) struct McpDispatchedCall {
 enum CallRace {
     /// The call ended.
     Ended(Result<McpToolCallEnd, McpToolCallError>),
-    /// The dispatch writes this end and outcome itself: the session's connections closed, or the
-    /// caller canceled while the task waited for its connection's replacement.
+    /// The dispatch writes this end and outcome itself: the session's connections closed.
     Settled(Result<McpToolCallEnd, McpToolCallError>, CommandOutcome),
     /// The client is stopping.
     ClientStopping,
@@ -154,7 +153,8 @@ impl McpToolDispatch {
     /// and outcome unknown, and asks the server to cancel an accepted task, which is followed to
     /// its end, `contact` reading `CancelRefused` when the server refuses. A task on a server at
     /// an address whose connection closes is followed on over the connection that replaces it;
-    /// the session's close or `cancellation` during that wait writes its end unknown.
+    /// the session's close during that wait writes its end unknown, and `cancellation` ends it
+    /// unknown for the caller to write.
     ///
     /// Fails, writing nothing, when `cancellation` fires, the session's connections close or the
     /// client stops before the call is sent, when no connection is live, when the server's tools
@@ -455,7 +455,8 @@ fn has_server_answer(end: &Result<McpToolCallEnd, McpToolCallError>) -> bool {
             McpToolCallEnd::Answered { .. }
             | McpToolCallEnd::Failed { .. }
             | McpToolCallEnd::Canceled
-            | McpToolCallEnd::TaskUnknown { .. },
+            | McpToolCallEnd::TaskUnknown { .. }
+            | McpToolCallEnd::InputLost,
         ) => true,
         Err(error) => !matches!(
             error.poll_failure(),
@@ -477,7 +478,11 @@ fn outcome_of(end: &Result<McpToolCallEnd, McpToolCallError>) -> CommandOutcome 
             | McpToolCallError::UnsupportedInputRequest
             | McpToolCallError::InputRoundsExceeded { .. },
         ) => CommandOutcome::Failed,
-        Ok(McpToolCallEnd::TaskUnknown { .. } | McpToolCallEnd::ConnectionClosed)
+        Ok(
+            McpToolCallEnd::TaskUnknown { .. }
+            | McpToolCallEnd::ConnectionClosed
+            | McpToolCallEnd::InputLost,
+        )
         | Err(
             McpToolCallError::Request(_)
             | McpToolCallError::Service(_)

@@ -6,9 +6,10 @@
 //! - While it waits, the contact reads at once why no connection of the task's endpoint is live:
 //!   none is (`NotConfigured`), or the live one reaches another address (`Reconfigured`). The
 //!   re-bind writes back the arm the contact held before, a refused cancel's included.
-//! - The wait never times out. The session's close or the caller's cancel ends it with the end
-//!   unknown, which the dispatch writes; the client's stop ends it writing nothing. A wait that
-//!   ends without a re-bind ends the task's watch, which withdraws its questions.
+//! - The wait never times out. The session's close ends it with the end unknown, which the
+//!   dispatch writes; the caller's cancel ends it unknown for the caller to write, as a live end,
+//!   so a backgrounded call's hand-off stays owed; the client's stop ends it writing nothing. A
+//!   wait that ends without a re-bind ends the task's watch, which withdraws its questions.
 
 use std::sync::{Arc, Mutex};
 
@@ -77,8 +78,8 @@ pub(super) async fn follow_across_reconnects(
 /// why none is live and, once one is, the arm it held before. The task `mcp_task_id`'s watch is
 /// held meanwhile, so a wait dropped with its dispatch withdraws the task's questions; it is left
 /// for the follow on the replacement to adopt, or dropped when the wait ends otherwise: with the
-/// end unknown, which the dispatch writes, at the session's close or the caller's cancel, and
-/// with nothing written at the client's stop.
+/// end unknown, which the dispatch writes at the session's close and the caller at its cancel,
+/// and with nothing written at the client's stop.
 async fn wait_for_replacement(
     standing: &McpStandingConnection,
     closed: &Arc<McpServerConnection>,
@@ -115,10 +116,11 @@ async fn wait_for_replacement(
             }
             return Ok(replacement);
         }
-        Some(McpReplacement::SessionClosed) | None => CallRace::Settled(
+        Some(McpReplacement::SessionClosed) => CallRace::Settled(
             Ok(McpToolCallEnd::ConnectionClosed),
             CommandOutcome::Unknown,
         ),
+        None => CallRace::Ended(Ok(McpToolCallEnd::ConnectionClosed)),
         Some(McpReplacement::ClientStopping) => CallRace::ClientStopping,
     };
     // Dropped rather than finished, so its questions are withdrawn in a task of their own and the

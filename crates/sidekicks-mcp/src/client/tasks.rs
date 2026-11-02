@@ -193,6 +193,9 @@ pub(crate) enum McpToolCallEnd {
     /// The connection closed under the follow, and the task may run on, so the dispatch binds it
     /// to a new connection or reads its end unknown.
     ConnectionClosed,
+    /// The task waited on input its server did not ask for again in the 300 s after a re-bind,
+    /// and was canceled, so its outcome is unknown.
+    InputLost,
 }
 
 /// What a server did with a request to cancel a task.
@@ -239,6 +242,12 @@ pub(crate) enum McpTaskContact {
     /// The task's connection closed and the session's connection to its server now reaches
     /// another address; until a connection of the task's endpoint replaces it.
     Reconfigured,
+    /// A 2025-11-25 task re-bound with a question kept did not ask it again: another status or
+    /// form came first, or its bound ran out; a standing arm.
+    DidNotAskAgain {
+        /// Whether an answer the person gave was kept and withdrawn undelivered.
+        has_undelivered_answer: bool,
+    },
     /// The server refused to cancel the task, which runs on and is followed to its end; a
     /// standing arm.
     CancelRefused {
@@ -249,9 +258,12 @@ pub(crate) enum McpTaskContact {
 
 impl McpTaskContact {
     /// Whether this arm says what the task did, so it holds to the follow's end in place of
-    /// `Reached`.
+    /// `Reached`, the latest written winning.
     pub(crate) fn is_standing(self) -> bool {
-        matches!(self, Self::CancelRefused { .. })
+        matches!(
+            self,
+            Self::DidNotAskAgain { .. } | Self::CancelRefused { .. }
+        )
     }
 }
 
@@ -296,14 +308,14 @@ impl McpServerConnection {
         sink: &dyn McpTaskHandleSink,
         contact: &watch::Sender<McpTaskContact>,
     ) -> Result<McpToolCallEnd, McpToolCallError> {
+        // Dropped, never awaited, once the call ends: nothing then waits between a follow cut by
+        // the connection's close leaving its task's watch and the re-bind adopting it.
         let in_flight = self.calls.track(&call, &self.scope);
-        let ended = if is_task_tool {
+        if is_task_tool {
             revision_2025_11_25::call_task_tool(self, call, sink, contact).await
         } else {
             revision_2026_07_28::call_tool(self, standing, &in_flight, call, sink, contact).await
-        };
-        in_flight.finish().await;
-        ended
+        }
     }
 
     /// Follows the recorded task `mcp_task_id` of `call`, accepted under `mcp_task_generation`,

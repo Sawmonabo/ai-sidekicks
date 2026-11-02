@@ -36,8 +36,8 @@ struct CallInFlight {
     open_questions: Vec<String>,
 }
 
-/// One call while it is in flight; finished or dropped, it forgets the call and withdraws its
-/// questions still open.
+/// One call while it is in flight; dropped, it forgets the call and withdraws its questions still
+/// open in a task of their own.
 pub(super) struct TrackedCall<'calls> {
     calls: &'calls CallsInFlight,
     scope: &'calls McpConnectionScope,
@@ -45,7 +45,7 @@ pub(super) struct TrackedCall<'calls> {
 }
 
 impl CallsInFlight {
-    /// Tracks `call` on `scope`'s connection until the returned value is finished or dropped.
+    /// Tracks `call` on `scope`'s connection until the returned value is dropped.
     pub(super) fn track<'calls>(
         &'calls self,
         call: &McpToolCall,
@@ -138,35 +138,21 @@ impl TrackedCall<'_> {
     pub(super) async fn ask(&self, scope: &McpConnectionScope, params: Value) -> QuestionOutcome {
         self.calls.ask(scope, self.number, params).await
     }
-
-    /// Stops tracking the call, withdrawing each of its questions still open on the card.
-    pub(super) async fn finish(self) {
-        let open_questions = self.forget();
-        if !open_questions.is_empty() {
-            self.scope
-                .task_watches
-                .withdraw_questions(self.scope.session_id, open_questions)
-                .await;
-        }
-    }
-
-    fn forget(&self) -> Vec<String> {
-        let mut calls = lock(&self.calls.calls);
-        let Some(place) = calls.iter().position(|call| call.number == self.number) else {
-            return Vec::new();
-        };
-        let call = calls.remove(place);
-        call.ended.cancel();
-        call.open_questions
-    }
 }
 
 impl Drop for TrackedCall<'_> {
     fn drop(&mut self) {
-        let open_questions = self.forget();
-        self.scope
-            .task_watches
-            .withdraw_questions_later(self.scope.session_id, open_questions);
+        let removed = {
+            let mut calls = lock(&self.calls.calls);
+            let place = calls.iter().position(|call| call.number == self.number);
+            place.map(|place| calls.remove(place))
+        };
+        if let Some(call) = removed {
+            call.ended.cancel();
+            self.scope
+                .task_watches
+                .withdraw_questions_later(self.scope.session_id, call.open_questions);
+        }
     }
 }
 

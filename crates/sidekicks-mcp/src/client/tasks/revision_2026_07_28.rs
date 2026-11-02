@@ -162,7 +162,7 @@ pub(super) async fn follow_task(
         .scope
         .task_watches
         .watch(&connection.scope, call, mcp_task_id);
-    let end = poll_until_end(&watch.wake, contact, || {
+    let end = poll_until_end(&watch.wake, contact, |_| {
         poll_once(connection, standing, mcp_task_id, &watch)
     })
     .await;

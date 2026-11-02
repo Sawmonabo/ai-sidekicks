@@ -97,6 +97,11 @@ impl V1TaskAnswerState {
 }
 
 impl V1TaskAnswer {
+    /// Whether the person's answer is kept, no request having taken it.
+    pub(super) fn has_kept_answer(&self) -> bool {
+        lock(&self.state).kept.is_some()
+    }
+
     /// The kept content, now taken as sent; else what the answer still to come comes to, a
     /// request now waiting on it.
     pub(super) fn take_kept_or_wait(

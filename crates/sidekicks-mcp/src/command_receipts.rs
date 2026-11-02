@@ -171,7 +171,9 @@ impl CommandReceiptStore {
     }
 
     /// Records how the claimed command ended when its session closes, a backgrounded one too,
-    /// since nothing is delivered after a close; its delivery stays unwritten. Fails with
+    /// since nothing is delivered after a close; its delivery stays unwritten. Only the session's
+    /// close writes through it: every other end, a caller's cancel included, takes
+    /// [`Self::complete`], which leaves a backgrounded command's hand-off owed. Fails with
     /// [`WriteError::Refused`] when the receipt was never claimed or already ended, and as the
     /// write fails.
     pub(crate) async fn complete_at_session_close(

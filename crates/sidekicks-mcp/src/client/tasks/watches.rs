@@ -59,6 +59,11 @@ struct WatchedTask {
     detached_takes: Vec<oneshot::Receiver<TakeOutcome>>,
     /// The keys of a 2026-07-28 task's input requests the card took, never asked again.
     asked: HashSet<String>,
+    /// Whether a follow that adopted the entry still waits for the server to ask a 2025-11-25
+    /// task's question again, which any ask ends.
+    awaits_reask: bool,
+    /// Whether an ask of another form withdrew the person's kept answer, until the follow reads it.
+    has_lost_answer: bool,
 }
 
 /// A 2025-11-25 task's question left open when the connection its request came on closed.
@@ -144,7 +149,8 @@ impl TaskWatches {
     }
 
     /// Follows `mcp_task_id` on `scope`'s server for `call`'s run, adopting the entry a follow
-    /// its connection's close cut left, with its questions and asked keys.
+    /// its connection's close cut left, with its questions and asked keys, which then waits for the
+    /// server to ask again.
     pub(in crate::client) fn watch(
         &self,
         scope: &McpConnectionScope,
@@ -153,7 +159,10 @@ impl TaskWatches {
     ) -> TaskWatch<'_> {
         let key = watch_key(scope, mcp_task_id);
         let wake = match lock(&self.watched).entry(key.clone()) {
-            Entry::Occupied(left) => Arc::clone(&left.get().wake),
+            Entry::Occupied(mut left) => {
+                left.get_mut().awaits_reask = true;
+                Arc::clone(&left.get().wake)
+            }
             Entry::Vacant(vacant) => {
                 let wake = Arc::new(Notify::new());
                 vacant.insert(WatchedTask {
@@ -164,6 +173,8 @@ impl TaskWatches {
                     kept_question: None,
                     detached_takes: Vec::new(),
                     asked: HashSet::new(),
+                    awaits_reask: false,
+                    has_lost_answer: false,
                 });
                 wake
             }
@@ -188,7 +199,8 @@ impl TaskWatches {
     /// connection whose close cancels `closing`, and waits for the person's answer. The task's
     /// question a closed connection left open takes an ask of its form, `_meta` aside: its kept
     /// answer is the response, else the ask waits on it; an ask of another form withdraws it
-    /// first. `None` when the client follows no such task on the server.
+    /// first, a kept answer then lost. Any ask ends a re-bound follow's wait for it. `None` when
+    /// the client follows no such task on the server.
     pub(in crate::client) async fn ask_v1_task_question(
         &self,
         scope: &McpConnectionScope,
@@ -198,16 +210,23 @@ impl TaskWatches {
     ) -> Option<QuestionOutcome> {
         let params = strip_meta(params);
         let key = watch_key(scope, mcp_task_id);
-        let kept = lock(&self.watched).get_mut(&key)?.kept_question.take();
+        let kept = {
+            let mut watched = lock(&self.watched);
+            let task = watched.get_mut(&key)?;
+            task.awaits_reask = false;
+            task.kept_question.take()
+        };
         if let Some(kept) = kept {
             let same_form = kept
                 .answer
                 .upgrade()
                 .filter(|answer| answer.params == params);
             let Some(answer) = same_form else {
-                self.forget_open_question(&key, &kept.request_id);
-                self.withdraw_questions(scope.session_id, vec![kept.request_id])
-                    .await;
+                if self.withdraw_kept_question(&key, kept).await
+                    && let Some(task) = lock(&self.watched).get_mut(&key)
+                {
+                    task.has_lost_answer = true;
+                }
                 return self
                     .ask_v1_task_question_anew(scope, mcp_task_id, params, closing, key)
                     .await;
@@ -297,6 +316,18 @@ impl TaskWatches {
         // Settled, it is no longer open, so the task's end has nothing to withdraw for it.
         self.forget_open_question(key, &request_id);
         outcome
+    }
+
+    /// Withdraws `kept`, the question kept for the next ask of the task keyed `key`; true when
+    /// the person's answer was kept with it, never delivered.
+    async fn withdraw_kept_question(&self, key: &WatchKey, kept: KeptQuestion) -> bool {
+        let has_kept_answer = kept
+            .answer
+            .upgrade()
+            .is_some_and(|answer| answer.has_kept_answer());
+        self.forget_open_question(key, &kept.request_id);
+        self.withdraw_questions(key.0, vec![kept.request_id]).await;
+        has_kept_answer
     }
 
     /// Drops `request_id` from the open questions of the task keyed `key`, while it is followed.
@@ -672,6 +703,36 @@ impl TaskWatch<'_> {
         lock(&self.watches.watched)
             .get(&self.key)
             .is_some_and(|task| task.asked.contains(input_key))
+    }
+
+    /// Whether the follow, re-bound after its connection's close, still waits for the server to
+    /// ask the task's question again.
+    pub(super) fn awaits_reask(&self) -> bool {
+        lock(&self.watches.watched)
+            .get(&self.key)
+            .is_some_and(|task| task.awaits_reask)
+    }
+
+    /// Stops waiting for the server's next ask, withdrawing the question kept for it; true when
+    /// the person's answer was kept with it, never delivered.
+    pub(super) async fn end_reask_wait(&self) -> bool {
+        let kept = lock(&self.watches.watched)
+            .get_mut(&self.key)
+            .and_then(|task| {
+                task.awaits_reask = false;
+                task.kept_question.take()
+            });
+        match kept {
+            Some(kept) => self.watches.withdraw_kept_question(&self.key, kept).await,
+            None => false,
+        }
+    }
+
+    /// Whether an ask of another form withdrew the person's kept answer since this was last read.
+    pub(super) fn take_lost_answer(&self) -> bool {
+        lock(&self.watches.watched)
+            .get_mut(&self.key)
+            .is_some_and(|task| std::mem::take(&mut task.has_lost_answer))
     }
 
     /// Records that the card took the task's input request `input_key`, so it is never asked

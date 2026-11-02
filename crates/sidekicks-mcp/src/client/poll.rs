@@ -179,7 +179,7 @@ fn read_transport_failure(error: &DynamicTransportError) -> PollFailure {
 
 /// The time a server answered a task's polls: the time between two answered polls with no failed
 /// poll between them, so an outage never counts.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub(super) struct AnsweredClock {
     /// The time counted so far.
     counted: Duration,
@@ -206,6 +206,13 @@ impl AnsweredClock {
     pub(super) fn counted(&self) -> Duration {
         self.counted
     }
+
+    /// The time counted once a poll answered at `now` is counted.
+    pub(super) fn counted_at(&self, now: Instant) -> Duration {
+        self.last_answered.map_or(self.counted, |last_answered| {
+            self.counted + (now - last_answered)
+        })
+    }
 }
 
 /// The wait before the next poll: the server's suggestion held between the bounds, else the
@@ -216,12 +223,12 @@ pub(super) fn poll_interval(suggested_interval_ms: Option<u64>) -> Duration {
     })
 }
 
-/// Polls with `poll` until it reads the end, waiting the held interval between polls, or less
-/// when `wake` is notified but at least [`MIN_POLL_INTERVAL`] from the last poll, and keeping
-/// `contact` to why the server is not reached, if it is not, a standing arm it held written back
-/// once a poll reads the task. The first poll runs at once. A closed connection ends
-/// `ConnectionClosed`; a `-32601`, a `-32021`, or a `-32602` past its grace, ends `TaskUnknown`
-/// with the server's error.
+/// Polls with `poll`, handed the answered clock as each poll starts, until it reads the end,
+/// waiting the held interval between polls, or less when `wake` is notified but at least
+/// [`MIN_POLL_INTERVAL`] from the last poll, and keeping `contact` to why the server is not
+/// reached, if it is not, a standing arm it held written back once a poll reads the task. The
+/// first poll runs at once. A closed connection ends `ConnectionClosed`; a `-32601`, a `-32021`,
+/// or a `-32602` past its grace, ends `TaskUnknown` with the server's error.
 pub(super) async fn follow_task<Error, Poll, Polled>(
     wake: &Notify,
     contact: &watch::Sender<McpTaskContact>,
@@ -229,7 +236,7 @@ pub(super) async fn follow_task<Error, Poll, Polled>(
 ) -> McpToolCallEnd
 where
     Error: PollError,
-    Poll: FnMut() -> Polled,
+    Poll: FnMut(AnsweredClock) -> Polled,
     Polled: Future<Output = Result<PollStep, Error>>,
 {
     // Lost's clock: the last poll that read the task or answered `-32602`.
@@ -242,7 +249,7 @@ where
     let mut answered_arm = McpTaskContact::Reached;
     loop {
         let polled_at = Instant::now();
-        let polled = poll().await;
+        let polled = poll(answered).await;
         let now = Instant::now();
         match polled {
             Ok(PollStep::End(end)) => {
@@ -316,6 +323,7 @@ fn cause_at_contact_lost(cause: McpTaskContact) -> McpTaskContact {
         | McpTaskContact::TaskIdRejected
         | McpTaskContact::NotConfigured
         | McpTaskContact::Reconfigured
+        | McpTaskContact::DidNotAskAgain { .. }
         | McpTaskContact::CancelRefused { .. } => McpTaskContact::Lost,
     }
 }
@@ -365,8 +373,8 @@ mod tests {
     use crate::client::http::McpHttpError;
     use crate::client::requests::McpRequestError;
     use crate::client::tasks::McpTaskContact::{
-        AnsweredWithErrors, CancelRefused, ErrorsPersisted, Lost, NeedsSignIn, Reached,
-        SignInNotAccepted, TaskIdRejected,
+        AnsweredWithErrors, CancelRefused, DidNotAskAgain, ErrorsPersisted, Lost, NeedsSignIn,
+        Reached, SignInNotAccepted, TaskIdRejected,
     };
     use crate::client::tasks::{McpTaskContact, McpToolCallEnd};
     use crate::sign_in::authorizer::SignInAuthorizationError;
@@ -600,12 +608,16 @@ mod tests {
         assert_eq!(contacts, expected_contacts);
     }
 
-    // Mutation: write `Reached` at an answered poll in place of the standing arm the contact held.
+    // Mutations: write `Reached` at an answered poll in place of the standing arm the contact
+    // held; or leave either arm out of `is_standing`.
+    #[rstest]
+    #[case::a_refused_cancel(CancelRefused { is_from_stop: true })]
+    #[case::a_question_not_asked_again(DidNotAskAgain { has_undelivered_answer: true })]
     #[tokio::test(start_paused = true)]
-    async fn an_answered_poll_after_an_outage_restores_a_refused_cancel() {
-        let refused = CancelRefused { is_from_stop: true };
-
-        let (end, ended_at, contacts) = follow_script(refused, |at| match at {
+    async fn an_answered_poll_after_an_outage_restores_the_standing_arm(
+        #[case] standing: McpTaskContact,
+    ) {
+        let (end, ended_at, contacts) = follow_script(standing, |at| match at {
             0..310 => Silent,
             310 => Working,
             _ => Completed,
@@ -614,7 +626,7 @@ mod tests {
 
         assert_eq!(end, Some(McpToolCallEnd::Answered { result: result() }));
         assert_eq!(ended_at, 312);
-        assert_eq!(contacts, [(300, Lost), (310, refused)]);
+        assert_eq!(contacts, [(300, Lost), (310, standing)]);
     }
 
     // Follows a task polled every 2 s from the contact `initial`, `script` answering by the second
@@ -628,7 +640,7 @@ mod tests {
         let contact = watch::Sender::new(initial);
         let mut seen = contact.subscribe();
         let started = Instant::now();
-        let follow = follow_task(&wake, &contact, || {
+        let follow = follow_task(&wake, &contact, |_| {
             std::future::ready(poll_reply(script(started.elapsed().as_secs())))
         });
         tokio::pin!(follow);
