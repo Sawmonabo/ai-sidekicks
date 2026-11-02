@@ -8,8 +8,8 @@ use regex::{Captures, NoExpand, Regex};
 use sidekicks_contracts::wire::text::ECMASCRIPT_WHITESPACE_CLASS;
 use sidekicks_std::text_cut::cut_to_code_points;
 
-/// What stands in for each credential the scrub removes.
-const CREDENTIAL_REDACTION: &str = "***";
+/// What stands in for each credential any scrub removes, so every masked credential reads the same.
+pub const CREDENTIAL_REDACTION: &str = "***";
 
 /// What replaces an absolute path in a message or a field.
 const REDACTED_PATH: &str = "<redacted-path>";

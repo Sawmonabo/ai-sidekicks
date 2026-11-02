@@ -9081,15 +9081,19 @@ dependencies = [
 name = "sidekicks-workflow"
 version = "0.0.0"
 dependencies = [
+ "aho-corasick",
+ "base64 0.23.1",
  "blake3",
  "croner",
  "csv",
  "dugong",
  "flate2",
+ "form_urlencoded",
  "futures",
  "garde",
  "jiff",
  "jsonata-core",
+ "percent-encoding",
  "proptest",
  "rquickjs",
  "rstest",
