@@ -664,7 +664,7 @@ async fn a_provider_failure_before_the_browser_answers_as_its_driver_error(
 #[tokio::test]
 async fn a_refused_push_after_the_flows_ran_runs_them_no_more() {
     let server = serve_authorization_server(FakeServerAnswers {
-        is_pushed_request_refused: true,
+        pushed_request_refusal: Some("invalid_client"),
         ..FakeServerAnswers::default()
     })
     .await;
