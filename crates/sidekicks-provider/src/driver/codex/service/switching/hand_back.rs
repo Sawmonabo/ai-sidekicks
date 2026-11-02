@@ -3,14 +3,20 @@
 //! its first request on the new account. Codex runs its workspace check on that read with the new
 //! login, and where the login is refused it asks for fresh tokens: a renewal that leaves the
 //! refused token in place hands the previous account back, its tokens the refresh's answer and
-//! every moved session moving back with it, reported by no one. Otherwise the read's end closes
-//! the window: an account named settles every watch as run, anything else as unobserved, so a
-//! network failure never hands back. A new hand closes an open window as unobserved.
+//! every moved session moving back with it, reported by no one. A previous account that signs in
+//! with an API key has no tokens to answer with: the refresh is refused, its key is then handed as
+//! a switch hands one, and the sessions move back once Codex answers that login. Otherwise the
+//! read's end closes the window: an account named settles every watch as run, anything else as
+//! unobserved, so a network failure never hands back. A new hand closes an open window as
+//! unobserved.
 
+use std::error::Error;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use futures::future::join_all;
+use secrecy::SecretString;
+use serde_json::value::RawValue;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
@@ -18,12 +24,15 @@ use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot;
 
 use crate::driver::codex::account::auth_file::CodexAuthTokens;
+use crate::driver::codex::account::login::CODEX_LOGIN_START_METHOD;
 use crate::driver::codex::account::switch::{share_failure, wait_for_move};
 use crate::driver::codex::auth_status::read_codex_auth_status;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::switching::{
-    CarriedSignIn, CodexSwitchingAccount, attached_by_session, carry, queue_reported_move,
+    CarriedAccount, CarriedSignIn, CodexHandedLogin, CodexSwitchingAccount, PreparedLogin,
+    attached_by_session, carry, queue_reported_move,
 };
+use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::inbound::{CodexAccountMove, CodexSessionInbound};
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::contract::account::FirstRequestAfterMove;
@@ -191,20 +200,22 @@ impl CodexSwitchingAccount {
     }
 
     /// Hands the previous account back, under the hand, where the login Codex refused and could
-    /// not renew is `refused`'s, the account a switch whose window is open moved onto: the
-    /// previous account is carried again, every session the switch moved moves back waited on and
-    /// reported by no one, every session attached since moves back reported, and each watch
-    /// settles once its move landed. Answers the previous account's tokens, the refresh's answer;
-    /// `None` where no window is open onto `refused`, or where the previous account's home holds
-    /// no sign-in to hand, every watch then failing with that error.
+    /// not renew is `refused`'s, the account a switch whose window is open moved onto. A previous
+    /// account on its tokens is carried again at once, every session the switch moved moves back
+    /// waited on and reported by no one, every session attached since moves back reported, and each
+    /// watch settles once its move landed; its tokens are the refresh's answer. A previous account
+    /// on its API key answers `None`, the refresh's refusal, and its key is handed on a task once
+    /// the hand is let go, the sessions moving back at that login's answer. `None` too where no
+    /// window is open onto `refused`, or where the previous account's sign-in cannot be read, every
+    /// watch then failing with that error.
     pub(crate) async fn hand_back(&self, refused: &ProviderAccountId) -> Option<CodexAuthTokens> {
         let previous = self.windows.previous_of(refused)?;
         let bindings = self.renewer.get()?.bindings()?;
-        let tokens = self.read_tokens(&previous).await;
+        let login = self.read_login(&previous).await;
         // The window's check may have ended during the read; then there is nothing to hand back.
         let window = self.windows.take_onto(refused)?;
-        let tokens = match tokens {
-            Ok(tokens) => tokens,
+        let login = match login {
+            Ok(login) => login,
             Err(error) => {
                 window.fail(DriverError::from(error));
                 return None;
@@ -212,20 +223,122 @@ impl CodexSwitchingAccount {
         };
         // A service gone left no session to move; the window dropped settles each as unobserved.
         let service = window.service.upgrade()?;
-        let sign_in = CarriedSignIn::Tokens {
-            access_token: tokens.access_token.clone(),
-            dead_token: None,
-        };
-        service.restart_rate_limits(|| {
-            carry(&self.carried, previous.clone(), sign_in);
-        });
-        let landings = move_back(&service, &previous, window.sessions);
-        service
-            .dependencies()
-            .tasks
-            .spawn(settle_hand_back(landings, previous, bindings));
-        Some(tokens)
+        match login {
+            CodexHandedLogin::Tokens(tokens) => {
+                let sign_in = CarriedSignIn::Tokens {
+                    access_token: tokens.access_token.clone(),
+                    dead_token: None,
+                };
+                land_hand_back(&self.carried, &service, window, sign_in, bindings);
+                Some(tokens)
+            }
+            CodexHandedLogin::ApiKey(api_key) => {
+                // The switching service's own account, owned by the task that waits for the hand.
+                let switching = Arc::clone(&service.dependencies().switching);
+                service
+                    .dependencies()
+                    .tasks
+                    .spawn(switching.hand_back_key(window, api_key, bindings));
+                None
+            }
+        }
     }
+
+    // Hands `window`'s previous account its `api_key` once this task holds the hand, where the
+    // service still carries the account the window moved onto, so a switch that landed meanwhile
+    // is never undone and the window dropped settles each watch as unobserved. A login that
+    // cannot be sent or is refused fails every watch with its error and moves no session.
+    async fn hand_back_key(
+        self: Arc<Self>,
+        window: HandBackWindow,
+        api_key: SecretString,
+        bindings: Arc<dyn RuntimeBindingWriter>,
+    ) {
+        let _hand = self.hands.lock().await;
+        if self.carried_account().as_ref() != Some(&window.to) {
+            return;
+        }
+        let Some(service) = window.service.upgrade() else {
+            return;
+        };
+        let unlanded = Arc::new(Mutex::new(Some(window)));
+        let Err(error) = self
+            .send_key_back(&service, &unlanded, api_key, bindings)
+            .await
+        else {
+            return;
+        };
+        tracing::warn!(
+            error = &error as &(dyn Error + 'static),
+            "the previous Codex account's API key could not be handed back"
+        );
+        let failed = lock(&unlanded).take();
+        if let Some(window) = failed {
+            window.fail(DriverError::from(error));
+        }
+    }
+
+    // The key's login on `service`, sent as a switch sends one, its answer landing the window in
+    // `unlanded` on the key: taken from there by the hook, so a failed login leaves it for its
+    // watches to fail. Fails while the service has no connection, and as the read, the sign-out
+    // or the login does.
+    async fn send_key_back(
+        &self,
+        service: &Arc<CodexService>,
+        unlanded: &Arc<Mutex<Option<HandBackWindow>>>,
+        api_key: SecretString,
+        bindings: Arc<dyn RuntimeBindingWriter>,
+    ) -> Result<(), CodexError> {
+        let connection = service.connection()?;
+        let PreparedLogin {
+            params,
+            sign_in,
+            is_signed_out,
+        } = self
+            .prepare_login(&connection, CodexHandedLogin::ApiKey(api_key))
+            .await?;
+        let carried = Arc::clone(&self.carried);
+        let landing = Arc::clone(unlanded);
+        let acknowledged = Arc::downgrade(service);
+        let answer = connection
+            .request_ordered(
+                CODEX_LOGIN_START_METHOD,
+                &params,
+                Box::new(move |answer: Option<&RawValue>| {
+                    let Some(service) = answer.and(acknowledged.upgrade()) else {
+                        return;
+                    };
+                    let landed = lock(&landing).take();
+                    if let Some(window) = landed {
+                        land_hand_back(&carried, &service, window, sign_in, bindings);
+                    }
+                }),
+            )
+            .await;
+        self.settle_handed_login(answer, is_signed_out).map(drop)
+    }
+}
+
+// Carries `window`'s previous account again on `sign_in` and moves its sessions back onto it,
+// each watch settling on a task of `service`'s once its move landed.
+fn land_hand_back(
+    carried: &Mutex<Option<CarriedAccount>>,
+    service: &CodexService,
+    window: HandBackWindow,
+    sign_in: CarriedSignIn,
+    bindings: Arc<dyn RuntimeBindingWriter>,
+) {
+    let HandBackWindow {
+        previous, sessions, ..
+    } = window;
+    service.restart_rate_limits(|| {
+        carry(carried, previous.clone(), sign_in);
+    });
+    let landings = move_back(service, &previous, sessions);
+    service
+        .dependencies()
+        .tasks
+        .spawn(settle_hand_back(landings, previous, bindings));
 }
 
 // Queues each of `sessions` its move back onto `previous`, waited on and reported by no one, and

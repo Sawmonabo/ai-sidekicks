@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use rstest::rstest;
+use secrecy::SecretString;
 use serde_json::{Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -34,10 +36,15 @@ use crate::runtime_binding::writer::RuntimeBindingWriter;
 /// The `ChatGPT` workspace each test account signs in to, by account.
 const WORKSPACE_LEFT: &str = "workspace-of-the-account-left";
 const WORKSPACE_TO: &str = "workspace-of-the-account-moved-to";
+const WORKSPACE_OTHER: &str = "workspace-of-an-account-a-later-switch-moves-onto";
+
+/// The key sealed for the account left where it signs in with one.
+const TEST_KEY: &str = "sk-the-key-of-the-account-left";
 
 /// The switching service carrying the account a switch leaves, the home service of the account it
-/// moves onto, where that account's renewal runs, the legs over both, and two sessions on the
-/// switching service: one the switch names, with its lead's binding, and one it does not.
+/// moves onto, where that account's renewal runs, a third account a later switch may move onto,
+/// the legs over them, and two sessions on the switching service: one the switch names, with its
+/// lead's binding, and one it does not.
 struct Fixture {
     legs: Arc<CodexAccountLegs>,
     switching: ScriptedCodexService,
@@ -48,31 +55,45 @@ struct Fixture {
     unnamed: SessionQueue,
     left: ProviderAccountId,
     to: ProviderAccountId,
+    other: ProviderAccountId,
     tokens: HashMap<ProviderAccountId, String>,
     _folder: TempDir,
 }
 
 impl Fixture {
-    async fn new() -> Self {
+    // The fixture, the account left signing in with [`TEST_KEY`] where `is_left_on_a_key`, its
+    // home still holding a `ChatGPT` sign-in.
+    async fn new(is_left_on_a_key: bool) -> Self {
         let folder = tempfile::tempdir().expect("a scratch folder is made");
         let left = test_provider_account_id();
         let to = ProviderAccountId::new("account-2".to_owned()).expect("a valid account id");
+        let other = ProviderAccountId::new("account-3".to_owned()).expect("a valid account id");
         let mut switching = start_scripted_switching_service();
         let home_to = start_scripted_account_service_for(to.clone());
         let homes = HashMap::from([
             (left.clone(), folder.path().join(WORKSPACE_LEFT)),
             (to.clone(), home_to.service.home().codex_home.clone()),
+            (other.clone(), folder.path().join(WORKSPACE_OTHER)),
         ]);
         let mut tokens = HashMap::new();
-        for (account, workspace) in [(&left, WORKSPACE_LEFT), (&to, WORKSPACE_TO)] {
+        for (account, workspace) in [
+            (&left, WORKSPACE_LEFT),
+            (&to, WORKSPACE_TO),
+            (&other, WORKSPACE_OTHER),
+        ] {
             let token = compose_access_token(workspace);
             write_sign_in(&homes[account], workspace, &token);
             tokens.insert(account.clone(), token);
         }
+        let api_keys = if is_left_on_a_key {
+            HashMap::from([(left.clone(), SecretString::from(TEST_KEY))])
+        } else {
+            HashMap::new()
+        };
         AccountHomes {
             homes,
             current: left.clone(),
-            api_keys: HashMap::new(),
+            api_keys,
         }
         .register_on(switching.dependencies.switching.provider_accounts());
         let registry = CodexServiceRegistry::holding(&switching);
@@ -97,9 +118,10 @@ impl Fixture {
         let service = Arc::clone(&switching.service);
         let connection = service.connection().expect("the service is up");
         let account = Arc::clone(&switching.dependencies.switching);
+        let signed_out = json!({"account": null, "requiresOpenaiAuth": true});
         let (handed, _login) = tokio::join!(
             account.hand_at_start(&service, &connection),
-            answer_login(&mut switching)
+            answer_through_login(&mut switching, &signed_out)
         );
         handed.expect("the start's login is answered");
 
@@ -122,6 +144,7 @@ impl Fixture {
             unnamed,
             left,
             to,
+            other,
             tokens,
             _folder: folder,
         }
@@ -130,9 +153,10 @@ impl Fixture {
     // Switches from the account left onto the other for `person`, naming the lead's session, and
     // answers the named session's move once it landed.
     async fn switch(&mut self, person: DeviceId) -> SessionAccountMove {
+        let reading = signed_in();
         let (moved, _login) = tokio::join!(
             move_codex_sessions(&self.legs, self.to.clone(), vec![self.lead.clone()], person),
-            answer_login(&mut self.switching)
+            answer_through_login(&mut self.switching, &reading)
         );
         let mut moved = moved.into_iter();
         let named = moved
@@ -160,11 +184,72 @@ impl Fixture {
     }
 }
 
-async fn answer_login(scripted: &mut ScriptedCodexService) {
-    let login = scripted.next_request(CODEX_LOGIN_START_METHOD).await;
-    scripted
-        .script
-        .answer(&login, &json!({"type": "chatgptAuthTokens"}));
+/// What a hand sent the switching service up to its login, as [`answer_through_login`] met it.
+struct AnsweredHand {
+    /// The methods of the requests, in order.
+    methods: Vec<String>,
+    /// The login.
+    login: Value,
+    /// The account the service carried when the login came, before its answer.
+    carried_at_login: Option<ProviderAccountId>,
+    /// The answers the service wrote meanwhile to requests of Codex's, such as a refresh.
+    answers: Vec<Value>,
+}
+
+// Answers each request the switching service sends up to its login: an account read with
+// `reading`, a sign-out at once, and the login once it noted the account the service carried when
+// the login came. An answer the service writes to a request of Codex's is kept aside.
+async fn answer_through_login(
+    scripted: &mut ScriptedCodexService,
+    reading: &Value,
+) -> AnsweredHand {
+    let mut methods = Vec::new();
+    let mut answers = Vec::new();
+    loop {
+        let message = tokio::time::timeout(Duration::from_secs(5), scripted.script.next_sent())
+            .await
+            .expect("the service sends its next message");
+        let Some(method) = message["method"].as_str().map(str::to_owned) else {
+            answers.push(message);
+            continue;
+        };
+        methods.push(method.clone());
+        match method.as_str() {
+            "account/read" => scripted.script.answer(&message, reading),
+            "account/logout" => scripted.script.answer(&message, &json!({})),
+            _ => {
+                assert_eq!(method, CODEX_LOGIN_START_METHOD, "{message}");
+                let carried_at_login = scripted.service.provider_account_id();
+                scripted
+                    .script
+                    .answer(&message, &json!({"type": message["params"]["type"]}));
+                return AnsweredHand {
+                    methods,
+                    login: message,
+                    carried_at_login,
+                    answers,
+                };
+            }
+        }
+    }
+}
+
+// Sends the switching service Codex's refresh of the tokens of the account moved onto, and answers
+// that account's renewal leaving the refused token in place, so the login is dead.
+async fn refuse_the_renewal(fixture: &mut Fixture) {
+    fixture.switching.script.send(&json!({
+        "jsonrpc": "2.0",
+        "id": "refresh",
+        "method": CODEX_TOKEN_REFRESH_METHOD,
+        "params": {"reason": "unauthorized", "previousAccountId": WORKSPACE_TO},
+    }));
+    let renewing = fixture.home_to.next_request("account/read").await;
+    assert_eq!(
+        renewing["params"]["refreshToken"],
+        json!(true),
+        "{renewing}"
+    );
+    fixture.home_to.script.answer(&renewing, &signed_in());
 }
 
 fn signed_in() -> Value {
@@ -183,27 +268,14 @@ async fn settle(moved: SessionAccountMove) -> FirstRequestAfterMove {
 // refusing the refresh inside the window, which leaves both sessions on the refused login.
 #[tokio::test]
 async fn a_refused_login_after_a_switch_hands_the_previous_account_back() {
-    let mut fixture = Fixture::new().await;
+    let mut fixture = Fixture::new(false).await;
     let person = switching_person();
     let named_move = fixture.switch(person.clone()).await;
 
     // Codex runs the check's workspace check on the new login, which it refuses, and asks for
     // fresh tokens before it answers the read.
     let check = fixture.switching.next_request("account/read").await;
-    fixture.switching.script.send(&json!({
-        "jsonrpc": "2.0",
-        "id": "refresh",
-        "method": CODEX_TOKEN_REFRESH_METHOD,
-        "params": {"reason": "unauthorized", "previousAccountId": WORKSPACE_TO},
-    }));
-    let renewing = fixture.home_to.next_request("account/read").await;
-    assert_eq!(
-        renewing["params"]["refreshToken"],
-        json!(true),
-        "{renewing}"
-    );
-    // The renewal leaves the refused token in the home: the login is dead.
-    fixture.home_to.script.answer(&renewing, &signed_in());
+    refuse_the_renewal(&mut fixture).await;
     let answer = fixture.switching.script.next_sent().await;
     fixture.switching.script.answer(&check, &signed_in());
 
@@ -260,7 +332,7 @@ async fn the_check_closes_the_window_without_a_hand_back(
     #[case] is_answered: bool,
     #[case] expected: FirstRequestAfterMove,
 ) {
-    let mut fixture = Fixture::new().await;
+    let mut fixture = Fixture::new(false).await;
     let named_move = fixture.switch(switching_person()).await;
 
     let check = fixture.switching.next_request("account/read").await;
@@ -289,5 +361,139 @@ async fn the_check_closes_the_window_without_a_hand_back(
     assert!(
         fixture.home_to.script.sent.try_recv().is_err(),
         "the check ran a renewal"
+    );
+}
+
+// Killed by the previous account's home tokens handed back over its key (a `chatgptAuthTokens`
+// login, or the refresh answered with them), by the sessions moved or the account carried before
+// the key's login is answered (the service already carries the account left at the login), and
+// by the sign-out skipped after a `ChatGPT` reading or sent over a key.
+#[rstest]
+#[case::on_chatgpt(
+    signed_in(),
+    vec!["account/read", "account/logout", CODEX_LOGIN_START_METHOD]
+)]
+#[case::on_a_key(
+    json!({"account": {"type": "apiKey"}, "requiresOpenaiAuth": true}),
+    vec!["account/read", CODEX_LOGIN_START_METHOD]
+)]
+#[tokio::test]
+async fn a_hand_back_to_a_key_account_refuses_the_refresh_and_hands_the_key(
+    #[case] reading: Value,
+    #[case] expected: Vec<&str>,
+) {
+    let mut fixture = Fixture::new(true).await;
+    let person = switching_person();
+    let named_move = fixture.switch(person.clone()).await;
+    let check = fixture.switching.next_request("account/read").await;
+
+    refuse_the_renewal(&mut fixture).await;
+    let mut handed = answer_through_login(&mut fixture.switching, &reading).await;
+    // The refusal is written as the refresh lets its hand go, so it may follow the key's login.
+    if handed.answers.is_empty() {
+        handed
+            .answers
+            .push(fixture.switching.script.next_sent().await);
+    }
+    fixture.switching.script.answer(&check, &signed_in());
+    let named = settle(named_move).await;
+    fixture.named.wait_until_seen(2).await;
+    fixture.unnamed.wait_until_seen(2).await;
+    let reported = fixture.moves.settle_reported().await;
+    let left = fixture.left.clone();
+    let to = fixture.to.clone();
+
+    assert_eq!(
+        handed.answers.len(),
+        1,
+        "the service answered more than the refresh: {:?}",
+        handed.answers
+    );
+    let refusal = &handed.answers[0];
+    assert_eq!(refusal["id"], json!("refresh"), "{refusal}");
+    assert!(
+        refusal.get("result").is_none() && refusal["error"].is_object(),
+        "the refresh was answered: {refusal}"
+    );
+    assert_eq!(handed.methods, expected);
+    assert_eq!(
+        handed.login["params"],
+        json!({"type": "apiKey", "apiKey": TEST_KEY})
+    );
+    assert_eq!(
+        handed.carried_at_login,
+        Some(to.clone()),
+        "the account left was carried back before its key's login was answered"
+    );
+    assert_eq!(
+        fixture.switching.service.provider_account_id(),
+        Some(left.clone())
+    );
+    assert!(
+        matches!(
+            fixture.switching.dependencies.switching.carried_token(),
+            Some((carried, None)) if carried == left
+        ),
+        "the account left is not carried on its key"
+    );
+    assert_eq!(named, FirstRequestAfterMove::HandedBack);
+    assert_eq!(reported, [FirstRequestAfterMove::HandedBack]);
+    assert_eq!(fixture.binding_accounts(), vec![Some(left.clone()); 3]);
+    let moved_to_and_back = [
+        format!("moved to {}", to.as_str()),
+        format!("moved to {}", left.as_str()),
+    ];
+    assert_eq!(fixture.named.seen(), moved_to_and_back);
+    assert_eq!(fixture.unnamed.seen(), moved_to_and_back);
+    assert_eq!(
+        fixture.moves.reported(),
+        [(fixture.unnamed.session_id, to, Some(person))]
+    );
+    assert_eq!(fixture.unread_requests(), Vec::<Value>::new());
+}
+
+// Killed by the key handed without checking that the service still carries the account the window
+// moved onto: the account left's read is sent after the later switch, which it would undo, and
+// the window's watch waits on that read instead of settling.
+#[tokio::test]
+async fn a_key_hand_back_sends_nothing_once_another_switch_landed() {
+    let mut fixture = Fixture::new(true).await;
+    let named_move = fixture.switch(switching_person()).await;
+    let _check = fixture.switching.next_request("account/read").await;
+    let switching = Arc::clone(&fixture.switching.dependencies.switching);
+    let service = Arc::clone(&fixture.switching.service);
+    let connection = service.connection().expect("the service is up");
+    let other = fixture.other.clone();
+
+    // The refresh hands back under the hand, as its answer does, so the key's task waits for it.
+    let reading = signed_in();
+    let hand = switching.hands.lock().await;
+    let refreshed = switching.hand_back(&fixture.to).await;
+    let (switched, landed) = tokio::join!(
+        switching.hand_switch_holding(
+            &hand,
+            &service,
+            &connection,
+            other.clone(),
+            Vec::new(),
+            None
+        ),
+        answer_through_login(&mut fixture.switching, &reading)
+    );
+    switched.expect("the later switch's login is answered");
+    drop(hand);
+    let named = tokio::time::timeout(Duration::from_secs(5), settle(named_move))
+        .await
+        .expect("the window's watch settles");
+
+    assert!(refreshed.is_none(), "the refresh was answered");
+    assert_eq!(landed.methods, [CODEX_LOGIN_START_METHOD]);
+    assert_eq!(named, FirstRequestAfterMove::Unobserved);
+    assert_eq!(switching.carried_account(), Some(other.clone()));
+    assert_eq!(service.provider_account_id(), Some(other));
+    assert_eq!(
+        fixture.unread_requests(),
+        Vec::<Value>::new(),
+        "the key was handed over the later switch"
     );
 }
