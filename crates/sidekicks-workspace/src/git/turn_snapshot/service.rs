@@ -67,29 +67,29 @@ const CAPTURE_GIT_FLOOR: GitFeature = GitFeature::SparseCheckoutCheckRules;
 
 /// What one capture records, every field resolved by the caller.
 #[derive(Clone, Debug)]
-pub(crate) struct TurnSnapshotCaptureInput {
+pub struct TurnSnapshotCaptureInput {
     /// The folder of the snapshot's owner, whose capture folders hold its snapshots: a session's
     /// storage folder, or the folder a workflow run's caller names.
-    pub(crate) owner_folder: PathBuf,
+    pub owner_folder: PathBuf,
     /// Where the run works: the worktree, or the bound folder of a bound root.
-    pub(crate) execution_root: PathBuf,
+    pub execution_root: PathBuf,
     /// The top level of the working tree holding `execution_root`, as the run's execution context
     /// records it; a value the live tree disagrees with fails the capture.
-    pub(crate) checkout_root: PathBuf,
+    pub checkout_root: PathBuf,
     /// The run whose turn ended.
-    pub(crate) run_id: RunId,
+    pub run_id: RunId,
     /// 0 before any rollback, advanced by each accepted rollback.
-    pub(crate) epoch: u64,
+    pub epoch: u64,
     /// The turn's ordinal within the epoch.
-    pub(crate) turn_ordinal: u64,
+    pub turn_ordinal: u64,
     /// When the turn ended; both of the snapshot's dates, so its id never depends on the host's
     /// time zone or on when the capture ran.
-    pub(crate) turn_ended_at: Timestamp,
+    pub turn_ended_at: Timestamp,
 }
 
 /// What one capture did. It never fails the turn: a failure is reported, not retried.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum TurnSnapshotCaptureOutcome {
+pub enum TurnSnapshotCaptureOutcome {
     /// This call wrote the snapshot's ref.
     Captured {
         /// The ref written.
@@ -197,14 +197,7 @@ impl TurnSnapshotService {
     /// project at `place`. Never fails: every failure is logged and answered `Failed` with its
     /// step, since a snapshot never holds up a turn; a git below the floor is logged once per
     /// place.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the run engine's turn end captures the checkout through it"
-        )
-    )]
-    pub(crate) async fn capture_turn_snapshot(
+    pub async fn capture_turn_snapshot(
         &self,
         place: Option<&Place>,
         input: &TurnSnapshotCaptureInput,

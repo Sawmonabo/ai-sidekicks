@@ -16,7 +16,7 @@ use crate::git::turn_snapshot::retention::RunContextKey;
 /// `checkSparseRules` (the matcher failed) fail closed, never as a checkout that is not sparse.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
-pub(crate) enum TurnSnapshotCaptureStep {
+pub enum TurnSnapshotCaptureStep {
     /// The daemon's git is older than every capture call needs, or its version could not be read;
     /// nothing else ran.
     GitFloor,
