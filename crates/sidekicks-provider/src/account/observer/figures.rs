@@ -17,7 +17,6 @@ use sidekicks_store::database::statement::{
     DATABASE_NOW_SQL, StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 
-use crate::account::observer::token_read::reads_limits_by_turn;
 use crate::account::observer::window_store::read_usage_windows;
 use crate::account::observer::{ObserverShared, ProviderAccountObserverError};
 use crate::account::registry::{RegisteredAccount, refusal_or_failure};
@@ -55,7 +54,7 @@ impl ObserverShared {
             account.account_id.clone(),
             figures.windows.clone(),
         );
-        let recorded = if reads_limits_by_turn(account) {
+        let recorded = if self.token_limits_legs_of(account).is_some() {
             self.usage
                 .record_quota_windows(provider, account_id, windows)
                 .await

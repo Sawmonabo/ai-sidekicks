@@ -25,7 +25,7 @@ use crate::account::registry::{
 use crate::driver::ProviderAccountFolders;
 use crate::driver::contract::account::{
     ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObserveLegs, ProviderSignInLegs,
-    ProviderSwitchLegs, ProviderTokenStatusLegs, ProviderWindowTurnLegs,
+    ProviderSwitchLegs, ProviderTokenLimitsLegs, ProviderTokenStatusLegs, ProviderWindowTurnLegs,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
@@ -71,6 +71,10 @@ impl ProviderAccountLegs for RecordedSignOuts {
     }
 
     fn window_turn_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderWindowTurnLegs>> {
+        None
+    }
+
+    fn token_limits_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderTokenLimitsLegs>> {
         None
     }
 

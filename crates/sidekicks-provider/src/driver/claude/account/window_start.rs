@@ -29,8 +29,8 @@ use crate::driver::claude::spawn::launch::control_only::{
     ClaudeShortProcess, ClaudeShortProcessArrival,
 };
 use crate::driver::contract::account::{
-    ProviderAccountFigures, ProviderObservation, ProviderWindowTurnLegs, TokenLimitsReading,
-    WindowTurnAnswer, WindowTurnSpend,
+    ProviderAccountFigures, ProviderObservation, ProviderTokenLimitsLegs, ProviderWindowTurnLegs,
+    TokenLimitsReading, WindowTurnAnswer, WindowTurnSpend,
 };
 use crate::driver::contract::error::DriverError;
 use crate::lenient_json::read_lenient;
@@ -74,7 +74,9 @@ impl ProviderWindowTurnLegs for ClaudeAccountLegs {
     ) -> BoxFuture<'_, Result<WindowTurnAnswer, DriverError>> {
         start_claude_window(self, provider_account_id, folders).boxed()
     }
+}
 
+impl ProviderTokenLimitsLegs for ClaudeAccountLegs {
     fn read_token_limits<'call>(
         &'call self,
         provider_account_id: &'call ProviderAccountId,

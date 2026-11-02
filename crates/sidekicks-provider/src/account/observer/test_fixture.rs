@@ -43,8 +43,8 @@ use crate::account::token_custody::ProviderTokenCustody;
 use crate::account::token_custody::tests::ScriptedKeychain;
 use crate::account::wake_helper::{MachineWakeHelper, ScriptedWakeHelper};
 use crate::driver::contract::account::{
-    ProviderAccountFigures, ProviderObservation, ProviderObserveLegs, ProviderWindowTurnLegs,
-    TokenLimitsReading, WindowTurnAnswer, WindowTurnSpend,
+    ProviderAccountFigures, ProviderObservation, ProviderObserveLegs, ProviderTokenLimitsLegs,
+    ProviderWindowTurnLegs, TokenLimitsReading, WindowTurnAnswer, WindowTurnSpend,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::test_registry::new_session_id;
@@ -147,7 +147,9 @@ impl ProviderWindowTurnLegs for ScriptedTurns {
         self.window_starts.fetch_add(1, Ordering::SeqCst);
         async { Ok(WindowTurnAnswer::Spent(turn_spend())) }.boxed()
     }
+}
 
+impl ProviderTokenLimitsLegs for ScriptedTurns {
     fn read_token_limits<'call>(
         &'call self,
         _provider_account_id: &'call ProviderAccountId,
@@ -433,6 +435,10 @@ impl Fixture {
                 )
             })
             .collect();
+        let token_limits_legs = HashMap::from([(
+            claude(),
+            Arc::clone(&turns[&claude()]) as Arc<dyn ProviderTokenLimitsLegs>,
+        )]);
         let usage = Arc::new(RecordedQuotaSets::default());
         let wakes = Arc::new(ScriptedWakeHelper::new(WakeHelperStatus::Installed));
         let notifications = Arc::new(RecordedNotifications::default());
@@ -441,6 +447,7 @@ impl Fixture {
             account_reader: Arc::new(HomeFolders(Arc::clone(&registry))),
             legs: HashMap::from([(claude(), Arc::clone(&legs) as Arc<dyn ProviderObserveLegs>)]),
             window_turn_legs,
+            token_limits_legs,
             token_custody: Arc::new(ProviderTokenCustody::new(
                 Arc::clone(&registry),
                 Arc::clone(&keychain) as Arc<dyn SecretKeychain>,

@@ -260,7 +260,6 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     // `auth.json` sits in the home `CODEX_HOME` names.
     account_home_credential_store_folder: &[],
     shell_prefix_command: None,
-    token_limits_read_by_turn: false,
 };
 
 /// Builds the Codex driver over the shared services; it stores handles and does no I/O.

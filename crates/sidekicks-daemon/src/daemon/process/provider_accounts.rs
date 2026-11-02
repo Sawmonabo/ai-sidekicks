@@ -38,7 +38,7 @@ use sidekicks_provider::account::wake_helper::{MachineWakeHelper, SystemWakeHelp
 use sidekicks_provider::driver::ProviderAccountReader;
 use sidekicks_provider::driver::contract::account::{
     ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObserveLegs, ProviderSignInLegs,
-    ProviderSwitchLegs, ProviderTokenStatusLegs, ProviderWindowTurnLegs,
+    ProviderSwitchLegs, ProviderTokenLimitsLegs, ProviderTokenStatusLegs, ProviderWindowTurnLegs,
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_queue::provider_session::ProviderSessions;
@@ -161,6 +161,7 @@ pub(crate) async fn build_provider_account_plane(
         memory_import: memory_import_legs,
         switch: switch_legs,
         window_turn: window_turn_legs,
+        token_limits: token_limits_legs,
         sign_in: sign_in_legs,
         token_status: token_status_legs,
     } = collect_provider_account_legs(&providers);
@@ -185,6 +186,7 @@ pub(crate) async fn build_provider_account_plane(
         account_reader: Arc::clone(&reader),
         legs: observe_legs,
         window_turn_legs,
+        token_limits_legs,
         token_custody: Arc::clone(&token_custody),
         database_reads: Arc::clone(&reads),
         database_writer: writer,
@@ -291,8 +293,10 @@ pub(super) struct ProviderAccountLegSet {
     pub(super) memory_import: HashMap<ProviderId, Arc<dyn ProviderMemoryImportLegs>>,
     /// The moves of running sessions onto another account the providers offer.
     pub(super) switch: HashMap<ProviderId, Arc<dyn ProviderSwitchLegs>>,
-    /// The throwaway window and token-limits turns the providers offer.
+    /// The throwaway window-start turns the providers offer.
     pub(super) window_turn: HashMap<ProviderId, Arc<dyn ProviderWindowTurnLegs>>,
+    /// The pasted-token limits reads by a turn the providers offer.
+    pub(super) token_limits: HashMap<ProviderId, Arc<dyn ProviderTokenLimitsLegs>>,
     /// The interactive sign-ins the providers offer.
     pub(super) sign_in: HashMap<ProviderId, Arc<dyn ProviderSignInLegs>>,
     /// The pasted-token status reads the providers offer.
@@ -317,6 +321,9 @@ pub(super) fn collect_provider_account_legs(providers: &ProviderRegistry) -> Pro
         }
         if let Some(window_turn) = Arc::clone(&legs).window_turn_legs() {
             legs_set.window_turn.insert(provider.clone(), window_turn);
+        }
+        if let Some(token_limits) = Arc::clone(&legs).token_limits_legs() {
+            legs_set.token_limits.insert(provider.clone(), token_limits);
         }
         if let Some(sign_in) = Arc::clone(&legs).sign_in_legs() {
             legs_set.sign_in.insert(provider.clone(), sign_in);

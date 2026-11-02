@@ -72,10 +72,15 @@ pub trait ProviderAccountLegs: Send + Sync {
     /// account of the plane's.
     fn switch_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderSwitchLegs>>;
 
-    /// These legs as the provider's throwaway turns, which the background observer runs to start
-    /// an account's closed windows and to read a pasted token's limits; `None` for a provider with
-    /// no such turn, whose windows are then never started.
+    /// These legs as the provider's throwaway turn that starts an account's closed windows, which
+    /// the background observer runs; `None` for a provider with no such turn, whose windows are
+    /// then never started.
     fn window_turn_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderWindowTurnLegs>>;
+
+    /// These legs as the provider's read of a pasted token's limits by a throwaway turn, which the
+    /// background observer runs in place of the limits read; `None` for a provider whose pasted
+    /// token reads its limits as any sign-in does, or that takes no pasted token.
+    fn token_limits_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderTokenLimitsLegs>>;
 
     /// These legs as the provider's interactive sign-in, which the sign-in broker runs; `None` for
     /// a provider with no sign-in of its own here, whose sign-ins the broker refuses as
@@ -389,7 +394,7 @@ pub enum WindowTurnAnswer {
 }
 
 /// What a pasted token's limits read by a turn answered: the reading its turn carried, as the
-/// account plane stores it, and what the turn spent, `None` where it ran no turn.
+/// account plane stores it, and what the turn spent, `None` where it ended in an error.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TokenLimitsReading {
     /// What the turn's answer said of the account's limits and sign-in.
@@ -398,9 +403,8 @@ pub struct TokenLimitsReading {
     pub spend: Option<WindowTurnSpend>,
 }
 
-/// A provider's smallest turns in an account's home, each in a throwaway process holding no
-/// session: the one that starts the account's closed usage windows, and the one that reads a
-/// pasted token's limits, which the token's own scope cannot read.
+/// A provider's smallest turn in an account's home, in a throwaway process holding no session,
+/// which starts the account's closed usage windows.
 pub trait ProviderWindowTurnLegs: Send + Sync {
     /// Sends one short message to the provider's smallest model on `provider_account_id`'s
     /// account, run in `folders` and no other home, and answers what the turn spent or the
@@ -411,7 +415,11 @@ pub trait ProviderWindowTurnLegs: Send + Sync {
         provider_account_id: ProviderAccountId,
         folders: ProviderAccountFolders,
     ) -> BoxFuture<'_, Result<WindowTurnAnswer, DriverError>>;
+}
 
+/// A provider's read of a pasted token's limits, which the token's own scope cannot read, by one
+/// smallest turn in the account's home whose answer carries them.
+pub trait ProviderTokenLimitsLegs: Send + Sync {
     /// Reads the limits of `provider_account_id`'s pasted `token` by one such turn, run in
     /// `folders` with the token handed to that one child on the provider's documented channel.
     /// Has no bound of its own, the caller bounds it. Fails with the driver's error when the turn

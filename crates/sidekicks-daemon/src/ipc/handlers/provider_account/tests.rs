@@ -420,6 +420,7 @@ impl MethodInputs {
             account_reader: Arc::clone(&account_reader),
             legs: HashMap::new(),
             window_turn_legs: HashMap::new(),
+            token_limits_legs: HashMap::new(),
             token_custody: Arc::clone(&token_custody),
             database_reads: Arc::clone(&reads),
             database_writer: Arc::clone(&log.writer),

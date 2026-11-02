@@ -46,7 +46,6 @@ use sidekicks_store::database::stored_column::optional_text_column;
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::account::errors::ProviderAccountRegistryError;
-use crate::account::observer::token_read::reads_limits_by_turn;
 use crate::account::observer::{
     ObserverShared, ProviderAccountObserverError, READ_BOUND, ladder, log_read_failure,
 };
@@ -325,7 +324,7 @@ impl ObserverShared {
         let account = self.registry.read(provider_account_id.clone()).await?;
         let is_off = !account.probe_enabled
             || !account.window_start_enabled
-            || reads_limits_by_turn(&account)
+            || self.token_limits_legs_of(&account).is_some()
             || account
                 .health
                 .as_ref()

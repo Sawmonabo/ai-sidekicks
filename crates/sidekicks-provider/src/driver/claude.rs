@@ -276,7 +276,6 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     // The sign-in's own folder, which `CLAUDE_SECURESTORAGE_CONFIG_DIR` names.
     account_home_credential_store_folder: &["store"],
     shell_prefix_command: Some(command_shape::CLAUDE_SHELL_PREFIX_COMMAND),
-    token_limits_read_by_turn: true,
 };
 
 /// Builds the Claude Code driver over the shared services; it stores handles and does no I/O.
