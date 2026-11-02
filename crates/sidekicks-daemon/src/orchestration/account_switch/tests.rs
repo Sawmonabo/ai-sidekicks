@@ -378,7 +378,9 @@ impl Fixture {
 fn refusal_code(error: HandlerError) -> RefusalCode {
     match error {
         HandlerError::Refused(refusal) => refusal.code,
-        other => panic!("the switch failed otherwise: {other}"),
+        other @ (HandlerError::Internal(_) | HandlerError::Canceled) => {
+            panic!("the switch failed otherwise: {other}")
+        }
     }
 }
 
@@ -510,7 +512,7 @@ async fn a_switch_moves_each_session_off_the_target_and_settles_each_lead_once()
     let mut expected = vec![reviewed, refused, handed_back, never_ran];
     expected.sort_by_key(|session| session.text().as_str().to_owned());
     assert_eq!(moving, expected);
-    assert_eq!(fixture.current().await, [to.clone()]);
+    assert_eq!(fixture.current().await, std::slice::from_ref(&to));
 
     let calls = lock(&fixture.legs.calls).clone();
     assert_eq!(calls.len(), 1, "one call for the one account left");
@@ -554,8 +556,8 @@ async fn a_switch_moves_each_session_off_the_target_and_settles_each_lead_once()
     let never_ran_events = fixture.appended(never_ran);
     assert_eq!(never_ran_events.len(), 1);
     assert_eq!(never_ran_events[0].0, "agent.providerBinding.changed");
-    assert!(fixture.appended(on_target).is_empty());
-    assert!(fixture.appended(elsewhere).is_empty());
+    assert_eq!(fixture.appended(on_target), Vec::new());
+    assert_eq!(fixture.appended(elsewhere), Vec::new());
 }
 
 // A session the last stop left on an account that is no longer its provider's current one moves

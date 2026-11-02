@@ -637,7 +637,16 @@ fn settled_unobserved() -> BoxFuture<'static, Result<FirstRequestAfterMove, Driv
 fn account_state_of(error: &DriverError) -> AgentBindingSwitchAccountState {
     let code = match error {
         DriverError::Refused(refusal) => Some(refusal.code),
-        _ => None,
+        DriverError::Unanswered(_)
+        | DriverError::SteerTurnEnded(_)
+        | DriverError::RunRefused(_)
+        | DriverError::CapabilityProbe(_)
+        | DriverError::ExecutableUnresolvable(_)
+        | DriverError::ModelCatalogUnreadable(_)
+        | DriverError::ProviderAxisInvalid(_)
+        | DriverError::RuleNotKept(_)
+        | DriverError::SkillNotListed(_)
+        | DriverError::Internal(_) => None,
     };
     match code {
         Some(RefusalCode::ProviderAccountNotAuthenticated) => {
