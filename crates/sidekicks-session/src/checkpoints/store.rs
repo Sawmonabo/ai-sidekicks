@@ -1,7 +1,7 @@
 //! The checkpoint rows' writes, each a statement built from plain values for the caller's own
 //! write, and the reads an undo and its dry run take: a checkpoint by the point a request names, a
 //! session's checkpoints, per path the version an undo puts back, the commands no capture covered,
-//! and a saved undo outcome by its key.
+//! and a saved undo outcome by its key. The shadow rows of files over 10 MiB are in [`shadows`].
 //!
 //! A point is a place in the session's log: an undo goes back to before the event at
 //! `before_sequence`, so every checkpoint whose prompt sits at or past it lies after the point.
@@ -36,8 +36,9 @@ use sidekicks_store::database::stored_column::{
 };
 
 use crate::checkpoints::schema::{
-    CheckpointVersionContent, CheckpointVersionKind, CheckpointVersionLeg, skip_reason_word,
+    CheckpointVersionContent, CheckpointVersionKind, CheckpointVersionLeg,
 };
+use crate::checkpoints::store::shadows::ShadowId;
 
 // A prompt already kept keeps its first checkpoint: a second turn its message opens writes nothing.
 static INSERT_CHECKPOINT_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -53,11 +54,11 @@ static INSERT_CHECKPOINT_SQL: LazyLock<String> = LazyLock::new(|| {
 // The version takes the checkpoint's next sequence, so the order recorded is the order kept.
 const INSERT_VERSION_SQL: &str = "INSERT INTO checkpoint_versions
   (checkpoint_id, sequence, path, leg, kind, copy_hash, not_kept_reason, parent_real_path,
-   window_id, volume_id)
+   window_id, shadow_id)
   VALUES (@checkpointId,
           (SELECT COALESCE(MAX(sequence) + 1, 0) FROM checkpoint_versions
             WHERE checkpoint_id = @checkpointId),
-          @path, @leg, @kind, @copyHash, @notKeptReason, @parentRealPath, @windowId, @volumeId)";
+          @path, @leg, @kind, @copyHash, @notKeptReason, @parentRealPath, @windowId, @shadowId)";
 
 static OPEN_WINDOW_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -109,7 +110,7 @@ const CHECKPOINTS_OF_SESSION_SQL: &str =
 // Per path, the earliest version of the checkpoints at or past the point: the earliest checkpoint,
 // then the earliest sequence in it. Every kind is kept, so a path with no copy is still named.
 const VERSIONS_AFTER_SQL: &str = "SELECT checkpoint_id, sequence, path, leg, kind, copy_hash,
-       not_kept_reason, parent_real_path, window_id, volume_id
+       not_kept_reason, parent_real_path, window_id, shadow_id
   FROM (SELECT versions.*,
                ROW_NUMBER() OVER (PARTITION BY versions.path
                                   ORDER BY checkpoints.message_sequence, versions.sequence)
@@ -182,8 +183,6 @@ pub struct CheckpointVersion {
     pub parent_real_path: FilesystemPath,
     /// The command window it fell in, `None` on an edit.
     pub window_id: Option<CommandWindowId>,
-    /// The volume its shadow sits on, `None` when its copy, if any, is under the capture folder.
-    pub volume_id: Option<String>,
 }
 
 /// A version as its row holds it, with the checkpoint it belongs to and its order there.
@@ -275,15 +274,18 @@ pub fn insert_checkpoint_statement(checkpoint: &Checkpoint) -> WriteStatement {
 }
 
 /// The row of `version`, recorded in `checkpoint_id` after every version it already holds.
-/// Refused by SQLite when the checkpoint or the window has no row.
+/// Refused by SQLite when the checkpoint, the window or the shadow has no row.
 pub fn insert_version_statement(
     checkpoint_id: &SnapshotId,
     version: &CheckpointVersion,
 ) -> WriteStatement {
-    let (copy_hash, not_kept_reason) = match &version.content {
-        CheckpointVersionContent::Copy { hash } => (Some(hash.as_str().to_owned()), None),
-        CheckpointVersionContent::Created => (None, None),
-        CheckpointVersionContent::NotKept { reason } => (None, Some(skip_reason_word(*reason))),
+    let (copy_hash, not_kept_reason, shadow_id) = match &version.content {
+        CheckpointVersionContent::Copy { hash } => (Some(hash.as_str()), None, None),
+        CheckpointVersionContent::Created => (None, None, None),
+        CheckpointVersionContent::NotKept { reason } => {
+            (None, Some(<&'static str>::from(*reason)), None)
+        }
+        CheckpointVersionContent::Shadow { shadow_id } => (None, None, Some(shadow_id.text())),
     };
     let kind = CheckpointVersionKind::from(&version.content);
     let window_id = version.window_id.map(|window_id| window_id.0.text());
@@ -294,11 +296,11 @@ pub fn insert_version_statement(
             text_binding("@path", version.path.as_str()),
             text_binding("@leg", version.leg.into()),
             text_binding("@kind", kind.into()),
-            nullable_text_binding("@copyHash", copy_hash.as_deref()),
-            nullable_text_binding("@notKeptReason", not_kept_reason.as_deref()),
+            nullable_text_binding("@copyHash", copy_hash),
+            nullable_text_binding("@notKeptReason", not_kept_reason),
             text_binding("@parentRealPath", version.parent_real_path.as_str()),
             nullable_text_binding("@windowId", window_id.as_ref().map(UuidText::as_str)),
-            nullable_text_binding("@volumeId", version.volume_id.as_deref()),
+            nullable_text_binding("@shadowId", shadow_id.as_ref().map(UuidText::as_str)),
         ]),
         expected_row_count: Some(1),
     }
@@ -535,6 +537,9 @@ fn stored_version_of(row: &Row<'_>) -> rusqlite::Result<StoredCheckpointVersion>
         CheckpointVersionKind::NotKept => CheckpointVersionContent::NotKept {
             reason: text_column(row, 6, closed_word)?,
         },
+        CheckpointVersionKind::Shadow => CheckpointVersionContent::Shadow {
+            shadow_id: text_column(row, 9, |text| ShadowId::parse(&text))?,
+        },
     };
     Ok(StoredCheckpointVersion {
         checkpoint_id: text_column(row, 0, snapshot_id)?,
@@ -545,10 +550,10 @@ fn stored_version_of(row: &Row<'_>) -> rusqlite::Result<StoredCheckpointVersion>
             content,
             parent_real_path: text_column(row, 7, FilesystemPath::new)?,
             window_id: optional_text_column(row, 8, |text| window_id(&text))?,
-            volume_id: row.get(9)?,
         },
     })
 }
 
+pub mod shadows;
 #[cfg(test)]
 mod tests;

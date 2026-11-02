@@ -177,8 +177,9 @@ const RUN_KEYED_DELETES: [&str; 4] = [
 // after the gate answers found through it, and an artifact after the reference to its payload. The
 // attention rows go after the machine's attention count is raised, so its readers drop the
 // session's entries, and an entry's delivery before the entry it is found through. A checkpoint's
-// versions go before the command windows they fall in, and both before their checkpoint.
-const DELETES_THROUGH_SESSION_ROW: [&str; 30] = [
+// versions go first, then a window's links to the shadows it stood on, then the windows, then the
+// checkpoints, then the shadows, which a version or a link names.
+const DELETES_THROUGH_SESSION_ROW: [&str; 33] = [
     "DELETE FROM session_snapshots WHERE session_id = @sessionId",
     "DELETE FROM recovery_checkpoints WHERE session_id = @sessionId",
     "DELETE FROM session_events WHERE session_id = @sessionId",
@@ -198,9 +199,13 @@ const DELETES_THROUGH_SESSION_ROW: [&str; 30] = [
     "DELETE FROM session_restores WHERE session_id = @sessionId",
     "DELETE FROM checkpoint_versions WHERE checkpoint_id IN
        (SELECT checkpoint_id FROM session_checkpoints WHERE session_id = @sessionId)",
+    "DELETE FROM checkpoint_window_shadows WHERE shadow_id IN
+       (SELECT shadow_id FROM checkpoint_shadows WHERE session_id = @sessionId)",
     "DELETE FROM checkpoint_commands WHERE checkpoint_id IN
        (SELECT checkpoint_id FROM session_checkpoints WHERE session_id = @sessionId)",
     "DELETE FROM session_checkpoints WHERE session_id = @sessionId",
+    "DELETE FROM checkpoint_shadows WHERE session_id = @sessionId",
+    "DELETE FROM checkpoint_volume_folders WHERE session_id = @sessionId",
     "DELETE FROM runs WHERE session_id = @sessionId",
     "DELETE FROM projection_cursors WHERE session_id = @sessionId",
     "DELETE FROM session_console_state WHERE session_id = @sessionId",

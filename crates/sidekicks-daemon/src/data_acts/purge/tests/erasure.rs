@@ -121,8 +121,9 @@ fn contains(bytes: &[u8], text: &str) -> bool {
 // steps stay), an unsettled release or a spent `Send now` key of the lead run left behind,
 // `secure_delete` off or the truncation skipped (the marker stays in the file or its log), a
 // receipt outside the delete's write or naming another range, a count of live runs that only run
-// state changes move (the purged run stays counted), and a purge that keeps a run's snapshot refs
-// (the session's capture folder stays).
+// state changes move (the purged run stays counted), a purge that keeps a run's snapshot refs
+// (the session's capture folder stays), a window's shadow links left (the windows' delete is
+// refused, so the session is not removed), and a session's shadows or volume folders left.
 #[tokio::test]
 async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log() {
     let fixture = purge_fixture().await;
@@ -205,6 +206,34 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
             ],
         )
         .expect("the test records a key a `Send now` spent");
+    let (checkpoint_id, window_id, shadow_id) = (
+        mint_uuid_v7().to_string(),
+        mint_uuid_v7().to_string(),
+        mint_uuid_v7().to_string(),
+    );
+    reader
+        .execute_batch(&format!(
+            "INSERT INTO session_checkpoints (checkpoint_id, session_id, message_sequence, run_id,
+               epoch, position, created_at)
+             VALUES ('{checkpoint_id}', '{session}', 1, '{lead_run}', 0, 1, '{at}');
+             INSERT INTO checkpoint_commands (window_id, checkpoint_id, command, started_at)
+             VALUES ('{window_id}', '{checkpoint_id}', '{MARKER}', '{at}');
+             INSERT INTO checkpoint_shadows (shadow_id, session_id, path, not_kept_reason,
+               taken_at, time_precision, is_current)
+             VALUES ('{shadow_id}', '{session}', '/repo/{MARKER}.bin', 'failed', 1, 1, 1);
+             INSERT INTO checkpoint_window_shadows (window_id, shadow_id)
+             VALUES ('{window_id}', '{shadow_id}');
+             INSERT INTO checkpoint_versions (checkpoint_id, sequence, path, leg, kind,
+               parent_real_path, window_id, shadow_id)
+             VALUES ('{checkpoint_id}', 0, '/repo/{MARKER}.bin', 'command', 'shadow', '/repo',
+               '{window_id}', '{shadow_id}');
+             INSERT INTO checkpoint_volume_folders (session_id, folder, volume_id)
+             VALUES ('{session}', '/volume/.ai-sidekicks-501/{session}', 'volume');",
+            session = session_id.text().as_str(),
+            lead_run = lead_run_id.text().as_str(),
+            at = "2026-10-02T00:00:30.000Z",
+        ))
+        .expect("the test records a checkpoint, an open window and the shadow it stands on");
     assert_eq!(
         *fixture.live_runs.borrow(),
         1,
@@ -241,7 +270,12 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
         "the purge's commit uncounts the run"
     );
     let lead_run_text = lead_run_id.text();
-    let (run, lead_run) = (run_id.as_str(), lead_run_text.as_str());
+    let session_text = session_id.text();
+    let (run, lead_run, session) = (
+        run_id.as_str(),
+        lead_run_text.as_str(),
+        session_text.as_str(),
+    );
     for (rows, id) in [
         ("workflow_steps WHERE workflow_run_id = ?1", run),
         ("human_phase_form_state WHERE workflow_run_id = ?1", run),
@@ -252,6 +286,23 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
             lead_run,
         ),
         ("send_now_requests WHERE target_run_id = ?1", lead_run),
+        // A checkpoint, its open window, the shadow the window stands on and the version naming
+        // it, and the session's folder on another volume.
+        ("session_checkpoints WHERE session_id = ?1", session),
+        (
+            "checkpoint_commands WHERE window_id = ?1",
+            window_id.as_str(),
+        ),
+        (
+            "checkpoint_versions WHERE checkpoint_id = ?1",
+            checkpoint_id.as_str(),
+        ),
+        (
+            "checkpoint_window_shadows WHERE shadow_id = ?1",
+            shadow_id.as_str(),
+        ),
+        ("checkpoint_shadows WHERE session_id = ?1", session),
+        ("checkpoint_volume_folders WHERE session_id = ?1", session),
     ] {
         let left: i64 = reader
             .query_row(&format!("SELECT COUNT(*) FROM {rows}"), [id], |row| {
