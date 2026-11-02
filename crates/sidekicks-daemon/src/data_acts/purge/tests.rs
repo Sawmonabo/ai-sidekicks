@@ -30,6 +30,7 @@ use sidekicks_session::conversation_purge::{
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::directory::run_activity::ProjectSessionActivityReader;
 use sidekicks_session::readings::context::ContextReadings;
+use sidekicks_session::readings::tool_call_status::ToolCallStatuses;
 use sidekicks_session::readings::turn::TurnReadings;
 use sidekicks_session::related::ranking::SessionRelatedRanking;
 use sidekicks_session::run::live_count::test_log::counted_log;
@@ -217,6 +218,7 @@ pub(crate) async fn test_purge(
             Arc::new(|_: &ProviderId| None),
         )),
         context_readings: Arc::new(ContextReadings::new(Arc::clone(&reads), &log.followers)),
+        tool_call_statuses: Arc::new(ToolCallStatuses::new(Arc::clone(&reads), &log.followers)),
         turn_readings: Arc::new(TurnReadings::new(reads, &log.followers)),
         execution_postures: Arc::new(ExecutionPostureService::new(
             home.path(),

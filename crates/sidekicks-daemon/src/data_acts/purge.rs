@@ -56,6 +56,7 @@ use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_session::conversation_purge::{ConversationPurge, ConversationPurgeError};
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::readings::context::ContextReadings;
+use sidekicks_session::readings::tool_call_status::ToolCallStatuses;
 use sidekicks_session::readings::turn::TurnReadings;
 use sidekicks_session::related::ranking::SessionRelatedRanking;
 use sidekicks_session::service::SessionService;
@@ -214,6 +215,8 @@ pub(crate) struct SessionPurgeDeps {
     pub(crate) context_readings: Arc<ContextReadings>,
     /// The latest turn readings, which forget a purged session they kept as closed.
     pub(crate) turn_readings: Arc<TurnReadings>,
+    /// The tool calls' status lines, which forget a purged session they kept as closed.
+    pub(crate) tool_call_statuses: Arc<ToolCallStatuses>,
     /// The runs' postures, which forget the level moves they kept for a purged session.
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
 }
@@ -343,6 +346,7 @@ impl SessionPurge {
         deps.sessions.forget_session_block_cuts(&session_id);
         deps.context_readings.forget_purged_session(session_id);
         deps.turn_readings.forget_purged_session(session_id);
+        deps.tool_call_statuses.forget_purged_session(session_id);
         deps.execution_postures.forget_session(&session_id);
         deps.list_feed.refresh([session_id]);
         deps.project_list_feed.refresh_sessions(&[session_id]);
