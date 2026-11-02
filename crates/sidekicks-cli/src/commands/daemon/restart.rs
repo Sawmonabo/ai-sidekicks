@@ -46,7 +46,7 @@ enum RestartEnding {
 
 /// Restarts the background service once the person confirms, and answers 0 once the new one
 /// answers, its line on stdout; a service not running is started with no question, and a no
-/// prints nothing. Fails with `ConfirmationUnavailableError` with no terminal and no `--yes`,
+/// prints nothing. Fails with `CommandFailure::ConfirmationUnavailable` with no terminal and no `--yes`,
 /// `ClientError::Canceled` after a Ctrl-C, as the handshake fails other than as a stopped or
 /// starting service's does, and as the ending or [`start_and_report`] fails.
 pub(crate) fn restart<Output: Write, ErrorOutput: Write>(

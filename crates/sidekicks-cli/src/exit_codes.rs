@@ -20,8 +20,6 @@ use crate::commands::daemon::install::system_service::LoggedOutServiceRefusal;
 use crate::commands::daemon::registration::TURNED_OFF_IN_LOGIN_ITEMS;
 use crate::commands::daemon::status::describe_cannot_start;
 use crate::commands::daemon::uninstall::system_service::SystemServiceKeptCause;
-use crate::commands::open::AddressHandlerMissingError;
-use crate::confirmation::ConfirmationUnavailableError;
 
 /// A process exit code the command line returns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,6 +99,15 @@ pub(crate) struct UnmappedExitCodeError {
 /// cause, and its text is the line `error:` prints.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CommandFailure {
+    /// The command needs a yes, and neither a terminal to ask at nor `--yes` gives one.
+    #[error("no terminal is here to confirm the command: run it again with --yes")]
+    ConfirmationUnavailable,
+    /// No app on this computer is registered for `sidekicks://` addresses.
+    #[error(
+        "No app on this computer opens sidekicks:// addresses. Install the AI Sidekicks app, then \
+         try again."
+    )]
+    AddressHandlerMissing,
     /// The background service answered, so a command that needs it stopped was refused before it
     /// asked or changed anything.
     #[error(
@@ -231,7 +238,9 @@ impl CommandFailure {
             | Self::DaemonExited { .. }
             | Self::InstalledNotAnswering { .. }
             | Self::RegisteredNotAnswering { .. }
-            | Self::SecretsKeychainLocked => ExitCode::Unavailable,
+            | Self::SecretsKeychainLocked
+            | Self::AddressHandlerMissing => ExitCode::Unavailable,
+            Self::ConfirmationUnavailable => ExitCode::Usage,
             Self::AppOwnsService
             | Self::TurnedOffInLoginItems
             | Self::AppServiceTurnedOff
@@ -267,23 +276,19 @@ pub(crate) fn describe_child_ending(exit: &ChildExit) -> String {
 }
 
 /// How a failed run ends, from the first cause in its chain that names an ending: an argument
-/// refusal or a confirmation no one can answer, a failure the command line found itself by its
-/// kind, an app for an address that is not there, a daemon that is not answering, a closed output
-/// pipe, the daemon's error by its number (a domain refusal by its category), a call canceled after
-/// a Ctrl-C; any other failure is a
-/// software error. Fails with [`UnmappedExitCodeError`] for a daemon number with no exit code.
+/// refusal, a failure the command line found itself by its kind, a daemon that is not answering, a
+/// closed output pipe, the daemon's error by its number (a domain refusal by its category), a call
+/// canceled after a Ctrl-C; any other failure is a software error. Fails with
+/// [`UnmappedExitCodeError`] for a daemon number with no exit code.
 pub(crate) fn exit_code_for_failure(
     failure: &anyhow::Error,
 ) -> Result<ProcessEnding, UnmappedExitCodeError> {
     for cause in failure.chain() {
-        if cause.is::<clap::Error>() || cause.is::<ConfirmationUnavailableError>() {
+        if cause.is::<clap::Error>() {
             return Ok(ProcessEnding::Exit(ExitCode::Usage));
         }
         if let Some(command_failure) = cause.downcast_ref::<CommandFailure>() {
             return Ok(ProcessEnding::Exit(command_failure.exit_code()));
-        }
-        if cause.is::<AddressHandlerMissingError>() {
-            return Ok(ProcessEnding::Exit(ExitCode::Unavailable));
         }
         if let Some(client_error) = cause.downcast_ref::<ClientError>() {
             return exit_code_for_client_error(client_error);
@@ -375,8 +380,6 @@ mod tests {
     use super::{CommandFailure, ExitCode, ProcessEnding, exit_code_for_failure};
     use crate::commands::daemon::install::system_service::LoggedOutServiceRefusal;
     use crate::commands::daemon::uninstall::system_service::SystemServiceKeptCause;
-    use crate::commands::open::AddressHandlerMissingError;
-    use crate::confirmation::ConfirmationUnavailableError;
     use crate::program::Cli;
 
     fn remote(code: JsonRpcErrorCode, category: Option<RefusalCategory>) -> anyhow::Error {
@@ -526,11 +529,11 @@ mod tests {
         ProcessEnding::Exit(ExitCode::Usage)
     )]
     #[case::no_terminal_to_confirm(
-        ConfirmationUnavailableError.into(),
+        CommandFailure::ConfirmationUnavailable.into(),
         ProcessEnding::Exit(ExitCode::Usage)
     )]
     #[case::no_app_for_the_address(
-        AddressHandlerMissingError.into(),
+        CommandFailure::AddressHandlerMissing.into(),
         ProcessEnding::Exit(ExitCode::Unavailable)
     )]
     #[case::not_answering(

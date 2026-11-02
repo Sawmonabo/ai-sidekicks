@@ -12,6 +12,8 @@ use sidekicks_client::error::ClientError;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
+use crate::exit_codes::CommandFailure;
+
 /// The `--yes` flag a confirmed command takes.
 #[derive(Debug, Args)]
 pub(crate) struct ConfirmationArgs {
@@ -20,14 +22,9 @@ pub(crate) struct ConfirmationArgs {
     pub(crate) yes: bool,
 }
 
-/// The command needs a yes, and neither a terminal to ask at nor `--yes` gives one.
-#[derive(Debug, thiserror::Error)]
-#[error("no terminal is here to confirm the command: run it again with --yes")]
-pub(crate) struct ConfirmationUnavailableError;
-
 /// Asks `sentence` on `prompt` and answers whether the person said yes; `--yes` answers yes with
 /// nothing asked. The line is read on a thread of its own, so a Ctrl-C that cancels `cancel`
-/// ends the wait. Fails with [`ConfirmationUnavailableError`] when stdin is not a terminal and
+/// ends the wait. Fails with `CommandFailure::ConfirmationUnavailable` when stdin is not a terminal and
 /// `--yes` was not given, with `ClientError::Canceled` after a Ctrl-C, and when the prompt cannot
 /// be written or the answer read.
 pub(crate) async fn confirm(
@@ -40,7 +37,7 @@ pub(crate) async fn confirm(
         return Ok(true);
     }
     if !io::stdin().is_terminal() {
-        return Err(ConfirmationUnavailableError.into());
+        return Err(CommandFailure::ConfirmationUnavailable.into());
     }
     write!(prompt, "{sentence} [y/N] ")?;
     prompt.flush()?;

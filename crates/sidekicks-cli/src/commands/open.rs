@@ -9,7 +9,7 @@ use clap::error::ErrorKind;
 use clap::{Args, CommandFactory as _};
 use sidekicks_contracts::app_link::parse_app_link;
 
-use crate::exit_codes::ExitCode;
+use crate::exit_codes::{CommandFailure, ExitCode};
 use crate::program::Cli;
 
 /// The `open` command's argument.
@@ -19,16 +19,8 @@ pub(crate) struct OpenArgs {
     address: String,
 }
 
-/// No app on this computer is registered for `sidekicks://` addresses.
-#[derive(Debug, thiserror::Error)]
-#[error(
-    "No app on this computer opens sidekicks:// addresses. Install the AI Sidekicks app, then try \
-     again."
-)]
-pub(crate) struct AddressHandlerMissingError;
-
 /// Opens the address through the system and answers success. Fails with clap's usage refusal
-/// when the argument is not a `sidekicks://` address, with [`AddressHandlerMissingError`] when no
+/// when the argument is not a `sidekicks://` address, with `CommandFailure::AddressHandlerMissing` when no
 /// app is registered for one, and as the system's call fails otherwise.
 pub(crate) fn open(args: &OpenArgs) -> anyhow::Result<ExitCode> {
     open_with(&args.address, sidekicks_platforms::open_address)
@@ -57,7 +49,7 @@ fn open_with(
     match opener(address) {
         Ok(()) => Ok(ExitCode::Success),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            Err(AddressHandlerMissingError.into())
+            Err(CommandFailure::AddressHandlerMissing.into())
         }
         Err(error) => Err(error).context("could not open the address"),
     }
