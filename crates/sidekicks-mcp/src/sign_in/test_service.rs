@@ -7,12 +7,13 @@ use std::sync::{Arc, Mutex};
 use axum::Router;
 use axum::body::{Body, Bytes};
 use axum::extract::Request;
-use axum::http::StatusCode;
+use axum::http::header::AUTHORIZATION;
+use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::routing::{get, post};
 use reqwest::Url;
-use rmcp::transport::auth::AuthorizationManager;
+use rmcp::transport::auth::{AuthorizationManager, OAuthHttpClient};
 use rusqlite::params;
 use serde_json::{Value, json};
 use sidekicks_contracts::event::envelope::DAEMON_SCOPE_SENTINEL_SESSION_ID;
@@ -125,11 +126,16 @@ impl Harness {
     }
 
     /// The authorizer of the server at `base` under the sign-in the service holds for it, made
-    /// against the metadata the server publishes.
+    /// against the metadata the server publishes, through the service's filtered pools as the
+    /// daemon makes one.
     pub(crate) async fn authorizer(&self, base: &str) -> SignInAuthorizer {
-        let manager = AuthorizationManager::new(base)
-            .await
-            .expect("a manager for a loopback server");
+        let address = McpServerAddress::new(base).expect("a server address");
+        let manager = AuthorizationManager::new_with_oauth_http_client(
+            base,
+            Arc::new(self.service.pools.server_client(&address)) as Arc<dyn OAuthHttpClient>,
+        )
+        .await
+        .expect("a manager for a loopback server");
         let metadata = manager
             .resolve_metadata()
             .await
@@ -137,8 +143,8 @@ impl Harness {
             .metadata;
         SignInAuthorizer::new(
             &self.service.custody,
-            &McpServerAddress::new(base).expect("a server address"),
-            manager,
+            &self.service.pools,
+            &address,
             metadata,
             Arc::new(KeyedLock::default()),
         )
@@ -162,6 +168,8 @@ pub(crate) struct FakeAuthorizationServer {
     pub(crate) token_forms: Arc<Mutex<Vec<TokenForm>>>,
     /// The form of each revocation request, in order.
     pub(crate) revocation_forms: Arc<Mutex<Vec<TokenForm>>>,
+    /// The `Authorization` each revocation request carried, in order.
+    pub(crate) revocation_authorizations: Arc<Mutex<Vec<Option<String>>>>,
 }
 
 /// How the fake authorization server answers; by default it registers every client, answers
@@ -233,6 +241,8 @@ pub(crate) async fn serve_authorization_server(
     let received_forms = Arc::clone(&token_forms);
     let revocation_forms = Arc::new(Mutex::new(Vec::new()));
     let received_revocations = Arc::clone(&revocation_forms);
+    let revocation_authorizations = Arc::new(Mutex::new(Vec::new()));
+    let received_authorizations = Arc::clone(&revocation_authorizations);
     let counted = Arc::clone(&requests);
     let counted_tokens = Arc::clone(&token_requests);
     let router = Router::new()
@@ -282,7 +292,15 @@ pub(crate) async fn serve_authorization_server(
         )
         .route(
             "/revoke",
-            post(move |body: Bytes| async move {
+            post(move |headers: HeaderMap, body: Bytes| async move {
+                received_authorizations
+                    .lock()
+                    .expect("never poisoned")
+                    .push(
+                        headers
+                            .get(AUTHORIZATION)
+                            .map(|value| value.to_str().expect("a text header").to_owned()),
+                    );
                 received_revocations
                     .lock()
                     .expect("never poisoned")
@@ -302,6 +320,7 @@ pub(crate) async fn serve_authorization_server(
         token_requests,
         token_forms,
         revocation_forms,
+        revocation_authorizations,
     }
 }
 

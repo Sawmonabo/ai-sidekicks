@@ -24,6 +24,9 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
 use tokio::task::JoinSet;
 use tokio_util::sync::{CancellationToken, DropGuard};
+use url::Host;
+
+use crate::sign_in::oauth_http_client::address_policy::is_loopback_address;
 
 /// Connections served at once; a browser opens a few, and the rest wait in the listen queue.
 const MAX_CONNECTIONS: usize = 4;
@@ -171,7 +174,7 @@ pub struct RedirectListener {
 impl RedirectListener {
     /// Binds the listener. With no owner-issued `callback_url` it takes a free port on
     /// `127.0.0.1`, or on `[::1]` when IPv4 loopback is unusable; an owner-issued address sets the
-    /// host, port and path, `localhost` binding `127.0.0.1`. Fails with `NotHttp` or `NotLoopback`
+    /// host, port and path, a loopback name binding `127.0.0.1`. Fails with `NotHttp` or `NotLoopback`
     /// for an owner address the receiver must not bind, `UnusablePath` for a path it cannot route,
     /// and `Bind` when the system refuses.
     pub async fn bind(
@@ -281,25 +284,22 @@ async fn bind_free_loopback_port() -> io::Result<TcpListener> {
     }
 }
 
-/// The socket an owner-issued callback address binds: its loopback host, `localhost` as
-/// `127.0.0.1`, on its port.
+/// The socket an owner-issued callback address binds: its loopback host as the sign-in judges
+/// loopback, a name (`localhost`, a name under it) as `127.0.0.1` and an IPv4 address an IPv6 one
+/// carries as that address, on its port.
 fn owner_issued_address(callback_url: &Url) -> Result<SocketAddr, RedirectReceiverError> {
     if callback_url.scheme() != "http" {
         return Err(RedirectReceiverError::NotHttp {
             callback_url: callback_url.to_string(),
         });
     }
-    // `host_str` writes an IPv6 host in brackets and an IPv4 one already normalized.
-    let host = callback_url
-        .host_str()
-        .map(|host| host.trim_start_matches('[').trim_end_matches(']'))
-        .and_then(|host| {
-            if host.eq_ignore_ascii_case("localhost") {
-                Some(IpAddr::V4(Ipv4Addr::LOCALHOST))
-            } else {
-                host.parse::<IpAddr>().ok().filter(IpAddr::is_loopback)
-            }
-        });
+    let host = match callback_url.host() {
+        _ if !is_loopback_address(callback_url) => None,
+        Some(Host::Ipv4(ip)) => Some(IpAddr::V4(ip)),
+        Some(Host::Ipv6(ip)) => Some(ip.to_ipv4_mapped().map_or(IpAddr::V6(ip), IpAddr::V4)),
+        Some(Host::Domain(_)) => Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
+        None => None,
+    };
     let (Some(host), Some(port)) = (host, callback_url.port_or_known_default()) else {
         return Err(RedirectReceiverError::NotLoopback {
             callback_url: callback_url.to_string(),
@@ -715,5 +715,25 @@ mod tests {
             "{page}"
         );
         assert!(!page.contains("<script"), "{page}");
+    }
+
+    // Mutation: in `owner_issued_address`, accept only `localhost` and loopback literals, or bind
+    // a mapped IPv4 loopback as IPv6.
+    #[rstest::rstest]
+    #[case::a_name_under_localhost("http://app.localhost:7341/callback", Some("127.0.0.1:7341"))]
+    #[case::localhost_with_its_dot("http://LOCALHOST.:7341/callback", Some("127.0.0.1:7341"))]
+    #[case::a_mapped_ipv4_loopback("http://[::ffff:127.0.0.1]:7341/", Some("127.0.0.1:7341"))]
+    #[case::the_ipv6_loopback("http://[::1]:7341/", Some("[::1]:7341"))]
+    #[case::a_public_name("http://callback.example.com:7341/", None)]
+    #[case::https("https://localhost:7341/callback", None)]
+    fn an_owner_issued_callback_binds_its_loopback_host(
+        #[case] callback_url: &str,
+        #[case] socket: Option<&str>,
+    ) {
+        let bound = super::owner_issued_address(&Url::parse(callback_url).expect("a URL"));
+        assert_eq!(
+            bound.ok().map(|address| address.to_string()).as_deref(),
+            socket
+        );
     }
 }

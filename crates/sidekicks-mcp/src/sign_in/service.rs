@@ -9,13 +9,15 @@
 //!   The address goes back to the caller and nothing here keeps it.
 //! - **One attempt per server.** Attempts are kept by the server's canonical address. A new launch
 //!   ends the attempt before it, an attempt ends 15 minutes after it opened, and `close` ends
-//!   every attempt at the daemon's stop; each closes its listener, appends nothing, and marks that
-//!   the daemon's own client did not finish, so the next press goes to a provider's flow. A
-//!   provider's flow running for the server ends the same way, with no mark.
-//! - **Signed in.** The service keeps the set of servers that hold a sign-in, which each kept
-//!   sign-in adds to and each sign-out takes from.
+//!   every attempt at the daemon's stop; each closes its listener and appends nothing. An attempt
+//!   that ran out or that the stop ended marks that the daemon's own client did not finish, so
+//!   the next press goes to a provider's flow; a new launch is the person trying the same client
+//!   again and marks nothing. A provider's flow running for the server ends the same way, with
+//!   no mark.
+//! - **After a mark.** Where no provider's flow admits the server, the daemon's own client is the
+//!   only client there is: the mark clears and the same press signs in with the own client.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
@@ -33,10 +35,9 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::events::session::appender::SessionEventAppender;
-use tokio::sync::watch;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
-use crate::errors::McpRefusal;
+use crate::errors::{McpRefusal, SignInUnsupportedReason};
 use crate::oauth::dpop_proof::DpopKey;
 use crate::oauth::pushed_authorization::{AuthorizationRequestEndpoints, PushedAuthorizationError};
 use crate::oauth::redirect_receiver::{
@@ -46,6 +47,7 @@ use crate::sign_in::admitted_client::AdmittedClientStore;
 use crate::sign_in::canonical_server_address;
 use crate::sign_in::credential_store::SignInCustody;
 use crate::sign_in::oauth_http_client::{BrowserAddressError, OAuthHttpPools};
+use crate::sign_in::provider_flow::ProviderFlowStart;
 use crate::sign_in::redemption::{AttemptRedemption, ExpectedIssuer};
 use crate::sign_in::registration::{
     ClientRequest, RelayAddress, SignInClient, choose_client, classify_pushed_authorization_refusal,
@@ -166,8 +168,6 @@ pub(crate) struct SignInService {
     attempts: Mutex<Attempts>,
     /// Where each settled sign-in appends its completion event.
     pub(super) events: Arc<SessionEventAppender>,
-    /// The canonical addresses of the servers a sign-in is held for.
-    pub(super) signed_in_addresses: watch::Sender<BTreeSet<String>>,
     /// Stops every sign-out's revocation and every provider's flow still running, at `close` or
     /// when the service drops.
     pub(super) revocations: DropGuard,
@@ -207,6 +207,11 @@ impl SignInAttempt {
     pub(super) fn end(self) -> McpServerAddress {
         self.server.address
     }
+
+    /// The server's address as its binding declares it.
+    pub(super) fn address(&self) -> &McpServerAddress {
+        &self.server.address
+    }
 }
 
 /// Why a launch that finished after the daemon's stop began opened nothing.
@@ -242,38 +247,15 @@ impl SignInService {
             relay,
             attempts: Mutex::new(Attempts::default()),
             events,
-            signed_in_addresses: watch::Sender::new(BTreeSet::new()),
             revocations: CancellationToken::new().drop_guard(),
         })
-    }
-
-    /// The canonical addresses of the servers that hold a sign-in, as each sign-in is kept or
-    /// signed out.
-    pub(crate) fn signed_in_addresses(&self) -> watch::Receiver<BTreeSet<String>> {
-        self.signed_in_addresses.subscribe()
-    }
-
-    /// Marks the server at `canonical_address` as holding a sign-in.
-    pub(super) fn mark_signed_in(&self, canonical_address: &str) {
-        self.signed_in_addresses
-            .send_if_modified(|addresses| addresses.insert(canonical_address.to_owned()));
-    }
-
-    /// Marks the server at `canonical_address` as holding no sign-in.
-    #[cfg_attr(
-        test,
-        expect(dead_code, reason = "the sign-out marks the server signed out")
-    )]
-    pub(crate) fn mark_signed_out(&self, canonical_address: &str) {
-        self.signed_in_addresses
-            .send_if_modified(|addresses| addresses.remove(canonical_address));
     }
 
     /// Launches a sign-in to `target` asking for `scopes`, ending the server's open attempt
     /// first, through the daemon's own client or, where the server does not admit it, a provider's
     /// own, run for that provider's account in `provider_accounts`. Answers the address the browser
-    /// opens, which nothing else holds; refuses with `mcp.server.signInUnsupported` when the
-    /// binding or the server offers no sign-in the daemon or a provider can run, and
+    /// opens, which nothing else holds; refuses with `mcp.server.signInUnsupported`, naming why,
+    /// when the binding or the server offers no sign-in the daemon or a provider can run, and
     /// `mcp.server.signInFailed` when one could not be started.
     pub(crate) async fn launch(
         self: &Arc<Self>,
@@ -281,8 +263,9 @@ impl SignInService {
         scopes: &[String],
         provider_accounts: &ProviderAccounts,
     ) -> Result<Url, McpRefusal> {
-        let unsupported = || McpRefusal::ServerSignInUnsupported {
+        let unsupported = |reason| McpRefusal::ServerSignInUnsupported {
             binding: Box::new(target.binding.clone()),
+            reason,
         };
         let failed =
             |source: Box<dyn std::error::Error + Send + Sync>| McpRefusal::ServerSignInFailed {
@@ -290,13 +273,12 @@ impl SignInService {
                 source,
             };
         let Some(server) = addressed_server(target) else {
-            return Err(unsupported());
+            return Err(unsupported(SignInUnsupportedReason::NotReachedAtAddress));
         };
+        let since = self.custody.sign_out_generation(&server.address);
+        // A press that replaces a waiting attempt tries the same client again, so it marks nothing.
         if let Some(replaced) = self.take_attempt(&server.canonical_address, None) {
-            self.admitted_clients
-                .mark_own_client_unfinished(&replaced.end())
-                .await
-                .map_err(|error| failed(Box::new(error)))?;
+            replaced.end();
         }
         self.end_provider_flow(&server.canonical_address, None);
 
@@ -373,15 +355,44 @@ impl SignInService {
                 .map(|owner| owner.client_id.as_str()),
             scopes,
         };
-        let client = choose_client(
+        let mut client = choose_client(
             &request,
             &self.admitted_clients,
             self.relay,
             &mut manager,
             &http_client,
-            resolution,
+            resolution.clone(),
         )
         .await;
+        if matches!(client, SignInClient::OwnClientUnfinished) {
+            match self
+                .run_provider_flow(target, server, None, provider_accounts)
+                .await?
+            {
+                ProviderFlowStart::Opened(browser_url) => return Ok(browser_url),
+                ProviderFlowStart::NoneAdmits { failure } => {
+                    if let Some(failure) = failure {
+                        tracing::warn!(
+                            error = &*failure as &(dyn std::error::Error + 'static),
+                            "no provider's MCP sign-in started, so the daemon's own client signs in"
+                        );
+                    }
+                    self.admitted_clients
+                        .clear_own_client_unfinished(&server.address)
+                        .await
+                        .map_err(|error| failed(Box::new(error)))?;
+                    client = choose_client(
+                        &request,
+                        &self.admitted_clients,
+                        self.relay,
+                        &mut manager,
+                        &http_client,
+                        resolution,
+                    )
+                    .await;
+                }
+            }
+        }
         let own_client = match self
             .answer_other_client(target, server, client, provider_accounts)
             .await
@@ -391,7 +402,7 @@ impl SignInService {
         };
         // The daemon's own client with an owner's callback it cannot serve.
         let Some(listener) = listener else {
-            return Err(unsupported());
+            return Err(unsupported(SignInUnsupportedReason::OwnerCallbackUnserved));
         };
         let endpoints = match endpoints {
             Ok(endpoints) => endpoints,
@@ -400,19 +411,19 @@ impl SignInService {
                     error = &error as &(dyn std::error::Error + 'static),
                     "the authorization server's metadata names endpoints the sign-in cannot use"
                 );
-                return Err(unsupported());
+                return Err(unsupported(SignInUnsupportedReason::UnusableMetadata));
             }
         };
 
         let dpop_key =
             is_dpop.then(|| Arc::new(SecretBox::new(Box::new(DpopKey::generate().to_scalar()))));
-        if let Some(dpop_key) = &dpop_key {
-            http_client.set_dpop_key(Arc::clone(dpop_key));
-        }
+        http_client.set_dpop_key(dpop_key.clone());
+        let client_secret = own_client.client_secret.map(SecretString::from);
         manager.set_credential_store(self.custody.attempt_credential_store(
             &server.address,
+            since,
             dpop_key,
-            own_client.client_secret.map(SecretString::from),
+            client_secret.clone(),
         ));
         let scope_names: Vec<&str> = scopes.iter().map(String::as_str).collect();
         let authorization_url = manager
@@ -426,7 +437,7 @@ impl SignInService {
             .find_map(|(name, value)| (name == "state").then(|| value.into_owned()))
             .expect("rmcp's authorization address carries the request's state");
         let browser_url = match http_client
-            .browser_authorization_url(&endpoints, &authorization_url)
+            .browser_authorization_url(&endpoints, &authorization_url, client_secret.as_ref())
             .await
         {
             Ok(browser_url) => browser_url,
@@ -437,7 +448,10 @@ impl SignInService {
                     .await
                 {
                     ControlFlow::Break(answer) => answer,
-                    ControlFlow::Continue(_own_client) => Err(unsupported()),
+                    // A refused pushed request never leaves the daemon's own client to use.
+                    ControlFlow::Continue(_own_client) => {
+                        Err(unsupported(SignInUnsupportedReason::NoProviderFlow))
+                    }
                 };
             }
             Err(error) => return Err(failed(Box::new(error))),
@@ -451,7 +465,6 @@ impl SignInService {
             expected_state,
             expected_issuer,
         )
-        .await
         .map_err(failed)?;
         Ok(browser_url)
     }
@@ -479,7 +492,8 @@ impl SignInService {
     }
 
     // The launch's answer for every client but the daemon's own, whose configuration continues
-    // the launch: a provider's flow is run, the provider the server admitted first.
+    // the launch: a provider's flow is run, the provider the server admitted first, and no
+    // provider's flow refuses the sign-in with the failure of the one asked, or as unsupported.
     async fn answer_other_client(
         self: &Arc<Self>,
         target: &SignInTarget,
@@ -488,17 +502,38 @@ impl SignInService {
         provider_accounts: &ProviderAccounts,
     ) -> ControlFlow<Result<Url, McpRefusal>, OAuthClientConfig> {
         let binding = Box::new(target.binding.clone());
-        ControlFlow::Break(match client {
+        let admitted_provider = match client {
             SignInClient::OwnClient(own_client) => return ControlFlow::Continue(own_client),
-            SignInClient::Unsupported => Err(McpRefusal::ServerSignInUnsupported { binding }),
+            SignInClient::Unsupported { reason } => {
+                return ControlFlow::Break(Err(McpRefusal::ServerSignInUnsupported {
+                    binding,
+                    reason,
+                }));
+            }
             SignInClient::Failed { source } => {
-                Err(McpRefusal::ServerSignInFailed { binding, source })
+                return ControlFlow::Break(Err(McpRefusal::ServerSignInFailed { binding, source }));
             }
-            SignInClient::ProviderFlow { admitted_provider } => {
-                self.run_provider_flow(target, server, admitted_provider, provider_accounts)
-                    .await
-            }
-        })
+            SignInClient::ProviderFlow { admitted_provider } => admitted_provider,
+            SignInClient::OwnClientUnfinished => None,
+        };
+        ControlFlow::Break(
+            match self
+                .run_provider_flow(target, server, admitted_provider, provider_accounts)
+                .await
+            {
+                Ok(ProviderFlowStart::Opened(browser_url)) => Ok(browser_url),
+                Ok(ProviderFlowStart::NoneAdmits {
+                    failure: Some(source),
+                }) => Err(McpRefusal::ServerSignInFailed { binding, source }),
+                Ok(ProviderFlowStart::NoneAdmits { failure: None }) => {
+                    Err(McpRefusal::ServerSignInUnsupported {
+                        binding,
+                        reason: SignInUnsupportedReason::NoProviderFlow,
+                    })
+                }
+                Err(refusal) => Err(refusal),
+            },
+        )
     }
 
     /// Keeps `flow`, the guard that stops a provider's flow for the server at `canonical_address`,
@@ -543,9 +578,10 @@ impl SignInService {
         drop(ended);
     }
 
-    // Keeps the attempt, its receiver serving and its timer started, ending any attempt a racing
-    // launch kept for the same server. Fails once the daemon's stop has begun, the attempt dropped.
-    async fn open_attempt(
+    // Keeps the attempt, its receiver serving and its timer started, ending with no mark any attempt
+    // a racing launch kept for the same server, a press of its own. Fails once the daemon's stop
+    // has begun, the attempt dropped.
+    fn open_attempt(
         self: &Arc<Self>,
         target: &SignInTarget,
         server: &AddressedServer,
@@ -581,7 +617,7 @@ impl SignInService {
                 .insert(server.canonical_address.clone(), attempt)
         };
         if let Some(replaced) = replaced {
-            self.mark_unfinished_logged(&replaced.end()).await;
+            replaced.end();
         }
         Ok(())
     }
@@ -625,9 +661,9 @@ impl SignInService {
         }
     }
 
-    // Marks that the daemon's own client did not finish at `address`, logging a mark that does not
-    // keep where no caller waits on it.
-    async fn mark_unfinished_logged(&self, address: &McpServerAddress) {
+    /// Marks that the daemon's own client did not finish at `address`, logging a mark that does not
+    /// keep where no caller waits on it.
+    pub(super) async fn mark_unfinished_logged(&self, address: &McpServerAddress) {
         if let Err(error) = self
             .admitted_clients
             .mark_own_client_unfinished(address)
@@ -660,12 +696,13 @@ mod tests {
     use reqwest::Url;
     use rstest::rstest;
     use sidekicks_contracts::mcp::server::McpServerBindingRef;
+    use sidekicks_contracts::mcp::server::config::McpServerAddress;
     use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
     use super::{ATTEMPT_LIFETIME, ProviderAccounts, SignInServer, SignInTarget};
     use crate::errors::McpRefusal;
     use crate::sign_in::test_service::{
-        FakeServerAnswers, addressed_target, harness, launch_to_browser, provider,
+        FakeServerAnswers, Harness, addressed_target, harness, launch_to_browser, provider,
         serve_authorization_server, server_name,
     };
 
@@ -687,66 +724,95 @@ mod tests {
             .is_ok()
     }
 
+    // The waiting attempt's mark, once the database writer kept it, bounded on the real clock.
+    async fn is_marked_unfinished(harness: &Harness, address: &McpServerAddress) -> bool {
+        for _ in 0..500 {
+            let is_marked = harness
+                .admitted_clients
+                .read(address)
+                .await
+                .expect("the admitted client reads")
+                .is_some_and(|admitted| admitted.is_own_client_unfinished);
+            if is_marked {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        false
+    }
+
+    // Runs the waiting attempt's life out, so its timer ends it.
+    async fn run_out_the_attempt() {
+        tokio::time::pause();
+        // The attempt's timer arms its sleep on its task's first poll, which must come first.
+        tokio::task::yield_now().await;
+        tokio::time::advance(ATTEMPT_LIFETIME + Duration::from_secs(1)).await;
+        // The mark is written on the database writer's own thread, so what follows runs on the
+        // real clock.
+        tokio::time::resume();
+    }
+
+    /// A second press while an attempt waits is the person trying the daemon's own client again:
+    /// the first attempt's listener closes, nothing is marked or appended, and the second press
+    /// opens the own client's browser again. Killed by marking the replaced attempt unfinished
+    /// (a row is written), and by keeping the first listener open.
     #[tokio::test]
-    async fn a_second_launch_for_a_server_closes_the_first_attempts_listener() {
+    async fn a_second_launch_for_a_server_closes_the_first_attempt_and_marks_nothing() {
         let server = serve_authorization_server(FakeServerAnswers::default()).await;
         let harness = harness().await;
         let target = addressed_target(&server.base);
         let first_port = receiver_port(&launch_to_browser(&harness, &target).await);
         assert!(is_listening(first_port).await);
 
-        let second = harness
-            .service
-            .launch(&target, &[], &ProviderAccounts::new())
-            .await;
+        let second_port = receiver_port(&launch_to_browser(&harness, &target).await);
 
         assert!(!is_listening(first_port).await);
-        // The first attempt ended unfinished, so the second press goes to a provider's flow, which
-        // no registered provider offers here.
-        assert!(matches!(
-            second,
-            Err(McpRefusal::ServerSignInUnsupported { .. })
-        ));
+        assert!(is_listening(second_port).await);
+        let address = McpServerAddress::new(&server.base).expect("a server address");
+        assert_eq!(
+            harness
+                .admitted_clients
+                .read(&address)
+                .await
+                .expect("the admitted client reads"),
+            None
+        );
         // A replaced attempt appends nothing.
         assert_eq!(harness.completions(), Vec::<serde_json::Value>::new());
     }
 
+    /// An attempt that runs out marks the own client unfinished, closes its listener and appends
+    /// nothing; at a server no provider's flow admits, the next press still reaches the daemon's
+    /// own client, the mark cleared. Killed by an expiry that marks nothing, and by a mark with
+    /// no exit (the press after it is refused as unsupported).
     #[tokio::test]
-    async fn an_attempt_ends_when_its_life_runs_out() {
+    async fn a_press_after_an_attempt_ran_out_reaches_the_own_client_where_no_provider_admits() {
         let server = serve_authorization_server(FakeServerAnswers::default()).await;
         let harness = harness().await;
         let target = addressed_target(&server.base);
         let port = receiver_port(&launch_to_browser(&harness, &target).await);
-        let SignInServer::Address(server) = &target.server else {
-            unreachable!("the target is reached at an address")
-        };
+        let address = McpServerAddress::new(&server.base).expect("a server address");
 
-        tokio::time::pause();
-        // The attempt's timer arms its sleep on its task's first poll, which must come first.
-        tokio::task::yield_now().await;
-        tokio::time::advance(ATTEMPT_LIFETIME + Duration::from_secs(1)).await;
-        // The mark is written on the database writer's own thread, so the wait runs on the real
-        // clock, bounded.
-        tokio::time::resume();
-        let mut is_marked = false;
-        for _ in 0..500 {
-            is_marked = harness
-                .admitted_clients
-                .read(&server.address)
-                .await
-                .expect("the admitted client reads")
-                .is_some_and(|admitted| admitted.is_own_client_unfinished);
-            if is_marked {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        run_out_the_attempt().await;
 
-        assert!(is_marked);
+        assert!(is_marked_unfinished(&harness, &address).await);
         assert!(!is_listening(port).await);
         assert!(super::lock(&harness.service.attempts).by_address.is_empty());
         // An attempt that ran out appends nothing.
         assert_eq!(harness.completions(), Vec::<serde_json::Value>::new());
+
+        let next_port = receiver_port(&launch_to_browser(&harness, &target).await);
+
+        assert!(is_listening(next_port).await);
+        assert_eq!(
+            harness
+                .admitted_clients
+                .read(&address)
+                .await
+                .expect("the admitted client reads")
+                .map(|admitted| admitted.is_own_client_unfinished),
+            Some(false)
+        );
     }
 
     #[rstest]

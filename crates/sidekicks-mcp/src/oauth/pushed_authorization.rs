@@ -5,7 +5,8 @@
 //! - The post's body is the query of the authorization address already built (`client_id`,
 //!   `state`, the PKCE challenge, `redirect_uri`, `resource`, the scopes), so none of them reaches
 //!   the browser's history. For a `DPoP` sign-in the post carries a proof, which binds the code to
-//!   the key (RFC 9449 §10.1).
+//!   the key (RFC 9449 §10.1). A confidential client authenticates the post as it does at the
+//!   token endpoint (RFC 9126 §2), by the method the token endpoint's metadata names.
 //! - A server with no pushed-request endpoint gets the plain address, which for a `DPoP` sign-in
 //!   names the key's thumbprint in `dpop_jkt` (RFC 9449 §10).
 //! - `invalid_client` and `unauthorized_client` say the server does not admit this client, so they
@@ -16,10 +17,14 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use reqwest::header::CONTENT_TYPE;
+use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use reqwest::{Method, StatusCode, Url};
+use secrecy::SecretString;
 use serde_json::Value;
 
+use super::client_authentication::{
+    ClientSecretAuthentication, ClientSecretMethod, TOKEN_ENDPOINT_AUTH_METHODS,
+};
 use super::dpop_proof::{
     AuthorizationServerResponse, DpopKey, DpopSendError, read_response, send_signed,
 };
@@ -38,6 +43,7 @@ pub struct AuthorizationRequestEndpoints {
     authorization: Url,
     pushed_authorization_request: Option<Url>,
     are_pushed_requests_required: bool,
+    pushed_request_authentication: ClientSecretMethod,
 }
 
 impl AuthorizationRequestEndpoints {
@@ -66,6 +72,10 @@ impl AuthorizationRequestEndpoints {
             authorization,
             pushed_authorization_request,
             are_pushed_requests_required,
+            pushed_request_authentication: ClientSecretMethod::from_metadata(
+                additional_fields,
+                TOKEN_ENDPOINT_AUTH_METHODS,
+            ),
         })
     }
 
@@ -150,8 +160,9 @@ pub enum PushedAuthorizationError {
 
 /// The address the browser opens for the authorization request `authorization_url` (built for
 /// `endpoints.authorization`, its query holding the request's parameters and `client_id`). With a
-/// pushed-request endpoint the query is posted there over `http`, signed when `dpop` is given, and
-/// the address carries only `client_id` and the answered `request_uri`; without one it is
+/// pushed-request endpoint the query is posted there over `http`, signed when `dpop` is given and
+/// authenticated with `client_secret` for a confidential client, and the address carries only
+/// `client_id` and the answered `request_uri`; without one it is
 /// `authorization_url`, plus `dpop_jkt` for a `DPoP` sign-in. Fails on `invalid_client` or
 /// `unauthorized_client`, and on any failed post where the server requires pushed requests.
 pub async fn browser_authorization_url(
@@ -159,6 +170,7 @@ pub async fn browser_authorization_url(
     endpoints: &AuthorizationRequestEndpoints,
     authorization_url: &Url,
     dpop: Option<DpopSigning<'_>>,
+    client_secret: Option<&SecretString>,
 ) -> Result<Url, PushedAuthorizationError> {
     let Some(pushed_endpoint) = &endpoints.pushed_authorization_request else {
         return Ok(plain_url(authorization_url, dpop.as_ref()));
@@ -167,7 +179,20 @@ pub async fn browser_authorization_url(
         .query_pairs()
         .find_map(|(name, value)| (name == "client_id").then(|| value.into_owned()))
         .ok_or(PushedAuthorizationError::NoClientId)?;
-    match push(http, pushed_endpoint, authorization_url, dpop.as_ref()).await {
+    let authentication = client_secret.map(|client_secret| ClientSecretAuthentication {
+        client_id: &client_id,
+        client_secret,
+        method: endpoints.pushed_request_authentication,
+    });
+    let pushed = push(
+        http,
+        pushed_endpoint,
+        authorization_url,
+        dpop.as_ref(),
+        authentication.as_ref(),
+    )
+    .await;
+    match pushed {
         Ok(request_uri) => {
             let mut url = endpoints.authorization.clone();
             url.query_pairs_mut()
@@ -202,17 +227,27 @@ fn plain_url(authorization_url: &Url, dpop: Option<&DpopSigning<'_>>) -> Url {
     url
 }
 
-// Posts `authorization_url`'s query to `endpoint` and returns the `request_uri` answered.
+// Posts `authorization_url`'s query to `endpoint`, authenticated by `authentication` where the
+// client is confidential, and returns the `request_uri` answered.
 async fn push(
     http: &reqwest::Client,
     endpoint: &Url,
     authorization_url: &Url,
     dpop: Option<&DpopSigning<'_>>,
+    authentication: Option<&ClientSecretAuthentication<'_>>,
 ) -> Result<String, PushedAuthorizationError> {
-    let body = authorization_url.query().unwrap_or_default().to_owned();
+    let mut body = authorization_url.query().unwrap_or_default().to_owned();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("application/x-www-form-urlencoded"),
+    );
+    if let Some(authentication) = authentication {
+        authentication.authenticate(&mut body, &mut headers);
+    }
     let finish = |request: reqwest::RequestBuilder| {
         request
-            .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .headers(headers.clone())
             .timeout(PUSHED_AUTHORIZATION_TIMEOUT)
             .body(body.clone())
     };
@@ -260,10 +295,12 @@ mod tests {
 
     use axum::Router;
     use axum::body::Body;
-    use axum::http::StatusCode;
+    use axum::http::{HeaderMap, StatusCode};
     use axum::response::Response;
     use axum::routing::post;
     use reqwest::Url;
+    use rstest::rstest;
+    use secrecy::SecretString;
     use serde_json::{Value, json};
     use sidekicks_std::mutex_lock::lock;
 
@@ -295,15 +332,21 @@ mod tests {
             .collect()
     }
 
+    /// What the fake `/par` was posted: each body and the `Authorization` it carried.
+    type Posted = Arc<Mutex<Vec<(String, Option<String>)>>>;
+
     // A fake authorization server whose `/par` answers `status` with `answer` and records each
-    // body it is posted. Returns its base address and the record.
-    async fn serve_par(status: StatusCode, answer: Value) -> (String, Arc<Mutex<Vec<String>>>) {
-        let bodies: Arc<Mutex<Vec<String>>> = Arc::default();
+    // post. Returns its base address and the record.
+    async fn serve_par(status: StatusCode, answer: Value) -> (String, Posted) {
+        let bodies: Posted = Arc::default();
         let recorded = Arc::clone(&bodies);
         let router = Router::new().route(
             "/par",
-            post(move |body: String| async move {
-                lock(&recorded).push(body);
+            post(move |headers: HeaderMap, body: String| async move {
+                let authorization = headers
+                    .get("authorization")
+                    .map(|value| value.to_str().expect("a text header").to_owned());
+                lock(&recorded).push((body, authorization));
                 Response::builder()
                     .status(status)
                     .header("content-type", "application/json")
@@ -345,6 +388,7 @@ mod tests {
             &endpoints,
             &authorization_url(&format!("{base}/authorize")),
             None,
+            None,
         )
         .await
         .expect("an address");
@@ -361,7 +405,7 @@ mod tests {
             ])
         );
         let posted = lock(&bodies).clone();
-        let [body] = &posted[..] else {
+        let [(body, _authorization)] = &posted[..] else {
             panic!("one pushed request");
         };
         let body = pairs(body);
@@ -392,6 +436,7 @@ mod tests {
             &endpoints,
             &authorization_url(&format!("{base}/authorize")),
             None,
+            None,
         )
         .await;
 
@@ -418,6 +463,7 @@ mod tests {
                 key: &key,
                 nonce: &nonce,
             }),
+            None,
         )
         .await
         .expect("an address");
@@ -426,5 +472,57 @@ mod tests {
         assert_eq!(opened_pairs["dpop_jkt"], key.thumbprint());
         assert_eq!(opened_pairs["code_challenge"], "challenge-51aa");
         assert_eq!(opened_pairs["state"], "state-9e2c");
+    }
+
+    // A confidential client authenticates its pushed request by the method the token endpoint's
+    // metadata names, Basic where it names none. Mutations: send no secret; send it in the form
+    // where the metadata names only Basic; leave the id or the secret unencoded in the header.
+    #[rstest]
+    #[case::no_method_named(json!({}), None, Some("Basic Y2xpZW50LTRiMWQ6cyUzQWVjcmV0"))]
+    #[case::basic_and_post_named(
+        json!({ "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"] }),
+        None,
+        Some("Basic Y2xpZW50LTRiMWQ6cyUzQWVjcmV0")
+    )]
+    #[case::post_named(
+        json!({ "token_endpoint_auth_methods_supported": ["client_secret_post"] }),
+        Some("s:ecret"),
+        None
+    )]
+    #[tokio::test]
+    async fn a_confidential_clients_pushed_request_carries_its_secret_by_the_named_method(
+        #[case] methods: Value,
+        #[case] form_secret: Option<&str>,
+        #[case] authorization: Option<&str>,
+    ) {
+        let (base, bodies) = serve_par(
+            StatusCode::CREATED,
+            json!({ "request_uri": "urn:ietf:params:oauth:request_uri:6esc", "expires_in": 60 }),
+        )
+        .await;
+        let mut fields = methods;
+        fields["pushed_authorization_request_endpoint"] = json!(format!("{base}/par"));
+        let endpoints = endpoints(&base, fields);
+        let client_secret = SecretString::from("s:ecret");
+
+        browser_authorization_url(
+            &reqwest::Client::new(),
+            &endpoints,
+            &authorization_url(&format!("{base}/authorize")),
+            None,
+            Some(&client_secret),
+        )
+        .await
+        .expect("an address");
+
+        let posted = lock(&bodies).clone();
+        let [(body, sent_authorization)] = &posted[..] else {
+            panic!("one pushed request");
+        };
+        assert_eq!(
+            pairs(body).get("client_secret").map(String::as_str),
+            form_secret
+        );
+        assert_eq!(sent_authorization.as_deref(), authorization);
     }
 }

@@ -39,7 +39,7 @@ use reqwest::{Method, RequestBuilder, StatusCode, Url};
 use rmcp::transport::auth::{
     OAuthHttpClient, OAuthHttpClientFuture, OAuthHttpRedirectPolicy, OAuthHttpRequest,
 };
-use secrecy::ExposeSecret as _;
+use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::Value;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_std::mutex_lock::lock;
@@ -56,7 +56,7 @@ use crate::sign_in::oauth_http_client::address_policy::{
     AddressClass, AddressPolicy, ServerReach, is_cloud_metadata_name, normalized_host,
 };
 
-pub(super) mod address_policy;
+pub(crate) mod address_policy;
 
 /// The bound on one OAuth call when its caller sets none: rmcp's own for its OAuth calls.
 pub(super) const CALL_TIMEOUT: Duration = Duration::from_secs(30);
@@ -258,9 +258,9 @@ pub(crate) enum OAuthCallError {
 )]
 impl ServerOAuthHttpClient {
     /// Signs the server's token, pushed authorization and revocation requests with `dpop_key` from
-    /// now on.
-    pub(crate) fn set_dpop_key(&self, dpop_key: Arc<DpopKeyScalar>) {
-        *lock(&self.dpop_key) = Some(dpop_key);
+    /// now on, or none of them for a bearer sign-in.
+    pub(crate) fn set_dpop_key(&self, dpop_key: Option<Arc<DpopKeyScalar>>) {
+        *lock(&self.dpop_key) = dpop_key;
     }
 
     /// What the last registration request got, or that none was sent.
@@ -292,12 +292,14 @@ impl ServerOAuthHttpClient {
 
     /// The address the browser opens for `authorization_url`: where `endpoints` name a
     /// pushed-request endpoint, the request goes there over this server's pool once the endpoint
-    /// passes the server's address filter, signed when the key slot is filled and sending the
-    /// nonce slot's nonce. Fails with [`BrowserAddressError`].
+    /// passes the server's address filter, signed when the key slot is filled, sending the nonce
+    /// slot's nonce and authenticated with `client_secret` for a confidential client. Fails with
+    /// [`BrowserAddressError`].
     pub(crate) async fn browser_authorization_url(
         &self,
         endpoints: &AuthorizationRequestEndpoints,
         authorization_url: &Url,
+        client_secret: Option<&SecretString>,
     ) -> Result<Url, BrowserAddressError> {
         if let Some(endpoint) = endpoints.pushed_authorization_request()
             && !self.policy.allows_url(endpoint)
@@ -313,7 +315,14 @@ impl ServerOAuthHttpClient {
             key,
             nonce: &self.nonce,
         });
-        Ok(browser_authorization_url(&self.http, endpoints, authorization_url, dpop).await?)
+        Ok(browser_authorization_url(
+            &self.http,
+            endpoints,
+            authorization_url,
+            dpop,
+            client_secret,
+        )
+        .await?)
     }
 
     // Sends `call`, following its redirects when it asks to, each target judged first.
@@ -709,7 +718,7 @@ mod tests {
         for path in ["first", "second"] {
             let client = pools.server_client(&server(&format!("http://127.0.0.1:1/{path}")));
             let key = DpopKey::generate();
-            client.set_dpop_key(Arc::new(SecretBox::new(Box::new(key.to_scalar()))));
+            client.set_dpop_key(Some(Arc::new(SecretBox::new(Box::new(key.to_scalar())))));
             let mut headers = HeaderMap::new();
             headers.insert(
                 CONTENT_TYPE,

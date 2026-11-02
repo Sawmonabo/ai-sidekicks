@@ -3,15 +3,18 @@
 //! - **Which provider.** The provider the server admitted before goes first, then the binding's,
 //!   then every other registered provider in the registry's order; one with no account handed in
 //!   is passed over, and one whose driver finds no entry of the person's for the binding (it has
-//!   no flow for the server) hands on to the next. Any other failure before the browser opens
-//!   refuses the launch with its cause, and no provider left refuses it as unsupported.
+//!   no flow for the server) hands on to the next. Any other failure before the browser opens, or
+//!   no provider left, means no provider's flow admits the server; the launch decides what follows.
 //! - **The browser.** The driver names the address the browser opens, which the launch answers.
 //!   The flow goes on in a task the daemon's stop, a sign-out or a new launch for the server ends.
 //!   The browser comes back to a loopback receiver bound for this flow, whose return is handed to
-//!   the driver whole, and the browser is shown the flow's outcome.
-//! - **The completion.** A completed flow's credentials are kept as the server's sign-in, the
-//!   server is marked signed in, the provider is recorded as the client the server admits, and the
-//!   completion event is appended; a failed one appends its failure and records nothing.
+//!   the driver whole, and the browser is shown the flow's outcome; a driver that gave up the
+//!   return before naming its address (its provider's own listener takes it) gets no receiver,
+//!   and the listener closes.
+//! - **The completion.** A completed flow's credentials are kept as the server's sign-in, which
+//!   marks it signed in, unless the server was signed out since the flow began; the provider is
+//!   recorded as the client the server admits, and the completion event is appended; a failed one
+//!   appends its failure and records nothing.
 
 #![cfg_attr(
     not(test),
@@ -52,6 +55,7 @@ use crate::oauth::redirect_receiver::{
     RedirectReceiver, ResultPage,
 };
 use crate::sign_in::completion_event::{SignInFailureReason, append_sign_in_completed};
+use crate::sign_in::credential_store::SignOutGeneration;
 use crate::sign_in::redemption::REDEMPTION_BOUND;
 use crate::sign_in::service::{
     ATTEMPT_LIFETIME, AddressedServer, ProviderAccounts, SignInService, SignInTarget,
@@ -60,6 +64,19 @@ use crate::sign_in::service::{
 /// What a driver's flow came to: its credentials or its failure, or `None` when it was ended
 /// first.
 type FlowEnd = Option<Result<ProviderSignInTakeover, DriverError>>;
+
+/// How a provider's flow began: the address the browser opens, or that no provider's flow admits
+/// the server.
+pub(super) enum ProviderFlowStart {
+    /// A driver named the address the browser opens; the flow goes on behind it.
+    Opened(Url),
+    /// No provider offers a flow for the server, or the one asked failed before the browser
+    /// opened, with that failure.
+    NoneAdmits {
+        /// Why the provider asked failed; `None` when no provider offers a flow.
+        failure: Option<Box<dyn std::error::Error + Send + Sync>>,
+    },
+}
 
 /// Why a provider's flow ended before the browser opened, where its driver gave no failure.
 #[derive(Debug, thiserror::Error)]
@@ -81,21 +98,23 @@ struct RunningFlow {
     provider: ProviderId,
     flow_id: u64,
     stop: CancellationToken,
+    // The server's sign-outs when the flow began; a later one keeps the flow's sign-in out.
+    since: SignOutGeneration,
 }
 
 impl SignInService {
     /// Runs a provider's own flow to sign in to `target`'s `server`, the provider the server
     /// admitted first when it names one, each for its account in `provider_accounts`; answers the
-    /// address the browser opens once a driver names one. Refuses with
-    /// `mcp.server.signInUnsupported` when no provider offers a flow for the server, and with
-    /// `mcp.server.signInFailed`, carrying the cause, when a flow could not be started.
+    /// address the browser opens once a driver names one, or that no provider's flow admits the
+    /// server. Refuses with `mcp.server.signInFailed`, carrying the cause, when the flow's
+    /// listener cannot be bound or the daemon is stopping.
     pub(super) async fn run_provider_flow(
         self: &Arc<Self>,
         target: &SignInTarget,
         server: &AddressedServer,
         admitted_provider: Option<ProviderId>,
         provider_accounts: &ProviderAccounts,
-    ) -> Result<Url, McpRefusal> {
+    ) -> Result<ProviderFlowStart, McpRefusal> {
         let failed =
             |source: Box<dyn std::error::Error + Send + Sync>| McpRefusal::ServerSignInFailed {
                 binding: Box::new(target.binding.clone()),
@@ -105,6 +124,7 @@ impl SignInService {
             RedirectListener::bind(None, CallbackPath::PerServer(&server.canonical_address))
                 .await
                 .map_err(|error| failed(Box::new(error)))?;
+        let since = self.custody.sign_out_generation(&server.address);
         let stop = self.revocations.token().child_token();
         let flow_id = self
             .keep_provider_flow(&server.canonical_address, stop.clone().drop_guard())
@@ -160,9 +180,12 @@ impl SignInService {
                     provider,
                     flow_id,
                     stop,
+                    since,
                 };
+                // A driver whose provider's own listener takes the return gave it up already.
+                let listener = (!browser_return.is_closed()).then_some(listener);
                 self.follow_flow(running, flow, listener, &browser_url, browser_return);
-                return Ok(browser_url);
+                return Ok(ProviderFlowStart::Opened(browser_url));
             }
             let failure: Box<dyn std::error::Error + Send + Sync> = match (&mut flow).await {
                 Ok(Some(Err(DriverError::NoPersonServerEntry(_)))) => {
@@ -178,22 +201,22 @@ impl SignInService {
                 Err(error) => Box::new(error),
             };
             self.end_provider_flow(&server.canonical_address, Some(flow_id));
-            return Err(failed(failure));
+            return Ok(ProviderFlowStart::NoneAdmits {
+                failure: Some(failure),
+            });
         }
         self.end_provider_flow(&server.canonical_address, Some(flow_id));
-        Err(McpRefusal::ServerSignInUnsupported {
-            binding: Box::new(target.binding.clone()),
-        })
+        Ok(ProviderFlowStart::NoneAdmits { failure: None })
     }
 
     // Follows `flow` once its browser opened `browser_url`: serves the browser's return on
-    // `listener`, matched by the `state` the address carries, and settles the flow when it ends,
-    // unless `running`'s stop ends it first.
+    // `listener`, where the driver waits for one, matched by the `state` the address carries, and
+    // settles the flow when it ends, unless `running`'s stop ends it first.
     fn follow_flow(
         self: &Arc<Self>,
         running: RunningFlow,
         flow: AbortOnDropHandle<FlowEnd>,
-        listener: RedirectListener,
+        listener: Option<RedirectListener>,
         browser_url: &Url,
         browser_return: oneshot::Sender<Url>,
     ) {
@@ -205,15 +228,15 @@ impl SignInService {
         });
         // A return with no `state` to match cannot be told from another page's request, so an
         // address carrying none is opened with no receiver behind it.
-        let receiver = browser_url
+        let state = browser_url
             .query_pairs()
-            .find_map(|(name, value)| (name == "state").then(|| value.into_owned()))
-            .map(|state| {
-                listener.receive(
-                    state,
-                    Arc::clone(&forward) as Arc<dyn RedirectCallbackOwner>,
-                )
-            });
+            .find_map(|(name, value)| (name == "state").then(|| value.into_owned()));
+        let receiver = listener.zip(state).map(|(listener, state)| {
+            listener.receive(
+                state,
+                Arc::clone(&forward) as Arc<dyn RedirectCallbackOwner>,
+            )
+        });
         // The task holds the service weakly, so a flow under way never keeps it alive.
         let service = Arc::downgrade(self);
         tokio::spawn(async move {
@@ -273,9 +296,9 @@ impl SignInService {
     }
 
     // Keeps `takeover` as the server's sign-in under its custody lock, its client's secret beside
-    // the credentials, marks the server signed in
-    // and records the provider as the client the server admits, which also clears the mark that
-    // the daemon's own client did not finish. Answers why the sign-in was not kept.
+    // the credentials, which marks the server signed in unless it was signed out since the flow
+    // began, and records the provider as the client the server admits, which also clears the mark
+    // that the daemon's own client did not finish. Answers why the sign-in was not kept.
     async fn keep_takeover(
         &self,
         running: &RunningFlow,
@@ -284,7 +307,7 @@ impl SignInService {
         let client_secret = takeover.client_secret.clone().map(SecretString::from);
         let saved = self
             .custody
-            .attempt_credential_store(&running.address, None, client_secret)
+            .attempt_credential_store(&running.address, running.since, None, client_secret)
             .save(stored_credentials(takeover, SystemTime::now()))
             .await;
         if let Err(error) = saved {
@@ -294,7 +317,6 @@ impl SignInService {
             );
             return Some(SignInFailureReason::SignInNotSaved);
         }
-        self.mark_signed_in(&running.canonical_address);
         if let Err(error) = self
             .admitted_clients
             .record_admitted_provider(&running.address, &running.provider)
@@ -572,7 +594,14 @@ mod tests {
                 .expect("the admitted client reads"),
             None
         );
-        assert!(harness.service.signed_in_addresses().borrow().is_empty());
+        assert!(
+            harness
+                .service
+                .custody
+                .signed_in_addresses()
+                .borrow()
+                .is_empty()
+        );
     }
 
     /// The binding's provider's flow is asked first, and the registry's other provider only once
@@ -635,7 +664,7 @@ mod tests {
             .mark_own_client_unfinished(&address)
             .await
             .expect("the mark is recorded");
-        let mut signed_in = harness.service.signed_in_addresses();
+        let mut signed_in = harness.service.custody.signed_in_addresses();
 
         harness
             .service

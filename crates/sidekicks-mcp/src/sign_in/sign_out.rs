@@ -1,7 +1,8 @@
-//! The sign-out of an MCP server: its held sign-in is read into memory, its keychain item removed,
-//! its waiting attempt or provider's flow ended and its address marked signed out; after the
-//! reply, its refresh token is revoked where the authorization server publishes a revocation
-//! endpoint (RFC 7009).
+//! The sign-out of an MCP server: under one hold of the server's custody its held sign-in is read,
+//! its keychain item removed, the sign-out counted and its address marked signed out; then its
+//! waiting attempt or provider's flow is ended, and after the reply its refresh token is revoked
+//! where the authorization server publishes a revocation endpoint (RFC 7009), a confidential
+//! client authenticating by the method the revocation endpoint's metadata names.
 //!
 //! - A removal the keychain refuses refuses the sign-out, and the sign-in stays held and in use:
 //!   nothing after the removal runs.
@@ -21,7 +22,10 @@ use rmcp::transport::auth::{AuthError, AuthorizationManager, OAuthHttpClient};
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 
 use crate::errors::McpRefusal;
-use crate::sign_in::credential_store::{HeldSignIn, SignInCustodyError};
+use crate::oauth::client_authentication::{
+    ClientSecretAuthentication, ClientSecretMethod, REVOCATION_ENDPOINT_AUTH_METHODS,
+};
+use crate::sign_in::credential_store::HeldSignIn;
 use crate::sign_in::oauth_http_client::{
     CALL_TIMEOUT, OAuthCall, OAuthCallError, ServerOAuthHttpClient,
 };
@@ -71,26 +75,16 @@ impl SignInService {
             binding: Box::new(target.binding.clone()),
             source: Box::new(source),
         };
-        let store = self.custody.credential_store(&server.address);
-        let held = match store.held().await {
-            Ok(held) => held,
-            Err(SignInCustodyError::Keychain(refusal)) => return Err(refused(refusal)),
-            // An item that is no sign-in holds no token to revoke; it is still removed.
-            Err(error @ SignInCustodyError::Unreadable { .. }) => {
-                tracing::warn!(
-                    error = &error as &(dyn std::error::Error + 'static),
-                    "an MCP server's kept sign-in did not read, so it is removed unrevoked"
-                );
-                None
-            }
-        };
-        store.remove().await.map_err(refused)?;
+        let held = self
+            .custody
+            .credential_store(&server.address)
+            .sign_out()
+            .await
+            .map_err(refused)?;
         if let Some(attempt) = self.take_attempt(&server.canonical_address, None) {
             attempt.end();
         }
         self.end_provider_flow(&server.canonical_address, None);
-        self.signed_in_addresses
-            .send_if_modified(|addresses| addresses.remove(&server.canonical_address));
         if let Some(held) = held {
             self.revoke_after_reply(server.address.clone(), held);
         }
@@ -122,8 +116,8 @@ impl SignInService {
 }
 
 // Posts `held`'s refresh token to the revocation endpoint `address`'s metadata publishes, through
-// `client`, signed with the sign-in's proof key when it holds one; no refresh token or no
-// published endpoint sends nothing.
+// `client`, signed with the sign-in's proof key when it holds one and authenticated with its
+// client's secret when it holds one; no refresh token or no published endpoint sends nothing.
 async fn revoke(
     client: Arc<ServerOAuthHttpClient>,
     address: &McpServerAddress,
@@ -156,10 +150,8 @@ async fn revoke(
         return Ok(());
     };
     let endpoint = Url::parse(endpoint).map_err(RevocationError::Endpoint)?;
-    if let Some(dpop_key) = &held.dpop_key {
-        client.set_dpop_key(Arc::clone(dpop_key));
-    }
-    let body = url::form_urlencoded::Serializer::new(String::new())
+    client.set_dpop_key(held.dpop_key.clone());
+    let mut body = url::form_urlencoded::Serializer::new(String::new())
         .append_pair("token", refresh_token.secret())
         .append_pair("token_type_hint", REFRESH_TOKEN_HINT)
         .append_pair("client_id", &held.credentials.client_id)
@@ -169,6 +161,17 @@ async fn revoke(
         CONTENT_TYPE,
         HeaderValue::from_static("application/x-www-form-urlencoded"),
     );
+    if let Some(client_secret) = &held.client_secret {
+        ClientSecretAuthentication {
+            client_id: &held.credentials.client_id,
+            client_secret,
+            method: ClientSecretMethod::from_metadata(
+                &resolution.metadata.additional_fields,
+                REVOCATION_ENDPOINT_AUTH_METHODS,
+            ),
+        }
+        .authenticate(&mut body, &mut headers);
+    }
     // A redirect is not followed: a 307 would carry the refresh token to wherever it points.
     let response = client
         .call(OAuthCall {
@@ -196,6 +199,7 @@ mod tests {
     use reqwest::header::AUTHORIZATION;
     use rmcp::transport::auth::{CredentialStore as _, StoredCredentials};
     use rstest::rstest;
+    use secrecy::SecretString;
     use serde_json::json;
     use sidekicks_contracts::keychain::KeychainRefusalCause;
     use sidekicks_contracts::mcp::server::config::McpServerAddress;
@@ -211,12 +215,16 @@ mod tests {
         serve_authorization_server,
     };
 
+    /// The secret of the confidential client a sign-in may hold; made up for the test.
+    const CLIENT_SECRET: &str = "test-client-secret";
+
     /// A harness holding a bearer sign-in to a fake server whose revocation endpoint answers
     /// `revocation_status`, `test-access-token-1` with `test-refresh-token-1`, received now so no
-    /// request renews it, with the authorizer a connection to the server presents its token
-    /// through; every token is made up.
+    /// request renews it, issued to a client holding `client_secret` where one is given, with the
+    /// authorizer a connection to the server presents its token through; every token is made up.
     async fn signed_in(
         revocation_status: StatusCode,
+        client_secret: Option<&str>,
     ) -> (FakeAuthorizationServer, Harness, SignInAuthorizer) {
         let server = serve_authorization_server(FakeServerAnswers {
             revocation_status,
@@ -235,10 +243,14 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("the clock is past the epoch")
             .as_secs();
-        harness
-            .service
-            .custody
-            .credential_store(&address(&server))
+        let custody = &harness.service.custody;
+        custody
+            .attempt_credential_store(
+                &address(&server),
+                custody.sign_out_generation(&address(&server)),
+                None,
+                client_secret.map(SecretString::from),
+            )
             .save(StoredCredentials::new(
                 "test-client".to_owned(),
                 Some(token_response),
@@ -276,15 +288,28 @@ mod tests {
     }
 
     // Mutations: remove the item before reading it (nothing is left to revoke); keep the item, so
-    // the proof key it holds stays; return the revocation's failure from `sign_out`.
+    // the proof key it holds stays; return the revocation's failure from `sign_out`; leave the
+    // server marked signed in; send a confidential client's revocation with no secret, or in the
+    // form where the metadata names no method.
     #[rstest]
-    #[case::revoked(StatusCode::OK)]
-    #[case::revocation_refused(StatusCode::INTERNAL_SERVER_ERROR)]
+    #[case::revoked(StatusCode::OK, None)]
+    #[case::revocation_refused(StatusCode::INTERNAL_SERVER_ERROR, None)]
+    #[case::a_confidential_client(StatusCode::OK, Some(CLIENT_SECRET))]
     #[tokio::test]
     async fn a_sign_out_forgets_the_sign_in_and_revokes_the_refresh_token_it_held(
         #[case] revocation_status: StatusCode,
+        #[case] client_secret: Option<&str>,
     ) {
-        let (server, harness, authorizer) = signed_in(revocation_status).await;
+        let (server, harness, authorizer) = signed_in(revocation_status, client_secret).await;
+        let canonical_address = canonical_server_address(&address(&server));
+        assert!(
+            harness
+                .service
+                .custody
+                .signed_in_addresses()
+                .borrow()
+                .contains(&canonical_address)
+        );
         assert_eq!(
             presented_authorization(&authorizer, &server.base)
                 .await
@@ -325,12 +350,24 @@ mod tests {
                 ("client_id", "test-client"),
             ])]
         );
+        assert_eq!(
+            *lock(&server.revocation_authorizations),
+            [client_secret.map(|_| "Basic dGVzdC1jbGllbnQ6dGVzdC1jbGllbnQtc2VjcmV0".to_owned())]
+        );
+        assert!(
+            !harness
+                .service
+                .custody
+                .signed_in_addresses()
+                .borrow()
+                .contains(&canonical_address)
+        );
     }
 
     // Mutation: report a sign-out the keychain refused, or forget the sign-in in memory first.
     #[tokio::test]
     async fn a_sign_out_the_keychain_refuses_keeps_the_sign_in_in_use() {
-        let (server, harness, authorizer) = signed_in(StatusCode::OK).await;
+        let (server, harness, authorizer) = signed_in(StatusCode::OK, None).await;
         harness.platform_store.refuse_next_call(
             KeychainService::McpSignIns.as_str(),
             &canonical_server_address(&address(&server)),

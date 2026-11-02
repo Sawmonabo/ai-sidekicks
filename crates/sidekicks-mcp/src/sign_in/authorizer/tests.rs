@@ -1,29 +1,35 @@
 //! The authorizer against an axum token endpoint on a loopback port: one renewal however many
-//! requests find the token run out, no renewal for a token another request already replaced,
-//! which refused renewals forget the sign-in, and which issuers keep it.
+//! requests find the token run out, no renewal for a token another request already replaced, a
+//! `DPoP` sign-in's renewal signed with its key, which refused renewals forget the sign-in, and
+//! which issuers keep it.
 
 use std::sync::{Arc, Mutex};
 
 use axum::Router;
 use axum::body::Body;
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::Response;
 use axum::routing::post;
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use oauth2::TokenResponse as _;
 use reqwest::Method;
 use reqwest::header::{AUTHORIZATION, HeaderValue};
-use rmcp::transport::auth::{
-    AuthorizationManager, AuthorizationMetadata, CredentialStore as _, StoredCredentials,
-};
+use rmcp::transport::auth::{AuthorizationMetadata, CredentialStore as _, StoredCredentials};
 use rstest::rstest;
-use serde_json::json;
+use secrecy::SecretBox;
+use serde_json::{Value, json};
+use sidekicks_contracts::dpop::DPOP_PROOF_HEADER_NAME;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_std::keyed_lock::KeyedLock;
 use tempfile::TempDir;
 
 use super::{SignInAuthorizationError, SignInAuthorizer};
 use crate::client::http::McpRequestAuthorizer as _;
-use crate::sign_in::credential_store::SignInCustody;
+use crate::oauth::dpop_proof::DpopKey;
+use crate::sign_in::canonical_server_address;
+use crate::sign_in::credential_store::{DpopKeyScalar, SignInCustody};
+use crate::sign_in::oauth_http_client::OAuthHttpPools;
 use crate::sign_in::test_keychain::test_keychain;
 
 /// How the fake token endpoint answers a renewal.
@@ -35,15 +41,28 @@ enum TokenAnswer {
     Refuse(&'static str),
 }
 
-/// A token endpoint on a loopback port answering every renewal with `answer`; it keeps the
-/// refresh token each renewal sent. Returns the endpoint's base address, which the server's own
-/// address extends too.
-async fn serve_token_endpoint(answer: TokenAnswer) -> (String, Arc<Mutex<Vec<String>>>) {
-    let refresh_tokens = Arc::new(Mutex::new(Vec::new()));
-    let received = Arc::clone(&refresh_tokens);
+/// What the fake token endpoint received: each renewal's refresh token and the `DPoP` proof it
+/// carried.
+#[derive(Clone, Default)]
+struct Renewals {
+    refresh_tokens: Arc<Mutex<Vec<String>>>,
+    proofs: Arc<Mutex<Vec<Option<String>>>>,
+}
+
+/// A token endpoint on a loopback port answering every renewal with `answer`; it keeps what each
+/// renewal sent. Returns the endpoint's base address, which the server's own address extends too.
+async fn serve_token_endpoint(answer: TokenAnswer) -> (String, Renewals) {
+    let renewals = Renewals::default();
+    let received = renewals.refresh_tokens.clone();
+    let proofs = renewals.proofs.clone();
     let router = Router::new().route(
         "/token",
-        post(move |body: String| async move {
+        post(move |headers: HeaderMap, body: String| async move {
+            proofs.lock().expect("never poisoned").push(
+                headers
+                    .get(DPOP_PROOF_HEADER_NAME)
+                    .map(|value| value.to_str().expect("a text header").to_owned()),
+            );
             let refresh_token = url::form_urlencoded::parse(body.as_bytes())
                 .find(|(name, _)| name == "refresh_token")
                 .map(|(_, value)| value.into_owned())
@@ -77,14 +96,15 @@ async fn serve_token_endpoint(answer: TokenAnswer) -> (String, Arc<Mutex<Vec<Str
         .expect("a local port");
     let address = listener.local_addr().expect("the port's address");
     tokio::spawn(async move { axum::serve(listener, router).await });
-    (format!("http://{address}"), refresh_tokens)
+    (format!("http://{address}"), renewals)
 }
 
 /// A bearer sign-in to the server at `base`'s `/mcp`, held as `test-access-token-1` with
 /// `test-refresh-token-1` and already run out, renewed at `base`'s `/token`, and the authorizer
 /// made for it; every token is made up for the test.
 async fn expired_sign_in(base: &str) -> (TempDir, Arc<SignInCustody>, SignInAuthorizer) {
-    let (data_folder, custody, authorizer) = expired_sign_in_issued_by(base, None, None).await;
+    let (data_folder, custody, authorizer) =
+        expired_sign_in_issued_by(base, None, None, None).await;
     (
         data_folder,
         custody,
@@ -92,12 +112,13 @@ async fn expired_sign_in(base: &str) -> (TempDir, Arc<SignInCustody>, SignInAuth
     )
 }
 
-/// The sign-in [`expired_sign_in`] holds, issued by `held_issuer`, and the authorizer made for it
-/// against metadata naming `issuer`.
+/// The sign-in [`expired_sign_in`] holds, issued by `held_issuer` and, given `dpop_key`, a
+/// `DPoP` sign-in bound to it, and the authorizer made for it against metadata naming `issuer`.
 async fn expired_sign_in_issued_by(
     base: &str,
     held_issuer: Option<&str>,
     issuer: Option<&str>,
+    dpop_key: Option<Arc<DpopKeyScalar>>,
 ) -> (
     TempDir,
     Arc<SignInCustody>,
@@ -108,7 +129,7 @@ async fn expired_sign_in_issued_by(
     let address = McpServerAddress::new(&format!("{base}/mcp")).expect("a server address");
     let token_response = serde_json::from_value(json!({
         "access_token": "test-access-token-1",
-        "token_type": "Bearer",
+        "token_type": if dpop_key.is_some() { "DPoP" } else { "Bearer" },
         "refresh_token": "test-refresh-token-1",
         "expires_in": 3600,
     }))
@@ -122,21 +143,23 @@ async fn expired_sign_in_issued_by(
     )
     .with_issuer(held_issuer.map(str::to_owned));
     custody
-        .credential_store(&address)
+        .attempt_credential_store(
+            &address,
+            custody.sign_out_generation(&address),
+            dpop_key,
+            None,
+        )
         .save(credentials)
         .await
         .expect("the sign-in is kept");
-    let manager = AuthorizationManager::new(address.as_str())
-        .await
-        .expect("a manager for a loopback server");
     let mut metadata = AuthorizationMetadata::default();
     metadata.issuer = issuer.map(str::to_owned);
     metadata.authorization_endpoint = format!("{base}/authorize");
     metadata.token_endpoint = format!("{base}/token");
     let authorizer = SignInAuthorizer::new(
         &custody,
+        &OAuthHttpPools::new().expect("the pools build"),
         &address,
-        manager,
         metadata,
         Arc::new(KeyedLock::default()),
     )
@@ -161,7 +184,8 @@ async fn presented_authorization(authorizer: &SignInAuthorizer, base: &str) -> H
 // in `SignInAuthorizer::renew_refused` without comparing the refused token with the held one.
 #[tokio::test]
 async fn one_renewal_serves_every_request_that_found_the_token_run_out() {
-    let (base, refresh_tokens) = serve_token_endpoint(TokenAnswer::Rotate).await;
+    let (base, renewals) = serve_token_endpoint(TokenAnswer::Rotate).await;
+    let refresh_tokens = renewals.refresh_tokens;
     let (_data_folder, custody, authorizer) = expired_sign_in(&base).await;
 
     let (first, second) = tokio::join!(
@@ -215,7 +239,8 @@ async fn only_a_refused_grant_forgets_the_sign_in(
     #[case] renewals: usize,
     #[case] is_kept: bool,
 ) {
-    let (base, refresh_tokens) = serve_token_endpoint(TokenAnswer::Refuse(error)).await;
+    let (base, received) = serve_token_endpoint(TokenAnswer::Refuse(error)).await;
+    let refresh_tokens = received.refresh_tokens;
     let (_data_folder, custody, authorizer) = expired_sign_in(&base).await;
 
     let refused = authorizer
@@ -241,16 +266,49 @@ async fn only_a_refused_grant_forgets_the_sign_in(
         .await
         .expect("the keychain answers");
     assert_eq!(held.is_some(), is_kept);
+    assert_eq!(
+        custody
+            .signed_in_addresses()
+            .borrow()
+            .contains(&canonical_server_address(&address)),
+        is_kept
+    );
 }
 
-// Mutations: compare the issuers as exact text in `is_same_issuer`, drop a slash ending any path,
-// or keep a sign-in another authorization server issued.
+// Mutations: build the renewal's manager on rmcp's own client, or leave the held key off the
+// filtered client's slot; the renewal then carries no proof.
+#[tokio::test]
+async fn a_dpop_sign_ins_renewal_is_signed_for_the_token_endpoint() {
+    let (base, renewals) = serve_token_endpoint(TokenAnswer::Rotate).await;
+    let dpop_key: Arc<DpopKeyScalar> =
+        Arc::new(SecretBox::new(Box::new(DpopKey::generate().to_scalar())));
+    let (_data_folder, _custody, authorizer) =
+        expired_sign_in_issued_by(&base, None, None, Some(dpop_key)).await;
+
+    presented_authorization(&authorizer.expect("the authorizer is made"), &base).await;
+
+    let proofs = renewals.proofs.lock().expect("never poisoned").clone();
+    let [Some(proof)] = &proofs[..] else {
+        panic!("one renewal, carrying a proof: {proofs:?}");
+    };
+    let claims: Value = serde_json::from_slice(
+        &URL_SAFE_NO_PAD
+            .decode(proof.split('.').nth(1).expect("a JWT's claims"))
+            .expect("base64url claims"),
+    )
+    .expect("JSON claims");
+    assert_eq!(claims["htm"], "POST");
+    assert_eq!(claims["htu"], format!("{base}/token"));
+}
+
+// Mutations: compare the issuers as exact text in `is_same_issuer`, drop only a slash ending an
+// empty path, or keep a sign-in another authorization server issued.
 #[rstest]
 #[case::a_slash_ending_an_empty_path("https://auth.example.com/", "https://auth.example.com", true)]
 #[case::a_slash_ending_a_path(
     "https://auth.example.com/tenant/",
     "https://auth.example.com/tenant",
-    false
+    true
 )]
 #[case::another_issuer("https://other.example.com", "https://auth.example.com", false)]
 #[tokio::test]
@@ -259,10 +317,10 @@ async fn a_sign_in_is_kept_only_for_the_issuer_that_issued_it(
     #[case] issuer: &str,
     #[case] is_kept: bool,
 ) {
-    let (base, _refresh_tokens) = serve_token_endpoint(TokenAnswer::Rotate).await;
+    let (base, _renewals) = serve_token_endpoint(TokenAnswer::Rotate).await;
 
     let (_data_folder, custody, authorizer) =
-        expired_sign_in_issued_by(&base, Some(held_issuer), Some(issuer)).await;
+        expired_sign_in_issued_by(&base, Some(held_issuer), Some(issuer), None).await;
 
     if is_kept {
         assert_eq!(

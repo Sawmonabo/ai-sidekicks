@@ -20,7 +20,7 @@ pub(super) fn normalized_host(host: &str) -> String {
 
 /// Whether `address`'s host is loopback: `localhost` or a name under it, compared as names are,
 /// or a loopback literal, an IPv4 one an IPv6 address carries included.
-pub(in crate::sign_in) fn is_loopback_address(address: &Url) -> bool {
+pub(crate) fn is_loopback_address(address: &Url) -> bool {
     match address.host() {
         Some(Host::Domain(domain)) => {
             let host = normalized_host(domain);
