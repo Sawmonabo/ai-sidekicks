@@ -8,8 +8,9 @@
 //! - A tool that starts a workflow takes that same gate first, then the workflow rules' start
 //!   decision under the asking run's posture.
 //!
-//! A workflow step's file write or tool call takes the same card and its settlement, gated by the
-//! run's level instead.
+//! A workflow step's file write, tool call, command or program takes the same card, gated by the
+//! run's level instead, and hears its settlement whole: a decline reaches the step with its words
+//! and its instant, apart from a refusal.
 //!
 //! The card is the daemon's to raise only where the provider runs the tool without asking first;
 //! a provider whose driver has it ask before each of the app's own tools has asked already. A tool
@@ -165,27 +166,50 @@ impl CallbackToolApprovals {
             ToolCallVerdict::CardRaised(card) => settle_card(card).await,
         }
     }
+
+    // A step's action as the check settles it, or as the person answers its card: a decline keeps
+    // their words and its instant, and a card that ended unanswered refuses.
+    async fn decide_step_action(
+        &self,
+        check: StepActionCheck,
+    ) -> Result<StepActionVerdict, Box<dyn Error + Send + Sync>> {
+        let card = match self.check.check_step_action(check).await? {
+            ToolCallVerdict::Settled(CallbackToolApprovalOutcome::Allow { .. }) => {
+                return Ok(StepActionVerdict::Allowed);
+            }
+            ToolCallVerdict::Settled(CallbackToolApprovalOutcome::Deny { reason, .. }) => {
+                return Ok(StepActionVerdict::Refused { reason });
+            }
+            ToolCallVerdict::CardRaised(card) => card,
+        };
+        Ok(match card.settled.settled().await {
+            RaisedRequestSettlement::Approved => StepActionVerdict::Allowed,
+            RaisedRequestSettlement::Rejected {
+                decline_reason,
+                resolved_at,
+            } => StepActionVerdict::Declined {
+                words: decline_reason,
+                at: resolved_at,
+            },
+            RaisedRequestSettlement::Canceled => StepActionVerdict::Refused {
+                reason: CANCELED_REFUSAL.to_owned(),
+            },
+            RaisedRequestSettlement::Stopped => {
+                return Err(Box::new(CallbackToolApprovalError::Stopped));
+            }
+        })
+    }
 }
 
 impl StepActionApproval for CallbackToolApprovals {
     /// Decides a workflow step's action, waiting on the person's answer where the run's level
-    /// asks: allowed, or refused with what the step reads.
+    /// asks: allowed, declined on its card with the person's words and the decline's instant, or
+    /// refused with what the step reads. Fails when the daemon stops before the card settles.
     fn check_step_action(
         &self,
         check: StepActionCheck,
     ) -> BoxFuture<'_, Result<StepActionVerdict, Box<dyn Error + Send + Sync>>> {
-        Box::pin(async move {
-            let outcome = match self.check.check_step_action(check).await? {
-                ToolCallVerdict::Settled(outcome) => outcome,
-                ToolCallVerdict::CardRaised(card) => settle_card(card).await?,
-            };
-            Ok(match outcome {
-                CallbackToolApprovalOutcome::Allow { .. } => StepActionVerdict::Allowed,
-                CallbackToolApprovalOutcome::Deny { reason, .. } => {
-                    StepActionVerdict::Refused { reason }
-                }
-            })
-        })
+        Box::pin(self.decide_step_action(check))
     }
 }
 
