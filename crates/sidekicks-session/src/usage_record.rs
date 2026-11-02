@@ -578,7 +578,8 @@ fn cost_row(
             cost_usd_micros,
         });
     }
-    let (run_id, subagent_id) = charged_to.unwrap_or_default();
+    let (run_id, subagent_id) =
+        charged_to.expect("each account's rows hold the row that named the account");
     Ok(UsageCostUpdatedPayload {
         session_id,
         run_id,
