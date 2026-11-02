@@ -12,7 +12,6 @@ doctest = false
 
 [dependencies]
 futures.workspace = true
-garde.workspace = true
 getrandom.workspace = true
 jiff.workspace = true
 memchr.workspace = true

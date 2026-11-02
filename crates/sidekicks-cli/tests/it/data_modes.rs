@@ -20,7 +20,7 @@ fn make_data_folder_with_marker(folders: &PrivateFolders) -> (PathBuf, PathBuf) 
 }
 
 // Fails when the restore mode reads the backup before it takes the data folder's lock, since the
-// missing backup then exits 70; when a held folder's refusal maps to any code but 78; and when a
+// missing backup then exits 66; when a held folder's refusal maps to any code but 78; and when a
 // mode changes a folder it does not hold.
 #[test]
 fn a_held_data_folder_refuses_the_erase_and_the_restore_with_78_and_keeps_its_files() {

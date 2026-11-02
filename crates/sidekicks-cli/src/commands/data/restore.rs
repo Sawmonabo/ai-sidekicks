@@ -3,15 +3,13 @@
 //! was taken, read from its manifest; `--yes` skips both. The service is left stopped.
 
 use std::ffi::OsString;
-use std::fs;
 use std::io::Write;
 use std::path::{self, Path, PathBuf};
 
 use anyhow::Context as _;
 use clap::Args;
-use garde::Validate as _;
 use sidekicks_contracts::daemon::backup::{
-    BACKUP_MANIFEST_FILE_NAME, BackupManifest, DATABASE_RESTORE_MODE,
+    BackupManifest, DATABASE_RESTORE_MODE, read_backup_manifest,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -34,7 +32,8 @@ pub(crate) struct RestoreArgs {
 /// answers success, with the done line on stdout when the restore ran. Fails with
 /// [`CommandFailure::BackupUnreadable`] when the question cannot name the backup, and as
 /// [`run_offline_command`] does: refused while the service runs, the confirmation unanswerable,
-/// the restore refused or failed, or a write to the output failing.
+/// the restore refused (with `--yes`, a folder holding no backup as `daemon.backup.notFound`) or
+/// failed, or a write to the output failing.
 pub(crate) fn restore_data<Output: Write, ErrorOutput: Write>(
     args: &RestoreArgs,
     context: &mut CommandContext<Output, ErrorOutput>,
@@ -73,18 +72,11 @@ pub(crate) fn restore_data<Output: Write, ErrorOutput: Write>(
 /// [`CommandFailure::BackupUnreadable`] when it is missing, does not read, does not parse or
 /// breaks a manifest's rules.
 fn read_manifest(backup: &Path) -> anyhow::Result<BackupManifest> {
-    let unreadable = |source| {
-        anyhow::Error::from(CommandFailure::BackupUnreadable {
-            backup: backup.to_path_buf(),
-            source,
-        })
+    let unreadable = |source| CommandFailure::BackupUnreadable {
+        backup: backup.to_path_buf(),
+        source,
     };
-    let bytes = fs::read(backup.join(BACKUP_MANIFEST_FILE_NAME))
-        .map_err(|error| unreadable(error.into()))?;
-    let manifest: BackupManifest =
-        serde_json::from_slice(&bytes).map_err(|error| unreadable(error.into()))?;
-    manifest
-        .validate()
-        .map_err(|error| unreadable(error.into()))?;
-    Ok(manifest)
+    read_backup_manifest(backup)
+        .map_err(|failure| unreadable(Some(failure)))?
+        .ok_or_else(|| unreadable(None).into())
 }

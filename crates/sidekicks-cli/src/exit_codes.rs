@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use sidekicks_client::error::ClientError;
+use sidekicks_contracts::daemon::backup::BackupManifestError;
 use sidekicks_contracts::daemon::data::write_data_folder_held;
 use sidekicks_contracts::daemon::service_status::DaemonCannotStart;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
@@ -115,9 +116,9 @@ pub(crate) enum CommandFailure {
     BackupUnreadable {
         /// The folder named.
         backup: PathBuf,
-        /// Why its manifest did not read.
+        /// Why its manifest did not read; none when it has no manifest.
         #[source]
-        source: Box<dyn Error + Send + Sync>,
+        source: Option<BackupManifestError>,
     },
     /// The started daemon did not answer the handshake within the wait, so it was ended.
     #[error(

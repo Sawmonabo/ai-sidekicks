@@ -281,6 +281,9 @@ refusal_codes! {
     ConnectionVersionFloorExceeded = "connection.version.floorExceeded" (FailedPrecondition);
     /// A mutating call on a connection whose handshake settled as incompatible.
     ConnectionVersionMismatch = "connection.version.mismatch" (FailedPrecondition);
+    /// The daemon program's restore mode found no backup whose manifest reads in the folder it was
+    /// named, so it changed nothing; it answers on its standard output, not the socket.
+    DaemonBackupNotFound = "daemon.backup.notFound" (NotFound, 404);
     /// `daemon.data.erase` refused before its answer, so nothing was erased: the keychain the erase
     /// must empty is locked or cannot be used. `data.fields.cause` is `locked` (drawn `Unlock the
     /// keychain, then try again.`) or `unavailable` (drawn `The keychain cannot be used right now.

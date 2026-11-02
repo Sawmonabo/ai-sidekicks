@@ -10,6 +10,7 @@
 //! it. A restore that fails names its step and leaves what it had not reached as it was. The mode
 //! answers the command line with one JSON object on its standard output.
 
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::{self, Read as _};
@@ -17,10 +18,14 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use sidekicks_contracts::daemon::backup::{BACKUP_DATABASE_FILE_NAME, DaemonBackupRestoredPayload};
+use sidekicks_contracts::daemon::backup::{
+    BACKUP_DATABASE_FILE_NAME, BackupManifestError, DaemonBackupRestoredPayload,
+    read_backup_manifest,
+};
 use sidekicks_contracts::daemon::mode_outcome::DaemonModeOutcome;
 use sidekicks_contracts::event::envelope::{DAEMON_SCOPE_SENTINEL_SESSION_ID, EventOccurredAt};
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_platforms::{create_private_folder, flush_folder, remove_tree, rename_replacing};
 use sidekicks_std::error_description::describe_error;
@@ -49,7 +54,6 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tokio_util::sync::CancellationToken;
 
 use crate::database_file::copy::copy_file_replacing;
-use crate::database_file::newest_backup::{BackupManifestError, read_backup_manifest};
 use crate::database_file::{SHARED_MEMORY_SUFFIX, WRITE_AHEAD_LOG_SUFFIX};
 
 // The SQLite file header's first bytes, and where in the header its `user_version` sits.
@@ -159,8 +163,9 @@ pub(crate) enum RestoreError {
 /// Runs the `database restore` mode on the argument after the mode's own, the backup's folder,
 /// with `schema` the daemon's and `service_version` this build's. Writes its outcome on standard
 /// output and exits 0 once the restore is recorded; exits 1 with `daemon.dataFolder.held` while
-/// the data folder is held, an internal error naming the failed step otherwise, or, when the
-/// outcome cannot be written, that failure on standard error.
+/// the data folder is held, `daemon.backup.notFound` when the folder holds no backup whose
+/// manifest reads, an internal error naming the failed step otherwise, or, when the outcome cannot
+/// be written, that failure on standard error.
 pub fn run_database_restore(
     arguments: &[OsString],
     schema: &DatabaseSchema,
@@ -171,6 +176,11 @@ pub fn run_database_restore(
             match restore_from_home(Path::new(backup_folder), schema, service_version) {
                 Ok(()) => DaemonModeOutcome::Result(()),
                 Err(RestoreError::Held(held)) => held.mode_refusal(),
+                Err(missing @ RestoreError::Manifest { .. }) => DaemonModeOutcome::refused(
+                    RefusalCode::DaemonBackupNotFound,
+                    describe_error(&missing),
+                    BTreeMap::new(),
+                ),
                 Err(failure) => DaemonModeOutcome::failed(format!(
                     "the restore failed: {}",
                     describe_error(&failure)
