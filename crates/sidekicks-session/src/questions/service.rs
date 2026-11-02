@@ -594,12 +594,15 @@ impl QuestionsService {
     }
 
     /// Keeps `kept`, the answer a tool server kept for its next ask, with `question_id`'s held
-    /// request until its settle; the caller holds the question's lock.
-    pub(super) fn keep_answer(&self, question_id: &QuestionId, kept: KeptAnswer) {
-        lock(&self.held_requests)
-            .get_mut(question_id)
-            .expect("the question's lock keeps its held request")
-            .kept_answer = Some(kept);
+    /// request until its settle; false when the request is no longer held, as once its run's end
+    /// settled the question and another question's take let the request go.
+    pub(super) fn keep_answer(&self, question_id: &QuestionId, kept: KeptAnswer) -> bool {
+        let mut held_requests = lock(&self.held_requests);
+        let Some(held) = held_requests.get_mut(question_id) else {
+            return false;
+        };
+        held.kept_answer = Some(kept);
+        true
     }
 
     /// Lets go the request `question_id` was held under, once the question is settled.

@@ -153,8 +153,15 @@ impl QuestionsService {
                 .await?
                 .into()),
             ToolServerAnswerDelivery::Kept => {
-                self.keep_answer(&question_id, KeptAnswer { message, device_id });
-                Ok(QuestionResolveState::Kept)
+                if self.keep_answer(&question_id, KeptAnswer { message, device_id }) {
+                    return Ok(QuestionResolveState::Kept);
+                }
+                // Let go meanwhile: the question was settled, so its state is read back.
+                self.read_state(question_id)
+                    .await?
+                    .and_then(settled_state)
+                    .map(Into::into)
+                    .ok_or(QuestionError::RequestNotHeld { question_id })
             }
         }
     }

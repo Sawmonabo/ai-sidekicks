@@ -1,23 +1,53 @@
 //! A tool server's question: its answer kept for the server's next ask and settled once that ask
 //! takes it, and the restart's withdrawal of the questions the tool-server client asked.
 
+use std::error::Error;
 use std::sync::Arc;
 
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use serde_json::{Value, json};
-use sidekicks_contracts::question::{QuestionPrompt, QuestionResolveRequest, QuestionResolveState};
+use sidekicks_contracts::question::{
+    QuestionAnswer, QuestionPrompt, QuestionResolveRequest, QuestionResolveState,
+};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_provider::port::question::{
-    ProviderQuestion, QuestionPort, ToolServerAnswerDelivery, mint_tool_server_request_id,
+    ProviderQuestion, QuestionPort, ToolServerAnswerDelivery, ToolServerQuestionAnswer,
+    mint_tool_server_request_id,
 };
 use sidekicks_store::database::writer::test_file::test_session_id;
+use tokio::sync::Notify;
 
 use super::RecordingTaskAnswer;
-use crate::questions::service::test_fixture::{Fixture, HandedAnswers, choice_page};
+use crate::questions::service::test_fixture::{Fixture, HandedAnswers, choice_page, failed};
 use crate::questions::service::{HeldRequestAnswerer, QuestionRecording};
 use crate::run::engine::test_fixture::insert_running_run;
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+
+/// A stand-in tool-server task that keeps each answer once `release` is notified, notifying
+/// `entered` as it takes the answer.
+#[derive(Default)]
+struct GatedTaskAnswer {
+    entered: Arc<Notify>,
+    release: Arc<Notify>,
+}
+
+impl ToolServerQuestionAnswer for GatedTaskAnswer {
+    fn answer(
+        &self,
+        _answers: Vec<QuestionAnswer>,
+    ) -> BoxFuture<'_, Result<ToolServerAnswerDelivery, Box<dyn Error + Send + Sync>>> {
+        async {
+            self.entered.notify_one();
+            self.release.notified().await;
+            Ok(ToolServerAnswerDelivery::Kept)
+        }
+        .boxed()
+    }
+}
 
 // An answer the tool server keeps leaves the question open, its run waiting and no turn written;
 // a later answer replaces the kept one, and the settle writes the kept turn, its device and the
@@ -96,6 +126,54 @@ async fn a_kept_answer_leaves_its_question_open_until_its_settle() {
         QuestionResolveState::Answered
     );
     assert_eq!(sent.lock().expect("never poisoned").len(), 2);
+}
+
+// An answer the tool server keeps, while its run's end settles the question and another question's
+// take lets its held request go, reads the question's settled state. Killed by keeping the answer
+// as if its request were still held, which panics the answer.
+#[tokio::test]
+async fn a_kept_answer_whose_question_settled_meanwhile_reads_its_settled_state() {
+    let fixture = Fixture::new().await;
+    let gated = GatedTaskAnswer::default();
+    let (entered, release) = (Arc::clone(&gated.entered), Arc::clone(&gated.release));
+    let question_id = fixture
+        .ask_answered_by(
+            &mint_tool_server_request_id(),
+            json!([choice_page()]),
+            true,
+            HeldRequestAnswerer::ToolServerTask(Arc::new(gated)),
+        )
+        .await;
+
+    let (answered, ()) = tokio::join!(
+        fixture.answer(
+            question_id,
+            json!([{ "kind": "picked", "labels": ["Alpha"] }]),
+        ),
+        async {
+            entered.notified().await;
+            fixture
+                .engine
+                .transition(
+                    RunStateChange::new(fixture.run_id, failed()),
+                    RunStateChangeCompanions::default(),
+                )
+                .await
+                .expect("the run ends");
+            fixture
+                .questions
+                .forget_settled_requests()
+                .await
+                .expect("the settled requests are let go");
+            release.notify_one();
+        },
+    );
+
+    assert_eq!(
+        answered.expect("the answer reads the settled state"),
+        QuestionResolveState::Canceled
+    );
+    assert_eq!(fixture.state(question_id), "canceled");
 }
 
 // A restart's withdrawal cancels the session's questions under ids the client mints, holding no
