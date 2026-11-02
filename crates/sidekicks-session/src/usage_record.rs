@@ -256,8 +256,7 @@ impl UsageRecord {
     }
 
     // Writes one `usage.cost.updated` per account `request`'s rows name, in the order the accounts
-    // first appear, each on the session with no binding. Every event is built before the first is
-    // written, so a sum past the wire's integer writes none.
+    // first appear, on the session with no binding, all in one write, so a failure keeps none.
     async fn record_request_cost(&self, request: PricedRequest) -> Result<(), UsageRecordError> {
         let PricedRequest {
             session_id,
@@ -282,13 +281,14 @@ impl UsageRecord {
                 cost_row(session_id, model_id.clone(), cost_source, account_rows)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        for payload in payloads {
-            self.dispatch
-                .dispatch(InboundDelivery::SessionEvent {
-                    row: SessionScopedRow::UsageCostUpdated(payload),
-                })
-                .await?;
-        }
+        let Some(costs) = BoundedVec::new(payloads) else {
+            return Ok(());
+        };
+        self.dispatch
+            .dispatch(InboundDelivery::SessionEvent {
+                row: SessionScopedRow::UsageCostUpdated(costs),
+            })
+            .await?;
         Ok(())
     }
 

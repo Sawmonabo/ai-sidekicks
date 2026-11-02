@@ -834,3 +834,35 @@ async fn a_cost_is_recorded_with_the_bindings_cursor_closed() {
         )]
     );
 }
+
+// A request whose second account's cost cannot be written keeps neither account's. Killed by one
+// append per account: account-1's cost of 7 would stay written.
+#[tokio::test]
+async fn a_request_whose_second_cost_is_refused_writes_no_cost() {
+    let harness = Harness::new(None, true).await;
+    harness
+        .database
+        .reader()
+        .execute_batch(
+            "CREATE TRIGGER refuse_second_cost BEFORE INSERT ON session_events
+             WHEN NEW.type = 'usage.cost.updated'
+               AND json_extract(NEW.payload, '$.costUsdMicros') = 4
+             BEGIN SELECT RAISE(ABORT, 'the test refuses the second cost'); END",
+        )
+        .expect("the test refuses account-2's cost");
+
+    let failure = harness
+        .record
+        .record_cost(harness.priced_request(vec![
+            priced(hand_built_row(harness.lead_run_id, ACCOUNT), 7),
+            priced(hand_built_row(harness.lead_run_id, "account-2"), 4),
+        ]))
+        .await
+        .expect_err("a refused cost fails the request");
+
+    assert!(matches!(
+        failure.downcast_ref::<UsageRecordError>(),
+        Some(UsageRecordError::Dispatch(InboundDispatchError::Append(_)))
+    ));
+    assert_eq!(harness.stored_events(COST), []);
+}

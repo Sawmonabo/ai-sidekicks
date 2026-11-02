@@ -102,9 +102,10 @@ struct PendingAppend {
     event: SessionEvent,
     linkage: SessionEventLinkage,
     source: Option<EpochPosition>,
-    // Events written just before it in the same write, each with its body: the earlier parts of a
-    // reasoning text too long for one entry.
-    preceding_pieces: Vec<(SessionEvent, String)>,
+    // Events written just before it in the same write, in order, each with its body where it has
+    // one: the earlier parts of a reasoning text too long for one entry, or the earlier accounts'
+    // costs of one priced request.
+    preceding_events: Vec<(SessionEvent, Option<String>)>,
     // On a piece of a reply or of reasoning, its run and where it arrived: its write is refused
     // once the run has ended and no turn of it is open, and the piece absorbed.
     piece_of: Option<PieceDelivery>,
@@ -234,7 +235,7 @@ impl RunInboundDispatch {
                         event,
                         mut linkage,
                         source,
-                        preceding_pieces,
+                        preceding_events,
                         piece_of,
                     } = *append;
                     let piece_run_id = piece_of
@@ -247,11 +248,12 @@ impl RunInboundDispatch {
                             .transactional_prelude
                             .insert(PIECE_RUN_LIVE_GUARD_INDEX, guard);
                     }
-                    for (piece, body) in preceding_pieces {
-                        linkage.preceding_events.push(
-                            SessionEventDraft::of_session(session_id, &piece)?
-                                .with_content_body(body),
-                        );
+                    for (preceding, body) in preceding_events {
+                        let draft = SessionEventDraft::of_session(session_id, &preceding)?;
+                        linkage.preceding_events.push(match body {
+                            Some(body) => draft.with_content_body(body),
+                            None => draft,
+                        });
                     }
                     let draft = SessionEventDraft::of_session(session_id, &event)?;
                     let event_id = match self.appender.append(draft, linkage).await {
@@ -299,12 +301,21 @@ impl RunInboundDispatch {
             }
             InboundDelivery::SessionEvent { row } => {
                 let transactional_prelude = session_row_statements(&row);
-                let (session_id, event) = row.into_event();
-                let linkage = SessionEventLinkage {
-                    transactional_prelude,
-                    ..SessionEventLinkage::default()
-                };
-                return Ok(appended(session_id, event, linkage, None));
+                let (session_id, preceding, event) = row.into_events();
+                return Ok(Attributed::Append(Box::new(PendingAppend {
+                    session_id,
+                    event,
+                    linkage: SessionEventLinkage {
+                        transactional_prelude,
+                        ..SessionEventLinkage::default()
+                    },
+                    source: None,
+                    preceding_events: preceding
+                        .into_iter()
+                        .map(|preceding| (preceding, None))
+                        .collect(),
+                    piece_of: None,
+                })));
             }
             InboundDelivery::MachineEvent { row } => {
                 let (session_id, event) = row.into_event();
@@ -343,7 +354,7 @@ impl RunInboundDispatch {
                     event,
                     linkage: body_linkage(content),
                     source,
-                    preceding_pieces: Vec::new(),
+                    preceding_events: Vec::new(),
                     piece_of,
                 })));
             }
@@ -375,13 +386,13 @@ impl RunInboundDispatch {
                     .pop()
                     .expect("a text splits into at least one part")
                     .to_owned();
-                let preceding_pieces = parts
+                let preceding_events = parts
                     .into_iter()
                     .map(|part| {
                         let piece = SessionEvent::AgentThinkingUpdated(AgentOutputPayload::Run(
                             payload.clone(),
                         ));
-                        (piece, part.to_owned())
+                        (piece, Some(part.to_owned()))
                     })
                     .collect();
                 let event = SessionEvent::AgentThinkingUpdated(AgentOutputPayload::Run(payload));
@@ -390,7 +401,7 @@ impl RunInboundDispatch {
                     event,
                     linkage: body_linkage(Some(last)),
                     source,
-                    preceding_pieces,
+                    preceding_events,
                     piece_of: Some(piece_of),
                 })));
             }
@@ -675,7 +686,7 @@ fn appended(
         event,
         linkage,
         source,
-        preceding_pieces: Vec::new(),
+        preceding_events: Vec::new(),
         piece_of: None,
     }))
 }

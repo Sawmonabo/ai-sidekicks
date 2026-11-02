@@ -40,6 +40,7 @@ use sidekicks_contracts::session::events::{
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
+use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::run::state_entry::RunStateReport;
@@ -420,8 +421,9 @@ unstamped_rows! {
 }
 
 /// A row about the session as a whole, on no binding: a side question's answer, which never
-/// enters the conversation, and its usage, which no run counts, a priced request's cost, which may
-/// come after its run's binding closed, and a change of the session's own advisor or output style.
+/// enters the conversation, and its usage, which no run counts, a priced request's costs, which
+/// may come after its run's binding closed, and a change of the session's own advisor or output
+/// style.
 #[derive(Debug)]
 pub enum SessionScopedRow {
     /// `session.sideQuestion.answered`.
@@ -429,8 +431,9 @@ pub enum SessionScopedRow {
     /// `usage.tokenCount.recorded` of a side question, naming no run, boxed since its selectors
     /// make it the largest row.
     UsageTokenCountRecorded(Box<UsageTokenCountRecordedPayload>),
-    /// `usage.cost.updated` of one priced request on one account.
-    UsageCostUpdated(UsageCostUpdatedPayload),
+    /// Every `usage.cost.updated` of one priced request, one per account its rows were charged
+    /// to, in order, all on one session and written together or not at all.
+    UsageCostUpdated(BoundedVec<UsageCostUpdatedPayload, 1, { usize::MAX }>),
     /// `session.advisor.changed`.
     AdvisorChanged(SessionAdvisorChangedPayload),
     /// `session.outputStyle.changed`.
@@ -438,26 +441,41 @@ pub enum SessionScopedRow {
 }
 
 impl SessionScopedRow {
-    /// The row's session and its event.
-    pub fn into_event(self) -> (SessionId, SessionEvent) {
+    /// The row's session, the events written before its last in the same write, in order, and
+    /// its last event.
+    pub fn into_events(self) -> (SessionId, Vec<SessionEvent>, SessionEvent) {
         match self {
             Self::SideQuestionAnswered(payload) => (
                 payload.session_id,
+                Vec::new(),
                 SessionEvent::SessionSideQuestionAnswered(payload),
             ),
             Self::UsageTokenCountRecorded(payload) => (
                 payload.session_id,
+                Vec::new(),
                 SessionEvent::UsageTokenCountRecorded(*payload),
             ),
-            Self::UsageCostUpdated(payload) => {
-                (payload.session_id, SessionEvent::UsageCostUpdated(payload))
+            Self::UsageCostUpdated(costs) => {
+                let mut costs = costs.into_vec();
+                let last = costs.pop().expect("a request's costs hold at least one");
+                let preceding = costs
+                    .into_iter()
+                    .map(SessionEvent::UsageCostUpdated)
+                    .collect();
+                (
+                    last.session_id,
+                    preceding,
+                    SessionEvent::UsageCostUpdated(last),
+                )
             }
             Self::AdvisorChanged(payload) => (
                 payload.session_id,
+                Vec::new(),
                 SessionEvent::SessionAdvisorChanged(payload),
             ),
             Self::OutputStyleChanged(payload) => (
                 payload.session_id,
+                Vec::new(),
                 SessionEvent::SessionOutputStyleChanged(payload),
             ),
         }
