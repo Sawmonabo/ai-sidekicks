@@ -22,8 +22,8 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use reqwest::Url;
-use rmcp::transport::auth::{AuthorizationManager, OAuthHttpClient};
-use secrecy::SecretBox;
+use rmcp::transport::auth::{AuthorizationManager, OAuthClientConfig, OAuthHttpClient};
+use secrecy::{SecretBox, SecretString};
 use sidekicks_contracts::dpop::DPOP_PROOF_ALGORITHM;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
@@ -275,11 +275,6 @@ impl SignInService {
     /// opens, which nothing else holds; refuses with `mcp.server.signInUnsupported` when the
     /// binding or the server offers no sign-in the daemon or a provider can run, and
     /// `mcp.server.signInFailed` when one could not be started.
-    #[expect(
-        clippy::result_large_err,
-        reason = "the refusal names the binding the reply carries; the handler turns it into the \
-                  reply's error at once"
-    )]
     pub(crate) async fn launch(
         self: &Arc<Self>,
         target: &SignInTarget,
@@ -287,11 +282,11 @@ impl SignInService {
         provider_accounts: &ProviderAccounts,
     ) -> Result<Url, McpRefusal> {
         let unsupported = || McpRefusal::ServerSignInUnsupported {
-            binding: target.binding.clone(),
+            binding: Box::new(target.binding.clone()),
         };
         let failed =
             |source: Box<dyn std::error::Error + Send + Sync>| McpRefusal::ServerSignInFailed {
-                binding: target.binding.clone(),
+                binding: Box::new(target.binding.clone()),
                 source,
             };
         let Some(server) = addressed_server(target) else {
@@ -387,12 +382,13 @@ impl SignInService {
             resolution,
         )
         .await;
-        if let ControlFlow::Break(answer) = self
+        let own_client = match self
             .answer_other_client(target, server, client, provider_accounts)
             .await
         {
-            return answer;
-        }
+            ControlFlow::Break(answer) => return answer,
+            ControlFlow::Continue(own_client) => own_client,
+        };
         // The daemon's own client with an owner's callback it cannot serve.
         let Some(listener) = listener else {
             return Err(unsupported());
@@ -413,10 +409,11 @@ impl SignInService {
         if let Some(dpop_key) = &dpop_key {
             http_client.set_dpop_key(Arc::clone(dpop_key));
         }
-        manager.set_credential_store(
-            self.custody
-                .attempt_credential_store(&server.address, dpop_key),
-        );
+        manager.set_credential_store(self.custody.attempt_credential_store(
+            &server.address,
+            dpop_key,
+            own_client.client_secret.map(SecretString::from),
+        ));
         let scope_names: Vec<&str> = scopes.iter().map(String::as_str).collect();
         let authorization_url = manager
             .get_authorization_url(&scope_names)
@@ -440,7 +437,7 @@ impl SignInService {
                     .await
                 {
                     ControlFlow::Break(answer) => answer,
-                    ControlFlow::Continue(()) => Err(unsupported()),
+                    ControlFlow::Continue(_own_client) => Err(unsupported()),
                 };
             }
             Err(error) => return Err(failed(Box::new(error))),
@@ -481,18 +478,18 @@ impl SignInService {
         }
     }
 
-    // The launch's answer for every client but the daemon's own, which continues the launch: a
-    // provider's flow is run, the provider the server admitted first.
+    // The launch's answer for every client but the daemon's own, whose configuration continues
+    // the launch: a provider's flow is run, the provider the server admitted first.
     async fn answer_other_client(
         self: &Arc<Self>,
         target: &SignInTarget,
         server: &AddressedServer,
         client: SignInClient,
         provider_accounts: &ProviderAccounts,
-    ) -> ControlFlow<Result<Url, McpRefusal>> {
-        let binding = target.binding.clone();
+    ) -> ControlFlow<Result<Url, McpRefusal>, OAuthClientConfig> {
+        let binding = Box::new(target.binding.clone());
         ControlFlow::Break(match client {
-            SignInClient::OwnClient(_) => return ControlFlow::Continue(()),
+            SignInClient::OwnClient(own_client) => return ControlFlow::Continue(own_client),
             SignInClient::Unsupported => Err(McpRefusal::ServerSignInUnsupported { binding }),
             SignInClient::Failed { source } => {
                 Err(McpRefusal::ServerSignInFailed { binding, source })
@@ -668,8 +665,8 @@ mod tests {
     use super::{ATTEMPT_LIFETIME, ProviderAccounts, SignInServer, SignInTarget};
     use crate::errors::McpRefusal;
     use crate::sign_in::test_service::{
-        addressed_target, harness, launch_to_browser, provider, serve_authorization_server,
-        server_name,
+        FakeServerAnswers, addressed_target, harness, launch_to_browser, provider,
+        serve_authorization_server, server_name,
     };
 
     // The loopback port the receiver of the attempt behind `browser_url` listens on.
@@ -692,7 +689,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_second_launch_for_a_server_closes_the_first_attempts_listener() {
-        let server = serve_authorization_server(false, false, false).await;
+        let server = serve_authorization_server(FakeServerAnswers::default()).await;
         let harness = harness().await;
         let target = addressed_target(&server.base);
         let first_port = receiver_port(&launch_to_browser(&harness, &target).await);
@@ -716,7 +713,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_attempt_ends_when_its_life_runs_out() {
-        let server = serve_authorization_server(false, false, false).await;
+        let server = serve_authorization_server(FakeServerAnswers::default()).await;
         let harness = harness().await;
         let target = addressed_target(&server.base);
         let port = receiver_port(&launch_to_browser(&harness, &target).await);
@@ -759,7 +756,7 @@ mod tests {
     async fn a_binding_no_sign_in_reaches_is_refused_before_anything_is_sent(
         #[case] is_connector: bool,
     ) {
-        let server = serve_authorization_server(false, false, false).await;
+        let server = serve_authorization_server(FakeServerAnswers::default()).await;
         let harness = harness().await;
         let target = if is_connector {
             SignInTarget {

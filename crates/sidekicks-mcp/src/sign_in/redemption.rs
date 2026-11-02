@@ -216,6 +216,7 @@ mod tests {
 
     use reqwest::Url;
     use rstest::rstest;
+    use secrecy::ExposeSecret;
     use serde_json::Value;
     use sidekicks_contracts::mcp::server::config::McpServerAddress;
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -224,8 +225,8 @@ mod tests {
     use super::SignInFailureReason;
     use crate::sign_in::canonical_server_address;
     use crate::sign_in::test_service::{
-        REFUSED_CODE_DESCRIPTION, addressed_target, harness, launch_to_browser,
-        serve_authorization_server,
+        FakeServerAnswers, REFUSED_CODE_DESCRIPTION, REGISTERED_CLIENT_SECRET, addressed_target,
+        harness, launch_to_browser, serve_authorization_server,
     };
 
     const FORGED_ISSUER: &str = "http://attacker.example";
@@ -281,9 +282,11 @@ mod tests {
 
     /// A callback naming another issuer, or none where the server says it always sends one, is
     /// refused with no token request, and the real callback after it still signs in with one
-    /// success event. Killed by a check that skips error callbacks or the missing `iss` (the forged
-    /// return settles the attempt, the real one gets 400), and by an owner that settles before
-    /// the check (a token request, or a failure event, for the forged return).
+    /// success event, the secret the server issued the daemon's client kept with the sign-in.
+    /// Killed by a check that skips error callbacks or the missing `iss` (the forged return
+    /// settles the attempt, the real one gets 400), by an owner that settles before the check (a
+    /// token request, or a failure event, for the forged return), and by a registration whose
+    /// secret is not kept.
     #[rstest]
     #[case::a_code_from_another_issuer(&[("code", "forged-code"), ("iss", FORGED_ISSUER)])]
     #[case::a_code_without_its_issuer(&[("code", "forged-code")])]
@@ -292,7 +295,11 @@ mod tests {
     async fn a_return_from_another_issuer_is_refused_and_the_real_one_still_signs_in(
         #[case] forged: &[(&str, &str)],
     ) {
-        let server = serve_authorization_server(true, false, false).await;
+        let server = serve_authorization_server(FakeServerAnswers {
+            is_issuer_in_response: true,
+            ..FakeServerAnswers::default()
+        })
+        .await;
         let harness = harness().await;
         let browser_url = launch_to_browser(&harness, &addressed_target(&server.base)).await;
         let signed_in = harness.service.signed_in_addresses();
@@ -325,6 +332,18 @@ mod tests {
                 .borrow()
                 .contains(&canonical_server_address(&address))
         );
+        let held = harness
+            .service
+            .custody
+            .credential_store(&address)
+            .held()
+            .await
+            .expect("the keychain answers")
+            .expect("the sign-in is kept");
+        assert_eq!(
+            held.client_secret.as_ref().map(ExposeSecret::expose_secret),
+            Some(REGISTERED_CLIENT_SECRET)
+        );
     }
 
     /// A return that settles as a failure appends one failure event carrying the daemon's own
@@ -350,7 +369,12 @@ mod tests {
         #[case] reason: SignInFailureReason,
         #[case] token_requests: usize,
     ) {
-        let server = serve_authorization_server(true, false, is_code_refused).await;
+        let server = serve_authorization_server(FakeServerAnswers {
+            is_issuer_in_response: true,
+            is_code_refused,
+            ..FakeServerAnswers::default()
+        })
+        .await;
         let harness = harness().await;
         let browser_url = launch_to_browser(&harness, &addressed_target(&server.base)).await;
         let mut returned = parameters.to_vec();

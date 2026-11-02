@@ -54,7 +54,7 @@ pub(super) fn register_inventory_methods(
 /// error answers a call, and every other source that could not be read a fault inside the daemon.
 fn inventory_handler_error(error: McpInventoryError) -> HandlerError {
     match error {
-        McpInventoryError::Refused(refusal) => HandlerError::Refused(DomainError::from(*refusal)),
+        McpInventoryError::Refused(refusal) => HandlerError::Refused(DomainError::from(refusal)),
         McpInventoryError::Driver { source, .. } => HandlerError::from(source),
         fault @ (McpInventoryError::Projects(_)
         | McpInventoryError::ProjectRoot(_)
