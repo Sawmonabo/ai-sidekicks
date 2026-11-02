@@ -148,7 +148,7 @@ impl CodexSessionEstablishment {
             Ok::<_, CodexError>((resumed, result))
         }
         .await;
-        let (resumed, mut result) = match adopted {
+        let (mut resumed, mut result) = match adopted {
             Ok(adopted) => adopted,
             Err(error) => {
                 release_registered(&service, &record, &registered);
@@ -161,8 +161,8 @@ impl CodexSessionEstablishment {
             .iter()
             .map(|listed| listed.id.clone())
             .collect();
-        record.declared_output_speed = resumed.declared_output_speed;
-        record.reasoning_effort = resumed.reasoning_effort;
+        record.declared_output_speed = resumed.declared_output_speed.take();
+        record.reasoning_effort = resumed.reasoning_effort.take();
         let binding = CodexRunBinding {
             session_id,
             binding_id: params.binding_id.clone(),
