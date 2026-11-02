@@ -33,6 +33,14 @@ mod sign_out;
     )
 )]
 mod token_status;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the driver hands its account legs to the account plane once it is wired"
+    )
+)]
+mod window_start;
 
 #[cfg_attr(
     not(test),
