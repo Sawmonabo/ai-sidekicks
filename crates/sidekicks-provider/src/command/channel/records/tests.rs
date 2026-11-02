@@ -588,9 +588,10 @@ async fn a_wrapper_s_exit_written_just_before_its_end_settles_its_row() {
 }
 
 // Fails when a line's wrapper is answered `go` before its capture window opened, is answered `go`
-// twice, or when its window is closed before an open still running, closed twice or not told how
-// the command began. Mutations: send `Go` in `take_record` beside the acknowledgment; send `Go`
-// both there and from the window's task; make the `Exited` arm's close skip the window's task.
+// twice, or when its window is closed before an open still running, closed twice, closed untold
+// at an `Exited` or not told how the command began. Mutations: send `Go` in `take_record` beside
+// the acknowledgment; drop the `Began` arm's window call; drop the `Exited` arm's close; let the
+// window's task go on past its `Close`.
 #[tokio::test]
 async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
     let folder = tempfile::tempdir().expect("a folder");
