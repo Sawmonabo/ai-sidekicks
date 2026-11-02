@@ -48,11 +48,11 @@ const PACK_SIZE_LIMIT_PIN: [&str; 2] = ["-c", "pack.packSizeLimit=0"];
 
 /// How long one fold may run, past the runner's bound for other calls, since its work grows with
 /// every pack the folder holds; a temporary pack older than this was left by a git cut short.
-const FOLD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+const FOLD_TIMEOUT: Duration = Duration::from_mins(10);
 
 /// How long a folder whose fold failed waits before a fold is due there again, so a failing fold
 /// is not run again at every capture.
-const FOLD_RETRY_WAIT: Duration = Duration::from_secs(60 * 60);
+const FOLD_RETRY_WAIT: Duration = Duration::from_hours(1);
 
 /// The folder of an object folder that holds its packs.
 const PACK_SEGMENT: &str = "pack";
@@ -336,9 +336,7 @@ impl CapturePacking {
     // again, with nothing merged, after every capture, and not while a failed fold there waits.
     fn is_fold_due(&self, folder: &Path, packs: u64) -> bool {
         let left = lock(&self.packs_left_by_fold).get(folder).copied();
-        let since_failure = lock(&self.failed_folds)
-            .get(folder)
-            .map(|failed_at| failed_at.elapsed());
+        let since_failure = lock(&self.failed_folds).get(folder).map(Instant::elapsed);
         is_fold_due(packs, left, since_failure)
     }
 
