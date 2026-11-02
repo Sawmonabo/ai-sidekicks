@@ -468,7 +468,7 @@ pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program
 #[cfg(any(test, feature = "test-support"))]
 pub use scratch_volume::{ScratchVolume, scratch_volume};
 pub use service_registration::{
-    SYSTEM_SERVICE_MODE, ServiceInstall, ServiceOwner, ServiceRegistrationError, SystemServiceOwner,
+    ServiceInstall, ServiceOwner, ServiceRegistrationError, SystemServiceOwner,
 };
 #[cfg(not(target_os = "macos"))]
 pub use service_registration::{ServiceRegistration, service_registration};

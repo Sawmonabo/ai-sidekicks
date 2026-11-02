@@ -15,8 +15,8 @@ use std::process::ExitCode;
 
 use sidekicks_contracts::daemon::backup::DATABASE_RESTORE_MODE;
 use sidekicks_contracts::daemon::data::DATA_ERASE_MODE;
+use sidekicks_contracts::daemon::lifecycle::SYSTEM_SERVICE_MODE;
 use sidekicks_contracts::daemon::secrets_place::{SECRETS_KEYCHAIN_CHECK_MODE, SECRETS_MOVE_MODE};
-use sidekicks_platforms::SYSTEM_SERVICE_MODE;
 use sidekicks_provider::command::askpass::{COMMAND_ASKPASS_PROGRAM_NAME, run_command_askpass};
 use sidekicks_provider::command::wrapper::{COMMAND_WRAPPER_PROGRAM_NAME, run_command_wrapper};
 use sidekicks_recovery::database_file::copy::{DATABASE_COPY_MODE, run_database_copy};

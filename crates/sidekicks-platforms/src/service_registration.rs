@@ -26,10 +26,6 @@ pub enum ServiceOwner {
     None,
 }
 
-/// The daemon program's first argument when it runs as the system service, so it runs while its
-/// account is logged out; the daemon program's dispatch reads it.
-pub const SYSTEM_SERVICE_MODE: &str = "system-service";
-
 /// Which account, if any, has the system service installed on this computer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SystemServiceOwner {

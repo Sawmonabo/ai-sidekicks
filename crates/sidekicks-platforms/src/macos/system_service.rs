@@ -10,15 +10,14 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::app_identity::{APP_BUNDLE_IDENTIFIER, DAEMON_LAUNCHD_LABEL};
+use sidekicks_contracts::daemon::lifecycle::SYSTEM_SERVICE_MODE;
 
 use super::administrator_prompt::{SHELL_PROGRAM, run_root_step};
 use super::service_registration::{
     EXIT_TIME_OUT_SECONDS, SYSTEM_LIST_FOLDER, ServiceRegistration, launchd_list_text,
     not_loaded_status, read_launchd_list,
 };
-use crate::service_registration::{
-    SYSTEM_SERVICE_MODE, ServiceRegistrationError, SystemServiceOwner,
-};
+use crate::service_registration::{ServiceRegistrationError, SystemServiceOwner};
 use crate::spawner::Spawner;
 
 // Why this build refuses to install the system service, a cause the refusal names; `None` where

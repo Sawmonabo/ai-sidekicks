@@ -17,7 +17,7 @@ use nix::unistd::{Uid, User, chown, geteuid};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::app_identity::DAEMON_LAUNCHD_LABEL;
-use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_DRAIN_BOUND_MS;
+use sidekicks_contracts::daemon::lifecycle::{DAEMON_KILL_GRACE_MS, DAEMON_STOP_DRAIN_BOUND_MS};
 
 use crate::macos::login_items::{LoginItemStatus, LoginItemStatusError, read_login_item_status};
 use crate::service_registration::{ServiceInstall, ServiceOwner, ServiceRegistrationError};
@@ -38,14 +38,10 @@ const AGENT_LIST_MODE: u32 = 0o644;
 // How long an uninstall waits before its one retry of a removal launchd answers is still running.
 const BUSY_RETRY_DELAY: Duration = Duration::from_secs(1);
 
-// The time past the stop's drain that launchd leaves the service to close and exit before it
-// kills it.
-const EXIT_MARGIN_SECONDS: u64 = 2;
-
 /// How long launchd leaves the service to exit after asking it to stop before it kills it: the
-/// stop's whole drain, in whole seconds, and the margin past it.
+/// stop's whole drain and the kill grace past it, in whole seconds.
 pub(crate) const EXIT_TIME_OUT_SECONDS: u64 =
-    DAEMON_STOP_DRAIN_BOUND_MS.div_ceil(1_000) + EXIT_MARGIN_SECONDS;
+    (DAEMON_STOP_DRAIN_BOUND_MS + DAEMON_KILL_GRACE_MS).div_ceil(1_000);
 
 /// The service's login agent on this Mac, for the account this run acts for.
 #[derive(Clone, Copy, Debug)]

@@ -15,6 +15,14 @@ use crate::wire::True;
 /// milliseconds.
 pub const DAEMON_STOP_TERMINAL_DRAIN_MS: u64 = 2_000;
 
+/// How long a service still running after its drain and the terminate signal has before it is
+/// killed, in milliseconds: the client's ending and the service manager's exit time both give it.
+pub const DAEMON_KILL_GRACE_MS: u64 = 2_000;
+
+/// The daemon program's first argument when it runs as the system service, so it runs while its
+/// account is logged out; the daemon program's dispatch reads it and the service's list names it.
+pub const SYSTEM_SERVICE_MODE: &str = "system-service";
+
 ts_constants! {
     /// The words the service's ready line carries, written once it answers on its socket;
     /// whoever started the process waits for a line that holds them.
