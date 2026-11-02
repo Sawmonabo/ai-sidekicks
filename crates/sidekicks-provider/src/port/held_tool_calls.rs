@@ -7,6 +7,7 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::event::declared_variants::ToolCallEndCause;
 use sidekicks_contracts::event::envelope::EventOccurredAt;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -20,6 +21,8 @@ pub const HELD_TOOL_CALLS_READ_MAX: usize = 1024;
 pub struct HeldToolCall {
     /// The run the call belongs to.
     pub run_id: RunId,
+    /// The newest binding of the call's run, which its close is appended on.
+    pub binding_id: RuntimeBindingId,
     /// The provider's id of the call.
     pub tool_call_id: ToolCallId,
     /// The tool's name.
@@ -38,7 +41,8 @@ pub struct HeldToolCall {
 pub trait HeldToolCallReads: Send + Sync {
     /// `session_id`'s held calls, newest first and at most [`HELD_TOOL_CALLS_READ_MAX`]: each
     /// call moved to the background with no close after it, and each whose last close ended it
-    /// with no result and names why. Fails when the log cannot be read.
+    /// with no result and names why, each with its run's newest binding. Fails when the log cannot
+    /// be read.
     fn read_held_tool_calls(
         &self,
         session_id: SessionId,
