@@ -372,9 +372,10 @@ pub trait ProviderDriver: Send + Sync {
         params: CompactContextParams,
     ) -> BoxFuture<'_, Result<AgentRunContextCompactResponse, DriverError>>;
 
-    /// A live read of the provider's own commands and skills for the bound session (gated on
-    /// `providerCommands`), held with the session and never stored: one group carrying the
-    /// params' run and binding, every entry stamped with that binding.
+    /// The provider's own commands and skills for the bound session (gated on `providerCommands`):
+    /// one group carrying the params' run and binding, every entry stamped with that binding. A
+    /// live session's list is held with it; a driver that can read the list with no live process
+    /// reads it afresh and holds nothing.
     fn list_provider_commands(
         &self,
         params: ListProviderCommandsParams,
