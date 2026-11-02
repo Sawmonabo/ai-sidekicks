@@ -12,8 +12,9 @@ use sidekicks_std::mutex_lock::lock;
 use tokio_util::sync::CancellationToken;
 
 use crate::client::connection::McpConnectionScope;
-use crate::client::tasks::{
-    AwaitedQuestion, ElicitationAnswer, McpToolCall, QuestionOutcome, QuestionTake, TaskWatches,
+use crate::client::tasks::McpToolCall;
+use crate::client::tasks::watches::{
+    AwaitedQuestion, ElicitationAnswer, QuestionOutcome, QuestionTake, TaskWatches,
     compose_question,
 };
 

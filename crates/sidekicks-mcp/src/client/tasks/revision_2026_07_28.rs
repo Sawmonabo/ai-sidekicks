@@ -34,9 +34,10 @@ use crate::client::calls::TrackedCall;
 use crate::client::connection::McpServerConnection;
 use crate::client::poll::{PollStep, follow_task as poll_until_end};
 use crate::client::requests::ServerRequests;
+use crate::client::tasks::watches::{QuestionOutcome, QuestionTake};
 use crate::client::tasks::{
     McpTaskContact, McpTaskGeneration, McpTaskHandleSink, McpToolCall, McpToolCallEnd,
-    McpToolCallError, QuestionOutcome, QuestionTake, observe_mcp_task_acceptance,
+    McpToolCallError, observe_mcp_task_acceptance,
 };
 
 /// The most input requests of one task the client answers; the rest are ignored.

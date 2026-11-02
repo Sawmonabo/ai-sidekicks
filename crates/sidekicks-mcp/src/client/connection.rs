@@ -44,7 +44,8 @@ use crate::client::prompts::PromptWatchers;
 use crate::client::raw_copy::{INITIALIZE_METHOD, RawCopyTransport, RawReplyCopy};
 use crate::client::requests::{McpRequestError, PageCursors, RequestWait, ServerRequests};
 use crate::client::stdio::StdioProcess;
-use crate::client::tasks::{McpServerEndpoint, McpTaskGeneration, QuestionOutcome, TaskWatches};
+use crate::client::tasks::watches::{QuestionOutcome, TaskWatches};
+use crate::client::tasks::{McpServerEndpoint, McpTaskGeneration};
 
 /// The notification a 2025-11-25 server sends when a task's status changes.
 const V1_TASK_STATUS_METHOD: &str = "notifications/tasks/status";

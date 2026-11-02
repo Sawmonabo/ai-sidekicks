@@ -3,9 +3,9 @@ use sidekicks_provider::port::question::QuestionPort as _;
 use tokio::time::{Duration, Instant, timeout};
 
 use super::read_task;
+use crate::client::tasks::watches::{ElicitationAnswer, compose_question};
 use crate::client::tasks::{
-    ElicitationAnswer, McpTaskCancelOutcome, McpTaskContact, McpTaskGeneration, McpToolCallEnd,
-    compose_question,
+    McpTaskCancelOutcome, McpTaskContact, McpTaskGeneration, McpToolCallEnd,
 };
 use crate::client::test_server::{
     CountingSink, Reply, Responder, board_accepted, board_answer, board_form,

@@ -29,7 +29,7 @@ use sidekicks_std::port_registration::PortRegistration;
 
 use crate::client::connection::McpServerConnection;
 use crate::client::prompts::PromptWatchers;
-use crate::client::tasks::TaskWatches;
+use crate::client::tasks::watches::TaskWatches;
 
 /// The idle connections the HTTP client keeps per host: a server's standing event stream and one
 /// request.
