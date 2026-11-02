@@ -172,14 +172,14 @@ pub(crate) struct FakeAuthorizationServer {
     pub(crate) revocation_authorizations: Arc<Mutex<Vec<Option<String>>>>,
 }
 
-/// How the fake authorization server answers; by default it lists `S256` among its PKCE methods,
+/// How the fake authorization server answers; by default it lists `S256` as its PKCE method,
 /// registers every client, answers every token request with tokens and every revocation with 200.
 #[derive(Clone, Copy)]
 pub(crate) struct FakeServerAnswers {
     /// Whether its metadata says it sends `iss` with every response.
     pub(crate) is_issuer_in_response: bool,
-    /// Whether its metadata lists `S256` among its PKCE methods; it lists none otherwise.
-    pub(crate) is_s256_listed: bool,
+    /// The PKCE methods its metadata lists; it names the field only when there are some.
+    pub(crate) pkce_methods: &'static [&'static str],
     /// Whether it refuses every registration with 403.
     pub(crate) is_registration_refused: bool,
     /// Whether it refuses every token request with `invalid_grant`.
@@ -192,7 +192,7 @@ impl Default for FakeServerAnswers {
     fn default() -> Self {
         Self {
             is_issuer_in_response: false,
-            is_s256_listed: true,
+            pkce_methods: &["S256"],
             is_registration_refused: false,
             is_code_refused: false,
             revocation_status: StatusCode::OK,
@@ -215,7 +215,7 @@ pub(crate) async fn serve_authorization_server(
 ) -> FakeAuthorizationServer {
     let FakeServerAnswers {
         is_issuer_in_response,
-        is_s256_listed,
+        pkce_methods,
         is_registration_refused,
         is_code_refused,
         revocation_status,
@@ -237,8 +237,8 @@ pub(crate) async fn serve_authorization_server(
         "response_types_supported": ["code"],
         "authorization_response_iss_parameter_supported": is_issuer_in_response,
     });
-    if is_s256_listed {
-        metadata["code_challenge_methods_supported"] = json!(["S256"]);
+    if !pkce_methods.is_empty() {
+        metadata["code_challenge_methods_supported"] = json!(pkce_methods);
     }
     let metadata = metadata.to_string();
     let requests = Arc::new(AtomicUsize::new(0));

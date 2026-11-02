@@ -339,7 +339,7 @@ async fn a_server_without_s256_signs_in_through_a_provider_or_is_refused_for_it(
     #[case] does_provider_admit: bool,
 ) {
     let server = serve_authorization_server(FakeServerAnswers {
-        is_s256_listed: false,
+        pkce_methods: &[],
         ..FakeServerAnswers::default()
     })
     .await;
