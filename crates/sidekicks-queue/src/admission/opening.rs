@@ -133,8 +133,8 @@ impl QueueAdmission {
             };
             // The release takes the same lock, so it is let go before the wait.
             drop(hold);
-            // A signal closed with its hold means the hold went as well.
-            drop(release.wait_for(|is_released| *is_released).await);
+            // The signal sends nothing, so its wait ends as it closes, with its hold.
+            drop(release.changed().await);
         }
     }
 

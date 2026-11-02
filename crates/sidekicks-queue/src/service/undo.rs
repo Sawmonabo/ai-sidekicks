@@ -4,7 +4,7 @@
 //! fenced on the session's live binding; and the release, which sends the edited message ahead of
 //! every send held meanwhile and opens the lead's next turn with it.
 
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Weak};
 
 use rusqlite::named_params;
 use sidekicks_contracts::event::envelope::SourcePosition;
@@ -30,6 +30,7 @@ use sidekicks_session::run::engine::undo::{RunCut, RunRollback};
 use sidekicks_session::run::epochs::{ConfirmedCut, EpochCursorError};
 use sidekicks_session::run::read::{RunStateReader, read_run_through};
 use sidekicks_session::run::state_change::RunStateChangeCompanions;
+use sidekicks_session::run::superseded::StoredRollbackMismatchError;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadError, ReadLength};
 use sidekicks_store::database::stored_column::text_column;
@@ -55,12 +56,48 @@ static LATER_LEAD_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 /// One undo's hold on a session's lead, from [`RunQueue::hold_for_undo`]: the cut borrows it and
-/// [`RunQueue::release_undo_hold`] consumes it, so a hold is let go once.
+/// [`RunQueue::release_undo_hold`] consumes it, so a hold is let go once. A hold dropped unreleased,
+/// its undo canceled or failed, is let go on a task of the queue's own, as a release with no edit.
 #[must_use = "a session held for an undo is handed nothing until the hold is released"]
 #[derive(Debug)]
 pub struct UndoHold {
     session_id: SessionId,
     undo_key: ClientUuid,
+    // The queue the drop lets the hold go through; empty once a release took the hold.
+    queue: Weak<RunQueue>,
+}
+
+impl UndoHold {
+    // Takes the hold for a release, so its drop lets nothing go.
+    fn take(mut self) -> (SessionId, ClientUuid) {
+        self.queue = Weak::new();
+        (self.session_id, self.undo_key.clone())
+    }
+}
+
+impl Drop for UndoHold {
+    fn drop(&mut self) {
+        let Some(queue) = self.queue.upgrade() else {
+            return;
+        };
+        let (session_id, undo_key) = (self.session_id, self.undo_key.clone());
+        if tokio::runtime::Handle::try_current().is_err() {
+            // Off the runtime nothing can open the lead's next turn, so the hold alone goes.
+            queue.delivery.release_undo_hold(session_id, &undo_key);
+            return;
+        }
+        let releases = queue.releases.clone();
+        releases.spawn(async move {
+            if let Err(error) = queue.let_go_undo_hold(session_id, undo_key, None).await {
+                tracing::error!(
+                    session_id = %session_id,
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "opening the lead's next turn after a dropped undo hold failed; the session's \
+                     next send opens it"
+                );
+            }
+        });
+    }
 }
 
 /// What a conversation cut did.
@@ -80,8 +117,12 @@ pub enum ConversationCut {
     },
 }
 
-/// Why a conversation cut was not made or not recorded. Every refusal is answered before the
-/// provider is asked, writing nothing and dropping the companions.
+/// Why a conversation cut was not made or not recorded. Every refusal but [`Unrecorded`] and
+/// [`Fence`] is answered before the provider is asked, writing nothing and dropping the
+/// companions.
+///
+/// [`Unrecorded`]: ConversationCutError::Unrecorded
+/// [`Fence`]: ConversationCutError::Fence
 #[derive(Debug, thiserror::Error)]
 pub enum ConversationCutError {
     /// The target names no checkpoint of the session, or a message cursor naming no place in its
@@ -92,6 +133,13 @@ pub enum ConversationCutError {
         #[source]
         source: Option<SessionEventCursorUnresolvable>,
     },
+    /// A later undo cut the conversation back past the checkpoint's turn, so there is nothing of
+    /// it to cut.
+    #[error("the undo's point lies in history a later undo cut away")]
+    Superseded,
+    /// A stored rollback of the checkpoint's run does not match its contract.
+    #[error(transparent)]
+    Rollback(StoredRollbackMismatchError),
     /// The person's message at the checkpoint does not read as one sent through the queue, so the
     /// provider knows no id for it.
     #[error("the message the undo goes back to was not sent through the queue")]
@@ -109,7 +157,11 @@ pub enum ConversationCutError {
     /// binding's cursor moved on meanwhile.
     #[error("the conversation cut was recorded but not fenced")]
     Fence(#[source] EpochCursorError),
-    /// A read, the provider's cut or the rollback write failed; a write refused writes nothing.
+    /// The provider cut the conversation but the rollback write was refused or failed, so the
+    /// store holds no rollback of turns the provider no longer has.
+    #[error("the provider cut the conversation, but the store recorded no rollback")]
+    Unrecorded(#[source] QueueError),
+    /// A read or the provider's cut failed, writing nothing.
     #[error(transparent)]
     Queue(#[from] QueueError),
 }
@@ -139,11 +191,15 @@ impl RunQueue {
     /// call is waited out. A send meanwhile is recorded and waits.
     pub async fn hold_for_undo(&self, session_id: SessionId, undo_key: ClientUuid) -> UndoHold {
         let hold = self.session_lock.hold_session(session_id).await;
-        self.delivery.hold_for_undo(&hold, undo_key.clone()).await;
-        UndoHold {
+        // Made before the key goes in, with no await between, so a hold canceled while it waits
+        // out a hand in flight still lets its key go.
+        let undo_hold = UndoHold {
             session_id,
-            undo_key,
-        }
+            undo_key: undo_key.clone(),
+            queue: self.this.clone(),
+        };
+        self.delivery.hold_for_undo(&hold, undo_key).await;
+        undo_hold
     }
 
     /// Cuts the held session's conversation before the person's message `target` names, as the
@@ -151,7 +207,9 @@ impl RunQueue {
     /// write records an `agent.run.rolledBack` of the target's run at the turn before the target's
     /// and of each later lead run at its start, with `companions` committing in it, and the cut is
     /// fenced on the session's live binding; the hold stays. Refuses as [`ConversationCutError`]
-    /// says before the provider is asked; a provider's fallback or failure writes nothing.
+    /// says before the provider is asked, an open turn among the runs it reaches included; a
+    /// provider's fallback or failure writes nothing, and a write refused or failed once the
+    /// provider cut answers [`ConversationCutError::Unrecorded`].
     pub async fn cut_conversation(
         &self,
         hold: &UndoHold,
@@ -186,11 +244,22 @@ impl RunQueue {
         };
         let _queue_hold = self.session_lock.hold_session(session_id).await;
         let append_hold = SESSION_APPEND_LOCK.acquire(session_id).await;
-        let rollbacks = self
+        let rollbacks = match self
             .engine
             .roll_back(reach.cut, reach.later_cuts, companions, &append_hold)
             .await
-            .map_err(QueueError::from)?;
+        {
+            Ok(rollbacks) => rollbacks,
+            Err(error) => {
+                let error = QueueError::from(error);
+                tracing::error!(
+                    session_id = %session_id,
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "the provider cut the session's conversation, but its rollback was not recorded"
+                );
+                return Err(ConversationCutError::Unrecorded(error));
+            }
+        };
         // The fork's binding row is the fork restart's, recorded after this fence opens its cursor.
         let confirmed = match fork_binding_id {
             None => ConfirmedCut::InPlace {
@@ -221,20 +290,46 @@ impl RunQueue {
     /// that reads its opening later (a queued or interrupted run's start, a paused one's resume)
     /// has the resend reserved as that opening, so no reorder or `Send now` meanwhile puts another
     /// message ahead of it; a resume that does not go drops the reservation while it still names
-    /// this resend. The hold is let go and the turn opened whatever the resend answered; fails
-    /// afterwards with the first failure, the resend's first.
+    /// this resend. The hold is let go and the turn opened whatever the resend answered, on a task
+    /// of the queue's own, so a caller that goes away meanwhile still lets it go; fails afterwards
+    /// with the first failure, the resend's first.
     pub async fn release_undo_hold(
         &self,
         hold: UndoHold,
         resend: Option<SessionRestoreResend>,
         device_id: DeviceId,
     ) -> Result<(), QueueError> {
-        let UndoHold {
-            session_id,
-            undo_key,
-        } = hold;
+        let (session_id, undo_key) = hold.take();
+        let queue = self
+            .this
+            .upgrade()
+            .expect("the queue lives while a call of it runs");
+        let released = self.releases.spawn(async move {
+            queue
+                .let_go_undo_hold(
+                    session_id,
+                    undo_key,
+                    resend.map(|resend| (resend, device_id)),
+                )
+                .await
+        });
+        match released.await {
+            Ok(released) => released,
+            // The tracker never aborts its tasks, so only a panic ends one early.
+            Err(error) => std::panic::resume_unwind(error.into_panic()),
+        }
+    }
+
+    // Lets go the hold `undo_key` took on `session_id` as `release_undo_hold` says, with `resend`
+    // sent from its device first.
+    async fn let_go_undo_hold(
+        &self,
+        session_id: SessionId,
+        undo_key: ClientUuid,
+        resend: Option<(SessionRestoreResend, DeviceId)>,
+    ) -> Result<(), QueueError> {
         let mut first_failure = None;
-        if let Some(resend) = resend {
+        if let Some((resend, device_id)) = resend {
             let request = AgentQueueItemCreateRequest {
                 session_id,
                 to: None,
@@ -296,7 +391,8 @@ impl RunQueue {
         let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
         self.pool
             .read(ReadLength::Short, move |reader| {
-                let checkpoint = match read_checkpoint(reader, session_id, &target) {
+                let read_damaged = |session: &SessionId| read_damaged_from_sequence(session);
+                let checkpoint = match read_checkpoint(reader, read_damaged, session_id, &target) {
                     Ok(Some(stored)) => stored.checkpoint,
                     Ok(None) => return Err(ConversationCutError::NoCheckpoint { source: None }),
                     Err(CheckpointReadError::CursorUnresolvable(source)) => {
@@ -304,15 +400,19 @@ impl RunQueue {
                             source: Some(source),
                         });
                     }
+                    Err(CheckpointReadError::Superseded { .. }) => {
+                        return Err(ConversationCutError::Superseded);
+                    }
                     Err(CheckpointReadError::Database(error)) => {
                         return Err(QueueError::from(error).into());
                     }
+                    Err(CheckpointReadError::Rollback(error)) => {
+                        return Err(ConversationCutError::Rollback(error));
+                    }
                 };
-                let sent = SessionEventReads::new(reader, |session: &SessionId| {
-                    read_damaged_from_sequence(session)
-                })
-                .read_at_sequences(&session_id, &[i64::from(checkpoint.message_sequence)])
-                .map_err(QueueError::from)?;
+                let sent = SessionEventReads::new(reader, read_damaged)
+                    .read_at_sequences(&session_id, &[i64::from(checkpoint.message_sequence)])
+                    .map_err(QueueError::from)?;
                 let target_message_id = match sent
                     .first()
                     .map(SessionEvent::from_envelope)
@@ -324,9 +424,15 @@ impl RunQueue {
                 }
                 .ok_or(ConversationCutError::MessageNotQueued)?;
                 // The kept turns of the target's run are those before the target's own.
-                let point = SafeInt::new(checkpoint.turn.position.0.get().saturating_sub(1))
+                let point = checkpoint
+                    .turn
+                    .position
+                    .0
+                    .get()
+                    .checked_sub(1)
+                    .and_then(SafeInt::new)
                     .map(SourcePosition)
-                    .expect("a position less one stays a safe integer");
+                    .expect("a turn a message opened sits past its run's start");
                 let cut = RunCut {
                     run_id: checkpoint.run_id,
                     target_position: point,
@@ -445,12 +551,12 @@ impl RunQueue {
         let Some(run) = read_run_through::<QueueError>(&self.pool, run_id).await? else {
             return Ok(None);
         };
-        let reads_opening_later = matches!(
+        let does_read_opening_later = matches!(
             run.state,
             RunState::Queued | RunState::Interrupted | RunState::Pausing | RunState::Paused
         );
         let reserved_id = resent
-            .filter(|resent| reads_opening_later && resent.target_run_id == Some(run_id))
+            .filter(|resent| does_read_opening_later && resent.target_run_id == Some(run_id))
             .map(|resent| resent.id);
         if let Some(reserved_id) = reserved_id {
             self.admission.reserve_opening(run_id, reserved_id);

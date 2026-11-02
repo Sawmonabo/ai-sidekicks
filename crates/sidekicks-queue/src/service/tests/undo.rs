@@ -20,7 +20,7 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::restore::{SessionRestoreTarget, SnapshotId};
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::error::DriverError;
@@ -30,7 +30,7 @@ use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
 use sidekicks_session::checkpoints::store::{Checkpoint, insert_checkpoint_statement};
 use sidekicks_session::run::engine::test_fixture::{append, stored_run_state};
 
-use super::{DriverCalls, Fixture, client_key, fixture, recording_driver};
+use super::{DriverCalls, Fixture, fixture, recording_driver};
 
 /// The turn position the undo's target message opened; the cut keeps the turns before it.
 const TARGET_TURN: u64 = 2;
@@ -187,19 +187,10 @@ impl Fixture {
     fn run_version(&self, run_id: RunId) -> i64 {
         stored_run_state(&self.database, &run_id).1
     }
-
-    /// Waits until every hand pushed so far reached the driver.
-    async fn settle_hands(&self) {
-        self.queue.delivery.settle(self.session_id).await;
-    }
 }
 
 fn position(turn: u64) -> SourcePosition {
     SourcePosition(SafeInt::new(turn).expect("a small turn"))
-}
-
-fn undo_key() -> ClientUuid {
-    client_key()
 }
 
 fn device() -> DeviceId {

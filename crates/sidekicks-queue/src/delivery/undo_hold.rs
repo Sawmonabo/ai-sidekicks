@@ -1,7 +1,8 @@
 //! The undo's hold on a session: while an undo stops the session's work, cuts its conversation and
 //! puts its files back, nothing of the session is handed, and every hand, start and continue of
 //! its lead reads the hold. Each undo holds under its own key, so two undos of one session hold it
-//! until both let go, and the last release signals a start that waits to read its opening.
+//! until both let go, and the last release closes the signal a start that waits to read its opening
+//! waits on.
 
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::ClientUuid;
@@ -44,7 +45,7 @@ impl QueueDelivery {
         if !holders.keys.remove(undo_key) || !holders.keys.is_empty() {
             return false;
         }
-        holders.released.send_replace(true);
+        // Dropping the holders closes their signal.
         state.undo_holds.remove(&session_id);
         true
     }
@@ -54,9 +55,9 @@ impl QueueDelivery {
         self.lock_state().undo_holds.contains_key(&session_id)
     }
 
-    /// The signal of the undos holding `session_id`, which reads `true` once the last of them let
-    /// go; `None` when no undo holds it. A closed signal means the hold went as well.
-    pub(crate) fn undo_release(&self, session_id: SessionId) -> Option<watch::Receiver<bool>> {
+    /// The signal of the undos holding `session_id`, which sends nothing and closes once the last
+    /// of them let go; `None` when no undo holds it.
+    pub(crate) fn undo_release(&self, session_id: SessionId) -> Option<watch::Receiver<()>> {
         self.lock_state()
             .undo_holds
             .get(&session_id)

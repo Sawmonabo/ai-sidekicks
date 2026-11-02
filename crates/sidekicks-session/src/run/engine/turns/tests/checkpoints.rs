@@ -155,7 +155,7 @@ async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_star
     assert_eq!(start(&engine, run_id, Some(fourth)).await, None);
 
     let reader = database.reader();
-    let stored = list_checkpoints(&reader, session_id).expect("the checkpoints read");
+    let stored = list_checkpoints(&reader, |_| None, session_id).expect("the checkpoints read");
     assert_eq!(
         stored
             .iter()
@@ -179,7 +179,8 @@ async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_star
             SessionRestoreTarget::Message { anchor_cursor },
         ] {
             assert_eq!(
-                read_checkpoint(&reader, session_id, &target).expect("the checkpoint reads"),
+                read_checkpoint(&reader, |_| None, session_id, &target)
+                    .expect("the checkpoint reads"),
                 Some(row.clone()),
                 "{target:?}"
             );

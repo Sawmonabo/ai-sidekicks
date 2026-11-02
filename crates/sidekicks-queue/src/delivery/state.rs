@@ -48,22 +48,14 @@ pub(super) struct HandedMessage {
     pub(super) hand_number: u64,
 }
 
-/// The undos holding one session, and the signal their last release sends.
+/// The undos holding one session, and the signal their last release closes.
+#[derive(Default)]
 pub(super) struct UndoHolders {
     /// The key of each undo holding the session.
     pub(super) keys: HashSet<ClientUuid>,
-    /// Reads `true` once the session's last undo let go; a start waiting to read its opening
-    /// waits on it.
-    pub(super) released: watch::Sender<bool>,
-}
-
-impl Default for UndoHolders {
-    fn default() -> Self {
-        Self {
-            keys: HashSet::new(),
-            released: watch::Sender::new(false),
-        }
-    }
+    /// Sends nothing and closes as the session's last undo lets go; a start waiting to read its
+    /// opening waits on it.
+    pub(super) released: watch::Sender<()>,
 }
 
 /// Everything the delivery keeps, guarded by one `std::sync::Mutex` never held across an await.
@@ -82,7 +74,7 @@ pub(super) struct DeliveryState {
     /// until every one of them settles.
     pub(super) interrupt_holds: HashMap<RunId, HashSet<InterventionId>>,
     /// Sessions an undo is under way on, with the key of each undo holding it and the signal that
-    /// reads `true` once the last of them lets go; nothing of the session is handed until then.
+    /// closes once the last of them lets go; nothing of the session is handed until then.
     pub(super) undo_holds: HashMap<SessionId, UndoHolders>,
     /// Each session's chain, present only while its drain runs.
     pub(super) chains: HashMap<SessionId, SessionChain>,

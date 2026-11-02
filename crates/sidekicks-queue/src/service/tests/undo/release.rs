@@ -1,7 +1,8 @@
 //! The undo's release: a send during the undo waits on every route and follows the edited message,
 //! the edit reserved as the opening of the run that reads its opening later whatever the order
 //! says meanwhile, a run that ends first never records it admitted, back-to-back undos open the run
-//! once with the newer edit first, and a start or continue already under way waits out the undo.
+//! once with the newer edit first, a start or continue already under way waits out the undo, and a
+//! hold dropped unreleased still lets the session go.
 
 use std::sync::Arc;
 
@@ -22,8 +23,8 @@ use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord};
 use sidekicks_session::run::state_change::RunStateChangeCompanions;
 use tokio::time::{sleep, timeout};
 
-use super::super::{DriverCalls, HELD_WATCH, WAIT, fixture, recording_driver};
-use super::{Fixture, applied_in_place, device, scene, undo_key};
+use super::super::{DriverCalls, HELD_WATCH, WAIT, client_key, fixture, recording_driver};
+use super::{Fixture, applied_in_place, device, scene};
 use crate::error::QueueError;
 
 /// The edited message an undo sends again, saying `text`.
@@ -128,7 +129,7 @@ async fn a_send_during_an_undo_waits_and_follows_the_edit(#[case] route: HeldRou
         HeldRoute::NoRun => fixture.set_run_state(scene.run_id, "completed"),
         HeldRoute::Live | HeldRoute::RefusedResend => {}
     }
-    let key = undo_key();
+    let key = client_key();
     let hold = fixture
         .queue
         .hold_for_undo(fixture.session_id, key.clone())
@@ -161,7 +162,7 @@ async fn a_send_during_an_undo_waits_and_follows_the_edit(#[case] route: HeldRou
             .expect("the test moves the session");
     }
     sleep(HELD_WATCH).await;
-    fixture.settle_hands().await;
+    fixture.queue.delivery.settle(fixture.session_id).await;
     let starts_while_held = scene.calls.starts();
     let steers_while_held = scene.calls.steers();
 
@@ -172,7 +173,7 @@ async fn a_send_during_an_undo_waits_and_follows_the_edit(#[case] route: HeldRou
     timeout(WAIT, fixture.queue.stop())
         .await
         .expect("the release's work settles");
-    fixture.settle_hands().await;
+    fixture.queue.delivery.settle(fixture.session_id).await;
 
     assert!(starts_while_held.is_empty(), "{starts_while_held:?}");
     assert!(steers_while_held.is_empty(), "{steers_while_held:?}");
@@ -217,7 +218,7 @@ async fn a_send_during_an_undo_waits_and_follows_the_edit(#[case] route: HeldRou
             .release_undo_hold(again, Some(resend_of("Look closer")), device())
             .await
             .expect("a repeated release answers the first edit");
-        fixture.settle_hands().await;
+        fixture.queue.delivery.settle(fixture.session_id).await;
         assert_eq!(
             steers_after_release,
             [(resent.id, false), (held_send, false)]
@@ -273,7 +274,7 @@ async fn a_reserved_edit_opens_its_run_whatever_the_order_says(#[case] reserved:
         }
         ReservedRun::Queued => None,
     };
-    let key = undo_key();
+    let key = client_key();
     let hold = fixture
         .queue
         .hold_for_undo(fixture.session_id, key.clone())
@@ -345,7 +346,7 @@ async fn a_run_ended_before_it_reads_its_reserved_edit_never_admits_it() {
     let fixture = fixture(recording_driver(&calls)).await;
     let run_id = fixture.insert_run("paused");
     bind_run_to_first_provider(&fixture.database, run_id);
-    let key = undo_key();
+    let key = client_key();
     let hold = fixture
         .queue
         .hold_for_undo(fixture.session_id, key.clone())
@@ -409,7 +410,7 @@ async fn back_to_back_undos_resume_a_paused_run_once_with_the_newer_edit_first()
     let fixture = &scene.fixture;
     let run_id = scene.run_id;
     fixture.set_run_state(run_id, "paused");
-    let first_key = undo_key();
+    let first_key = client_key();
     let first_hold = fixture
         .queue
         .hold_for_undo(fixture.session_id, first_key.clone())
@@ -431,7 +432,7 @@ async fn back_to_back_undos_resume_a_paused_run_once_with_the_newer_edit_first()
         .await
         .expect("the first release reaches its resume")
         .expect("the first release's resume is held");
-    let second_key = undo_key();
+    let second_key = client_key();
     let second_hold = fixture
         .queue
         .hold_for_undo(fixture.session_id, second_key.clone())
@@ -497,11 +498,42 @@ enum UnderWay {
     Continue,
 }
 
+// An undo that goes away holding the session, its request canceled or its handler failed, lets
+// the hold go: the send it held is handed and the session is held no more. Killed by an
+// `UndoHold` with no drop guard.
+#[tokio::test]
+async fn a_dropped_hold_lets_the_session_go_and_hands_the_held_send() {
+    let scene = scene(applied_in_place()).await;
+    let fixture = &scene.fixture;
+    let hold = fixture
+        .queue
+        .hold_for_undo(fixture.session_id, client_key())
+        .await;
+    let held_send = timeout(WAIT, fixture.send())
+        .await
+        .expect("a send during the undo answers")
+        .expect("a send during the undo is taken");
+
+    drop(hold);
+    timeout(WAIT, fixture.queue.stop())
+        .await
+        .expect("the dropped hold's release settles");
+    fixture.queue.delivery.settle(fixture.session_id).await;
+
+    assert!(!fixture.queue.delivery.is_held_for_undo(fixture.session_id));
+    let steers = scene.calls.steers();
+    assert!(
+        steers.iter().any(|(item_id, _)| *item_id == held_send),
+        "{steers:?}"
+    );
+}
+
 // A start or continue a send began before the undo held the session, held just before its read
 // of the run's opening, waits out the undo: nothing opens while the session is held, and at the
 // release the run opens with the edit and the earlier send is handed after it. Killed by an
 // opening read that reads no undo hold (the run opens with the earlier send while held), and by a
-// release that never signals the waiting read (the run never opens). An opening read that returns
+// release that keeps the session's holders, so their signal never closes and the waiting read
+// never wakes (the run never opens). An opening read that returns
 // instead of waiting is not caught here, since the release's own start or continue then opens the
 // run, and is judged by reading.
 #[rstest]
@@ -534,7 +566,7 @@ async fn an_opening_read_under_way_waits_out_the_undo(#[case] under_way: UnderWa
         .await
         .expect("the opening read is reached")
         .expect("the opening read is held");
-    let key = undo_key();
+    let key = client_key();
     let hold = fixture
         .queue
         .hold_for_undo(fixture.session_id, key.clone())

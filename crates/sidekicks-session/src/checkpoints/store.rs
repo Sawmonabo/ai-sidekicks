@@ -2,11 +2,15 @@
 //! write, and the reads an undo and its dry run take: a checkpoint by the point a request names, a
 //! session's checkpoints, per path the version an undo puts back, the commands no capture covered,
 //! and a saved undo outcome by its key. The shadow rows of files over 10 MiB are in [`shadows`].
+//! A checkpoint whose turn a later undo cut away stands in history that no longer exists, so the
+//! list leaves it out and a read of it refuses.
 //!
 //! A point is a place in the session's log: an undo goes back to before the event at
 //! `before_sequence`, so every checkpoint whose prompt sits at or past it lies after the point.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::LazyLock;
 
 use rusqlite::types::Value as SqlValue;
@@ -24,7 +28,9 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::restore::{
     SessionRestoreOutcome, SessionRestoreTarget, SnapshotId,
 };
-use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
+use sidekicks_contracts::transcript::turn_attribution::{
+    EpochPosition, SupersededTurns, transcript_run_stamp_at,
+};
 use sidekicks_contracts::wire::id::{ClientUuid, IdError, UuidText, UuidTextForm, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -39,6 +45,9 @@ use crate::checkpoints::schema::{
     CheckpointVersionContent, CheckpointVersionKind, CheckpointVersionLeg,
 };
 use crate::checkpoints::store::shadows::ShadowId;
+use crate::run::superseded::{
+    StoredRollbackMismatchError, SupersededTurnsReadError, read_superseded_turns,
+};
 
 // A prompt already kept keeps its first checkpoint: a second turn its message opens writes nothing.
 static INSERT_CHECKPOINT_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -246,9 +255,28 @@ pub enum CheckpointReadError {
     /// The target's message cursor names no place in the session's log.
     #[error(transparent)]
     CursorUnresolvable(#[from] SessionEventCursorUnresolvable),
+    /// A later undo cut the conversation back past the checkpoint's turn, so the history it
+    /// stands in no longer exists.
+    #[error("checkpoint {} lies in history a later undo cut away", .checkpoint_id.as_str())]
+    Superseded {
+        /// The checkpoint.
+        checkpoint_id: SnapshotId,
+    },
     /// SQLite failed the read, or a stored column did not read as its type.
     #[error("the checkpoint could not be read")]
     Database(#[from] rusqlite::Error),
+    /// A stored rollback of the checkpoint's run does not match its contract.
+    #[error(transparent)]
+    Rollback(#[from] StoredRollbackMismatchError),
+}
+
+impl From<SupersededTurnsReadError> for CheckpointReadError {
+    fn from(error: SupersededTurnsReadError) -> Self {
+        match error {
+            SupersededTurnsReadError::Database(error) => Self::Database(error),
+            SupersededTurnsReadError::Rollback(error) => Self::Rollback(error),
+        }
+    }
 }
 
 /// A stored checkpoint member that does not read as its type; it names the member only.
@@ -376,11 +404,14 @@ pub fn insert_restore_statement(
 }
 
 /// The checkpoint of `session_id` that `target` names: the one before the message its cursor
-/// places, or the snapshot it names. `None` when the session holds no such checkpoint. Fails with
-/// [`CheckpointReadError::CursorUnresolvable`] for a cursor that names no place in the log, and
-/// as SQLite does or when a stored column does not read.
+/// places, or the snapshot it names. `None` when the session holds no such checkpoint. The undos
+/// that superseded it are read from the log as far as `read_damaged_from_sequence` lets it read.
+/// Fails with [`CheckpointReadError::CursorUnresolvable`] for a cursor that names no place in the
+/// log, [`CheckpointReadError::Superseded`] for a checkpoint a later undo cut away, and as SQLite
+/// does or when a stored column or rollback does not read.
 pub fn read_checkpoint(
     connection: &Connection,
+    read_damaged_from_sequence: impl Fn(&SessionId) -> Option<i64>,
     session_id: SessionId,
     target: &SessionRestoreTarget,
 ) -> Result<Option<StoredCheckpoint>, CheckpointReadError> {
@@ -416,22 +447,62 @@ pub fn read_checkpoint(
             )
             .optional()?,
     };
+    if let Some(stored) = &checkpoint {
+        let turns = read_superseded_turns(
+            connection,
+            read_damaged_from_sequence,
+            &session_id,
+            &stored.checkpoint.run_id,
+        )?;
+        if is_superseded(&turns, &stored.checkpoint) {
+            return Err(CheckpointReadError::Superseded {
+                checkpoint_id: stored.checkpoint.checkpoint_id.clone(),
+            });
+        }
+    }
     Ok(checkpoint)
 }
 
-/// `session_id`'s checkpoints, oldest prompt first. Fails as SQLite does, or when a stored column
-/// does not read.
+/// `session_id`'s checkpoints, oldest prompt first, but those a later undo cut away, read from the
+/// log as far as `read_damaged_from_sequence` lets it read. Fails as SQLite does, or when a stored
+/// column or rollback does not read.
 pub fn list_checkpoints(
     connection: &Connection,
+    read_damaged_from_sequence: impl Fn(&SessionId) -> Option<i64>,
     session_id: SessionId,
-) -> rusqlite::Result<Vec<StoredCheckpoint>> {
-    connection
+) -> Result<Vec<StoredCheckpoint>, SupersededTurnsReadError> {
+    let checkpoints = connection
         .prepare_cached(CHECKPOINTS_OF_SESSION_SQL)?
         .query_map(
             named_params! { "@sessionId": session_id.text().as_str() },
             stored_checkpoint_of,
         )?
-        .collect()
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut turns_by_run: HashMap<RunId, SupersededTurns> = HashMap::new();
+    let mut kept = Vec::with_capacity(checkpoints.len());
+    for stored in checkpoints {
+        let run_id = stored.checkpoint.run_id;
+        let turns = match turns_by_run.entry(run_id) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(read_superseded_turns(
+                connection,
+                &read_damaged_from_sequence,
+                &session_id,
+                &run_id,
+            )?),
+        };
+        if !is_superseded(turns, &stored.checkpoint) {
+            kept.push(stored);
+        }
+    }
+    Ok(kept)
+}
+
+// Whether a rollback of the checkpoint's run cut its turn away.
+fn is_superseded(turns: &SupersededTurns, checkpoint: &Checkpoint) -> bool {
+    transcript_run_stamp_at(turns, checkpoint.turn)
+        .superseded
+        .is_some()
 }
 
 /// Per path, the version an undo of `session_id` to before the log event at `before_sequence`
