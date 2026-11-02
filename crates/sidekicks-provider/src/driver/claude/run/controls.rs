@@ -39,6 +39,7 @@ use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::ClaudeControlRequest;
 use crate::driver::claude::session::transport::user_message::{
     ClaudeUserContentBlock, ClaudeWriteAttempt, ClaudeWriteDelivery, compose_claude_user_frame,
+    is_reset_request, reset_refusal,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::RespondToRequestParams;
@@ -167,8 +168,9 @@ impl ClaudeRunControls {
     /// path; the lead's waiting messages go as user messages with their files, the first starting
     /// its next turn when its last one ended on the pause. Fails `NoLiveSession`,
     /// `SessionTurnInFlight` while another turn holds the session, as the files' read fails before
-    /// anything is sent, with the run's refusal for a lead's picture Claude Code refuses, and as a
-    /// write fails.
+    /// anything is sent, with the run's refusal for a lead's picture Claude Code refuses,
+    /// `session.message.resetRefused` with nothing written for a lead's message that would reset
+    /// the session, and as a write fails.
     pub(crate) async fn resume_run(&self, params: ResumeRunParams) -> Result<(), DriverError> {
         let live = self.start.live_session(params.session_id)?;
         let session_id = params.session_id;
@@ -204,6 +206,15 @@ impl ClaudeRunControls {
             }
             words.map_err(DriverError::Internal)?;
             return Ok(());
+        }
+        // A waiting message that would reset the session refuses the continue before any of them
+        // is written, so none lands ahead of the refusal.
+        if params
+            .messages
+            .iter()
+            .any(|message| is_reset_request(message.content.as_str()))
+        {
+            return Err(reset_refusal().into());
         }
         let blocks = try_join_all(params.messages.iter().map(|message| {
             compose_claude_attachment_blocks(attachments, &session_id, &message.attachments)

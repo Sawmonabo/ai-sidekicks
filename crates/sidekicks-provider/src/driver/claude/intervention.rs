@@ -176,8 +176,9 @@ impl ClaudeInterventions {
     /// Writes a steer into its run's turn, or carries out an interrupt. Steers on one session are
     /// written in the order they were handed over, however long their files take to read. Fails
     /// `NoLiveRun` when the run has no live process, with `SteerTurnEnded` when the run's turn
-    /// ended before its steer could go, as the files' read fails before anything is sent, and as a
-    /// write or the interrupt fails; nothing is written twice.
+    /// ended before its steer could go, as the files' read fails before anything is sent,
+    /// `session.message.resetRefused` with nothing written for a lead's steer that would reset the
+    /// session, and as a write or the interrupt fails; nothing is written twice.
     pub(crate) async fn apply_intervention(
         &self,
         params: ApplyInterventionParams,

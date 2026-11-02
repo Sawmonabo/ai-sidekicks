@@ -23,6 +23,7 @@ use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
 use crate::driver::claude::session::transport::user_message::{
     ClaudeMessagePriority, ClaudeWriteAttempt, ClaudeWriteDelivery, compose_claude_user_frame,
+    is_reset_request, reset_refusal,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::{ApplyInterventionResponse, SteerPayload, SteerTurnEndedError};
@@ -30,7 +31,8 @@ use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 
 impl ClaudeInterventions {
     // A steer's place is taken before anything is awaited: the session's fair lock is asked for
-    // first and its files read beside it, so steers keep the order they were handed over in.
+    // first and its files read beside it, so steers keep the order they were handed over in. A
+    // person's words that would reset the session are refused before anything is held or written.
     pub(super) async fn steer(
         &self,
         run_id: RunId,
@@ -43,6 +45,9 @@ impl ClaudeInterventions {
             Some(ClaudeRunRoute::Child(route)) => return self.steer_helper(route, payload).await,
             Some(ClaudeRunRoute::Apart) | None => return Err(no_live_run(run_id).into()),
         };
+        if is_reset_request(payload.content.as_str()) {
+            return Err(reset_refusal().into());
+        }
         let live = start
             .slots
             .live_session(session_id)
