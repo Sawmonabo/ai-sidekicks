@@ -552,10 +552,14 @@ pub(super) mod tests {
             .digest_declaration(&first, &binding, &declaration)
             .expect("the declaration digests");
 
-        let under_second = key.digest_declaration(&second, &binding, &declaration);
-        let under_other_key = receipt_key(2).digest_declaration(&first, &binding, &declaration);
-        assert_ne!(Some(digest), under_second.ok());
-        assert_ne!(Some(digest), under_other_key.ok());
+        let under_second = key
+            .digest_declaration(&second, &binding, &declaration)
+            .expect("the declaration digests");
+        let under_other_key = receipt_key(2)
+            .digest_declaration(&first, &binding, &declaration)
+            .expect("the declaration digests");
+        assert_ne!(digest, under_second);
+        assert_ne!(digest, under_other_key);
 
         let covered = json!({
             "idempotencyKey": first.as_str(),
@@ -581,8 +585,10 @@ pub(super) mod tests {
         let mut reordered = Map::new();
         reordered.insert("args".to_owned(), json!(["docs-server"]));
         reordered.insert("command".to_owned(), json!("npx"));
-        let reordered_digest = key.digest_declaration(&first, &binding, &reordered);
-        assert_eq!(Some(digest), reordered_digest.ok());
+        let reordered_digest = key
+            .digest_declaration(&first, &binding, &reordered)
+            .expect("the reordered declaration digests");
+        assert_eq!(digest, reordered_digest);
 
         let request = json!({ "serverName": "docs" });
         let upsert = key.digest_request(&first, "mcp.server.upsert", &request);
