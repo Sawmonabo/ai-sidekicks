@@ -2,7 +2,7 @@
 //! gate a script or quick Code step waits at, the agent runs an agent step starts, the processes a
 //! step launches and the artifacts its large payloads go to, the approval cards and questions a
 //! step waiting on a person opens, and the sink of the engine's own records. The program implements
-//! each and hands it to the engine.
+//! each and hands the ones the dispatch reads to the engine as one bundle.
 
 use std::error::Error;
 use std::ffi::OsString;
@@ -29,6 +29,7 @@ use sidekicks_contracts::workflow::run::step::record::{
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
+use crate::runs::step_action::StepActionApproval;
 use crate::secrets::redaction::RunRedaction;
 
 /// Why a port's call failed, as its implementer reports it.
@@ -58,6 +59,21 @@ pub enum StepScriptRuntime {
     Bun,
     /// Python.
     Python,
+}
+
+/// The ports the tick's dispatch reads, which the program's workflow engine builds and hands it.
+#[derive(Clone)]
+pub struct EnginePorts {
+    /// The memory gate a script or quick Code step waits at.
+    pub admission: Arc<dyn StepAdmission>,
+    /// Starts and reattaches the agent runs agent steps make.
+    pub agent_steps: Arc<dyn AgentStepRunner>,
+    /// Launches the processes steps run.
+    pub processes: Arc<dyn StepProcessLauncher>,
+    /// Stores the step payloads too large to carry inline.
+    pub payloads: Arc<dyn StepPayloadArtifacts>,
+    /// Decides a step's action before it runs.
+    pub step_actions: Arc<dyn StepActionApproval>,
 }
 
 /// What a step the memory gate weighs runs, which sets its reservation.
@@ -97,6 +113,10 @@ pub enum StepAdmissionOutcome {
 pub trait StepAdmission: Send + Sync {
     /// Puts `work` in the gate's line and returns its ticket at once.
     fn enqueue(&self, work: StepAdmissionWork) -> Box<dyn StepAdmissionTicket>;
+
+    /// Weighs the head of the line against a fresh memory reading; the tick calls it once per turn
+    /// so the gate sees memory freed elsewhere.
+    fn weigh(&self);
 }
 
 /// One step's place at the memory gate; dropping it releases the place and its reservation.
@@ -187,6 +207,9 @@ pub trait AgentStepRun: Send + Sync {
     /// Where the run stands at the memory gate: `None` while it is waiting at the gate, then its
     /// outcome.
     fn admission(&self) -> watch::Receiver<Option<StepAdmissionOutcome>>;
+
+    /// How many turn ends and tool calls the run has passed, which the step reports as progress.
+    fn progressed(&self) -> watch::Receiver<u64>;
 
     /// Waits for the run to start. Fails when it ends before starting.
     fn started(&self) -> BoxFuture<'_, Result<AgentStepStart, PortError>>;

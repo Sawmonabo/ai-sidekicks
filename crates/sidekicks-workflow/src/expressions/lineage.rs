@@ -10,6 +10,7 @@
 )]
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
@@ -38,28 +39,40 @@ pub(crate) struct StepOutput {
 }
 
 /// A run's steps as its expressions read them: each node's executions in order, and the id index
-/// that resolves a label to its node, so a renamed node is still found by its new label.
-#[derive(Debug, Default)]
+/// that resolves a label to its node, so a renamed node is still found by its new label. The tick
+/// clones it once per turn for the steps that turn dispatches, at one pointer per execution
+/// recorded plus the shared labels.
+#[derive(Clone, Debug, Default)]
 pub(crate) struct StepOutputs {
+    /// The labels of the run's nodes, which every clone shares.
+    labels: Arc<NodeLabels>,
+    /// Each node's executions by execution index.
+    steps: HashMap<WorkflowNodeId, BTreeMap<u64, Arc<StepOutput>>>,
+}
+
+/// The labels of a run's nodes, both ways.
+#[derive(Debug, Default)]
+struct NodeLabels {
     /// Each node's id by its label.
     node_ids_by_label: HashMap<String, WorkflowNodeId>,
     /// Each node's label by its id.
     labels_by_node_id: HashMap<WorkflowNodeId, String>,
-    /// Each node's executions by execution index.
-    steps: HashMap<WorkflowNodeId, BTreeMap<u64, StepOutput>>,
 }
 
 impl StepOutputs {
     /// The steps of a run over `nodes`, each a node's id and label, before any step ran.
     pub(crate) fn new(nodes: impl IntoIterator<Item = (WorkflowNodeId, String)>) -> Self {
-        let mut step_outputs = Self::default();
+        let mut labels = NodeLabels::default();
         for (node_id, label) in nodes {
-            step_outputs
+            labels
                 .node_ids_by_label
                 .insert(label.clone(), node_id.clone());
-            step_outputs.labels_by_node_id.insert(node_id, label);
+            labels.labels_by_node_id.insert(node_id, label);
         }
-        step_outputs
+        Self {
+            labels: Arc::new(labels),
+            steps: HashMap::new(),
+        }
     }
 
     /// Records what the execution `key` read and wrote, replacing what it held.
@@ -67,12 +80,13 @@ impl StepOutputs {
         self.steps
             .entry(key.node_id)
             .or_default()
-            .insert(key.execution_index, output);
+            .insert(key.execution_index, Arc::new(output));
     }
 
     /// The node labeled `label`; fails with [`LineageError::UnknownLabel`] when no node is.
     pub(crate) fn node_id(&self, label: &str) -> Result<&WorkflowNodeId, LineageError> {
-        self.node_ids_by_label
+        self.labels
+            .node_ids_by_label
             .get(label)
             .ok_or_else(|| LineageError::UnknownLabel {
                 label: label.to_owned(),
@@ -84,7 +98,7 @@ impl StepOutputs {
         self.steps
             .get(node_id)
             .and_then(|executions| executions.last_key_value())
-            .map(|(_, output)| output)
+            .map(|(_, output)| output.as_ref())
     }
 
     /// The execution `key`, or `None` when it has not run.
@@ -92,11 +106,13 @@ impl StepOutputs {
         self.steps
             .get(&key.node_id)
             .and_then(|executions| executions.get(&key.execution_index))
+            .map(Arc::as_ref)
     }
 
     /// The label a person reads for `node_id`.
     fn label(&self, node_id: &WorkflowNodeId) -> String {
-        self.labels_by_node_id
+        self.labels
+            .labels_by_node_id
             .get(node_id)
             .expect("every step runs a node of the run's document, which the labels hold")
             .clone()
