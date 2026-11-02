@@ -142,7 +142,7 @@ flate2.default-features = false
 flate2.features = ["runtime_detection", "zlib-rs"]
 ignore = "0.4.33"
 notify = "=9.0.0-rc.6"
-reflink-copy = "0.1.30"
+reflink-copy = "0.1.31"
 sha3 = "0.12.0"
 tar = "0.4.46"
 typed-path = "0.12.3"
