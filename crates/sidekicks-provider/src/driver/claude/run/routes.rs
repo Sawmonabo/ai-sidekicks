@@ -19,8 +19,7 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::watch;
 
 /// Where a helper's child run lives: its session, the agent id its frames and hook callbacks
-/// carry, the lead run it was started beneath, and the binding the lead's process is attributed
-/// on.
+/// carry, the run it was started beneath, and the binding the lead's process is attributed on.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[expect(
     clippy::struct_field_names,
@@ -31,7 +30,7 @@ pub(crate) struct ClaudeChildRunRoute {
     pub(crate) session_id: SessionId,
     /// The helper's agent id, as Claude Code gave it.
     pub(crate) agent_id: String,
-    /// The lead run it was started beneath.
+    /// The run it was started beneath: its launching helper's, else the lead's.
     pub(crate) parent_run_id: RunId,
     /// The binding the lead's process is attributed on.
     pub(crate) binding_id: RuntimeBindingId,

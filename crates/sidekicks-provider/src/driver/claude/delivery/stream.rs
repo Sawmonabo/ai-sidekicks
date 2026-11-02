@@ -171,8 +171,13 @@ impl ClaudeDeliveryStream {
             report_engine_failure(session, "the settled output speed", &*error);
         }
         for emission in routed.helper_lifecycle {
-            self.deliver_helper_lifecycle(session, turn_at_read.lead.clone(), emission)
-                .await;
+            self.deliver_helper_lifecycle(
+                session,
+                turn_at_read.lead.clone(),
+                frame.observation.subagent_lifecycle.as_ref(),
+                emission,
+            )
+            .await;
         }
         self.record_metered(session, turn_at_read.lead.as_ref(), routed.metered)
             .await;

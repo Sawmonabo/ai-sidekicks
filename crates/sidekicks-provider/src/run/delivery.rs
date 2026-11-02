@@ -65,8 +65,8 @@ pub struct DeliveryOperation<'key> {
 pub struct ChildRunSubagent {
     /// The provider's own id for the helper.
     pub subagent_id: SubagentId,
-    /// The provider's id for the helper it runs under; `None` under the lead or where the provider
-    /// does not say.
+    /// The provider's id for the helper that launched it, as the provider gave it; `None` for one
+    /// the lead launched.
     pub parent_subagent_id: Option<SubagentId>,
     /// The name its provider gave it, where the provider names helpers.
     pub name: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
