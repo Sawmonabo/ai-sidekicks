@@ -9,6 +9,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
 use super::{SessionEventReads, SessionLogReadError, payload_damage_of, readable_event_sql};
+use crate::events::session::insert::TOOL_CALL_ID_PAYLOAD_KEY;
 use crate::transcript::rejoin::row_condition_sql;
 
 /// One of a run's tool calls whose result folds: where its closes, its `completed` and `failed`
@@ -33,16 +34,16 @@ static TOOL_CALL_CLOSES_SQL: LazyLock<String> = LazyLock::new(|| {
     let completed = SessionEventType::AgentToolCallCompleted.as_str();
     let failed = SessionEventType::AgentToolCallFailed.as_str();
     format!(
-        "SELECT json_extract(event.payload, '$.toolCallId'),
+        "SELECT json_extract(event.payload, '$.{TOOL_CALL_ID_PAYLOAD_KEY}'),
             MAX(event.type = '{backgrounded}'),
             MIN(CASE WHEN event.type <> '{backgrounded}' THEN event.sequence END),
             MAX(CASE WHEN event.type <> '{backgrounded}' THEN event.sequence END)
        FROM session_events AS event
       WHERE event.session_id = @session_id AND event.run_id = @run_id
         AND event.type IN ('{backgrounded}', '{completed}', '{failed}')
-        AND json_extract(event.payload, '$.toolCallId') IS NOT NULL
+        AND json_extract(event.payload, '$.{TOOL_CALL_ID_PAYLOAD_KEY}') IS NOT NULL
         AND {readable} AND {row}
-      GROUP BY json_extract(event.payload, '$.toolCallId')
+      GROUP BY json_extract(event.payload, '$.{TOOL_CALL_ID_PAYLOAD_KEY}')
      HAVING MAX(event.type = '{backgrounded}')
          OR COUNT(CASE WHEN event.type <> '{backgrounded}' THEN 1 END) > 1",
         readable = readable_event_sql("event"),
