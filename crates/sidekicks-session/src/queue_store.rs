@@ -51,7 +51,12 @@ use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 /// and a plan message each open a run of their own and are never handed into a running or
 /// continued turn.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum QueueItemBody {
     /// A message.
     Message(QueueMessageBody),
@@ -174,7 +179,7 @@ pub struct NewQueueItem {
     /// The device that sent it, or whose verdict a plan message carries out; absent on a review
     /// the daemon queues.
     pub device_id: Option<DeviceId>,
-    /// The send's own key; absent on a review the daemon queues.
+    /// The send's own key, which every send writes, a review the daemon queues among them.
     pub client_idempotency_key: Option<ClientUuid>,
     /// The waiting item an edit replaces.
     pub replaces_queue_item_id: Option<QueueItemId>,
@@ -463,8 +468,8 @@ static SELECT_PLAN_MESSAGE_SQL: LazyLock<String> = LazyLock::new(|| {
         "SELECT {COLUMNS} FROM queue_items
   WHERE session_id = @session_id AND child_handle IS NULL
     AND json_extract(payload, '$.kind') = 'planMessage'
-    AND json_extract(payload, '$.plan_message.planId') = @plan_id
-    AND json_extract(payload, '$.plan_message.kind') = @kind
+    AND json_extract(payload, '$.planMessage.planId') = @plan_id
+    AND json_extract(payload, '$.planMessage.kind') = @kind
     AND state <> '{}'
   {QUEUE_ORDER} LIMIT 1",
         <&'static str>::from(QueueItemState::Superseded)
