@@ -415,6 +415,9 @@ impl ProviderAccountObserver {
     /// A run ended on some account: each turn-end read a live turn turned away is asked again in a
     /// task of its own, and is owed again while a turn on its account still reads as live.
     pub fn turn_closed(&self) {
+        if lock(&self.shared.turn_end_reads_owed).is_empty() {
+            return;
+        }
         let shared = Arc::clone(&self.shared);
         tokio::spawn(async move { shared.read_owed_turn_end_reads().await });
     }
@@ -453,13 +456,18 @@ impl ObserverShared {
         {
             return Ok(());
         }
-        if !self
-            .live_turns
-            .sessions_with_live_turns(&provider_account_id)
-            .is_empty()
         {
-            lock(&self.turn_end_reads_owed).insert(provider_account_id);
-            return Ok(());
+            // Held across the check and the mark, so a run's end that takes the owed reads either
+            // comes first, its turn already read as ended here, or finds this one owed.
+            let mut owed = lock(&self.turn_end_reads_owed);
+            if !self
+                .live_turns
+                .sessions_with_live_turns(&provider_account_id)
+                .is_empty()
+            {
+                owed.insert(provider_account_id);
+                return Ok(());
+            }
         }
         let answer = self
             .read(provider_account_id.clone(), ReadAsker::TurnEnd)
