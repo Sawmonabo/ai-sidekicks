@@ -172,6 +172,9 @@ pub struct ProviderDescriptor {
     /// Whether a pasted token's limits are read by a turn, since the token's own scope cannot read
     /// them; the turn's answer is the reading.
     pub(crate) token_limits_read_by_turn: bool,
+    /// The command a person types in a terminal to pick up one of the provider's sessions typed
+    /// there again.
+    pub(crate) terminal_resume_command: &'static str,
 }
 
 /// A provider's contract with the command wrapper's link when it prefixes every shell command it
@@ -207,6 +210,12 @@ impl ProviderDescriptor {
     /// The provider's name as a person reads it, which a session's lead agent is named.
     pub fn name(&self) -> &'static str {
         self.name
+    }
+
+    /// The command a person types in a terminal to pick up one of the provider's sessions typed
+    /// there again.
+    pub fn terminal_resume_command(&self) -> &'static str {
+        self.terminal_resume_command
     }
 
     /// The variables a Terminal pane's shell is given while `Simplify for a screen reader` is on.

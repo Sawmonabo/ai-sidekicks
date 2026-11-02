@@ -262,6 +262,7 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     account_home_credential_store_folder: &[],
     shell_prefix_command: None,
     token_limits_read_by_turn: false,
+    terminal_resume_command: "codex resume",
 };
 
 /// Builds the Codex driver over the shared services; it stores handles and does no I/O.
