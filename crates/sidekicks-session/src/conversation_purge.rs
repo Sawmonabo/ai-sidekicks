@@ -178,7 +178,7 @@ mod tests {
     use sidekicks_provider::driver::contract::MockProviderDriver;
     use sidekicks_provider::driver::registry::{ProviderRegistry, test_provider};
     use sidekicks_provider::driver::test_registry::test_driver_services;
-    use sidekicks_provider::driver::{PROVIDERS, ProviderRegistration};
+    use sidekicks_provider::driver::{PROVIDER_REGISTRATIONS, PROVIDERS, ProviderRegistration};
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
     use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
@@ -234,11 +234,11 @@ mod tests {
         );
 
         // A driver with no expectations fails the test on any call, the purge among them.
-        let table: Vec<ProviderRegistration> = PROVIDERS
+        let table: Vec<ProviderRegistration> = PROVIDER_REGISTRATIONS
             .iter()
-            .map(|descriptor| ProviderRegistration {
-                descriptor,
+            .map(|registration| ProviderRegistration {
                 build: |_| Arc::new(MockProviderDriver::new()),
+                ..*registration
             })
             .collect();
         let services = test_driver_services();

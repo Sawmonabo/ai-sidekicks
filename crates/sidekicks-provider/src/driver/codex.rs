@@ -36,7 +36,7 @@ use crate::driver::codex::service::registry::CODEX_SWITCHING_HOME_FOLDER;
 #[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::contract::ProviderDriver;
-use crate::driver::contract::account::ProviderAccountLegs;
+use crate::driver::contract::account::{HelperModeAccountLegs, ProviderAccountLegs};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
@@ -68,8 +68,8 @@ use crate::driver::session_control::{
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{
-    CommandSandboxNeeds, DriverServices, InstallFolder, InstallFolderBase, ProviderCommand,
-    ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
+    CommandSandboxNeeds, DriverServices, HelperModeServices, InstallFolder, InstallFolderBase,
+    ProviderCommand, ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
 };
 use crate::port::running_command_publisher::{
     RunningCommandParams, WriteCommandInputParams, command_act_unsupported,
@@ -263,6 +263,13 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
 /// Builds the Codex driver over the shared services; it stores handles and does no I/O.
 pub(super) fn build(services: &DriverServices) -> Arc<dyn ProviderDriver> {
     Arc::new(CodexDriver::new(services))
+}
+
+/// Builds Codex's helper-mode account legs, which hold nothing of `_services`.
+pub(super) fn helper_mode_account_legs(
+    _services: &HelperModeServices,
+) -> Arc<dyn HelperModeAccountLegs> {
+    Arc::new(account::helper_mode::CodexHelperModeLegs)
 }
 
 /// The service registry the next driver [`build_over_scripted_service`] builds holds.

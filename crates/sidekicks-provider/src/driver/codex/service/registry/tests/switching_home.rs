@@ -29,7 +29,7 @@ use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::registry::ProviderRegistry;
 use crate::driver::session_control::{PurgeSessionParams, PurgedConversation};
 use crate::driver::test_registry::{new_session_id, test_driver_services};
-use crate::driver::{PROVIDERS, ProviderRegistration};
+use crate::driver::{PROVIDER_REGISTRATIONS, ProviderRegistration};
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The conversation the purge deletes from the switching home.
@@ -93,11 +93,11 @@ async fn a_restart_rejoins_the_switching_service_by_its_record_and_the_backup_li
     next.shutdown(DaemonStopIntent::Stop).await;
     let is_stopped = wait_until_gone(kept_process).await;
 
-    let table: Vec<ProviderRegistration> = PROVIDERS
+    let table: Vec<ProviderRegistration> = PROVIDER_REGISTRATIONS
         .iter()
-        .map(|descriptor| ProviderRegistration {
-            descriptor,
+        .map(|registration| ProviderRegistration {
             build: |_| Arc::new(MockProviderDriver::new()),
+            ..*registration
         })
         .collect();
     let providers = ProviderRegistry::register_from(&table, &test_driver_services());

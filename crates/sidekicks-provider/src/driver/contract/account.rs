@@ -27,6 +27,7 @@ use sidekicks_contracts::web_address::HttpsAddress;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_platforms::KeychainSignIn;
 use tokio::sync::oneshot;
 
 use crate::account::credential_home::CredentialHome;
@@ -85,6 +86,18 @@ pub trait ProviderAccountLegs: Send + Sync {
     /// at each registration and re-supply; `None` for a provider that takes no pasted token, whose
     /// token registrations the custody refuses.
     fn token_status_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderTokenStatusLegs>>;
+}
+
+/// A provider's own acts on one account's home that the daemon program's helper modes run, with no
+/// daemon serving, no driver and no database pool.
+pub trait HelperModeAccountLegs: Send + Sync {
+    /// The keychain item and the file the sign-in of the account in `folders` moves between, where
+    /// the provider keeps it in the login keychain; `None` where it keeps it in a file already.
+    /// Fails with [`DriverError::Internal`] when the names cannot be composed.
+    fn keychain_sign_in(
+        &self,
+        folders: &ProviderAccountFolders,
+    ) -> Result<Option<KeychainSignIn>, DriverError>;
 }
 
 /// A provider's own interactive sign-in, run in one account's home: the flow's start, and the

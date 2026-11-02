@@ -5,6 +5,7 @@
 
 pub(crate) mod api_key;
 pub(crate) mod auth_file;
+pub(super) mod helper_mode;
 mod limits;
 pub(crate) mod login;
 mod memory;

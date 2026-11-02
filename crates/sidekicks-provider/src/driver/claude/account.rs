@@ -2,6 +2,7 @@
 //! on the folders the caller names, and where its memory import reads and lands.
 
 pub(super) mod credentials;
+pub(super) mod helper_mode;
 mod limits;
 mod sign_in;
 mod sign_in_move;
@@ -13,7 +14,7 @@ mod window_start;
 mod memory;
 
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock, Weak};
 
 use futures::FutureExt;
@@ -118,24 +119,43 @@ impl ClaudeAccountLegs {
         home: ClaudeProcessHome<'_>,
         deny_env_vars: &[&str],
     ) -> Result<Vec<(String, String)>, DriverError> {
-        let data_folder = self.data_folder.to_string_lossy();
-        compose_claude_process_environment(
-            ClaudeProcessEnvironmentRequest {
-                session: SessionEnvironment {
-                    base: &self.base_environment,
-                    every_project_rows: &[],
-                    project_rows: &[],
-                    reserved_names: &self.reserved_names,
-                    rules: PathRules::NATIVE,
-                },
-                deny_env_vars,
-                home,
-                data_folder: &data_folder,
-            },
-            &[],
+        compose_account_environment(
+            &self.data_folder,
+            &self.base_environment,
+            &self.reserved_names,
+            home,
+            deny_env_vars,
         )
-        .map_err(|error| DriverError::Internal(Box::new(error)))
     }
+}
+
+// The environment a Claude Code process on `home` starts with over `base_environment`, with no
+// environment row, `deny_env_vars` removed: the one composition the legs and the helper mode's
+// names share. Fails as it cannot be composed.
+fn compose_account_environment(
+    data_folder: &Path,
+    base_environment: &[(String, String)],
+    reserved_names: &ReservedEnvironmentNames,
+    home: ClaudeProcessHome<'_>,
+    deny_env_vars: &[&str],
+) -> Result<Vec<(String, String)>, DriverError> {
+    let data_folder = data_folder.to_string_lossy();
+    compose_claude_process_environment(
+        ClaudeProcessEnvironmentRequest {
+            session: SessionEnvironment {
+                base: base_environment,
+                every_project_rows: &[],
+                project_rows: &[],
+                reserved_names,
+                rules: PathRules::NATIVE,
+            },
+            deny_env_vars,
+            home,
+            data_folder: &data_folder,
+        },
+        &[],
+    )
+    .map_err(|error| DriverError::Internal(Box::new(error)))
 }
 
 impl ProviderAccountLegs for ClaudeAccountLegs {
