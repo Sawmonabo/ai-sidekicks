@@ -29,6 +29,7 @@ use rmcp::service::{
 use rmcp::{ClientHandler, RoleClient};
 use serde_json::{Value, json};
 use sidekicks_contracts::mcp::server::McpServerName;
+use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::id::SessionId;
@@ -42,7 +43,7 @@ use crate::client::prompts::PromptWatchers;
 use crate::client::raw_copy::{INITIALIZE_METHOD, RawCopyTransport, RawReplyCopy};
 use crate::client::requests::{McpRequestError, PageCursors, RequestWait, ServerRequests};
 use crate::client::stdio::StdioProcess;
-use crate::client::tasks::{McpTaskGeneration, QuestionOutcome, TaskWatches};
+use crate::client::tasks::{McpServerEndpoint, McpTaskGeneration, QuestionOutcome, TaskWatches};
 
 /// The notification a 2025-11-25 server sends when a task's status changes.
 const V1_TASK_STATUS_METHOD: &str = "notifications/tasks/status";
@@ -111,13 +112,14 @@ pub(crate) struct McpConnectionScope {
     pub(crate) release_version: ReleaseVersion,
 }
 
-/// How a connection starts: the deadline its start is held to, its tool calls' idle window, and
-/// the stdio server's process it holds, if any.
+/// How a connection starts: the deadline its start is held to, its tool calls' idle window, the
+/// stdio server's process it holds, if any, and the server's endpoint.
 pub(super) struct McpConnectionStart {
     startup_timeout: Duration,
     startup_deadline: Instant,
     tool_call_idle_timeout: Duration,
     process: Option<StdioProcess>,
+    endpoint: McpServerEndpoint,
 }
 
 impl McpConnectionStart {
@@ -127,15 +129,17 @@ impl McpConnectionStart {
             startup_timeout,
             crate::client::requests::STDIO_TOOL_CALL_IDLE_TIMEOUT,
             process,
+            McpServerEndpoint::stdio(),
         )
     }
 
-    /// A start at an address, from now, within `startup_timeout` or the default.
-    pub(super) fn http(startup_timeout: Option<Duration>) -> Self {
+    /// A start at `address`, from now, within `startup_timeout` or the default.
+    pub(super) fn http(startup_timeout: Option<Duration>, address: &McpServerAddress) -> Self {
         Self::new(
             startup_timeout,
             crate::client::requests::HTTP_TOOL_CALL_IDLE_TIMEOUT,
             None,
+            McpServerEndpoint::at_address(address),
         )
     }
 
@@ -143,6 +147,7 @@ impl McpConnectionStart {
         startup_timeout: Option<Duration>,
         tool_call_idle_timeout: Duration,
         process: Option<StdioProcess>,
+        endpoint: McpServerEndpoint,
     ) -> Self {
         let startup_timeout = startup_timeout.unwrap_or(DEFAULT_STARTUP_TIMEOUT);
         Self {
@@ -150,6 +155,7 @@ impl McpConnectionStart {
             startup_deadline: Instant::now() + startup_timeout,
             tool_call_idle_timeout,
             process,
+            endpoint,
         }
     }
 
@@ -162,6 +168,8 @@ impl McpConnectionStart {
 /// One open connection to a tool server.
 pub(crate) struct McpServerConnection {
     pub(super) scope: McpConnectionScope,
+    /// Which server this is, stamped on each task it accepts.
+    pub(super) endpoint: McpServerEndpoint,
     pub(super) service: RunningService<RoleClient, McpClientHandler>,
     pub(super) requests: ServerRequests,
     /// The Tasks protocol the server speaks, `None` when it offers no tasks.
@@ -194,6 +202,7 @@ impl McpServerConnection {
             startup_deadline,
             tool_call_idle_timeout,
             process,
+            endpoint,
         } = start;
         let are_tools_stale = Arc::new(AtomicBool::new(false));
         let calls = Arc::new(CallsInFlight::default());
@@ -250,6 +259,7 @@ impl McpServerConnection {
                 activity,
             },
             scope,
+            endpoint,
             service,
             task_generation,
             calls,
@@ -278,10 +288,14 @@ impl McpServerConnection {
     }
 
     /// Whether `tool_name` takes a task on this 2025-11-25 server, its tools read again first
-    /// when the server said they changed. Fails as that read fails.
+    /// when the server said they changed. Fails as that read fails, and the tools then stay
+    /// marked changed, so the next task call reads them again.
     pub(super) async fn is_task_tool(&self, tool_name: &str) -> Result<bool, McpRequestError> {
-        if self.are_tools_stale.swap(false, Ordering::AcqRel) {
-            self.read_task_tools().await?;
+        if self.are_tools_stale.swap(false, Ordering::AcqRel)
+            && let Err(error) = self.read_task_tools().await
+        {
+            self.are_tools_stale.store(true, Ordering::Release);
+            return Err(error);
         }
         Ok(lock(&self.task_tools).contains(tool_name))
     }
@@ -463,10 +477,16 @@ impl ClientHandler for McpClientHandler {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
+
+    use serde_json::json;
     use tokio::time::{Duration, Instant, timeout};
 
     use super::{DEFAULT_STARTUP_TIMEOUT, McpConnectionError};
-    use crate::client::test_server::{Reply, start_test_server, test_client, test_scope};
+    use crate::client::test_server::{
+        Reply, method_not_found, open_test_server, start_test_server, test_client, test_scope,
+        v1_initialize_result,
+    };
 
     // Mutation: in `McpServerConnection::open`, await the lifecycle without `timeout_at`, or
     // measure the deadline from a later instant.
@@ -487,5 +507,47 @@ mod tests {
         };
         assert_eq!(timeout, DEFAULT_STARTUP_TIMEOUT);
         assert_eq!(started.elapsed(), Duration::from_secs(30));
+    }
+
+    // Mutation: in `is_task_tool`, leave the tools unmarked after a failed read; the second call
+    // then answers `false` from the old set.
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_read_of_changed_tools_leaves_them_marked_for_the_next_task_call() {
+        let (client, _card) = test_client();
+        let mut tools_reads = 0;
+        let (connection, server) = open_test_server(
+            &client,
+            Box::new(move |method, _params| match method {
+                "initialize" => Reply::Answer(json!({ "result": v1_initialize_result() })),
+                "tools/list" => {
+                    tools_reads += 1;
+                    let track = json!({ "name": "track", "inputSchema": { "type": "object" } });
+                    match tools_reads {
+                        1 => Reply::Answer(json!({ "result": { "tools": [track] } })),
+                        2 => {
+                            Reply::Answer(json!({ "error": { "code": -32603, "message": "busy" } }))
+                        }
+                        _ => Reply::Answer(json!({ "result": { "tools": [track, {
+                            "name": "export",
+                            "inputSchema": { "type": "object" },
+                            "execution": { "taskSupport": "optional" },
+                        }] } })),
+                    }
+                }
+                _ => method_not_found(),
+            }),
+        )
+        .await;
+        connection.are_tools_stale.store(true, Ordering::Release);
+
+        let failed = connection.is_task_tool("export").await;
+        let read_again = connection.is_task_tool("export").await;
+
+        assert!(failed.is_err(), "the failed read fails the call");
+        assert!(
+            read_again.expect("the second read answers"),
+            "export takes a task"
+        );
+        assert_eq!(server.requests("tools/list").len(), 3);
     }
 }

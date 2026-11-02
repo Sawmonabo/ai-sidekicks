@@ -28,6 +28,9 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rmcp::service::ServiceError;
 use serde_json::{Map, Value};
+use sha2::{Digest as _, Sha256};
+use sidekicks_contracts::mcp::server::McpServerName;
+use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -48,15 +51,14 @@ use tokio_util::sync::CancellationToken;
 
 use crate::client::connection::{McpConnectionScope, McpServerConnection};
 use crate::client::requests::{McpRequestError, RequestWait};
+use crate::sign_in::canonical_server_address;
 
 /// The identity of one task-augmented MCP dispatch. `command_id` is the client-supplied
-/// idempotency key on the dispatch's command receipt row; the server and tool name no stored row.
+/// idempotency key on the dispatch's command receipt row; `tool_name` names no stored row.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct McpTaskDispatchIdentity {
     /// The dispatch's idempotency key.
     pub(crate) command_id: String,
-    /// The tool server the call went to.
-    pub(crate) server_name: String,
     /// The tool called.
     pub(crate) tool_name: String,
 }
@@ -72,6 +74,42 @@ pub(crate) enum McpTaskGeneration {
     V2,
 }
 
+/// Which server a task was accepted on, so a task is resumed only on that server: a stdio
+/// server, or a server at an address by the SHA-256 of its canonical form. One server spelled two
+/// ways is one endpoint, and a changed header or token does not change it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct McpServerEndpoint(String);
+
+impl McpServerEndpoint {
+    /// The endpoint of every stdio server.
+    pub(crate) const STDIO: &str = "stdio";
+    /// What an address endpoint starts with, before its digest.
+    pub(crate) const ADDRESS_PREFIX: &str = "address:";
+    /// The length of an address endpoint's digest, in lowercase hex digits.
+    pub(crate) const ADDRESS_DIGEST_HEX_LEN: usize = 64;
+
+    /// A stdio server's endpoint.
+    pub(crate) fn stdio() -> Self {
+        Self(Self::STDIO.to_owned())
+    }
+
+    /// The endpoint of the server at `address`: the prefix, then the lowercase hex SHA-256 of the
+    /// address's canonical form.
+    pub(crate) fn at_address(address: &McpServerAddress) -> Self {
+        let digest = Sha256::digest(canonical_server_address(address));
+        Self(format!(
+            "{}{}",
+            Self::ADDRESS_PREFIX,
+            base16ct::lower::encode_string(&digest)
+        ))
+    }
+
+    /// The endpoint as stored.
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// A dispatch whose acceptance carried a receiver-generated task id, ready to be recorded.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct McpTaskHandleObservation {
@@ -81,6 +119,10 @@ pub(crate) struct McpTaskHandleObservation {
     pub(crate) mcp_task_id: String,
     /// The protocol of the server that accepted the task.
     pub(crate) mcp_task_generation: McpTaskGeneration,
+    /// The name of the server that accepted the task.
+    pub(crate) server_name: McpServerName,
+    /// Which server accepted the task, so it is resumed only there.
+    pub(crate) endpoint: McpServerEndpoint,
 }
 
 /// Where an observed task handle lands: the task handle recorder, which stores it on the
@@ -98,9 +140,11 @@ pub(crate) fn extract_mcp_task_id(acceptance_result: &Map<String, Value>) -> Opt
 }
 
 /// Hands `sink` the handle `mcp_task_id` a server accepted the dispatch under, with the
-/// generation of the server that sent it, and resolves once the sink has settled it.
+/// generation of the server that sent it and `connection`'s server name and endpoint, and resolves
+/// once the sink has settled it.
 pub(crate) async fn observe_mcp_task_acceptance(
     sink: &dyn McpTaskHandleSink,
+    connection: &McpServerConnection,
     dispatch: McpTaskDispatchIdentity,
     mcp_task_generation: McpTaskGeneration,
     mcp_task_id: &str,
@@ -109,6 +153,8 @@ pub(crate) async fn observe_mcp_task_acceptance(
         dispatch,
         mcp_task_id: mcp_task_id.to_owned(),
         mcp_task_generation,
+        server_name: connection.scope.server_name.clone(),
+        endpoint: connection.endpoint.clone(),
     })
     .await;
 }

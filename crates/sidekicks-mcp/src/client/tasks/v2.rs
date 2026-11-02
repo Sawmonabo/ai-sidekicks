@@ -69,6 +69,7 @@ pub(super) async fn call_tool(
                 }
                 observe_mcp_task_acceptance(
                     sink,
+                    connection,
                     call.dispatch.clone(),
                     McpTaskGeneration::V2,
                     &mcp_task_id,
@@ -346,11 +347,11 @@ mod tests {
     use serde_json::{Map, Value, json};
     use tokio::time::{Duration, timeout};
 
-    use crate::client::tasks::{McpTaskGeneration, McpTaskHandleObservation, McpToolCallEnd};
+    use crate::client::tasks::{McpTaskGeneration, McpToolCallEnd};
     use crate::client::test_server::{
         CountingSink, Reply, Responder, TestServer, board_accepted, board_answer, board_form,
         contact, method_not_found, open_test_server, test_client, text_result, track_call,
-        track_dispatch,
+        track_task_handle,
     };
 
     /// A 2026-07-28 server declaring tasks, whose `tools/call` starts task `task-1` and whose
@@ -484,14 +485,7 @@ mod tests {
         assert_eq!(end.expect("the call ends"), answered());
         assert_eq!(
             sink.recorded(),
-            vec![(
-                0,
-                McpTaskHandleObservation {
-                    dispatch: track_dispatch(),
-                    mcp_task_id: "task-1".to_owned(),
-                    mcp_task_generation: McpTaskGeneration::V2,
-                }
-            )],
+            vec![(0, track_task_handle(McpTaskGeneration::V2))],
             "the handle is recorded before the first poll"
         );
         assert_eq!(card.taken().len(), 2, "no input is asked twice");

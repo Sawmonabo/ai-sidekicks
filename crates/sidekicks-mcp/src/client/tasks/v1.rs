@@ -59,6 +59,7 @@ pub(super) async fn call_task_tool(
     };
     observe_mcp_task_acceptance(
         sink,
+        connection,
         call.dispatch.clone(),
         McpTaskGeneration::V1,
         &mcp_task_id,
@@ -220,13 +221,12 @@ mod tests {
 
     use super::read_task;
     use crate::client::tasks::{
-        ElicitationAnswer, McpTaskContact, McpTaskGeneration, McpTaskHandleObservation,
-        McpToolCallEnd, compose_question,
+        ElicitationAnswer, McpTaskContact, McpTaskGeneration, McpToolCallEnd, compose_question,
     };
     use crate::client::test_server::{
         CountingSink, Reply, Responder, board_accepted, board_answer, board_form, contact,
-        method_not_found, open_test_server, test_client, text_result, track_call, track_dispatch,
-        v1_initialize_result,
+        method_not_found, open_test_server, test_client, text_result, track_call,
+        track_task_handle, v1_initialize_result,
     };
 
     /// A 2025-11-25 server whose `track` tool runs only as a task `task-1`, answering `tasks/get`
@@ -337,14 +337,7 @@ mod tests {
         assert_eq!(polls.len(), 3, "one read before the call, then two polls");
         assert_eq!(
             sink.recorded(),
-            vec![(
-                1,
-                McpTaskHandleObservation {
-                    dispatch: track_dispatch(),
-                    mcp_task_id: "task-1".to_owned(),
-                    mcp_task_generation: McpTaskGeneration::V1,
-                }
-            )],
+            vec![(1, track_task_handle(McpTaskGeneration::V1))],
             "the handle is recorded before the call's first poll"
         );
         assert!(

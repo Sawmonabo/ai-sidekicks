@@ -27,8 +27,8 @@ use crate::client::connection::{McpConnectionScope, McpServerConnection};
 use crate::client::raw_copy::{RawLineTee, RawReplyCopy};
 use crate::client::stdio::StdioProcess;
 use crate::client::tasks::{
-    McpTaskContact, McpTaskDispatchIdentity, McpTaskHandleObservation, McpTaskHandleSink,
-    McpToolCall,
+    McpServerEndpoint, McpTaskContact, McpTaskDispatchIdentity, McpTaskGeneration,
+    McpTaskHandleObservation, McpTaskHandleSink, McpToolCall,
 };
 
 /// What the server does with one request.
@@ -297,8 +297,21 @@ pub(super) fn track_call() -> McpToolCall {
 pub(super) fn track_dispatch() -> McpTaskDispatchIdentity {
     McpTaskDispatchIdentity {
         command_id: "command-1".to_owned(),
-        server_name: "tracker".to_owned(),
         tool_name: "track".to_owned(),
+    }
+}
+
+/// The handle `task-1` the stdio server `tracker` accepts [`track_dispatch`] under, on a server
+/// of `mcp_task_generation`.
+pub(super) fn track_task_handle(
+    mcp_task_generation: McpTaskGeneration,
+) -> McpTaskHandleObservation {
+    McpTaskHandleObservation {
+        dispatch: track_dispatch(),
+        mcp_task_id: "task-1".to_owned(),
+        mcp_task_generation,
+        server_name: FreeFormText::new("tracker".to_owned()).expect("a short server name"),
+        endpoint: McpServerEndpoint::stdio(),
     }
 }
 
