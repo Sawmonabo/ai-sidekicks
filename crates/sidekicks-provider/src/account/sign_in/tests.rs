@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -44,6 +43,8 @@ use crate::driver::contract::account::{
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
+
+mod machine_slot;
 
 /// The provider's own prompt, which only a broker forwarding raw text would let out.
 const PROMPT_LINE: &str = "Paste code here if prompted";
@@ -574,8 +575,10 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
 
 // A registered account's home reset while its sign-in runs fails the attempt and stores nothing:
 // the row stays as the reset left it, nothing is published but the end, and no one is told to
-// watch it. The attempt's store waits for the home's hold. Killed by the end stored with no
-// compare, and by the store taken without the home's hold.
+// watch it. The attempt's store waits for the home's hold, and meanwhile a start on the account is
+// refused naming the settling attempt, which takes no cancel. Killed by the end stored with no
+// compare, by the store taken without the home's hold, by the attempt unlisted at its flow's end
+// (the start is refused with no attempt named), and by a settling attempt taking a cancel.
 #[tokio::test]
 async fn a_sign_in_whose_home_changed_under_it_writes_nothing() {
     let database = TestDatabase::new(schema_parts());
@@ -603,13 +606,11 @@ async fn a_sign_in_whose_home_changed_under_it_writes_nothing() {
         Arc::clone(&home_lock),
         Arc::default(),
     );
-    broker
-        .start(
-            ProviderAccountSignInRequest::Registered(RegisteredAccountSignIn {
-                account_id: account.account_id.clone(),
-            }),
-            SignInOrigin::ThisMachine,
-        )
+    let request = ProviderAccountSignInRequest::Registered(RegisteredAccountSignIn {
+        account_id: account.account_id.clone(),
+    });
+    let started = broker
+        .start(request.clone(), SignInOrigin::ThisMachine)
         .await
         .expect("the sign-in starts");
     let flow = flows.next().await.expect("the flow started");
@@ -630,6 +631,20 @@ async fn a_sign_in_whose_home_changed_under_it_writes_nothing() {
             .await
             .is_err(),
         "the attempt's end waits for the home"
+    );
+    let refused = broker
+        .start(request, SignInOrigin::ThisMachine)
+        .await
+        .expect_err("a start on a settling attempt's account is refused");
+    assert!(
+        matches!(&refused, ProviderSignInError::AttemptOpen { attempt_id, .. }
+            if *attempt_id == started.attempt_id),
+        "{refused:?}"
+    );
+    let settling_cancel = broker.cancel(&started.attempt_id).await;
+    assert_eq!(
+        settling_cancel.expect("a cancel"),
+        ProviderSignInCancelStatus::NotFound
     );
     drop(reset_hold);
 
@@ -654,171 +669,68 @@ async fn a_sign_in_whose_home_changed_under_it_writes_nothing() {
     assert!(published.try_recv().is_err(), "nothing more is published");
 }
 
-/// Legs whose first start fails as a flow that could not start, and whose every later start runs
-/// as `inner`'s.
-struct FirstStartFails {
-    inner: ScriptedLegs,
-    has_failed: AtomicBool,
-}
-
-impl ProviderSignInLegs for FirstStartFails {
-    fn start_sign_in(
-        &self,
-        provider_account_id: ProviderAccountId,
-        home: CredentialHome,
-        origin: SignInOrigin,
-    ) -> BoxFuture<'_, Result<ProviderSignInHandle, DriverError>> {
-        if !self.has_failed.swap(true, Ordering::SeqCst) {
-            return async { Err(DriverError::Internal("the flow could not start".into())) }.boxed();
-        }
-        self.inner.start_sign_in(provider_account_id, home, origin)
-    }
-
-    fn observe_sign_in(
-        &self,
-        provider_account_id: ProviderAccountId,
-        home: CredentialHome,
-    ) -> BoxFuture<'_, Result<ProviderSignInObservation, DriverError>> {
-        self.inner.observe_sign_in(provider_account_id, home)
-    }
-
-    fn is_one_per_machine(&self, origin: SignInOrigin) -> bool {
-        self.inner.is_one_per_machine(origin)
-    }
-}
-
-// Scripted legs of `codex` whose sign-ins at this machine hold the machine's one slot, each flow
-// started going to the answered receiver.
-fn machine_slot_legs() -> (ScriptedLegs, mpsc::UnboundedReceiver<ScriptedFlow>) {
-    let (flow_sender, flows) = mpsc::unbounded();
-    let legs = ScriptedLegs {
+// A cancel asked while an attempt's flow is still starting answers canceled, and the flow is
+// canceled once it has started. Killed by a starting attempt's cancel answering `notFound`, and by
+// the cancel never sent to the started flow (its end never comes).
+#[tokio::test]
+async fn a_cancel_while_the_flow_starts_cancels_it_once_started() {
+    let database = TestDatabase::new(schema_parts());
+    let data_folder = tempfile::tempdir().expect("a data folder");
+    let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
+    let registry = Arc::new(registry);
+    let account = register(&registry, "claude").await;
+    let (flow_sender, _flows) = mpsc::unbounded();
+    let legs = Arc::new(ScriptedLegs {
         status: Status::Read {
             is_account_named: true,
         },
         flows: flow_sender,
         homes: Mutex::new(Vec::new()),
-        holds_machine_slot: true,
-    };
-    (legs, flows)
-}
-
-// A broker over a fresh registry whose one provider, `codex`, signs in through `legs`, with the
-// notifications it publishes and the registry's database and data folder, kept for the test.
-async fn broker_over(
-    legs: Arc<dyn ProviderSignInLegs>,
-) -> (
-    ProviderSignInBroker,
-    mpsc::UnboundedReceiver<ProviderAccountNotification>,
-    (TestDatabase, tempfile::TempDir),
-) {
-    let database = TestDatabase::new(schema_parts());
-    let data_folder = tempfile::tempdir().expect("a data folder");
-    let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
-    let (published_sender, published) = mpsc::unbounded();
+        holds_machine_slot: false,
+    });
+    let (published_sender, mut published) = mpsc::unbounded();
+    let home_lock = Arc::new(AccountHomeLock::default());
+    let accounts_in_flight = Arc::new(AccountsInFlight::default());
     let broker = ProviderSignInBroker::new(
-        Arc::new(registry),
-        HashMap::from([(provider("codex"), legs)]),
+        registry,
+        HashMap::from([(provider("claude"), legs as Arc<dyn ProviderSignInLegs>)]),
         Arc::new(RecordingPublisher(published_sender)),
         Arc::new(RecordingWatcher::default()),
-        Arc::default(),
-        Arc::default(),
+        Arc::clone(&home_lock),
+        Arc::clone(&accounts_in_flight),
     );
-    (broker, published, (database, data_folder))
-}
+    let request = ProviderAccountSignInRequest::Registered(RegisteredAccountSignIn {
+        account_id: account.account_id.clone(),
+    });
+    // The home held keeps the attempt starting until the cancel is asked.
+    let home_hold = home_lock.hold(account.account_id.clone()).await;
 
-fn new_codex_account() -> ProviderAccountSignInRequest {
-    ProviderAccountSignInRequest::New(NewAccountSignIn {
-        provider: provider("codex"),
-    })
-}
-
-// While one account's sign-in at this machine holds the machine's one slot, another account's
-// start there is refused naming the open attempt before it mints a home, while a start from
-// another device runs; the open flow stays cancelable, and once it has ended a start at this
-// machine runs. Killed by no slot (the second start runs), by the slot not freed at the flow's
-// end (the last start is refused), by the slot checked only after the mint (the homes folder is
-// read-only, so the mint fails first), by a refused start's home left behind, and by the slot
-// applied to a start from another device.
-#[tokio::test]
-async fn one_sign_in_at_this_machine_holds_the_machine_s_slot_until_it_ends() {
-    let (legs, mut flows) = machine_slot_legs();
-    let (broker, mut published, _kept) = broker_over(Arc::new(legs)).await;
-
-    let open = broker
-        .start(new_codex_account(), SignInOrigin::ThisMachine)
-        .await
-        .expect("the first sign-in at this machine starts");
-    let open_flow = flows.next().await.expect("the first flow started");
-    let homes_folder = open_flow
-        .home
-        .parent()
-        .expect("a home sits in the homes folder");
-    let writable = std::fs::metadata(homes_folder)
-        .expect("the homes folder's permissions read")
-        .permissions();
-    let mut read_only = writable.clone();
-    read_only.set_readonly(true);
-    std::fs::set_permissions(homes_folder, read_only).expect("the homes folder is made read-only");
-
-    let refused = broker
-        .start(new_codex_account(), SignInOrigin::ThisMachine)
-        .await
-        .expect_err("a second sign-in at this machine is refused");
-    std::fs::set_permissions(homes_folder, writable).expect("the homes folder is writable again");
-    assert!(
-        matches!(&refused, ProviderSignInError::AttemptOpen { account_id, attempt_id }
-            if *account_id == open_flow.account_id && *attempt_id == open.attempt_id),
-        "{refused:?}"
-    );
-    let homes: Vec<PathBuf> = std::fs::read_dir(homes_folder)
-        .expect("the homes folder reads")
-        .map(|entry| entry.expect("a home entry reads").path())
-        .collect();
-    assert_eq!(
-        homes,
-        vec![open_flow.home.clone()],
-        "the refused start's home is removed"
+    let canceled_while_starting = async {
+        while !accounts_in_flight.is_in_flight(&account.account_id) {
+            tokio::task::yield_now().await;
+        }
+        let refused = broker
+            .start(request.clone(), SignInOrigin::ThisMachine)
+            .await
+            .expect_err("a start on a starting attempt's account is refused");
+        let ProviderSignInError::AttemptOpen { attempt_id, .. } = refused else {
+            panic!("the refusal names the starting attempt, not {refused:?}");
+        };
+        let canceled = broker.cancel(&attempt_id).await.expect("a cancel");
+        drop(home_hold);
+        (attempt_id, canceled)
+    };
+    let (started, (attempt_id, canceled)) = tokio::join!(
+        broker.start(request.clone(), SignInOrigin::ThisMachine),
+        canceled_while_starting
     );
 
-    broker
-        .start(new_codex_account(), SignInOrigin::AnotherDevice)
-        .await
-        .expect("a sign-in from another device starts while the slot is held");
-    flows.next().await.expect("the other device's flow started");
-
-    let canceled = broker.cancel(&open.attempt_id).await.expect("a cancel");
     assert_eq!(canceled, ProviderSignInCancelStatus::Canceled);
-    let ProviderAccountNotification::SignInCompleted { attempt_id, .. } =
+    assert_eq!(started.expect("the sign-in starts").attempt_id, attempt_id);
+    let ProviderAccountNotification::SignInCompleted { outcome, .. } =
         next_notification(&mut published).await
     else {
         panic!("the canceled attempt reports its end");
     };
-    assert_eq!(attempt_id, open.attempt_id);
-
-    broker
-        .start(new_codex_account(), SignInOrigin::ThisMachine)
-        .await
-        .expect("a sign-in at this machine starts once the open one has ended");
-}
-
-// A start at this machine whose flow could not start frees the machine's slot. Killed by a failed
-// start's attempt left listed, which refuses the next start at this machine.
-#[tokio::test]
-async fn a_failed_start_at_this_machine_frees_the_machine_s_slot() {
-    let (inner, mut flows) = machine_slot_legs();
-    let legs = FirstStartFails {
-        inner,
-        has_failed: AtomicBool::new(false),
-    };
-    let (broker, _published, _kept) = broker_over(Arc::new(legs)).await;
-
-    broker
-        .start(new_codex_account(), SignInOrigin::ThisMachine)
-        .await
-        .expect_err("the first flow could not start");
-    broker
-        .start(new_codex_account(), SignInOrigin::ThisMachine)
-        .await
-        .expect("the next sign-in at this machine starts");
-    flows.next().await.expect("the next flow started");
+    assert_eq!(outcome, ProviderSignInOutcome::Canceled);
 }

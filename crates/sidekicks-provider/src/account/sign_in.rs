@@ -295,16 +295,24 @@ impl ProviderSignInBroker {
     ) -> Result<ProviderSignInCodeSubmitStatus, ProviderSignInError> {
         let input = {
             let mut live = lock(&self.attempt.attempts);
-            match live.attempts.get_mut(attempt_id) {
-                Some(LiveAttempt {
-                    input: Some(input),
+            match live
+                .attempts
+                .get_mut(attempt_id)
+                .map(|attempt| &mut attempt.stage)
+            {
+                Some(AttemptStage::Open {
+                    input,
                     is_waiting_for_code,
-                    ..
                 }) if *is_waiting_for_code => {
                     *is_waiting_for_code = false;
                     Arc::clone(input)
                 }
-                Some(_) | None => return Ok(ProviderSignInCodeSubmitStatus::NotFound),
+                Some(
+                    AttemptStage::Starting { .. }
+                    | AttemptStage::Open { .. }
+                    | AttemptStage::Settling,
+                )
+                | None => return Ok(ProviderSignInCodeSubmitStatus::NotFound),
             }
         };
         input.write_code(code).await?;
@@ -312,17 +320,29 @@ impl ProviderSignInBroker {
     }
 
     /// Cancels attempt `attempt_id` through its provider's own cancel; its end then settles as
-    /// canceled. An attempt whose flow has not started, an ended one or an unknown one answers
-    /// `notFound`, no refusal. Fails with the driver's error where the cancel could not be sent.
+    /// canceled. An attempt whose flow is still starting is canceled as soon as it has started.
+    /// An ended attempt or an unknown one answers `notFound`, no refusal. Fails with the driver's
+    /// error where the cancel could not be sent.
     pub async fn cancel(
         &self,
         attempt_id: &AttemptId,
     ) -> Result<ProviderSignInCancelStatus, ProviderSignInError> {
-        let input = match lock(&self.attempt.attempts).attempts.get(attempt_id) {
-            Some(LiveAttempt {
-                input: Some(input), ..
-            }) => Arc::clone(input),
-            Some(_) | None => return Ok(ProviderSignInCancelStatus::NotFound),
+        let input = {
+            let mut live = lock(&self.attempt.attempts);
+            match live
+                .attempts
+                .get_mut(attempt_id)
+                .map(|attempt| &mut attempt.stage)
+            {
+                Some(AttemptStage::Starting { is_cancel_asked }) => {
+                    *is_cancel_asked = true;
+                    return Ok(ProviderSignInCancelStatus::Canceled);
+                }
+                Some(AttemptStage::Open { input, .. }) => Arc::clone(input),
+                Some(AttemptStage::Settling) | None => {
+                    return Ok(ProviderSignInCancelStatus::NotFound);
+                }
+            }
         };
         input.cancel().await?;
         Ok(ProviderSignInCancelStatus::Canceled)
@@ -379,8 +399,9 @@ impl AttemptServices {
                                 account_id: account_id.clone(),
                                 provider,
                                 is_one_per_machine,
-                                input: None,
-                                is_waiting_for_code: false,
+                                stage: AttemptStage::Starting {
+                                    is_cancel_asked: false,
+                                },
                             },
                         );
                         Ok(in_flight_guard)
@@ -457,15 +478,32 @@ fn attempt_open((attempt_id, attempt): (&AttemptId, &LiveAttempt)) -> ProviderSi
     }
 }
 
-/// One attempt in flight, listed from its reservation: the account it signs in, its provider,
-/// whether it holds what the machine has only one of, the flow's input once the flow has started,
-/// and whether it waits for a pasted code.
+/// One attempt in flight, listed from its reservation until it settles: the account it signs in,
+/// its provider, whether it holds what the machine has only one of, and how far it has come.
 struct LiveAttempt {
     account_id: ProviderAccountId,
     provider: ProviderId,
     is_one_per_machine: bool,
-    input: Option<Arc<dyn ProviderSignInInput>>,
-    is_waiting_for_code: bool,
+    stage: AttemptStage,
+}
+
+/// How far a listed attempt has come.
+enum AttemptStage {
+    /// Its flow is starting; a cancel asked meanwhile is sent once it has started.
+    Starting {
+        /// Whether a cancel was asked before the flow started.
+        is_cancel_asked: bool,
+    },
+    /// Its flow runs, taking a pasted code or a cancel through its input.
+    Open {
+        /// The flow's input.
+        input: Arc<dyn ProviderSignInInput>,
+        /// Whether the flow waits for a pasted code.
+        is_waiting_for_code: bool,
+    },
+    /// Its flow has ended and its status read is being stored; a start on its account still meets
+    /// it by name, and nothing else reaches it.
+    Settling,
 }
 
 /// An account's sign-in slot and its listed attempt, held from the start until the attempt
@@ -532,7 +570,8 @@ impl Reservation {
                 return;
             }
         };
-        let attempt = self.open(Arc::from(input));
+        let input: Arc<dyn ProviderSignInInput> = Arc::from(input);
+        let (attempt, is_cancel_asked) = self.open(Arc::clone(&input));
         let publisher = Arc::clone(&attempt.reservation.services.publisher);
         let _unheard = answer.send(Ok(ProviderAccountSignInResponse {
             attempt_id: attempt.reservation.attempt_id.clone(),
@@ -541,6 +580,12 @@ impl Reservation {
             expires_at,
             browser_opened_by_provider,
         }));
+        if is_cancel_asked && let Err(error) = input.cancel().await {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "a sign-in canceled while it started was not canceled"
+            );
+        }
         let ended = attempt.run(legs, code_prompts, completion).await;
         publisher.publish(ended);
     }
@@ -552,14 +597,28 @@ impl Reservation {
         }
     }
 
-    // Hands the listed attempt its flow's input, so a code submit and a cancel reach it.
-    fn open(self, input: Arc<dyn ProviderSignInInput>) -> Attempt {
-        lock(&self.services.attempts)
-            .attempts
-            .get_mut(&self.attempt_id)
-            .expect("an attempt listed at its reservation stays listed until its flow ends")
-            .input = Some(input);
-        Attempt { reservation: self }
+    // Hands the listed attempt its flow's input, so a code submit and a cancel reach it, with
+    // whether a cancel was asked while the flow started.
+    fn open(self, input: Arc<dyn ProviderSignInInput>) -> (Attempt, bool) {
+        let stage = AttemptStage::Open {
+            input,
+            is_waiting_for_code: false,
+        };
+        let started = std::mem::replace(
+            &mut lock(&self.services.attempts)
+                .attempts
+                .get_mut(&self.attempt_id)
+                .expect("an attempt listed at its reservation stays listed until it settles")
+                .stage,
+            stage,
+        );
+        let is_cancel_asked = matches!(
+            started,
+            AttemptStage::Starting {
+                is_cancel_asked: true
+            }
+        );
+        (Attempt { reservation: self }, is_cancel_asked)
     }
 }
 
@@ -596,11 +655,17 @@ impl Attempt {
                 Some(()) = code_prompts.next() => self.mark_waiting_for_code(),
             }
         };
-        // Unlisted at the flow's end, so no code submit or cancel reaches it, and a start the
-        // attempt was in the way of need not wait for the status read.
-        lock(&self.reservation.services.attempts)
-            .attempts
-            .remove(&self.reservation.attempt_id);
+        // Settling from the flow's end: no code submit or cancel reaches it and it no longer holds
+        // the machine's one slot, while a start on its account meets it by name until it settles.
+        {
+            let mut live = lock(&self.reservation.services.attempts);
+            let attempt = live
+                .attempts
+                .get_mut(&self.reservation.attempt_id)
+                .expect("an attempt listed at its reservation stays listed until it settles");
+            attempt.is_one_per_machine = false;
+            attempt.stage = AttemptStage::Settling;
+        }
         let (outcome, failure_reason) = self.settle(legs.as_ref(), end).await;
         let Self { reservation } = self;
         let attempt_id = reservation.attempt_id.clone();
@@ -617,12 +682,19 @@ impl Attempt {
     fn mark_waiting_for_code(&self) {
         let services = &self.reservation.services;
         let attempt_id = &self.reservation.attempt_id;
-        let is_live = match lock(&services.attempts).attempts.get_mut(attempt_id) {
-            Some(attempt) => {
-                attempt.is_waiting_for_code = true;
+        let is_live = match lock(&services.attempts)
+            .attempts
+            .get_mut(attempt_id)
+            .map(|attempt| &mut attempt.stage)
+        {
+            Some(AttemptStage::Open {
+                is_waiting_for_code,
+                ..
+            }) => {
+                *is_waiting_for_code = true;
                 true
             }
-            None => false,
+            Some(AttemptStage::Starting { .. } | AttemptStage::Settling) | None => false,
         };
         if is_live {
             services
