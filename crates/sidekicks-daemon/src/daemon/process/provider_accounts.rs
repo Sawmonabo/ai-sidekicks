@@ -19,7 +19,6 @@ use sidekicks_platforms::{Spawner, WallClock, wake_helper};
 use sidekicks_provider::account::home_lock::AccountHomeLock;
 use sidekicks_provider::account::observer::{
     AccountLiveTurns, ProviderAccountObserver, ProviderAccountObserverDeps,
-    ProviderAccountObserverError,
 };
 use sidekicks_provider::account::registry::ProviderAccountRegistry;
 use sidekicks_provider::account::resolver::ProviderAccounts;
@@ -43,6 +42,7 @@ use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEve
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use tokio::runtime::Handle;
 
+use crate::daemon::process::start_error::DaemonStartError;
 use crate::ipc::handlers::provider_account::ProviderAccountMethodSources;
 use crate::ipc::handlers::provider_account::notifications::ProviderAccountNotifications;
 use crate::orchestration::account_switch::{AccountSwitch, AccountSwitchDeps};
@@ -240,17 +240,18 @@ pub(crate) struct ProviderAccountObservation {
 impl ProviderAccountObservation {
     /// Moves each session a stop left on another account than its provider's current one onto
     /// it, schedules every registered account's reads and window starts, and has each turn metered
-    /// on an account end that account's turn. Fails when the accounts cannot be listed or the
-    /// scheduler has stopped. Runs inside the daemon's runtime, which each turn's end is read on.
+    /// on an account end that account's turn. Fails when those sessions or the accounts cannot be
+    /// read or the scheduler has stopped. Runs inside the daemon's runtime, which each turn's end
+    /// is read on.
     pub(crate) async fn start(
         &mut self,
         followers: &Arc<SessionEventFollowers>,
-    ) -> Result<(), ProviderAccountObserverError> {
-        // Its moves land under each provider's switch lock while the start goes on.
-        drop(
-            self.account_switch
-                .follow_current_accounts(self.machine_device_id.clone()),
-        );
+    ) -> Result<(), DaemonStartError> {
+        // Before the start admits the runs the stop left waiting, so none begins on the old account.
+        self.account_switch
+            .follow_current_accounts(&self.machine_device_id)
+            .await
+            .map_err(DaemonStartError::AccountFollow)?;
         self.observer.start().await?;
         let observer = Arc::clone(&self.observer);
         let runtime = Handle::current();

@@ -134,6 +134,10 @@ pub(crate) enum DaemonStartError {
     /// The provider accounts' background observer could not start.
     #[error(transparent)]
     ProviderAccountObserver(#[from] ProviderAccountObserverError),
+    /// The sessions a stop left on another account than their provider's current one could not be
+    /// read to be moved onto it.
+    #[error("the sessions left on another account than the current one could not be moved")]
+    AccountFollow(#[source] Box<dyn std::error::Error + Send + Sync>),
     /// The services the method tables take could not be built.
     #[error(transparent)]
     MethodInputs(#[from] MethodInputsError),

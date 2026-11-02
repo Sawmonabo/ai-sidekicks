@@ -91,11 +91,11 @@ const FOLDER_GUARD_INDEX: usize = 3;
 const GROUP_GUARD_INDEX: usize = 4;
 
 const RECORD_CREATE_REQUEST_SQL: &str = "INSERT INTO session_create_requests
-  (client_idempotency_key, session_id, project_id, execution_mode, group_id)
-  VALUES (@key, @sessionId, @projectId, @executionMode, @groupId)";
+  (client_idempotency_key, session_id, project_id, execution_mode, group_id, provider_account_id)
+  VALUES (@key, @sessionId, @projectId, @executionMode, @groupId, @providerAccountId)";
 
-// A create's record joined with the session it made as it reads now, and the lead it was born on
-// with its account.
+// A create's record joined with the session it made as it reads now, the lead it was born on and
+// the account the record keeps it was born on.
 static SELECT_RECORDED_CREATE_SQL: LazyLock<String> = LazyLock::new(|| {
     let session_created = SessionEventType::SessionCreated.as_str();
     format!(
@@ -103,7 +103,7 @@ static SELECT_RECORDED_CREATE_SQL: LazyLock<String> = LazyLock::new(|| {
         session.shape, session.state, session.place,
         json_extract(created.payload, '$.mainAgent.binding'),
         json_extract(created.payload, '$.mainAgent.agentId'),
-        json_extract(created.payload, '$.mainAgent.binding.providerAccountId')
+        request.provider_account_id
    FROM session_create_requests AS request
    JOIN sessions AS session ON session.id = request.session_id
    JOIN session_events AS created
@@ -489,7 +489,8 @@ impl SessionCreation {
             let lead_binding = AgentProviderBinding {
                 provider_name: lead.provider_name.clone(),
                 model_id: lead.model_id.clone(),
-                provider_account_id: Some(account.provider_account_id.clone()),
+                // Nothing a create asks for pins an account, so the lead follows the current one.
+                provider_account_id: None,
                 effort: lead.effort.clone(),
                 output_speed: lead.output_speed.clone(),
                 options: lead.options.clone(),
@@ -519,8 +520,7 @@ impl SessionCreation {
                 session_id,
                 &SessionEvent::SessionCreated(Box::new(payload)),
             )?;
-            let transactional_prelude =
-                created_prelude(new_session, account.guard.clone(), &created_at);
+            let transactional_prelude = created_prelude(new_session, &account, &created_at);
             #[cfg(test)]
             self.created_append_pause.pass().await;
             let appended = self
@@ -694,7 +694,7 @@ fn target_of(request: &SessionCreateRequest) -> CreateTarget<'_> {
 // account guard, a project session's project, folder and group guards, then a picked advisor.
 fn created_prelude(
     new_session: &NewSession<'_>,
-    account_guard: WriteStatement,
+    account: &ResolvedAccount,
     created_at: &WireInstant,
 ) -> Vec<WriteStatement> {
     let session_id = new_session.session_id;
@@ -719,10 +719,11 @@ fn created_prelude(
                         .as_ref()
                         .map_or(Value::Null, |group| Value::Text(group.as_str().to_owned())),
                 ),
+                text_binding("@providerAccountId", account.provider_account_id.as_str()),
             ]),
             expected_row_count: None,
         },
-        account_guard,
+        account.guard.clone(),
     ];
     if let Some(project) = project {
         prelude.push(project_guard(PROJECT_GUARD_SQL, project, None));
