@@ -661,7 +661,8 @@ impl ClaudeDeliveryStream {
             let is_turn_start = !readings.has_turn_message;
             let arrival =
                 read_peer_arrival(frame, session.session_id, Some(lead.run_id), is_turn_start);
-            readings.has_turn_message |= arrival.is_none();
+            // Whatever the frame, a message after it joins the turn it started or joined.
+            readings.has_turn_message = true;
             let reading = read_claude_user_rows(
                 frame,
                 session.session_id,

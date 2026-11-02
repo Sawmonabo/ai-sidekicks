@@ -131,6 +131,7 @@ mod tests {
     };
 
     const SENDER: &str = "uds:/tmp/cc-socks/4101.sock";
+    const OTHER_SENDER: &str = "uds:/tmp/cc-socks/4102.sock";
 
     // A peer message's replay frame under `uuid`, as Claude Code writes it.
     fn peer_frame(uuid: &str, origin: &Value) -> Value {
@@ -171,12 +172,29 @@ mod tests {
     // Killed by arrivals published only for the daemon's own ids (none of these is one), by the
     // frames replayed before any run holds the turn dropped, by keying an arrival by `msg_id` (the
     // merged frame would read as `u-4` again), by a merged frame's body read from its first
-    // message, by `is_turn_start` held constant or not cleared at `system/init`, by a sender member
-    // left unread, and by a `refused` lifecycle published only for a message the daemon wrote.
+    // message, by `is_turn_start` held constant, by it not cleared at `system/init` (the earlier
+    // turn's reply would make `u-6` read as joining), by a turn-starting peer frame leaving the
+    // turn open to another start (`u-7` would read as one), by a sender member left unread, and by
+    // a `refused` lifecycle published only for a message the daemon wrote.
     #[tokio::test(start_paused = true)]
     async fn every_peer_frame_arrives_under_its_uuid_with_its_turn_start() {
         let session = ScriptedSession::new().await;
 
+        // An earlier turn the session replied in and ended.
+        session.hold_lead_turn("earlier");
+        session.frame(&json!({"type": "system", "subtype": "init",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID, "model": "opus"}));
+        session.frame(&json!({
+            "type": "assistant",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "message": {"id": "message-0", "role": "assistant",
+                "content": [{"type": "text", "text": "done earlier"}]},
+        }));
+        session.frame(
+            &json!({"type": "result", "subtype": "success", "is_error": false,
+            "result": "done earlier", "session_id": SCRIPTED_PROVIDER_SESSION_ID}),
+        );
+        settle().await;
         // A merged drain's earlier messages, replayed before the turn's `system/init`.
         session.frame(&peer_frame(
             "u-4",
@@ -194,6 +212,11 @@ mod tests {
             "u-6",
             &json!({"kind": "peer", "from": SENDER, "msg_id": "m-4",
                 "members": [{"body": "b4"}, {"body": "b5"}, {"body": "b6"}]}),
+        ));
+        // Another sender's message, taken in before the turn's first reply.
+        session.frame(&peer_frame(
+            "u-7",
+            &json!({"kind": "peer", "from": OTHER_SENDER, "msg_id": "m-7", "body": "b7"}),
         ));
         session.frame(&json!({
             "type": "assistant",
@@ -237,6 +260,10 @@ mod tests {
                     Some(run_id),
                     true
                 )),
+                SessionMessageReading::Arrived(SessionMessageArrival {
+                    from: OTHER_SENDER.to_owned(),
+                    ..arrival(session_id, "u-7", "m-7", "b7", Some(run_id), false)
+                }),
                 SessionMessageReading::Arrived(absorbed),
                 SessionMessageReading::Refused {
                     message_id: "u-3".to_owned(),

@@ -16,8 +16,7 @@ use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Deserializer};
-use serde_json::Value;
+use serde::Deserialize;
 use sidekicks_platforms::PathRules;
 use sidekicks_std::file::real_location::resolve_real_location;
 
@@ -26,6 +25,7 @@ use crate::account::registry::ProviderAccountRegistry;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::spawn::environment::claude_config_folder;
 use crate::inbound_json::decode_inbound_json;
+use crate::lenient_json::read_lenient;
 
 /// The registry's folder inside a Claude Code config folder.
 const REGISTRY_FOLDER: &str = "sessions";
@@ -57,15 +57,15 @@ pub(crate) struct ClaudeLiveSession {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RegistryFile {
-    #[serde(default, deserialize_with = "text_or_nothing")]
+    #[serde(default, deserialize_with = "read_lenient")]
     session_id: Option<String>,
-    #[serde(default, deserialize_with = "text_or_nothing")]
+    #[serde(default, deserialize_with = "read_lenient")]
     name: Option<String>,
-    #[serde(default, deserialize_with = "text_or_nothing")]
+    #[serde(default, deserialize_with = "read_lenient")]
     status: Option<String>,
-    #[serde(default, deserialize_with = "text_or_nothing")]
+    #[serde(default, deserialize_with = "read_lenient")]
     messaging_socket_path: Option<String>,
-    #[serde(default, deserialize_with = "text_or_nothing")]
+    #[serde(default, deserialize_with = "read_lenient")]
     cwd: Option<String>,
 }
 
@@ -137,7 +137,8 @@ pub(crate) fn by_name<'a>(
 
 /// The session in `sessions` whose inbox is the socket `address` names, a leading `uds:` dropped.
 /// Both sides are compared with every link in their folders resolved, so `/tmp` meets
-/// `/private/tmp`; each folder is resolved once per call. Fails as a folder cannot be resolved.
+/// `/private/tmp`; each folder is resolved once per call, and a session whose folder cannot be
+/// resolved is passed over, logged. Fails as the address's own folder cannot be resolved.
 pub(crate) async fn by_socket<'a>(
     sessions: &'a [ClaudeLiveSession],
     address: &str,
@@ -151,12 +152,14 @@ pub(crate) async fn by_socket<'a>(
         let Some(socket) = session.socket.as_deref() else {
             continue;
         };
-        if resolve_socket(socket, &mut resolved_folders)
-            .await?
-            .as_ref()
-            == Some(&wanted)
-        {
-            return Ok(Some(session));
+        match resolve_socket(socket, &mut resolved_folders).await {
+            Ok(resolved) if resolved.as_ref() == Some(&wanted) => return Ok(Some(session)),
+            Ok(_) => {}
+            Err(error) => tracing::debug!(
+                registry_file = %session.registry_file.display(),
+                error = &error as &(dyn Error + 'static),
+                "a running session's socket folder could not be resolved, so it was passed over",
+            ),
         }
     }
     Ok(None)
@@ -232,19 +235,12 @@ async fn read_registry_file(process_id: u32, registry_file: PathBuf) -> ClaudeLi
     }
 }
 
-// A field's text, or `None` where a version of Claude Code wrote it as anything but a string.
-fn text_or_nothing<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<String>, D::Error> {
-    let value = Value::deserialize(deserializer)?;
-    Ok(if let Value::String(text) = value {
-        Some(text)
-    } else {
-        None
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+
+    use serde_json::json;
+    use sidekicks_platforms::{make_folder_link, real_path};
 
     use super::{by_name, by_socket, read_live_sessions};
 
@@ -339,25 +335,34 @@ mod tests {
         );
     }
 
-    // Killed by an exact compare of the paths (the registry's spelling runs through a link), and by
-    // a leading `uds:` kept; the other file name finding a session kills a folder-only compare.
-    #[cfg(unix)]
+    // Killed by an exact compare of the paths (the registry's spelling runs through a link), by a
+    // leading `uds:` kept, and by a session whose folder cannot be resolved failing the lookup; the
+    // other file name finding a session kills a folder-only compare.
     #[tokio::test]
     async fn a_socket_is_found_through_a_linked_folder_and_a_uds_address() {
         let scratch = tempfile::tempdir().expect("a scratch folder is made");
         let real_folder = scratch.path().join("real");
         std::fs::create_dir(&real_folder).expect("the socket folder is made");
         let linked_folder = scratch.path().join("linked");
-        std::os::unix::fs::symlink(&real_folder, &linked_folder).expect("the link is made");
+        make_folder_link(&real_folder, &linked_folder).expect("the link is made");
         let config_folder = scratch.path().join("config");
         let linked_socket = linked_folder.join("4201.sock");
         write_registry_file(
             &config_folder,
             4201,
-            &format!(r#"{{"messagingSocketPath":"{}"}}"#, linked_socket.display()),
+            &json!({"messagingSocketPath": linked_socket}).to_string(),
+        );
+        // A session whose socket folder is a link that loops, which no resolve gets through.
+        let looping_folder = scratch.path().join("looping");
+        make_folder_link(&looping_folder, &looping_folder).expect("the looping link is made");
+        write_registry_file(
+            &config_folder,
+            4200,
+            &json!({"messagingSocketPath": looping_folder.join("inner").join("4200.sock")})
+                .to_string(),
         );
         let sessions = read_live_sessions(&[config_folder]).await;
-        let real_folder = std::fs::canonicalize(&real_folder).expect("the folder resolves");
+        let real_folder = real_path(&real_folder).expect("the folder resolves");
 
         let found = by_socket(
             &sessions,
