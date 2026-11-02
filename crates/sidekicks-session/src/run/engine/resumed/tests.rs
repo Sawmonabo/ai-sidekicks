@@ -7,6 +7,7 @@ use serde_json::json;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
+use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::events::AgentRunStepLimitReachedPayload;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -28,6 +29,7 @@ use crate::run::engine::tests::{
     SETTLE_WAIT, STEP_BOUND, events, hand_limit_interrupter, stored_events, turn, turn_started_at,
 };
 use crate::run::read::{LiveRun, RunRead};
+use crate::run::restart::ResumedRunMove;
 
 // The step bound the session sets where a case counts its turn's steps.
 const SESSION_STEP_BOUND: i64 = 3;
@@ -396,4 +398,99 @@ async fn a_resumed_run_moves_as_its_state_before_and_its_providers_answer_decide
             );
         }
     }
+}
+
+// A helper whose provider ended its turn stands on that end under its lead's pending stop, since
+// only a stop of its own wins over its resume: it is left running, with nothing written. Killed by
+// the stop read up to the lead (the helper's turn is taken as gone and it ends interrupted).
+#[tokio::test]
+async fn a_helpers_own_end_stands_under_its_leads_stop() {
+    let database = TestDatabase::new(schema_parts());
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let lead = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    let helper = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    let reader = database.reader();
+    for (run_id, parent_run_id, reached_by) in [
+        (lead, None, None),
+        (
+            helper,
+            Some(lead.text().as_str().to_owned()),
+            Some(<&'static str>::from(ChildRunProvenance::ProviderSubagent)),
+        ),
+    ] {
+        reader
+            .execute(
+                "INSERT INTO runs (run_id, session_id, state, run_version, parent_run_id,
+                   reached_by)
+                 VALUES (?1, ?2, 'running', 1, ?3, ?4)",
+                params![
+                    run_id.text().as_str(),
+                    session_id.text().as_str(),
+                    parent_run_id,
+                    reached_by,
+                ],
+            )
+            .expect("the test writes the run");
+    }
+    reader
+        .execute(
+            &format!(
+                "INSERT INTO interventions (id, target_run_id, type, state, payload,
+                   expected_run_version, client_idempotency_key, created_at)
+                 VALUES (?1, ?2, 'interrupt', 'accepted', ?3, 1, ?1, {DATABASE_NOW_SQL})"
+            ),
+            params![
+                mint_uuid_v7().to_string(),
+                lead.text().as_str(),
+                r#"{"pending":"nextTurn"}"#,
+            ],
+        )
+        .expect("the test records the person's interrupt of the lead");
+    let engine = test_engine_with(
+        &database,
+        log.service,
+        home.path(),
+        Arc::new(NoPlanHolds),
+        Vec::new(),
+    );
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, helper, 1, 1),
+    )
+    .await;
+    let seeded = stored_events(&database, &helper).len();
+    let run = LiveRun {
+        run_id: helper,
+        run: RunRead {
+            version: 1,
+            session_id,
+            state: RunState::Running,
+        },
+        parent_run_id: Some(lead),
+        reached_by: Some(ChildRunProvenance::ProviderSubagent),
+    };
+
+    engine
+        .rearm_after_restart(&run)
+        .await
+        .expect("the helper is re-armed from its log");
+    let resumed_move = engine
+        .finalize_resumed_run(
+            &run,
+            RunState::Running,
+            ProviderTurnAnswer::EndedByProvider,
+            None,
+        )
+        .await
+        .expect("the helper is finalized");
+
+    assert_eq!(resumed_move, ResumedRunMove::Left);
+    assert_eq!(stored_run_state(&database, &helper).0, "running");
+    assert!(
+        stored_events(&database, &helper)[seeded..].is_empty(),
+        "no turn end is written"
+    );
 }

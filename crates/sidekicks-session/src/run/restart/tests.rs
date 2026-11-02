@@ -350,8 +350,9 @@ async fn the_waiting_item_guard_holds_only_while_a_queued_message_targets_the_ru
 // the stopping arms placed after the pause arms (`stopping_paused_still_running` reads `Left`,
 // `stopping_pausing_gone` reads `Paused`), by the exception for a turn still running dropped
 // (`stopping_*_still_running` but `paused` read `TurnGone`), by the stopping waiting run left
-// waiting (`stopping_waiting_*_still_running` read `Left`), by a queued run moved, and by a run no
-// stop waits on moved otherwise than before.
+// waiting (`stopping_waiting_*_still_running` read `Left`), by a queued run moved, by a run no
+// stop waits on moved otherwise than before, and by `Waiting` folded into `Gone` (`*_waiting` read
+// `TurnGone` or `Paused { is_turn_gone: true }`).
 #[rstest]
 #[case::stopping_starting_still_running(
     RunState::Starting,
@@ -547,6 +548,34 @@ async fn the_waiting_item_guard_holds_only_while_a_queued_message_targets_the_ru
     false,
     false,
     ProviderTurnAnswer::Gone,
+    ResumedRunMove::Left
+)]
+#[case::waiting_for_approval_waiting(
+    RunState::WaitingForApproval,
+    false,
+    false,
+    ProviderTurnAnswer::Waiting,
+    ResumedRunMove::Left
+)]
+#[case::held_lead_running_waiting(
+    RunState::Running,
+    false,
+    false,
+    ProviderTurnAnswer::Waiting,
+    ResumedRunMove::Left
+)]
+#[case::paused_child_waiting(
+    RunState::Paused,
+    true,
+    false,
+    ProviderTurnAnswer::Waiting,
+    ResumedRunMove::Left
+)]
+#[case::moved_pausing_lead_waiting(
+    RunState::Pausing,
+    false,
+    false,
+    ProviderTurnAnswer::Waiting,
     ResumedRunMove::Left
 )]
 fn a_pending_stop_wins_over_the_resume_before_any_pause(

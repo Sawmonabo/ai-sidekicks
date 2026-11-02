@@ -448,27 +448,28 @@ async fn a_pass_keeps_paused_runs_paused_and_opens_no_session_for_them() {
     assert_eq!(succeeded["runsFailedDeterministically"], json!(0));
 }
 
-// The table of runs a pending stop waits on at a restart. A session whose runs in progress all
-// stop is not opened, no process started for it: a lead with the person's interrupt ends by it as
-// the person's, its provider's helper reads interrupted by the restart with its turn ended the
-// same way, and a run owing its token limit stops at it. A session with a live run beside its
-// stopping ones is opened, each named to the provider as stopping or not: a stopping run whose
-// provider still runs its turn, `pausing` among them, has the person's interrupt handed again and
-// ends by it, and a run owing its step limit has that limit's interrupt handed again, one driver
-// call each; a stopping `paused` run, and one whose turn is gone or ended, ends by its stop with no
-// call; a helper whose turn is gone reads interrupted by the restart, one still running stays
-// running with no call, and so do the live run and the queued run with its message waiting.
+// The table of runs a pending stop waits on at a restart. A session whose runs in progress each
+// wait on a stop of their own (session A) is not opened, no process started for it: a lead with
+// the person's interrupt ends by it as the person's, and a run owing its token limit stops at it.
+// A session with a live run beside its stopping ones (session B) is opened, each named to the
+// provider as stopping or not: a stopping run whose provider still runs its turn, `pausing` among
+// them, has the person's interrupt handed again and ends by it, and a run owing its step limit has
+// that limit's interrupt handed again, one driver call each; a stopping `paused` run, and one whose
+// turn is gone or ended, ends by its stop with no call; a helper whose turn is gone reads
+// interrupted by the restart, one still running stays running with no call, and so do the live run
+// and the queued run with its message waiting. A session whose stopping lead has a helper with no
+// stop of its own (session C) is opened, since the reopen check counts only a run's own stops: both
+// are named stopping, the lead ends by the person's interrupt and the helper, its turn gone, reads
+// interrupted by the restart with its turn ended the same way, neither handed an interrupt.
 // Killed by the hand-again dropped (the still-running stopping runs stay live and the wait for
 // their ends runs out), by the pause arms tried first (`pausing` reads `paused` and `paused` is
 // left), by limit rows handed as a person's (a second call for the step-limit run), by the lead's
 // rows handed to a helper (a call for the helper), by `any` read for `all` (the first provider's
-// driver, which expects no resume, is called), by the all-stopping check dropped (the same), and
-// by the stopping helper's arm dropped, and by the settle reading whether each run is stopping
-// as it reaches it, after its lead's end has discharged the lead's stop (session A's helper reads
-// `failed` either way). Session A's kept turns are handed to its provider once, on its leg's
-// conversation, for the runs a stop of their own ends, its helper left out. Killed by the hand-off
-// skipped or read after the settle (no call), and by the helper's stop read through its lead (the
-// helper named).
+// driver, which expects no resume, is called), by the all-stopping check dropped (the same), by
+// the stopping helper's arm dropped, and by the reopen check reading stops up to the lead (session
+// C is not opened and its runs are not named). Session A's kept turns are handed to its provider
+// once, on its leg's conversation, for both its runs, and none of session C's. Killed by the
+// hand-off skipped or read after the settle (no call).
 #[tokio::test]
 async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interrupt_again() {
     let answers: Arc<Mutex<HashMap<RunId, ProviderTurnAnswer>>> = Arc::default();
@@ -527,10 +528,6 @@ async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interru
     // Session A: every run in progress stops.
     let (stopped_session, stopped_lead, _) = fixture.running_session(0).await;
     fixture.record_person_interrupt(stopped_lead);
-    let cut_helper = fixture.insert_helper(stopped_session, stopped_lead);
-    fixture
-        .open_turn(stopped_session, cut_helper, Some("turn-helper"))
-        .await;
     fixture
         .open_turn(stopped_session, stopped_lead, Some("turn-lead"))
         .await;
@@ -598,6 +595,21 @@ async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interru
     let gone_helper = fixture.insert_helper(mixed_session, still_running);
     let kept_helper = fixture.insert_helper(mixed_session, still_pausing);
     let waiting_message = fixture.queue_message(mixed_session, queued_run).await;
+
+    // Session C: a stopping lead and its helper with no stop of its own.
+    let (helper_session, stopping_lead, _) = fixture.running_session(1).await;
+    fixture.record_person_interrupt(stopping_lead);
+    let cut_helper = fixture.insert_helper(helper_session, stopping_lead);
+    fixture
+        .open_turn(helper_session, cut_helper, Some("turn-helper"))
+        .await;
+    fixture
+        .open_turn(helper_session, stopping_lead, Some("turn-stopping-lead"))
+        .await;
+    lock(&answers).extend([
+        (stopping_lead, ProviderTurnAnswer::Gone),
+        (cut_helper, ProviderTurnAnswer::Gone),
+    ]);
     lock(&answers).extend([
         (live_run, ProviderTurnAnswer::StillRunning),
         (still_running, ProviderTurnAnswer::StillRunning),
@@ -641,11 +653,7 @@ async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interru
     .await
     .expect("each run handed again ends by its stop");
 
-    for (run_id, state) in [
-        (stopped_lead, "interrupted"),
-        (cut_helper, "interrupted"),
-        (token_run, "stopped"),
-    ] {
+    for (run_id, state) in [(stopped_lead, "interrupted"), (token_run, "stopped")] {
         assert_eq!(
             stored_run_state(&fixture.store.database, &run_id).0,
             state,
@@ -653,19 +661,6 @@ async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interru
         );
     }
     assert_eq!(fixture.run_trigger(stopped_session, stopped_lead), None);
-    assert_eq!(
-        fixture.run_trigger(stopped_session, cut_helper).as_deref(),
-        Some("daemonRestart")
-    );
-    let turn_ends = fixture.run_payloads(
-        stopped_session,
-        SessionEventType::AgentTurnInterrupted,
-        cut_helper,
-    );
-    let [turn_end] = turn_ends.as_slice() else {
-        panic!("the helper's turn ended once: {turn_ends:?}");
-    };
-    assert_eq!(turn_end["cause"], json!("daemonRestart"));
     let stopped = fixture.run_payloads(
         stopped_session,
         SessionEventType::AgentRunStopped,
@@ -688,6 +683,28 @@ async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interru
         ended_kept_turns(&kept_ends),
         ("conversation-1".to_owned(), kept)
     );
+
+    for run_id in [stopping_lead, cut_helper] {
+        assert_eq!(
+            stored_run_state(&fixture.store.database, &run_id).0,
+            "interrupted",
+            "{run_id}"
+        );
+    }
+    assert_eq!(fixture.run_trigger(helper_session, stopping_lead), None);
+    assert_eq!(
+        fixture.run_trigger(helper_session, cut_helper).as_deref(),
+        Some("daemonRestart")
+    );
+    let turn_ends = fixture.run_payloads(
+        helper_session,
+        SessionEventType::AgentTurnInterrupted,
+        cut_helper,
+    );
+    let [turn_end] = turn_ends.as_slice() else {
+        panic!("the helper's turn ended once: {turn_ends:?}");
+    };
+    assert_eq!(turn_end["cause"], json!("daemonRestart"));
 
     let mut calls = lock(&interrupted).clone();
     calls.sort();
@@ -742,6 +759,8 @@ async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interru
         (step_run, true),
         (gone_helper, true),
         (kept_helper, true),
+        (stopping_lead, true),
+        (cut_helper, true),
     ]
     .to_vec();
     expected_names.sort();
@@ -754,10 +773,11 @@ async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interru
 // while a stopping run beside it ends by its stop, as the person's; the status read lists the
 // failed run under its session with what its recovery needs and a provider failure; once the
 // session's next run starts, the entry is gone; the kept turns of both runs are handed to the
-// provider, each ended for a stop only where the run has one of its own. Killed by `mark_run_halted`
-// not called (no entry), by the restart's own words written (the detail differs), by the failure
-// detail winning over the run's stop (the stopping run reads `failed`), by the entry never cleared,
-// by the refused session's runs left out (no call), and by `is_for_stop` set alike for both.
+// provider, each ended for a stop only where the run has one of its own. Killed by
+// `mark_run_halted` not called (no entry), by the restart's own words written (the detail differs),
+// by the failure detail winning over the run's stop (the stopping run reads `failed`), by the entry
+// never cleared, by the refused session's runs left out (no call), and by `is_for_stop` set alike
+// for both.
 #[tokio::test]
 async fn a_refused_resume_fails_its_run_and_lists_it_until_the_sessions_next_run() {
     let mut refusing = resuming_driver(|_params| DriverResumeResult::Failed {
