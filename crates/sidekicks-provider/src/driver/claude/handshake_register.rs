@@ -2,7 +2,7 @@
 //! skill surface from `system/init`, and its output-speed state from the `initialize` reply,
 //! replaced by each later `system/init` that reports one and settled once per run when the run's
 //! own handshake arrives. A session at rest has its command list read afresh, concurrent reads of
-//! one session sharing one process and nothing kept once it settles.
+//! one session on one account sharing one process and nothing kept once it settles.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -53,6 +53,10 @@ type ClaudeRestingCommandStart =
 type ClaudeRestingCommandRead =
     Shared<BoxFuture<'static, Result<Vec<ClaudeListedCommand>, Arc<DriverError>>>>;
 
+// The session and the account one resting command read runs on, since each account lists its own
+// user-level commands.
+type ClaudeRestingReadKey = (SessionId, ProviderAccountId);
+
 /// A run whose output speed settled on its process's handshake, with the state the process declared
 /// it runs at; the run engine compares it with the level the run carried.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -90,8 +94,8 @@ struct ClaudeSessionDeclarations {
 #[derive(Default)]
 pub(crate) struct ClaudeHandshakeRegister {
     sessions: Mutex<HashMap<SessionId, ClaudeSessionDeclarations>>,
-    // Each resting session's command read in flight, gone once it settles.
-    resting_reads: Arc<Mutex<HashMap<SessionId, ClaudeRestingCommandRead>>>,
+    // Each resting session's command read in flight on each account, gone once it settles.
+    resting_reads: Arc<Mutex<HashMap<ClaudeRestingReadKey, ClaudeRestingCommandRead>>>,
 }
 
 impl ClaudeHandshakeRegister {
@@ -252,30 +256,34 @@ impl ClaudeHandshakeRegister {
         });
     }
 
-    /// The command read of resting `session_id` in flight, else the one `start` begins. The read
-    /// runs to its end whoever still waits on it, so a dropped caller leaves no process behind,
-    /// and it is forgotten as it settles, so the next read starts afresh. Fails, for every
-    /// waiter, as a session's start fails for the same failure.
+    /// The command read of resting `session_id` on `provider_account_id`'s account in flight,
+    /// else the one `start` begins. The read runs to its end whoever still waits on it, so a
+    /// dropped caller leaves no process behind, and it is forgotten as it settles, so the next
+    /// read starts afresh. Fails, for every waiter, as a session's start fails for the same
+    /// failure.
     pub(crate) fn join_resting_command_read(
         &self,
         session_id: SessionId,
+        provider_account_id: ProviderAccountId,
         start: impl FnOnce() -> ClaudeRestingCommandStart,
     ) -> impl Future<Output = Result<Vec<ClaudeListedCommand>, DriverError>> {
+        let key = (session_id, provider_account_id);
         let mut reads = lock(&self.resting_reads);
-        let read = if let Some(read) = reads.get(&session_id) {
+        let read = if let Some(read) = reads.get(&key) {
             read.clone()
         } else {
             let held = Arc::clone(&self.resting_reads);
+            let held_key = key.clone();
             let read = start()
                 .map(move |listed| {
-                    // The session's only entry until this removes it: a read is begun only where
-                    // none is held.
-                    lock(&held).remove(&session_id);
+                    // The key's only entry until this removes it: a read is begun only where none
+                    // is held.
+                    lock(&held).remove(&held_key);
                     listed.map_err(|error| Arc::new(DriverError::from(error)))
                 })
                 .boxed()
                 .shared();
-            reads.insert(session_id, read.clone());
+            reads.insert(key, read.clone());
             drop(tokio::spawn(read.clone()));
             read
         };
@@ -563,6 +571,7 @@ mod tests {
     use futures::FutureExt;
     use rstest::rstest;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
     use super::{ClaudeHandshakeRegister, ClaudeRestingCommandStart};
     use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
@@ -582,6 +591,10 @@ mod tests {
             subtype: ClaudeControlSubtype::Initialize,
             cause: ClaudeUnansweredCause::Deadline,
         })
+    }
+
+    fn account(account_id: &str) -> ProviderAccountId {
+        ProviderAccountId::new(account_id.to_owned()).expect("an account id fits")
     }
 
     fn spawn_failed() -> ClaudeLaunchError {
@@ -621,16 +634,41 @@ mod tests {
         let register = ClaudeHandshakeRegister::default();
         let session_id = new_session_id();
 
-        let first = register
-            .join_resting_command_read(session_id, || async move { Err(failure()) }.boxed());
-        let second =
-            register.join_resting_command_read(session_id, || -> ClaudeRestingCommandStart {
+        let first = register.join_resting_command_read(session_id, account("account-1"), || {
+            async move { Err(failure()) }.boxed()
+        });
+        let second = register.join_resting_command_read(
+            session_id,
+            account("account-1"),
+            || -> ClaudeRestingCommandStart {
                 unreachable!("a second read joins the one in flight")
-            });
+            },
+        );
 
         for answer in [first.await, second.await] {
             let error = answer.expect_err("the read failed");
             assert_eq!(answer_of(&error), expected);
         }
+    }
+
+    // Killed by a key without the account: the second account's read joins the first's failed
+    // one and answers its sign-in refusal instead of its own list.
+    #[tokio::test]
+    async fn a_resting_read_on_another_account_starts_its_own_process() {
+        let register = ClaudeHandshakeRegister::default();
+        let session_id = new_session_id();
+
+        let first = register.join_resting_command_read(session_id, account("account-1"), || {
+            async move { Err(sign_in_refused()) }.boxed()
+        });
+        let second = register.join_resting_command_read(session_id, account("account-2"), || {
+            async move { Ok(Vec::new()) }.boxed()
+        });
+
+        first.await.expect_err("the first account's read failed");
+        assert_eq!(
+            second.await.expect("the second account's read is its own"),
+            Vec::new()
+        );
     }
 }

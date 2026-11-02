@@ -201,7 +201,8 @@ impl ClaudeDriver {
     /// The session's commands, as one group carrying the params' run and binding: a live
     /// session's as its process declared them, once any restart in flight settles; a resting
     /// session's from a process that keeps nothing, started in the folder its runs work in on the
-    /// binding's account, which concurrent reads of the session share and none keeps. Fails as
+    /// binding's account, which concurrent reads of the session on that account share and none
+    /// keeps. Fails as
     /// the live list fails, as the folder or the account's environment cannot be read, and as a
     /// session's start fails where the read fails.
     pub(crate) async fn list_provider_commands(
@@ -237,7 +238,7 @@ impl ClaudeDriver {
             .account_environment(&provider_account_id)
             .await?;
         let rows = handshakes
-            .join_resting_command_read(params.session_id, || {
+            .join_resting_command_read(params.session_id, provider_account_id.clone(), || {
                 self.starts
                     .read_session_commands(environment, run_folder, provider_account_id)
             })
