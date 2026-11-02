@@ -234,6 +234,34 @@ async fn a_revoke_takes_the_rule_out_of_each_home_and_project_file_and_never_a_s
     assert_eq!(read(&system_file), system_text);
 }
 
+// A revoke across two files whose second edit would leave a file Codex refuses writes neither, so
+// the rule's copy in the home file is not lost while the project's still applies. Killed by
+// writing each file before the next one's edit is checked.
+#[tokio::test]
+async fn a_revoke_one_of_whose_edits_would_break_its_file_changes_no_file() {
+    let places = Places::new();
+    let home_text = "prefix_rule(pattern=[\"cargo\", \"build\"])\n";
+    let home_file = places.write("home/rules/default.rules", home_text);
+    // The call is a loop's one statement, so taking it out leaves a loop with no body.
+    let team_text = "for tool in [\"cargo\"]:\n    prefix_rule(pattern=[tool, \"build\"])\n";
+    let team_file = places.write("project/.codex/rules/team.rules", team_text);
+
+    let revoked = places.remove_rule(&allow_command("cargo build")).await;
+
+    assert!(
+        matches!(&revoked, Err(CodexRulesError::RevokeRefused { path, .. }) if *path == team_file),
+        "{revoked:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(&home_file).expect("the home file reads"),
+        home_text
+    );
+    assert_eq!(
+        fs::read_to_string(&team_file).expect("the team file reads"),
+        team_text
+    );
+}
+
 #[rstest]
 #[case::the_whole_of_git(ProviderAskActionKind::Command, "git", None)]
 #[case::a_push(ProviderAskActionKind::Command, "git push", None)]

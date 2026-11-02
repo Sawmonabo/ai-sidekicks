@@ -28,7 +28,7 @@ use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::PathRules;
 
-use super::removal::remove_rule_calls;
+use super::removal::{RuleFileEdit, remove_rule_calls};
 use super::{
     CodexRuleSources, CodexRulesError, RULE_FILE_LOCK, RuleFileOrigin, evaluate_rule_files,
     read_if_present, read_rule_file_texts, resolve_lock_key,
@@ -144,11 +144,14 @@ pub(crate) async fn revoke_codex_standing_rule(
         }
     };
     let revoked = listed.rule.text.as_str();
+    let edit = RuleFileEdit {
+        path: listed.file.clone(),
+        text: listed.file_text.to_string(),
+        spans: listed.spans.clone(),
+    };
     remove_rule_calls(
         &reading_sources(sources, listed.reading),
-        &listed.file,
-        &listed.file_text,
-        &listed.spans,
+        vec![edit],
         |evaluated, text| {
             evaluated
                 .calls

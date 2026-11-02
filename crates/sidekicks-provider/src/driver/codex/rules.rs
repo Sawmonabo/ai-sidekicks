@@ -363,13 +363,14 @@ pub(crate) async fn write_codex_project_rule(
 }
 
 /// Takes a revoked rule out of every home and project rule file Codex reads for the project's
-/// sessions that makes it, each edited as [`removal::remove_rule_calls`] edits a file, the daemon's
-/// own deleted once it holds no rule. Refuses the rules [`write_codex_project_rule`] refuses;
-/// answers `RuleInUneditedFile`, changing nothing, where a system rule file makes the rule, since
-/// the daemon never edits one and the rule would still apply; `RevokeRefused` where a call that
-/// makes it makes another rule too, which a revoke would take with it, or where an edited file
-/// would not load or still make it; `RuleNotFound` where no file makes it; and fails with
-/// `Unloadable` where Codex refuses a rule file.
+/// sessions that makes it, each file held while every edit is checked together and written only
+/// once all pass, as [`removal::remove_rule_calls`] does, a file left with no rule deleted. Refuses
+/// the rules [`write_codex_project_rule`] refuses; answers `RuleInUneditedFile` where a system rule
+/// file makes the rule, since the daemon never edits one and the rule would still apply,
+/// `RevokeRefused` where a call that makes it makes another rule too, which a revoke would take
+/// with it, or where an edited file would not load or still make it, each changing nothing;
+/// `RuleNotFound` where no file makes it; and fails with `Unloadable` where Codex refuses a rule
+/// file.
 pub(crate) async fn remove_codex_project_rule(
     sources: &CodexRuleSources<'_>,
     rule: &ProviderAskRule,
@@ -379,40 +380,55 @@ pub(crate) async fn remove_codex_project_rule(
         return Err(CodexRulesError::ProjectIsCodexHome);
     }
     let wanted = normalize_rule_subject(rule)?;
-    let making = read_files_making_rule(sources, &wanted).await?;
-    if making.is_empty() {
-        return Err(CodexRulesError::RuleNotFound);
-    }
-    if let Some((system_file, _)) = making
-        .iter()
-        .find(|(file, _)| file.origin == RuleFileOrigin::System)
-    {
-        return Err(CodexRulesError::RuleInUneditedFile {
-            path: system_file.path.clone(),
-        });
-    }
-    for (file, _) in making {
-        let _hold = RULE_FILE_LOCK
-            .acquire(resolve_lock_key(&file.path).await?)
-            .await;
-        // Read again under the hold, so the calls taken out are those the file holds now.
-        let Some((current, spans)) = read_files_making_rule(sources, &wanted)
-            .await?
-            .into_iter()
-            .find(|(current, _)| current.path == file.path)
-        else {
+    loop {
+        let making = read_files_making_rule(sources, &wanted).await?;
+        if making.is_empty() {
+            return Err(CodexRulesError::RuleNotFound);
+        }
+        if let Some((system_file, _)) = making
+            .iter()
+            .find(|(file, _)| file.origin == RuleFileOrigin::System)
+        {
+            return Err(CodexRulesError::RuleInUneditedFile {
+                path: system_file.path.clone(),
+            });
+        }
+        // Every file is held in one order, so two revokes never wait on each other.
+        let mut lock_keys = Vec::with_capacity(making.len());
+        for (file, _) in &making {
+            lock_keys.push(resolve_lock_key(&file.path).await?);
+        }
+        lock_keys.sort();
+        lock_keys.dedup();
+        let mut holds = Vec::with_capacity(lock_keys.len());
+        for lock_key in lock_keys {
+            holds.push(RULE_FILE_LOCK.acquire(lock_key).await);
+        }
+        // Each file is read again under the holds; where one changed since, the files are read
+        // and evaluated again.
+        let mut is_unchanged = true;
+        for (file, _) in &making {
+            if read_if_present(&file.path).await?.as_deref() != Some(file.text.as_str()) {
+                is_unchanged = false;
+                break;
+            }
+        }
+        if !is_unchanged {
             continue;
-        };
-        removal::remove_rule_calls(
-            sources,
-            &current.path,
-            &current.text,
-            &spans,
-            |evaluated, _| evaluated.rules.contains(&wanted),
-        )
-        .await?;
+        }
+        let edits = making
+            .into_iter()
+            .map(|(file, spans)| removal::RuleFileEdit {
+                path: file.path,
+                text: file.text,
+                spans,
+            })
+            .collect();
+        return removal::remove_rule_calls(sources, edits, |evaluated, _| {
+            evaluated.rules.contains(&wanted)
+        })
+        .await;
     }
-    Ok(())
 }
 
 /// Every allow and block Codex enforces from the project's rule files, read as Codex loads them:
