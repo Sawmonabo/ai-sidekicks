@@ -6,7 +6,7 @@
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 use futures::FutureExt as _;
 use jiff::Timestamp;
@@ -50,8 +50,6 @@ use sidekicks_session::attention::service::{AttentionService, AttentionServiceDe
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::groups::service::SessionGroupService;
 use sidekicks_session::plan_holds::PlanHolds;
-use sidekicks_session::run::binding_cursors::RunBindingCursors;
-use sidekicks_session::run::epochs::{ExecutionEpochs, MAX_ASSOCIATIONS_PER_BINDING};
 use sidekicks_session::run::folders::SessionLiveRunFolders;
 use sidekicks_session::search::index::live::LiveIndex;
 use sidekicks_shell::orphan::guard::OrphanGuard;
@@ -323,14 +321,8 @@ pub(crate) async fn register_method_inputs(
     let read_damaged_from_sequence = Arc::clone(&database.read_damaged_from_sequence);
     let registry = Arc::clone(&providers.registry);
     let settings_reader: Arc<dyn MachineSettingsReader> = Arc::clone(&settings) as _;
-    let epochs = Arc::new(Mutex::new(ExecutionEpochs::new(
-        MAX_ASSOCIATIONS_PER_BINDING,
-    )));
-    let binding_cursors = Arc::new(RunBindingCursors::new(
-        Arc::clone(&reads),
-        Arc::clone(&providers.runtime_bindings),
-        Arc::clone(&epochs),
-    ));
+    let epochs = Arc::clone(&providers.epochs);
+    let binding_cursors = Arc::clone(&providers.binding_cursors);
     let mcp_binding_store = McpBindingStore::new(Arc::clone(&writer), Arc::clone(&reads));
     // The status tracker sends each binding it first observes to the drain, which records it.
     let (first_observations, mcp_first_observations) =

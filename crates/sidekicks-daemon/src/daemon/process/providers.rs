@@ -6,7 +6,7 @@
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -63,7 +63,9 @@ use sidekicks_session::idle_sleep::SessionIdleSleep;
 use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::readings::context::ContextReadings;
 use sidekicks_session::readings::turn::TurnReadings;
+use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::run::engine::RunEngine;
+use sidekicks_session::run::epochs::{ExecutionEpochs, MAX_ASSOCIATIONS_PER_BINDING};
 use sidekicks_session::run::inbound::RunInboundDispatch;
 use sidekicks_session::run::pause::RunPauseControl;
 use sidekicks_session::usage_record::UsageRecord;
@@ -135,6 +137,11 @@ pub(crate) struct Providers {
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
     /// The one store of runtime bindings, which the run queue and the binding cursors write too.
     pub(crate) runtime_bindings: Arc<RuntimeBindingStore>,
+    /// The epoch cursors of the open runtime bindings, which the inbound dispatch attributes on.
+    pub(crate) epochs: Arc<Mutex<ExecutionEpochs>>,
+    /// The cursors of each run's binding, through which every driver writes its bindings, so an
+    /// account a driver moves a binding onto is the one its cursor answers for.
+    pub(crate) binding_cursors: Arc<RunBindingCursors>,
     /// Which provider process runs each session, which every driver records at spawn and exit
     /// and the run queue reads.
     pub(crate) processes: Arc<ProviderProcessRegistry>,
@@ -173,6 +180,14 @@ pub(crate) fn build_providers(
         Arc::clone(&start.reads),
         Arc::clone(&start.writer),
     ));
+    let epochs = Arc::new(Mutex::new(ExecutionEpochs::new(
+        MAX_ASSOCIATIONS_PER_BINDING,
+    )));
+    let binding_cursors = Arc::new(RunBindingCursors::new(
+        Arc::clone(&start.reads),
+        Arc::clone(&runtime_bindings),
+        Arc::clone(&epochs),
+    ));
     let services = DriverServices {
         spawner: start.spawner.clone(),
         data_folder: start.data_folder,
@@ -188,7 +203,7 @@ pub(crate) fn build_providers(
         processes: Arc::clone(&processes),
         child_records: start.child_records,
         provider_services: Arc::clone(&provider_services),
-        runtime_bindings: Arc::clone(&runtime_bindings) as _,
+        runtime_bindings: Arc::clone(&binding_cursors) as _,
         shell_lines: start.shell_lines,
         background_work: Arc::clone(&background_work),
         dispatches_hook_mode: dispatches_hook_mode(),
@@ -216,6 +231,8 @@ pub(crate) fn build_providers(
         provider_services,
         execution_postures,
         runtime_bindings,
+        epochs,
+        binding_cursors,
         processes,
         reserved_names,
         background_work,
