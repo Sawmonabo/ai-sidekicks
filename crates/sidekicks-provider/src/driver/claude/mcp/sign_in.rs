@@ -32,7 +32,7 @@ use url::Url;
 
 use crate::driver::claude::account_credentials::{
     ClaudeCredentialReadError, ClaudeSignInReader, ClaudeStoredCredentials,
-    SECURE_STORAGE_FOLDER_VARIABLE, read_claude_credential_file,
+    read_claude_credential_file,
 };
 use crate::driver::claude::mcp::ClaudeMcpProcess;
 use crate::driver::claude::mcp::config::{
@@ -291,20 +291,26 @@ pub(crate) async fn sign_in_with_claude_client(
 }
 
 /// Removes the folders of Claude Code MCP sign-ins a stopped daemon left under `data_folder`,
-/// each one's keychain item first, read through `credentials`; an item not removed is logged.
+/// each one's keychain item first, named by the environment `environment_on` composes for the
+/// folder as the sign-in's did and removed through `credentials`; an item not removed is logged.
 /// Fails as the folders' removal fails.
 pub(crate) async fn remove_left_claude_sign_ins(
     credentials: &ClaudeSignInReader,
     data_folder: &Path,
+    environment_on: impl Fn(&Path) -> Result<Vec<(String, String)>, DriverError>,
 ) -> Result<(), DriverError> {
     let parent = sign_in_parent(data_folder);
     if credentials.has_keychain() {
         for folder in list_left_folders(&parent).await? {
-            let environment = [(
-                SECURE_STORAGE_FOLDER_VARIABLE.to_owned(),
-                folder.to_string_lossy().into_owned(),
-            )];
-            if let Err(error) = credentials.remove_keychain_record(&environment).await {
+            let removed = match environment_on(&folder) {
+                Ok(environment) => credentials
+                    .remove_keychain_record(&environment)
+                    .await
+                    .map(drop)
+                    .map_err(|error| DriverError::Internal(Box::new(error))),
+                Err(error) => Err(error),
+            };
+            if let Err(error) = removed {
                 tracing::warn!(
                     error = &error as &(dyn Error + 'static),
                     "the keychain item of an MCP sign-in a previous run left was not removed"

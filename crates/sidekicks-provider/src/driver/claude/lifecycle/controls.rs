@@ -6,7 +6,6 @@
 
 use std::collections::HashSet;
 use std::error::Error;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -22,6 +21,7 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
+use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::data_folder::plugin_home;
 
@@ -506,8 +506,9 @@ impl ClaudeDriver {
         let _only_read = self.capability_read.lock().await;
         let folder = self.capability_read_folder();
         // A read the daemon's stop cut short left its folder behind.
-        remove_capability_read_folder(&folder)
+        tokio::fs::remove_dir_all(&folder)
             .await
+            .none_if_missing()
             .map_err(internal)?;
         tokio::fs::create_dir_all(&folder).await.map_err(internal)?;
         let read = async {
@@ -520,7 +521,7 @@ impl ClaudeDriver {
         }
         .await;
         // The next read removes a folder this removal leaves, so the read's answer stands.
-        if let Err(error) = remove_capability_read_folder(&folder).await {
+        if let Err(error) = tokio::fs::remove_dir_all(&folder).await.none_if_missing() {
             record_unheard_claude_failure(
                 DriverDiagnosticKind::ControlOnlyReadFailed,
                 None,
@@ -790,10 +791,7 @@ impl ClaudeDriver {
                 account_servers: &self.account_servers,
                 credentials: &self.credentials,
             },
-            |folder| {
-                self.sources
-                    .process_environment(ClaudeProcessHome::Throwaway { folder }, &[], &[])
-            },
+            |folder| self.sign_in_environment(folder),
             request,
         )
         .await
@@ -802,7 +800,17 @@ impl ClaudeDriver {
     /// Removes the folders, and their keychain items, of MCP sign-ins a stopped daemon left.
     /// Fails as the folders' removal fails.
     pub(crate) async fn remove_left_sign_in_folders(&self) -> Result<(), DriverError> {
-        remove_left_claude_sign_ins(&self.credentials, &self.sources.data_folder).await
+        remove_left_claude_sign_ins(&self.credentials, &self.sources.data_folder, |folder| {
+            self.sign_in_environment(folder)
+        })
+        .await
+    }
+
+    // The environment of an MCP sign-in's process on its own `folder`, which also names the
+    // keychain item the process files the sign-in under.
+    fn sign_in_environment(&self, folder: &Path) -> Result<Vec<(String, String)>, DriverError> {
+        self.sources
+            .process_environment(ClaudeProcessHome::Throwaway { folder }, &[], &[])
     }
 
     // The folder the capability read makes and removes, under the daemon's data folder.
@@ -826,14 +834,6 @@ impl ClaudeDriver {
                 .await
             }
         }
-    }
-}
-
-// Removes the capability read's folder and everything in it; one already gone is removed.
-async fn remove_capability_read_folder(folder: &Path) -> io::Result<()> {
-    match tokio::fs::remove_dir_all(folder).await {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        removed => removed,
     }
 }
 
