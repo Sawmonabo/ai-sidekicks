@@ -88,6 +88,7 @@ mod output_speed;
 mod rate_limit_windows;
 mod release_notes;
 mod run;
+mod self_update;
 mod session;
 mod settings_rows;
 mod spawn;
