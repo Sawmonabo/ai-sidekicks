@@ -570,7 +570,11 @@ type ProviderAccountUsageListResponse =
 // finish. A second start against an account with one in flight is refused
 // `provider.account.signInInFlight` — at least one pinned provider holds exactly ONE active login
 // slot and SILENTLY DROPS the previous attempt, which would strand the person mid-flow on another
-// device with no signal that their code had stopped working.
+// device with no signal that their code had stopped working. A browser sign-in at the machine
+// while another account's browser sign-in is open, on a provider whose browser arm holds one
+// callback port per machine (Codex's `localhost:1455`), is refused the same way. The refusal's
+// details name the open attempt (`ProviderAccountSignInInFlightDetails`); a switch or a reset
+// holding the account names none.
 // `{accountId}` signs in an account already registered; `{provider}` adds one. The second arm mints
 // the account id and its home, holds the attempt in memory, and inserts the row only once the
 // health observation reports the provider's identity, its billing mode `unknown` (drawn `Billing
@@ -583,6 +587,12 @@ interface ProviderAccountSignInResponse {
   userCode?: string; // present on a device-code arm; the person types it at `verificationUri`
   expiresAt?: string; // RFC 3339 UTC, where the provider bounds the attempt; null/absent = the provider published no bound. A whitelisted field (Spec-025 §Brokered interactive sign-in), admitted under the same parse-and-validate rule as the others: parsed to an RFC 3339 instant, required to be in the future and within the provider's documented attempt ceiling, and OMITTED rather than surfaced where it fails either test. It is a bound on an attempt, not provider state — it carries no OAuth, PKCE, or credential field.
   browserOpenedByProvider: boolean; // true where the provider opened the address in a browser itself (Claude Code's sign-in at this machine): the client opens nothing, and still draws `Open the sign-in page` with the address
+}
+// The `data.fields` of a `provider.account.signInInFlight` refusal a sign-in holds: the open
+// attempt, cancelable with `provider.account.signInAttempt.cancel`, and the account it signs in.
+interface ProviderAccountSignInInFlightDetails {
+  accountId: ProviderAccountId;
+  attemptId: string;
 }
 
 // Cancellation is a FIRST-CLASS OUTCOME, not an abandonment: a broker that could only be abandoned
