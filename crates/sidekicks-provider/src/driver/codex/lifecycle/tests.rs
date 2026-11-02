@@ -169,6 +169,7 @@ impl LiveCodexSession {
         let (mut record, mut routing) = open_test_record(
             &scripted,
             session_id,
+            agent_id,
             inbound,
             &parts.delivery,
             parts.pending_compactions.clone(),

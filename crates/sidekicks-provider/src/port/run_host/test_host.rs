@@ -468,6 +468,8 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
                 SessionScopedRow::UsageTokenCountRecorded(payload) => payload_of(payload),
                 SessionScopedRow::AdvisorChanged(payload) => payload_of(payload),
                 SessionScopedRow::OutputStyleChanged(payload) => payload_of(payload),
+                SessionScopedRow::GoalUpdated(payload) => payload_of(payload),
+                SessionScopedRow::GoalCleared(payload) => payload_of(payload),
             });
         }
         InboundDelivery::MachineEvent { row } => {

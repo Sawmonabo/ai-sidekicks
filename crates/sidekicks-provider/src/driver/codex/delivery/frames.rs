@@ -2,11 +2,12 @@
 //! end, its tool calls' rows (a command's end even after its turn ended or the session moved off
 //! its conversation), the reply, reasoning and plan streamed as pieces, a command's live output, a
 //! helper's own rows on its child run, the reviewer's flags and blocks, the provider's notices, a
-//! model switch with its sentence, the live safety hold, and the tool boundary the run queue
-//! releases its held messages at. The session's queue hands each frame over in arrival order and
-//! every delivery is dispatched and awaited before the next, so rows land in frame order; what a
-//! frame tells the rest of the driver comes back as its dispatch.
+//! change of the session's goal, a model switch with its sentence, the live safety hold, and the
+//! tool boundary the run queue releases its held messages at. The session's queue hands each frame
+//! over in arrival order and every delivery is dispatched and awaited before the next, so rows land
+//! in frame order; what a frame tells the rest of the driver comes back as its dispatch.
 
+mod goals;
 mod items;
 mod notices;
 mod reviews;
@@ -277,6 +278,9 @@ impl CodexFrameDelivery {
             "turn/plan/updated" => deliver_codex_plan_update(record, &members, &mut dispatch),
             "model/safetyBuffering/updated" => {
                 self.deliver_safety_buffering(record, &members).await;
+            }
+            "thread/goal/updated" | "thread/goal/cleared" => {
+                self.deliver_goal(record, method, &members).await;
             }
             _ => self.deliver_notice(record, method, &members).await,
         }

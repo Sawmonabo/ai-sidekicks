@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::{BoxFuture, Shared};
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
@@ -132,6 +133,8 @@ impl CodexUnechoedSteers {
 pub(crate) struct CodexSessionRecord {
     /// The session.
     pub(crate) session_id: SessionId,
+    /// The session's lead agent, whose goal the conversation's own goal is.
+    pub(crate) lead_agent_id: AgentId,
     /// The service the conversation is loaded on; a move onto a new build replaces it in place.
     pub(crate) service: Arc<CodexService>,
     /// The queue the services the session runs on send its frames and asks to.
@@ -218,6 +221,8 @@ pub(crate) struct CodexSessionRecord {
 pub(crate) struct CodexEstablishedConversation {
     /// The session.
     pub(crate) session_id: SessionId,
+    /// The session's lead agent.
+    pub(crate) lead_agent_id: AgentId,
     /// The service the conversation is loaded on.
     pub(crate) service: Arc<CodexService>,
     /// The queue the session's frames and asks go to.
@@ -256,6 +261,7 @@ impl CodexSessionRecord {
     pub(crate) fn new(established: CodexEstablishedConversation) -> Self {
         Self {
             session_id: established.session_id,
+            lead_agent_id: established.lead_agent_id,
             service: established.service,
             inbound: established.inbound,
             thread_id: established.thread_id,

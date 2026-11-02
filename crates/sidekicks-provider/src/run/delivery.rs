@@ -38,6 +38,7 @@ use sidekicks_contracts::session::events::{
     SessionAdvisorChangedPayload, SessionOutputStyleChangedPayload,
     SessionProviderStatusReportedPayload,
 };
+use sidekicks_contracts::session::goal::{SessionGoalClearedPayload, SessionGoalUpdatedPayload};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -422,8 +423,8 @@ unstamped_rows! {
 }
 
 /// A row about the session as a whole, on no binding: a side question's answer, which never
-/// enters the conversation, and its usage, which no run counts, and a change of the session's own
-/// advisor or output style.
+/// enters the conversation, and its usage, which no run counts, a change of the session's own
+/// advisor or output style, and a change of an agent's goal, which outlives any one run.
 #[derive(Debug)]
 pub enum SessionScopedRow {
     /// `session.sideQuestion.answered`.
@@ -434,6 +435,10 @@ pub enum SessionScopedRow {
     AdvisorChanged(SessionAdvisorChangedPayload),
     /// `session.outputStyle.changed`.
     OutputStyleChanged(SessionOutputStyleChangedPayload),
+    /// `session.goal.updated`.
+    GoalUpdated(SessionGoalUpdatedPayload),
+    /// `session.goal.cleared`.
+    GoalCleared(SessionGoalClearedPayload),
 }
 
 impl SessionScopedRow {
@@ -455,6 +460,14 @@ impl SessionScopedRow {
             Self::OutputStyleChanged(payload) => (
                 payload.session_id,
                 SessionEvent::SessionOutputStyleChanged(payload),
+            ),
+            Self::GoalUpdated(payload) => (
+                payload.session_id,
+                SessionEvent::SessionGoalUpdated(payload),
+            ),
+            Self::GoalCleared(payload) => (
+                payload.session_id,
+                SessionEvent::SessionGoalCleared(payload),
             ),
         }
     }
