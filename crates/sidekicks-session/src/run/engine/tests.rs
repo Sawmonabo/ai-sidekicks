@@ -10,7 +10,7 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rusqlite::{Connection, params};
-use serde_json::{Value, json};
+use serde_json::Value;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
@@ -22,6 +22,7 @@ use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::run::posture::compose_execution_posture;
 use sidekicks_provider::run::start_request::DriverStep;
 use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
@@ -322,20 +323,9 @@ pub(crate) fn continue_request(
     run_id: RunId,
     start_driver: impl Fn(ExecutionPosture) -> DriverStep + Send + Sync + 'static,
 ) -> RunContinueRequest {
-    let queue_item = serde_json::from_value(json!({
-        "kind": "message",
-        "state": "admitted",
-        "id": mint_uuid_v7().to_string(),
-        "position": 0,
-        "isSentNow": false,
-        "content": "Go on.",
-        "createdAt": "2026-01-01T00:00:00.000Z",
-        "updatedAt": "2026-01-01T00:00:00.000Z",
-    }))
-    .expect("the test's message reads as an admitted item");
     RunContinueRequest {
         turn: turn_start(run_id, start_driver),
-        queue_item,
+        opening_words: FreeFormText::new("Go on.".to_owned()).expect("a test message"),
     }
 }
 

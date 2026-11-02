@@ -127,6 +127,7 @@ mod test_program;
 #[cfg(test)]
 mod thread_cpu_time;
 mod tool_memory_cap;
+mod tree_removal;
 #[cfg(not(target_os = "linux"))]
 mod user_namespace;
 mod wake_helper;
@@ -492,6 +493,7 @@ pub use terminal::{
 #[cfg(any(test, feature = "test-support"))]
 pub use test_program::{harness_test_name, pass_through_start, terminal_taking_start};
 pub use tool_memory_cap::TOOL_MEMORY_CAP_ENFORCEABLE;
+pub use tree_removal::remove_tree_awaited;
 #[cfg(not(target_os = "linux"))]
 pub use user_namespace::can_create_user_namespace;
 pub use wake_helper::message::{UnknownWakeMessage, WakeRefusal, WakeReply, WakeRequest};

@@ -142,7 +142,7 @@ impl Fixture {
             self.gate.assert_run_ready(&RunSetupContext {
                 run_id,
                 session_id: session_id(),
-                queue_item: None,
+                opening_words: None,
                 workspace_id: None,
                 execution_posture: serde_json::from_value(json!({
                     "mode": "yolo",

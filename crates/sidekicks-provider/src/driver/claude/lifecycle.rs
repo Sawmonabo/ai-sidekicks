@@ -91,6 +91,8 @@ pub(crate) struct ClaudeDriver {
     pub(crate) account_servers: Arc<ClaudeAccountServerReads>,
     /// The daemon's services every session's process is started from.
     pub(crate) sources: Arc<ClaudeSpawnSources>,
+    /// Reads Claude Code's stored credentials, and removes an MCP sign-in's keychain item.
+    pub(crate) credentials: ClaudeSignInReader,
     attachments: Arc<dyn AttachmentResolver>,
     staged_changes: StagedChangesWorktrees,
     pending_compactions: PendingCompactionRegistry,
@@ -157,29 +159,31 @@ impl ClaudeDriver {
     }
 
     /// The driver over the shared services, starting every process through `starts` and reading
-    /// sign-ins from a keychain of the test's own, never the system's.
+    /// sign-ins from `keychain`, a test's own, never the system's.
     #[cfg(test)]
     pub(crate) fn with_starts(
         services: &DriverServices,
         starts: Arc<dyn ClaudeProcessStarts>,
+        keychain: sidekicks_platforms::CredentialStore,
     ) -> Self {
-        Self::with_test_sign_in(services, starts, check_claude_command_sandbox)
+        Self::with_test_sign_in(services, starts, keychain, check_claude_command_sandbox)
     }
 
     // The driver over the shared services, starting every process through `starts`, reading
-    // sign-ins from a keychain of the test's own and checking the command sandbox with
+    // sign-ins from `keychain`, the test's own, and checking the command sandbox with
     // `command_sandbox_check`.
     #[cfg(test)]
     fn with_test_sign_in(
         services: &DriverServices,
         starts: Arc<dyn ClaudeProcessStarts>,
+        keychain: sidekicks_platforms::CredentialStore,
         command_sandbox_check: ClaudeCommandSandboxCheck,
     ) -> Self {
         Self::with_sign_in(
             services,
             starts,
             compose_claude_launcher(services),
-            ClaudeSignInReader::with_keychain(sidekicks_platforms::CredentialStore::in_memory()),
+            ClaudeSignInReader::with_keychain(keychain),
             command_sandbox_check,
         )
     }
@@ -228,10 +232,11 @@ impl ClaudeDriver {
             account_servers: Arc::new(ClaudeAccountServerReads::new(
                 Arc::clone(&starts),
                 Arc::clone(&sources),
-                ClaudeOrganizationMarks::new(sign_in),
+                ClaudeOrganizationMarks::new(sign_in.clone()),
             )),
             starts,
             sources,
+            credentials: sign_in,
             attachments: Arc::clone(&services.attachments),
             staged_changes: services.staged_changes.clone(),
             pending_compactions: services.pending_compactions.clone(),
@@ -257,11 +262,12 @@ impl ClaudeDriver {
     pub(crate) fn with_engine(
         services: &DriverServices,
         starts: Arc<dyn ClaudeProcessStarts>,
+        keychain: sidekicks_platforms::CredentialStore,
         engine: &Arc<dyn RunHost>,
         dispatch: &Arc<dyn InboundDispatch>,
         command_sandbox_check: ClaudeCommandSandboxCheck,
     ) -> Result<Self, DriverError> {
-        let driver = Self::with_test_sign_in(services, starts, command_sandbox_check);
+        let driver = Self::with_test_sign_in(services, starts, keychain, command_sandbox_check);
         let parts = driver.compose(engine, dispatch)?;
         drop(driver.parts.set(Arc::new(parts)));
         Ok(driver)

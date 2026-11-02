@@ -112,6 +112,7 @@ fn carry_reasoning_as_text(
                 position: *position,
                 text: std::mem::take(text),
                 is_content_unavailable: false,
+                queue_item_id: None,
             };
         }
     }
@@ -426,6 +427,7 @@ mod tests {
                 position,
                 text: text.to_owned(),
                 is_content_unavailable,
+                queue_item_id: None,
             };
         let call = CanonicalTranscriptSegment::ToolCall {
             position: 2,

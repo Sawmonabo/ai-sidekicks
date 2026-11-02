@@ -44,8 +44,25 @@ const TEXT_MEDIA_TYPES_OUTSIDE_TEXT: [&str; 2] = ["application/json", "image/svg
 // The name kept when nothing of the caller's is left once its invisible characters are taken out.
 const FALLBACK_FILE_NAME: &str = "attachment";
 
+// The metadata member's name as a literal, so `concat!` can build SQL from it.
+macro_rules! file_name_member {
+    () => {
+        "fileName"
+    };
+}
+
 /// The metadata member that records a file's name, which an attachment's line to an agent shows.
-pub const FILE_NAME_MEMBER: &str = "fileName";
+pub(crate) const FILE_NAME_MEMBER: &str = file_name_member!();
+
+/// The SQL column expression of the file name a manifest row's `metadata` records: the name where
+/// it is text, NULL where it is absent or any other JSON type.
+pub const MANIFEST_FILE_NAME_SQL: &str = concat!(
+    "CASE WHEN json_type(metadata, '$.",
+    file_name_member!(),
+    "') = 'text' THEN json_extract(metadata, '$.",
+    file_name_member!(),
+    "') END"
+);
 
 /// A payload spooled to a file, with what was counted as it was written.
 pub(crate) struct SpooledPayload {

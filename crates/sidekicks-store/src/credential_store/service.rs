@@ -15,17 +15,20 @@ pub enum KeychainService {
     MachineKeys,
     /// Each pasted provider token or API key, under its account's id.
     ProviderTokens,
+    /// Each MCP server's sign-in, its credentials and any proof key, under the server's address.
+    McpSignIns,
     /// The delivery channels' secrets: the web address and its signing secret.
     DeliverySecrets,
 }
 
 impl KeychainService {
     /// Every service, in the order a move and an erase walk them.
-    pub(crate) const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 6] = [
         Self::WorkflowSecrets,
         Self::Probe,
         Self::MachineKeys,
         Self::ProviderTokens,
+        Self::McpSignIns,
         Self::DeliverySecrets,
     ];
 
@@ -36,6 +39,7 @@ impl KeychainService {
             Self::Probe => "ai-sidekicks-probe",
             Self::MachineKeys => "ai-sidekicks-machine-keys",
             Self::ProviderTokens => "ai-sidekicks-provider-tokens",
+            Self::McpSignIns => "ai-sidekicks-mcp-sign-ins",
             Self::DeliverySecrets => "ai-sidekicks-delivery-secrets",
         }
     }
@@ -47,6 +51,7 @@ impl KeychainService {
             Self::WorkflowSecrets
             | Self::MachineKeys
             | Self::ProviderTokens
+            | Self::McpSignIns
             | Self::DeliverySecrets => true,
             Self::Probe => false,
         }

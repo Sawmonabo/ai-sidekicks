@@ -1,13 +1,14 @@
 //! Starts each run a send queued, and continues an interrupted run with the messages waiting for
 //! it. The run waits its turn at the memory gate, then passes the run's setup gates; the session's
 //! provider session is opened at its first admission after them, and the driver is handed the run's
-//! first waiting item as the turn's opening: a message, or a review, which opens a run of its own
-//! and is never a continue's opening. Before the run's binding is opened the driver is waited on
-//! until the session's process no longer comes back on its own, so the binding names the leg it
-//! settled on. A run still waiting at the gate past the delivery timeout ends failed with its
-//! messages not delivered, and so does a run whose start failed while it still read queued; a
-//! process not settled within that same timeout fails the start `provider.unavailable`. An
-//! interrupt that ends a run during its start leaves the opening to the interrupt's choice.
+//! first waiting item as the turn's opening: a message, or a review or a plan message, either of
+//! which opens a run of its own and is never a continue's opening. Before the run's binding is
+//! opened the driver is waited on until the session's process no longer comes back on its own, so
+//! the binding names the leg it settled on. A run still waiting at the gate past the delivery
+//! timeout ends failed with its messages not delivered, and so does a run whose start failed while
+//! it still read queued; a process not settled within that same timeout fails the start
+//! `provider.unavailable`. An interrupt that ends a run during its start leaves the opening to the
+//! interrupt's choice.
 //!
 //! The place the gate grants is the run's until it ends: the run lifecycle parks it while the run
 //! waits on a person, and while it rests interrupted with its provider process alive, so a continue
@@ -31,7 +32,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::failure_cause::{DaemonFailureOrigin, RunFailureCause};
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
+use sidekicks_contracts::run::queue::{MessageContent, QueueItemNotDeliveredReason};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -45,9 +46,8 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::process_identity::ProviderProcessIds;
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_session::driver_resolution::{read_session_driver, resolve_admitted_account};
-use sidekicks_session::queue_store::summary::summary_of;
 use sidekicks_session::queue_store::{
-    QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
+    QueueItemBody, QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
 };
 use sidekicks_session::run::agent::RunAgentReader;
 use sidekicks_session::run::engine::RunEngine;
@@ -479,7 +479,7 @@ impl QueueAdmission {
                     execution_posture,
                     false,
                 ),
-                queue_item: Some(summary_of(opening.clone())),
+                opening_words: opening_words(&opening.body),
                 provider,
                 output_speed: opening
                     .body
@@ -811,6 +811,16 @@ fn provider_work(
         start: ProviderStartEstimate::new(providers.descriptor(provider)?, joins_running_process),
         workflow_node_key: None,
     })
+}
+
+// The words an opening carries, which stand in for a first message the session has not yet
+// recorded: a message's or a plan message's; a review has none.
+fn opening_words(body: &QueueItemBody) -> Option<MessageContent> {
+    match body {
+        QueueItemBody::Message(message) => Some(message.content.clone()),
+        QueueItemBody::PlanMessage { text, .. } => Some(text.clone()),
+        QueueItemBody::Review { .. } => None,
+    }
 }
 
 fn is_waiting(item: &QueueItemRecord) -> bool {

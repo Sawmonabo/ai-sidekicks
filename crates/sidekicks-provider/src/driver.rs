@@ -141,6 +141,9 @@ pub struct ProviderDescriptor {
     /// Whether the driver sets up the daemon's tool server so the provider asks before each call of
     /// the app's own tools itself; where it does not, the daemon raises the call's card.
     pub callback_tools_asked: bool,
+    /// Whether the provider's own MCP sign-in can take the browser's return at the daemon's
+    /// loopback receiver; where it cannot, its own listener takes it and the daemon binds none.
+    pub can_mcp_sign_in_return_to_daemon_receiver: bool,
     /// The folders, as components under an account home, the provider writes for its own
     /// diagnosis and never reads back for a session; `Keep diagnostic logs for` deletes their files
     /// by age in each account home the app manages.

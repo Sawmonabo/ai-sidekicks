@@ -415,7 +415,8 @@ fn sessions_named(event: &CommittedEvent) -> Result<Vec<SessionId>, serde_json::
         | SessionEventType::PlanAccepted
         | SessionEventType::PlanHandedOff
         | SessionEventType::PlanKept
-        | SessionEventType::PlanHoldEnded => Ok(vec![envelope.session_id()]),
+        | SessionEventType::PlanHoldEnded
+        | SessionEventType::PlanHandOffFailed => Ok(vec![envelope.session_id()]),
         // A purge's receipt comes after its sessions' rows are deleted, so only the held map
         // still knows their projects.
         SessionEventType::SessionEventCompacted => {

@@ -25,7 +25,6 @@ use crate::git::process::{
     GitCall, GitError, GitRunner, in_folder, read_git_common_folder, strip_line_end,
 };
 use crate::git::worktree::folder_names::read_folder_names;
-use crate::git::worktree::service::remove_folder as remove_tree_folder;
 use crate::git::worktree::tree_records::{
     TreeRecordRemovalError, hold_records, remove_records_naming,
 };
@@ -419,7 +418,7 @@ async fn make_holder(holder: &Path, repository_root: &Path) -> io::Result<()> {
 
 // Removes `folder` and everything in it; a folder already gone passes.
 async fn remove_folder(folder: PathBuf) -> Result<(), StagedChangesError> {
-    remove_tree_folder(&folder)
+    sidekicks_platforms::remove_tree_awaited(&folder)
         .await
         .map_err(|source| StagedChangesError::Remove {
             path: folder,

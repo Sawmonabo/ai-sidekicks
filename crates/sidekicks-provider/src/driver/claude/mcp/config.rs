@@ -10,7 +10,7 @@ mod entry;
 mod plugin_manifest;
 mod policy;
 
-pub(crate) use self::entry::{ClaudeDeclaredEntry, ClaudeServerEntryReader};
+pub(crate) use self::entry::{ClaudeDeclaredEntry, ClaudePluginFolders, ClaudeServerEntryReader};
 
 use std::collections::BTreeMap;
 use std::io::ErrorKind;
@@ -28,7 +28,9 @@ use sidekicks_platforms::PathRules;
 use self::plugin_manifest::read_plugin_manifest_name;
 use self::policy::read_server_policy;
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::claude::account::credentials::CUSTOM_SIGN_IN_HOST_VARIABLE;
+use crate::driver::claude::account::credentials::{
+    CONFIG_FOLDER_VARIABLE, CUSTOM_SIGN_IN_HOST_VARIABLE,
+};
 use crate::driver::claude::session::ignored_settings::{
     ClaudeSettingsReadError, find_claude_setting, list_managed_settings_files,
 };
@@ -42,9 +44,8 @@ use crate::inbound_json::decode_inbound_json;
 
 // The settings key naming a project's `.mcp.json` servers its sessions refuse.
 const DISABLED_MCPJSON_SERVERS_KEY: &str = "disabledMcpjsonServers";
-// The variable that moves the person's Claude Code config folder, and their own config file
-// there, holding the `user` and per-project servers, named `.claude<suffix>.json`.
-const CONFIG_FOLDER_VARIABLE: &str = "CLAUDE_CONFIG_DIR";
+// The stem of the person's own config file, `.claude<suffix>.json`, which holds the `user` and
+// per-project servers.
 const PERSON_CONFIG_FILE_STEM: &str = ".claude";
 // The suffix the config file takes where Claude Code's sign-in moves to a custom host.
 const CUSTOM_SIGN_IN_CONFIG_SUFFIX: &str = "-custom-oauth";

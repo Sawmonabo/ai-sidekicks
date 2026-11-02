@@ -84,8 +84,8 @@ pub(crate) async fn settle_held_requests_at_run_end(
         )?);
     }
     for plan in plans {
-        let (statement, event) = plan_holds.hold_end_write(plan, plan_reason);
-        companions.statements.push(statement);
+        let (statements, event) = plan_holds.hold_end_write(plan, plan_reason);
+        companions.statements.extend(statements);
         companions.preceding_events.push(event);
     }
     for choice in choices {

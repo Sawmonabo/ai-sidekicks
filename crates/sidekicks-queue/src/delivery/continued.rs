@@ -1,10 +1,10 @@
-//! The messages a paused run's resume delivers, never a review: read and marked handed under the
-//! session lock, admitted once the driver continued the run, given back when it did not, and kept
-//! when the resume went out with no answer back. A kept message is read by no later continue and
-//! stays handed past the run's end, until the provider shows it took it or its own record says
-//! what became of it, which is final only once no live provider process still holds it. After the
-//! daemon's restart, when no hand is remembered, a resumed run's record settles the waiting
-//! messages the same way: one it holds admitted, every one ended not delivered when it is
+//! The messages a paused run's resume delivers, never a review or a plan message: read and marked
+//! handed under the session lock, admitted once the driver continued the run, given back when it
+//! did not, and kept when the resume went out with no answer back. A kept message is read by no
+//! later continue and stays handed past the run's end, until the provider shows it took it or its
+//! own record says what became of it, which is final only once no live provider process still holds
+//! it. After the daemon's restart, when no hand is remembered, a resumed run's record settles the
+//! waiting messages the same way: one it holds admitted, every one ended not delivered when it is
 //! unreadable.
 
 use futures::future::BoxFuture;
@@ -48,7 +48,7 @@ impl QueueDelivery {
                 let message = item
                     .body
                     .as_message()
-                    .expect("a continue gathers only messages, so a review is never continued");
+                    .expect("a continue gathers only messages, never a review or a plan message");
                 WaitingMessage {
                     id: item.id,
                     attachments: message.attachment_ids(),

@@ -21,6 +21,7 @@ doctest = false
 [dependencies]
 base16ct.workspace = true
 bytes.workspace = true
+diffy.workspace = true
 fast_image_resize.workspace = true
 file-format.workspace = true
 futures.workspace = true

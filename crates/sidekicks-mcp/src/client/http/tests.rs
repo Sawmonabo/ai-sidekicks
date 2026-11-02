@@ -1,6 +1,7 @@
 //! The HTTP side: a server entry's reserved header, a `DPoP` challenge's parameters, and against
 //! axum fakes on a loopback port an event past the size bound before and after an event id, a
-//! server that asks for a `DPoP` proof bound to its nonce, and one that asks for a wider scope.
+//! server that refuses a request with a 401, asking for a proof bound to its nonce or for a token
+//! renewed, and one that asks for a wider scope.
 
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -18,7 +19,7 @@ use futures::future::BoxFuture;
 use reqwest::Method;
 use reqwest::header::{AUTHORIZATION, HeaderName, HeaderValue};
 use rmcp::service::ClientInitializeError;
-use rmcp::transport::streamable_http_client::InsufficientScopeError;
+use rmcp::transport::streamable_http_client::{AuthRequiredError, InsufficientScopeError};
 use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::sync::Notify;
@@ -27,7 +28,7 @@ use tokio::time::timeout;
 use crate::client::connection::{McpConnectionError, McpServerConnection};
 use crate::client::http::{
     AuthorizationResult, DEFAULT_MAX_SSE_EVENT_SIZE, McpRequestAuthorizer, NoAuthorization,
-    is_dpop_nonce_challenge,
+    RefusalAnswer, is_dpop_nonce_challenge,
 };
 use crate::client::requests::RequestWait;
 use crate::client::test_server::{test_client, test_scope};
@@ -220,28 +221,38 @@ async fn a_cut_before_any_event_id_leaves_the_standalone_stream_resuming() {
     connection.close().await;
 }
 
-/// An authorizer that signs with a `DPoP` token and a proof naming the nonce it was handed, each
-/// nonce kept in order.
-#[derive(Default)]
-struct DpopAuthorizer {
-    nonces: Mutex<Vec<Option<String>>>,
+/// An authorizer that signs with a `DPoP` token, `token-1` until a refusal it answers renews it to
+/// `token-2`, and a proof naming the nonce it was handed; it keeps the `error` of each refusal put
+/// to it and answers yes only to `invalid_token`.
+struct RenewingAuthorizer {
+    token: Mutex<&'static str>,
+    refusals: Mutex<Vec<Option<String>>>,
 }
 
-impl McpRequestAuthorizer for DpopAuthorizer {
+impl Default for RenewingAuthorizer {
+    fn default() -> Self {
+        Self {
+            token: Mutex::new("token-1"),
+            refusals: Mutex::default(),
+        }
+    }
+}
+
+impl McpRequestAuthorizer for RenewingAuthorizer {
     fn authorize(
         &self,
         _method: &Method,
         _uri: &str,
         dpop_nonce: Option<&str>,
     ) -> BoxFuture<'_, AuthorizationResult> {
-        self.nonces
-            .lock()
-            .expect("never poisoned")
-            .push(dpop_nonce.map(str::to_owned));
+        let token = *self.token.lock().expect("never poisoned");
         let proof = format!("proof-{}", dpop_nonce.unwrap_or("none"));
         Box::pin(async move {
             Ok(vec![
-                (AUTHORIZATION, HeaderValue::from_static("DPoP token")),
+                (
+                    AUTHORIZATION,
+                    HeaderValue::from_str(&format!("DPoP {token}")).expect("a header value"),
+                ),
                 (
                     HeaderName::from_static("dpop"),
                     HeaderValue::from_str(&proof).expect("a header value"),
@@ -249,29 +260,69 @@ impl McpRequestAuthorizer for DpopAuthorizer {
             ])
         })
     }
+
+    fn answer_refusal<'call>(
+        &'call self,
+        _sent_authorization: Option<&'call HeaderValue>,
+        challenge_error: Option<&'call str>,
+    ) -> BoxFuture<'call, RefusalAnswer> {
+        self.refusals
+            .lock()
+            .expect("never poisoned")
+            .push(challenge_error.map(str::to_owned));
+        let is_renewed = challenge_error == Some("invalid_token");
+        if is_renewed {
+            *self.token.lock().expect("never poisoned") = "token-2";
+        }
+        Box::pin(async move { Ok(is_renewed) })
+    }
 }
 
-/// A 2025-11-25 server at an address that takes a request only with the proof bound to its
-/// nonce `n1` and one `Authorization` header, and asks for the nonce with a 401 otherwise.
-async fn serve_nonce_bound() -> String {
+/// How the fake server refuses a request with a 401.
+#[derive(Clone, Copy)]
+enum Unauthorized {
+    /// Any request whose proof is not bound to its nonce `n1`, asking for it.
+    UntilNonceBound,
+    /// Any request not carrying `token-2`, as `invalid_token`.
+    UntilRenewed,
+    /// Every request, as `invalid_token`.
+    Always,
+}
+
+/// A 2025-11-25 server at an address that refuses requests as `unauthorized` says, and takes one
+/// only with a single `Authorization` header; the body of each request it receives is kept.
+async fn serve_unauthorized(unauthorized: Unauthorized, posts: Arc<Mutex<Vec<String>>>) -> String {
     let router = Router::new().route(
         "/mcp",
-        post(|headers: HeaderMap, body: String| async move {
+        post(move |headers: HeaderMap, body: String| async move {
+            posts.lock().expect("never poisoned").push(body.clone());
             if headers.get_all(header::AUTHORIZATION).iter().count() != 1 {
                 return StatusCode::BAD_REQUEST.into_response();
             }
-            if headers.get("dpop").is_none_or(|proof| proof != "proof-n1") {
-                return Response::builder()
-                    .status(StatusCode::UNAUTHORIZED)
-                    .header(
-                        header::WWW_AUTHENTICATE,
-                        "DPoP error=\"use_dpop_nonce\", error_description=\"a nonce is needed\"",
-                    )
-                    .header("dpop-nonce", "n1")
-                    .body(Body::empty())
-                    .expect("a refusal");
-            }
-            answer_post(&body)
+            let challenge = match unauthorized {
+                Unauthorized::UntilNonceBound
+                    if headers.get("dpop").is_none_or(|proof| proof != "proof-n1") =>
+                {
+                    "DPoP error=\"use_dpop_nonce\", error_description=\"a nonce is needed\""
+                }
+                Unauthorized::UntilRenewed
+                    if headers
+                        .get(header::AUTHORIZATION)
+                        .is_none_or(|token| token != "DPoP token-2") =>
+                {
+                    "DPoP error=\"invalid_token\""
+                }
+                Unauthorized::Always => "DPoP error=\"invalid_token\"",
+                Unauthorized::UntilNonceBound | Unauthorized::UntilRenewed => {
+                    return answer_post(&body);
+                }
+            };
+            Response::builder()
+                .status(StatusCode::UNAUTHORIZED)
+                .header(header::WWW_AUTHENTICATE, challenge)
+                .header("dpop-nonce", "n1")
+                .body(Body::empty())
+                .expect("a refusal")
         })
         .get(|| async { StatusCode::METHOD_NOT_ALLOWED }),
     );
@@ -283,32 +334,67 @@ async fn serve_nonce_bound() -> String {
     format!("http://{address}/mcp")
 }
 
-// Mutations: in `McpHttpClient::send`, return the 401 asking for the nonce instead of sending
-// again, or hand the authorizer no nonce.
+// Mutations: in `McpHttpClient::send`, put a nonce challenge to the authorizer, return the 401
+// asking for the nonce instead of sending again, hand the authorizer no nonce, or send again
+// after a resend.
+#[rstest]
+#[case::a_nonce_challenge(Unauthorized::UntilNonceBound, &[], true)]
+#[case::an_invalid_token(Unauthorized::UntilRenewed, &[Some("invalid_token")], true)]
+#[case::a_refusal_after_the_resend(Unauthorized::Always, &[Some("invalid_token")], false)]
 #[tokio::test]
-async fn a_server_asking_for_a_dpop_nonce_gets_the_request_again_bound_to_it() {
+async fn a_refused_request_is_sent_once_more_at_most(
+    #[case] unauthorized: Unauthorized,
+    #[case] refusals: &[Option<&str>],
+    #[case] is_opened: bool,
+) {
     let (client, _card) = test_client();
-    let uri = serve_nonce_bound().await;
-    let authorizer = Arc::new(DpopAuthorizer::default());
+    let posts = Arc::new(Mutex::new(Vec::new()));
+    let uri = serve_unauthorized(unauthorized, Arc::clone(&posts)).await;
+    let authorizer = Arc::new(RenewingAuthorizer::default());
 
-    let connection = McpServerConnection::connect_http(
+    let opened = McpServerConnection::connect_http(
         &uri,
         HashMap::new(),
         Arc::clone(&authorizer) as Arc<dyn McpRequestAuthorizer>,
         None,
         test_scope(&client),
     )
-    .await
-    .expect("the connection opens once the request is bound to the nonce");
+    .await;
 
-    let nonces = authorizer.nonces.lock().expect("never poisoned").clone();
-    assert_eq!(nonces[..2], [None, Some("n1".to_owned())]);
-    assert!(
-        nonces[2..]
+    let refusals_put = authorizer.refusals.lock().expect("never poisoned").clone();
+    assert_eq!(
+        refusals_put,
+        refusals
             .iter()
-            .all(|nonce| nonce.as_deref() == Some("n1"))
+            .map(|error| error.map(str::to_owned))
+            .collect::<Vec<_>>()
     );
-    connection.close().await;
+    let posts = posts.lock().expect("never poisoned").clone();
+    assert_eq!(posts[0], posts[1], "the first request is sent once more");
+    if is_opened {
+        assert_ne!(posts.get(2), Some(&posts[0]), "and only once");
+        opened.expect("the connection opens").close().await;
+        return;
+    }
+    assert_eq!(
+        posts.len(),
+        2,
+        "a request refused after its resend is not sent again"
+    );
+    let Err(McpConnectionError::Initialize(error)) = opened else {
+        panic!("the start fails");
+    };
+    let ClientInitializeError::TransportError { error, .. } = *error else {
+        panic!("the transport fails the start, not {error}");
+    };
+    let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(&*error.error);
+    while let Some(current) = cause {
+        if current.downcast_ref::<AuthRequiredError>().is_some() {
+            return;
+        }
+        cause = current.source();
+    }
+    panic!("the chain carries the sign-in the server asks for");
 }
 
 /// A server at an address that refuses every request with a 403 asking for the `tracker:write`

@@ -31,6 +31,7 @@ use crate::driver::contract::params_and_results::{
     ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
     ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
+use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
@@ -59,6 +60,7 @@ use crate::port::session_inbox_address::SessionInboxAddresser;
 pub mod account;
 pub mod error;
 pub mod params_and_results;
+pub mod sign_in;
 
 /// The operations every provider driver carries out for the daemon. Each refusal comes back as
 /// [`DriverError::Refused`]; an operation gated on a capability flag the driver does not declare
@@ -555,4 +557,17 @@ pub trait ProviderDriver: Send + Sync {
     fn running_service_log_files(&self) -> io::Result<Vec<PathBuf>> {
         Ok(Vec::new())
     }
+
+    /// Signs in to an MCP server through the provider's own client, in a folder of the daemon's
+    /// own deleted after, and answers the credentials the provider saved there. Fails with
+    /// [`DriverError::NoPersonServerEntry`] for a binding with no entry of the person's at the
+    /// request's server address, and when the flow fails or ends unfinished, or no saved sign-in
+    /// reads back.
+    fn sign_in_with_own_client(
+        &self,
+        request: ProviderSignInTakeoverRequest,
+    ) -> BoxFuture<'_, Result<ProviderSignInTakeover, DriverError>>;
+
+    /// Removes the folders of MCP sign-ins a stopped daemon left. Fails as a removal fails.
+    fn remove_left_sign_in_folders(&self) -> BoxFuture<'_, Result<(), DriverError>>;
 }

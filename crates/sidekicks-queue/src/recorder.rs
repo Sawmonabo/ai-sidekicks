@@ -1,9 +1,9 @@
 //! Records each change to a queue in its session's log, its row moving in the same write as its
 //! `agent.queueItem.*` event, and raises the queue's change once the write commits. A send is one
-//! write: its row, its `user.message.sent` for a message (a review has no words), its
-//! `agent.queueItem.created` and, when it starts a run, the `agent.run.queued` and row of that run,
-//! and, for an edit or a retry, the superseding of the message it replaces, so an acknowledged send
-//! never exists without its transcript row and a refused one leaves nothing.
+//! write: its row, its `user.message.sent` for a message or a plan message (a review has no words),
+//! its `agent.queueItem.created` and, when it starts a run, the `agent.run.queued` and row of that
+//! run, and, for an edit or a retry, the superseding of the message it replaces, so an acknowledged
+//! send never exists without its transcript row and a refused one leaves nothing.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -13,12 +13,14 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::orchestration::OrchestrationRunConfig;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{
     AgentQueueItemAdmittedPayload, AgentQueueItemAdmittedState, AgentQueueItemCanceledPayload,
     AgentQueueItemCanceledState, AgentQueueItemCreatedPayload, AgentQueueItemNotDeliveredPayload,
     AgentQueueItemNotDeliveredState, AgentQueueItemSupersededPayload,
-    AgentQueueItemSupersededState, QueueItemId, QueueItemQueuedState, UserMessageSentPayload,
+    AgentQueueItemSupersededState, MessageContent, PlanMessage, QueueItemId, QueueItemQueuedState,
+    UserMessageSentPayload,
 };
 use sidekicks_contracts::run::queued::{
     AgentRunQueuedNewState, AgentRunQueuedPayload, RunQueuedSessionAgentPayload,
@@ -31,10 +33,10 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_session::queue_store::send_now::clear_sent_now_statement;
 use sidekicks_session::queue_store::{
     NewQueueItem, QueueItemBody, QueueItemExit, QueueItemOutcome, QueueItemReader, QueueItemRecord,
-    admit_undelivered_statement, current_interrupted_lead_run_statement,
-    insert_queue_item_statement, leave_queued_statement, no_live_lead_run_statement,
-    placement_statements, retarget_statement, run_live_statement, session_takes_messages_statement,
-    supersede_undelivered_statement,
+    admit_undelivered_statement, cancel_undelivered_statement,
+    current_interrupted_lead_run_statement, insert_queue_item_statement, leave_queued_statement,
+    no_live_lead_run_statement, placement_statements, retarget_statement, run_live_statement,
+    session_takes_messages_statement, supersede_undelivered_statement,
 };
 use sidekicks_session::run::projection::insert_queued_run_statement;
 use sidekicks_store::database::connection::read_pool::{
@@ -91,7 +93,7 @@ pub(crate) enum SendRoute {
 
 /// One send as it is recorded: the new row, where it goes and, for a retry, the not-delivered
 /// message it sends again, which then reads superseded. A message's row names the device that sent
-/// it, the message's actor.
+/// it, and a plan message's the device whose verdict it carries out, the message's actor.
 pub(crate) struct RecordedSend {
     /// The row to insert.
     pub(crate) item: NewQueueItem,
@@ -298,29 +300,12 @@ impl QueueRecorder {
         let (draft, correlation_id) = match &item.body {
             QueueItemBody::Message(body) => {
                 preceding_events.extend(item_events);
-                let device_id = item
-                    .device_id
-                    .clone()
-                    .expect("a person's message names the device that sent it");
-                let message = UserMessageSentPayload {
-                    session_id: item.session_id,
-                    queue_item_id: Some(item.id),
-                    run_id: Some(item.target_run_id),
-                    actor: FreeFormText::new(device_id.as_str().to_owned()).expect(
-                        "a device id is non-blank, NUL-free text within an event field's cap",
-                    ),
-                    device_id: Some(device_id),
-                    message: body.content.clone(),
-                    origin: None,
-                    answers_question_id: body.answers_question_id,
-                };
-                let draft = SessionEventDraft::new(message, SessionEvent::UserMessageSent)
-                    .map_err(QueueRecordError::Draft)?;
-                // The provider echoes the message under its queue item's id, which folds into this
-                // row.
-                let correlation_id = FreeFormText::new(item.id.to_string())
-                    .expect("a queue item id is a UUID, within an event field's cap");
-                (draft, Some(correlation_id))
+                sent_message_draft(&item, &body.content, body.answers_question_id, None)?
+            }
+            // A plan message is recorded as the message it opens its run with, carrying its plan.
+            QueueItemBody::PlanMessage { plan_message, text } => {
+                preceding_events.extend(item_events);
+                sent_message_draft(&item, text, None, Some(plan_message.clone()))?
             }
             // A review has no words, so its own events carry the write, the last of them last.
             QueueItemBody::Review { .. } => {
@@ -395,6 +380,21 @@ impl QueueRecorder {
         Ok(())
     }
 
+    /// Cancels `item`, which reads not delivered, with its event in one write, so no retry sends
+    /// it again. Fails as [`QueueRecordError`] says, refused when the item no longer reads not
+    /// delivered; nothing is written then.
+    pub(crate) async fn record_undelivered_cancel(
+        &self,
+        item: &QueueItemRecord,
+        now: &WireInstant,
+    ) -> Result<(), QueueRecordError> {
+        let draft = SessionEventDraft::of_session(item.session_id, &canceled_event(item))?;
+        self.append_with(draft, vec![cancel_undelivered_statement(&item.id, now)])
+            .await?;
+        self.raise_committed(std::slice::from_ref(item), false);
+        Ok(())
+    }
+
     /// Queues the run `queued` for the session's waiting `items`, pointing each at it, in one
     /// write. Fails as [`QueueRecordError`] says, refused when a lead run is live or one of the
     /// items has left `queued`; nothing is written then.
@@ -404,7 +404,7 @@ impl QueueRecorder {
         items: &[QueueItemRecord],
         now: &WireInstant,
     ) -> Result<(), QueueRecordError> {
-        let (session_id, run_id) = queued_run_of(&queued);
+        let (session_id, run_id) = (queued.session_id(), queued.run_id());
         let mut statements = vec![
             no_live_lead_run_statement(&session_id),
             insert_queued_run_statement(&queued),
@@ -514,13 +514,7 @@ pub(crate) fn outcome_draft_of(
 ) -> Result<(SessionEventDraft, WriteStatement), SessionEventDraftError> {
     let event = match outcome {
         QueueItemOutcome::Admitted { run_id } => admitted_event(item, *run_id),
-        QueueItemOutcome::Canceled => {
-            SessionEvent::AgentQueueItemCanceled(AgentQueueItemCanceledPayload {
-                session_id: item.session_id,
-                queue_item_id: item.id,
-                state: AgentQueueItemCanceledState::Value,
-            })
-        }
+        QueueItemOutcome::Canceled => canceled_event(item),
         QueueItemOutcome::NotDelivered { reason } => {
             SessionEvent::AgentQueueItemNotDelivered(AgentQueueItemNotDeliveredPayload {
                 session_id: item.session_id,
@@ -534,6 +528,15 @@ pub(crate) fn outcome_draft_of(
         SessionEventDraft::of_session(item.session_id, &event)?,
         leave_queued_statement(&item.id, &QueueItemExit::Outcome(outcome.clone()), now),
     ))
+}
+
+// The `agent.queueItem.canceled` event of `item`.
+fn canceled_event(item: &QueueItemRecord) -> SessionEvent {
+    SessionEvent::AgentQueueItemCanceled(AgentQueueItemCanceledPayload {
+        session_id: item.session_id,
+        queue_item_id: item.id,
+        state: AgentQueueItemCanceledState::Value,
+    })
 }
 
 // The `agent.queueItem.admitted` event of `item` taken by `run_id`.
@@ -571,12 +574,36 @@ pub(crate) fn lead_run_queued(
     })
 }
 
-// The session and the run an `agent.run.queued` payload names.
-fn queued_run_of(queued: &AgentRunQueuedPayload) -> (SessionId, RunId) {
-    match queued {
-        AgentRunQueuedPayload::SessionAgent(payload) => (payload.session_id, payload.run_id),
-        AgentRunQueuedPayload::ResolvedAgent(payload) => (payload.session_id, payload.run_id),
-    }
+// The `user.message.sent` of the words `message` that `item` sends, under its device, answering
+// `answers_question_id` or carrying out `plan_message`, and the id the provider echoes it under.
+fn sent_message_draft(
+    item: &NewQueueItem,
+    message: &MessageContent,
+    answers_question_id: Option<QuestionId>,
+    plan_message: Option<PlanMessage>,
+) -> Result<(SessionEventDraft, Option<FreeFormText<EVENT_FIELD_MAX_LEN>>), QueueRecordError> {
+    let device_id = item
+        .device_id
+        .clone()
+        .expect("a message and a plan message name the device they are sent for");
+    let sent = UserMessageSentPayload {
+        session_id: item.session_id,
+        queue_item_id: Some(item.id),
+        run_id: Some(item.target_run_id),
+        actor: FreeFormText::new(device_id.as_str().to_owned())
+            .expect("a device id is non-blank, NUL-free text within an event field's cap"),
+        device_id: Some(device_id),
+        message: message.clone(),
+        origin: None,
+        answers_question_id,
+        plan_message,
+    };
+    let draft = SessionEventDraft::new(sent, SessionEvent::UserMessageSent)
+        .map_err(QueueRecordError::Draft)?;
+    // The provider echoes the message under its queue item's id, which folds into this row.
+    let correlation_id = FreeFormText::new(item.id.to_string())
+        .expect("a queue item id is a UUID, within an event field's cap");
+    Ok((draft, Some(correlation_id)))
 }
 
 // The guard a send's refused statement is, by its index; `None` past the guards.

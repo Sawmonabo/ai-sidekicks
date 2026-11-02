@@ -188,7 +188,9 @@ fn summary_id(summary: &QueueItemSummary) -> QueueItemId {
             | QueueMessageSummary::Canceled { id, .. }
             | QueueMessageSummary::NotDelivered { id, .. },
         ) => *id,
-        QueueItemSummary::Review(_) => panic!("the recorder's tests queue no review"),
+        QueueItemSummary::Review(_) | QueueItemSummary::PlanMessage(_) => {
+            panic!("the recorder's tests queue only the person's messages")
+        }
     }
 }
 
@@ -376,6 +378,7 @@ async fn each_write_raises_its_queue_once_and_moves_the_order_only_when_no_event
                 message: FreeFormText::new("Look again".to_owned()).expect("a test message"),
                 origin: None,
                 answers_question_id: None,
+                plan_message: None,
             };
             let draft = SessionEventDraft::new(message, SessionEvent::UserMessageSent)
                 .expect("the test's message drafts");

@@ -146,6 +146,7 @@ pub(crate) fn run_outcome_of(
         | SessionEventType::PlanHandedOff
         | SessionEventType::PlanKept
         | SessionEventType::PlanHoldEnded
+        | SessionEventType::PlanHandOffFailed
         | SessionEventType::UsageTokenCountRecorded
         | SessionEventType::UsageCostUpdated
         | SessionEventType::UsageContextWindowUpdated

@@ -273,7 +273,7 @@ methods! {
             mutating: true,
             params: McpServerSignOutRequest,
             result: EmptyPayload,
-            refusals: [McpBindingStoreUnavailable],
+            refusals: [McpBindingStoreUnavailable, McpServerSignOutFailed],
         },
         /// Opens a binding's connection again.
         McpServerReconnect = mutation "mcp.server.reconnect" {
@@ -296,6 +296,9 @@ ts_constants! {
     /// The sign-in could not be started for a passing reason; retry under a new key. A failure
     /// after it started arrives as an event.
     MCP_SERVER_SIGN_IN_FAILED_CODE = RefusalCode::McpServerSignInFailed;
+    /// The keychain refused to delete the sign-in, so the server stays signed in; the refusal
+    /// carries the keychain's cause.
+    MCP_SERVER_SIGN_OUT_FAILED_CODE = RefusalCode::McpServerSignOutFailed;
 }
 
 /// The TypeScript module of the `mcp.*` method table, the status notice, the sign-in payload and

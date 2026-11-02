@@ -1,7 +1,7 @@
 //! The Codex home one service runs on, and the three kinds of service the daemon keeps there: its
-//! own on an account home, the switching home or the capability read's, the lasting one on the
-//! person's own Codex folder that terminals join, and one already there that is not the daemon's,
-//! which it only joins; and how the driver resolves the home an account runs in.
+//! own on an account home, the switching home, the capability read's or an MCP sign-in's, the
+//! lasting one on the person's own Codex folder that terminals join, and one already there that is
+//! not the daemon's, which it only joins; and how the driver resolves the home an account runs in.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -36,6 +36,9 @@ pub(crate) enum CodexHomeKind {
     /// An empty folder of the daemon's own that the capability read runs one short-lived service
     /// in, signed in to no account.
     CapabilityRead,
+    /// A folder of the daemon's own, made for one MCP server's sign-in through Codex's own client
+    /// and deleted after it, holding only that server's entry and the sign-in Codex saves.
+    McpSignIn,
 }
 
 /// The Codex home one service runs on.
@@ -49,13 +52,14 @@ pub(crate) struct CodexServiceHome {
 
 impl CodexServiceHome {
     /// The account the home belongs to; `None` for the switching home, the person's own folder
-    /// and the capability read's.
+    /// and the folders the capability read and an MCP sign-in run in.
     pub(crate) fn provider_account_id(&self) -> Option<&ProviderAccountId> {
         match &self.kind {
             CodexHomeKind::Account(provider_account_id) => Some(provider_account_id),
             CodexHomeKind::Switching
             | CodexHomeKind::PersonalFolder
-            | CodexHomeKind::CapabilityRead => None,
+            | CodexHomeKind::CapabilityRead
+            | CodexHomeKind::McpSignIn => None,
         }
     }
 }
@@ -83,7 +87,8 @@ impl CodexConversationHome {
             CodexHomeKind::Switching => Self::Switching,
             CodexHomeKind::Account(_)
             | CodexHomeKind::PersonalFolder
-            | CodexHomeKind::CapabilityRead => Self::Account,
+            | CodexHomeKind::CapabilityRead
+            | CodexHomeKind::McpSignIn => Self::Account,
         }
     }
 
@@ -120,8 +125,9 @@ impl CodexConversationHome {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexServiceKind {
     /// The daemon's own service with no hook switch: on an account home or the switching home a
-    /// lasting service kept in its record, which a daemon restart keeps running and the next start joins, and on the
-    /// capability read's home the daemon's own child, which the daemon's stop ends.
+    /// lasting service kept in its record, which a daemon restart keeps running and the next start
+    /// joins, and on the capability read's home and an MCP sign-in's the daemon's own child, which
+    /// the daemon's stop ends.
     Account,
     /// The lasting service on the person's own Codex folder that terminals join: started by the
     /// daemon in a session of its own with the daemon's two hooks, kept in its record, outliving a

@@ -154,6 +154,9 @@ pub enum DriverDiagnosticKind {
     /// The provider reported a permission mode the driver does not know, which is not taken as a
     /// mode.
     PermissionModeUnknown,
+    /// A plan the provider proposed could not be recorded (no plan text, no plan record
+    /// registered, or its record's write failed), so its request is refused; the reason says which.
+    PlanNotRecorded,
 }
 
 impl DriverDiagnosticKind {
@@ -215,6 +218,7 @@ impl DriverDiagnosticKind {
             Self::StreamedBlocksAbandoned => "driver.streamedText.blocksAbandoned",
             Self::SessionInboxFailed => "driver.sessionInbox.failed",
             Self::PermissionModeUnknown => "driver.permissionMode.unknown",
+            Self::PlanNotRecorded => "driver.plan.notRecorded",
         }
     }
 }

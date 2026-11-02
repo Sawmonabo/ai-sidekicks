@@ -29,7 +29,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{
     RecordRetirementOptions, WORKTREE_ROW_COLUMNS, WorktreeService, WorktreeServiceError, place_of,
-    remove_folder, worktree_row_of,
+    worktree_row_of,
 };
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::branch_name_pattern::last_fatal_line;
@@ -349,7 +349,7 @@ impl WorktreeService {
         self.remove_worktree_record(record_folder.as_deref())
             .await
             .map_err(WorktreeCleanupError::Removal)?;
-        remove_folder(folder)
+        sidekicks_platforms::remove_tree_awaited(folder)
             .await
             .map_err(WorktreeCleanupError::Removal)?;
         self.stamp_cleaned(&row.id).await?;

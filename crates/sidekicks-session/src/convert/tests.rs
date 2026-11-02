@@ -81,6 +81,13 @@ impl Fixture {
                 params![MANAGED_MOUNT_ID, workspace.to_string_lossy(), SESSION_ID],
             )
             .expect("the chat's managed mount is stored");
+        roots
+            .rows
+            .execute(
+                "INSERT INTO managed_folder_holds (repo_mount_id, session_id) VALUES (?1, ?2)",
+                params![MANAGED_MOUNT_ID, SESSION_ID],
+            )
+            .expect("the chat's hold on its managed folder is stored");
 
         let git = test_git_runner();
         let mounts = Arc::new(RepoMountService::new(

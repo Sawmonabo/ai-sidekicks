@@ -380,6 +380,7 @@ mod tests {
                 position,
                 text: text.to_owned(),
                 is_content_unavailable: false,
+                queue_item_id: None,
             }],
         }
     }

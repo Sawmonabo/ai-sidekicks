@@ -19,7 +19,9 @@ use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::ports::{
     MessageGivenBackListener, MessageRefusedListener, MessageTakenListener,
 };
-use sidekicks_session::queue_store::{QueueItemOutcome, QueueItemRecord, RecordedQueueItemState};
+use sidekicks_session::queue_store::{
+    QueueItemBody, QueueItemOutcome, QueueItemRecord, RecordedQueueItemState,
+};
 use tokio::sync::{oneshot, watch};
 use tracing::Instrument as _;
 
@@ -515,13 +517,15 @@ impl QueueDelivery {
 
     /// Admits a message that reads not delivered into `run_id`, unless something moved it
     /// meanwhile. One a retry superseded, before or during the write, stays so: the agent then has
-    /// it twice, which is logged. Fails when a read or the admission's write fails.
+    /// it twice, which is logged. One canceled, a plan message withdrawn once what it carried out
+    /// ended, stays so too: the agent runs it all the same, which is logged with its plan. Fails
+    /// when a read or the admission's write fails.
     pub(super) async fn admit_undelivered(
         &self,
         item_id: QueueItemId,
         run_id: RunId,
     ) -> Result<(), DeliveryError> {
-        let is_superseded = match self.read_item(item_id).await? {
+        let left = match self.read_item(item_id).await? {
             Some(item) if matches!(item.state, RecordedQueueItemState::NotDelivered { .. }) => {
                 let admitted = self
                     .shared
@@ -529,29 +533,53 @@ impl QueueDelivery {
                     .recorder
                     .record_late_admission(&item, run_id, &WireInstant::now())
                     .await;
-                match admitted {
-                    Ok(()) => return Ok(()),
-                    Err(error) => {
-                        let is_superseded = error.is_refused()
-                            && self.read_item(item_id).await?.is_some_and(|item| {
-                                item.state == RecordedQueueItemState::Superseded
-                            });
-                        if !is_superseded {
-                            return Err(error.into());
-                        }
-                        true
+                let Err(error) = admitted else {
+                    return Ok(());
+                };
+                if !error.is_refused() {
+                    return Err(error.into());
+                }
+                match self.read_item(item_id).await? {
+                    Some(item)
+                        if matches!(
+                            item.state,
+                            RecordedQueueItemState::Superseded | RecordedQueueItemState::Canceled
+                        ) =>
+                    {
+                        item
                     }
+                    Some(_) | None => return Err(error.into()),
                 }
             }
-            Some(item) => item.state == RecordedQueueItemState::Superseded,
-            None => false,
+            Some(item) => item,
+            None => return Ok(()),
         };
-        if is_superseded {
-            tracing::warn!(
-                queue_item_id = %item_id,
-                run_id = %run_id,
-                "the agent took a message a retry sent again, so it has it twice"
-            );
+        match (&left.state, &left.body) {
+            (RecordedQueueItemState::Superseded, _) => {
+                tracing::warn!(
+                    queue_item_id = %item_id,
+                    run_id = %run_id,
+                    "the agent took a message a retry sent again, so it has it twice"
+                );
+            }
+            (RecordedQueueItemState::Canceled, QueueItemBody::PlanMessage { plan_message, .. }) => {
+                tracing::warn!(
+                    session_id = %left.session_id,
+                    queue_item_id = %item_id,
+                    run_id = %run_id,
+                    plan_id = %plan_message.plan_id,
+                    kind = ?plan_message.kind,
+                    "the agent took a plan message withdrawn after it read not delivered, so it \
+                     runs the plan in a session whose hand-off ended"
+                );
+            }
+            (
+                RecordedQueueItemState::Queued
+                | RecordedQueueItemState::Admitted
+                | RecordedQueueItemState::Canceled
+                | RecordedQueueItemState::NotDelivered { .. },
+                _,
+            ) => {}
         }
         Ok(())
     }

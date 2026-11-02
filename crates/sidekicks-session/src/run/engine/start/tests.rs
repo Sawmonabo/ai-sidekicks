@@ -60,7 +60,7 @@ async fn a_start_the_driver_refused_fails_the_run_as_the_daemons_refusal() {
     engine
         .start_run(RunStartRequest {
             turn: turn_start(run_id, refused_driver),
-            queue_item: None,
+            opening_words: None,
             provider: test_provider(),
             output_speed: None,
             running_statements: None,
@@ -115,7 +115,7 @@ async fn a_provider_report_during_a_start_waits_for_its_running_write() {
     let (start_driver, driver_has_started, release_driver) = held_driver();
     let request = RunStartRequest {
         turn: turn_start(run_id, start_driver),
-        queue_item: None,
+        opening_words: None,
         provider: test_provider(),
         output_speed: None,
         running_statements: None,
@@ -196,7 +196,7 @@ async fn a_run_that_ended_during_its_gate_lets_go_its_resolved_posture() {
     );
     let request = RunStartRequest {
         turn,
-        queue_item: None,
+        opening_words: None,
         provider: test_provider(),
         output_speed: None,
         running_statements: None,

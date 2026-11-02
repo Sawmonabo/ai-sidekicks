@@ -3,6 +3,7 @@
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::wire::integer::MAX_SAFE_INTEGER;
+use sidekicks_contracts::wire::text::NonEmptyText;
 
 /// The string at `key` in `source` when it has at least one character; `None` for anything else.
 pub fn read_non_empty_string<'source>(
@@ -10,6 +11,12 @@ pub fn read_non_empty_string<'source>(
     key: &str,
 ) -> Option<&'source str> {
     source.get(key)?.as_str().filter(|text| !text.is_empty())
+}
+
+/// The string at `key` in `source` as the contract's non-empty text when it has at least one
+/// character; `None` for anything else.
+pub(crate) fn read_non_empty_text(source: &Map<String, Value>, key: &str) -> Option<NonEmptyText> {
+    read_non_empty_string(source, key).and_then(|text| NonEmptyText::new(text.to_owned()))
 }
 
 /// The member at `key` in `source` unless it is absent or `null`, as JavaScript's `??` reads it.

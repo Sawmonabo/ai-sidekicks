@@ -9,8 +9,17 @@ use crate::driver::codex::server_requests::CodexRoutedMethod;
 use crate::mcp::elicitation_form::read_elicitation_questions;
 use crate::record_readers::read_non_empty_string;
 
-/// The questions the ask of `method` asks, from its untrusted `params`, in their order; an entry
-/// with no question text is skipped, and a secret question has no option rows.
+/// One `item/tool/requestUserInput` question the card shows, with the id its answer goes under.
+pub(crate) struct CodexUserInputQuestion<'params> {
+    /// Codex's own id for the question.
+    pub(crate) id: &'params str,
+    /// The question as the card shows it.
+    pub(crate) prompt: QuestionPrompt,
+}
+
+/// The questions the ask of `method` asks, from its untrusted `params`, in their order; a
+/// user-input question with no id or no question text is skipped, and a secret question has no
+/// option rows.
 pub(crate) fn read_codex_question_prompts(
     method: CodexRoutedMethod,
     params: &Value,
@@ -22,14 +31,29 @@ pub(crate) fn read_codex_question_prompts(
             .and_then(|name| NonEmptyText::new(name.to_owned()));
         return read_elicitation_questions(params, server_name);
     }
-    let Some(questions) = params.get("questions").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    questions
-        .iter()
-        .filter_map(Value::as_object)
-        .filter_map(read_user_input_question)
+    read_codex_user_input_questions(params)
+        .map(|question| question.prompt)
         .collect()
+}
+
+/// The questions of a user-input request's untrusted `params` the card shows, in their order:
+/// each with an id and question text. The card's answers pair with these, never with the raw list,
+/// so a question left out never moves a later answer onto another id.
+pub(crate) fn read_codex_user_input_questions(
+    params: &Value,
+) -> impl Iterator<Item = CodexUserInputQuestion<'_>> {
+    params
+        .get("questions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_object)
+        .filter_map(|question| {
+            Some(CodexUserInputQuestion {
+                id: read_non_empty_string(question, "id")?,
+                prompt: read_user_input_question(question)?,
+            })
+        })
 }
 
 fn read_user_input_question(question: &Map<String, Value>) -> Option<QuestionPrompt> {
@@ -59,7 +83,7 @@ fn read_user_input_question(question: &Map<String, Value>) -> Option<QuestionPro
         heading: None,
         description: None,
         options,
-        several_answers: false,
+        several_answers: true,
         secret,
         required: None,
         default: None,

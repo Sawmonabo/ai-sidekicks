@@ -209,10 +209,7 @@ fn walk_run<Sink: SessionTranscriptSink>(
     queued: &AgentRunQueuedPayload,
     sink: &mut Sink,
 ) -> Result<(), SessionTranscriptError<Sink::Error>> {
-    let run_id = match queued {
-        AgentRunQueuedPayload::SessionAgent(payload) => payload.run_id,
-        AgentRunQueuedPayload::ResolvedAgent(payload) => payload.run_id,
-    };
+    let run_id = queued.run_id();
     let mut fold = TurnFold::default();
     let mut is_run_open = false;
     let mut after_position = START_OF_LOG_POSITION;
@@ -438,6 +435,7 @@ mod tests {
             position: position(sequence),
             text: text.to_owned(),
             is_content_unavailable: false,
+            queue_item_id: None,
         }
     }
 

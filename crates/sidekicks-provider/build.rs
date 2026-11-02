@@ -27,7 +27,7 @@ const CODEX_PROTOCOL_BUNDLE_SHA3_256: &str =
 const CODEX_PROTOCOL_RELEASE: &str = "rust-v0.163.0";
 
 /// The protocol types the provider crate sends, generated with every type they reach.
-const CODEX_SENT_TYPES: [&str; 33] = [
+const CODEX_SENT_TYPES: [&str; 34] = [
     "ThreadStartParams",
     "ThreadResumeParams",
     "ThreadForkParams",
@@ -61,6 +61,7 @@ const CODEX_SENT_TYPES: [&str; 33] = [
     "EnvironmentAddParams",
     "ListMcpServerStatusParams",
     "LoginAccountParams",
+    "McpServerOauthLoginParams",
 ];
 
 /// The sent types generated code cannot carry, each written by hand where its path names: those

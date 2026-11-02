@@ -13,12 +13,10 @@ use p256::ecdsa::{Signature, VerifyingKey};
 use serde::de::IgnoredAny;
 use serde::{Deserialize, Deserializer};
 use sha2::{Digest as _, Sha256};
+use sidekicks_contracts::dpop::{DPOP_PROOF_ALGORITHM, DPOP_PROOF_HEADER_NAME, DPOP_PROOF_TYPE};
 use url::Url;
 
 use crate::account_store::{AccountStore, AccountStoreError, SqlValue};
-
-/// The header a proof travels in.
-pub(crate) const DPOP_HEADER: &str = "DPoP";
 
 /// How far a proof's `iat` may sit from the control plane's clock either way, in seconds; a
 /// recorded `jti` is kept that long past its `iat`.
@@ -121,7 +119,7 @@ pub(crate) fn check_dpop_proof(
     now: Timestamp,
     form: ProofForm<'_>,
 ) -> Result<CheckedProof, ProofFault> {
-    let mut values = headers.get_all(DPOP_HEADER).iter();
+    let mut values = headers.get_all(DPOP_PROOF_HEADER_NAME).iter();
     let (Some(value), None) = (values.next(), values.next()) else {
         return Err(ProofFault::NotOneHeader);
     };
@@ -136,7 +134,7 @@ pub(crate) fn check_dpop_proof(
         return Err(ProofFault::Malformed);
     };
     let header: ProofHeader = read_part(header_part)?;
-    if header.typ != "dpop+jwt" || header.alg != "ES256" {
+    if header.typ != DPOP_PROOF_TYPE || header.alg != DPOP_PROOF_ALGORITHM {
         return Err(ProofFault::WrongType);
     }
     if header.has_crit {
