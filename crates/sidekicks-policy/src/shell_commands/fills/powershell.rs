@@ -33,9 +33,23 @@ pub(super) fn place_fills(reader: &ShellLineReader, fills: &CommandLineFills) ->
     let Some(placeholders) = fills.placeholders_in(&text) else {
         return fills.refuse_all(&FillRefusal::UnreadPlace);
     };
+    // A fill inside the string an earlier fill opens takes the string's form.
+    let mut string_end = 0;
     placeholders
         .into_iter()
-        .map(|placeholder| place_fill(root, &text, placeholder))
+        .map(|placeholder| {
+            let placing = place_fill(root, &text, placeholder.clone());
+            match placing {
+                Ok(FillPlace::Bare) if placeholder.start < string_end => Ok(FillPlace::InString),
+                Ok(FillPlace::OpensString { rest_length }) => {
+                    string_end = placeholder.end + rest_length;
+                    placing
+                }
+                Ok(FillPlace::Bare | FillPlace::InString | FillPlace::CommandName) | Err(_) => {
+                    placing
+                }
+            }
+        })
         .collect()
 }
 
@@ -75,10 +89,15 @@ fn place_fill(root: Node<'_>, text: &str, placeholder: Range<usize>) -> FillPlac
     match holder.kind() {
         "generic_token" | "command_parameter" => {
             let offset = placeholder.start - holder.start_byte();
-            place_in_token(node_text(holder, text), offset)
+            place_in_token(node_text(holder, text), offset..offset + placeholder.len())
         }
         "command_name" if node_text(holder, text) == &text[placeholder.start..placeholder.end] => {
-            Ok(FillPlace::CommandName)
+            // After `&` or `.` the name is already called through the operator.
+            if is_after_a_call_operator(holder) {
+                Ok(FillPlace::Bare)
+            } else {
+                Ok(FillPlace::CommandName)
+            }
         }
         "expandable_string_literal" | "expandable_here_string_literal" => {
             if follows_a_dollar(text, placeholder.start) {
@@ -96,9 +115,27 @@ fn place_fill(root: Node<'_>, text: &str, placeholder: Range<usize>) -> FillPlac
     }
 }
 
-/// The place of a fill at `offset` in a bare argument's `token`, which PowerShell reads with its
-/// own quotes: inside `"…"` the in-string form, inside `'…'` none, and outside both the bare form.
-fn place_in_token(token: &str, offset: usize) -> FillPlacing {
+/// Whether the command whose name is `name` runs it through `&` or `.`.
+fn is_after_a_call_operator(name: Node<'_>) -> bool {
+    let mut ancestor = name.parent();
+    while let Some(node) = ancestor {
+        if node.kind() == "command" {
+            return node
+                .child(0)
+                .is_some_and(|first| first.kind() == "command_invokation_operator");
+        }
+        ancestor = node.parent();
+    }
+    false
+}
+
+/// The place of a fill at `placeholder` in a bare argument's `token`, which PowerShell reads with
+/// its own quotes: inside `"…"` the in-string form, inside `'…'` none, and outside both the bare
+/// form. A fill that starts a token going on past it opens a string holding the rest, since
+/// PowerShell reads a quoted start followed by text as a member access or two arguments; a rest
+/// holding a quote, a backquote or a `$`, which a string reads otherwise, is refused.
+fn place_in_token(token: &str, placeholder: Range<usize>) -> FillPlacing {
+    let offset = placeholder.start;
     let mut quote = None;
     let mut bytes = token.as_bytes()[..offset].iter();
     while let Some(&byte) = bytes.next() {
@@ -114,7 +151,17 @@ fn place_in_token(token: &str, offset: usize) -> FillPlacing {
     if follows_a_dollar(token, offset) {
         return Err(FillRefusal::UnreadPlace);
     }
+    let rest = &token[placeholder.end..];
     match quote {
+        None if offset == 0 && !rest.is_empty() => {
+            if rest.contains(['"', '\'', '`', '$']) {
+                Err(FillRefusal::UnreadPlace)
+            } else {
+                Ok(FillPlace::OpensString {
+                    rest_length: rest.len(),
+                })
+            }
+        }
         None => Ok(FillPlace::Bare),
         Some(b'"') => Ok(FillPlace::InString),
         Some(_) => Err(FillRefusal::NotExpanding),

@@ -133,6 +133,12 @@ enum FillPlace {
     InString,
     /// The whole command name, which PowerShell runs through its call operator.
     CommandName,
+    /// The start of a token going on for `rest_length` bytes past the fill, which the launch
+    /// writes as one double-quoted string: its opening quote, the in-string form and the rest.
+    OpensString {
+        /// The token's length past the fill, in bytes of the line.
+        rest_length: usize,
+    },
 }
 
 /// A reading's answer for one fill.
@@ -204,12 +210,27 @@ impl CommandLineFills {
         };
         let mut filled = String::with_capacity(self.line.len());
         let mut kept_from = 0;
+        // Where the string a fill opened closes, in bytes of the line.
+        let mut string_end = None;
         for (index, (placeholder, placing)) in self.placeholders.iter().zip(placings).enumerate() {
             let number = index + 1;
             let place = placing.map_err(|refusal| RefusedFill { number, refusal })?;
+            if let Some(end) = string_end.take_if(|end| *end <= placeholder.start) {
+                filled.push_str(&self.line[kept_from..end]);
+                filled.push('"');
+                kept_from = end;
+            }
             filled.push_str(&self.line[kept_from..placeholder.start]);
             filled.push_str(&reference(shell, place, number));
+            if let FillPlace::OpensString { rest_length } = place {
+                string_end = Some(placeholder.end + rest_length);
+            }
             kept_from = placeholder.end;
+        }
+        if let Some(end) = string_end {
+            filled.push_str(&self.line[kept_from..end]);
+            filled.push('"');
+            kept_from = end;
         }
         filled.push_str(&self.line[kept_from..]);
         Ok(filled)
@@ -255,7 +276,8 @@ fn placeholder_stem(parts: &[TemplatePart<'_>]) -> String {
     stem
 }
 
-/// The reference to fill `number`'s variable that `shell` expands at `place`.
+/// The reference to fill `number`'s variable that `shell` expands at `place`; for a fill opening a
+/// string, the string's opening quote and the in-string form, the launch closing it.
 fn reference(shell: ShellGrammar, place: FillPlace, number: usize) -> String {
     let name = fill_variable_name(number);
     match (shell, place) {
@@ -275,6 +297,9 @@ fn reference(shell: ShellGrammar, place: FillPlace, number: usize) -> String {
             format!("\"${{{name}:q}}\"")
         }
         (ShellGrammar::Csh, FillPlace::InString) => format!("${{{name}:q}}"),
+        (shell, FillPlace::OpensString { .. }) => {
+            format!("\"{}", reference(shell, FillPlace::InString, number))
+        }
     }
 }
 
@@ -468,13 +493,34 @@ mod tests {
     }
 
     // The places whose form is not their outermost quote's: PowerShell calls a command name through
-    // `&`, a pattern word and a substitution are contexts of their own, and PowerShell reads a
-    // parameter's `"…"` as a string.
+    // `&` once, a token a fill starts and the text goes on past is one PowerShell string, a pattern
+    // word and a substitution are contexts of their own, and PowerShell reads a parameter's `"…"`
+    // as a string.
     #[rstest]
     #[case::a_powershell_command_name(
         "{{ x }} --flag",
         "pwsh",
         "& \"${env:SIDEKICKS_VALUE_1}\" --flag"
+    )]
+    #[case::a_powershell_command_name_after_its_call_operator(
+        "& {{ x }} --flag",
+        "pwsh",
+        "& \"${env:SIDEKICKS_VALUE_1}\" --flag"
+    )]
+    #[case::a_powershell_token_going_on_past_its_fill(
+        "cp {{ x }}.bak d",
+        "pwsh",
+        "cp \"${env:SIDEKICKS_VALUE_1}.bak\" d"
+    )]
+    #[case::a_powershell_token_going_on_past_a_dash(
+        "cp {{ x }}-old d",
+        "pwsh",
+        "cp \"${env:SIDEKICKS_VALUE_1}-old\" d"
+    )]
+    #[case::a_second_fill_in_a_powershell_token_string(
+        "cp {{ x }}.{{ y }} d",
+        "pwsh",
+        "cp \"${env:SIDEKICKS_VALUE_1}.${env:SIDEKICKS_VALUE_2}\" d"
     )]
     #[case::a_pattern_word_in_a_string(
         "echo \"${p#{{ x }}}\"",
