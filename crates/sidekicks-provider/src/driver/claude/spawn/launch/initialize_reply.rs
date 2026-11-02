@@ -75,6 +75,22 @@ impl ClaudeModelEffort {
 struct CommandRow {
     #[serde(default, deserialize_with = "read_lenient")]
     name: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    description: Option<String>,
+    #[serde(rename = "argumentHint", default, deserialize_with = "read_lenient")]
+    argument_hint: Option<String>,
+}
+
+/// One command an `initialize` reply lists: its name, and its description and argument hint where
+/// the reply gives non-empty ones.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ClaudeListedCommand {
+    /// The name, without its `/`.
+    pub(crate) name: String,
+    /// What it does.
+    pub(crate) description: Option<String>,
+    /// What follows the name.
+    pub(crate) argument_hint: Option<String>,
 }
 
 lenient_object!(ModelRow, CommandRow);
@@ -127,13 +143,29 @@ pub(crate) fn read_claude_initialize_declaration(
     }
 }
 
-/// The names of the commands `reply` lists.
-pub(crate) fn read_claude_listed_commands(reply: Option<&RawValue>) -> HashSet<String> {
+/// The commands `reply` lists, in its order, a row naming no command skipped.
+pub(crate) fn read_claude_listed_command_rows(
+    reply: Option<&RawValue>,
+) -> Vec<ClaudeListedCommand> {
     read_reply(reply)
         .commands
         .map(|commands| commands.0)
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|command| non_empty(command.name))
+        .filter_map(|command| {
+            Some(ClaudeListedCommand {
+                name: non_empty(command.name)?,
+                description: non_empty(command.description),
+                argument_hint: non_empty(command.argument_hint),
+            })
+        })
+        .collect()
+}
+
+/// The names of the commands `reply` lists.
+pub(crate) fn read_claude_listed_commands(reply: Option<&RawValue>) -> HashSet<String> {
+    read_claude_listed_command_rows(reply)
+        .into_iter()
+        .map(|command| command.name)
         .collect()
 }

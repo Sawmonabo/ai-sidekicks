@@ -1,18 +1,22 @@
 //! What each live Claude session declared, and what is read from it: the provider's command and
 //! skill surface from `system/init`, and its output-speed state from the `initialize` reply,
 //! replaced by each later `system/init` that reports one and settled once per run when the run's
-//! own handshake arrives.
+//! own handshake arrives. A session at rest has its command list read afresh, concurrent reads of
+//! one session sharing one process and nothing kept once it settles.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
+use futures::FutureExt;
+use futures::future::{BoxFuture, Shared};
 use serde_json::{Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::commands::{
     ProviderCommandBinding, ProviderCommandBindingGroup, ProviderCommandEntry,
 };
 use sidekicks_contracts::provider::driver::length_limits::{
-    PROVIDER_COMMAND_NAME_MAX_LEN, PROVIDER_DECLARED_TOKEN_MAX_LEN,
+    PROVIDER_COMMAND_DESCRIPTION_MAX_LEN, PROVIDER_COMMAND_NAME_MAX_LEN,
+    PROVIDER_DECLARED_TOKEN_MAX_LEN, PROVIDER_MCP_SERVER_NAME_MAX_LEN,
 };
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::run::id::RunId;
@@ -27,12 +31,26 @@ use crate::driver::claude::session::state::{ClaudeHeldHandshake, LiveClaudeSessi
 use crate::driver::claude::session::transport::declarations::{
     ClaudeFastModeDeclaration, ClaudeHandshakeDeclaration,
 };
+use crate::driver::claude::spawn::launch::ClaudeLaunchError;
+use crate::driver::claude::spawn::launch::initialize_reply::ClaudeListedCommand;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 
 // The scope a command Claude Code runs only in its own terminal screen is listed with.
 const TERMINAL_COMMAND_SCOPE: &str = "terminal";
+
+// The end of the name Claude Code lists a tool server's prompt under, as `server:prompt (MCP)`.
+const CLAUDE_PROMPT_NAME_SUFFIX: &str = " (MCP)";
+
+// One resting command read as it starts, before it is shared.
+type ClaudeRestingCommandStart =
+    BoxFuture<'static, Result<Vec<ClaudeListedCommand>, ClaudeLaunchError>>;
+
+/// One read of a resting session's command list, which every concurrent read of the session
+/// awaits; its failure is shared, so it is held behind an `Arc`.
+pub(crate) type ClaudeRestingCommandRead =
+    Shared<BoxFuture<'static, Result<Vec<ClaudeListedCommand>, Arc<ClaudeLaunchError>>>>;
 
 /// A run whose output speed settled on its process's handshake, with the state the process declared
 /// it runs at; the run engine compares it with the level the run carried.
@@ -71,6 +89,8 @@ struct ClaudeSessionDeclarations {
 #[derive(Default)]
 pub(crate) struct ClaudeHandshakeRegister {
     sessions: Mutex<HashMap<SessionId, ClaudeSessionDeclarations>>,
+    // Each resting session's command read in flight, gone once it settles.
+    resting_reads: Arc<Mutex<HashMap<SessionId, ClaudeRestingCommandRead>>>,
 }
 
 impl ClaudeHandshakeRegister {
@@ -231,6 +251,33 @@ impl ClaudeHandshakeRegister {
         });
     }
 
+    /// The command read of resting `session_id` in flight, else the one `start` begins. The read
+    /// runs to its end whoever still waits on it, so a dropped caller leaves no process behind,
+    /// and it is forgotten as it settles, so the next read starts afresh.
+    pub(crate) fn join_resting_command_read(
+        &self,
+        session_id: SessionId,
+        start: impl FnOnce() -> ClaudeRestingCommandStart,
+    ) -> ClaudeRestingCommandRead {
+        let mut reads = lock(&self.resting_reads);
+        if let Some(read) = reads.get(&session_id) {
+            return read.clone();
+        }
+        let held = Arc::clone(&self.resting_reads);
+        let read = start()
+            .map(move |listed| {
+                // The session's only entry until this removes it: a read is begun only where
+                // none is held.
+                lock(&held).remove(&session_id);
+                listed.map_err(Arc::new)
+            })
+            .boxed()
+            .shared();
+        reads.insert(session_id, read.clone());
+        drop(tokio::spawn(read.clone()));
+        read
+    }
+
     /// The command and skill entries one live session declared, all of them, stamped with
     /// `binding`'s provider and the account the session was admitted against, in one group with
     /// `run_id`; before the handshake, which rides a turn the person may not have made, it answers
@@ -298,10 +345,7 @@ fn resolve_stamped_account(
     })
 }
 
-// Composed at read time so the held declaration stays what the provider said. Each name is bounded
-// by the entry's own checked text (a provider-supplied name may be blank, hold a NUL or run over
-// the cap); a refused entry is dropped alone, with a diagnostic, so one bad name cannot empty the
-// palette.
+// Composed at read time so the held declaration stays what the provider said.
 fn compose_provider_command_entries(
     session_id: SessionId,
     declaration: &ClaudeHandshakeDeclaration,
@@ -327,68 +371,168 @@ fn compose_provider_command_entries(
         .chain(skills)
         .chain(terminal_commands)
         .filter_map(|(name, kind, scope)| {
-            let Ok(checked_name) = FreeFormText::<PROVIDER_COMMAND_NAME_MAX_LEN>::new(name.clone())
-            else {
-                report_rejected_entry(session_id, binding, kind, scope.is_some(), name);
-                return None;
-            };
-            let binding = binding.clone();
-            let scope = scope.cloned();
-            Some(match kind {
-                ClaudeCommandKind::Command => ProviderCommandEntry::Command {
-                    name: checked_name,
-                    description: None,
-                    argument_hint: None,
-                    scope,
-                    enabled: None,
-                    binding,
-                    server: None,
-                    title: None,
-                },
-                ClaudeCommandKind::Skill => ProviderCommandEntry::Skill {
-                    name: checked_name,
-                    description: None,
-                    argument_hint: None,
-                    scope,
-                    enabled: None,
-                    binding,
-                    server: None,
-                    title: None,
-                },
-            })
+            compose_command_entry(session_id, binding, kind, scope, name, None, None)
         })
         .collect()
 }
 
-// Which kind of entry a declared name becomes.
-#[derive(Clone, Copy)]
-enum ClaudeCommandKind {
-    Command,
-    Skill,
+/// The entries of a resting session's command list as `rows` lists them, in order, each stamped
+/// with `binding`: a row named `server:prompt (MCP)` is that server's prompt, and every other row
+/// a command, since the list does not say which rows are skills. A row whose name or server the
+/// entry's bounds refuse is dropped alone, with a diagnostic.
+pub(crate) fn compose_resting_command_entries(
+    session_id: SessionId,
+    binding: &ProviderCommandBinding,
+    rows: &[ClaudeListedCommand],
+) -> Vec<ProviderCommandEntry> {
+    rows.iter()
+        .filter_map(|row| {
+            let (kind, name) = match read_prompt_name(&row.name) {
+                Some((server, prompt)) => (ClaudeCommandKind::Prompt { server }, prompt),
+                None => (ClaudeCommandKind::Command, row.name.as_str()),
+            };
+            compose_command_entry(
+                session_id,
+                binding,
+                kind,
+                None,
+                name,
+                row.description.as_deref(),
+                row.argument_hint.as_deref(),
+            )
+        })
+        .collect()
 }
 
-// Records an entry dropped for a name the entry's bounds refuse: the field and its length in code
-// points, never the untrusted name.
+// The server and prompt of a name Claude Code lists as `server:prompt (MCP)`; `None` for any other.
+fn read_prompt_name(name: &str) -> Option<(&str, &str)> {
+    let (server, prompt) = name
+        .strip_suffix(CLAUDE_PROMPT_NAME_SUFFIX)?
+        .split_once(':')?;
+    (!server.is_empty() && !prompt.is_empty()).then_some((server, prompt))
+}
+
+// One entry, each field bounded by the entry's own checked text, since what the provider supplies
+// may be blank, hold a NUL or run over the cap. A refused name or server drops the entry alone, so
+// one bad row cannot empty the palette; a refused description or hint reads absent, the entry
+// kept. Each refusal is recorded.
+fn compose_command_entry(
+    session_id: SessionId,
+    binding: &ProviderCommandBinding,
+    kind: ClaudeCommandKind<'_>,
+    scope: Option<&FreeFormText<PROVIDER_DECLARED_TOKEN_MAX_LEN>>,
+    name: &str,
+    description: Option<&str>,
+    argument_hint: Option<&str>,
+) -> Option<ProviderCommandEntry> {
+    let rejected = |field: &'static str, value: Option<&str>| {
+        report_rejected_entry(
+            session_id,
+            binding,
+            kind,
+            scope.is_some(),
+            field,
+            name,
+            value,
+        );
+    };
+    let Ok(checked_name) = FreeFormText::<PROVIDER_COMMAND_NAME_MAX_LEN>::new(name.to_owned())
+    else {
+        rejected("name", None);
+        return None;
+    };
+    let optional = |field: &'static str, text: Option<&str>| {
+        let text = text?;
+        let checked = FreeFormText::<PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>::new(text.to_owned());
+        if checked.is_err() {
+            rejected(field, Some(text));
+        }
+        checked.ok()
+    };
+    let description = optional("description", description);
+    let argument_hint = optional("argumentHint", argument_hint);
+    let binding = binding.clone();
+    let scope = scope.cloned();
+    Some(match kind {
+        ClaudeCommandKind::Command => ProviderCommandEntry::Command {
+            name: checked_name,
+            description,
+            argument_hint,
+            scope,
+            enabled: None,
+            binding,
+            server: None,
+            title: None,
+        },
+        ClaudeCommandKind::Skill => ProviderCommandEntry::Skill {
+            name: checked_name,
+            description,
+            argument_hint,
+            scope,
+            enabled: None,
+            binding,
+            server: None,
+            title: None,
+        },
+        ClaudeCommandKind::Prompt { server } => {
+            let Ok(server) =
+                FreeFormText::<PROVIDER_MCP_SERVER_NAME_MAX_LEN>::new(server.to_owned())
+            else {
+                rejected("server", Some(server));
+                return None;
+            };
+            ProviderCommandEntry::Prompt {
+                name: checked_name,
+                description,
+                argument_hint,
+                scope,
+                enabled: None,
+                binding,
+                server,
+                title: None,
+            }
+        }
+    })
+}
+
+// Which kind of entry a listed name becomes; a prompt names the server that publishes it.
+#[derive(Clone, Copy)]
+enum ClaudeCommandKind<'a> {
+    Command,
+    Skill,
+    Prompt { server: &'a str },
+}
+
+// Records a field the entry's bounds refuse, and whether the entry was dropped for it: the field
+// and the lengths in code points of the name and of the refused value, never the untrusted text.
 fn report_rejected_entry(
     session_id: SessionId,
     binding: &ProviderCommandBinding,
-    kind: ClaudeCommandKind,
+    kind: ClaudeCommandKind<'_>,
     is_terminal: bool,
+    field: &'static str,
     name: &str,
+    value: Option<&str>,
 ) {
     let entry_kind = match kind {
         ClaudeCommandKind::Command => "command",
         ClaudeCommandKind::Skill => "skill",
+        ClaudeCommandKind::Prompt { .. } => "prompt",
+    };
+    let is_dropped = matches!(field, "name" | "server");
+    let disposition_reason = if is_dropped {
+        "the provider published a command, skill or prompt entry the contract's own bounds \
+         refuse; it is dropped from this reply and its siblings are unaffected"
+    } else {
+        "the provider published a command, skill or prompt field the contract's own bounds \
+         refuse; the entry is kept and the field reads absent"
     };
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
         provider_account_id: Some(binding.provider_account_id.clone()),
         kind: DriverDiagnosticKind::ProviderCommandEntryRejected,
         raw_wire_type: None,
-        disposition_reason: "the provider published a command or skill entry the contract's own \
-                             bounds refuse; it is dropped from this reply and its siblings are \
-                             unaffected"
-            .to_owned(),
+        disposition_reason: disposition_reason.to_owned(),
         details: [
             ("sessionId", json!(session_id)),
             ("entryKind", json!(entry_kind)),
@@ -396,8 +540,13 @@ fn report_rejected_entry(
                 "entryScope",
                 json!(is_terminal.then_some(TERMINAL_COMMAND_SCOPE)),
             ),
-            ("rejectedField", json!("name")),
+            ("rejectedField", json!(field)),
+            ("dropped", json!(is_dropped)),
             ("nameLength", json!(name.chars().count())),
+            (
+                "rejectedValueLength",
+                json!(value.map(|value| value.chars().count())),
+            ),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_owned(), value))
