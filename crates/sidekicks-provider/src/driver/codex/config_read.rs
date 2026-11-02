@@ -191,7 +191,8 @@ pub(crate) async fn read_codex_processing_region(
 }
 
 // The region of the base URL `config`'s model provider sends to: the built-in provider's own
-// setting, unset meaning OpenAI's host, or another provider's entry, which has no default host.
+// setting, unset or empty meaning OpenAI's host as Codex reads it, or another provider's entry,
+// which has no default host.
 #[cfg_attr(
     not(test),
     expect(
@@ -202,7 +203,11 @@ pub(crate) async fn read_codex_processing_region(
 fn processing_region_of(config: &CodexEndpointConfig) -> CodexProcessingRegion {
     let base_url = match config.model_provider.as_deref() {
         None | Some(OPENAI_PROVIDER_ID) => {
-            let Some(base_url) = &config.openai_base_url else {
+            let Some(base_url) = config
+                .openai_base_url
+                .as_deref()
+                .filter(|base_url| !base_url.is_empty())
+            else {
                 return CodexProcessingRegion::NoRegion;
             };
             base_url
@@ -211,7 +216,7 @@ fn processing_region_of(config: &CodexEndpointConfig) -> CodexProcessingRegion {
             let Some(base_url) = config
                 .model_providers
                 .get(provider_id)
-                .and_then(|provider| provider.base_url.as_ref())
+                .and_then(|provider| provider.base_url.as_deref())
             else {
                 return CodexProcessingRegion::UnknownHost;
             };
@@ -245,12 +250,14 @@ mod tests {
 
     use super::{CodexEndpointConfig, CodexProcessingRegion, processing_region_of};
 
-    // OpenAI's host or no base URL is no region, a data-residency host its prefix, and any other
-    // host, an unlisted prefix or a custom provider unknown. Killed by a suffix or substring host
-    // match, ignoring `model_provider` (a custom provider read as OpenAI), ignoring a custom
-    // provider's `base_url` and labeling an unlisted prefix.
+    // OpenAI's host or no or an empty base URL is no region, a data-residency host its prefix,
+    // and any other host, an unlisted prefix or a custom provider unknown. Killed by a suffix or
+    // substring host match, ignoring `model_provider` (a custom provider read as OpenAI), ignoring
+    // a custom provider's `base_url`, labeling an unlisted prefix, and parsing an empty base URL
+    // (an unknown host).
     #[rstest]
     #[case::default_host(json!({}), "none")]
+    #[case::empty_base_url(json!({ "openai_base_url": "" }), "none")]
     #[case::openai_host(json!({ "openai_base_url": "https://api.openai.com/v1" }), "none")]
     #[case::regional_host(json!({ "openai_base_url": "https://eu.api.openai.com/v1" }), "eu")]
     #[case::residency_provider(
