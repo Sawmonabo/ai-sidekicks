@@ -17,7 +17,7 @@ use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::Never;
 use crate::wire::integer::SafeInt;
-use crate::wire::number::Percent;
+use crate::wire::number::{Percent, PositiveNumber};
 use crate::wire::text::{ComposedText, NulFreeText};
 
 /// Where the session compacts and the slider's range. The top stop is the provider's own compaction
@@ -208,8 +208,8 @@ pub struct SessionMemoryReadResponse {
     pub auto_memory: SessionAutoMemory,
     /// The memory paths.
     pub entries: Vec<SessionMemoryEntry>,
-    /// True for a session with no process since the daemon started, whose provider has reported
-    /// no rows yet.
+    /// True for a session with no conversation running since the daemon started, whose provider
+    /// has reported no rows yet.
     pub listed_at_next_start: bool,
 }
 
@@ -278,8 +278,8 @@ macro_rules! session_provider_hook {
                     skip_serializing_if = "Option::is_none",
                     deserialize_with = "crate::wire::present"
                 )]
-                #[schemars(with = "ComposedText")]
-                matcher: Option<ComposedText>,
+                #[schemars(with = "NulFreeText<{ usize::MAX }>")]
+                matcher: Option<NulFreeText<{ usize::MAX }>>,
                 /// Its time limit, in seconds.
                 timeout_seconds: SafeInt<0>,
                 /// The line the provider shows while it runs, where it has one.
@@ -317,8 +317,8 @@ macro_rules! session_provider_hook {
 }
 
 session_provider_hook! {
-    /// One hook the provider loaded for a folder, tagged on what it runs. `event`, `source` and
-    /// `trustStatus` are the provider's own words, carried as sent.
+    /// One hook the provider loaded for a folder, tagged on what it runs. `event`, `matcher`,
+    /// `source` and `trustStatus` are the provider's own words, carried as sent.
     pub enum SessionProviderHook {
         /// A command.
         Command {
@@ -469,7 +469,7 @@ pub struct ProviderHookSource {
 
 /// One hook in a listing grouped by event, as the provider lists it. `event`, `matcher`, `source`,
 /// `type` and `commandText` are the provider's own words, carried as sent.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionProviderEventHook {
     /// The event it runs on.
@@ -499,14 +499,14 @@ pub struct SessionProviderEventHook {
     )]
     #[schemars(with = "ComposedText")]
     pub status_message: Option<ComposedText>,
-    /// Its time limit, in seconds, where it sets one.
+    /// Its time limit, in seconds, where it sets one; a fraction is allowed.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "SafeInt<0>")]
-    pub timeout_seconds: Option<SafeInt<0>>,
+    #[schemars(with = "PositiveNumber")]
+    pub timeout_seconds: Option<PositiveNumber>,
     /// Whether the session's mode or policy keeps it from running.
     pub disabled: bool,
     /// The settings file it was read from, where it was read from one.
@@ -569,7 +569,7 @@ macro_rules! session_hook_list_response {
         }
     ) => {
         $(#[doc = $doc])+
-        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+        #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
         #[serde(
             tag = "kind",
             rename_all = "camelCase",
