@@ -224,7 +224,7 @@ pub struct HealthObservation {
 /// generation, or the background observer, whose crossing never does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HealthObserver {
-    /// The probe verb, or a sign-in's or registration's status read.
+    /// The probe verb, the person's `Check now`, or a sign-in's status read.
     Probe,
     /// The background observer's cadence.
     Background,

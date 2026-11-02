@@ -37,6 +37,7 @@ use crate::account::registry::{
     AccountAdmission, HealthObservation, PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY,
     ProviderAccountRegistry, RegisteredAccount,
 };
+use crate::account::resolver::credential_home_folders;
 use crate::account::sign_in::{AccountsInFlight, ProviderAccountNotificationPublisher};
 use crate::account::token_custody::ProviderTokenCustody;
 use crate::account::token_custody::tests::ScriptedKeychain;
@@ -308,7 +309,8 @@ impl AccountLiveTurns for TestLiveTurns {
     }
 }
 
-// An accounts reader answering every account's folders as its home.
+// An accounts reader answering each registered account's folders as the daemon's own reader does,
+// with no look at whether its home stands.
 struct HomeFolders(Arc<ProviderAccountRegistry>);
 
 impl ProviderAccountReader for HomeFolders {
@@ -317,14 +319,15 @@ impl ProviderAccountReader for HomeFolders {
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
         async move {
-            let Ok(account) = self.0.read(provider_account_id).await else {
-                return Err(AccountFoldersError::NotFound);
-            };
-            let home = account.credential_home.path().to_path_buf();
-            Ok(ProviderAccountFolders {
-                configuration_folder: home.clone(),
-                credential_store_folder: home,
-            })
+            let account = self
+                .0
+                .read(provider_account_id)
+                .await
+                .map_err(|_unregistered| AccountFoldersError::NotFound)?;
+            Ok(credential_home_folders(
+                &account.provider,
+                &account.credential_home,
+            ))
         }
         .boxed()
     }
