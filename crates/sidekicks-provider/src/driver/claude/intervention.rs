@@ -352,8 +352,9 @@ impl ClaudeInterventions {
 
     // Interrupts a helper's run alone: the helper is held at its next tool call, as a pause holds
     // it, and each command it runs is stopped, all at once; the lead's turn goes on. Claude Code's
-    // refusal of a stop names a task it no longer holds, so that command no longer runs; any other
-    // failed stop answers `Degraded`, since not every command could be stopped.
+    // refusal of a stop names a task it no longer holds, so that command no longer runs, and a stop
+    // whose write was cut stops the process, whose end ends its commands; any other failed stop
+    // answers `Degraded`, since not every command could be stopped.
     async fn interrupt_helper(
         &self,
         run_id: RunId,
@@ -388,6 +389,7 @@ impl ClaudeInterventions {
                     .await;
                 match stopped {
                     Ok(_) | Err(ClaudeSessionError::ControlRequestRefused { .. }) => true,
+                    Err(error) if stop_on_cut_write(&*live.channel, &error).await => true,
                     Err(error) => {
                         tracing::warn!(
                             session_id = %live.session_id,

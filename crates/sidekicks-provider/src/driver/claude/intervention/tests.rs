@@ -377,13 +377,15 @@ async fn a_helper_move_cut_mid_write_stops_the_process_in_place_of_the_interrupt
 
 // An interrupt on a helper's run holds that helper at its next tool call, its pause already in
 // effect, and stops the commands it runs, not its lead's, sending no interrupt; a stop Claude Code
-// never answers degrades the interrupt, the hold kept. Killed by no helper arm (an `interrupt` is
-// written), by no hold (the call passes), by no mark of the hold's effect (the hold reports a
-// pause), by leaving the helper's command running, by stopping the lead's command too, and by a
-// failed stop answered `Applied` or failing the interrupt.
+// never answers degrades the interrupt, the hold kept, and a stop whose write was cut stops the
+// process, which ends the command. Killed by no helper arm (an `interrupt` is written), by no hold
+// (the call passes), by no mark of the hold's effect (the hold reports a pause), by leaving the
+// helper's command running, by stopping the lead's command too, by a failed stop answered
+// `Applied` or failing the interrupt, and by a cut stop leaving the process running.
 #[rstest]
 #[case::stopped(ScriptedAnswer::Reply(json!({})), InterventionResultStatus::Applied)]
 #[case::unanswered(ScriptedAnswer::Deadline, InterventionResultStatus::Degraded)]
+#[case::cut(ScriptedAnswer::WriteCut, InterventionResultStatus::Applied)]
 #[tokio::test(start_paused = true)]
 async fn a_helpers_interrupt_holds_it_and_stops_its_commands_its_lead_going_on(
     #[case] stop_answer: ScriptedAnswer,
@@ -405,6 +407,7 @@ async fn a_helpers_interrupt_holds_it_and_stops_its_commands_its_lead_going_on(
         None,
     ));
     settle().await;
+    let is_cut = matches!(stop_answer, ScriptedAnswer::WriteCut);
     session.channel.answer("stop_task", stop_answer);
 
     let response = apply(
@@ -418,6 +421,14 @@ async fn a_helpers_interrupt_holds_it_and_stops_its_commands_its_lead_going_on(
     assert_eq!(requests.len(), 1, "{requests:?}");
     assert_eq!(requests[0]["subtype"], "stop_task");
     assert_eq!(requests[0]["task_id"], "cmd-1");
+    assert_eq!(
+        session.channel.writes().contains(&ScriptedWrite::Terminate),
+        is_cut
+    );
+    // A stopped process takes the session's pauses with it.
+    if is_cut {
+        return;
+    }
     assert_eq!(
         lock(&session.parts.run_controls.pauses).answer_before_tool(
             &session.session_id,

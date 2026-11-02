@@ -25,7 +25,7 @@ use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::intervention::{
     ClaudeInterventions, background_claude_task, interrupt_claude_turn,
-    request_claude_background_task,
+    request_claude_background_task, stop_on_cut_write,
 };
 use crate::driver::claude::run::routes::ClaudeRunRoute;
 use crate::driver::claude::run::start::{
@@ -361,7 +361,7 @@ impl ClaudeRunControls {
     /// session's own or one apart from it such as a staged review's, answering once Claude Code
     /// acknowledged it; the command's row ends on the task's own notification, and the run that
     /// started it is then told the person stopped it. Fails `NoLiveSession` and as Claude Code
-    /// refuses or the request fails.
+    /// refuses or the request fails; a request whose write was cut stops that process first.
     pub(crate) async fn stop_command(
         &self,
         params: &RunningCommandParams,
@@ -374,7 +374,10 @@ impl ClaudeRunControls {
             .command_channels
             .apart_command(params.session_id, task_id)
         {
-            apart.process.send_control_request(stop()).await?;
+            if let Err(error) = apart.process.send_control_request(stop()).await {
+                stop_on_cut_write(&*apart.process, &error).await;
+                return Err(error.into());
+            }
             self.tell_command_stopped(params.session_id, &apart.command, Some(&*apart.process))
                 .await;
             return Ok(());
@@ -386,7 +389,10 @@ impl ClaudeRunControls {
             .streams
             .get(params.session_id)
             .and_then(|stream| stream.held_command(task_id));
-        live.channel.send_control_request(stop()).await?;
+        if let Err(error) = live.channel.send_control_request(stop()).await {
+            stop_on_cut_write(&*live.channel, &error).await;
+            return Err(error.into());
+        }
         if let Some(held) = held {
             self.tell_command_stopped(params.session_id, &held, None)
                 .await;
@@ -592,7 +598,7 @@ mod tests {
     };
 
     use crate::driver::claude::hooks::pause::ClaudeHookAnswer;
-    use crate::driver::claude::session::scripted::channel::ScriptedAnswer;
+    use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedWrite};
     use crate::driver::claude::session::scripted::daemon_services::PortCall;
     use crate::driver::claude::session::scripted::{
         SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
@@ -609,8 +615,9 @@ mod tests {
     }
 
     // Killed by a stop that answers before Claude Code acknowledged it, so a refused stop reads
-    // done, by a stop naming anything but the command's task, and by an acknowledged stop the
-    // lead's turn is not told of in the daemon's words, or a refused one it is.
+    // done, by a stop naming anything but the command's task, by an acknowledged stop the lead's
+    // turn is not told of in the daemon's words, or a refused or cut one it is, and by a stop whose
+    // write was cut leaving the process running.
     #[tokio::test(start_paused = true)]
     async fn a_stop_answers_only_once_claude_code_acknowledged_it() {
         let session = ScriptedSession::new().await;
@@ -645,11 +652,22 @@ mod tests {
         let stopped = controls
             .stop_command(&running_command(&session, "task-1"))
             .await;
+        session
+            .channel
+            .answer("stop_task", ScriptedAnswer::WriteCut);
+        let cut = controls
+            .stop_command(&running_command(&session, "task-1"))
+            .await;
 
         assert!(refused.is_err(), "a refused stop fails");
         assert!(stopped.is_ok(), "an acknowledged stop answers");
+        assert!(cut.is_err(), "a cut stop fails");
+        assert!(
+            session.channel.writes().contains(&ScriptedWrite::Terminate),
+            "a cut stop stops the process"
+        );
         let requests = session.channel.control_requests();
-        assert_eq!(requests.len(), 2);
+        assert_eq!(requests.len(), 3);
         assert!(
             requests
                 .iter()
