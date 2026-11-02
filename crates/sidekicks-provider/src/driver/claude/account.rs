@@ -3,6 +3,7 @@
 
 mod limits;
 mod read_folder;
+mod sign_in_move;
 mod sign_out;
 mod switch;
 mod token_status;
@@ -96,8 +97,17 @@ impl ClaudeAccountLegs {
         &self,
         home: ClaudeProcessHome<'_>,
     ) -> Result<ResolvedProviderExecutable, DriverError> {
+        let environment = self.compose_environment_on(home)?;
+        resolve_claude_build(&self.command_search, &self.home_folder, environment).await
+    }
+
+    // The environment a process on `home` starts with. Fails as it cannot be composed.
+    fn compose_environment_on(
+        &self,
+        home: ClaudeProcessHome<'_>,
+    ) -> Result<Vec<(String, String)>, DriverError> {
         let data_folder = self.data_folder.to_string_lossy();
-        let environment = compose_claude_process_environment(
+        compose_claude_process_environment(
             ClaudeProcessEnvironmentRequest {
                 session: SessionEnvironment {
                     base: &self.base_environment,
@@ -112,8 +122,7 @@ impl ClaudeAccountLegs {
             },
             &[],
         )
-        .map_err(|error| DriverError::Internal(Box::new(error)))?;
-        resolve_claude_build(&self.command_search, &self.home_folder, environment).await
+        .map_err(|error| DriverError::Internal(Box::new(error)))
     }
 }
 

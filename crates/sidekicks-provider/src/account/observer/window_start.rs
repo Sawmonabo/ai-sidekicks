@@ -17,6 +17,10 @@
 //!   turn is live on the account, a turn that starts the window itself, nor on a login gone. A
 //!   pasted token whose limits are read by a turn takes none, since each of those reads is the
 //!   turn.
+//! - With the account's wake switch on, the machine's wake helper books a wake for the timer's
+//!   reset, so a machine asleep then wakes a minute before it; the booking follows the timer and
+//!   is canceled once the switch or the window start is off or the account is removed. A time
+//!   two accounts share stays booked while either holds it.
 //! - The windows are read before the home is taken, so a look that finds none closed never holds
 //!   it; the turn runs under the account's home lock, the windows read again there, joined by any
 //!   look while it runs, and one at a time on a provider whose processes run one at a time.
@@ -31,6 +35,7 @@ use sidekicks_contracts::provider::account::record::{
     ProviderAccountHealthState, ProviderAccountId,
 };
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_platforms::{WakeRefusal, WakeReply};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::{JobCondition, ScheduleError, ScheduledJobHandle, Scheduler};
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
@@ -47,6 +52,7 @@ use crate::account::observer::{
 };
 use crate::account::registry::{RegisteredAccount, refusal_or_failure};
 use crate::account::usage_turns::sessionless_usage_turn_statement;
+use crate::account::wake_helper::MachineWakeHelper;
 use crate::driver::contract::account::{ProviderWindowTurnLegs, WindowTurnAnswer, WindowTurnSpend};
 
 // How long after a window-start turn a window with no stored reset still counts as started: the
@@ -136,6 +142,66 @@ impl WindowStartTimers {
     }
 }
 
+/// The wake booked on the machine's wake helper for each account's timer, while its wake switch
+/// is on.
+pub(super) struct WindowStartWakes {
+    helper: Option<Arc<dyn MachineWakeHelper>>,
+    booked: tokio::sync::Mutex<HashMap<ProviderAccountId, SystemTime>>,
+}
+
+impl WindowStartWakes {
+    /// Wakes booked on `helper`; none where the system has no helper.
+    pub(super) fn new(helper: Option<Arc<dyn MachineWakeHelper>>) -> Self {
+        Self {
+            helper,
+            booked: tokio::sync::Mutex::default(),
+        }
+    }
+
+    /// Books `account_id`'s wake for `reset` in place of the one booked before, or cancels it
+    /// with `None`; a time another account still holds is not canceled. A booking the helper
+    /// refuses or cannot take is logged and left unbooked, so the next look books it again.
+    async fn book(&self, account_id: &ProviderAccountId, reset: Option<SystemTime>) {
+        let Some(helper) = &self.helper else {
+            return;
+        };
+        let mut booked = self.booked.lock().await;
+        let before = booked.get(account_id).copied();
+        if before == reset {
+            return;
+        }
+        booked.remove(account_id);
+        if let Some(reset) = reset {
+            match helper.book(reset).await {
+                Ok(WakeReply::Booked) => {
+                    booked.insert(account_id.clone(), reset);
+                }
+                Ok(reply) => {
+                    tracing::warn!(reply = %reply, "the wake helper did not book a window's wake");
+                }
+                Err(error) => tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "a window's wake could not be booked"
+                ),
+            }
+        }
+        if let Some(before) = before
+            && !booked.values().any(|held| *held == before)
+        {
+            match helper.cancel(before).await {
+                Ok(WakeReply::Canceled | WakeReply::Refused(WakeRefusal::NotBooked)) => {}
+                Ok(reply) => {
+                    tracing::warn!(reply = %reply, "the wake helper did not cancel a window's wake");
+                }
+                Err(error) => tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "a window's wake could not be canceled"
+                ),
+            }
+        }
+    }
+}
+
 // An account's stored windows' resets, `None` where none is stored, and its last window-start
 // turn.
 struct AccountWindows {
@@ -206,6 +272,13 @@ impl ObserverShared {
         });
     }
 
+    /// Cancels the wake booked for `provider_account_id`, removed, in a task no caller waits on.
+    pub(super) fn spawn_wake_cancel(self: Arc<Self>, provider_account_id: ProviderAccountId) {
+        tokio::spawn(async move {
+            self.window_wakes.book(&provider_account_id, None).await;
+        });
+    }
+
     /// Looks at every registered account's windows, one after another, in a task of its own.
     pub(super) fn spawn_every_window_start(self: Arc<Self>) {
         tokio::spawn(async move {
@@ -259,6 +332,7 @@ impl ObserverShared {
                 .is_some_and(|health| health.state == ProviderAccountHealthState::ReauthRequired);
         if is_off {
             self.window_timers.forget(&provider_account_id);
+            self.window_wakes.book(&provider_account_id, None).await;
             return Ok(());
         }
         let Some(legs) = self.window_turn_legs.get(&account.provider).cloned() else {
@@ -267,8 +341,10 @@ impl ObserverShared {
         let now = ladder::timestamp(self.wall_clock.now());
         let windows =
             AccountWindows::read(&self.database_reads, provider_account_id.clone()).await?;
-        self.window_timers
-            .arm(&provider_account_id, windows.next_reset(now))?;
+        let next_reset = windows.next_reset(now);
+        self.window_timers.arm(&provider_account_id, next_reset)?;
+        let wake = next_reset.filter(|_| account.wake_for_window_start_enabled);
+        self.window_wakes.book(&provider_account_id, wake).await;
         if !windows.has_unstarted_closed_window(now)
             || !self
                 .live_turns
@@ -392,6 +468,7 @@ mod tests {
         Fixture, ScriptedLegs, TestClock, claude, codex, new_clock, usage_rows,
     };
     use crate::account::registry::{AccountSettingsChange, RegisteredAccount};
+    use crate::account::wake_helper::WakeHelperCall;
     use crate::driver::schema::schema_parts;
 
     const FIVE_HOURS: i64 = 300;
@@ -597,5 +674,62 @@ mod tests {
             usage_rows(&database, &account),
             Vec::<(Option<String>, i64)>::new()
         );
+    }
+
+    // A reset ahead books its wake on the machine's helper only while the account's wake switch
+    // is on, and turning the switch off cancels the wake booked. Killed by the wake booked with
+    // the switch off, and by a booked wake left in place once the switch turns off.
+    #[rstest]
+    #[case::the_wake_switch_on(true)]
+    #[case::the_wake_switch_off(false)]
+    #[tokio::test(start_paused = true)]
+    async fn a_reset_ahead_books_a_wake_only_with_the_wake_switch_on(#[case] is_wake_on: bool) {
+        let database = TestDatabase::new(schema_parts());
+        let data_folder = tempfile::tempdir().expect("a data folder");
+        let fixture = open(&database, data_folder.path(), new_clock()).await;
+        let account = fixture.register().await;
+        let wake_switch = |is_on| AccountSettingsChange {
+            wake_for_window_start_enabled: Some(is_on),
+            ..AccountSettingsChange::default()
+        };
+        fixture
+            .registry
+            .change_settings(account.account_id.clone(), wake_switch(is_wake_on))
+            .await
+            .expect("the switch changes");
+        let reset = fixture.clock.now() + Duration::from_hours(2);
+        store_window(&fixture, &account, FIVE_HOURS, Some(reset)).await;
+        let stored_reset = SystemTime::from(
+            wire_instant(reset)
+                .timestamp()
+                .expect("a stored reset reads as an instant"),
+        );
+
+        look(&fixture, &account).await;
+
+        let booked = if is_wake_on {
+            vec![WakeHelperCall::Book(stored_reset)]
+        } else {
+            Vec::new()
+        };
+        assert_eq!(fixture.wakes.calls(), booked);
+
+        fixture
+            .registry
+            .change_settings(account.account_id.clone(), wake_switch(false))
+            .await
+            .expect("the switch changes");
+        look(&fixture, &account).await;
+
+        let canceled = if is_wake_on {
+            vec![
+                WakeHelperCall::Book(stored_reset),
+                WakeHelperCall::Cancel(stored_reset),
+            ]
+        } else {
+            Vec::new()
+        };
+        assert_eq!(fixture.wakes.calls(), canceled);
+        assert_eq!(window_starts(&fixture, &claude()), 0);
     }
 }

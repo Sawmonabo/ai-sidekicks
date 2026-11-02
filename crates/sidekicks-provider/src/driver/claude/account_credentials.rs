@@ -22,7 +22,7 @@ use crate::driver::claude::mcp::config::ClaudePersonConfigFiles;
 use crate::driver::claude::spawn::environment::{claude_config_folder, claude_text_variable};
 
 /// The file in the credential folder Claude Code keeps a sign-in in where the keychain is not used.
-const CLAUDE_CREDENTIALS_FILE: &str = ".credentials.json";
+pub(crate) const CLAUDE_CREDENTIALS_FILE: &str = ".credentials.json";
 
 /// The name Claude Code files its keychain item under, before the folder's suffix.
 const CLAUDE_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
@@ -375,9 +375,10 @@ fn read_handed_token_scopes(environment: &[(String, String)]) -> Vec<String> {
     }
 }
 
-// The folder Claude Code started in `environment` keeps its sign-in in: the secure-storage folder
-// where named, the default home where it is named empty, else the config home, in NFC.
-fn claude_credential_folder(environment: &[(String, String)]) -> Option<PathBuf> {
+/// The folder Claude Code started in `environment` keeps its sign-in in: the secure-storage folder
+/// where named, the default home where it is named empty, else the config home, in NFC. `None`
+/// where no home is known at all.
+pub(crate) fn claude_credential_folder(environment: &[(String, String)]) -> Option<PathBuf> {
     let rules = PathRules::NATIVE;
     let folder = match rules.environment_value(environment, SECURE_STORAGE_FOLDER_VARIABLE) {
         Some("") => default_claude_home(environment)?,

@@ -136,6 +136,11 @@ impl ProviderSignInBroker {
         }
     }
 
+    /// Whether `account_id` has a sign-in in flight, from its start until it settles.
+    pub fn is_signing_in(&self, account_id: &ProviderAccountId) -> bool {
+        lock(&self.attempt.attempts).accounts.contains(account_id)
+    }
+
     /// Starts the provider's own sign-in for `request`'s account, or for a new account whose id
     /// and home it mints, on the arm `origin` calls for, and answers what the person needs. Fails
     /// with [`ProviderSignInError::InFlight`] while the account has an attempt,

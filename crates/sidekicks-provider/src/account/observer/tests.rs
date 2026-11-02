@@ -18,7 +18,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_platforms::{WallClock, WallClockWait};
+use sidekicks_platforms::{WakeHelperStatus, WallClock, WallClockWait};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::credential_store::SecretKeychain;
@@ -38,6 +38,7 @@ use crate::account::registry::{
 };
 use crate::account::token_custody::ProviderTokenCustody;
 use crate::account::token_custody::tests::ScriptedKeychain;
+use crate::account::wake_helper::{MachineWakeHelper, ScriptedWakeHelper};
 use crate::driver::contract::account::{
     ObservedAccountIdentity, ProviderAccountFigures, ProviderObservation, ProviderObserveLegs,
     ProviderWindowTurnLegs, TokenLimitsReading, WindowTurnAnswer, WindowTurnSpend,
@@ -338,6 +339,7 @@ pub(super) struct Fixture {
     pub(super) legs: Arc<ScriptedLegs>,
     pub(super) turns: HashMap<ProviderId, Arc<ScriptedTurns>>,
     pub(super) usage: Arc<RecordedWholeSets>,
+    pub(super) wakes: Arc<ScriptedWakeHelper>,
     pub(super) observer: ProviderAccountObserver,
 }
 
@@ -387,6 +389,7 @@ impl Fixture {
             })
             .collect();
         let usage = Arc::new(RecordedWholeSets::default());
+        let wakes = Arc::new(ScriptedWakeHelper::new(WakeHelperStatus::Installed));
         let observer = ProviderAccountObserver::new(ProviderAccountObserverDeps {
             registry: Arc::clone(&registry),
             account_reader: Arc::new(HomeFolders(Arc::clone(&registry))),
@@ -404,6 +407,7 @@ impl Fixture {
             home_lock: Arc::clone(&home_lock),
             scheduler: Arc::clone(&scheduler),
             wall_clock: Arc::clone(&clock) as Arc<dyn WallClock>,
+            wake_helper: Some(Arc::clone(&wakes) as Arc<dyn MachineWakeHelper>),
         });
         Self {
             registry,
@@ -416,6 +420,7 @@ impl Fixture {
             legs,
             turns,
             usage,
+            wakes,
             observer,
         }
     }

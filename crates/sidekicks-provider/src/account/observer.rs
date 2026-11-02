@@ -40,12 +40,13 @@ use sidekicks_store::database::writer::DatabaseWriter;
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::home_lock::{AccountHomeActEnded, AccountHomeFlights, AccountHomeLock};
 use crate::account::observer::schedule::ObservationSchedule;
-use crate::account::observer::window_start::WindowStartTimers;
+use crate::account::observer::window_start::{WindowStartTimers, WindowStartWakes};
 use crate::account::registry::{
     HealthObservation, HealthObserver, ProviderAccountRegistry, RegisteredAccount,
 };
 use crate::account::sign_in::SignedInAccountWatcher;
 use crate::account::token_custody::{ProviderTokenCustody, TokenCustodyError};
+use crate::account::wake_helper::MachineWakeHelper;
 use crate::driver::contract::account::{
     ProviderObservation, ProviderObserveLegs, ProviderWindowTurnLegs,
 };
@@ -103,6 +104,9 @@ pub struct ProviderAccountObserverDeps {
     pub scheduler: Arc<Scheduler>,
     /// The clock a reading's time, the minute's floor and a hold's end are read on.
     pub wall_clock: Arc<dyn WallClock>,
+    /// The machine's wake helper, which wakes it for a window reset on an account whose wake
+    /// switch is on; `None` on a system with none.
+    pub wake_helper: Option<Arc<dyn MachineWakeHelper>>,
 }
 
 /// One read of an account and when it was taken.
@@ -238,6 +242,7 @@ struct ObserverShared {
     accounts: Mutex<HashMap<ProviderAccountId, AccountMemory>>,
     schedule: ObservationSchedule,
     window_timers: WindowStartTimers,
+    window_wakes: WindowStartWakes,
     wake_watch: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
@@ -284,6 +289,7 @@ impl ProviderAccountObserver {
                         }
                     }),
                 ),
+                window_wakes: WindowStartWakes::new(deps.wake_helper),
                 wake_watch: Mutex::default(),
             }
         });
@@ -331,11 +337,19 @@ impl ProviderAccountObserver {
         Ok(())
     }
 
-    /// Stops observing `provider_account_id`, removed, and forgets its last read.
+    /// Stops observing `provider_account_id`, removed, forgets its last read and cancels the wake
+    /// booked for its reset in a task of its own.
     pub fn forget(&self, provider_account_id: &ProviderAccountId) {
         self.shared.schedule.forget(provider_account_id);
         self.shared.window_timers.forget(provider_account_id);
         lock(&self.shared.accounts).remove(provider_account_id);
+        Arc::clone(&self.shared).spawn_wake_cancel(provider_account_id.clone());
+    }
+
+    /// Looks at `provider_account_id`'s windows again in a task of its own, after its window
+    /// start or wake switch changed, so its timer and its booked wake follow the switches.
+    pub fn look_at_windows(&self, provider_account_id: ProviderAccountId) {
+        Arc::clone(&self.shared).spawn_window_start(provider_account_id);
     }
 
     /// Stops every account's job, timer and the wake watch; a read or turn under way finishes.
