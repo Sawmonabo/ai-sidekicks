@@ -389,7 +389,7 @@ fn event_statements(
 
 // The binding an applied switch lands, with the account its `to` pins and never the one it landed
 // on, so an agent that follows the current account still follows it; clearing the pending switch
-// it settles. A session born before the table has no row to move.
+// it settles.
 fn land_binding_statement(
     changed: &AgentProviderBindingChangedPayload,
     occurred_at: &str,

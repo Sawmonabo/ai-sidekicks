@@ -199,7 +199,8 @@ pub fn resolve_child(
 /// `session_id`'s whole agent tree: every bridged or workflow run and every provider helper at any
 /// depth, oldest first, each with its head; the badge's figures; and the refused creates that name
 /// a parent run. What the log reports is read from its events before `read_bound` outside its
-/// skipped ranges; each head's spend is its member's own in `agent_spend`, 0 where the list names
+/// skipped ranges; each head's binding and name are its agent's row as it stands now, which no
+/// bound limits; each head's spend is its member's own in `agent_spend`, 0 where the list names
 /// none. Fails as a run's agent read does, with [`AgentTreeReadError::RunMissing`] when a run the
 /// tree names has no row, and as SQLite or a stored column does.
 pub fn read_agent_tree(
@@ -227,10 +228,9 @@ pub fn read_agent_tree(
     };
     let mut links = Vec::with_capacity(drafts.len());
     for draft in drafts {
-        let run_agent =
-            ancestry
-                .agents
-                .read_agent_binding(session_id, &draft.head_run, read_bound)?;
+        let run_agent = ancestry
+            .agents
+            .read_agent_binding(session_id, &draft.head_run)?;
         let model_id = draft
             .model_runs
             .iter()
