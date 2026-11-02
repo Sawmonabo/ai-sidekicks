@@ -14,6 +14,7 @@ doctest = false
 futures.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
+sidekicks-approval.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-ipc.workspace = true
 sidekicks-provider.workspace = true

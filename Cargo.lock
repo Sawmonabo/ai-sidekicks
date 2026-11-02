@@ -8923,6 +8923,7 @@ dependencies = [
  "rstest",
  "rusqlite",
  "serde_json",
+ "sidekicks-approval",
  "sidekicks-contracts",
  "sidekicks-ipc",
  "sidekicks-provider",
