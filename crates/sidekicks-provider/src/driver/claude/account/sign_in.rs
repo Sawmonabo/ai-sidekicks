@@ -446,6 +446,8 @@ impl Flow {
         let mut asked_end: Option<ProviderSignInEnd> = None;
         // Cancels answered by how the flow ends, not at once.
         let mut unanswered_cancels: Vec<CancelAnswer> = Vec::new();
+        // Why the kill failed, once nothing can end the flow.
+        let mut unended: Option<io::ErrorKind> = None;
         let status = loop {
             let event = tokio::select! {
                 status = self.child.wait() => FlowEvent::Exited(status),
@@ -491,29 +493,31 @@ impl Flow {
                     }
                     None
                 }
-                FlowEvent::Input(Some(FlowInput::Cancel(answer)))
-                    if asked_end.is_none() && unanswered_cancels.is_empty() =>
-                {
-                    match self.ending.ask(&mut *self.child, ChildEnd::Stop) {
-                        Ok(()) => {
-                            answer_cancel(answer, Ok(ProviderSignInCancelStatus::Canceled));
-                            Some(ProviderSignInEnd::Canceled)
-                        }
-                        // The kill the failed stop armed ends the flow past its grace.
-                        Err(error) => {
-                            tracing::debug!(
-                                error = &error as &(dyn std::error::Error + 'static),
-                                "a canceled Claude Code sign-in could not be asked to stop"
-                            );
-                            unanswered_cancels.push(answer);
-                            None
-                        }
-                    }
-                }
-                // The flow is already ending; its end answers the cancel.
                 FlowEvent::Input(Some(FlowInput::Cancel(answer))) => {
-                    unanswered_cancels.push(answer);
-                    None
+                    if let Some(kind) = unended {
+                        answer_cancel(answer, Err(kind.into()));
+                        None
+                    } else if asked_end.is_none() && unanswered_cancels.is_empty() {
+                        match self.ending.ask(&mut *self.child, ChildEnd::Stop) {
+                            Ok(()) => {
+                                answer_cancel(answer, Ok(ProviderSignInCancelStatus::Canceled));
+                                Some(ProviderSignInEnd::Canceled)
+                            }
+                            // The kill the failed stop armed ends the flow past its grace.
+                            Err(error) => {
+                                tracing::debug!(
+                                    error = &error as &(dyn std::error::Error + 'static),
+                                    "a canceled Claude Code sign-in could not be asked to stop"
+                                );
+                                unanswered_cancels.push(answer);
+                                None
+                            }
+                        }
+                    } else {
+                        // The flow is already ending; its end answers the cancel.
+                        unanswered_cancels.push(answer);
+                        None
+                    }
                 }
                 FlowEvent::Input(None) => {
                     is_input_open = false;
@@ -533,8 +537,9 @@ impl Flow {
                             error = &error as &(dyn std::error::Error + 'static),
                             "Claude Code's sign-in could not be killed past its stop's grace"
                         );
+                        unended = Some(error.kind());
                         for answer in unanswered_cancels.drain(..) {
-                            answer_cancel(answer, Err(io::Error::from(error.kind())));
+                            answer_cancel(answer, Err(error.kind().into()));
                         }
                         None
                     }

@@ -49,7 +49,8 @@ impl ChildWrapper for StopRefused {
 
 // Killed by a cancel whose stop could not be asked answered with that failure while the kill past
 // the grace settles the flow failed (the reply and the record disagree), and by a flow that could
-// be neither stopped nor killed answered or recorded as canceled.
+// be neither stopped nor killed answered or recorded as canceled, at the first cancel or a later
+// one.
 #[rstest]
 #[case::killed_past_the_grace(false)]
 #[case::not_ended(true)]
@@ -86,12 +87,17 @@ async fn a_cancel_ends_the_flow_where_its_stop_fails(#[case] is_kill_refused: bo
     // The task ends with the test's runtime.
     let _running = tokio::spawn(flow.run());
 
-    let canceled = ClaudeSignInInput { inputs }.cancel().await;
+    let input = ClaudeSignInInput { inputs };
+    let canceled = input.cancel().await;
 
     if is_kill_refused {
         assert!(
             canceled.is_err(),
             "a flow left running was answered canceled"
+        );
+        assert!(
+            input.cancel().await.is_err(),
+            "a later cancel of a flow left running was answered canceled"
         );
         assert!(
             tokio::time::timeout(STOP_GRACE * 12, completion)
