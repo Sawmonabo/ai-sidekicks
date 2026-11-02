@@ -45,6 +45,7 @@ impl Harness {
                 database.path(),
                 RUN_BINDING_CURSORS_STATEMENT_CAPACITY,
             )),
+            Arc::new(|_: &SessionId| None),
             Arc::new(store),
             Arc::clone(&epochs),
         );

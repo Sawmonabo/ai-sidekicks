@@ -657,6 +657,7 @@ fn resuming_provider_sessions(
         appender: Arc::clone(&store.appender),
         binding_cursors: Arc::new(RunBindingCursors::new(
             Arc::clone(&store.reads),
+            Arc::new(|_: &SessionId| None),
             Arc::clone(bindings),
             Arc::new(Mutex::new(ExecutionEpochs::new(TEST_EPOCHS_PER_BINDING))),
         )),

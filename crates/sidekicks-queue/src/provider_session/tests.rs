@@ -166,6 +166,7 @@ impl Opening {
         ));
         let binding_cursors = Arc::new(RunBindingCursors::new(
             Arc::clone(&pool),
+            Arc::new(|_: &SessionId| None),
             Arc::clone(&store),
             Arc::clone(&epochs),
         ));

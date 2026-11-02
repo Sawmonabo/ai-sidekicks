@@ -1,6 +1,6 @@
-//! The epoch cursor of each run's runtime binding. It opens at the start every run opens at, as
-//! the binding is recorded or, for a binding its caller minted, before its row is written, and
-//! drops once its run has ended and the session has opened a newer binding, or the session closed,
+//! The epoch cursor of each run's runtime binding. It opens where the run stands at its log's end,
+//! read before any lock, as the binding is recorded or, for a binding its caller minted, before its
+//! row is written, and drops once its run has ended and the session has opened a newer binding, or the session closed,
 //! so the provider's last deliveries on an ended run still find it and are absorbed as late, and a
 //! session holds the cursors of its newest bindings alone. A binding minted for a resume of a
 //! session in a new process carries the cursor of the session's leg on, opened before the resume
@@ -20,7 +20,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
+use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingRelaunch, RuntimeBindingStore,
     RuntimeBindingStoreError,
@@ -30,15 +30,17 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::events::session::followers::CommittedEvent;
+use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_read_bound};
 
 use crate::run::epochs::{ConfirmedCut, EpochBinding, EpochCursorError, ExecutionEpochs};
 use crate::run::read::{RunRead, RunStateReader};
 use crate::run::stored_leg::read_session_leg;
 use crate::run::stored_state_change::read_stored_run_state_change;
+use crate::transcript::turn_attribution::{RunTurnReads, TurnAttributionError};
 
-/// The statements the cursors prepare on a pooled connection: a run's row, and a session's run ids
-/// and their bindings for its leg.
-pub const RUN_BINDING_CURSORS_STATEMENT_CAPACITY: usize = 3;
+/// The statements the cursors prepare on a pooled connection: a run's row, a session's run ids and
+/// their bindings for its leg, and the run's rollbacks and turn starts its standing is read from.
+pub const RUN_BINDING_CURSORS_STATEMENT_CAPACITY: usize = 3 + 2;
 
 /// Why a binding was not recorded or its cursor not opened; a binding whose cursor did not open
 /// is not recorded, and one whose row was not written keeps no cursor.
@@ -62,6 +64,9 @@ pub enum RunBindingCursorError {
     /// The read pool did not run the read.
     #[error("the read pool did not run the run's or the binding's read")]
     Pool(#[from] DatabaseReadError),
+    /// Where the run stands could not be read from its log.
+    #[error("where the run stands could not be read from its log")]
+    Standing(#[from] TurnAttributionError),
     /// The session closed while the open read, so no cursor opens for it.
     #[error("session {session_id} closed while its cursor opened, so none opens")]
     SessionClosed {
@@ -154,6 +159,7 @@ impl Drop for InFlightOperation<'_> {
 /// sessions' lock is taken before the cursors' and neither is held across an await.
 pub struct RunBindingCursors {
     pool: Arc<DatabaseReadPool>,
+    read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     store: Arc<RuntimeBindingStore>,
     epochs: Arc<Mutex<ExecutionEpochs>>,
     sessions: Mutex<HeldSessions>,
@@ -163,15 +169,18 @@ pub struct RunBindingCursors {
 }
 
 impl RunBindingCursors {
-    /// Cursors over `epochs`, the ones the inbound dispatch attributes on, reading runs and
-    /// bindings through `pool` and recording bindings through `store`.
+    /// Cursors over `epochs`, the ones the inbound dispatch attributes on, reading runs, their logs
+    /// and bindings through `pool`, no log read passing where `read_damaged_from_sequence` stops a
+    /// damaged session, and recording bindings through `store`.
     pub fn new(
         pool: Arc<DatabaseReadPool>,
+        read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
         store: Arc<RuntimeBindingStore>,
         epochs: Arc<Mutex<ExecutionEpochs>>,
     ) -> Self {
         Self {
             pool,
+            read_damaged_from_sequence,
             store,
             epochs,
             sessions: Mutex::new(HeldSessions::default()),
@@ -180,8 +189,8 @@ impl RunBindingCursors {
         }
     }
 
-    /// Records a binding of a run of `session_id` in the store and opens its cursor at the run's
-    /// start, dropping the cursors of the session's runs that have ended. Fails with
+    /// Records a binding of a run of `session_id` in the store and opens its cursor where the run
+    /// stands at its log's end, dropping the cursors of the session's runs that have ended. Fails with
     /// [`RunBindingCursorError::RunNotHeld`] for a run no session holds, recording nothing,
     /// [`RunBindingCursorError::SessionClosed`] for a session that closed meanwhile, its row
     /// recorded and no cursor opened, and with the store's or the read's failure.
@@ -191,14 +200,15 @@ impl RunBindingCursors {
         input: CreateRuntimeBindingInput,
     ) -> Result<RuntimeBinding, RunBindingCursorError> {
         let _in_flight = self.begin(session_id);
-        self.read_held_run(input.run_id).await?;
+        let (_, standing) = self.read_held_run(input.run_id).await?;
         let binding = self.store.create(input).await?;
-        self.open_held(session_id, epoch_binding_of(&binding))?;
+        self.open_held(session_id, epoch_binding_of(&binding), standing)?;
         Ok(binding)
     }
 
     /// Opens the cursor of the binding `binding_id` the caller minted for `run_id`, a run of
-    /// `session_id`, at the run's start, before its row is written, so the provider can deliver
+    /// `session_id`, where the run stands at its log's end, before its row is written, so the
+    /// provider can deliver
     /// under it at once, dropping the cursors of the session's runs that have ended. Fails with
     /// [`RunBindingCursorError::RunNotHeld`] for a run no session holds,
     /// [`RunBindingCursorError::SessionClosed`] for a session that closed meanwhile and
@@ -212,7 +222,7 @@ impl RunBindingCursors {
         provider_account_id: ProviderAccountId,
     ) -> Result<(), RunBindingCursorError> {
         let _in_flight = self.begin(session_id);
-        self.read_held_run(run_id).await?;
+        let (_, standing) = self.read_held_run(run_id).await?;
         self.open_held(
             session_id,
             EpochBinding {
@@ -221,6 +231,7 @@ impl RunBindingCursors {
                 provider_name,
                 provider_account_id,
             },
+            standing,
         )?;
         Ok(())
     }
@@ -242,7 +253,8 @@ impl RunBindingCursors {
     }
 
     /// Opens the cursor of `binding_id`, minted for a resume of `leg`'s conversation in a new
-    /// process, on `leg`'s run, a run of `session_id`, where `leg`'s cursor stands. Fails with
+    /// process, on `leg`'s run, a run of `session_id`, where `leg`'s cursor stands, else where the
+    /// run stands at its log's end. Fails with
     /// [`RunBindingCursorError::RunNotHeld`] for a leg whose run no session holds,
     /// [`RunBindingCursorError::SessionClosed`] for a session that closed meanwhile,
     /// [`RunBindingCursorError::Cursor`] for a binding already open, and with the read's failure.
@@ -259,7 +271,8 @@ impl RunBindingCursors {
 
     /// Opens the cursor of `binding_id`, which a driver minted for its own resume of
     /// `session_id`'s conversation, where the cursor of the session's leg, its newest binding with
-    /// a conversation, stands, and keeps the binding with that leg for the relaunch's result, until
+    /// a conversation, stands, else where the leg's run stands at its log's end, and keeps the
+    /// binding with that leg for the relaunch's result, until
     /// [`RunBindingCursors::take_driver_relaunch`] takes it or the session closes; an earlier one
     /// whose result never came is forgotten. A session with no leg has no cursor to carry on, and
     /// nothing opens. Fails as [`RunBindingCursors::open_relaunch`] fails.
@@ -289,8 +302,8 @@ impl RunBindingCursors {
             .take()
     }
 
-    // Opens `binding_id`'s cursor on `leg`'s run, a run of `session_id`, where `leg`'s stands, and
-    // where `is_drivers_own` keeps it with `leg` for the relaunch's result, forgetting an earlier
+    // Opens `binding_id`'s cursor on `leg`'s run, a run of `session_id`, where `leg`'s stands, else
+    // where the run stands at its log's end, and where `is_drivers_own` keeps it with `leg` for the relaunch's result, forgetting an earlier
     // one, all under the one sessions' lock a close is heard under.
     async fn continue_binding(
         &self,
@@ -300,7 +313,7 @@ impl RunBindingCursors {
         is_drivers_own: bool,
     ) -> Result<(), RunBindingCursorError> {
         let predecessor = epoch_binding_of(leg);
-        let run = self.read_held_run(predecessor.run_id).await?;
+        let (run, standing) = self.read_held_run(predecessor.run_id).await?;
         let mut sessions = self.lock_sessions();
         let session = sessions.open(session_id)?;
         let mut epochs = lock(&self.epochs);
@@ -308,7 +321,7 @@ impl RunBindingCursors {
             id: binding_id.clone(),
             ..predecessor.clone()
         };
-        epochs.continue_binding(binding, &predecessor.id, RUN_START_POSITION)?;
+        epochs.continue_binding(binding, &predecessor.id, standing)?;
         hold(session, predecessor.run_id, binding_id.clone());
         // A leg resumed on a run that has already ended drops at the session's next binding.
         if run.state.is_terminal() {
@@ -448,26 +461,40 @@ impl RunBindingCursors {
         }
     }
 
-    // The run's row; a run no session holds is refused.
-    async fn read_held_run(&self, run_id: RunId) -> Result<RunRead, RunBindingCursorError> {
-        let run = self
+    // The run's row and where the run stands at its log's end, on one pooled connection; a run no
+    // session holds is refused.
+    async fn read_held_run(
+        &self,
+        run_id: RunId,
+    ) -> Result<(RunRead, EpochPosition), RunBindingCursorError> {
+        let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
+        let held = self
             .pool
             .read(ReadLength::Short, move |reader| {
-                Ok::<_, RunBindingCursorError>(RunStateReader::new(reader).read_run(&run_id)?)
+                let Some(run) = RunStateReader::new(reader).read_run(&run_id)? else {
+                    return Ok::<_, RunBindingCursorError>(None);
+                };
+                let log_end =
+                    session_read_bound(&*read_damaged_from_sequence, &run.session_id, None);
+                let standing = RunTurnReads::new(reader, &*read_damaged_from_sequence)
+                    .read_standing_before(&run.session_id, &run_id, log_end)?;
+                Ok(Some((run, standing)))
             })
             .await?
             .ok_or(RunBindingCursorError::RunNotHeld { run_id })?;
         #[cfg(test)]
         self.held_run_read_pause.pass().await;
-        Ok(run)
+        Ok(held)
     }
 
-    // Opens `binding`'s cursor at the run's start in `session_id`'s cursors, first dropping the
-    // cursors of the session's runs that have ended; refused for a session that closed meanwhile.
+    // Opens `binding`'s cursor at `standing`, where its run stands, in `session_id`'s cursors,
+    // first dropping the cursors of the session's runs that have ended; refused for a session that
+    // closed meanwhile.
     fn open_held(
         &self,
         session_id: SessionId,
         binding: EpochBinding,
+        standing: EpochPosition,
     ) -> Result<(), RunBindingCursorError> {
         let mut sessions = self.lock_sessions();
         let session = sessions.open(session_id)?;
@@ -476,7 +503,7 @@ impl RunBindingCursors {
             drop_run(session, &mut epochs, &ended_run_id);
         }
         let (run_id, binding_id) = (binding.run_id, binding.id.clone());
-        epochs.open_binding(binding, RUN_START_POSITION)?;
+        epochs.open_binding(binding, standing)?;
         hold(session, run_id, binding_id);
         Ok(())
     }

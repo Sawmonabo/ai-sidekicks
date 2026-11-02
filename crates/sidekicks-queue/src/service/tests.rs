@@ -303,6 +303,7 @@ fn queue_over(
     record_first_provider_capabilities(&providers, true);
     let binding_cursors = Arc::new(RunBindingCursors::new(
         Arc::clone(&pool),
+        Arc::new(|_: &SessionId| None),
         Arc::new(RuntimeBindingStore::new(
             Arc::clone(&pool),
             Arc::clone(&log.writer),
