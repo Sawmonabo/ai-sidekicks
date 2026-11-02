@@ -14,9 +14,11 @@ use std::sync::Arc;
 use serde::Deserialize as _;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::usage::{
-    DEFAULT_RATE_LIMIT_ID, UsageRateLimitUpdatedPayload, UsageTokenCountRecordedPayload,
+    UsageRateLimitUpdatedPayload, UsageTokenCountRecordedPayload,
 };
-use sidekicks_contracts::provider::account::record::ProviderAccountNotification;
+use sidekicks_contracts::provider::account::record::{
+    PROVIDER_QUOTA_DEFAULT_LIMIT_ID, ProviderAccountNotification,
+};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::transcript::run_facts::RunStateEventType;
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -460,7 +462,9 @@ pub(super) async fn publish_usage_window(
     let limit_id = updated
         .limit_id
         .as_ref()
-        .map_or(DEFAULT_RATE_LIMIT_ID, |limit_id| limit_id.as_str());
+        .map_or(PROVIDER_QUOTA_DEFAULT_LIMIT_ID, |limit_id| {
+            limit_id.as_str()
+        });
     let window = read_usage_windows(reads, Some(updated.provider.clone()))
         .await?
         .into_iter()

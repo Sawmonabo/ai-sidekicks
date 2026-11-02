@@ -18,10 +18,11 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::event::usage::{
-    DEFAULT_RATE_LIMIT_ID, UsageRateLimitUpdatedPayload, UsageRateLimitWindowKey,
-    UsageTokenCountRecordedPayload,
+    UsageRateLimitUpdatedPayload, UsageRateLimitWindowKey, UsageTokenCountRecordedPayload,
 };
-use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
+use sidekicks_contracts::provider::account::record::{
+    CredentialGeneration, PROVIDER_QUOTA_DEFAULT_LIMIT_ID, ProviderAccountId,
+};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
@@ -520,7 +521,7 @@ fn is_stored_set(rows: &[UsageRateLimitUpdatedPayload], stored: &[StoredQuotaWin
             let limit_id = row
                 .limit_id
                 .as_ref()
-                .map_or(DEFAULT_RATE_LIMIT_ID, BoundedText::as_str);
+                .map_or(PROVIDER_QUOTA_DEFAULT_LIMIT_ID, BoundedText::as_str);
             stored.iter().any(|window| {
                 window.limit_id == limit_id
                     && window.window_mins == row.window_mins.get()
