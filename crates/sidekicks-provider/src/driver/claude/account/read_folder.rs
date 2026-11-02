@@ -6,7 +6,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_platforms::remove_tree;
+use sidekicks_platforms::{remove_tree, remove_tree_awaited};
 
 use crate::driver::contract::error::DriverError;
 
@@ -26,12 +26,7 @@ pub(super) async fn run_in_read_folder<Answer>(
     let mut held = ReadFolder(Some(folder.clone()));
     let answer = read(&folder).await;
     held.0 = None;
-    let removed_folder = folder.clone();
-    let removed = tokio::task::spawn_blocking(move || remove_tree(&removed_folder))
-        .await
-        .map_err(io::Error::other)
-        .and_then(|removed| removed);
-    log_unremoved(removed);
+    log_unremoved(remove_tree_awaited(&folder).await);
     answer
 }
 
