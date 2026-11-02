@@ -9,12 +9,14 @@ use strum::VariantArray;
 
 use crate::approval::ApprovalDecision;
 use crate::provider::account::record::ProviderAccountId;
+use crate::session::controls::methods::PermissionLevel;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::Never;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
+use crate::wire::text::NonEmptyText;
 use crate::workflow::definition::document::WorkflowNodeId;
 use crate::workflow::definition::item::WorkflowStepError;
 use crate::workflow::run::events::workflow_run_event;
@@ -50,7 +52,8 @@ workflow_step_event! {
 }
 
 workflow_step_event! {
-    /// `workflow.step.started`: the input the step ran on.
+    /// `workflow.step.started`: the input the step ran on and, for an agent step whose account
+    /// could not run the run's permission level, the level it ran at instead.
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
@@ -58,6 +61,15 @@ workflow_step_event! {
         /// The input.
         #[garde(dive)]
         pub input_ref: WorkflowPayloadRef,
+        /// Present on an agent step whose account could not run the run's level: the level it ran
+        /// at instead.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "PermissionLevel")]
+        pub permission_level: Option<PermissionLevel>,
     }
 }
 
@@ -85,7 +97,8 @@ workflow_step_event! {
 }
 
 workflow_step_event! {
-    /// `workflow.step.failed`: the error, its failure code if one names it, and the failed item.
+    /// `workflow.step.failed`: the error, its failure code if one names it, the failed item, and
+    /// the words a person typed with the Decline that failed it.
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     #[garde(allow_unvalidated)]
@@ -101,6 +114,15 @@ workflow_step_event! {
         )]
         #[schemars(with = "SafeInt<0>")]
         pub failed_item_index: Option<SafeInt<0>>,
+        /// Present where the person's Decline on the command step's own approval card failed it
+        /// and they typed words on its `why not` line: those words.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "NonEmptyText")]
+        pub decline_reason: Option<NonEmptyText>,
     }
 }
 
@@ -115,8 +137,9 @@ macro_rules! phase_suspended_payload {
             /// `workflow.phase.suspended`: a step started waiting: its `waitCause` and, for an
             /// `account` wait, the spent account the attention read groups it under and the
             /// durable resume instant where the wait armed one; absent, only the person resumes
-            /// it. A wait on anything else names neither. The deadline a `Timeout` arms is
-            /// written on the step's row and rides no event.
+            /// it. A wait on anything else names neither. A wait on a person's approval, form or
+            /// reply carries the deadline its node's `Timeout` arms; a wait on an account or a
+            /// chain's question carries none.
             #[derive(
                 Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
             )]
@@ -149,6 +172,14 @@ phase_suspended_payload! {
         #[schemars(with = "WireInstant")]
         #[garde(dive)]
         resume_at: Option<WireInstant>,
+        /// Never present: only a wait on a person gives up.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        wait_deadline_at: Option<Never>,
     }
     /// Waiting on a person's approval.
     Approval {
@@ -168,6 +199,15 @@ phase_suspended_payload! {
         )]
         #[schemars(with = "Never")]
         resume_at: Option<Never>,
+        /// When the wait gives up, where the node's `Timeout` armed one.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WireInstant")]
+        #[garde(dive)]
+        wait_deadline_at: Option<WireInstant>,
     }
     /// Waiting on a person's form.
     Form {
@@ -187,6 +227,15 @@ phase_suspended_payload! {
         )]
         #[schemars(with = "Never")]
         resume_at: Option<Never>,
+        /// When the wait gives up, where the node's `Timeout` armed one.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WireInstant")]
+        #[garde(dive)]
+        wait_deadline_at: Option<WireInstant>,
     }
     /// Waiting on a person's chat reply.
     Reply {
@@ -206,6 +255,15 @@ phase_suspended_payload! {
         )]
         #[schemars(with = "Never")]
         resume_at: Option<Never>,
+        /// When the wait gives up, where the node's `Timeout` armed one.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "WireInstant")]
+        #[garde(dive)]
+        wait_deadline_at: Option<WireInstant>,
     }
     /// Waiting on its chain's question.
     Chain {
@@ -225,6 +283,14 @@ phase_suspended_payload! {
         )]
         #[schemars(with = "Never")]
         resume_at: Option<Never>,
+        /// Never present: only a wait on a person gives up.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        wait_deadline_at: Option<Never>,
     }
 }
 
@@ -398,3 +464,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: TS_CONSTANTS,
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests;

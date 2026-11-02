@@ -20,7 +20,7 @@ use crate::wire::Never;
 use crate::wire::id::UuidTextForm;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::text::{ComposedText, FreeFormText};
+use crate::wire::text::{ComposedText, FreeFormText, NonEmptyText};
 use crate::workflow::definition::document::WorkflowNodeId;
 use crate::workflow::definition::item::{WorkflowItem, WorkflowStepError};
 use crate::workflow::run::id::WorkflowRunId;
@@ -146,7 +146,8 @@ pub enum WorkflowStepResolutionKind {
 }
 
 /// The record of how a person answered a step and when, kept on the step so the receipt it earns,
-/// `Approved at 2:14 PM`, reads the same after a reload.
+/// `Approved at 2:14 PM` or `Declined at 2:14 PM · use the test database`, reads the same after a
+/// reload.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -156,6 +157,15 @@ pub struct WorkflowStepResolution {
     /// When.
     #[garde(dive)]
     pub at: WireInstant,
+    /// The words the person typed on the `Decline`'s `why not` line; present only on a `declined`
+    /// resolution whose Decline carried words.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "NonEmptyText")]
+    pub decline_reason: Option<NonEmptyText>,
 }
 
 /// The snapshot an approval pause took, which Review opens on: pinned to an execution of the run
@@ -349,6 +359,9 @@ macro_rules! workflow_step {
                 )]
                 #[schemars(with = "WorkflowRunId")]
                 pub child_workflow_run_id: Option<WorkflowRunId>,
+                /// The milliseconds the memory gate held the step before it started, summed over
+                /// every hold; `0` where it was never held.
+                pub total_pool_wait_ms: SafeInt<0>,
                 $($own)*
             }
         }
@@ -751,3 +764,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: TS_CONSTANTS,
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests;
