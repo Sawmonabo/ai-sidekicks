@@ -8,7 +8,7 @@
 //! never counts a run from zero and no report reads the run's rows again. A run past its token
 //! limit is stopped on a task of its own, so a report never waits on a driver.
 
-mod reads;
+pub(crate) mod reads;
 #[cfg(test)]
 mod tests;
 
