@@ -17,6 +17,7 @@ use crate::driver::contract::params_and_results::{
     RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::error_causes::session_process_unavailable;
+use crate::driver::ports::resolve_run_folder;
 use crate::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, FasterModelRetryOutcome,
     FasterModelRetryParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams, PickedSkill,
@@ -130,13 +131,7 @@ impl CodexDriver {
         if let Some(source) = self.views.command_source(session_id) {
             return Ok(source);
         }
-        let run_folder = self
-            .spawn_contexts
-            .require_port()
-            .map_err(|error| DriverError::Internal(Box::new(error)))?
-            .resolve_run_folder(session_id)
-            .await
-            .map_err(DriverError::Internal)?;
+        let run_folder = resolve_run_folder(&self.spawn_contexts, session_id).await?;
         let service = self.registry.service_for(&provider_account_id).await?;
         service
             .ensure_started(service.dependencies().startup_timeout)

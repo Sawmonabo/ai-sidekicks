@@ -21,6 +21,7 @@ use crate::driver::contract::params_and_results::{
 use crate::driver::contract::plan_verdict::{
     AnswerPlanParams, PlanVerdictAnswer, answer_plan_holding_no_request,
 };
+use crate::driver::ports::resolve_run_folder;
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, InterruptRunRequest, OverrideDenialParams, PauseRunParams,
@@ -224,15 +225,8 @@ impl ClaudeDriver {
             )?);
         }
         let provider_account_id = params.binding.provider_account_id.clone();
-        let run_folder = self
-            .sources
-            .ports
-            .spawn_contexts
-            .require_port()
-            .map_err(|error| DriverError::Internal(Box::new(error)))?
-            .resolve_run_folder(params.session_id)
-            .await
-            .map_err(DriverError::Internal)?;
+        let run_folder =
+            resolve_run_folder(&self.sources.ports.spawn_contexts, params.session_id).await?;
         let environment = self
             .sources
             .account_environment(&provider_account_id)
