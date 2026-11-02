@@ -38,6 +38,7 @@ use crate::driver::codex::run::routes::CodexRunRoutes;
 use crate::driver::codex::run::start::record::CodexTurnRequest;
 use crate::driver::codex::run::start::{CODEX_TURN_START_TIMEOUT, CodexRunStart};
 use crate::driver::codex::run::steer::steer_codex_run;
+use crate::driver::codex::run::stopped_helpers::stop_codex_helper_turn;
 use crate::driver::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
 use crate::driver::codex::run::turn_interrupt::interrupt_codex_turn;
 use crate::driver::codex::session::background_terminals::end_codex_running_commands;
@@ -101,8 +102,10 @@ impl CodexRunControl {
     /// stopped instead, the commands its held turn left running ended, and answers no steers,
     /// since that turn's end gave its dropped steers back to the queue; a retry whose new turn
     /// already runs is interrupted as that live turn. A turn start in flight is withdrawn, its
-    /// turn interrupted once Codex names it. A run with no turn in flight answers at once with
-    /// nothing sent. Fails as [`interrupt_codex_run`] does.
+    /// turn interrupted once Codex names it. A helper's run has its own conversation's running
+    /// turn interrupted and its commands ended, its lead going on, and answers no steers. A run
+    /// with no turn in flight answers at once with nothing sent. Fails as
+    /// [`interrupt_codex_run`] does, and as a helper's interrupt request fails.
     pub(crate) async fn interrupt_run(
         &self,
         run_id: RunId,
@@ -115,10 +118,30 @@ impl CodexRunControl {
             return Ok(Vec::new());
         }
         let Some(session_id) = self.dependencies.run_routes.session_id_for(run_id) else {
-            return Ok(Vec::new());
+            return self.interrupt_helper_run(run_id).await;
         };
         let inbound = self.dependencies.slots.require_live(session_id)?;
         interrupt_codex_run(&inbound, run_id).await
+    }
+
+    // Interrupts a helper's running turn on its own conversation and ends the commands it left
+    // running; the route is marked first, so the helper's end reads as this interrupt's however
+    // soon it arrives. A run with no helper route answers at once with nothing sent.
+    async fn interrupt_helper_run(&self, run_id: RunId) -> Result<Vec<QueueItemId>, CodexError> {
+        let Some(route) = self.dependencies.run_routes.begin_helper_interrupt(run_id) else {
+            return Ok(Vec::new());
+        };
+        let inbound = self.dependencies.slots.require_live(route.session_id)?;
+        let reading = call_codex_session(&inbound, |reply| CodexSessionCall::ReadSession {
+            thread_id: None,
+            reply,
+        })
+        .await?;
+        let connection = reading.connection?;
+        stop_codex_helper_turn(&connection, &route.thread_id).await?;
+        end_codex_running_commands(&connection, &route.thread_id, false).await;
+        // A helper holds none of the queue's steers.
+        Ok(Vec::new())
     }
 
     /// Steers one message and its files into the run's live turn as soon as it is handed over,

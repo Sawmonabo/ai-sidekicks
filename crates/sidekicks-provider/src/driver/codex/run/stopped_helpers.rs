@@ -190,7 +190,7 @@ impl CodexDriver {
 /// Interrupts the running turn of the helper conversation `helper_thread_id`, read as its newest
 /// turn; a helper whose newest turn has ended, or that no message has reached yet, is left as it
 /// is.
-async fn stop_codex_helper_turn(
+pub(super) async fn stop_codex_helper_turn(
     connection: &CodexAppServerConnection,
     helper_thread_id: &str,
 ) -> Result<(), CodexError> {

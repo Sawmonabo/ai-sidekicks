@@ -263,9 +263,10 @@ impl CodexFrameDelivery {
     // The child run, naming the helper as Codex `names` it and its parent helper
     // `parent_subagent_id`, and its `subagent.started` row, which names the child run the engine
     // started first; the child's start once the run engine started or refused it, `None` when it
-    // absorbed it. A refused helper keeps its ended run, which absorbs its rows, and its running
-    // turn is interrupted, as each turn it starts after is, and its tool calls are denied with the
-    // refusal's sentence.
+    // absorbed it. A bound helper's run is routed to its own conversation, which an interrupt on
+    // that run reaches. A refused helper keeps its ended run, which absorbs its rows, and its
+    // running turn is interrupted, as each turn it starts after is, and its tool calls are denied
+    // with the refusal's sentence.
     async fn deliver_child_start(
         &self,
         record: &mut CodexSessionRecord,
@@ -337,6 +338,11 @@ impl CodexFrameDelivery {
             .delivery
             .child_thread_id_by_run_id
             .insert(child_run_id, child_thread_id.to_owned());
+        self.dependencies.run_routes.bind_helper_run(
+            child_run_id,
+            record.session_id,
+            child_thread_id,
+        );
         Some(CodexBoundChildRun {
             child_run_id,
             parent_run_id,
