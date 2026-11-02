@@ -1,6 +1,7 @@
-//! The tool-server calls a process still held when it ended with nothing asking it to, each
-//! settled by what Claude Code kept of it: a saved ending closes it as it ended, a record keeps it
-//! running for the next process to restore, and a call with neither ended with the process.
+//! The tool-server calls a process still held when it ended while the daemon runs on and no
+//! successor took its session, each settled by what Claude Code kept of it: a saved ending closes
+//! it as it ended, a record keeps it running for the next process to restore, and a call with
+//! neither ended with the process.
 
 use std::error::Error;
 
@@ -13,7 +14,7 @@ use crate::driver::claude::delivery::stream::{ClaudeDeliveryStream, ClaudeSessio
 
 impl ClaudeDeliveryStream {
     /// Settles the calls in `held`, each by its `tool_use_id` with its opening, that the
-    /// session's process held as it ended unasked: a saved ending gives its close, a record
+    /// session's process held as it ended: a saved ending gives its close, a record
     /// writes nothing and keeps its status line, and neither closes it failed as ended with the
     /// process. What Claude Code keeps is read once; a failed read is logged and every call stays
     /// open, so the next resume or the session's close reads again.
