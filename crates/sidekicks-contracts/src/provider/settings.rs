@@ -600,8 +600,9 @@ pub struct ProviderProtectedPathListResponse {
 }
 
 branded_text! {
-    /// The daemon-minted id of one standing rule, derived from the rule's place, its file and its
-    /// text, so one file path in two places names two rules.
+    /// The daemon-minted id of one standing rule, a digest of the rule's place, its file, its
+    /// scope, the provider's decision word and its text, so the same text in two places, files,
+    /// scopes or decisions names two rules and a file read again gives the same ids.
     pub struct ProviderStandingRuleId(1..=PROVIDER_STANDING_RULE_ID_MAX_LEN);
 }
 

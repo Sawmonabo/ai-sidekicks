@@ -17,7 +17,6 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
-use sha2::{Digest as _, Sha256};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -40,6 +39,7 @@ use crate::driver::claude::session::settings_file::{
 };
 use crate::driver::claude::spawn::account_home::CLAUDE_HOME_SETTINGS_MODE;
 use crate::inbound_json::decode_inbound_json;
+use crate::standing_rule_id::mint_standing_rule_id;
 
 // The `permissions` lists a standing rule sits in, each named as Claude Code names its decision.
 const STANDING_RULE_LISTS: [&str; 3] = ["allow", "deny", "ask"];
@@ -214,9 +214,9 @@ async fn list_rules(
         for list in STANDING_RULE_LISTS {
             for text in read_string_list(&settings, &["permissions"], list, &rule_file.file)? {
                 let rule_id = mint_standing_rule_id(
-                    &rule_file.scope,
                     sources.place.as_ref(),
                     &source_path,
+                    Some(&rule_file.scope),
                     list,
                     text,
                 );
@@ -284,21 +284,6 @@ fn project_settings_files(folder: &Path) -> [PathBuf; 2] {
         settings_path(folder, CLAUDE_SHARED_SETTINGS_FILE),
         local_settings_path(folder),
     ]
-}
-
-// The id of one rule: a hex SHA-256 of its scope, place, file, list and text, so the same text in
-// two files, two scopes or two lists names two rules and a file read twice gives the same ids.
-fn mint_standing_rule_id(
-    scope: &ProviderStandingRuleScope,
-    place: Option<&Place>,
-    source_path: &FilesystemPath,
-    list: &str,
-    text: &str,
-) -> ProviderStandingRuleId {
-    let identity = serde_json::to_vec(&(scope, place, source_path, list, text))
-        .expect("a scope, a place and strings always serialize");
-    ProviderStandingRuleId::new(base16ct::lower::encode_string(&Sha256::digest(identity)))
-        .expect("a SHA-256 hex digest is 64 characters")
 }
 
 // The settings object of `file`, `None` where the daemon cannot read it, as Claude Code cannot.

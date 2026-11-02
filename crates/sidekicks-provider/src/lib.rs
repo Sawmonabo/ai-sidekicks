@@ -36,6 +36,7 @@ pub mod runtime_binding;
 pub mod service_log;
 pub mod spawn_environment;
 pub(crate) mod spawned_version;
+pub(crate) mod standing_rule_id;
 pub(crate) mod terminal_emission_gate;
 pub(crate) mod thread_frame_router;
 pub(crate) mod tool_server_name;

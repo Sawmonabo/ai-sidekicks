@@ -37,6 +37,7 @@ use super::{
     read_rule_file_texts, resolve_lock_key, rule_lines,
 };
 use crate::driver::codex::config_read::CODEX_CONFIG_FILE_NAME;
+use crate::standing_rule_id::mint_standing_rule_id;
 
 // The config keys that select a permission profile, hold the profiles, and hold a profile's
 // filesystem entries; the word a filesystem entry denies with; and the older sandbox key, which
@@ -274,7 +275,8 @@ impl RuleListing {
                 let text = file_text
                     .get(call.span.clone())
                     .expect("a call's place lies in the text its file was parsed from");
-                let rule_id = mint_rule_id(scope, place, &source_path, text);
+                let rule_id =
+                    mint_standing_rule_id(place, &source_path, Some(scope), &call.decision, text);
                 // The id holds the file, so a rule listed before is in this file: written twice
                 // in it, or a project's file read again beside another home.
                 if let Some(&position) = self.positions.get(&rule_id) {
@@ -341,43 +343,6 @@ async fn is_any_codex_home(sources: &CodexRuleListingSources<'_>, project_folder
         }
     }
     false
-}
-
-// The id of the rule `text` in `source_path` under `scope` in `place`: a hex digest of the four,
-// each length-prefixed so no two different sets of parts give the same bytes.
-fn mint_rule_id(
-    scope: &ProviderStandingRuleScope,
-    place: Option<&Place>,
-    source_path: &FilesystemPath,
-    text: &str,
-) -> ProviderStandingRuleId {
-    let (scope_kind, scope_id) = match scope {
-        ProviderStandingRuleScope::AccountHome { account_id } => {
-            ("accountHome", account_id.as_str().to_owned())
-        }
-        ProviderStandingRuleScope::Project { repo_mount_id } => {
-            ("project", repo_mount_id.to_string())
-        }
-    };
-    let (place_kind, place_name) = match place {
-        None => ("", ""),
-        Some(Place::Windows(_)) => ("windows", ""),
-        Some(Place::Wsl(wsl)) => ("wsl", wsl.distro.as_str()),
-    };
-    let mut hasher = blake3::Hasher::new();
-    for part in [
-        scope_kind,
-        scope_id.as_str(),
-        place_kind,
-        place_name,
-        source_path.as_str(),
-        text,
-    ] {
-        hasher.update(&(part.len() as u64).to_le_bytes());
-        hasher.update(part.as_bytes());
-    }
-    ProviderStandingRuleId::new(hasher.finalize().to_hex().to_string())
-        .expect("a 64-digit hex digest lies within the id's bounds")
 }
 
 // The bytes a call's removal takes out of `text`: its whole lines where nothing else is on them,
