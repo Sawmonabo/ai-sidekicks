@@ -12,7 +12,9 @@ use serde::Deserialize;
 use serde::de::IgnoredAny;
 use serde_json::Value;
 use serde_json::value::RawValue;
+use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::oneshot;
 
 use crate::driver::codex::event_normalizer::{
@@ -132,6 +134,8 @@ struct StartedThread {
     id: Option<Box<RawValue>>,
     parent_thread_id: Option<Box<RawValue>>,
     source: Option<Box<RawValue>>,
+    agent_nickname: Option<Box<RawValue>>,
+    agent_role: Option<Box<RawValue>>,
 }
 
 // A thread's `source` as far as helpers go: its `subAgent` arm, where it has one.
@@ -147,28 +151,37 @@ struct ThreadSource {
 enum SubAgentSource {
     Review,
     Compact,
-    ThreadSpawn(IgnoredAny),
+    ThreadSpawn { agent_path: Option<Value> },
     MemoryConsolidation,
     Other(IgnoredAny),
+}
+
+// A helper thread's source: the path in Codex's tree of helpers a spawned one has.
+struct HelperSource {
+    agent_path: Option<String>,
 }
 
 // Whether a thread's `source` makes it a helper, whose spend is its own: a review, a spawned
 // helper, or another Codex names. A compaction or a memory consolidation is Codex's housekeeping
 // for the parent, whose spend stays the parent run's, as is an arm a newer Codex adds or a thread
 // with no source.
-fn is_helper_source(source: Option<&RawValue>) -> bool {
-    let sub_agent = source
-        .and_then(|source| {
-            crate::driver::codex::transport::connection::read_codex_object::<ThreadSource>(
-                source.get(),
-            )
-        })
-        .and_then(|source| source.sub_agent);
+fn read_helper_source(source: Option<&RawValue>) -> Option<HelperSource> {
+    let sub_agent = crate::driver::codex::transport::connection::read_codex_object::<ThreadSource>(
+        source?.get(),
+    )?
+    .sub_agent?;
     match sub_agent {
-        Some(
-            SubAgentSource::Review | SubAgentSource::ThreadSpawn(_) | SubAgentSource::Other(_),
-        ) => true,
-        Some(SubAgentSource::Compact | SubAgentSource::MemoryConsolidation) | None => false,
+        SubAgentSource::Review | SubAgentSource::Other(_) => {
+            Some(HelperSource { agent_path: None })
+        }
+        SubAgentSource::ThreadSpawn { agent_path } => Some(HelperSource {
+            agent_path: agent_path
+                .as_ref()
+                .and_then(Value::as_str)
+                .filter(|path| !path.is_empty())
+                .map(str::to_owned),
+        }),
+        SubAgentSource::Compact | SubAgentSource::MemoryConsolidation => None,
     }
 }
 
@@ -207,12 +220,44 @@ pub(crate) fn read_codex_child_thread_announcement(
     let thread = read_frame_conversation(params)?.thread?;
     let thread_id = read_text(thread.id.as_deref())?;
     let parent_thread_id = read_text(thread.parent_thread_id.as_deref())?;
-    let is_subagent = is_helper_source(thread.source.as_deref());
+    let is_subagent = read_helper_source(thread.source.as_deref()).is_some();
     Some(derive_codex_child_thread_announcement(
         thread_id,
         Some(parent_thread_id),
         is_subagent,
     ))
+}
+
+/// The names Codex gives a helper on its `thread/started`, each `None` where Codex gives none or
+/// one the contract refuses.
+pub(crate) struct CodexHelperNames {
+    /// Its nickname, `agentNickname`.
+    pub(crate) name: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// The role it was started in, `agentRole`.
+    pub(crate) role: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// Its path in Codex's tree of helpers, a spawned helper's `agent_path`.
+    pub(crate) provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+}
+
+/// The names a `thread/started`'s params give the helper it announces: its nickname, its role
+/// and, for a spawned helper, its path. A blank value, one holding NUL or one over the cap reads as
+/// none.
+pub(crate) fn read_codex_helper_names(params: &RawValue) -> CodexHelperNames {
+    let thread = read_frame_conversation(params).and_then(|conversation| conversation.thread);
+    let thread = thread.as_ref();
+    let provider_path = thread
+        .and_then(|thread| read_helper_source(thread.source.as_deref()))
+        .and_then(|source| source.agent_path);
+    CodexHelperNames {
+        name: read_handle(thread.and_then(|thread| read_text(thread.agent_nickname.as_deref()))),
+        role: read_handle(thread.and_then(|thread| read_text(thread.agent_role.as_deref()))),
+        provider_path: read_handle(provider_path),
+    }
+}
+
+// A name as the contract holds it; one it refuses reads as none, never cut.
+fn read_handle(text: Option<String>) -> Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>> {
+    text.and_then(|text| FreeFormText::new(text).ok())
 }
 
 /// Whether a frame belongs to one session or every session on the service.

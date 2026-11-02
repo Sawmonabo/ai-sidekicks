@@ -26,7 +26,8 @@ use crate::driver::codex::event_normalizer::{
 };
 use crate::driver::codex::mcp::status_list::list_codex_mcp_server_statuses;
 use crate::driver::codex::service::supervisor::routing::{
-    read_codex_child_thread_announcement, read_codex_frame_thread_id,
+    CodexHelperNames, read_codex_child_thread_announcement, read_codex_frame_thread_id,
+    read_codex_helper_names,
 };
 use crate::driver::codex::session::state::{CODEX_THREAD_FRAME_ROUTER_CONFIG, CodexSessionRecord};
 use crate::driver::codex::token_usage::read_codex_token_usage;
@@ -322,12 +323,14 @@ impl CodexSessionRouting {
                 released_frames,
             } = self.router.register_child_thread(announcement)
             {
+                let names = read_codex_helper_names(&params);
                 self.start_registered_child(
                     delivery,
                     record,
                     &child_thread_id,
                     parent_thread_id.as_deref(),
                     &attribution,
+                    names,
                 )
                 .await;
                 for frame in released_frames {
@@ -344,8 +347,9 @@ impl CodexSessionRouting {
     }
 
     // A helper registered once: its usage based at zero and, for a subagent, its child run
-    // started. A repeated announcement keeps the base, since re-basing would meter reported spend
-    // again, and starts nothing, since a second start would show the helper twice.
+    // started under the names Codex gave it. A repeated announcement keeps the base, since
+    // re-basing would meter reported spend again, and starts nothing, since a second start would
+    // show the helper twice.
     async fn start_registered_child(
         &mut self,
         delivery: &CodexFrameDelivery,
@@ -353,6 +357,7 @@ impl CodexSessionRouting {
         child_thread_id: &str,
         parent_thread_id: Option<&str>,
         attribution: &ChildSpendAttribution,
+        names: CodexHelperNames,
     ) {
         if self.accountant.has_thread(child_thread_id) {
             report(
@@ -372,7 +377,13 @@ impl CodexSessionRouting {
             (attribution, parent_thread_id)
         {
             delivery
-                .start_child(record, child_thread_id, parent_thread_id, subagent_id)
+                .start_child(
+                    record,
+                    child_thread_id,
+                    parent_thread_id,
+                    subagent_id,
+                    names,
+                )
                 .await;
         }
     }

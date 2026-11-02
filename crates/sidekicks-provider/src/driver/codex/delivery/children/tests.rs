@@ -8,6 +8,7 @@ use crate::driver::codex::delivery::rows::test_row_run;
 use crate::driver::codex::hooks::server::{
     CodexHookAnswer, CodexHookAnswerer, CodexHookEvent, CodexHookInput,
 };
+use crate::driver::codex::service::supervisor::routing::CodexHelperNames;
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession};
 use crate::driver::run_control::HelperStopReason;
 use crate::run::delivery::RunSetupRefusal;
@@ -44,6 +45,11 @@ async fn a_refused_helpers_running_turn_is_interrupted() {
             HELPER_THREAD,
             TEST_THREAD,
             HELPER_THREAD,
+            CodexHelperNames {
+                name: None,
+                role: None,
+                provider_path: None,
+            },
         )
         .await;
 

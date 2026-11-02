@@ -15,6 +15,7 @@ use crate::driver::codex::delivery::frames::CodexFrameDelivery;
 use crate::driver::codex::delivery::memory::{CodexBoundChildRun, CodexChildRun, CodexSpawnCall};
 use crate::driver::codex::delivery::reviewer::end_codex_review_turn;
 use crate::driver::codex::delivery::rows::CodexRowRun;
+use crate::driver::codex::service::supervisor::routing::CodexHelperNames;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::turn_evidence::{CodexTurnStatus, compose_codex_child_terminal};
 use crate::driver::run_control::HelperStopReason;
@@ -90,14 +91,16 @@ impl CodexSessionRecord {
 impl CodexFrameDelivery {
     /// Starts the child run of a helper Codex announced on `child_thread_id`: beneath the run
     /// whose oldest unclaimed spawn call on the parent thread started it, else the parent helper's
-    /// own child run, else the session's one live run. A helper whose parent run cannot be told,
-    /// or beneath a helper that never started, is left unstarted, since no run can own it.
+    /// own child run, else the session's one live run, under the `names` Codex gave it. A helper
+    /// whose parent run cannot be told, or beneath a helper that never started, is left unstarted,
+    /// since no run can own it.
     pub(crate) async fn start_child(
         &self,
         record: &mut CodexSessionRecord,
         child_thread_id: &str,
         parent_thread_id: &str,
         subagent_id: &str,
+        names: CodexHelperNames,
     ) {
         // A helper id the transcript cannot hold names no helper a row could show.
         let Ok(subagent_id) = SubagentId::new(subagent_id.to_owned()) else {
@@ -154,6 +157,7 @@ impl CodexFrameDelivery {
                     &child,
                     parent_run_id,
                     parent_subagent_id,
+                    names,
                 )
                 .await;
         }
@@ -256,11 +260,12 @@ impl CodexFrameDelivery {
         self.send(record, end, "turn/completed").await;
     }
 
-    // The child run, naming the helper and its parent helper `parent_subagent_id`, and its
-    // `subagent.started` row, which names the child run the engine started first; the child's start
-    // once the run engine started or refused it, `None` when it absorbed it. A refused helper keeps
-    // its ended run, which absorbs its rows, and its running turn is interrupted, as each turn it
-    // starts after is, and its tool calls are denied with the refusal's sentence.
+    // The child run, naming the helper as Codex `names` it and its parent helper
+    // `parent_subagent_id`, and its `subagent.started` row, which names the child run the engine
+    // started first; the child's start once the run engine started or refused it, `None` when it
+    // absorbed it. A refused helper keeps its ended run, which absorbs its rows, and its running
+    // turn is interrupted, as each turn it starts after is, and its tool calls are denied with the
+    // refusal's sentence.
     async fn deliver_child_start(
         &self,
         record: &mut CodexSessionRecord,
@@ -268,6 +273,7 @@ impl CodexFrameDelivery {
         child: &CodexChildRun,
         parent_run_id: RunId,
         parent_subagent_id: Option<SubagentId>,
+        names: CodexHelperNames,
     ) -> Option<CodexBoundChildRun> {
         let start = InboundDelivery::ChildRun {
             binding: DeliveryBinding {
@@ -282,9 +288,9 @@ impl CodexFrameDelivery {
             subagent: ChildRunSubagent {
                 subagent_id: child.subagent_id.clone(),
                 parent_subagent_id,
-                name: None,
-                role: None,
-                provider_path: None,
+                name: names.name,
+                role: names.role,
+                provider_path: names.provider_path,
                 start_call_id: None,
             },
         };
