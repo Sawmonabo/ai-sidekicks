@@ -43,6 +43,7 @@ use sidekicks_store::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
 };
 
+use crate::agent_tree::store::read_child_handle;
 use crate::directory::lookups::ENDED_SESSION_STATES_SQL;
 use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 
@@ -781,11 +782,6 @@ impl<'reader> QueueItemReader<'reader> {
 #[error("the stored queue item state and its not-delivered reason do not pair")]
 struct UnpairedNotDeliveredReason;
 
-/// Stored text that is not a child's handle.
-#[derive(Debug, thiserror::Error)]
-#[error("the stored child handle is not a handle")]
-struct NotAChildHandle;
-
 /// The item a row of `COLUMNS` holds; fails with `rusqlite::Error::FromSqlConversionFailure` when a
 /// value does not read as its type. The payload is written only by `insert_queue_item_statement`,
 /// from a typed body.
@@ -837,9 +833,7 @@ pub fn record_of(row: &Row<'_>) -> rusqlite::Result<QueueItemRecord> {
         state,
         body: text_column(row, 4, |text| serde_json::from_str::<QueueItemBody>(&text))?,
         target_run_id: optional_text_column(row, 5, |text| RunId::new(&text))?,
-        child_handle: optional_text_column(row, 6, |text| {
-            ChildHandle::new(text).ok_or(NotAChildHandle)
-        })?,
+        child_handle: optional_text_column(row, 6, read_child_handle)?,
         position: safe_int_column(row, 7)?,
         client_idempotency_key: optional_text_column(row, 8, ClientUuid::new)?,
         created_at: text_column(row, 9, WireInstant::try_from)?,

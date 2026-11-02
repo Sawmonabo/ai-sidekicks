@@ -8,6 +8,7 @@ use rstest::rstest;
 use rusqlite::params;
 use serde_json::Value;
 use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::agent::tree::ChildHandle;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -22,7 +23,7 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::{UuidTextForm, mint_uuid_v7};
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::MockProviderDriver;
@@ -163,13 +164,14 @@ fn queued_event(database: &TestDatabase, run_id: &RunId) -> (Value, String) {
 }
 
 // The handle a run's `agent.run.queued` names its helper by.
-fn queued_child_handle(queued: &Value) -> UuidTextForm {
-    UuidTextForm::new(
+fn queued_child_handle(queued: &Value) -> ChildHandle {
+    ChildHandle::new(
         queued["providerChild"]["childHandle"]
             .as_str()
-            .expect("the queued run names its helper's handle"),
+            .expect("the queued run names its helper's handle")
+            .to_owned(),
     )
-    .expect("the handle is a UUID")
+    .expect("the handle is a child handle")
 }
 
 // The node of the first provider's helper `subagent_id` in `session_id`.
@@ -640,7 +642,7 @@ async fn a_helpers_later_start_binds_its_node_and_a_rebuild_writes_the_same_rows
     assert_eq!(helper_two.parent_subagent_id.as_deref(), Some("helper-1"));
     assert_eq!(
         helper_two.parent_child_handle,
-        Some(helper_one.child_handle)
+        Some(helper_one.child_handle.clone())
     );
 
     let page = log

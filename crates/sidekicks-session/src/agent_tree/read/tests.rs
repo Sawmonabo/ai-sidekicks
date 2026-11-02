@@ -12,7 +12,7 @@ use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::cost::{AgentSpend, UsdMicros};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::{UuidTextForm, mint_uuid_v7};
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -21,7 +21,7 @@ use sidekicks_store::database::writer::test_file::{TestDatabase, test_run_id, te
 use sidekicks_store::events::session::read::session_read_bound;
 
 use super::{AgentTreeReadError, ResolvedChild, read_agent_tree, resolve_child};
-use crate::agent_tree::store::{NewAgentTreeNode, bind_newest_run, insert_node};
+use crate::agent_tree::store::{NewAgentTreeNode, bind_newest_run, insert_node, mint_child_handle};
 use crate::agents::projection::test_fixture::{
     binding, project, resolved_run_queued, run_statements, session_created,
 };
@@ -39,18 +39,14 @@ fn agent_id() -> AgentId {
     AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id")
 }
 
-fn handle_of(handle: UuidTextForm) -> ChildHandle {
-    ChildHandle::new(handle.text().as_str().to_owned()).expect("a UUID is a child handle")
-}
-
 fn agent_member(agent_id: AgentId) -> AgentTreeMember {
     AgentTreeMember::Agent { agent_id }
 }
 
-fn helper_member(run_id: RunId, handle: UuidTextForm) -> AgentTreeMember {
+fn helper_member(run_id: RunId, handle: &ChildHandle) -> AgentTreeMember {
     AgentTreeMember::ProviderChild {
         run_id,
-        child_handle: handle_of(handle),
+        child_handle: handle.clone(),
     }
 }
 
@@ -190,17 +186,17 @@ impl SessionLog {
         &self,
         own_run_id: RunId,
         subagent_id: &str,
-        parent_child_handle: Option<UuidTextForm>,
+        parent_child_handle: Option<&ChildHandle>,
         started_at: &str,
-    ) -> UuidTextForm {
-        let handle = UuidTextForm::from(mint_uuid_v7());
+    ) -> ChildHandle {
+        let handle = mint_child_handle();
         let statement = insert_node(&NewAgentTreeNode {
-            child_handle: handle,
+            child_handle: handle.clone(),
             session_id: self.session_id,
             provider_name: ProviderId::new(HELPER_PROVIDER.to_owned()).expect("a provider id"),
             subagent_id: subagent_id.to_owned(),
             parent_subagent_id: None,
-            parent_child_handle,
+            parent_child_handle: parent_child_handle.cloned(),
             name: None,
             role: None,
             provider_path: None,
@@ -212,7 +208,7 @@ impl SessionLog {
         handle
     }
 
-    fn bind(&self, handle: UuidTextForm, own_run_id: RunId, updated_at: &str) {
+    fn bind(&self, handle: &ChildHandle, own_run_id: RunId, updated_at: &str) {
         let updated_at = WireInstant::try_from(updated_at.to_owned()).expect("an instant");
         run_statements(
             &self.connection,
@@ -263,13 +259,15 @@ fn ancestry(link: &ChildRunLink) -> Vec<AgentTreeMember> {
 }
 
 // The link a helper's handle names.
-fn helper_link(tree: &AgentChildRunLinkListResponse, handle: UuidTextForm) -> &ChildRunLink {
-    let handle = handle_of(handle);
+fn helper_link<'tree>(
+    tree: &'tree AgentChildRunLinkListResponse,
+    handle: &ChildHandle,
+) -> &'tree ChildRunLink {
     tree.children
         .iter()
         .find(|link| {
             matches!(link, ChildRunLink::ProviderChild { child_handle, .. }
-                if *child_handle == handle)
+                if child_handle == handle)
         })
         .expect("the helper is listed")
 }
@@ -293,9 +291,9 @@ struct Fixture {
     bridged: RunId,
     bridged_agent: AgentId,
     workflow: RunId,
-    first_helper: UuidTextForm,
+    first_helper: ChildHandle,
     first_helper_first_run: RunId,
-    nested_helper: UuidTextForm,
+    nested_helper: ChildHandle,
     nested_helper_run: RunId,
 }
 
@@ -333,9 +331,9 @@ impl Fixture {
         let first_helper = session.node(first_helper_first_run, "h1", None, &at(3));
         let nested_helper_run =
             session.own_run(first_helper_first_run, "h2", RunState::Running, &at(4));
-        let nested_helper = session.node(nested_helper_run, "h2", Some(first_helper), &at(4));
+        let nested_helper = session.node(nested_helper_run, "h2", Some(&first_helper), &at(4));
         let first_helper_newest_run = session.own_run(lead_run, "h1", RunState::Running, &at(5));
-        session.bind(first_helper, first_helper_newest_run, &at(5));
+        session.bind(&first_helper, first_helper_newest_run, &at(5));
         Self {
             session,
             lead_run,
@@ -394,14 +392,14 @@ fn every_child_at_every_depth_is_one_row_with_its_ancestry() {
             ),
             format!(
                 "helper {} in {} under None",
-                fixture.first_helper.text().as_str(),
+                fixture.first_helper.as_str(),
                 fixture.lead_run
             ),
             format!(
                 "helper {} in {} under Some({:?})",
-                fixture.nested_helper.text().as_str(),
+                fixture.nested_helper.as_str(),
                 fixture.first_helper_first_run,
-                fixture.first_helper.text().as_str()
+                fixture.first_helper.as_str()
             ),
         ],
         "oldest first; the lead and the helpers' own runs are no rows"
@@ -411,14 +409,14 @@ fn every_child_at_every_depth_is_one_row_with_its_ancestry() {
     assert_eq!(ancestry(run_link(&tree, fixture.bridged)), lead_only);
     assert_eq!(ancestry(run_link(&tree, fixture.workflow)), lead_only);
     assert_eq!(
-        ancestry(helper_link(&tree, fixture.first_helper)),
+        ancestry(helper_link(&tree, &fixture.first_helper)),
         lead_only
     );
     assert_eq!(
-        ancestry(helper_link(&tree, fixture.nested_helper)),
+        ancestry(helper_link(&tree, &fixture.nested_helper)),
         [
             agent_member(lead),
-            helper_member(fixture.lead_run, fixture.first_helper)
+            helper_member(fixture.lead_run, &fixture.first_helper)
         ],
     );
 }
@@ -435,11 +433,11 @@ fn crossing_node_and_run_chains_end_without_repeating_a_member() {
     let first_run_of_t = session.own_run(lead_run, "t", RunState::Completed, &at(1));
     let t = session.node(first_run_of_t, "t", None, &at(1));
     let run_of_p = session.own_run(first_run_of_t, "p", RunState::Running, &at(2));
-    let p = session.node(run_of_p, "p", Some(t), &at(2));
+    let p = session.node(run_of_p, "p", Some(&t), &at(2));
     let run_of_n = session.own_run(run_of_p, "n", RunState::Running, &at(3));
-    let n = session.node(run_of_n, "n", Some(p), &at(3));
+    let n = session.node(run_of_n, "n", Some(&p), &at(3));
     let resumed_run_of_t = session.own_run(run_of_p, "t", RunState::Running, &at(4));
-    session.bind(t, resumed_run_of_t, &at(4));
+    session.bind(&t, resumed_run_of_t, &at(4));
     let bridged = session.run(
         Some((first_run_of_t, ChildRunProvenance::BridgeRun)),
         RunState::Running,
@@ -448,18 +446,18 @@ fn crossing_node_and_run_chains_end_without_repeating_a_member() {
     );
 
     let tree = session.read();
-    let member_t = helper_member(run_of_p, t);
-    let member_p = helper_member(first_run_of_t, p);
+    let member_t = helper_member(run_of_p, &t);
+    let member_p = helper_member(first_run_of_t, &p);
     assert_eq!(
-        ancestry(helper_link(&tree, n)),
+        ancestry(helper_link(&tree, &n)),
         [agent_member(lead), member_t.clone(), member_p.clone()]
     );
     assert_eq!(
-        ancestry(helper_link(&tree, t)),
+        ancestry(helper_link(&tree, &t)),
         [agent_member(lead), member_p]
     );
     assert_eq!(
-        ancestry(helper_link(&tree, p)),
+        ancestry(helper_link(&tree, &p)),
         [agent_member(lead), member_t.clone()]
     );
     assert_eq!(
@@ -481,7 +479,7 @@ fn a_head_reads_its_model_effort_tokens_spend_and_start() {
     let spend = |whole| UsdMicros(SafeInt::new(whole).expect("a small figure"));
     let agent_spend = [
         AgentSpend {
-            agent: helper_member(fixture.nested_helper_run, fixture.first_helper),
+            agent: helper_member(fixture.nested_helper_run, &fixture.first_helper),
             own_usd_micros: spend(700),
             subtree_usd_micros: spend(900),
         },
@@ -521,7 +519,7 @@ fn a_head_reads_its_model_effort_tokens_spend_and_start() {
         "the list names no lead"
     );
 
-    let first_helper = head(helper_link(&tree, fixture.first_helper));
+    let first_helper = head(helper_link(&tree, &fixture.first_helper));
     assert_eq!(
         first_helper.model_id.as_str(),
         "mh",
@@ -535,7 +533,7 @@ fn a_head_reads_its_model_effort_tokens_spend_and_start() {
     );
     assert_eq!(first_helper.started_at.as_str(), at(3));
 
-    let nested_helper = head(helper_link(&tree, fixture.nested_helper));
+    let nested_helper = head(helper_link(&tree, &fixture.nested_helper));
     assert_eq!(nested_helper.model_id.as_str(), "model-lead");
     assert_eq!(nested_helper.spend_usd_micros, spend(0));
 }
@@ -623,31 +621,24 @@ fn a_handle_resolves_to_its_node_in_its_session_only() {
     let first_run = session.own_run(lead_run, "h", RunState::Completed, &at(2));
     let handle = session.node(first_run, "h", None, &at(2));
     let newest_run = session.own_run(other_lead_run, "h", RunState::WaitingForInput, &at(3));
-    session.bind(handle, newest_run, &at(3));
+    session.bind(&handle, newest_run, &at(3));
 
     let resolve = |session_id: &SessionId, child_handle: &ChildHandle| {
         resolve_child(&session.connection, session_id, child_handle)
     };
-    let unknown = handle_of(UuidTextForm::from(mint_uuid_v7()));
-    let malformed = ChildHandle::new("not-a-uuid".to_owned()).expect("a handle's text");
-    for child_handle in [&unknown, &malformed] {
-        assert!(matches!(
-            resolve(&session.session_id, child_handle),
-            Ok(None)
-        ));
-    }
     assert!(matches!(
-        resolve(&test_session_id(), &handle_of(handle)),
+        resolve(&session.session_id, &mint_child_handle()),
         Ok(None)
     ));
+    assert!(matches!(resolve(&test_session_id(), &handle), Ok(None)));
 
-    let resolved: ResolvedChild = resolve(&session.session_id, &handle_of(handle))
+    let resolved: ResolvedChild = resolve(&session.session_id, &handle)
         .expect("the handle resolves")
         .expect("the node is the session's");
     assert_eq!(resolved.node.own_run_id, newest_run);
     assert_eq!(resolved.state, RunState::WaitingForInput);
     assert_eq!(resolved.parent_run_id, other_lead_run);
-    assert_eq!(resolved.member(), helper_member(other_lead_run, handle));
+    assert_eq!(resolved.member(), helper_member(other_lead_run, &handle));
 
     session
         .connection
@@ -657,7 +648,7 @@ fn a_handle_resolves_to_its_node_in_its_session_only() {
         )
         .expect("the test deletes the run");
     assert!(matches!(
-        resolve(&session.session_id, &handle_of(handle)),
+        resolve(&session.session_id, &handle),
         Err(AgentTreeReadError::RunMissing { run_id }) if run_id == newest_run
     ));
 }

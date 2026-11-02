@@ -19,7 +19,6 @@ use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::cost::{AgentSpend, UsdMicros};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
@@ -156,24 +155,20 @@ impl ResolvedChild {
     pub fn member(&self) -> AgentTreeMember {
         AgentTreeMember::ProviderChild {
             run_id: self.parent_run_id,
-            child_handle: child_handle_of(self.node.child_handle),
+            child_handle: self.node.child_handle.clone(),
         }
     }
 }
 
 /// The node of `session_id` that the wire handle `child_handle` names, with its newest own run's
-/// state and parent; `None` when the text is no UUID, no node holds it, or its node belongs to
-/// another session. Fails with [`AgentTreeReadError::RunMissing`] when its own run has no row, and
+/// state and parent; `None` when no node holds it, or its node belongs to another session. Fails with [`AgentTreeReadError::RunMissing`] when its own run has no row, and
 /// as SQLite or a stored column does.
 pub fn resolve_child(
     reader: &Connection,
     session_id: &SessionId,
     child_handle: &ChildHandle,
 ) -> Result<Option<ResolvedChild>, AgentTreeReadError> {
-    let Ok(handle) = UuidTextForm::new(child_handle.as_str()) else {
-        return Ok(None);
-    };
-    let Some(node) = read_node(reader, handle)?.filter(|node| node.session_id == *session_id)
+    let Some(node) = read_node(reader, child_handle)?.filter(|node| node.session_id == *session_id)
     else {
         return Ok(None);
     };
@@ -253,12 +248,12 @@ pub fn read_agent_tree(
                 }),
             ),
             LinkSubject::Node { place, .. } => {
-                let handle = child_handle_of(tree.nodes[*place].child_handle);
+                let handle = &tree.nodes[*place].child_handle;
                 (
                     ancestry.node_ancestry(*place)?,
                     own_spend(agent_spend, |member| {
                         matches!(member, AgentTreeMember::ProviderChild { child_handle, .. }
-                            if *child_handle == handle)
+                            if child_handle == handle)
                     }),
                 )
             }
@@ -297,8 +292,8 @@ pub fn read_agent_tree(
                 let node = &tree.nodes[place];
                 ChildRunLink::ProviderChild {
                     run_id,
-                    child_handle: child_handle_of(node.child_handle),
-                    parent_child_handle: node.parent_child_handle.map(child_handle_of),
+                    child_handle: node.child_handle.clone(),
+                    parent_child_handle: node.parent_child_handle.clone(),
                     state,
                     head,
                 }
@@ -347,7 +342,7 @@ struct SessionTree {
     session_id: SessionId,
     runs: HashMap<RunId, StoredRun>,
     nodes: Vec<AgentTreeNode>,
-    node_of_handle: HashMap<UuidTextForm, usize>,
+    node_of_handle: HashMap<ChildHandle, usize>,
     node_of_run: HashMap<RunId, usize>,
 }
 
@@ -376,7 +371,7 @@ impl SessionTree {
         let node_of_handle = nodes
             .iter()
             .enumerate()
-            .map(|(place, node)| (node.child_handle, place))
+            .map(|(place, node)| (node.child_handle.clone(), place))
             .collect();
         let node_of_helper: HashMap<(&str, &str), usize> = nodes
             .iter()
@@ -443,7 +438,7 @@ impl SessionTree {
     fn member(&self, place: usize) -> Result<AgentTreeMember, AgentTreeReadError> {
         Ok(AgentTreeMember::ProviderChild {
             run_id: self.carrying_run(place)?,
-            child_handle: child_handle_of(self.nodes[place].child_handle),
+            child_handle: self.nodes[place].child_handle.clone(),
         })
     }
 
@@ -489,7 +484,7 @@ impl SessionTree {
                 head_run: node.own_run_id,
                 model_runs,
                 started_at: node.started_at.clone(),
-                order_key: node.child_handle.text().as_str().to_owned(),
+                order_key: node.child_handle.as_str().to_owned(),
                 subject: LinkSubject::Node {
                     place,
                     run_id: self.carrying_run(place)?,
@@ -546,7 +541,8 @@ impl AncestryWalk<'_> {
         let mut topmost = place;
         while let Some(parent) = self.tree.nodes[topmost]
             .parent_child_handle
-            .and_then(|handle| self.tree.node_of_handle.get(&handle).copied())
+            .as_ref()
+            .and_then(|handle| self.tree.node_of_handle.get(handle).copied())
         {
             upward.push(self.tree.member(parent)?);
             seen.insert(parent);
@@ -728,11 +724,6 @@ fn count_of(count: usize) -> SafeInt<0> {
         .ok()
         .and_then(SafeInt::new)
         .expect("a count of links held in memory is a safe integer")
-}
-
-// The wire handle of a node's handle; a UUID's 36 characters always fit one.
-fn child_handle_of(handle: UuidTextForm) -> ChildHandle {
-    ChildHandle::new(handle.text().as_str().to_owned()).expect("a UUID's text fits a child handle")
 }
 
 #[cfg(test)]

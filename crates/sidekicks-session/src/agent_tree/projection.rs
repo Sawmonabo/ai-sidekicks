@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 
 use rusqlite::types::Value;
+use sidekicks_contracts::agent::tree::ChildHandle;
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
@@ -12,7 +13,6 @@ use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queued::{AgentRunQueuedPayload, ProviderChildStart};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
 use sidekicks_store::events::projection::{
@@ -29,13 +29,13 @@ const AGENT_TREE_EVENT_TYPES: &[SessionEventType] = &[SessionEventType::AgentRun
 
 /// What a helper's run start writes to its node: the node itself under its parent's node, or the
 /// newest run of a node the tree already holds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ProviderChildNodeWrite {
     /// The helper's first start writes its node beneath `parent_child_handle`, `None` under the
     /// lead or where no node holds its parent.
     Insert {
         /// The parent's node.
-        parent_child_handle: Option<UuidTextForm>,
+        parent_child_handle: Option<ChildHandle>,
     },
     /// A later start binds the known node to its newest run.
     BindNewestRun,
@@ -56,7 +56,7 @@ pub(crate) fn provider_child_node_statement(
         ProviderChildNodeWrite::Insert {
             parent_child_handle,
         } => insert_node(&NewAgentTreeNode {
-            child_handle: child.child_handle,
+            child_handle: child.child_handle.clone(),
             session_id,
             provider_name: child.provider.clone(),
             subagent_id: child.subagent_id.as_str().to_owned(),
@@ -76,7 +76,7 @@ pub(crate) fn provider_child_node_statement(
             started_at: occurred_at.clone(),
         }),
         ProviderChildNodeWrite::BindNewestRun => {
-            bind_newest_run(child.child_handle, own_run_id, start_call_id, occurred_at)
+            bind_newest_run(&child.child_handle, own_run_id, start_call_id, occurred_at)
         }
     }
 }
@@ -116,7 +116,7 @@ impl SessionProjection for AgentTreeProjection {
 // it, and a parent the rebuild never wrote, its every start in a range skipped as damaged, is no
 // parent.
 struct AgentTreeFold {
-    written: HashSet<UuidTextForm>,
+    written: HashSet<ChildHandle>,
 }
 
 impl SessionProjectionFold for AgentTreeFold {
@@ -140,10 +140,11 @@ impl SessionProjectionFold for AgentTreeFold {
                     queued.run_id
                 ))
             })?;
-        let write = if self.written.insert(child.child_handle) {
+        let write = if self.written.insert(child.child_handle.clone()) {
             ProviderChildNodeWrite::Insert {
                 parent_child_handle: child
                     .parent_child_handle
+                    .clone()
                     .filter(|parent| self.written.contains(parent)),
             }
         } else {
