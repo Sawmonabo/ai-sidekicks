@@ -113,6 +113,16 @@ impl ServiceRegistration {
         )
     }
 
+    /// The program the installed system service starts, read from its list; `None` with no list or
+    /// no program named. Fails when the list cannot be read.
+    pub fn system_service_program(&self) -> Result<Option<PathBuf>, ServiceRegistrationError> {
+        let installed: Option<InstalledSystemServiceList> =
+            read_launchd_list(&system_service_list_path())?;
+        Ok(installed
+            .and_then(|list| list.program_arguments)
+            .and_then(|arguments| arguments.into_iter().next()))
+    }
+
     /// Whether the person turned the system service off in Login Items, which launchd does not
     /// honor when asked to start it, so a start reads it first. Blocks on the system's answer.
     /// Fails as [`Self::is_turned_off`] fails.

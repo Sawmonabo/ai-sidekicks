@@ -41,7 +41,7 @@ use crate::commands::daemon::install::system_service::{read_system_service_owner
 use crate::commands::daemon::registration::{read_owner, registration_failure};
 use crate::commands::daemon::status::read_cannot_start;
 use crate::connected_command::run_listening_for_ctrl_c;
-use crate::daemon_program::daemon_program;
+use crate::daemon_program::{daemon_program, is_same_program};
 use crate::exit_codes::{CommandFailure, ExitCode};
 use crate::program::describe_repairing;
 
@@ -222,9 +222,7 @@ fn start_registered_agent(daemon_path: Option<&Path>) -> anyhow::Result<StartRou
                 let agent_program = registration.agent_program().map_err(|failure| {
                     registration_failure(failure, "could not read the login agent's program")
                 })?;
-                if agent_program != Some(daemon_program(Some(daemon_path))?) {
-                    return Err(CommandFailure::AgentRunsOtherProgram.into());
-                }
+                refuse_other_program(agent_program.as_deref(), daemon_path)?;
             }
             registration.kickstart().map_err(|failure| {
                 registration_failure(failure, "could not start the background service")
@@ -295,13 +293,28 @@ pub(crate) fn refuse_other_system_program(
     let Some(daemon_path) = daemon_path else {
         return Ok(());
     };
-    let program = daemon_program(Some(daemon_path))?;
-    match read_system_service_owner(&registration, Some(&program))? {
-        SystemServiceOwner::ThisAccount => Ok(()),
-        SystemServiceOwner::ThisAccountOtherProgram
-        | SystemServiceOwner::NotInstalled
-        | SystemServiceOwner::OtherAccount => Err(CommandFailure::AgentRunsOtherProgram.into()),
+    let service_program = registration.system_service_program().map_err(|failure| {
+        registration_failure(failure, "could not read the system service's program")
+    })?;
+    refuse_other_program(service_program.as_deref(), daemon_path)
+}
+
+/// Fails with [`CommandFailure::AgentRunsOtherProgram`] where `daemon_path` names another program
+/// than `registered_program`, the one a registration starts, compared as files, and as their
+/// resolution fails.
+fn refuse_other_program(
+    registered_program: Option<&Path>,
+    daemon_path: &Path,
+) -> anyhow::Result<()> {
+    let named = daemon_program(Some(daemon_path))?;
+    let is_same = match registered_program {
+        Some(registered_program) => is_same_program(registered_program, &named)?,
+        None => false,
+    };
+    if !is_same {
+        return Err(CommandFailure::AgentRunsOtherProgram.into());
     }
+    Ok(())
 }
 
 /// Starts this account's system service through `registration`, which needs root's rights; a

@@ -201,6 +201,11 @@ impl ServiceRegistration {
         match *self {}
     }
 
+    /// The program the system service starts; never called, since no value exists.
+    pub fn system_service_program(&self) -> Result<Option<PathBuf>, ServiceRegistrationError> {
+        match *self {}
+    }
+
     /// Whether the person turned the system service off; never called, since no value exists.
     pub fn is_system_service_turned_off(&self) -> Result<bool, ServiceRegistrationError> {
         match *self {}
