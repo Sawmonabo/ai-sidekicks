@@ -11,13 +11,20 @@
     )
 )]
 
+use std::collections::HashMap;
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
+use sidekicks_platforms::PathRules;
+use sidekicks_std::file::real_location::resolve_real_location;
 
+use crate::account::errors::ProviderAccountRegistryError;
+use crate::account::registry::ProviderAccountRegistry;
+use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::spawn::environment::claude_config_folder;
 use crate::inbound_json::decode_inbound_json;
 
 /// The registry's folder inside a Claude Code config folder.
@@ -62,6 +69,25 @@ struct RegistryFile {
     cwd: Option<String>,
 }
 
+/// The config folders whose registries name the Claude Code sessions on this machine: the
+/// person's own, from `base_environment`, then each Claude account's home, a folder already listed
+/// skipped. Fails when the accounts cannot be read.
+pub(crate) async fn read_claude_registry_folders(
+    base_environment: &[(String, String)],
+    accounts: &ProviderAccountRegistry,
+) -> Result<Vec<PathBuf>, ProviderAccountRegistryError> {
+    let mut folders: Vec<PathBuf> = claude_config_folder(base_environment, PathRules::NATIVE)
+        .into_iter()
+        .collect();
+    for account in accounts.list(Some(DESCRIPTOR.provider_id())).await? {
+        let folder = account.credential_home.path().to_path_buf();
+        if !folders.contains(&folder) {
+            folders.push(folder);
+        }
+    }
+    Ok(folders)
+}
+
 /// Every session the registries under `config_folders` name, each folder in the order given and
 /// its files by process id. A folder with no registry answers nothing, and a file that is not
 /// JSON, or went between the listing and the read, answers only its file and process id; nothing
@@ -102,14 +128,50 @@ pub(crate) fn by_name<'a>(
         .filter(move |session| session.name.as_deref() == Some(name))
 }
 
-/// The session in `sessions` whose inbox is `socket`, compared as the registry writes the path.
-pub(crate) fn by_socket<'a>(
+/// The session in `sessions` whose inbox is the socket `address` names, a leading `uds:` dropped.
+/// Both sides are compared with every link in their folders resolved, so `/tmp` meets
+/// `/private/tmp`; each folder is resolved once per call. Fails as a folder cannot be resolved.
+pub(crate) async fn by_socket<'a>(
     sessions: &'a [ClaudeLiveSession],
+    address: &str,
+) -> io::Result<Option<&'a ClaudeLiveSession>> {
+    let mut resolved_folders = HashMap::new();
+    let socket = Path::new(address.strip_prefix("uds:").unwrap_or(address));
+    let Some(wanted) = resolve_socket(socket, &mut resolved_folders).await? else {
+        return Ok(None);
+    };
+    for session in sessions {
+        let Some(socket) = session.socket.as_deref() else {
+            continue;
+        };
+        if resolve_socket(socket, &mut resolved_folders)
+            .await?
+            .as_ref()
+            == Some(&wanted)
+        {
+            return Ok(Some(session));
+        }
+    }
+    Ok(None)
+}
+
+// `socket` with its folder's links resolved, each folder once through `resolved_folders`; `None`
+// for a path with no folder or no file name.
+async fn resolve_socket(
     socket: &Path,
-) -> Option<&'a ClaudeLiveSession> {
-    sessions
-        .iter()
-        .find(|session| session.socket.as_deref() == Some(socket))
+    resolved_folders: &mut HashMap<PathBuf, PathBuf>,
+) -> io::Result<Option<PathBuf>> {
+    let (Some(folder), Some(name)) = (socket.parent(), socket.file_name()) else {
+        return Ok(None);
+    };
+    let resolved = if let Some(resolved) = resolved_folders.get(folder) {
+        resolved.clone()
+    } else {
+        let resolved = resolve_real_location(folder).await?;
+        resolved_folders.insert(folder.to_path_buf(), resolved.clone());
+        resolved
+    };
+    Ok(Some(resolved.join(name)))
 }
 
 // Each `<pid>.json` file in `registry` with its process id; the key files beside them are never
@@ -262,7 +324,9 @@ mod tests {
             .collect();
         assert_eq!(named, vec![4101, 4103]);
         assert_eq!(
-            by_socket(&sessions, Path::new("/tmp/cc-socks/4101.sock"))
+            by_socket(&sessions, "/tmp/cc-socks/4101.sock")
+                .await
+                .expect("the sockets' folders resolve")
                 .map(|session| session.process_id),
             Some(4101)
         );
