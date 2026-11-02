@@ -259,7 +259,6 @@ impl StepDispatch {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::time::Duration;
 
     use rstest::rstest;
     use secrecy::SecretString;
@@ -273,7 +272,7 @@ mod tests {
     use tokio::time::timeout;
 
     use super::super::tests::{
-        ExecutorProbe, SECRET, Script, WAIT, assert_masked, next_report, report_json,
+        ExecutorProbe, QUIET, SECRET, Script, WAIT, assert_masked, next_report, report_json,
         scripted_kind, secret_item, test_node,
     };
     use super::super::{StepDispatch, test_dispatch, test_ready_step, test_run_snapshot};
@@ -287,9 +286,6 @@ mod tests {
     use crate::kinds::{NodeKind, StepAdmissionNeed, StepAdmissionShape, uncoded_step_error};
     use crate::schema::schema_parts;
     use crate::secrets::redaction::RunRedaction;
-
-    /// How long a test waits to see that nothing happens.
-    const QUIET: Duration = Duration::from_millis(50);
 
     /// A dispatch over `database` of the agent kind, `test.step`, and `more_kinds`, whose agent
     /// runs `runner` makes, with the receiving end of its report channel.

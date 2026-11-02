@@ -33,6 +33,9 @@ use crate::secrets::redaction::RunRedaction;
 /// The longest a test waits on a report or a signal.
 pub(super) const WAIT: Duration = Duration::from_secs(10);
 
+/// How long a test waits to see that nothing happens.
+pub(super) const QUIET: Duration = Duration::from_millis(50);
+
 /// The run's secret, which a failure and an output must never carry.
 pub(super) const SECRET: &str = "hunter2secretXYZ";
 
@@ -410,29 +413,20 @@ fn failed(failure: &Value) -> Value {
 
 /// The dispatch admits a step at once; its driver sends `Started` with the step's input before
 /// the executor's progress, then `Completed` with the lineage filled and the run variable set. A
-/// node pinned in a manual run settles with its pinned items in the dispatch's own answer, without
-/// resolving a secret or running its executor, a trigger run ignores the pin, and an execute-once
-/// node runs over its first item. Mutations: send `Started` after the executor; resolve a pinned
-/// node's secrets; drop the records; skip the lineage fill; run a pinned node in a manual run;
-/// settle a pinned node from a task; skip the execute-once cut.
+/// trigger run ignores a node's pin, and an execute-once node runs over its first item. Mutations:
+/// send `Started` after the executor; drop the records; skip the lineage fill; honor a pin in a
+/// trigger run; skip the execute-once cut.
 #[rstest]
-#[case::unpinned(WorkflowRunMode::Manual, false, json!({}), 2, Some(2))]
-#[case::pinned_manual(
-    WorkflowRunMode::Manual,
-    true,
-    json!({ "params": { "token": "secret://shared/missing" } }),
-    2,
-    None
-)]
-#[case::pinned_trigger(WorkflowRunMode::Trigger, true, json!({}), 2, Some(2))]
-#[case::execute_once(WorkflowRunMode::Manual, false, json!({ "executeOnce": true }), 3, Some(1))]
+#[case::unpinned(WorkflowRunMode::Manual, false, json!({}), 2, 2)]
+#[case::pinned_trigger(WorkflowRunMode::Trigger, true, json!({}), 2, 2)]
+#[case::execute_once(WorkflowRunMode::Manual, false, json!({ "executeOnce": true }), 3, 1)]
 #[tokio::test]
 async fn a_step_reports_its_start_progress_and_outputs_in_order(
     #[case] mode: WorkflowRunMode,
     #[case] is_pinned: bool,
     #[case] settings: Value,
     #[case] input_count: usize,
-    #[case] executor_item_count: Option<usize>,
+    #[case] executor_item_count: usize,
 ) {
     let probe = Arc::new(ExecutorProbe::default());
     let node = test_node(&settings);
@@ -461,32 +455,24 @@ async fn a_step_reports_its_start_progress_and_outputs_in_order(
     )
     .await;
 
-    let (expected_answered, expected_sent) = match executor_item_count {
-        None => (pinned_settlement(), Vec::new()),
-        Some(item_count) => {
-            let outputs: Vec<Value> = names[..item_count]
-                .iter()
-                .zip(0..)
-                .map(|(name, item)| named_item(name, item))
-                .collect();
-            let sent = vec![
-                started(),
-                json!("progressed"),
-                completed(
-                    &json!([outputs]),
-                    &json!({ "answer": { "value": 42, "isKept": false } }),
-                ),
-            ];
-            (vec![json!({ "admitted": null })], sent)
-        }
-    };
-    assert_eq!(answered, expected_answered);
-    assert_eq!(sent, expected_sent);
-    let seen: Vec<Value> = executor_item_count
-        .map(|item_count| json!([item_count]))
-        .into_iter()
+    let outputs: Vec<Value> = names[..executor_item_count]
+        .iter()
+        .zip(0..)
+        .map(|(name, item)| named_item(name, item))
         .collect();
-    assert_eq!(*lock(&probe.seen), seen);
+    assert_eq!(answered, vec![json!({ "admitted": null })]);
+    assert_eq!(
+        sent,
+        vec![
+            started(),
+            json!("progressed"),
+            completed(
+                &json!([outputs]),
+                &json!({ "answer": { "value": 42, "isKept": false } }),
+            ),
+        ]
+    );
+    assert_eq!(*lock(&probe.seen), vec![json!([executor_item_count])]);
 }
 
 /// A per-item kind runs once per item, in order, each call reading its own item as item 0, and

@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
 
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -13,8 +12,8 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 use tokio::time::timeout;
 
 use super::{
-    ExecutorProbe, Script, WAIT, completed, named_item, next_report, pin_data, pinned_settlement,
-    run_step, scripted_kind, started, test_node,
+    ExecutorProbe, QUIET, Script, WAIT, completed, named_item, next_report, pin_data,
+    pinned_settlement, run_step, scripted_kind, started, test_node,
 };
 use crate::engine::ports::{
     ScriptedGate, StepAdmission, StepAdmissionOutcome, StepAdmissionWork, StepScriptRuntime,
@@ -28,10 +27,11 @@ use crate::schema::schema_parts;
 /// A step the memory gate weighs gets nothing in the dispatch's answer: it enters the gate with
 /// what it runs, a quick step's input measured, reports its hold where the gate holds it, then its
 /// admission, and launches holding its ticket, which is dropped once it settles. A node pinned in
-/// a manual run settles in the dispatch's answer without entering the gate. Mutations: run the
-/// executor before the admission; answer `Admitted` at dispatch for a gate step; launch without
-/// the ticket; leave the input unmeasured or zero; send a pinned step into the gate or settle it
-/// from a task.
+/// a manual run settles with its pinned items in the dispatch's answer, without entering the gate,
+/// resolving a secret or running its executor. Mutations: run the executor before the admission;
+/// answer `Admitted` at dispatch for a gate step; launch without the ticket; leave the input
+/// unmeasured or zero; run a pinned node in a manual run, resolve its secrets, send it into the
+/// gate or settle it from a task.
 #[rstest]
 #[case::quick_code_held(
     StepAdmissionShape::QuickCode { budget_bytes: 1024, output_max_bytes: 2048 },
@@ -55,7 +55,12 @@ async fn a_gate_step_waits_for_its_admission_before_it_launches(
     #[case] is_pinned: bool,
 ) {
     let probe = Arc::new(ExecutorProbe::default());
-    let node = test_node(&json!({}));
+    // A pinned node's secret is missing, so resolving it would fail the step.
+    let node = test_node(&if is_pinned {
+        json!({ "params": { "token": "secret://shared/missing" } })
+    } else {
+        json!({})
+    });
     let mut scope = test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]);
     if is_pinned {
         scope.pin_data = Some(pin_data());
@@ -173,7 +178,7 @@ async fn a_gate_step_enters_in_its_turn_and_a_cancel_ends_it(#[case] point: Canc
     drop(dispatch);
     assert!(dispatched.reports.is_empty());
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::time::sleep(QUIET).await;
     assert_eq!(
         gate.enqueued(),
         Vec::new(),
