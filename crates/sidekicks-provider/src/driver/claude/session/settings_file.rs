@@ -73,19 +73,26 @@ pub(crate) fn is_unreadable_path(error: &io::Error) -> bool {
     )
 }
 
+/// One settings file as read: `None` when the daemon cannot read it, else its text parsed as
+/// strict JSON, the parse failure where it is not; each caller decides what a file that is not a
+/// settings object means. Returns any other read failure.
+pub(crate) async fn read_claude_settings_json(
+    file_path: &Path,
+) -> io::Result<Option<serde_json::Result<Value>>> {
+    match tokio::fs::read(file_path).await {
+        Ok(bytes) => Ok(Some(serde_json::from_str(&decode_inbound_json(&bytes)))),
+        Err(error) if is_unreadable_path(&error) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 /// One settings file as its JSON object, or `None` when the daemon cannot read it or it holds no
 /// settings object. Returns any other read failure.
 pub(crate) async fn read_claude_settings_file(
     file_path: &Path,
 ) -> io::Result<Option<Map<String, Value>>> {
-    let bytes = match tokio::fs::read(file_path).await {
-        Ok(bytes) => bytes,
-        Err(error) if is_unreadable_path(&error) => return Ok(None),
-        Err(error) => return Err(error),
-    };
     // A file that is not JSON sets nothing, as one holding some other JSON value does.
-    let parsed = serde_json::from_str::<Value>(&decode_inbound_json(&bytes));
-    if let Ok(Value::Object(settings)) = parsed {
+    if let Some(Ok(Value::Object(settings))) = read_claude_settings_json(file_path).await? {
         return Ok(Some(settings));
     }
     Ok(None)

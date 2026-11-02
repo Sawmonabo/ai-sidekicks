@@ -1,126 +1,27 @@
 use std::fs;
-use std::path::{Path, PathBuf};
 
-use serde_json::{Value, json};
-use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use serde_json::json;
 use sidekicks_contracts::provider::settings::{
-    PROVIDER_RULE_TEXT_MAX_LEN, ProviderProtectedPath, ProviderStandingRuleRevokeOutcome,
-    ProviderStandingRuleScope,
+    ProviderStandingRuleRevokeOutcome, ProviderStandingRuleScope,
 };
-use sidekicks_contracts::repo::mount::RepoMountId;
-use sidekicks_contracts::wire::text::FreeFormText;
 
+use super::test_tree::{Tree, account, account_homes, project_id, sources, wire_path, write};
 use super::{
     ClaudeRuleAccountHome, ClaudeRuleHome, ClaudeRuleListingSources, ClaudeRuleProject,
-    list_claude_standing_rules, read_claude_protected_paths, revoke_claude_standing_rule,
+    list_claude_standing_rules, revoke_claude_standing_rule,
 };
+use crate::driver::claude::session::rules::ClaudeRulesError;
 
-const PROJECT_ID: &str = "0190f3c4-5b6a-7c8d-9e0f-1a2b3c4d5e6f";
-
-// Two account homes, the person's home and one project under one scratch folder, each home's
-// settings file where Claude Code reads it with no `CLAUDE_CONFIG_DIR` set.
-struct Tree {
-    scratch: tempfile::TempDir,
-}
-
-impl Tree {
-    fn new() -> Self {
-        Self {
-            scratch: tempfile::tempdir().expect("a scratch folder"),
-        }
-    }
-
-    fn path(&self, name: &str) -> PathBuf {
-        self.scratch.path().join(name)
-    }
-
-    fn home_settings(&self, home: &str) -> PathBuf {
-        self.path(home).join(".claude").join("settings.json")
-    }
-
-    fn shared_settings(&self) -> PathBuf {
-        self.path("project").join(".claude").join("settings.json")
-    }
-
-    fn local_settings(&self) -> PathBuf {
-        self.path("project")
-            .join(".claude")
-            .join("settings.local.json")
-    }
-}
-
-fn write(file: &Path, settings: &Value) {
-    fs::create_dir_all(file.parent().expect("a settings file sits in a folder"))
-        .expect("the folder is made");
-    fs::write(
-        file,
-        serde_json::to_string_pretty(settings).expect("the settings serialize"),
-    )
-    .expect("the settings file is written");
-}
-
-fn account(id: &str) -> ProviderAccountId {
-    ProviderAccountId::new(id.to_owned()).expect("the test's account id")
-}
-
-fn project_id() -> RepoMountId {
-    RepoMountId::new(PROJECT_ID).expect("the id is a UUID")
-}
-
-fn wire_path(file: &Path) -> FilesystemPath {
-    FilesystemPath::new(file.to_string_lossy().into_owned()).expect("the scratch path fits")
-}
-
-fn pattern(text: &str) -> FreeFormText<PROVIDER_RULE_TEXT_MAX_LEN> {
-    FreeFormText::new(text.to_owned()).expect("the test's pattern")
-}
-
-fn account_homes<'a>(
-    homes: [&'a Path; 2],
-    environment: &'a [(String, String)],
-) -> [ClaudeRuleAccountHome<'a>; 2] {
-    let [first, second] = homes;
-    [
-        ClaudeRuleAccountHome {
-            account_id: account("account-1"),
-            home: ClaudeRuleHome {
-                home: first,
-                environment,
-            },
-        },
-        ClaudeRuleAccountHome {
-            account_id: account("account-2"),
-            home: ClaudeRuleHome {
-                home: second,
-                environment,
-            },
-        },
-    ]
-}
-
-fn sources<'a>(
-    account_homes: &'a [ClaudeRuleAccountHome<'a>],
-    person_home: &'a Path,
-    projects: &'a [ClaudeRuleProject<'a>],
-    environment: &'a [(String, String)],
-) -> ClaudeRuleListingSources<'a> {
-    ClaudeRuleListingSources {
-        account_homes,
-        person: ClaudeRuleHome {
-            home: person_home,
-            environment,
-        },
-        projects,
-        place: None,
-    }
-}
-
-// Killed by an id minted without the scope or without the file, by the project's local file left
-// unread, and by a decision word other than the list's own name.
+// Killed by an id minted without the scope or without the file, by the managed settings or the
+// project's local file left unread, by a managed rule given a scope, and by a decision word other
+// than the list's own name.
 #[tokio::test]
 async fn every_list_of_every_file_reads_as_one_row_each_with_an_id_of_its_scope_and_file() {
     let tree = Tree::new();
+    write(
+        &tree.managed_settings(),
+        &json!({ "permissions": { "deny": ["Bash(curl:*)"] } }),
+    );
     write(
         &tree.home_settings("home-1"),
         &json!({
@@ -141,7 +42,8 @@ async fn every_list_of_every_file_reads_as_one_row_each_with_an_id_of_its_scope_
         &json!({ "permissions": { "deny": ["Read(.env)"] } }),
     );
     let environment: Vec<(String, String)> = Vec::new();
-    let (first_home, second_home, person_home, folder) = (
+    let (managed, first_home, second_home, person_home, folder) = (
+        tree.path("managed"),
         tree.path("home-1"),
         tree.path("home-2"),
         tree.path("person"),
@@ -152,7 +54,7 @@ async fn every_list_of_every_file_reads_as_one_row_each_with_an_id_of_its_scope_
         repo_mount_id: project_id(),
         folder: &folder,
     }];
-    let sources = sources(&homes, &person_home, &projects, &environment);
+    let sources = sources(&managed, &homes, &person_home, &projects, &environment);
 
     let rules = list_claude_standing_rules(&sources)
         .await
@@ -177,6 +79,12 @@ async fn every_list_of_every_file_reads_as_one_row_each_with_an_id_of_its_scope_
     assert_eq!(
         read,
         [
+            (
+                "deny",
+                "Bash(curl:*)",
+                None,
+                wire_path(&tree.managed_settings()),
+            ),
             (
                 "allow",
                 "Bash(npm test)",
@@ -212,7 +120,7 @@ async fn every_list_of_every_file_reads_as_one_row_each_with_an_id_of_its_scope_
         ]
     );
     // The project's two files hold one text in one list, so only the file tells their ids apart.
-    assert_ne!(rules[3].rule_id, rules[4].rule_id);
+    assert_ne!(rules[4].rule_id, rules[5].rule_id);
 
     let again = list_claude_standing_rules(&sources)
         .await
@@ -227,10 +135,10 @@ async fn every_list_of_every_file_reads_as_one_row_each_with_an_id_of_its_scope_
     let shared = list_claude_standing_rules(&sources_with_homes(&sources, &shared_homes))
         .await
         .expect("the shared home reads");
-    // Each account's two rules from the one file, then the project's two.
-    assert_eq!(shared.len(), 6);
-    assert_eq!(shared[0].text, shared[2].text);
-    assert_ne!(shared[0].rule_id, shared[2].rule_id);
+    // The managed rule, each account's two rules from the one file, then the project's two.
+    assert_eq!(shared.len(), 7);
+    assert_eq!(shared[1].text, shared[3].text);
+    assert_ne!(shared[1].rule_id, shared[3].rule_id);
 }
 
 fn sources_with_homes<'a>(
@@ -238,13 +146,14 @@ fn sources_with_homes<'a>(
     account_homes: &'a [ClaudeRuleAccountHome<'a>],
 ) -> ClaudeRuleListingSources<'a> {
     ClaudeRuleListingSources {
+        managed_settings_folder: sources.managed_settings_folder,
         account_homes,
         person: ClaudeRuleHome {
             home: sources.person.home,
             environment: sources.person.environment,
         },
         projects: sources.projects,
-        place: sources.place.clone(),
+        place: sources.place,
     }
 }
 
@@ -264,7 +173,8 @@ async fn a_revoke_takes_one_entry_from_its_file_and_a_second_revoke_finds_it_abs
     )
     .expect("the shared settings are written as the person spaced them");
     let environment: Vec<(String, String)> = Vec::new();
-    let (first_home, second_home, person_home, folder) = (
+    let (managed, first_home, second_home, person_home, folder) = (
+        tree.path("managed"),
         tree.path("home-1"),
         tree.path("home-2"),
         tree.path("person"),
@@ -275,7 +185,7 @@ async fn a_revoke_takes_one_entry_from_its_file_and_a_second_revoke_finds_it_abs
         repo_mount_id: project_id(),
         folder: &folder,
     }];
-    let sources = sources(&homes, &person_home, &projects, &environment);
+    let sources = sources(&managed, &homes, &person_home, &projects, &environment);
     let rules = list_claude_standing_rules(&sources)
         .await
         .expect("the settings files read");
@@ -311,60 +221,38 @@ async fn a_revoke_takes_one_entry_from_its_file_and_a_second_revoke_finds_it_abs
     );
 }
 
-// Killed by `Edit(…)` deny rules left unread, by the sandbox's `denyRead` left unread, and by a
-// deny rule that names no path, or an allow, listed as a protected path.
+// Killed by a revoke that edits a managed settings file, or reads its rule as already absent.
 #[tokio::test]
-async fn protected_paths_are_the_read_and_edit_denies_and_the_sandbox_denies_with_their_files() {
+async fn a_managed_rule_s_revoke_is_refused_and_its_file_left_as_it_was() {
     let tree = Tree::new();
     write(
-        &tree.home_settings("home-1"),
-        &json!({
-            "permissions": {
-                "deny": ["Read(~/.aws/**)", "Edit(secrets/**)", "Bash(rm:*)"],
-                "allow": ["Read(src/**)"]
-            },
-            "sandbox": { "filesystem": { "denyRead": ["~/.ssh"] } }
-        }),
+        &tree.managed_settings(),
+        &json!({ "permissions": { "deny": ["Bash(curl:*)"] } }),
     );
-    write(
-        &tree.local_settings(),
-        &json!({ "permissions": { "deny": ["Read(.env)"] } }),
-    );
+    let before = fs::read(tree.managed_settings()).expect("the managed settings read");
     let environment: Vec<(String, String)> = Vec::new();
-    let (first_home, second_home, person_home, folder) = (
+    let (managed, first_home, second_home, person_home) = (
+        tree.path("managed"),
         tree.path("home-1"),
         tree.path("home-2"),
         tree.path("person"),
-        tree.path("project"),
     );
     let homes = account_homes([&first_home, &second_home], &environment);
-    let projects = [ClaudeRuleProject {
-        repo_mount_id: project_id(),
-        folder: &folder,
-    }];
-    let sources = sources(&homes, &person_home, &projects, &environment);
-
-    let paths = read_claude_protected_paths(&sources)
+    let sources = sources(&managed, &homes, &person_home, &[], &environment);
+    let rules = list_claude_standing_rules(&sources)
         .await
         .expect("the settings files read");
 
-    let home_file = wire_path(&tree.home_settings("home-1"));
-    let global = |text: &str| ProviderProtectedPath::Global {
-        pattern: pattern(text),
-        place: None,
-        source_path: home_file.clone(),
-    };
+    let refusal = revoke_claude_standing_rule(&sources, &rules[0].rule_id)
+        .await
+        .expect_err("a managed rule is not revoked");
+
+    assert!(
+        matches!(refusal, ClaudeRulesError::RuleInUneditedFile { .. }),
+        "{refusal:?}"
+    );
     assert_eq!(
-        paths,
-        [
-            global("~/.aws/**"),
-            global("secrets/**"),
-            global("~/.ssh"),
-            ProviderProtectedPath::Project {
-                pattern: pattern(".env"),
-                source_path: wire_path(&tree.local_settings()),
-                repo_mount_id: project_id(),
-            },
-        ]
+        fs::read(tree.managed_settings()).expect("the managed settings read again"),
+        before
     );
 }
