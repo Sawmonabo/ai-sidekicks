@@ -778,7 +778,7 @@ impl QueueDelivery {
     }
 
     // The lead's messages among `waiting` that a hand sends, less the openings of runs being
-    // started: a review opens a run of its own, so no hand takes it into a turn.
+    // started: a review or a plan message opens a run of its own, so no hand takes it into a turn.
     fn lead_messages(&self, waiting: Vec<QueueItemRecord>) -> Vec<QueueItemRecord> {
         self.lead_waiting(waiting, false)
             .into_iter()
@@ -845,7 +845,7 @@ fn steer_of(
     let message = item
         .body
         .as_message()
-        .expect("a hand gathers only messages, so a review is never steered");
+        .expect("a hand gathers only messages, so a review or a plan message is never steered");
     ApplyInterventionParams::Steer {
         target_run_id: run_id,
         expected_run_version: safe_run_version(run_version),

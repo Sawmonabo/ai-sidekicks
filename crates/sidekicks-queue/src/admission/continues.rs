@@ -1,7 +1,7 @@
 //! The continue of an interrupted run: its place at the gate again, its opening taken under the
-//! session's lock, and what a continue that failed leaves for the run's messages. A review is
-//! never a continue's opening: one left waiting for the run with no message beside it goes on to a
-//! next run of its own.
+//! session's lock, and what a continue that failed leaves for the run's messages. A review or a
+//! plan message is never a continue's opening: one left waiting for the run with no message beside
+//! it goes on to a next run of its own.
 
 use std::sync::Arc;
 
@@ -197,9 +197,10 @@ impl QueueAdmission {
         }
     }
 
-    // Queues the session's next lead run for the `reviews` left waiting for its interrupted lead
-    // run, pointing each at it, on `provider_account_id`'s account, the one the interrupted run ran
-    // on, and answers its id. Called under `hold`; fails as the read or the write fails.
+    // Queues the session's next lead run for the `reviews`, the reviews and plan messages left
+    // waiting for its interrupted lead run, pointing each at it, on `provider_account_id`'s
+    // account, the one the interrupted run ran on, and answers its id. Called under `hold`; fails
+    // as the read or the write fails.
     async fn queue_reviews_run(
         &self,
         hold: &KeyHold<'_, SessionId>,
