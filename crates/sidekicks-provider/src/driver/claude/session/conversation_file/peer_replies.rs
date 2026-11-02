@@ -436,8 +436,9 @@ async fn follow_transcript(
 
 // Waits for the transcript `file` to appear in `folder`. It is looked for once the watch is set,
 // as it may have come since the search, and at each drain asked, since on Linux a file created in
-// place rather than renamed in wakes no folder watch; a drain asked while it is still missing is
-// answered at once. Fails as the folder cannot be watched or listed.
+// place rather than renamed in wakes no folder watch. A drain asked while it is still missing is
+// dropped unanswered, so the notice searches every project folder for it, as it may sit in
+// another. Fails as the folder cannot be watched or listed.
 async fn await_transcript(
     folder: &Path,
     file: &Path,
@@ -456,7 +457,7 @@ async fn await_transcript(
                 if tokio::fs::try_exists(file).await? {
                     return Ok(TranscriptArrival::Arrived { drained: Some(drained) });
                 }
-                let _unheard = drained.send(());
+                drop(drained);
             }
             arrived = arrivals.next_arrivals() => {
                 if arrived?.iter().any(|arrival| arrival == file) {
