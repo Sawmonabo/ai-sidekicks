@@ -4,42 +4,12 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
-use serde::Deserialize;
-use sidekicks_contracts::process_identity::ProcessIdentity;
-use sidekicks_platforms::{pin_identified_process, pin_running_process};
+use sidekicks_platforms::pin_running_process;
 
-use crate::helpers::{PrivateFolders, built_daemon_program, path_text, text};
-
-/// How long a process the test ends has between the stop and the kill.
-const STOP_GRACE: Duration = Duration::from_secs(5);
-
-/// Ends the daemon these folders run, the one `daemon status --json` names, when it drops, so the
-/// test leaves no daemon behind on any path.
-struct DaemonEnding<'a> {
-    folders: &'a PrivateFolders,
-}
-
-impl Drop for DaemonEnding<'_> {
-    fn drop(&mut self) {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct StatusProcess {
-            process_identity: ProcessIdentity,
-        }
-
-        let status = self.folders.run_sidekicks(&["daemon", "status", "--json"]);
-        let Ok(status) = serde_json::from_slice::<StatusProcess>(&status.stdout) else {
-            return;
-        };
-        if let Some(process) =
-            pin_identified_process(&status.process_identity).expect("the daemon's process reads")
-        {
-            process.stop(STOP_GRACE).expect("the daemon is stopped");
-        }
-    }
-}
+use crate::helpers::{
+    DaemonEnding, PrivateFolders, STOP_GRACE, built_daemon_program, path_text, text,
+};
 
 /// Ends the process whose id the stand-in wrote to `pid_file`, where it still runs, when it drops.
 struct StandInEnding {
@@ -69,7 +39,7 @@ fn read_pid(pid_file: &Path) -> Option<u32> {
 fn a_start_reports_success_once_the_daemon_answers_and_a_second_start_spawns_nothing() {
     let folders = PrivateFolders::new();
     let daemon = built_daemon_program();
-    let _ending = DaemonEnding { folders: &folders };
+    let _ending = DaemonEnding::new(&folders);
 
     // A debug build's first launch, its large program checked by the system, can pass the default
     // wait, which this test does not prove.

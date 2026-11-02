@@ -45,7 +45,7 @@ use crate::program::describe_repairing;
 #[derive(Debug, Args)]
 pub(crate) struct StartArgs {
     /// The background service's program to start, in place of the one installed beside this
-    /// program.
+    /// program; unused where a login agent starts the service, since the agent runs its own.
     #[arg(long, value_name = "PATH")]
     daemon_path: Option<PathBuf>,
     /// How long to wait for the started background service to answer, in milliseconds [default:
@@ -70,11 +70,16 @@ pub(crate) enum DaemonStart {
 /// The started daemon's exit, answered once it has exited and been reaped.
 type DaemonExit = Pin<Box<dyn Future<Output = io::Result<ExitStatus>> + Send>>;
 
+/// The line a command prints once it started the background service.
+pub(crate) const STARTED_LINE: &str = "Started the background service.\n";
+
 /// Starts the background service unless it is running, and answers 0 once it answers: the repair's
-/// line on stderr while it repairs its database file, then the outcome's line on stdout. Fails as
-/// [`start_daemon`] does, or as a write does.
-pub(crate) fn start<Output: Write, ErrorOutput: Write>(
+/// line on stderr while it repairs its database file, then on stdout `started_line` where this
+/// command started it, else the line saying it was already running. Fails as [`start_daemon`]
+/// does, or as a write does.
+pub(crate) fn start_and_report<Output: Write, ErrorOutput: Write>(
     args: &StartArgs,
+    started_line: &'static str,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> anyhow::Result<ExitCode> {
     let deadline = args
@@ -95,7 +100,7 @@ pub(crate) fn start<Output: Write, ErrorOutput: Write>(
                      not leave this login's scope: {refusal}"
                 )?;
             }
-            "Started the background service.\n"
+            started_line
         }
     };
     context.stdout.write_all(line.as_bytes())?;

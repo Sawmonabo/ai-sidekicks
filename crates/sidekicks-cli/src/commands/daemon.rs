@@ -1,9 +1,12 @@
 //! The `daemon` commands, which read and drive the background service itself.
 
+mod ending;
 pub(crate) mod install;
 pub(crate) mod registration;
+mod restart;
 pub(crate) mod start;
 pub(crate) mod status;
+mod stop;
 pub(crate) mod uninstall;
 
 use std::io::Write;
@@ -12,8 +15,10 @@ use clap::Subcommand;
 
 use crate::command_context::CommandContext;
 use crate::commands::daemon::install::{InstallArgs, install};
-use crate::commands::daemon::start::{StartArgs, start};
+use crate::commands::daemon::restart::{RestartArgs, restart};
+use crate::commands::daemon::start::{STARTED_LINE, StartArgs, start_and_report};
 use crate::commands::daemon::status::{StatusArgs, show_status};
+use crate::commands::daemon::stop::{StopArgs, stop};
 use crate::commands::daemon::uninstall::uninstall;
 use crate::exit_codes::ExitCode;
 
@@ -22,10 +27,14 @@ use crate::exit_codes::ExitCode;
 pub(crate) enum DaemonCommand {
     /// Register the background service to start at login, and start it.
     Install(InstallArgs),
+    /// Stop the background service and start it again, asking first.
+    Restart(RestartArgs),
     /// Start the background service unless it is running, and wait until it answers.
     Start(StartArgs),
     /// Show whether the background service is running, and how it stands.
     Status(StatusArgs),
+    /// Stop the background service, asking first.
+    Stop(StopArgs),
     /// Stop the background service and remove its start at login; your data is kept.
     Uninstall,
 }
@@ -37,8 +46,10 @@ pub(crate) fn run_daemon_command<Output: Write, ErrorOutput: Write>(
 ) -> anyhow::Result<ExitCode> {
     match command {
         DaemonCommand::Install(args) => install(args, context),
-        DaemonCommand::Start(args) => start(args, context),
+        DaemonCommand::Restart(args) => restart(args, context),
+        DaemonCommand::Start(args) => start_and_report(args, STARTED_LINE, context),
         DaemonCommand::Status(args) => show_status(args, context),
+        DaemonCommand::Stop(args) => stop(args, context),
         DaemonCommand::Uninstall => uninstall(context),
     }
 }

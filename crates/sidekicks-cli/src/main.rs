@@ -11,6 +11,7 @@ mod confirmation;
 mod connected_command;
 mod daemon_program;
 mod exit_codes;
+mod local_number;
 mod local_time;
 mod program;
 
