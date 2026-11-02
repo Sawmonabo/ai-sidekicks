@@ -14,17 +14,16 @@ use tokio::time::Instant;
 
 use super::{ClaudeDeliveryStream, ClaudeSessionStream, report_engine_failure};
 use crate::driver::claude::delivery::commands::ClaudeTaskFrame;
-use crate::driver::claude::delivery::mcp_tasks::{ClaudeHeldCallEnd, ClaudeHeldCallRun};
-use crate::driver::claude::delivery::messages::{
-    ClaudeMessageBody, ClaudeToolCallClose, close_claude_tool_call,
-};
-use crate::driver::claude::delivery::run_readings::ClaudeRowDelivery;
+use crate::driver::claude::delivery::mcp_tasks::ClaudeHeldCallEnd;
+use crate::driver::claude::delivery::messages::close_opened_call;
+use crate::driver::claude::delivery::run_readings::{ClaudeRow, ClaudeRowDelivery};
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::frame_routing::ClaudeMeteredReading;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoute};
 use crate::driver::claude::session::conversation_home::ClaudeConversationHomeKeep;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::diagnostics::DriverDiagnosticKind;
+use crate::driver::reorder_buffer::{ReorderBufferedEvent, ReorderPairingRole};
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 
@@ -57,12 +56,13 @@ impl ClaudeDeliveryStream {
         }
         let run = self.task_run(session, &task, lead);
         let held_end = {
-            let mut readings = session.lock();
+            let mut guard = session.lock();
+            let readings = &mut *guard;
             match kind {
                 ClaudeWireFrameKind::SystemTaskStarted => {
                     readings
                         .tool_server_tasks
-                        .observe_start(&task, run.clone().map(held_call_run));
+                        .observe_start(&task, &mut readings.open_tool_calls);
                     None
                 }
                 ClaudeWireFrameKind::SystemTaskNotification => {
@@ -220,37 +220,39 @@ impl ClaudeDeliveryStream {
             .or_else(|| routes.lead_run_on(session.session_id))
     }
 
-    // Closes a tool server's background call with its task's summary and files.
+    // Closes a tool server's background call on the run its opening recorded, on that run's
+    // binding, with its task's body; unpaired, since its stand-in result already answered the
+    // call's opening.
     async fn close_held_call(&self, session: &ClaudeSessionStream, held_end: ClaudeHeldCallEnd) {
         let ClaudeHeldCallEnd {
             tool_use_id,
-            run,
-            is_error,
+            opened,
+            outcome,
             text,
         } = held_end;
-        let row = close_claude_tool_call(
-            &mut session.lock().open_tool_calls,
+        let ClaudeBoundRun { run_id, binding_id } = opened.run().clone();
+        let Some(row) = close_opened_call(
+            opened,
             &tool_use_id,
-            ClaudeToolCallClose {
-                session_id: session.session_id,
-                run_id: run.run_id,
-                is_error,
-                body: ClaudeMessageBody::Text(text),
-            },
+            session.session_id,
+            run_id,
+            outcome,
             Instant::now(),
-        );
-        let rows = row
-            .map(|row| ClaudeRowDelivery::of_message(&run.binding_id, row, None))
-            .into_iter()
-            .collect();
+        ) else {
+            return;
+        };
+        let rows = vec![ReorderBufferedEvent {
+            tool_call_id: None,
+            pairing_role: ReorderPairingRole::Unpaired,
+            event: ClaudeRowDelivery {
+                binding_id,
+                operation: None,
+                row: ClaudeRow::Late(row),
+                body: text,
+                message_key: None,
+            },
+        }];
         self.admit_rows(session, rows, "system/task_notification")
             .await;
-    }
-}
-
-fn held_call_run(run: ClaudeBoundRun) -> ClaudeHeldCallRun {
-    ClaudeHeldCallRun {
-        run_id: run.run_id,
-        binding_id: run.binding_id,
     }
 }
