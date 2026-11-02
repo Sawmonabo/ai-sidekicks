@@ -3,8 +3,10 @@
 //! wrapper or the command askpass runs that, before any runtime starts; otherwise the first words
 //! choose a helper mode, `shell <daemon pid>`, `console <pid>`, `console input <pid>`, `environment
 //! <marker>`, `index`, `minidump <socket>`, `database copy`, `database restore <backup folder>`,
-//! `data erase` or `database shell`; with no words it is the service. The `hook`, `wsl` and
-//! `banners` modes are their own features' to add here.
+//! `data erase`, `secrets move files|keychain`, `secrets check keychain` or `database shell`; with
+//! no words it is the service in the person's login session, and with `system-service` it is the
+//! Mac's system service, which runs while the person is logged out. The `hook`, `wsl` and `banners`
+//! modes are their own features' to add here.
 
 use std::ffi::{CString, OsString, c_int};
 use std::io;
@@ -13,6 +15,8 @@ use std::process::ExitCode;
 
 use sidekicks_contracts::daemon::backup::DATABASE_RESTORE_MODE;
 use sidekicks_contracts::daemon::data::DATA_ERASE_MODE;
+use sidekicks_contracts::daemon::secrets_place::{SECRETS_KEYCHAIN_CHECK_MODE, SECRETS_MOVE_MODE};
+use sidekicks_platforms::SYSTEM_SERVICE_MODE;
 use sidekicks_provider::command::askpass::{COMMAND_ASKPASS_PROGRAM_NAME, run_command_askpass};
 use sidekicks_provider::command::wrapper::{COMMAND_WRAPPER_PROGRAM_NAME, run_command_wrapper};
 use sidekicks_recovery::database_file::copy::{DATABASE_COPY_MODE, run_database_copy};
@@ -30,8 +34,9 @@ use crate::daemon::crash::monitor::{CRASH_MONITOR_MODE, run_crash_monitor};
 use crate::daemon::login_shell_environment::printing::{ENVIRONMENT_MODE, run_environment_mode};
 use crate::daemon::release_version::this_build_release_version;
 use crate::daemon::schema::schema_parts;
-use crate::daemon::start::run_service;
+use crate::daemon::start::{ServiceStart, run_service};
 use crate::data_acts::erase::mode::run_data_erase_mode;
+use crate::data_acts::secrets_move::{run_keychain_check_mode, run_secrets_move_mode};
 
 /// SQLite's own shell, run with C arguments, its first the program's name; it answers the shell's
 /// exit code. `main` supplies it, since the shell is a C function only `main` may call.
@@ -60,7 +65,8 @@ pub fn run_daemon_program(run_sqlite_shell: SqliteShell) -> ExitCode {
         .collect();
     let words: Vec<&str> = words.iter().map(String::as_str).collect();
     match words.as_slice() {
-        [] => run_service(),
+        [] => run_service(ServiceStart::LoginSession),
+        [SYSTEM_SERVICE_MODE] => run_service(ServiceStart::SystemService),
         [SHELL_MODE, daemon_pid] => run_shell_mode(daemon_pid),
         [CONSOLE_MODE, rest @ ..] => run_console_mode(rest),
         [ENVIRONMENT_MODE, marker] => run_environment_mode(marker),
@@ -73,6 +79,12 @@ pub fn run_daemon_program(run_sqlite_shell: SqliteShell) -> ExitCode {
             &this_build_release_version(),
         ),
         [first, second] if [*first, *second] == DATA_ERASE_MODE => run_data_erase_mode(),
+        [first, second, destination] if [*first, *second] == SECRETS_MOVE_MODE => {
+            run_secrets_move_mode(destination)
+        }
+        [first, second, third] if [*first, *second, *third] == SECRETS_KEYCHAIN_CHECK_MODE => {
+            run_keychain_check_mode()
+        }
         [first, second, ..] if [*first, *second] == DATABASE_SHELL_MODE => {
             run_database_shell(run_sqlite_shell, &program_name, &arguments[2..])
         }

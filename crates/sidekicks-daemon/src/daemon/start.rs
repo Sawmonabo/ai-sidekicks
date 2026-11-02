@@ -124,14 +124,25 @@ enum ServiceStartError {
     Start(Box<CleanupFailures<DaemonStartError, DaemonStopFailure>>),
 }
 
-/// Runs the service: makes it its own responsible process, prepares the process, then runs the
-/// daemon until its stop. Exits 0 once stopped, 1 with why in the service log, or on standard
-/// error before the log is installed, when the start or a step of the stop fails.
-pub(crate) fn run_service() -> ExitCode {
+/// How the service was started, which decides where its secrets can be kept.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ServiceStart {
+    /// In the person's login session: the login agent, the app's child or a detached start.
+    LoginSession,
+    /// As the Mac's system service, which runs while the person is logged out and so cannot reach
+    /// the login keychain.
+    SystemService,
+}
+
+/// Runs the service started as `start`: makes it its own responsible process, prepares the
+/// process, then runs the daemon until its stop. Exits 0 once stopped, 1 with why in the service
+/// log, or on standard error before the log is installed, when the start or a step of the stop
+/// fails.
+pub(crate) fn run_service(start: ServiceStart) -> ExitCode {
     if let Err(code) = become_own_root() {
         return code;
     }
-    match start_and_run() {
+    match start_and_run(start) {
         Ok(exit_code) => exit_code,
         Err(error) => {
             report_start_failure(&error);
@@ -142,7 +153,7 @@ pub(crate) fn run_service() -> ExitCode {
 
 // Prepares the process and runs the daemon until its stop. Fails with what went wrong before the
 // service log was installed; from then on a failure is logged and answers the failed exit.
-fn start_and_run() -> Result<ExitCode, ServiceStartError> {
+fn start_and_run(start: ServiceStart) -> Result<ExitCode, ServiceStartError> {
     restrict_library_search().map_err(ServiceStartError::LibrarySearch)?;
     let folder = stable_working_folder();
     std::env::set_current_dir(&folder)
@@ -166,7 +177,7 @@ fn start_and_run() -> Result<ExitCode, ServiceStartError> {
         .map_err(ServiceStartError::Log)?;
     install_panic_hook(&data_folder, log.file_writer());
     let exit_code =
-        run_daemon(home_folder, data_folder_lock, log.files()).unwrap_or_else(|error| {
+        run_daemon(start, home_folder, data_folder_lock, log.files()).unwrap_or_else(|error| {
             report_start_failure(&error);
             ExitCode::FAILURE
         });
@@ -174,11 +185,12 @@ fn start_and_run() -> Result<ExitCode, ServiceStartError> {
     Ok(exit_code)
 }
 
-// Prepares the memory and the process hold, then runs the daemon on its runtime until its stop,
-// writes the service log's last lines, and ends the runtime within what is left of the stop's
-// drain bound. Fails with what went wrong before the daemon's start; from then on a failure is
-// logged and answers the failed exit.
+// Prepares the memory and the process hold, then runs the daemon started as `start` on its runtime
+// until its stop, writes the service log's last lines, and ends the runtime within what is left of
+// the stop's drain bound. Fails with what went wrong before the daemon's start; from then on a
+// failure is logged and answers the failed exit.
 fn run_daemon(
+    start: ServiceStart,
     home_folder: PathBuf,
     data_folder_lock: DataFolderLock,
     service_log_files: ServiceLogFiles,
@@ -243,6 +255,7 @@ fn run_daemon(
             credential_store: Arc::new(SystemCredentialStore {
                 offer: secret_store_offer(),
             }),
+            runs_while_logged_out: start == ServiceStart::SystemService,
             service_log_files,
             provider_registrations: PROVIDER_REGISTRATIONS,
         }))

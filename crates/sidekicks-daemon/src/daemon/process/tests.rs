@@ -171,6 +171,7 @@ impl TestHome {
                 &self.provider_environment,
             )),
             credential_store: TestStoreAccess::new(CredentialStore::in_memory()) as _,
+            runs_while_logged_out: false,
             service_log_files: open_service_log(&data_folder, io::sink()).files(),
             provider_registrations: PROVIDER_REGISTRATIONS,
         }))

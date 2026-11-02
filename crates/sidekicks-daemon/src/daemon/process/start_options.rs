@@ -38,6 +38,9 @@ pub(crate) struct DaemonStartOptions {
     /// The store the secret items and this machine's keys are kept in: the system's, or in a test
     /// an in-memory one, so no test writes the person's keychain.
     pub(crate) credential_store: Arc<dyn CredentialStoreAccess>,
+    /// Whether this is the Mac's system service, which runs while the person is logged out and
+    /// keeps the secrets in files.
+    pub(crate) runs_while_logged_out: bool,
     /// The service log's files, which the diagnostic-log expiry leaves the live one of alone.
     pub(crate) service_log_files: ServiceLogFiles,
     /// The providers whose drivers the start builds, in their order: the one table of providers,
