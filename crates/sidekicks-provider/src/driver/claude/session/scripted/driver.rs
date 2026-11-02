@@ -406,9 +406,15 @@ impl ScriptedDriver {
             .expect("the inbound dispatch registers once");
         // The command sandbox answers as the test sets it, so its outcome is the same wherever it
         // runs.
-        let driver =
-            ClaudeDriver::with_engine(&base, starts.clone(), &host, &dispatch, sandbox_check)
-                .expect("the session pieces compose");
+        let driver = ClaudeDriver::with_engine(
+            &base,
+            starts.clone(),
+            starts.keychain.clone(),
+            &host,
+            &dispatch,
+            sandbox_check,
+        )
+        .expect("the session pieces compose");
         Self {
             driver: Arc::new(driver),
             starts,

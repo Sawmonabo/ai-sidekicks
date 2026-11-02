@@ -1,6 +1,6 @@
 //! A credential store for tests whose calls block until the test releases them, as a locked
-//! store's call waits on its unlock prompt, counting the calls it received and keeping each entry's
-//! last written value.
+//! store's call waits on its unlock prompt, counting the calls it received, keeping each entry's
+//! last written value and listing the entries that hold one.
 
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
@@ -55,6 +55,15 @@ impl BlockingCredentialStore {
             .insert(service.to_owned());
     }
 
+    /// Lets the next `accepted` writes under `service` land and refuses the one after, as a store
+    /// that fails partway through a run of writes.
+    pub fn refuse_write(&self, service: &str, accepted: usize) {
+        self.calls
+            .kept()
+            .refused_writes
+            .insert(service.to_owned(), accepted);
+    }
+
     /// From now on keeps every value written under `service` as written again.
     pub fn stop_changing_values_for(&self, service: &str) {
         self.calls.kept().changed_services.remove(service);
@@ -70,6 +79,13 @@ impl BlockingCredentialStore {
         let mut received = self.calls.received.subscribe();
         // The sender lives in `self`, which outlives this wait, so the wait ends only on the count.
         drop(received.wait_for(|received| *received >= count).await);
+    }
+
+    fn entry(&self, service: String, account: String) -> Entry {
+        Entry::new_with_credential(Arc::new(BlockingCredential {
+            calls: Arc::clone(&self.calls),
+            specifiers: (service, account),
+        }))
     }
 }
 
@@ -88,10 +104,25 @@ impl CredentialStoreApi for BlockingCredentialStore {
         account: &str,
         _modifiers: Option<&HashMap<&str, &str>>,
     ) -> keyring_core::Result<Entry> {
-        Ok(Entry::new_with_credential(Arc::new(BlockingCredential {
-            calls: Arc::clone(&self.calls),
-            specifiers: (service.to_owned(), account.to_owned()),
-        })))
+        Ok(self.entry(service.to_owned(), account.to_owned()))
+    }
+
+    // The entries holding a value under the service the search names.
+    fn search(&self, spec: &HashMap<&str, &str>) -> keyring_core::Result<Vec<Entry>> {
+        let service = spec.get("service").copied().unwrap_or_default();
+        self.calls.answer_when_released(service);
+        let specifiers: Vec<(String, String)> = self
+            .calls
+            .kept()
+            .values
+            .keys()
+            .filter(|(kept_service, _)| kept_service == service)
+            .cloned()
+            .collect();
+        Ok(specifiers
+            .into_iter()
+            .map(|(service, account)| self.entry(service, account))
+            .collect())
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -116,12 +147,13 @@ struct Holds {
     held_services: HashSet<String>,
 }
 
-// Each entry's last written value, by service and account, and the services whose values are kept
-// changed.
+// Each entry's last written value, by service and account, the services whose values are kept
+// changed, and by service the writes left to land before one is refused.
 #[derive(Debug, Default)]
 struct KeptValues {
     values: HashMap<(String, String), Vec<u8>>,
     changed_services: HashSet<String>,
+    refused_writes: HashMap<String, usize>,
 }
 
 impl HeldCalls {
@@ -157,6 +189,15 @@ impl CredentialApi for BlockingCredential {
     fn set_secret(&self, secret: &[u8]) -> keyring_core::Result<()> {
         self.calls.answer_when_released(&self.specifiers.0);
         let mut kept = self.calls.kept();
+        if let Some(accepted) = kept.refused_writes.get_mut(&self.specifiers.0) {
+            if *accepted == 0 {
+                kept.refused_writes.remove(&self.specifiers.0);
+                return Err(keyring_core::Error::PlatformFailure(Box::new(
+                    std::io::Error::other("the test refuses this write"),
+                )));
+            }
+            *accepted -= 1;
+        }
         let mut value = secret.to_vec();
         if kept.changed_services.contains(&self.specifiers.0) {
             value.pop();

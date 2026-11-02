@@ -257,9 +257,7 @@ pub(crate) async fn delete_claude_conversations(
     removed.extend(find_claude_plan_files(config_folder, &plans).await?);
     removed.extend(conversation_files.into_iter().flatten());
     for path in removed {
-        tokio::task::spawn_blocking(move || sidekicks_platforms::remove_tree(&path))
-            .await
-            .map_err(io::Error::other)??;
+        sidekicks_platforms::remove_tree_awaited(&path).await?;
     }
     Ok(())
 }

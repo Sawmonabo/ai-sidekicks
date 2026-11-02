@@ -41,6 +41,7 @@ use crate::driver::contract::params_and_results::{
     ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
     ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
+use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
@@ -238,6 +239,8 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     skill_name_max_length: Some(64),
     background_work: None,
     callback_tools_asked: false,
+    // Its login runs its own loopback listener for the browser's return.
+    can_mcp_sign_in_return_to_daemon_receiver: false,
     // Codex's log folder; the rows its service logs into the home's database the driver's own
     // expiry deletes.
     account_home_diagnostic_folders: &[&["log"]],
@@ -680,5 +683,16 @@ impl ProviderDriver for CodexDriver {
 
     fn running_service_log_files(&self) -> io::Result<Vec<PathBuf>> {
         self.registry.running_service_log_files()
+    }
+
+    fn sign_in_with_own_client(
+        &self,
+        request: ProviderSignInTakeoverRequest,
+    ) -> BoxFuture<'_, Result<ProviderSignInTakeover, DriverError>> {
+        self.sign_in_with_own_client(request).boxed()
+    }
+
+    fn remove_left_sign_in_folders(&self) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.remove_left_sign_in_folders().boxed()
     }
 }

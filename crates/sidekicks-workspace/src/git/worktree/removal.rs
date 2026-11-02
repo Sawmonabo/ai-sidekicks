@@ -67,7 +67,7 @@ use crate::git::worktree::risks::{has_something_to_lose, read_removal_risks};
 use crate::git::worktree::rows::{AttachedMountRow, WorktreeRow};
 use crate::git::worktree::service::cleanup::{RetiredWorktreeKeeper, stop_file_watch};
 use crate::git::worktree::service::{
-    RecordRetirementOptions, WorktreeService, WorktreeServiceError, remove_folder,
+    RecordRetirementOptions, WorktreeService, WorktreeServiceError,
 };
 
 /// What an owner keeps holding once its processes in a folder have ended, so none starts there
@@ -721,7 +721,9 @@ impl RemovalShared {
     ) -> Result<(), RecordRemovalFailure> {
         let ref_store_removed = async {
             match &moved.ref_store_folder {
-                Some(ref_store_folder) => remove_folder(ref_store_folder).await,
+                Some(ref_store_folder) => {
+                    sidekicks_platforms::remove_tree_awaited(ref_store_folder).await
+                }
                 None => Ok(()),
             }
         };

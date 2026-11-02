@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_platforms::{create_private_folder, file_facts, flush_folder, remove_tree};
+use sidekicks_platforms::{create_private_folder, file_facts, flush_folder, remove_tree_awaited};
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
 use sidekicks_std::missing_entry::MissingEntry as _;
@@ -157,10 +157,7 @@ pub async fn copy_database_files_aside(
     }
     .await;
     if let Err(failure) = copied {
-        let removing = folder.clone();
-        let removed = tokio::task::spawn_blocking(move || remove_tree(&removing))
-            .await
-            .unwrap_or_else(|interrupted| Err(io::Error::other(interrupted)));
+        let removed = remove_tree_awaited(&folder).await;
         return Err(match removed {
             Ok(()) => failure,
             Err(removal_failure) => AsideCopyError::Cleanup(Box::new(CleanupFailures::new(

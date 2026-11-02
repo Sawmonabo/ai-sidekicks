@@ -11,6 +11,7 @@ use axum::http::request::Parts;
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::{Map, Value, json};
+use sidekicks_contracts::dpop::{DPOP_AUTHORIZATION_SCHEME, DPOP_PROOF_ALGORITHM};
 use sidekicks_contracts::jsonrpc::issue::Issue;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::rate_limiter::RateLimitResponse;
@@ -199,9 +200,11 @@ impl IntoResponse for ControlPlaneRefusal {
             }
             Self::Unauthenticated(fault) => {
                 let (code, message, error) = fault.describe();
+                let scheme = DPOP_AUTHORIZATION_SCHEME;
+                let algorithm = DPOP_PROOF_ALGORITHM;
                 let challenge = match error {
-                    Some(error) => format!("DPoP algs=\"ES256\", error=\"{error}\""),
-                    None => "DPoP algs=\"ES256\"".to_owned(),
+                    Some(error) => format!("{scheme} algs=\"{algorithm}\", error=\"{error}\""),
+                    None => format!("{scheme} algs=\"{algorithm}\""),
                 };
                 let mut response = build_refusal_response(code, message, Map::new());
                 response.headers_mut().insert(

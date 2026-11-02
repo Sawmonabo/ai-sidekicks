@@ -49,6 +49,8 @@ sidekicks-workspace = { path = "crates/sidekicks-workspace" }
 anstream = { version = "1.0.0", default-features = false, features = ["auto"] }
 anstyle-query = "1.1.5"
 anyhow = "1.0.104"
+# rmcp's credential store trait is written with it, so an implementation needs it too.
+async-trait = "0.1.92"
 clap = { version = "4.6.7", features = ["derive"] }
 flexi_logger = { version = "0.31.10", default-features = false }
 futures = { version = "0.3.34", default-features = false, features = ["async-await", "std"] }
@@ -158,15 +160,20 @@ form_urlencoded = "1.2.2"
 garde = { version = "0.23.0", features = ["derive", "regex", "serde"] }
 h2 = "0.4.20"
 hickory-server = "0.26.3"
+http = "1.5.0"
+hyper = { version = "1.12.0", default-features = false }
 hyper-util = "0.1.21"
 instant-acme = "0.8.5"
 interprocess = { version = "2.4.6", features = ["tokio"] }
 jsonschema = { version = "0.58.6", default-features = false }
+# rmcp's token responses are its types, read through its `TokenResponse` trait.
+oauth2 = { version = "5.0.0", default-features = false }
 percent-encoding = "2.3.2"
 psl = "2.1.241"
 reqwest = { version = "0.13.5", features = ["brotli", "deflate", "gzip", "json", "stream"] }
-rmcp.version = "3.7.0"
+rmcp.version = "3.8.0"
 rmcp.features = [
+  "auth",
   "client",
   "transport-child-process",
   "transport-streamable-http-client",

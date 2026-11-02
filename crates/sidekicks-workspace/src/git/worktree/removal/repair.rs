@@ -24,7 +24,7 @@ use crate::git::worktree::reads::common_folder_of_record;
 use crate::git::worktree::removed_store::RemovedWorktreeStoreError;
 use crate::git::worktree::removed_store::rows::finish_statement;
 use crate::git::worktree::rows::WorktreeRow;
-use crate::git::worktree::service::{RecordRetirementOptions, remove_folder};
+use crate::git::worktree::service::RecordRetirementOptions;
 use crate::git::worktree::stale_record::{StaleRecordTools, at, remove_stale_record_and_refs};
 use crate::git::worktree::tree_records::hold_records;
 use crate::git::worktree::unfinished_discards::UnfinishedKeptWorktree;
@@ -413,7 +413,7 @@ impl RemovalShared {
         if self.deps.worktrees.is_worktree_folder(folder).await? {
             return Ok(());
         }
-        remove_folder(folder)
+        sidekicks_platforms::remove_tree_awaited(folder)
             .await
             .map_err(WorktreeRemovalError::Folder)
     }
