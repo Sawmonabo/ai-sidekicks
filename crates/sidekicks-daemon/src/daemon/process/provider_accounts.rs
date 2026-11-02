@@ -296,9 +296,10 @@ impl ProviderAccountObservation {
     /// Moves each session a stop left on another account than its provider's current one onto
     /// it, schedules every registered account's reads and window starts, has each turn metered
     /// on an account end that account's turn and each run's end ask the turn-end reads a live turn
-    /// turned away, and publishes each quota reading as the window projection keeps it. Fails when
-    /// those sessions or the accounts cannot be read or the scheduler has stopped. Runs inside the
-    /// daemon's runtime, which each turn's end and each reading is read on.
+    /// turned away, and publishes each quota reading a turn pushed as the window projection keeps
+    /// it, the observer publishing what its own reads keep. Fails when those sessions or the
+    /// accounts cannot be read or the scheduler has stopped. Runs inside the daemon's runtime,
+    /// which each turn's end and each reading is read on.
     pub(crate) async fn start(
         &mut self,
         followers: &Arc<SessionEventFollowers>,
@@ -330,6 +331,11 @@ impl ProviderAccountObservation {
                 observer.turn_closed();
             } else if event_type == SessionEventType::UsageRateLimitUpdated {
                 let updated = UsageRateLimitUpdatedPayload::deserialize(event.envelope.payload())?;
+                // A limits read's whole set goes out from the observer once the read's time is on
+                // the account's row; only what a turn pushed goes out from here.
+                if updated.whole_set.is_some() {
+                    return Ok(());
+                }
                 let (reads, publisher) = (Arc::clone(&reads), Arc::clone(&publisher));
                 runtime.spawn(async move {
                     if let Err(error) = publish_usage_window(&reads, &*publisher, &updated).await {
