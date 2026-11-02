@@ -1,7 +1,7 @@
 //! `provider.account.credentialHome.reset`: an account's home rebuilt from empty under its home
 //! lock, after its provider's own sign-out, leaving the account to sign in again; refused while a
 //! sign-in or a switch is in flight on the account, as a second sign-in is, and holding the
-//! account's mark through the reset, so no sign-in starts in the home meanwhile.
+//! account in flight through the reset, so no sign-in starts in the home meanwhile.
 
 use std::sync::Arc;
 
@@ -38,9 +38,9 @@ pub(super) fn register_provider_account_credential_home_reset(
                 let method = ProviderAccountCredentialHomeReset::DESCRIPTOR.method;
                 let device = context.calling_device(method)?;
                 let account = sources.accounts.read(request.account_id).await?;
-                let _mark = sources
-                    .signing_in
-                    .mark(account.account_id.clone())
+                let _in_flight_guard = sources
+                    .accounts_in_flight
+                    .begin(account.account_id.clone())
                     .ok_or(ProviderSignInError::InFlight)?;
                 let legs = sources.account_legs.get(&account.provider).ok_or_else(|| {
                     HandlerError::Internal(Box::new(AccountLegsMissing {

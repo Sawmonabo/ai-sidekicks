@@ -30,7 +30,7 @@ use sidekicks_provider::account::observer::{
 use sidekicks_provider::account::registry::ProviderAccountRegistry;
 use sidekicks_provider::account::resolver::ProviderAccounts;
 use sidekicks_provider::account::sign_in::{
-    AccountsSigningIn, ProviderAccountNotificationPublisher, ProviderSignInBroker,
+    AccountsInFlight, ProviderAccountNotificationPublisher, ProviderSignInBroker,
     SignedInAccountWatcher,
 };
 use sidekicks_provider::account::token_custody::ProviderTokenCustody;
@@ -175,7 +175,7 @@ pub(crate) async fn build_provider_account_plane(
     }
     remove_sign_in_move_leftovers(&account_legs, &registry).await;
     let home_lock = Arc::new(AccountHomeLock::default());
-    let signing_in = Arc::new(AccountsSigningIn::default());
+    let accounts_in_flight = Arc::new(AccountsInFlight::default());
     let live_turns: Arc<dyn AccountLiveTurns> = binding_cursors;
     let publisher = Arc::new(ProviderAccountNotifications::new());
     let observer = Arc::new(ProviderAccountObserver::new(ProviderAccountObserverDeps {
@@ -188,7 +188,7 @@ pub(crate) async fn build_provider_account_plane(
         database_writer: writer,
         usage,
         live_turns: Arc::clone(&live_turns),
-        signing_in: Arc::clone(&signing_in),
+        accounts_in_flight: Arc::clone(&accounts_in_flight),
         home_lock: Arc::clone(&home_lock),
         scheduler,
         wall_clock: clock,
@@ -201,11 +201,11 @@ pub(crate) async fn build_provider_account_plane(
         Arc::clone(&publisher) as _,
         Arc::clone(&observer) as Arc<dyn SignedInAccountWatcher>,
         Arc::clone(&home_lock),
-        Arc::clone(&signing_in),
+        Arc::clone(&accounts_in_flight),
     ));
     let account_switch = Arc::new(AccountSwitch::new(AccountSwitchDeps {
         accounts: Arc::clone(&registry),
-        signing_in: Arc::clone(&signing_in),
+        accounts_in_flight: Arc::clone(&accounts_in_flight),
         account_reader: Arc::clone(&reader),
         switch_legs,
         providers: Arc::clone(&providers),
@@ -215,7 +215,7 @@ pub(crate) async fn build_provider_account_plane(
         read_damaged_from_sequence,
     }));
     let account_move_record = Arc::new(SessionAccountMoveRecord::new(
-        Arc::clone(&account_switch),
+        &account_switch,
         machine_device_id.clone(),
     ));
     ProviderAccountPlane {
@@ -223,7 +223,7 @@ pub(crate) async fn build_provider_account_plane(
             accounts: Arc::clone(&registry),
             providers,
             sign_in,
-            signing_in,
+            accounts_in_flight,
             token_custody,
             observer: Arc::clone(&observer),
             account_reader: Arc::clone(&reader),

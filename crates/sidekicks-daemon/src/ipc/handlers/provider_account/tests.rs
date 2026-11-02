@@ -61,7 +61,7 @@ use sidekicks_provider::account::observer::{
 use sidekicks_provider::account::registry::ProviderAccountRegistry;
 use sidekicks_provider::account::resolver::ProviderAccounts;
 use sidekicks_provider::account::sign_in::{
-    AccountsSigningIn, ProviderSignInBroker, SignedInAccountWatcher,
+    AccountsInFlight, ProviderSignInBroker, SignedInAccountWatcher,
 };
 use sidekicks_provider::account::token_custody::ProviderTokenCustody;
 use sidekicks_provider::account::wake_helper::{
@@ -411,7 +411,7 @@ impl MethodInputs {
         ));
         let clock: Arc<dyn WallClock> = Arc::new(TestWallClock::default());
         let home_lock = Arc::new(AccountHomeLock::default());
-        let signing_in = Arc::new(AccountsSigningIn::default());
+        let accounts_in_flight = Arc::new(AccountsInFlight::default());
         let wake_helper = wake_helper as Arc<dyn MachineWakeHelper>;
         let publisher = Arc::new(ProviderAccountNotifications::new());
         let observer = Arc::new(ProviderAccountObserver::new(ProviderAccountObserverDeps {
@@ -424,7 +424,7 @@ impl MethodInputs {
             database_writer: Arc::clone(&log.writer),
             usage: Arc::new(UnreadUsage),
             live_turns: Arc::new(NoSessions),
-            signing_in: Arc::clone(&signing_in),
+            accounts_in_flight: Arc::clone(&accounts_in_flight),
             home_lock: Arc::clone(&home_lock),
             scheduler: Arc::new(Scheduler::start(
                 Arc::clone(&clock),
@@ -440,7 +440,7 @@ impl MethodInputs {
         )));
         let account_switch = Arc::new(AccountSwitch::new(AccountSwitchDeps {
             accounts: Arc::clone(&accounts),
-            signing_in: Arc::clone(&signing_in),
+            accounts_in_flight: Arc::clone(&accounts_in_flight),
             account_reader: Arc::clone(&account_reader),
             switch_legs: HashMap::new(),
             providers: Arc::clone(&providers),
@@ -467,9 +467,9 @@ impl MethodInputs {
                     Arc::clone(&publisher) as _,
                     Arc::clone(&observer) as Arc<dyn SignedInAccountWatcher>,
                     Arc::clone(&home_lock),
-                    Arc::clone(&signing_in),
+                    Arc::clone(&accounts_in_flight),
                 )),
-                signing_in,
+                accounts_in_flight,
                 token_custody,
                 observer,
                 account_reader,

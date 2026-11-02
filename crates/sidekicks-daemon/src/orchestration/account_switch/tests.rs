@@ -34,7 +34,7 @@ use sidekicks_provider::account::registry::{
     AccountAdmission, HealthObservation, HealthObserver, ProviderAccountRegistry,
 };
 use sidekicks_provider::account::resolver::ProviderAccounts;
-use sidekicks_provider::account::sign_in::AccountsSigningIn;
+use sidekicks_provider::account::sign_in::AccountsInFlight;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::contract::account::{
@@ -56,6 +56,7 @@ use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tempfile::TempDir;
+use tokio::sync::oneshot;
 
 use super::{AccountSwitch, AccountSwitchDeps, SessionAccountMoveRecord, SessionLevelMoves};
 use crate::daemon::schema::schema_parts;
@@ -121,15 +122,16 @@ fn refused_login() -> DriverError {
     ))
 }
 
-// Switch legs recording each call, and whether its target was marked against a sign-in while it
-// ran, and answering each session as scripted; a session not scripted lands with its first request
-// run.
+// Switch legs recording each call, and whether its target was in flight while it ran, and
+// answering each session as scripted once a gate the test set, if any, opens; a session not
+// scripted lands with its first request run.
 #[derive(Default)]
 struct RecordedSwitchLegs {
     script: Mutex<HashMap<SessionId, ScriptedMove>>,
     calls: Mutex<Vec<(ProviderAccountId, ProviderAccountId, Vec<SessionToMove>)>>,
-    signing_in: Arc<AccountsSigningIn>,
-    is_target_marked: Mutex<Vec<bool>>,
+    accounts_in_flight: Arc<AccountsInFlight>,
+    is_target_in_flight: Mutex<Vec<bool>>,
+    gate: Mutex<Option<oneshot::Receiver<()>>>,
 }
 
 impl ProviderSwitchLegs for RecordedSwitchLegs {
@@ -140,10 +142,14 @@ impl ProviderSwitchLegs for RecordedSwitchLegs {
         sessions: Vec<SessionToMove>,
         _actor: DeviceId,
     ) -> BoxFuture<'_, Vec<Result<SessionAccountMove, (SessionId, DriverError)>>> {
-        lock(&self.is_target_marked).push(self.signing_in.is_signing_in(&to));
+        lock(&self.is_target_in_flight).push(self.accounts_in_flight.is_in_flight(&to));
         lock(&self.calls).push((from, to, sessions.clone()));
         let script = lock(&self.script).clone();
+        let gate = lock(&self.gate).take();
         async move {
+            if let Some(gate) = gate {
+                gate.await.expect("the test opens the gate");
+            }
             sessions
                 .into_iter()
                 .map(|session| {
@@ -195,7 +201,7 @@ struct Fixture {
     bindings: RuntimeBindingStore,
     legs: Arc<RecordedSwitchLegs>,
     level_moves: Arc<RecordedLevelMoves>,
-    signing_in: Arc<AccountsSigningIn>,
+    accounts_in_flight: Arc<AccountsInFlight>,
     switch: Arc<AccountSwitch>,
     move_record: SessionAccountMoveRecord,
     machine_device_id: DeviceId,
@@ -224,9 +230,9 @@ async fn fixture() -> Fixture {
         }]))
         .boxed()
     });
-    let signing_in = Arc::new(AccountsSigningIn::default());
+    let accounts_in_flight = Arc::new(AccountsInFlight::default());
     let legs = Arc::new(RecordedSwitchLegs {
-        signing_in: Arc::clone(&signing_in),
+        accounts_in_flight: Arc::clone(&accounts_in_flight),
         ..RecordedSwitchLegs::default()
     });
     let level_moves = Arc::new(RecordedLevelMoves::default());
@@ -237,7 +243,7 @@ async fn fixture() -> Fixture {
     let machine_device_id = actor();
     let switch = Arc::new(AccountSwitch::new(AccountSwitchDeps {
         accounts: Arc::clone(&accounts),
-        signing_in: Arc::clone(&signing_in),
+        accounts_in_flight: Arc::clone(&accounts_in_flight),
         account_reader: Arc::new(ProviderAccounts::new(
             Arc::clone(&reads),
             Arc::new(NoTokens),
@@ -252,7 +258,7 @@ async fn fixture() -> Fixture {
         reads: Arc::clone(&reads),
         read_damaged_from_sequence: Arc::new(|_: &SessionId| None::<i64>),
     }));
-    let move_record = SessionAccountMoveRecord::new(Arc::clone(&switch), machine_device_id.clone());
+    let move_record = SessionAccountMoveRecord::new(&switch, machine_device_id.clone());
     let bindings = RuntimeBindingStore::new(reads, Arc::clone(&log.writer));
     Fixture {
         database,
@@ -262,7 +268,7 @@ async fn fixture() -> Fixture {
         bindings,
         legs,
         level_moves,
-        signing_in,
+        accounts_in_flight,
         switch,
         move_record,
         machine_device_id,
@@ -733,12 +739,15 @@ async fn a_session_a_stop_left_on_the_old_account_moves_at_the_start() {
     assert_eq!(events[0].1["landedProviderAccountId"], current.as_str());
 }
 
-// A switch holds its account's mark from its refusals until every move has landed, so no sign-in
-// or reset starts in the home meanwhile, and lets it go after; a mark a sign-in took first refuses
-// the switch. Killed by the mark only checked, not taken (the move finds no mark), and by the mark
-// kept past the moves.
-#[tokio::test]
-async fn a_switch_marks_its_account_until_every_move_has_landed() {
+// A switch holds its account in flight from its refusals until every move has landed, so no
+// sign-in or reset starts in the home meanwhile, and lets it go with the provider's lock, before
+// any moved lead's first request comes: a second switch onto the account, waiting on that lock
+// while the first lands, is made, and a sign-in that took the account first refuses a switch.
+// Killed by the account only checked, not put in flight (the move finds it free), by it kept until
+// the first requests settle (the second switch is refused, the first request never coming), and by
+// it let go after the lock, as a race between worker threads that a run may not catch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_switch_holds_its_account_in_flight_until_every_move_has_landed() {
     let fixture = fixture().await;
     let old = fixture
         .register(ProviderAccountHealthState::Authenticated)
@@ -746,24 +755,43 @@ async fn a_switch_marks_its_account_until_every_move_has_landed() {
     let to = fixture
         .register(ProviderAccountHealthState::Authenticated)
         .await;
-    fixture
+    let session = fixture
         .session(PROVIDERS[0].id, &old, None, PermissionLevel::Ask, true)
         .await;
+    lock(&fixture.legs.script).insert(session, ScriptedMove::FirstRequestNeverComes);
+    let (open_gate, gate) = oneshot::channel();
+    *lock(&fixture.legs.gate) = Some(gate);
 
-    let made = fixture
+    fixture
         .switch
         .make_current(to.clone(), actor())
         .await
         .expect("the switch is made");
-    made.settled.await.expect("the moves settle");
-    let _signing_in = fixture
-        .signing_in
-        .mark(old.clone())
+    let holder_handles = fixture.switch.locks.queue_handle_count(first_provider());
+    let second_switch = Arc::clone(&fixture.switch);
+    let second_to = to.clone();
+    let second = tokio::spawn(async move { second_switch.make_current(second_to, actor()).await });
+    fixture
+        .switch
+        .locks
+        .wait_for_queue_past(first_provider(), holder_handles)
+        .await;
+    open_gate.send(()).expect("the first switch's move waits");
+    let second = second.await.expect("the second switch's caller ends");
+    // Held once both switches have let it go, each letting the account go first.
+    drop(fixture.switch.locks.acquire(first_provider()).await);
+    let is_to_in_flight = fixture.accounts_in_flight.is_in_flight(&to);
+    let _in_flight_guard = fixture
+        .accounts_in_flight
+        .begin(old.clone())
         .expect("no act holds the account left");
     let refused = fixture.switch.make_current(old, actor()).await;
 
-    assert_eq!(*lock(&fixture.legs.is_target_marked), [true]);
-    assert!(!fixture.signing_in.is_signing_in(&to));
+    assert!(second.is_ok(), "a second switch onto the account is made");
+    // Each move found its target in flight, the second switch's too where it moved the session.
+    let target_in_flight = lock(&fixture.legs.is_target_in_flight).clone();
+    assert!(target_in_flight.first() == Some(&true) && !target_in_flight.contains(&false));
+    assert!(!is_to_in_flight);
     let Err(error) = refused else {
         panic!("an account signing in was made current");
     };
@@ -777,7 +805,8 @@ async fn a_switch_marks_its_account_until_every_move_has_landed() {
 // switch's lead lands: `changed` in place by the person whose switch moved it, else by this
 // machine's own device, its level the new account cannot run moved to `ask` with one notice, and
 // its first request's hand-back recorded; or when a session whose log names no lead records
-// anything.
+// anything; or when a move reported once the switch is gone lands, as one through a switch the
+// record held strongly would.
 #[tokio::test]
 async fn a_move_no_switch_waits_on_lands_as_a_switch_lead_does() {
     let fixture = fixture().await;
@@ -857,4 +886,13 @@ async fn a_move_no_switch_waits_on_lands_as_a_switch_lead_does() {
     );
     assert!(unled.is_none(), "a session with no lead lands nothing");
     assert_eq!(fixture.appended(no_lead), []);
+    drop(fixture.switch);
+    let unswitched = fixture
+        .move_record
+        .land(SessionAccountMove::unobserved(by_machine), to, None)
+        .await;
+    assert!(
+        unswitched.is_none(),
+        "a move once the switch is gone lands nothing"
+    );
 }
