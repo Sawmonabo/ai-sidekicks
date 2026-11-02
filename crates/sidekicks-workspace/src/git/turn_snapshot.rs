@@ -4,7 +4,7 @@
 //! names, what the captures log, and what pruning a run's snapshots reads.
 
 pub mod capture;
-pub(crate) mod capture_folder;
+pub mod capture_folder;
 pub(crate) mod capture_steps;
 pub mod command_capture;
 pub mod diagnostics;

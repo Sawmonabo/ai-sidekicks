@@ -22,7 +22,7 @@ use crate::git::turn_snapshot::capture::{ObjectFormat, UnrecognizedObjectFormat}
 use crate::git::turn_snapshot::capture_steps::joined;
 
 /// The folder under an owner's folder that holds its capture folders.
-const CAPTURES_SEGMENT: &str = "captures";
+pub const CAPTURES_SEGMENT: &str = "captures";
 
 /// A git folder's object folder.
 const OBJECTS_SEGMENT: &str = "objects";
