@@ -11,7 +11,9 @@
 //! on the new connection: from the first answered poll that reads `input_required`, the server
 //! has 300 s on the answered clock to ask. Past that, or once a poll reads another status, the
 //! question kept for it is withdrawn and the contact reads that the server did not ask again where
-//! the person's answer was kept; past the bound the task is also canceled, its end then lost.
+//! the person's answer was kept; past the bound the task is also canceled, its end then lost. A
+//! bound's cancel that fails lets the held `tasks/result` go and holds none until the cancel is
+//! answered, sent again at each poll that reads `input_required`.
 //!
 //! A follow resumed after the daemon's restart, whose start withdrew the task's question, cancels
 //! the task at the first answered poll that reads `input_required`, before any `tasks/result` is
@@ -177,11 +179,20 @@ async fn poll_once(
     {
         return Ok(step);
     }
-    let status = reading.status.as_str();
-    let bound_end = keep_reask_bound(connection, mcp_task_id, watch, bound, status, answered).await;
-    if let Some(end) = bound_end {
-        return Ok(PollStep::End(end));
+    if let Some(step) = keep_reask_bound(
+        connection,
+        mcp_task_id,
+        watch,
+        held,
+        bound,
+        &reading,
+        answered,
+    )
+    .await
+    {
+        return Ok(step);
     }
+    let status = reading.status.as_str();
     if matches!(status, "completed" | "failed") {
         if let Some(end) = take_held_end(connection, held) {
             return Ok(PollStep::End(end));
@@ -201,21 +212,23 @@ async fn poll_once(
 }
 
 /// Keeps the bound of a follow re-bound after its connection's close, from a poll that read
-/// `status` at `answered` on the answered clock. The bound starts at the first such poll that
+/// `reading` at `answered` on the answered clock. The bound starts at the first such poll that
 /// reads `input_required` and is done with once the server asks again. A poll that reads another
 /// status first withdraws the question kept for the ask; one past 300 s withdraws it too, writes
-/// the contact `DidNotAskAgain` and cancels the task. Gives the end that cancel reads: `InputLost`
-/// once taken, or one read of the task for a `-32602`; a refused cancel leaves the follow going
-/// on, and a failed one is logged and sent again at the next poll reading `input_required`.
+/// the contact `DidNotAskAgain` and cancels the task. Gives the step that cancel reads: the end,
+/// `InputLost` once taken or one read of the task for a `-32602`; or, for a failed cancel, which
+/// is logged, a wait with the result `held` let go and none held, the cancel sent again at the
+/// next poll reading `input_required`. A refused cancel leaves the follow going on.
 async fn keep_reask_bound(
     connection: &McpServerConnection,
     mcp_task_id: &str,
     watch: &TaskWatch<'_>,
+    held: &Mutex<Option<HeldResult>>,
     bound: &Mutex<ReaskBound>,
-    status: &str,
+    reading: &V1TaskReading,
     answered: Duration,
-) -> Option<McpToolCallEnd> {
-    let is_waiting_on_input = status == "input_required";
+) -> Option<PollStep> {
+    let is_waiting_on_input = reading.status == "input_required";
     let current = *lock(bound);
     let next = match current {
         ReaskBound::Spent => return None,
@@ -248,7 +261,7 @@ async fn keep_reask_bound(
         return None;
     }
     match cancel_waiting_task(connection, mcp_task_id).await {
-        WaitingTaskCancel::Ended(end) => Some(end),
+        WaitingTaskCancel::Ended(end) => Some(PollStep::End(end)),
         WaitingTaskCancel::Refused => {
             *lock(bound) = ReaskBound::Spent;
             None
@@ -259,7 +272,11 @@ async fn keep_reask_bound(
                 server = connection.scope.server_name.as_str(),
                 "a tool server task that did not ask again was not canceled; it is sent again"
             );
-            None
+            // Let go, so no ask of a task owed a cancel reaches the card.
+            *lock(held) = None;
+            Some(PollStep::Wait {
+                suggested_interval_ms: reading.poll_interval_ms,
+            })
         }
     }
 }

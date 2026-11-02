@@ -457,6 +457,72 @@ async fn the_bound_counts_no_outage_and_holds_with_no_question_kept() {
     assert_eq!(fixture.receipts(), [address_task_receipt("unknown", true)]);
 }
 
+// Mutation: in `keep_reask_bound`, keep the held `tasks/result` once the bound's cancel fails to
+// send, so an ask of a task owed a cancel could still reach the card.
+#[tokio::test(start_paused = true)]
+async fn a_bounds_cancel_that_fails_lets_the_held_result_go_until_the_cancel_is_answered() {
+    let fixture = fixture_at_address().await;
+    let (standing, feed, connection, old) = connect_by_hand(
+        &fixture,
+        task_server(|method, _| match method {
+            "tasks/get" => v1_status_reply("working"),
+            _ => method_not_found(),
+        }),
+    )
+    .await;
+    let contact = contact();
+    let uncanceled = CancellationToken::new();
+
+    let (dispatched, new) = tokio::join!(
+        async {
+            timeout(
+                Duration::from_mins(30),
+                fixture
+                    .dispatch
+                    .call(&standing, track_call(), &contact, &uncanceled),
+            )
+            .await
+            .expect("the bound ends the wait")
+        },
+        async {
+            until(|| !old.requests("tasks/get").is_empty()).await;
+            close_unreplaced(&feed, &connection, &contact).await;
+            replace(
+                &fixture,
+                &feed,
+                task_server(|method, earlier| match (method, earlier) {
+                    ("tasks/get", _) => v1_status_reply("input_required"),
+                    ("tasks/result", _) => Reply::Silent,
+                    ("tasks/cancel", 0) => Reply::Answer(
+                        json!({ "error": { "code": -32603, "message": "the server is busy" } }),
+                    ),
+                    ("tasks/cancel", _) => cancel_taken(),
+                    _ => method_not_found(),
+                }),
+            )
+            .await
+        },
+    );
+    let (end, written) = dispatched.expect("the call is dispatched").complete().await;
+
+    let cancels = new.requests("tasks/cancel");
+    assert_eq!(cancels.len(), 2, "the failed cancel is sent again");
+    let held = new.requests("tasks/result");
+    assert_eq!(held.len(), 1, "nothing is held while the cancel is owed");
+    let held_id = held[0].1["id"].clone();
+    let (let_go_at, _) = new
+        .requests("notifications/cancelled")
+        .into_iter()
+        .find(|(_, message)| message["params"]["requestId"] == held_id)
+        .expect("the held result is let go");
+    assert!(
+        let_go_at < cancels[1].0,
+        "the held result is let go before the cancel is sent again"
+    );
+    assert_eq!(end.expect("the call ends"), McpToolCallEnd::InputLost);
+    written.expect("the caller writes the end");
+}
+
 // Mutations: end the follow at a refused cancel, or write `CancelRefused` over `DidNotAskAgain`;
 // send the bound's cancel again at each poll once refused.
 #[tokio::test(start_paused = true)]

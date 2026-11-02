@@ -13,6 +13,9 @@
 //! - A refused sign-in, an error answer or no answer is polled again at the same cadence, the task
 //!   left alone and the contact saying which.
 //!
+//! The first failed poll since one succeeded is logged at warn and the rest at debug, so an outage
+//! grows the log once.
+//!
 //! The answered clock adds the time between two answered polls with no failed poll between them,
 //! a `-32602` counting as answered, so an outage never counts toward the grace. Lost's clock is
 //! wall time since the last poll that read the task or answered `-32602`, which resets it; once
@@ -31,6 +34,7 @@ use rmcp::service::ServiceError;
 use rmcp::transport::DynamicTransportError;
 use rmcp::transport::streamable_http_client::StreamableHttpError;
 use serde_json::{Map, Value};
+use sidekicks_std::failure_episode::FailureEpisode;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::{Notify, watch};
 use tokio::time::Instant;
@@ -317,6 +321,7 @@ where
     // The answered clock's reading at the first `-32602` since a poll last read the task.
     let mut grace_start: Option<Duration> = None;
     let mut interval = DEFAULT_POLL_INTERVAL;
+    let failure_episode = FailureEpisode::default();
     loop {
         let polled_at = Instant::now();
         let polled = poll(answered).await;
@@ -329,6 +334,7 @@ where
             Ok(PollStep::Wait {
                 suggested_interval_ms,
             }) => {
+                failure_episode.mark_succeeded();
                 last_answered = now;
                 answered.answer(now);
                 grace_start = None;
@@ -336,10 +342,7 @@ where
                 interval = poll_interval(suggested_interval_ms);
             }
             Err(error) => {
-                tracing::warn!(
-                    error = &error as &(dyn std::error::Error + 'static),
-                    "a tool server task poll failed"
-                );
+                log_failed_poll(&failure_episode, &error);
                 let cause = match error.poll_failure() {
                     PollFailure::ConnectionClosed => return McpToolCallEnd::ConnectionClosed,
                     PollFailure::Permanent { error } => {
@@ -376,6 +379,15 @@ where
                 tokio::time::sleep_until(polled_at + MIN_POLL_INTERVAL).await;
             }
         }
+    }
+}
+
+// Logs a failed poll's `error`, at warn the first failure of `failure_episode` and at debug after.
+fn log_failed_poll(failure_episode: &FailureEpisode, error: &(dyn Error + 'static)) {
+    if failure_episode.is_first_failure() {
+        tracing::warn!(error, "a tool server task poll failed");
+    } else {
+        tracing::debug!(error, "a tool server task poll failed again");
     }
 }
 
