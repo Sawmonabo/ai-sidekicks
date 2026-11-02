@@ -1,10 +1,14 @@
 //! The one ending of the running background service that `daemon stop`, `restart` and `uninstall`
 //! share: the client's ending, which a Ctrl-C cuts short, its failure carrying the client's error
-//! in its chain so the exit code and the repair's line read it.
+//! in its chain so the exit code and the repair's line read it; and the flush before the service
+//! is ended through the service manager instead.
 
 use anyhow::Context as _;
+use sidekicks_client::DAEMON_FLUSH_WAIT;
 use sidekicks_client::daemon_connection::DaemonEndpoint;
-use sidekicks_client::daemon_ending::{DaemonEnd, DaemonEndingTerms, DaemonEndingVerb, end_daemon};
+use sidekicks_client::daemon_ending::{
+    DaemonEnd, DaemonEndingTerms, DaemonEndingVerb, end_daemon, flush_daemon,
+};
 use sidekicks_client::error::ClientError;
 use sidekicks_platforms::CtrlCListener;
 
@@ -24,4 +28,17 @@ pub(crate) async fn end_running_daemon(
         _ = ctrl_c.recv() => return Err(ClientError::Canceled.into()),
     };
     ended.context(doing)
+}
+
+/// Asks this machine's background service to write everything it holds, for a service the
+/// service manager is about to end; nothing answering is nothing to flush. Fails with
+/// `ClientError::Canceled` after a Ctrl-C, and as the connect fails otherwise.
+pub(crate) async fn flush_running_daemon(ctrl_c: &mut CtrlCListener) -> anyhow::Result<()> {
+    let endpoint = DaemonEndpoint::this_machine()
+        .context("could not find where the background service listens")?;
+    tokio::select! {
+        flushed = flush_daemon(endpoint, DAEMON_FLUSH_WAIT) => flushed
+            .context("could not ask the background service to write what it holds"),
+        _ = ctrl_c.recv() => Err(ClientError::Canceled.into()),
+    }
 }

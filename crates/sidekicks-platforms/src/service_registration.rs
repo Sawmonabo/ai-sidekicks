@@ -216,6 +216,12 @@ impl ServiceRegistration {
         match *self {}
     }
 
+    /// Loads the command line's own login agent from its kept list; never called, since no value
+    /// exists.
+    pub fn bootstrap_agent(&self) -> Result<(), ServiceRegistrationError> {
+        match *self {}
+    }
+
     /// Whether this run has root's rights; never called, since no value exists.
     pub fn runs_as_root(&self) -> bool {
         match *self {}
@@ -239,7 +245,7 @@ impl ServiceRegistration {
         &self,
         _spawner: &crate::Spawner,
         _daemon_program: &std::path::Path,
-        _is_app_installed: bool,
+        _is_attributed_to_app: bool,
     ) -> Result<(), ServiceRegistrationError> {
         match *self {}
     }

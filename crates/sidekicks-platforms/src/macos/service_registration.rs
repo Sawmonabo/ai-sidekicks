@@ -143,16 +143,24 @@ impl ServiceRegistration {
         if !self.has_screen_session()? {
             return Ok(ServiceInstall::AtNextLogin);
         }
+        self.bootstrap_agent()?;
+        Ok(ServiceInstall::Loaded)
+    }
+
+    /// Loads the command line's own login agent from the list it keeps into the login session,
+    /// which starts the service: `launchctl enable`, then `bootstrap`; the list is left as it is.
+    /// Fails with the step that failed and its cause.
+    pub fn bootstrap_agent(&self) -> Result<(), ServiceRegistrationError> {
         // A label the person once turned off stays refused by `bootstrap` until it is enabled.
         run_launchctl("enable", ["enable", &self.service_target()?])?.succeeded("enable")?;
         let domain_target = self.domain_target()?;
+        let path = self.agent_list_path()?;
         let arguments = [
             OsStr::new("bootstrap"),
             OsStr::new(&domain_target),
             path.as_os_str(),
         ];
-        run_launchctl("bootstrap", arguments)?.succeeded("bootstrap")?;
-        Ok(ServiceInstall::Loaded)
+        run_launchctl("bootstrap", arguments)?.succeeded("bootstrap")
     }
 
     /// The program the command line's own login agent starts, read from its list; `None` with no

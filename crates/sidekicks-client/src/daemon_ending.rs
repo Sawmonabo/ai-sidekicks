@@ -243,6 +243,27 @@ async fn read_process_identity(
     Ok(status.process_identity)
 }
 
+/// Asks the daemon `connector` reaches to make every pending write durable, waiting at most
+/// `flush_wait`, for a caller about to end it some other way than [`end_daemon`]: nothing
+/// answering, or a daemon repairing its database file, has nothing to flush, and a flush that
+/// fails or takes longer is logged as the ending's is. Fails as the connect fails otherwise.
+pub async fn flush_daemon<C: DaemonConnector>(
+    connector: C,
+    flush_wait: Duration,
+) -> Result<(), ClientError> {
+    match DaemonConnection::connect_or_repairing(connector).await {
+        Ok(OpenedConnection::Open(connection)) => {
+            flush(connection.client(), flush_wait).await;
+            connection.close().await;
+            Ok(())
+        }
+        Ok(OpenedConnection::Repairing(_repairing)) | Err(ClientError::Unavailable { .. }) => {
+            Ok(())
+        }
+        Err(error) => Err(error),
+    }
+}
+
 /// Asks the daemon to make every pending write durable, waiting at most `flush_wait`; a flush that
 /// fails or takes longer is logged and the ending goes on, since the daemon's drain writes too.
 async fn flush(client: &JsonRpcClient, flush_wait: Duration) {

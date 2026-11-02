@@ -31,7 +31,7 @@ use sidekicks_platforms::{
 use tokio::runtime::Handle;
 
 use crate::command_context::CommandContext;
-use crate::commands::daemon::ending::end_running_daemon;
+use crate::commands::daemon::ending::{end_running_daemon, flush_running_daemon};
 use crate::commands::daemon::install::system_service::{
     LoggedOutServiceRegistration, secrets_move_arguments, write_line,
 };
@@ -113,6 +113,11 @@ pub(crate) trait LoggedOutServiceUninstall: LoggedOutServiceRegistration {
     async fn run_daemon_mode(&self, program: &Path, arguments: Vec<OsString>)
     -> anyhow::Result<()>;
 
+    /// Asks the running background service to write everything it holds before the service
+    /// manager ends it. Fails with `ClientError::Canceled` after a Ctrl-C on `ctrl_c`, and as the
+    /// connect fails.
+    async fn flush_running_service(&self, ctrl_c: &mut CtrlCListener) -> anyhow::Result<()>;
+
     /// Stops the running background service, which holds the data folder, so the move back can
     /// take it; a service not running is already stopped. Fails with `ClientError::Canceled` after
     /// a Ctrl-C on `ctrl_c`, and as the stop fails.
@@ -141,6 +146,10 @@ impl LoggedOutServiceUninstall for ServiceRegistration {
         arguments: Vec<OsString>,
     ) -> anyhow::Result<()> {
         run_offline_mode(program, arguments).await
+    }
+
+    async fn flush_running_service(&self, ctrl_c: &mut CtrlCListener) -> anyhow::Result<()> {
+        flush_running_daemon(ctrl_c).await
     }
 
     async fn end_running_service(&self, ctrl_c: &mut CtrlCListener) -> anyhow::Result<()> {
@@ -183,10 +192,15 @@ pub(crate) fn uninstall_logged_out_service<Output: Write, ErrorOutput: Write>(
         return Err(CommandFailure::SecretsKeychainLocked(None).into());
     }
     // A Ctrl-C reaches the modes and the prompt, which share the terminal, and the command still
-    // reads how each ended; only the service's stop watches the listener.
+    // reads how each ended; only the service's flush and stop watch the listener.
     run_listening_for_ctrl_c(async |ctrl_c| {
         if has_secrets_in_files {
             check_keychain(registration, program).await?;
+        }
+        // The removal's own stop drains the service, which writes too; under root's rights, which
+        // the service refuses, that drain alone writes what it holds.
+        if !runs_as_root {
+            registration.flush_running_service(ctrl_c).await?;
         }
         remove_system_service(registration).await?;
         if has_secrets_in_files {
@@ -455,6 +469,10 @@ mod tests {
             unreachable!("a refused uninstall starts no agent")
         }
 
+        fn bootstrap_agent(&self) -> Result<(), ServiceRegistrationError> {
+            unreachable!("a refused uninstall loads no agent")
+        }
+
         fn account_home(&self) -> Result<PathBuf, ServiceRegistrationError> {
             Ok(self.home.clone())
         }
@@ -471,7 +489,7 @@ mod tests {
             &self,
             _spawner: &Spawner,
             _daemon_program: &Path,
-            _is_app_installed: bool,
+            _is_attributed_to_app: bool,
         ) -> Result<(), ServiceRegistrationError> {
             unreachable!("the uninstall installs no system service")
         }
@@ -518,6 +536,14 @@ mod tests {
                 }),
             })
             .into())
+        }
+
+        #[expect(
+            clippy::unused_async_trait_impl,
+            reason = "the trait's flush waits on the service; the refused uninstall never calls it"
+        )]
+        async fn flush_running_service(&self, _ctrl_c: &mut CtrlCListener) -> anyhow::Result<()> {
+            unreachable!("the keychain refuses before the removal's flush")
         }
 
         #[expect(

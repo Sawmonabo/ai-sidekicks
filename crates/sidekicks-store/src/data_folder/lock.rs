@@ -10,14 +10,12 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use sidekicks_contracts::daemon::data::{DAEMON_LOCK_FILE_NAME, write_data_folder_held};
+use sidekicks_contracts::daemon::data::{
+    DAEMON_LOCK_FILE_NAME, DAEMON_PROCESS_ID_FILE_NAME, write_data_folder_held,
+};
 use sidekicks_contracts::daemon::mode_outcome::DaemonModeOutcome;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::wire::AnyValue;
-
-/// The file the holder writes its process id to, beside the lock file: a locked file cannot be
-/// read on every system.
-const PROCESS_ID_FILE_NAME: &str = "daemon.pid";
 
 /// How long a held lock is tried again before the start is refused: a child the holder started is
 /// briefly between fork and exec sharing the lock file, until its exec closes it.
@@ -126,7 +124,7 @@ impl DataFolderLock {
                 }
             }
         }
-        let process_id_path = data_folder.join(PROCESS_ID_FILE_NAME);
+        let process_id_path = data_folder.join(DAEMON_PROCESS_ID_FILE_NAME);
         fs::write(&process_id_path, std::process::id().to_string()).map_err(|source| {
             DataFolderLockError::RecordProcessId {
                 path: process_id_path,
@@ -140,7 +138,7 @@ impl DataFolderLock {
 /// The process id the holder recorded beside the lock, or `None` when the record is missing or
 /// unreadable, as when the holder has not written it yet.
 fn read_holder_process_id(data_folder: &Path) -> Option<u32> {
-    let path = data_folder.join(PROCESS_ID_FILE_NAME);
+    let path = data_folder.join(DAEMON_PROCESS_ID_FILE_NAME);
     match fs::read_to_string(&path) {
         Ok(text) => text.trim().parse().ok(),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {

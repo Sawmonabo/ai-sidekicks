@@ -114,7 +114,7 @@ impl ServiceRegistration {
     }
 
     /// Installs the system service running `daemon_program` as this account while it is logged
-    /// out, attributed to the app in System Settings when `is_app_installed`: the list's text
+    /// out, attributed to the app in System Settings when `is_attributed_to_app`: the list's text
     /// handed to root, which writes it into a folder of its own, copies it into
     /// `/Library/LaunchDaemons`, unloads any service loaded under the label, enables the label and
     /// loads it into the system domain, behind the administrator password prompt unless this run
@@ -125,7 +125,7 @@ impl ServiceRegistration {
         &self,
         spawner: &Spawner,
         daemon_program: &Path,
-        is_app_installed: bool,
+        is_attributed_to_app: bool,
     ) -> Result<(), ServiceRegistrationError> {
         let list = SystemServiceList {
             label: DAEMON_LAUNCHD_LABEL.to_owned(),
@@ -134,7 +134,7 @@ impl ServiceRegistration {
                 PathBuf::from(SYSTEM_SERVICE_MODE),
             ],
             user_name: self.account()?.name,
-            associated_bundle_identifiers: is_app_installed
+            associated_bundle_identifiers: is_attributed_to_app
                 .then(|| vec![APP_BUNDLE_IDENTIFIER.to_owned()]),
             run_at_load: true,
             exit_time_out: EXIT_TIME_OUT_SECONDS,

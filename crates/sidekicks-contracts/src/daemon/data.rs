@@ -29,6 +29,10 @@ ts_constants! {
 /// as it uses the folder.
 pub const DAEMON_LOCK_FILE_NAME: &str = "daemon.lock";
 
+/// The file beside the lock file its holder writes its process id to, since a locked file cannot
+/// be read on every system.
+pub const DAEMON_PROCESS_ID_FILE_NAME: &str = "daemon.pid";
+
 /// Writes the refusal a person reads when another daemon holds the data folder, naming the
 /// holder's `process_id` when it is known.
 pub fn write_data_folder_held(
