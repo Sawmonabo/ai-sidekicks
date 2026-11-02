@@ -24,7 +24,7 @@ mod request;
 mod saved;
 mod send_now;
 #[cfg(test)]
-pub(super) mod tests;
+pub(crate) mod tests;
 
 use std::sync::Arc;
 

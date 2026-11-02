@@ -175,9 +175,10 @@ const RUN_KEYED_DELETES: [&str; 4] = [
 // The session's own deletes after its run-keyed ones, up to its row, in foreign-key order: a
 // snapshot and a recovery checkpoint name the event they reflect, an ask goes after its answer and
 // after the gate answers found through it, and an artifact after the reference to its payload. The
-// attention rows go after the machine's attention count is raised, so its readers drop the
-// session's entries, and an entry's delivery before the entry it is found through.
-const DELETES_THROUGH_SESSION_ROW: [&str; 26] = [
+// agent tree goes in one statement, each node with the children that name it. The attention rows
+// go after the machine's attention count is raised, so its readers drop the session's entries, and
+// an entry's delivery before the entry it is found through.
+const DELETES_THROUGH_SESSION_ROW: [&str; 28] = [
     "DELETE FROM session_snapshots WHERE session_id = @sessionId",
     "DELETE FROM recovery_checkpoints WHERE session_id = @sessionId",
     "DELETE FROM session_events WHERE session_id = @sessionId",
@@ -194,6 +195,8 @@ const DELETES_THROUGH_SESSION_ROW: [&str; 26] = [
     "DELETE FROM artifact_payload_refs WHERE manifest_id IN
        (SELECT id FROM artifact_manifests WHERE session_id = @sessionId)",
     "DELETE FROM artifact_manifests WHERE session_id = @sessionId",
+    "DELETE FROM agent_tree_nodes WHERE session_id = @sessionId",
+    "DELETE FROM agents WHERE session_id = @sessionId",
     "DELETE FROM runs WHERE session_id = @sessionId",
     "DELETE FROM projection_cursors WHERE session_id = @sessionId",
     "DELETE FROM session_console_state WHERE session_id = @sessionId",

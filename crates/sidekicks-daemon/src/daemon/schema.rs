@@ -3,13 +3,15 @@
 
 use sidekicks_store::database::schema::SchemaParts;
 
-/// The daemon's whole schema: the approvals', the workflows', the plans' and the attention lists,
-/// then the shared-ports table.
+/// The daemon's whole schema: the approvals', the workflows', the plans', the attention, the
+/// agents' and the agent tree's lists, then the shared-ports table.
 pub fn schema_parts() -> SchemaParts {
     sidekicks_approval::schema::schema_parts()
         .with_parts(sidekicks_workflow::schema::schema_parts())
         .with_parts(sidekicks_artifact::plans::schema::schema_parts())
         .with_parts(sidekicks_session::attention::schema::schema_parts())
+        .with_parts(sidekicks_session::agents::schema::schema_parts())
+        .with_parts(sidekicks_session::agent_tree::schema::schema_parts())
         .with_part(crate::remote::shared_ports::schema::schema_part())
 }
 

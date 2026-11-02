@@ -235,7 +235,11 @@ async fn harness_reading_priority(
             kept_by_process: false,
             reads_priority_message,
         });
-    let database = TestDatabase::new(schema_parts());
+    let database = TestDatabase::new(
+        schema_parts()
+            .with_parts(crate::agent_tree::schema::schema_parts())
+            .with_parts(crate::agents::schema::schema_parts()),
+    );
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
