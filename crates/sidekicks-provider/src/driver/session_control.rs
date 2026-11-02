@@ -242,7 +242,7 @@ impl LiveRunResume {
 
     /// Whether `run`'s chain of parents through `live_runs` reaches this run, walking at most
     /// once per run so a parent cycle ends the walk.
-    fn is_above(&self, run: &LiveRunResume, live_runs: &[LiveRunResume]) -> bool {
+    pub fn is_above(&self, run: &LiveRunResume, live_runs: &[LiveRunResume]) -> bool {
         let mut parent_run_id = run.parent_run_id;
         for _ in 0..live_runs.len() {
             let Some(parent) = parent_run_id else {

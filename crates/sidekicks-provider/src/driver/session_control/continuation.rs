@@ -2,6 +2,7 @@
 //! the person, once every answer it waited on, its own or a helper's beneath it, was given, and
 //! the one text each driver sends the lead for it.
 
+use jiff::Timestamp;
 use sidekicks_contracts::approval::ApprovalDecision;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentId;
@@ -18,6 +19,34 @@ pub struct HeldRunContinue {
     pub entries: Vec<ContinueEntry>,
     /// The session's timed fires whose time passed while the lead was held.
     pub missed_fires: Vec<KeptSchedule>,
+}
+
+impl HeldRunContinue {
+    /// The continue of `lead_run_id` with `entries`, naming each of the session's
+    /// `kept_schedules` whose fire is already past now: a single fire, or a recurring job's next
+    /// run as the provider last said it.
+    pub fn new(
+        lead_run_id: RunId,
+        entries: Vec<ContinueEntry>,
+        kept_schedules: &[KeptSchedule],
+    ) -> Self {
+        let now = Timestamp::now();
+        let missed_fires = kept_schedules
+            .iter()
+            .filter(|schedule| match schedule {
+                KeptSchedule::Once { fires_at } => *fires_at <= now,
+                KeptSchedule::Recurring { next_fire_at, .. } => {
+                    next_fire_at.is_some_and(|fire_at| fire_at <= now)
+                }
+            })
+            .cloned()
+            .collect();
+        Self {
+            lead_run_id,
+            entries,
+            missed_fires,
+        }
+    }
 }
 
 /// One answer a held lead's continue carries.
