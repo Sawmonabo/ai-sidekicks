@@ -48,6 +48,10 @@ pub trait ProviderAccountLegs: Send + Sync {
     /// These legs as the provider's limits read, which the background observer runs; `None` for a
     /// provider with no limits read, whose accounts are then never observed.
     fn observe_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderObserveLegs>>;
+
+    /// These legs as the provider's memory import, which `provider.account.memory.import` runs;
+    /// `None` for a provider that keeps no memory of the person's own.
+    fn memory_import_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderMemoryImportLegs>>;
 }
 
 /// A provider's own interactive sign-in, run in one account's home: the flow's start, and the

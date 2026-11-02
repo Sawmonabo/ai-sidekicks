@@ -24,7 +24,9 @@ use sidekicks_provider::account::resolver::ProviderAccounts;
 use sidekicks_provider::account::sign_in::{ProviderSignInBroker, SignedInAccountWatcher};
 use sidekicks_provider::account::token_custody::ProviderTokenCustody;
 use sidekicks_provider::driver::ProviderAccountReader;
-use sidekicks_provider::driver::contract::account::{ProviderAccountLegs, ProviderObserveLegs};
+use sidekicks_provider::driver::contract::account::{
+    ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObserveLegs,
+};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::usage_record::UsageRecord;
@@ -114,10 +116,15 @@ pub(crate) async fn build_provider_account_plane(
     }
     let mut account_legs: HashMap<ProviderId, Arc<dyn ProviderAccountLegs>> = HashMap::new();
     let mut observe_legs: HashMap<ProviderId, Arc<dyn ProviderObserveLegs>> = HashMap::new();
+    let mut memory_import_legs: HashMap<ProviderId, Arc<dyn ProviderMemoryImportLegs>> =
+        HashMap::new();
     for (provider, driver) in providers.drivers() {
         let legs = driver.account_legs();
         if let Some(observe) = Arc::clone(&legs).observe_legs() {
             observe_legs.insert(provider.clone(), observe);
+        }
+        if let Some(memory_import) = Arc::clone(&legs).memory_import_legs() {
+            memory_import_legs.insert(provider.clone(), memory_import);
         }
         account_legs.insert(provider.clone(), legs);
     }
@@ -154,6 +161,7 @@ pub(crate) async fn build_provider_account_plane(
             observer: Arc::clone(&observer),
             account_reader: Arc::clone(&reader),
             account_legs,
+            memory_import_legs,
             home_lock,
             live_turns,
             publisher,

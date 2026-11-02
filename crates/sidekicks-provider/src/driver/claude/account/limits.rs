@@ -315,7 +315,7 @@ fn is_sign_in_refusal_line(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
-    use std::sync::{Arc, Weak};
+    use std::sync::Arc;
 
     use jiff::Timestamp;
     use rstest::rstest;
@@ -414,12 +414,7 @@ done
             &services.data_folder,
         );
         ScriptedRead {
-            legs: ClaudeAccountLegs::new(
-                &services,
-                Arc::new(launcher),
-                Arc::default(),
-                Weak::new(),
-            ),
+            legs: ClaudeAccountLegs::new(&services, Arc::new(launcher), Arc::default()),
             folders: ProviderAccountFolders {
                 configuration_folder: root.path().join("account"),
                 credential_store_folder: root.path().join("account").join("store"),

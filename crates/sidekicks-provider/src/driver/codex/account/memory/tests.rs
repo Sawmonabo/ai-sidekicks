@@ -29,15 +29,15 @@ async fn codex_memories_land_in_the_account_and_switching_homes_and_count_once()
             kind: CodexHomeKind::PersonalFolder,
         })),
     );
+    let accounts = Arc::new(PortRegistration::new("provider account registry"));
+    let (account_registry, _writer) =
+        open_test_registry(&fixture.database, fixture.data_folder.path()).await;
+    assert!(accounts.register(Arc::new(account_registry)).is_ok());
     let legs: Arc<dyn ProviderMemoryImportLegs> = Arc::new(CodexAccountLegs::new(
         registry,
         Arc::clone(&scripted.dependencies),
         CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage"))),
-        Arc::new(
-            open_test_registry(&fixture.database, fixture.data_folder.path())
-                .await
-                .0,
-        ),
+        accounts,
     ));
     let switching = switching_home(&scripted.dependencies.data_folder).join("memories");
     write(&switching.join("two.md"), b"another account's");

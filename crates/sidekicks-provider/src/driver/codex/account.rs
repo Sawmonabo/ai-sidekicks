@@ -14,13 +14,6 @@ mod sign_out;
 )]
 mod window_start;
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver hands its account legs to the account plane once it is wired"
-    )
-)]
 mod memory;
 
 use std::collections::HashMap;
@@ -149,6 +142,10 @@ impl ProviderAccountLegs for CodexAccountLegs {
     }
 
     fn observe_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderObserveLegs>> {
+        Some(self)
+    }
+
+    fn memory_import_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderMemoryImportLegs>> {
         Some(self)
     }
 }

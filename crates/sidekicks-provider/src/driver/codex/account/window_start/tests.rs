@@ -95,7 +95,9 @@ async fn one_exec_runs_in_the_account_s_home_and_its_counts_are_the_spend() {
         Arc::new(UnrecordedChildren),
     );
     let database = TestDatabase::new(schema_parts());
-    let (accounts, _writer) = open_test_registry(&database, &root.join("data")).await;
+    let (registry, _writer) = open_test_registry(&database, &root.join("data")).await;
+    let accounts = Arc::new(PortRegistration::new("provider account registry"));
+    assert!(accounts.register(Arc::new(registry)).is_ok());
     let sessions_home = OneHome(CodexServiceHome {
         codex_home: root.join("unpinned"),
         kind: CodexHomeKind::Account(test_provider_account_id()),
@@ -107,7 +109,7 @@ async fn one_exec_runs_in_the_account_s_home_and_its_counts_are_the_spend() {
         )),
         dependencies,
         CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage"))),
-        Arc::new(accounts),
+        accounts,
     );
     let account_home = root.join("account");
     let folders = ProviderAccountFolders {
