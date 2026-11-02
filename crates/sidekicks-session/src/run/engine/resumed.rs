@@ -127,7 +127,7 @@ impl RunEngine {
     /// `decide_resumed_move` decides from a stop of its own, read first, and returns the move it
     /// made; a lead's stop is not the helper's, so a helper's own end stands under it. A stop wins
     /// over the resume: a stopping run whose turn still runs, `paused` aside, is handed its owed
-    /// limits again, its caller handing the person's pending interrupts, and any other ends by its
+    /// limits again, its caller handing its pending interrupts, and any other ends by its
     /// stops. A run held on the person is left as it is. A turn still running leaves the run as it
     /// is, a running one handing again, on a task of its own, the interrupt of each limit it owes;
     /// a turn its provider ended is left to its end frame; a `pausing` run whose turn ended becomes

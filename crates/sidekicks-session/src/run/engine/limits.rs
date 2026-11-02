@@ -514,12 +514,13 @@ impl RunEngine {
         Ok(true)
     }
 
-    /// Forgets what the engine kept for the interrupt of `run_id` at `limit` whose hand answered
-    /// with its row pending and then failed late, leaving no row pending: the stop's own `cut` is
-    /// withdrawn, as a hand that failed in time withdraws it, and a step or token limit is owed
-    /// again on a live run, so its next step, usage report or return from a wait hands the
-    /// interrupt again; the spend limit is never owed, the budget accountant's next call sending
-    /// it. Fails as the run's read fails, the cut withdrawn and the limit left owed.
+    /// Forgets what the engine kept for the interrupt of `run_id` at `limit` whose hand no stop
+    /// awaits, one that answered with its row pending and then failed late or one a restart sent
+    /// again, failed leaving no row pending: its `cut` is withdrawn, as a hand that failed in time
+    /// withdraws it, and a step or token limit is owed again on a live run, so its next step, usage
+    /// report or return from a wait hands the interrupt again; the spend limit is never owed, the
+    /// budget accountant's next call sending it. Fails as the run's read fails, the cut withdrawn
+    /// and the limit left owed.
     pub(crate) async fn forget_late_limit_hand(
         &self,
         run_id: RunId,
@@ -544,6 +545,26 @@ impl RunEngine {
             lock(&self.live).reached_limits.remove(&(run_id, limit));
         }
         Ok(())
+    }
+
+    /// The cut the engine holds of `run_id`'s turn `turn_number` at `limit` that a restart's re-arm
+    /// restored from a limit's row: the turn's first cut at that limit, or `None` where it holds
+    /// none.
+    pub(crate) fn restored_cut(
+        &self,
+        run_id: RunId,
+        turn_number: SafeInt<1>,
+        limit: RunLimit,
+    ) -> Option<HandedCut> {
+        lock(&self.live)
+            .cut_turns
+            .get(&(run_id, turn_number))?
+            .iter()
+            .find(|cut| cut.limit == limit)
+            .map(|cut| HandedCut {
+                turn_number,
+                stop_id: cut.stop_id,
+            })
     }
 
     /// Hands the interventions service again, on a task of its own carrying the caller's span, the

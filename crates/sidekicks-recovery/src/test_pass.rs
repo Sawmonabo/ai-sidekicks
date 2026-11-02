@@ -625,7 +625,8 @@ pub(crate) fn insert_runs(database: &TestDatabase, session: SessionId, runs: &[(
 
 // The provider sessions over `store`'s database, resuming on `providers` and recording bindings in
 // `bindings`, each resume's runs settled through recovery's finalize over `engine`, with an
-// interventions service wired to `engine` handing a person's pending interrupt again.
+// interventions service wired to `engine` handing a pending interrupt again, a person's or a
+// limit's.
 fn resuming_provider_sessions(
     store: &ArtifactTestStore,
     engine: &Arc<RunEngine>,

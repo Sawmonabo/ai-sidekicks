@@ -5,9 +5,9 @@
 //! admitted into the run, so no hand sends it again, one it lacks waits for the queue's own hand
 //! under the same id, and an unreadable record ends them not delivered and the run as gone. Each
 //! named run still live is then finalized from the state it was stored in before the restart, and
-//! one its provider runs on has each of the person's pending interrupts handed again, so a stop
-//! asked before the restart still reaches its turn; a live run the answer leaves out is left to
-//! the restart settle.
+//! one its provider runs on has each of its pending interrupts handed again, a person's or a
+//! limit's, so a stop asked before the restart still reaches its turn; a live run the answer
+//! leaves out is left to the restart settle.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -50,8 +50,8 @@ pub struct ResumedRunsFinalizeDeps {
     pub delivery: QueueDelivery,
     /// The drivers, found by the provider each run is bound to.
     pub providers: Arc<ProviderRegistry>,
-    /// The interventions service, which hands a person's pending interrupt again to a run its
-    /// provider runs on.
+    /// The interventions service, which hands a pending interrupt again, a person's or a limit's,
+    /// to a run its provider runs on.
     pub interventions: Arc<InterventionService>,
 }
 
@@ -93,10 +93,10 @@ impl ResumedRunsFinalize {
     /// record first, whatever the answer, then every named run is finalized from the state it is
     /// stored in, which nothing moves before the resumed binding is recorded, and the provider's
     /// answer for it, or as gone where its record could not be read, and one the finalize leaves
-    /// running has the person's pending interrupts handed again on a task of their own; a named
-    /// run that has ended is skipped. Writes take the session's append hold themselves, since the
-    /// caller holds only its transition lock. Fails at the first read, driver lookup, record or
-    /// finalize that fails.
+    /// running has its pending interrupts, a person's or a limit's, handed again on a task of their
+    /// own; a named run that has ended is skipped. Writes take the session's append hold
+    /// themselves, since the caller holds only its transition lock. Fails at the first read, driver
+    /// lookup, record or finalize that fails.
     pub async fn finalize(&self, resumed: ResumedRuns) -> Result<(), ResumedRunsFinalizeError> {
         let session_id = resumed.session_id;
         let live_runs = self
