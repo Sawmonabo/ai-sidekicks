@@ -4,6 +4,15 @@
 //! failed or stopped is kept settled until the process ends, so a later ending of its task still
 //! closes it again. Such a task is no running command.
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "an exit, a close, a resume and the start read a held call's kept files"
+    )
+)]
+mod restore;
+
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 
