@@ -15,15 +15,18 @@
 //! - A workflow step's file write or tool call is gated by the run's level as its table has it,
 //!   and where that asks, answered by the daemon's session rule or else the daemon's own card.
 
+use std::error::Error;
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use serde_json::{Value, json};
 use sidekicks_contracts::approval::{ApprovalCategory, RememberedRuleSense};
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
+use sidekicks_contracts::release_manifest::Sha256Hex;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
@@ -45,6 +48,7 @@ use sidekicks_std::text_cut::cut_to_code_points;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
+use sidekicks_store::events::canonicalizer::digest_canonical_json;
 use sidekicks_store::machine::registry::{MachineRegistry, MachineRegistryReadError};
 use sidekicks_workflow::runs::step_action::StepActionCheck;
 use tokio::task::JoinError;
@@ -193,6 +197,8 @@ struct DaemonCardAsk {
     // Who asks on the card; `None` reads the run's own agent.
     requested_by: Option<NonEmptyText>,
     tool_call_id: Option<ToolCallId>,
+    // The digest of the call's tool name and input; `None` for an action that holds no call.
+    input_digest: Option<Sha256Hex>,
 }
 
 // What one read of an ask's command line answers, for every step that reads it.
@@ -308,6 +314,7 @@ impl PermissionCheck {
                 ApprovalRequestOrigin {
                     ask_id: Some(ask_id.clone()),
                     tool_call_id: card_tool_call_id(ask),
+                    input_digest: card_input_digest(ask),
                 },
             )
             .await?;
@@ -368,6 +375,7 @@ impl PermissionCheck {
             tool_server_tool: None,
             requested_by: None,
             tool_call_id: Some(invocation.tool_call_id.clone()),
+            input_digest: digest_call_input(tool_name, Value::Object(invocation.arguments.clone())),
         })
         .await
     }
@@ -404,6 +412,7 @@ impl PermissionCheck {
                     tool_server_tool: action.tool_server_tool(),
                     requested_by: Some(check.requested_by.clone()),
                     tool_call_id: None,
+                    input_digest: None,
                 })
                 .await
             }
@@ -483,6 +492,7 @@ impl PermissionCheck {
                 ApprovalRequestOrigin {
                     ask_id: None,
                     tool_call_id: ask.tool_call_id,
+                    input_digest: ask.input_digest,
                 },
             )
             .await?;
@@ -553,6 +563,26 @@ pub(crate) fn card_tool_call_id(ask: &ProviderPermissionAsk) -> Option<ToolCallI
     ask.tool_call_id.as_deref().and_then(|id| {
         ToolCallId::new(cut_to_code_points(id, PROVIDER_WIRE_HANDLE_MAX_LEN).to_owned()).ok()
     })
+}
+
+/// The digest of the tool name and input of the call `ask` holds, by which a call made again
+/// after a restart finds its card; `None` where the input has no canonical form.
+pub(crate) fn card_input_digest(ask: &ProviderPermissionAsk) -> Option<Sha256Hex> {
+    digest_call_input(&ask.tool_name, ask.input.clone())
+}
+
+// The SHA-256 of `{"input": …, "toolName": …}` as canonical JSON. The tool name is folded in since
+// a card keeps it only for a tool action. An input with no canonical form, one nested too deep,
+// gives no digest, so its card is found by its tool call id alone.
+fn digest_call_input(tool_name: &str, input: Value) -> Option<Sha256Hex> {
+    digest_canonical_json(&json!({"input": input, "toolName": tool_name}))
+        .inspect_err(|refusal| {
+            tracing::warn!(
+                error = refusal as &(dyn Error + 'static),
+                "approval_call_input_not_digested"
+            );
+        })
+        .ok()
 }
 
 fn refuse_withdrawn(withdrawal: &CancellationToken) -> Result<(), PermissionCheckError> {

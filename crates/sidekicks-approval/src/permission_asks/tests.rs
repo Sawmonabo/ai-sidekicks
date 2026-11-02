@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
-use serde_json::json;
+use serde_json::{Value, json};
 use sidekicks_contracts::approval::{
     ApprovalResolveRequest, RememberedRuleSense, RememberedScopeKind,
 };
@@ -303,8 +303,8 @@ async fn another_action_under_a_held_request_id_is_another_ask() {
 // A provider that resends its waiting ask after the daemon's restart, under the same tool call and
 // a request id of its own, finds the card its first delivery raised: no second card and no second
 // `approval.requested`, and the person's answer to that card goes back under the resent request.
-// Killed by dropping the match, which raises a second card and refuses the first card's answer,
-// and by handing the answer under the first delivery's request id.
+// Killed by dropping both the tool call's and the input's match, which raises a second card and
+// refuses the first card's answer, and by handing the answer under the first delivery's request id.
 #[tokio::test]
 async fn an_ask_resent_after_a_restart_returns_to_its_pending_card() {
     let fixture = AsksFixture::new().await;
@@ -339,6 +339,62 @@ async fn an_ask_resent_after_a_restart_returns_to_its_pending_card() {
     assert_eq!(fixture.card_states(), ["approved"]);
     assert_eq!(fixture.handed(), [plain_allow()]);
     assert_eq!(fixture.handed_under(), ["ask-2"]);
+}
+
+// Raises the card of `npm publish` on `Bash` under tool call `a`, then, on an intake holding no
+// ask as after a restart, takes the call made again under tool call `b` and request `ask-2` with
+// `input`. The action stays `npm publish` either way, so only the input tells the calls apart, as
+// it alone does for two calls of one tool whose action names only the tool. Answers the intake
+// that took the second call.
+async fn ask_again_after_a_restart(fixture: &AsksFixture, input: Value) -> PermissionAsks {
+    let ask = ProviderPermissionAsk {
+        input: json!({"command": "npm publish"}),
+        tool_call_id: Some("a".to_owned()),
+        ..fixture.check.ask("ask-1", command("npm publish"))
+    };
+    fixture
+        .asks
+        .take_ask(ask.clone())
+        .await
+        .expect("the ask raises its card");
+    let restarted = fixture.restarted_intake();
+    restarted
+        .take_ask(ProviderPermissionAsk {
+            request_id: "ask-2".to_owned(),
+            tool_call_id: Some("b".to_owned()),
+            input,
+            ..ask
+        })
+        .await
+        .expect("the call made again is taken");
+    restarted
+}
+
+// A call made again after a restart under a new tool call id, with the same tool and input, is
+// held under the pending card the first call raised: one card stands, and the person's answer to
+// it goes back under the new call's request. Killed by dropping the input's match, and by raising
+// the card without its digest, each of which raises a second card beside the first.
+#[tokio::test]
+async fn a_call_made_again_under_a_new_id_is_held_under_the_pending_card_of_its_input() {
+    let fixture = AsksFixture::new().await;
+    let restarted = ask_again_after_a_restart(&fixture, json!({"command": "npm publish"})).await;
+    let [card] = <[String; 1]>::try_from(fixture.pending_cards()).expect("one card waits");
+    restarted
+        .resolve(&approval(&card), device())
+        .await
+        .expect("the answer is handed");
+    assert_eq!(fixture.card_states(), ["approved"]);
+    assert_eq!(fixture.handed(), [plain_allow()]);
+    assert_eq!(fixture.handed_under(), ["ask-2"]);
+}
+
+// A call made again with other input is another call, whatever its tool and action: it raises a
+// card of its own beside the first. Killed by matching on the tool and the action alone.
+#[tokio::test]
+async fn a_call_made_again_with_other_input_raises_its_own_card() {
+    let fixture = AsksFixture::new().await;
+    ask_again_after_a_restart(&fixture, json!({"command": "npm publish --tag next"})).await;
+    assert_eq!(fixture.pending_cards().len(), 2);
 }
 
 // An ask whose check failed is refused at its provider with the check-failed line, and the
