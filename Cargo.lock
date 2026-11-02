@@ -8952,7 +8952,6 @@ name = "sidekicks-recovery"
 version = "0.0.0"
 dependencies = [
  "futures",
- "garde",
  "getrandom 0.4.3",
  "jiff",
  "memchr",

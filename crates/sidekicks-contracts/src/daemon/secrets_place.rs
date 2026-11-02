@@ -3,6 +3,9 @@
 //! between the login keychain and the items file of a Mac's service running while the person is
 //! logged out, and check the keychain, which the command line runs in the person's login session.
 
+use std::io;
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
 
 use crate::daemon::status::DaemonSecretsPlainReason;
@@ -96,6 +99,30 @@ impl PlaceRecord {
         self.place == SecretsPlace::LoggedOutServiceFile
             || self.moving_to == Some(SecretsPlace::LoggedOutServiceFile)
     }
+}
+
+/// Why the place record could not be read.
+#[derive(Debug, thiserror::Error)]
+pub enum PlaceRecordReadError {
+    /// The file system refused the read.
+    #[error("the record of where the secrets are could not be read")]
+    Read(#[source] io::Error),
+    /// The file is not such a record.
+    #[error("the record of where the secrets are does not parse")]
+    Parse(#[source] serde_json::Error),
+}
+
+/// The place record at `path`, `None` when there is none: the store's and the command line's one
+/// reader. Blocking. Fails when the file cannot be read or is not a record.
+pub fn read_place_record(path: &Path) -> Result<Option<PlaceRecord>, PlaceRecordReadError> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(missing) if missing.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(failure) => return Err(PlaceRecordReadError::Read(failure)),
+    };
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .map_err(PlaceRecordReadError::Parse)
 }
 
 /// Where a move takes the daemon's secrets.

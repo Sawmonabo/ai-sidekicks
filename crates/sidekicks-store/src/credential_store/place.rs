@@ -19,7 +19,7 @@
 use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::daemon::secrets_place::{
-    PlaceRecord, SECRETS_PLACE_RECORD_FILE_NAME, SecretsPlace,
+    PlaceRecord, SECRETS_PLACE_RECORD_FILE_NAME, SecretsPlace, read_place_record,
 };
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_std::file::atomic_write::write_file_atomically;
@@ -39,13 +39,10 @@ pub fn record_path(data_folder: &Path) -> PathBuf {
 /// cannot be read or does not parse; the file is then left as it is, since a new pick could strand
 /// the items.
 pub async fn read_record(path: &Path) -> Result<Option<PlaceRecord>, KeychainRefusal> {
-    let text = match tokio::fs::read(path).await.none_if_missing() {
-        Ok(Some(text)) => text,
-        Ok(None) => return Ok(None),
-        Err(failure) => return Err(unreadable(path, failure)),
-    };
-    serde_json::from_slice(&text)
-        .map(Some)
+    let record_path = path.to_owned();
+    tokio::task::spawn_blocking(move || read_place_record(&record_path))
+        .await
+        .map_err(|failure| unreadable(path, failure))?
         .map_err(|failure| unreadable(path, failure))
 }
 
