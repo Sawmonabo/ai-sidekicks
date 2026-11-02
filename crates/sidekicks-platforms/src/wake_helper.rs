@@ -11,7 +11,6 @@
 pub(crate) mod message;
 
 use std::io;
-use std::path::PathBuf;
 use std::process::ExitStatus;
 
 use crate::code_signature::CodeSignatureError;
@@ -76,10 +75,10 @@ pub enum WakeHelperError {
         message: String,
     },
     /// A file the install or the status read needs could not be written or read.
-    #[error("{} could not be written or read", path.display())]
+    #[error("{file} could not be written or read")]
     File {
-        /// The file.
-        path: PathBuf,
+        /// The file, by what it is, such as `the wake helper's program`, so no home path is shown.
+        file: &'static str,
         /// Why.
         #[source]
         source: io::Error,

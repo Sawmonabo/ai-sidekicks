@@ -32,6 +32,12 @@ use crate::spawner::Spawner;
 pub(crate) const WAKE_HELPER_PROGRAM_PATH: &str =
     "/Library/PrivilegedHelperTools/sidekicks-wake-helper";
 
+// The helper's program, as a failure names it, so the path it was read from is never shown.
+const WAKE_HELPER_PROGRAM_FILE: &str = "the wake helper's program";
+
+/// The helper's property list, as a failure names it.
+pub(crate) const WAKE_HELPER_LIST_FILE: &str = "the wake helper's property list";
+
 // Where launchd keeps the helper's standard error, which carries its failure lines.
 const WAKE_HELPER_LOG_PATH: &str = "/Library/Logs/sidekicks-wake-helper.log";
 
@@ -137,7 +143,7 @@ pub(crate) async fn install(
         tokio::fs::read(helper_program)
             .await
             .map_err(|source| WakeHelperError::File {
-                path: helper_program.to_owned(),
+                file: WAKE_HELPER_PROGRAM_FILE,
                 source,
             })?;
     let program_hash = OsString::from(sha256_hex(&program));
@@ -227,7 +233,7 @@ fn list_text(list: &WakeHelperList) -> Result<String, WakeHelperError> {
 // The list's file failure for `source`, why its text could not be made.
 fn unwritable_list(source: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> WakeHelperError {
     WakeHelperError::File {
-        path: wake_helper_list_path(),
+        file: WAKE_HELPER_LIST_FILE,
         source: std::io::Error::new(std::io::ErrorKind::InvalidInput, source),
     }
 }

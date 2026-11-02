@@ -7,7 +7,7 @@ use std::io;
 use objc2_foundation::NSURL;
 use objc2_service_management::{SMAppService, SMAppServiceStatus};
 
-use super::install::wake_helper_list_path;
+use super::install::{WAKE_HELPER_LIST_FILE, wake_helper_list_path};
 use crate::{WakeHelperError, WakeHelperStatus};
 
 /// The helper's status as the login items and its property list's presence say it. Blocks on the
@@ -19,7 +19,7 @@ pub(crate) fn read_status() -> Result<WakeHelperStatus, WakeHelperError> {
         Err(missing) if missing.kind() == io::ErrorKind::NotFound => false,
         Err(source) => {
             return Err(WakeHelperError::File {
-                path: list_path,
+                file: WAKE_HELPER_LIST_FILE,
                 source,
             });
         }
