@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::error::Error;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -18,6 +18,7 @@ use sidekicks_contracts::jsonrpc::negotiation::{
     CONNECTION_INITIALIZE_METHOD, CURRENT_PROTOCOL_VERSION,
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_contracts::method::Method as _;
 use sidekicks_contracts::provider::account::methods::{
     PROVIDER_ACCOUNT_METHOD_DESCRIPTORS, ProviderAccountRegister, ProviderAccountSubscribe,
@@ -38,7 +39,8 @@ use sidekicks_ipc::caller_process::descent::test_reader::ScriptedReader;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
 use sidekicks_ipc::registry::{
-    Dispatch, DispatchError, HandlerContext, MethodRegistry, MethodRegistryBuilder, Reply, Request,
+    Dispatch, DispatchError, EncodedFeed, HandlerContext, MethodRegistry, MethodRegistryBuilder,
+    Reply, Request,
 };
 use sidekicks_ipc::stream::feed::CreditGate;
 use sidekicks_platforms::{
@@ -190,9 +192,16 @@ fn first_provider() -> ProviderId {
     ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id is a provider id")
 }
 
-// An in-memory keychain service that keeps every value written.
+// An in-memory keychain service that keeps every value written, until it is told to refuse
+// writes.
 #[derive(Default)]
-struct HeldTokens(Mutex<BTreeMap<String, String>>);
+struct HeldTokens(Mutex<BTreeMap<String, String>>, AtomicBool);
+
+impl HeldTokens {
+    fn refuse_writes(&self) {
+        self.1.store(true, Ordering::SeqCst);
+    }
+}
 
 impl SecretKeychain for HeldTokens {
     fn write<'call>(
@@ -200,6 +209,10 @@ impl SecretKeychain for HeldTokens {
         account: &'call str,
         value: &'call SecretString,
     ) -> BoxFuture<'call, Result<(), KeychainRefusal>> {
+        if self.1.load(Ordering::SeqCst) {
+            let refusal = KeychainRefusal::of_test_keychain(KeychainRefusalCause::Unavailable);
+            return async { Err(refusal) }.boxed();
+        }
         lock(&self.0).insert(account.to_owned(), value.expose_secret().to_owned());
         async { Ok(()) }.boxed()
     }
@@ -305,6 +318,7 @@ struct MethodInputs {
     _log: TestLog,
     _data_folder: TempDir,
     accounts: Arc<ProviderAccountRegistry>,
+    keychain: Arc<HeldTokens>,
     registry: MethodRegistry,
 }
 
@@ -322,7 +336,8 @@ impl MethodInputs {
             Arc::clone(&log.writer),
             data_folder.path().to_path_buf(),
         ));
-        let keychain: Arc<dyn SecretKeychain> = Arc::new(HeldTokens::default());
+        let held_tokens = Arc::new(HeldTokens::default());
+        let keychain: Arc<dyn SecretKeychain> = Arc::clone(&held_tokens) as _;
         let account_reader: Arc<dyn ProviderAccountReader> = Arc::new(ProviderAccounts::new(
             Arc::clone(&reads),
             Arc::clone(&keychain),
@@ -407,6 +422,7 @@ impl MethodInputs {
             _log: log,
             _data_folder: data_folder,
             accounts,
+            keychain: held_tokens,
             registry: builder.freeze(),
         }
     }
@@ -440,6 +456,24 @@ impl MethodInputs {
         .await
     }
 
+    // Subscribes to `provider.account.subscribe` and answers its feed.
+    async fn subscribe(&self) -> Box<dyn EncodedFeed> {
+        let Ok(Reply::Subscription { feed, .. }) = self
+            .registry
+            .dispatch(
+                request(
+                    ProviderAccountSubscribe::DESCRIPTOR.method,
+                    Some(&json!({})),
+                ),
+                context(2),
+            )
+            .await
+        else {
+            panic!("the subscribe answers a subscription");
+        };
+        feed
+    }
+
     // Turns `account_id`'s wake switch to `is_on`.
     async fn switch_wake(
         &self,
@@ -461,35 +495,110 @@ impl MethodInputs {
 async fn a_subscriber_reads_the_account_a_pasted_token_registered() {
     let inputs =
         MethodInputs::new(Arc::new(ScriptedWakeHelper::new(WakeHelperStatus::Missing))).await;
-    let Ok(Reply::Subscription { mut feed, .. }) = inputs
-        .registry
-        .dispatch(
-            request(
-                ProviderAccountSubscribe::DESCRIPTOR.method,
-                Some(&json!({})),
-            ),
-            context(2),
-        )
-        .await
-    else {
-        panic!("the subscribe answers a subscription");
-    };
+    let mut feed = inputs.subscribe().await;
 
     let registered = inputs.register_token_account().await;
 
+    assert_eq!(
+        next_notification(&mut *feed).await,
+        ProviderAccountNotification::AccountChanged {
+            account: registered.account
+        }
+    );
+}
+
+// The next notification on `feed`, within the wait.
+async fn next_notification(feed: &mut dyn EncodedFeed) -> ProviderAccountNotification {
     let gate = CreditGate::with_credit(1);
     let emission = tokio::time::timeout(WAIT, feed.next(&gate))
         .await
         .expect("a notification comes")
         .expect("the notification reads")
         .expect("the stream goes on");
-    let notification: ProviderAccountNotification =
-        serde_json::from_slice(&emission.json).expect("the emission reads as its type");
+    serde_json::from_slice(&emission.json).expect("the emission reads as its type")
+}
+
+// An account registered as the provider's default goes through the switch, which answers the
+// account whose mark it moved off, so a subscriber reads that account no longer current before the
+// new one. Killed by a registration that moves the mark itself, which leaves the switch's moves and
+// the old account's notice out.
+#[tokio::test]
+async fn an_account_registered_as_default_is_made_current_through_the_switch() {
+    let inputs =
+        MethodInputs::new(Arc::new(ScriptedWakeHelper::new(WakeHelperStatus::Missing))).await;
+    let first = inputs.register_token_account().await.account;
+    assert!(first.is_default());
+    let mut feed = inputs.subscribe().await;
+
+    let made: ProviderAccountRegisterResponse = inputs
+        .call(
+            ProviderAccountRegister::DESCRIPTOR.method,
+            &json!({
+                "provider": first_provider().as_str(),
+                "displayLabel": "Home",
+                "billingMode": "subscription",
+                "nonInteractiveToken": "another-pasted-token",
+                "makeDefault": true,
+            }),
+        )
+        .await;
+
+    assert!(made.account.is_default());
+    let ProviderAccountNotification::AccountChanged { account: left } =
+        next_notification(&mut *feed).await
+    else {
+        panic!("the first notice is an account change");
+    };
+    assert_eq!(left.account_id(), first.account_id());
+    assert!(!left.is_default());
     assert_eq!(
-        notification,
+        next_notification(&mut *feed).await,
         ProviderAccountNotification::AccountChanged {
-            account: registered.account
+            account: made.account
         }
+    );
+}
+
+// A re-supplied token the keychain refuses leaves the account as it was, its name included.
+// Killed by a re-supply that writes the new name before the token.
+#[tokio::test]
+async fn a_refused_token_resupply_leaves_the_name_as_it_was() {
+    let inputs =
+        MethodInputs::new(Arc::new(ScriptedWakeHelper::new(WakeHelperStatus::Missing))).await;
+    let account_id = inputs
+        .register_token_account()
+        .await
+        .account
+        .account_id()
+        .clone();
+    inputs.keychain.refuse_writes();
+
+    let answer = inputs
+        .registry
+        .dispatch(
+            request(
+                ProviderAccountRegister::DESCRIPTOR.method,
+                Some(&json!({
+                    "provider": first_provider().as_str(),
+                    "accountId": account_id.as_str(),
+                    "displayLabel": "Renamed",
+                    "billingMode": "subscription",
+                    "nonInteractiveToken": "a-fresh-token",
+                })),
+            ),
+            context(1),
+        )
+        .await;
+
+    assert!(answer.is_err(), "the refused token was accepted");
+    let stored = inputs
+        .accounts
+        .read(account_id)
+        .await
+        .expect("the account reads");
+    assert_eq!(
+        stored.display_label.as_ref().map(|label| label.as_str()),
+        Some("Work")
     );
 }
 

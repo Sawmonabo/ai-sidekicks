@@ -3,8 +3,10 @@
 //!
 //! - A new account's id and home are minted here; a registration that does not end in a row
 //!   removes the home it minted.
-//! - A re-supply changes the account's name and billing before its token, so a token its provider
-//!   refuses leaves the prior token in place.
+//! - A re-supply replaces the account's token before its name and billing, so a token its
+//!   provider or the keychain refuses leaves the account as it was.
+//! - An account made current here goes through the same switch as the switch method, which moves
+//!   the provider's running sessions onto it.
 //! - The first account whose wake switch turns on installs the machine's wake helper, one that did
 //!   not install leaving the switch off and its reason in the reply, and the last one turned off
 //!   removes it.
@@ -25,6 +27,7 @@ use sidekicks_contracts::provider::account::sign_in::{
     ProviderAccountRegisterRequest, ProviderAccountRegisterResponse, TokenResupply,
 };
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
@@ -60,13 +63,13 @@ pub(super) fn register_provider_account_registration(
         move |request: ProviderAccountRegisterRequest, context: HandlerContext| {
             let sources = Arc::clone(&registering);
             async move {
-                let device = context.calling_device(ProviderAccountRegister::DESCRIPTOR.method)?;
-                let account = register_account(&sources, request).await?;
-                sources.publish_change(
-                    ProviderAccountRegister::DESCRIPTOR.method,
-                    &device,
-                    &account,
-                );
+                let method = ProviderAccountRegister::DESCRIPTOR.method;
+                let device = context.calling_device(method)?;
+                let (account, left) = register_account(&sources, request, &device).await?;
+                if let Some(left) = &left {
+                    sources.publish_change(method, &device, left);
+                }
+                sources.publish_change(method, &device, &account);
                 Ok(ProviderAccountRegisterResponse {
                     account: account.to_provider_account(),
                 })
@@ -121,12 +124,14 @@ pub(super) fn register_provider_account_registration(
     )
 }
 
-// Registers, or re-supplies, the account `request` names, made current where it asks, and has
-// the observer watch a new one.
+// Registers, or re-supplies, the account `request` names, made current for `device` through the
+// switch where it asks, and has the observer watch a new one; answers the account and the one whose
+// mark the switch moved off.
 async fn register_account(
     sources: &ProviderAccountMethodSources,
     request: ProviderAccountRegisterRequest,
-) -> Result<RegisteredAccount, HandlerError> {
+    device: &DeviceId,
+) -> Result<(RegisteredAccount, Option<RegisteredAccount>), HandlerError> {
     let (account, make_default, is_new) = match request {
         ProviderAccountRegisterRequest::SignIn(registration) => {
             let minted = mint(sources, &registration.provider)?;
@@ -168,10 +173,16 @@ async fn register_account(
             )
         }
     };
-    let account = if make_default == Some(true) {
-        sources.accounts.make_current(account.account_id).await?
+    let (account, left) = if make_default == Some(true) {
+        let made = sources
+            .account_switch
+            .make_current(account.account_id, device.clone())
+            .await?;
+        // The moves land on their own, after the answer.
+        drop(made.settled);
+        (made.account, made.left)
     } else {
-        account
+        (account, None)
     };
     if is_new && let Err(error) = sources.observer.watch(&account) {
         // The account is registered; its first read waits for the next start's schedule.
@@ -181,7 +192,7 @@ async fn register_account(
             "a new provider account could not be scheduled for the background observer"
         );
     }
-    Ok(account)
+    Ok((account, left))
 }
 
 // A new account's id and home, for a provider the daemon runs.
@@ -213,7 +224,7 @@ fn keep_or_abandon<Failure: Into<HandlerError>>(
     })
 }
 
-// Replaces the sealed token of the account `resupply` names, after any new name and billing.
+// Replaces the sealed token of the account `resupply` names, then writes any new name and billing.
 async fn resupply_token(
     sources: &ProviderAccountMethodSources,
     resupply: TokenResupply,
@@ -226,27 +237,23 @@ async fn resupply_token(
         )
         .into());
     }
-    let account_id = account.account_id.clone();
-    change_settings(
-        sources,
-        &account,
-        AccountSettingsChange {
-            display_label: resupply.display_label,
-            billing_mode: Some(resupply.billing_mode),
-            ..AccountSettingsChange::default()
-        },
-    )
-    .await?;
+    let change = AccountSettingsChange {
+        display_label: resupply.display_label,
+        billing_mode: Some(resupply.billing_mode),
+        ..AccountSettingsChange::default()
+    };
+    refuse_unnamed_rename(&account, &change)?;
     let folders = sources
         .account_reader
-        .resolve_account_folders(account_id.clone())
+        .resolve_account_folders(account.account_id.clone())
         .await
         .map_err(DriverError::from)?;
     let token: SecretString = resupply.non_interactive_token.into_secret();
-    Ok(sources
+    let account = sources
         .token_custody
-        .replace(account_id, &folders, &token)
-        .await?)
+        .replace(account.account_id, &folders, &token)
+        .await?;
+    change_settings(sources, &account, change).await
 }
 
 // Writes `request`'s settings, the wake switch on only once the helper is installed, and has the
@@ -343,6 +350,18 @@ async fn change_settings(
     account: &RegisteredAccount,
     change: AccountSettingsChange,
 ) -> Result<RegisteredAccount, HandlerError> {
+    refuse_unnamed_rename(account, &change)?;
+    Ok(sources
+        .accounts
+        .change_settings(account.account_id.clone(), change)
+        .await?)
+}
+
+// Refuses `change` where it renames `account`, which the person did not name.
+fn refuse_unnamed_rename(
+    account: &RegisteredAccount,
+    change: &AccountSettingsChange,
+) -> Result<(), HandlerError> {
     if change.display_label.is_some() && account.display_label.is_none() {
         return Err(DomainError::new(
             "Only an account added from a pasted token or API key can be renamed",
@@ -350,8 +369,5 @@ async fn change_settings(
         )
         .into());
     }
-    Ok(sources
-        .accounts
-        .change_settings(account.account_id.clone(), change)
-        .await?)
+    Ok(())
 }
