@@ -5,6 +5,7 @@
 //! config folder and the daemon's scratch folder, a batch of conversations of one home listing
 //! each folder it searches once.
 
+pub(crate) mod peer_replies;
 pub(crate) mod title;
 
 use std::collections::HashSet;

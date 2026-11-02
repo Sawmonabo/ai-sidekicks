@@ -8922,6 +8922,7 @@ dependencies = [
  "typify",
  "unicode-normalization",
  "url",
+ "uuid",
  "zeroize",
  "zstd",
 ]

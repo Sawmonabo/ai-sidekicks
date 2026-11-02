@@ -1,5 +1,5 @@
 //! Where a driver reports what became of a message between sessions, as the provider tells it:
-//! a held, let-in, refused or undelivered message, a peer message a hosted session took in, and a
+//! a held, let-in, refused, undelivered or answered message, a peer message a hosted session took in, and a
 //! message another session sent to the daemon's own address. The provider's ids are untrusted, so
 //! each is kept as the provider wrote it. A reading made before the publisher is registered is
 //! dropped.
@@ -23,8 +23,8 @@ pub enum SessionMessageReading {
         /// The message's id.
         message_id: String,
     },
-    /// A held message the receiver let in; a message taken at once reads as its `Arrived`, never
-    /// as this.
+    /// A held message the receiver let in, or one a terminal session's transcript shows it took; a
+    /// message a hosted session took at once reads as its `Arrived`, never as this.
     Delivered {
         /// The message's id.
         message_id: String,
@@ -42,6 +42,13 @@ pub enum SessionMessageReading {
     NotDelivered {
         /// The message's id.
         message_id: String,
+    },
+    /// The turn the message started in a terminal session ended, with the receiver's answer.
+    Answered {
+        /// The message's id.
+        message_id: String,
+        /// The text of the turn's last reply.
+        answer: String,
     },
     /// A hosted session took in a message another session sent.
     Arrived(SessionMessageArrival),
