@@ -50,8 +50,8 @@ pub struct ResumedRunsFinalizeDeps {
     pub delivery: QueueDelivery,
     /// The drivers, found by the provider each run is bound to.
     pub providers: Arc<ProviderRegistry>,
-    /// The interventions service, which hands a pending interrupt again, a person's or a limit's, to
-    /// a run its provider runs on.
+    /// The interventions service, which hands a pending interrupt again, a person's or a limit's,
+    /// to a run its provider runs on.
     pub interventions: Arc<InterventionService>,
 }
 
