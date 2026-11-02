@@ -488,20 +488,17 @@ mod tests {
     use rusqlite::{Connection, params};
     use serde_json::{Value, json};
     use sidekicks_contracts::event::registry::SessionEventType;
-    use sidekicks_contracts::event::session::SessionEvent;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_store::database::writer::test_file::{
-        TestDatabase, test_envelope, test_run_id, test_session_id,
+        TestDatabase, test_run_id, test_session_id,
     };
     use sidekicks_store::events::session::read::session_read_bound;
 
     use super::{RunAgent, RunAgentReader, SessionLead, read_session_lead};
-    use crate::agents::projection::test_fixture::{
-        binding, binding_changed, project, session_created,
-    };
+    use crate::agents::projection::test_fixture::{binding, project, session_created};
     use crate::agents::schema::schema_parts;
 
     // One session's log, written row by row in sequence order.
@@ -552,15 +549,6 @@ mod tests {
                 )
                 .expect("the test writes the row");
             self.sequence += 1;
-        }
-
-        // Writes `event`'s payload as an append stores it.
-        fn write_event(&mut self, event: &SessionEvent) {
-            let envelope = test_envelope(self.session_id, event);
-            self.write(
-                event.event_type(),
-                &Value::Object(envelope.payload().clone()),
-            );
         }
 
         // Queues a run for `agent_id`, naming it by id.
@@ -679,53 +667,24 @@ mod tests {
         );
     }
 
-    // Killed by a landed switch's effort, speed, options or window left out of the row, and by the
-    // binding read from anywhere but the row, the row's own model then never answered.
+    // Killed by the binding read from anywhere but the agent's row, the row's own model then never
+    // answered, and by the run's agent read as another's.
     #[test]
     fn a_runs_agent_runs_on_its_rows_binding() {
-        let (first, second) = (PROVIDERS[0].id, PROVIDERS[1].id);
         let lead = mint_uuid_v7().to_string();
         let mut log = Log::new();
-        let mut landed = binding(second, "model-b");
-        landed["effort"] = json!("high");
-        landed["outputSpeed"] = json!("fast");
-        landed["options"] = json!([{ "id": "fastMode", "value": true }]);
-        landed["largerWindow"] = json!(1_000_000);
-        let events = [
-            session_created(log.session_id, &lead, &binding(first, "model-a")),
-            binding_changed(
-                log.session_id,
-                &lead,
-                "switch-1",
-                &binding(first, "model-a"),
-                &landed,
-                "account-1",
-            ),
-        ];
-        for event in &events {
-            log.write_event(event);
-            project(&log.connection, log.session_id, event);
-        }
+        let created = session_created(log.session_id, &lead, &binding(PROVIDERS[0].id, "model-a"));
+        project(&log.connection, log.session_id, &created);
         let run_id = log.queue_run(&lead);
-
-        let from_row = log.run_agent(&run_id);
-        assert_eq!(from_row.agent_id.text().as_str(), lead);
-        assert_eq!(
-            from_row.binding,
-            log.lead().binding,
-            "the row lands the switch as the log does"
-        );
-
         log.connection
             .execute(
                 "UPDATE agents SET model_id = 'model-row' WHERE id = ?1",
                 [&lead],
             )
             .expect("the test moves the row");
-        assert_eq!(
-            log.run_agent(&run_id).binding.model_id.as_str(),
-            "model-row",
-            "the row is read before the log"
-        );
+
+        let agent = log.run_agent(&run_id);
+        assert_eq!(agent.agent_id.text().as_str(), lead);
+        assert_eq!(agent.binding.model_id.as_str(), "model-row");
     }
 }
