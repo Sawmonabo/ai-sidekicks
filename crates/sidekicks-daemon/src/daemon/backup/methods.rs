@@ -16,6 +16,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
+use sidekicks_platforms::{VolumeId, read_volume, real_path};
 use sidekicks_std::scheduler::Scheduler;
 use walkdir::WalkDir;
 
@@ -126,19 +127,15 @@ fn folder_bytes(folder: &Path) -> io::Result<u64> {
 }
 
 // Whether `folder`, or the nearest folder above it that exists, sits on the volume holding
-// `data_folder`; an entry's identity text leads with its volume.
+// `data_folder`. A network share has no volume id, so a folder on one is never on the service's
+// disk.
 fn is_on_same_volume(folder: &Path, data_folder: &Path) -> io::Result<bool> {
-    let volume_of = |path: &Path| -> io::Result<String> {
+    let volume_of = |path: &Path| -> io::Result<Option<VolumeId>> {
         let mut existing: PathBuf = path.to_path_buf();
         loop {
-            match sidekicks_platforms::entry_identity(&existing) {
-                Ok(entry) => {
-                    let identity = entry.identity.to_string();
-                    let (volume, _file) = identity
-                        .split_once(':')
-                        .expect("an entry identity's text is `<volume>:<file>`");
-                    return Ok(volume.to_owned());
-                }
+            match real_path(&existing).and_then(|real| read_volume(&real)) {
+                Ok(volume) => return Ok(Some(volume.id)),
+                Err(failure) if failure.kind() == io::ErrorKind::Unsupported => return Ok(None),
                 Err(failure) if failure.kind() == io::ErrorKind::NotFound => {
                     if !existing.pop() {
                         return Err(failure);
@@ -148,5 +145,8 @@ fn is_on_same_volume(folder: &Path, data_folder: &Path) -> io::Result<bool> {
             }
         }
     };
-    Ok(volume_of(folder)? == volume_of(data_folder)?)
+    Ok(match (volume_of(folder)?, volume_of(data_folder)?) {
+        (Some(folder_volume), Some(data_volume)) => folder_volume == data_volume,
+        _ => false,
+    })
 }
