@@ -17,7 +17,7 @@ use super::continuation::{
     ADOPTED_THREAD, AdoptionScript, CONTINUATION_TURN, ROOT_TURN, adopt, cut_turn_end,
     cut_turn_listed, lead_run, page_turn, turn_ends,
 };
-use super::helpers::{HELPER_TURN, adopt_with_helpers, helper_run, unloaded};
+use super::helpers::{HELPER_TURN, adopt_with_helpers, helper_run, loaded, unloaded};
 use crate::driver::codex::run::steer::register_codex_steer;
 use crate::driver::codex::service::supervisor::test_service::start_scripted_joined_service;
 use crate::driver::codex::session::inbound::CodexSessionInbound;
@@ -37,6 +37,22 @@ fn continuation_end(run_id: RunId) -> EngineCall {
         SafeInt::<1>::new(1).expect("one is a turn number"),
         TurnOutcome::Interrupted(Some(TurnEndCause::DaemonRestart)),
     )
+}
+
+// How many `subagent.completed` rows name the child run `run_id`.
+fn subagent_completed_rows(session: &TestCodexSession, run_id: RunId) -> usize {
+    session
+        .engine
+        .deliveries()
+        .into_iter()
+        .filter(|delivery| {
+            matches!(
+                &delivery.row,
+                Some(LateAppendableRow::AgentSubagentCompleted(row))
+                    if row.child_run_id == Some(run_id)
+            )
+        })
+        .count()
 }
 
 // `frame` as the session's queue hands it to the session's task.
@@ -230,19 +246,7 @@ async fn a_held_helpers_ended_turn_leaves_its_run_waiting() {
         .await;
 
     assert_eq!(session.engine.moves_of_run(helper_run_id), Vec::new());
-    let completed_rows = session
-        .engine
-        .deliveries()
-        .into_iter()
-        .filter(|delivery| {
-            matches!(
-                &delivery.row,
-                Some(LateAppendableRow::AgentSubagentCompleted(row))
-                    if row.child_run_id == Some(helper_run_id)
-            )
-        })
-        .count();
-    assert_eq!(completed_rows, 0);
+    assert_eq!(subagent_completed_rows(&session, helper_run_id), 0);
     assert_eq!(
         turn_ends(&session.engine.calls()),
         (vec![continuation_end(helper_run_id)], Vec::new())
@@ -256,4 +260,49 @@ async fn a_held_helpers_ended_turn_leaves_its_run_waiting() {
     );
     assert!(!session.task.run_routes.has_helper_route(helper_run_id));
     assert!(opened.record.held_continuation_turn_ids.is_empty());
+}
+
+// A held helper whose turn still ran at the adoption and that the person then stops ends as that
+// stop's, never as the daemon's restart: its run ends with its `subagent.completed` row, the end
+// read as the daemon's interrupt, and the mark is let go. Killed by the held end taken on a turn
+// the daemon interrupted (the run never moves and the stop hangs it).
+#[tokio::test(start_paused = true)]
+async fn a_stopped_held_helper_ends_as_its_stop() {
+    let mut session = TestCodexSession::start().await;
+    let lead_run_id = new_run_id();
+    let helper_run_id = new_run_id();
+    let mut held_helper = helper_run(helper_run_id, lead_run_id, "thread-helper-a");
+    held_helper.run_state = RunState::WaitingForApproval;
+    let adoption = adopt_with_helpers(
+        &mut session,
+        vec![lead_run(lead_run_id, RunState::Running), held_helper],
+        vec![loaded("thread-helper-a", "inProgress")],
+    )
+    .await;
+    let established = adoption.established.expect("the session is established");
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let opened = session
+        .establishment(folder.path())
+        .open(established, None)
+        .await;
+    session.task.record = opened.record;
+    session.task.routing = opened.routing;
+    assert!(
+        session
+            .task
+            .run_routes
+            .begin_helper_interrupt(helper_run_id)
+            .is_some()
+    );
+
+    let ended = turn_completed("thread-helper-a", HELPER_TURN, "interrupted");
+    session.task.handle(queued(&ended)).await;
+
+    assert_eq!(
+        session.engine.daemon_interrupt_ends_of_run(helper_run_id),
+        vec![true]
+    );
+    assert_eq!(subagent_completed_rows(&session, helper_run_id), 1);
+    assert_eq!(turn_ends(&session.engine.calls()).0, Vec::new());
+    assert!(session.task.record.held_continuation_turn_ids.is_empty());
 }

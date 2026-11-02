@@ -33,7 +33,7 @@ pub(super) fn helper_run(run_id: RunId, parent_run_id: RunId, thread_id: &str) -
 }
 
 // The helper `thread_id` held loaded, its resume's page holding its newest turn at `status`.
-fn loaded(thread_id: &'static str, status: &str) -> HelperScript {
+pub(super) fn loaded(thread_id: &'static str, status: &str) -> HelperScript {
     HelperScript {
         thread_id,
         is_loaded: true,
