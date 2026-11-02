@@ -1,4 +1,5 @@
-//! The `daemon` commands, which read and drive the background service itself.
+//! The `daemon` commands, which read and drive the background service itself. Its install and
+//! uninstall join them only on a system whose service manager registers the service.
 
 mod ending;
 pub(crate) mod install;
@@ -12,6 +13,7 @@ pub(crate) mod uninstall;
 use std::io::Write;
 
 use clap::Subcommand;
+use sidekicks_platforms::ServiceRegistration;
 
 use crate::command_context::CommandContext;
 use crate::commands::daemon::install::{InstallArgs, install};
@@ -25,8 +27,6 @@ use crate::exit_codes::ExitCode;
 /// The `daemon` commands.
 #[derive(Debug, Subcommand)]
 pub(crate) enum DaemonCommand {
-    /// Register the background service to start at login, and start it.
-    Install(InstallArgs),
     /// Stop the background service and start it again, asking first.
     Restart(RestartArgs),
     /// Start the background service unless it is running, and wait until it answers.
@@ -35,6 +35,17 @@ pub(crate) enum DaemonCommand {
     Status(StatusArgs),
     /// Stop the background service, asking first.
     Stop(StopArgs),
+    /// A command over this system's registration of the service, which the program's arguments
+    /// offer only where there is one.
+    #[command(skip)]
+    Registration(ServiceRegistration, ServiceRegistrationCommand),
+}
+
+/// The `daemon` commands over the service's registration with the system's service manager.
+#[derive(Debug, Subcommand)]
+pub(crate) enum ServiceRegistrationCommand {
+    /// Register the background service to start at login, and start it.
+    Install(InstallArgs),
     /// Stop the background service and remove its start at login; your data is kept.
     Uninstall,
 }
@@ -45,11 +56,15 @@ pub(crate) fn run_daemon_command<Output: Write, ErrorOutput: Write>(
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> anyhow::Result<ExitCode> {
     match command {
-        DaemonCommand::Install(args) => install(args, context),
         DaemonCommand::Restart(args) => restart(args, context),
         DaemonCommand::Start(args) => start_and_report(args, STARTED_LINE, context),
         DaemonCommand::Status(args) => show_status(args, context),
         DaemonCommand::Stop(args) => stop(args, context),
-        DaemonCommand::Uninstall => uninstall(context),
+        DaemonCommand::Registration(registration, ServiceRegistrationCommand::Install(args)) => {
+            install(args, *registration, context)
+        }
+        DaemonCommand::Registration(registration, ServiceRegistrationCommand::Uninstall) => {
+            uninstall(*registration, context)
+        }
     }
 }

@@ -6,7 +6,7 @@
 use std::io::Write;
 
 use sidekicks_client::daemon_ending::DaemonEndingVerb;
-use sidekicks_platforms::{ServiceOwner, service_registration};
+use sidekicks_platforms::{ServiceOwner, ServiceRegistration};
 
 use crate::command_context::CommandContext;
 use crate::commands::daemon::ending::end_running_daemon;
@@ -14,13 +14,12 @@ use crate::commands::daemon::registration::{LoginRegistration, read_owner, regis
 use crate::connected_command::run_listening_for_ctrl_c;
 use crate::exit_codes::{CommandFailure, ExitCode};
 
-/// Removes the background service's registration on this computer, and answers 0 with the
-/// outcome's line on stdout. Fails with [`CommandFailure::ServiceRegistrationMissing`] on a system
-/// with no such registration, and as [`uninstall_with`] does.
+/// Removes the background service's registration on this computer through `registration`, and
+/// answers 0 with the outcome's line on stdout. Fails as [`uninstall_with`] does.
 pub(crate) fn uninstall<Output: Write, ErrorOutput: Write>(
+    registration: ServiceRegistration,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> anyhow::Result<ExitCode> {
-    let registration = service_registration().ok_or(CommandFailure::ServiceRegistrationMissing)?;
     uninstall_with(&registration, context)
 }
 

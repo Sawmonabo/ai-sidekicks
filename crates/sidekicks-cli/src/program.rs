@@ -9,7 +9,7 @@ use std::ffi::OsString;
 use std::io::{self, Write};
 use std::panic::{self, AssertUnwindSafe};
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
 use icu_decimal::DecimalFormatter;
 use icu_decimal::input::Decimal;
 use icu_decimal::options::DecimalFormatterOptions;
@@ -18,11 +18,11 @@ use sidekicks_client::error::ClientError;
 use sidekicks_contracts::daemon::recovery::{
     DaemonRepairingDetails, DaemonRepairingLinePart, describe_daemon_repairing_line,
 };
-use sidekicks_platforms::{LocaleCategory, end_as_ctrl_c, system_locale};
+use sidekicks_platforms::{LocaleCategory, end_as_ctrl_c, service_registration, system_locale};
 
 use crate::command_context::CommandContext;
 use crate::commands::crash::{CrashCommand, run_crash_command};
-use crate::commands::daemon::{DaemonCommand, run_daemon_command};
+use crate::commands::daemon::{DaemonCommand, ServiceRegistrationCommand, run_daemon_command};
 use crate::commands::data::{DataCommand, run_data_command};
 use crate::commands::open::{OpenArgs, open};
 use crate::exit_codes::{ExitCode, ProcessEnding, exit_code_for_failure};
@@ -67,7 +67,7 @@ pub(crate) fn run_program<Output: Write, ErrorOutput: Write>(
     args: impl IntoIterator<Item = OsString>,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> ProcessEnding {
-    let cli = match Cli::try_parse_from(args) {
+    let cli = match parse_arguments(args) {
         Ok(cli) => cli,
         Err(refusal) => return report_parse_refusal(&refusal, context),
     };
@@ -80,6 +80,34 @@ pub(crate) fn run_program<Output: Write, ErrorOutput: Write>(
         Ok(Err(failure)) => report_failure(&failure, context),
         Err(payload) => report_failure(&panic_failure(payload.as_ref()), context),
     }
+}
+
+/// The program's arguments read against its command tree, which holds `daemon install` and
+/// `uninstall` only where this system registers the service, so elsewhere clap refuses them as
+/// unknown and its help leaves them out. Fails with clap's refusal, help or version.
+fn parse_arguments(args: impl IntoIterator<Item = OsString>) -> Result<Cli, clap::Error> {
+    let registration = service_registration();
+    let mut command = Cli::command();
+    if registration.is_some() {
+        command = command.mut_subcommand("daemon", ServiceRegistrationCommand::augment_subcommands);
+    }
+    let mut matches = command.try_get_matches_from_mut(args)?;
+    if let Some(registration) = registration
+        && let Some(("daemon", daemon)) = matches.subcommand()
+        && daemon
+            .subcommand_name()
+            .is_some_and(ServiceRegistrationCommand::has_subcommand)
+    {
+        let registration_command = ServiceRegistrationCommand::from_arg_matches(daemon)
+            .map_err(|refusal| refusal.format(&mut command))?;
+        return Ok(Cli {
+            command: Command::Daemon(DaemonCommand::Registration(
+                registration,
+                registration_command,
+            )),
+        });
+    }
+    Cli::from_arg_matches_mut(&mut matches).map_err(|refusal| refusal.format(&mut command))
 }
 
 /// Runs one command and answers the exit code its run ends with.

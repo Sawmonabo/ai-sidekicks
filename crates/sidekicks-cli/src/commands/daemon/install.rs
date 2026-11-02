@@ -1,7 +1,10 @@
 //! `sidekicks daemon install`: registers the background service to start at login and starts it.
 //! Where the app's own registration runs the service, nothing is written; a registration already
 //! naming this program is left as it is; otherwise the registration is written and, with someone
-//! logged in at the screen, loaded, and the command waits for the service's handshake.
+//! logged in at the screen, loaded, and the command waits for the service's handshake. With
+//! `--while-signed-out` the system service that runs while the person is logged out replaces it.
+
+pub(crate) mod system_service;
 
 use std::convert::Infallible;
 use std::io::Write;
@@ -14,9 +17,10 @@ use sidekicks_client::daemon_connection::handshake_wait::{
 };
 use sidekicks_client::daemon_connection::{DaemonEndpoint, HANDSHAKE_DEADLINE};
 use sidekicks_client::error::ClientError;
-use sidekicks_platforms::{ServiceInstall, ServiceOwner, service_registration};
+use sidekicks_platforms::{ServiceInstall, ServiceOwner, ServiceRegistration};
 
 use crate::command_context::CommandContext;
+use crate::commands::daemon::install::system_service::install_while_signed_out;
 use crate::commands::daemon::registration::{LoginRegistration, read_owner, registration_failure};
 use crate::commands::daemon::start::RepairLine;
 use crate::connected_command::run_listening_for_ctrl_c;
@@ -30,16 +34,22 @@ pub(crate) struct InstallArgs {
     /// program.
     #[arg(long, value_name = "PATH")]
     daemon_path: Option<PathBuf>,
+    /// Keep the background service running while you are logged out (macOS).
+    #[arg(long)]
+    while_signed_out: bool,
 }
 
-/// Installs the background service to start at login on this computer, and answers 0 with the
-/// outcome's line on stdout. Fails with [`CommandFailure::ServiceRegistrationMissing`] on a system
-/// with no such registration, and as [`install_with`] does.
+/// Installs the background service on this computer through `registration`, to start at login
+/// or with `--while-signed-out` to run while the person is logged out, and answers 0 with the
+/// outcome's line on stdout. Fails as [`install_with`] or [`install_while_signed_out`] does.
 pub(crate) fn install<Output: Write, ErrorOutput: Write>(
     args: &InstallArgs,
+    registration: ServiceRegistration,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> anyhow::Result<ExitCode> {
-    let registration = service_registration().ok_or(CommandFailure::ServiceRegistrationMissing)?;
+    if args.while_signed_out {
+        return install_while_signed_out(registration, args.daemon_path.as_deref(), context);
+    }
     install_with(&registration, args.daemon_path.as_deref(), context)
 }
 
@@ -88,7 +98,7 @@ fn install_with<Output: Write, ErrorOutput: Write>(
 /// [`CommandFailure::InstalledNotAnswering`] when it does not answer in time,
 /// `ClientError::Canceled` after a Ctrl-C, and as a handshake that fails other than as a starting
 /// daemon's does.
-fn wait_for_installed_daemon(stderr: &mut impl Write) -> anyhow::Result<()> {
+pub(crate) fn wait_for_installed_daemon(stderr: &mut impl Write) -> anyhow::Result<()> {
     let mut repair_line = RepairLine::new(stderr);
     let waited = run_listening_for_ctrl_c(async |ctrl_c| {
         let endpoint = DaemonEndpoint::this_machine()

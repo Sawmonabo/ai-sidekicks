@@ -2,7 +2,7 @@
 
 pub(crate) mod erase;
 pub(crate) mod export;
-mod offline_mode;
+pub(crate) mod offline_mode;
 pub(crate) mod restore;
 
 use std::io::Write;

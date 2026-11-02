@@ -55,6 +55,66 @@ pub(crate) fn registration_failure(
     anyhow::Error::new(failure).context(doing)
 }
 
+/// How a step run as root failed, as the person is told it.
+pub(crate) enum RootStepFailure {
+    /// The person canceled the administrator password prompt.
+    Canceled,
+    /// The step ran and failed, or its program could not run: macOS's own message, or what could
+    /// not be started.
+    NotDone {
+        /// The message, in macOS's words where it gave one.
+        message: String,
+    },
+    /// A failure before the step ran, such as the account's read.
+    Other(ServiceRegistrationError),
+}
+
+/// `failure` of a step run as root, behind the administrator password prompt unless the run
+/// `runs_as_root`, read for what the person is told.
+pub(crate) fn read_root_step_failure(
+    failure: ServiceRegistrationError,
+    runs_as_root: bool,
+) -> RootStepFailure {
+    match failure {
+        ServiceRegistrationError::Canceled => RootStepFailure::Canceled,
+        ServiceRegistrationError::AdministratorRefused {
+            number, message, ..
+        } => RootStepFailure::NotDone {
+            message: if message.is_empty() {
+                format!("error {number}")
+            } else {
+                message
+            },
+        },
+        ServiceRegistrationError::Refused {
+            status, message, ..
+        } => RootStepFailure::NotDone {
+            message: if message.is_empty() {
+                status.to_string()
+            } else {
+                message
+            },
+        },
+        ServiceRegistrationError::Start { source, .. } => {
+            let program = if runs_as_root {
+                "the shell that runs it as root"
+            } else {
+                "the administrator password prompt"
+            };
+            RootStepFailure::NotDone {
+                message: format!("{program} could not be started: {source}"),
+            }
+        }
+        failure @ (ServiceRegistrationError::NoHomeFolder
+        | ServiceRegistrationError::Account { .. }
+        | ServiceRegistrationError::NoInvokingAccount
+        | ServiceRegistrationError::Read { .. }
+        | ServiceRegistrationError::Write { .. }
+        | ServiceRegistrationError::UnknownLoginItemStatus { .. }
+        | ServiceRegistrationError::Remove { .. }) => RootStepFailure::Other(failure),
+    }
+}
+
 /// Which registration starts the service at login, read through `registration`. Fails as
 /// [`registration_failure`] turns the read's failure.
 pub(crate) fn read_owner(registration: &impl LoginRegistration) -> anyhow::Result<ServiceOwner> {

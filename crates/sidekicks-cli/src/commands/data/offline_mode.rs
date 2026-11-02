@@ -4,6 +4,7 @@
 //! how the act went.
 
 use std::ffi::OsString;
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use anyhow::Context as _;
@@ -22,7 +23,8 @@ use crate::exit_codes::{CommandFailure, describe_child_ending};
 /// through `ask`, which answers whether the person said yes, then runs the daemon's program with
 /// `mode_arguments`. Answers whether the mode ran, false when the person said no. Fails with
 /// [`CommandFailure::ServiceRunning`] while the service answers, with `ClientError::Canceled`
-/// after a Ctrl-C before the mode starts, as `ask` fails, and as [`run_offline_mode`] does.
+/// after a Ctrl-C before the mode starts, as `ask` fails, when the daemon's program beside this
+/// one cannot be found, and as [`run_offline_mode`] does.
 pub(crate) fn run_offline_command(
     command: &'static str,
     ask: impl AsyncFnOnce(&CancellationToken) -> anyhow::Result<bool>,
@@ -42,7 +44,7 @@ pub(crate) fn run_offline_command(
         }
         // The listener stays held but unwatched from here: a Ctrl-C reaches the mode, which shares
         // the terminal, and the command still reads how the mode ended.
-        run_offline_mode(mode_arguments).await?;
+        run_offline_mode(&daemon_program(None)?, mode_arguments).await?;
         Ok(true)
     })
 }
@@ -72,14 +74,16 @@ async fn refuse_while_running(
     }
 }
 
-/// Runs the daemon's program installed beside this one with `arguments`, its input empty and its
-/// error output on this command's, on a blocking thread, and reads its one answer from its
-/// standard output. Fails with the mode's refusal or failure as a `ClientError::Remote`, so the
-/// command ends as it would on the service's own answer; as the program's resolution or start
-/// fails; and, naming how the program ended, when its answer does not read.
-async fn run_offline_mode(arguments: Vec<OsString>) -> anyhow::Result<()> {
-    let program = daemon_program(None)?;
-    let run_program = program.clone();
+/// Runs the daemon's program `program` with `arguments`, its input empty and its error output on
+/// this command's, on a blocking thread, and reads its one answer from its standard output. Fails
+/// with the mode's refusal or failure as a `ClientError::Remote`, so the command ends as it would
+/// on the service's own answer; as the program's start fails; and, naming how the program ended,
+/// when its answer does not read.
+pub(crate) async fn run_offline_mode(
+    program: &Path,
+    arguments: Vec<OsString>,
+) -> anyhow::Result<()> {
+    let run_program = program.to_owned();
     let output = tokio::task::spawn_blocking(move || {
         Command::new(run_program)
             .args(arguments)

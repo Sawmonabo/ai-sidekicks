@@ -13,6 +13,7 @@ use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
 use sidekicks_platforms::{ChildExit, ServiceRegistrationError};
 
+use crate::commands::daemon::install::system_service::LoggedOutServiceRefusal;
 use crate::commands::daemon::registration::TURNED_OFF_IN_LOGIN_ITEMS;
 use crate::commands::daemon::status::describe_cannot_start;
 use crate::commands::open::AddressHandlerMissingError;
@@ -148,9 +149,6 @@ pub(crate) enum CommandFailure {
         #[source]
         last_failure: ClientError,
     },
-    /// This system has no registration that starts the service at login.
-    #[error("The background service cannot be registered to start at login on this system")]
-    ServiceRegistrationMissing,
     /// The app's own registration runs the service, so the command line has nothing of its own to
     /// remove.
     #[error(
@@ -183,6 +181,18 @@ pub(crate) enum CommandFailure {
         #[source]
         last_failure: ClientError,
     },
+    /// The service that runs while the person is logged out was not installed, for `cause`; what
+    /// the command changed before was put back, and a failure doing that is the source.
+    #[error(
+        "This Mac cannot keep the background service running while you are logged out: {cause}."
+    )]
+    LoggedOutServiceRefused {
+        /// Why it was not installed.
+        cause: LoggedOutServiceRefusal,
+        /// Why putting back what the command changed failed, where it did.
+        #[source]
+        put_back_failure: Option<Box<dyn Error + Send + Sync>>,
+    },
 }
 
 impl CommandFailure {
@@ -193,13 +203,13 @@ impl CommandFailure {
             | Self::DaemonExited { .. }
             | Self::InstalledNotAnswering { .. }
             | Self::RegisteredNotAnswering { .. } => ExitCode::Unavailable,
-            Self::ServiceRegistrationMissing
-            | Self::AppOwnsService
+            Self::AppOwnsService
             | Self::TurnedOffInLoginItems
             | Self::AppServiceTurnedOff
             | Self::ServiceRunning { .. } => ExitCode::Configuration,
             Self::RegistrationRefused(_) => ExitCode::Software,
             Self::BackupUnreadable { .. } => ExitCode::NoInput,
+            Self::LoggedOutServiceRefused { cause, .. } => cause.exit_code(),
         }
     }
 }
@@ -331,6 +341,7 @@ mod tests {
     use sidekicks_platforms::{ChildExit, ServiceRegistrationError};
 
     use super::{CommandFailure, ExitCode, ProcessEnding, exit_code_for_failure};
+    use crate::commands::daemon::install::system_service::LoggedOutServiceRefusal;
     use crate::commands::open::AddressHandlerMissingError;
     use crate::confirmation::ConfirmationUnavailableError;
     use crate::program::Cli;
@@ -530,16 +541,33 @@ mod tests {
         }.into(),
         ProcessEnding::Exit(ExitCode::Unavailable)
     )]
-    #[case::no_service_registration_here(
-        CommandFailure::ServiceRegistrationMissing.into(),
-        ProcessEnding::Exit(ExitCode::Configuration)
-    )]
     #[case::app_owns_the_service(
         CommandFailure::AppOwnsService.into(),
         ProcessEnding::Exit(ExitCode::Configuration)
     )]
     #[case::registration_refused(
         CommandFailure::RegistrationRefused(ServiceRegistrationError::NoHomeFolder).into(),
+        ProcessEnding::Exit(ExitCode::Software)
+    )]
+    #[case::logged_out_service_needs_the_screen(
+        CommandFailure::LoggedOutServiceRefused {
+            cause: LoggedOutServiceRefusal::NoScreenSession,
+            put_back_failure: None,
+        }.into(),
+        ProcessEnding::Exit(ExitCode::Configuration)
+    )]
+    #[case::logged_out_service_password_not_given(
+        CommandFailure::LoggedOutServiceRefused {
+            cause: LoggedOutServiceRefusal::PasswordNotGiven,
+            put_back_failure: None,
+        }.into(),
+        ProcessEnding::Exit(ExitCode::NoPermission)
+    )]
+    #[case::logged_out_service_not_installed_nor_put_back(
+        CommandFailure::LoggedOutServiceRefused {
+            cause: LoggedOutServiceRefusal::NotInstalled { message: "refused".to_owned() },
+            put_back_failure: Some(Box::new(ClientError::link_down(LinkFault::PeerClosed))),
+        }.into(),
         ProcessEnding::Exit(ExitCode::Software)
     )]
     #[case::anything_else(anyhow!("failed"), ProcessEnding::Exit(ExitCode::Software))]
