@@ -99,7 +99,9 @@ impl CodexSessionInboundHandler for SessionQueue {
         ));
         // The binding moves once the spend before it is recorded, which the test's task has none
         // of.
-        let _answered = account_move.moved.send(Ok(()));
+        if let Some(moved) = account_move.moved {
+            let _answered = moved.send(Ok(()));
+        }
         async {}.boxed()
     }
 
@@ -182,10 +184,11 @@ impl Fixture {
         );
 
         // The service carries the account left, as its start handed it.
-        let connection = scripted.service.connection().expect("the service is up");
+        let service = Arc::clone(&scripted.service);
+        let connection = service.connection().expect("the service is up");
         let switching = Arc::clone(&scripted.dependencies.switching);
         let (handed, _login) = tokio::join!(
-            switching.hand_at_start(&connection),
+            switching.hand_at_start(&service, &connection),
             answer_login(&mut scripted)
         );
         handed.expect("the start's login is answered");
@@ -308,8 +311,9 @@ async fn first_request(moved: SessionAccountMove) -> FirstRequestAfterMove {
 // Fails when a switch sends anything but one login carrying the new account's tokens, when the
 // move reaches the session at another place among its frames than the login's answer, when the
 // service keeps carrying the account left or its limit readings, when those readings are lost to
-// a frame of the account left that the session reads after the switch, when the credential generation
-// moves, when a token reaches a log line, a reply or an error, or when a login follows on a timer.
+// a frame of the account left that the session reads after the switch, when the credential
+// generation moves, when a token reaches a log line, a reply or an error, or when a login follows
+// on a timer.
 #[tokio::test]
 async fn a_switch_is_one_login_whose_answer_moves_each_session_in_its_place() {
     let mut fixture = Fixture::new().await;
@@ -646,4 +650,40 @@ async fn a_refused_renewal_fails_and_the_next_read_hands_it_again() {
     assert!(refused.is_err(), "a refused hand was answered as handed");
     assert!(handed.is_ok());
     assert_eq!(login["params"], login_params(&renewed, WORKSPACE_LEFT));
+}
+
+// Fails when a session start hands the switching service the account a refused switch was moving
+// it to without moving the sessions the refusal left on it, which then run on the new account's
+// sign-in while their bindings and usage stay on the account left.
+#[tokio::test]
+async fn a_session_start_after_a_refused_switch_moves_the_sessions_left_behind() {
+    let mut fixture = Fixture::new().await;
+    let to = fixture.to.clone();
+    let service = Arc::clone(&fixture.scripted.service);
+    let switching = Arc::clone(&fixture.scripted.dependencies.switching);
+    let sessions = vec![fixture.session.clone()];
+    let scripted = &mut fixture.scripted;
+    let refuse = async {
+        let login = scripted.next_request(CODEX_LOGIN_START_METHOD).await;
+        scripted.script.send(&json!({
+            "jsonrpc": "2.0",
+            "id": login["id"],
+            "error": {"code": -32600, "message": "the workspace is not allowed"},
+        }));
+    };
+    let (refused, ()) = tokio::join!(
+        move_codex_sessions(&fixture.legs, to.clone(), sessions),
+        refuse
+    );
+    let (carried, _login) = tokio::join!(
+        switching.carry_for_session(&service, &to),
+        answer_login(&mut fixture.scripted)
+    );
+    fixture.wait_until_seen(1).await;
+    let seen = fixture.seen_by_the_session().await;
+
+    assert!(refused.iter().all(Result::is_err));
+    assert!(carried.is_ok());
+    assert_eq!(service.provider_account_id(), Some(to.clone()));
+    assert_eq!(seen, [format!("moved to {}", to.as_str())]);
 }

@@ -17,8 +17,8 @@ use tokio::sync::oneshot;
 
 use super::CodexAccountLegs;
 use crate::driver::codex::service::registry::switching_home;
+use crate::driver::codex::service::switching::CodexNamedMove;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::session::inbound::{CodexAccountMove, CodexSessionInbound};
 use crate::driver::contract::account::{FirstRequestAfterMove, SessionAccountMove, SessionToMove};
 use crate::driver::contract::error::DriverError;
 
@@ -69,7 +69,8 @@ pub(super) async fn move_codex_sessions(
 }
 
 // Starts the switching service where it is not up and hands it `to`'s tokens; at the answer the
-// service's readings start afresh and each of `queued` sessions takes its move in its queue.
+// service's readings start afresh and each session on it, each of `queued` among them, takes its
+// move in its queue.
 async fn switch_service(
     legs: &CodexAccountLegs,
     to: ProviderAccountId,
@@ -83,24 +84,18 @@ async fn switch_service(
     service
         .ensure_started(legs.dependencies.startup_timeout)
         .await?;
-    let acknowledged = Arc::clone(&service);
-    let carried = to.clone();
+    let named = queued
+        .into_iter()
+        .map(|(session, moved)| CodexNamedMove {
+            session_id: session.session_id,
+            binding_id: session.binding_id,
+            moved,
+        })
+        .collect();
     service
         .dependencies()
         .switching
-        .hand_switch(&service, to, move || {
-            for (session, moved) in queued {
-                // A queue that takes nothing drops `moved`, which moves the session at once.
-                let _taken = acknowledged.push_session_item(
-                    &session.session_id,
-                    CodexSessionInbound::AccountMoved(CodexAccountMove {
-                        provider_account_id: carried.clone(),
-                        binding_id: session.binding_id,
-                        moved,
-                    }),
-                );
-            }
-        })
+        .hand_switch(&service, to, named)
         .await
 }
 
