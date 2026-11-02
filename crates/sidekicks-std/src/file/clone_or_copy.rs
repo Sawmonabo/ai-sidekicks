@@ -54,11 +54,7 @@ fn copy_then_publish(source: &Path, destination: &Path) -> io::Result<()> {
     let permissions = match copy_into_new_file(source, &temporary) {
         Ok(permissions) => permissions,
         Err(error) => {
-            let failures = remove_temporary_after(error, &temporary, COPYING);
-            if failures.cleanup_failures().is_empty() {
-                return Err(failures.into_parts().0);
-            }
-            return Err(io::Error::new(failures.original().kind(), failures));
+            return Err(remove_temporary_after(error, &temporary, COPYING).into_io_error());
         }
     };
     match blocking_publish_without_replacing(&temporary, destination).map_err(io::Error::other)? {
