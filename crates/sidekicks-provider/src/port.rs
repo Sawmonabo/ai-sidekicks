@@ -3,6 +3,7 @@
 
 pub mod context_reading_publisher;
 pub mod file_tool_write;
+pub mod held_tool_calls;
 pub(crate) mod in_process_tool_servers;
 pub mod inbound_dispatch;
 pub mod permission_ask;
