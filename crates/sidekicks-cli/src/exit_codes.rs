@@ -16,6 +16,7 @@ use sidekicks_contracts::daemon::service_status::DaemonCannotStart;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
 use sidekicks_platforms::{ChildExit, ServiceRegistrationError, read_child_exit};
+use strum::VariantArray as _;
 
 use crate::commands::daemon::install::system_service::LoggedOutServiceRefusal;
 use crate::commands::daemon::registration::TURNED_OFF_IN_LOGIN_ITEMS;
@@ -23,7 +24,7 @@ use crate::commands::daemon::status::describe_cannot_start;
 use crate::commands::daemon::uninstall::system_service::SystemServiceKeptCause;
 
 /// A process exit code the command line returns.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::VariantArray)]
 pub(crate) enum ExitCode {
     /// The command did what it was asked.
     Success,
@@ -79,22 +80,9 @@ impl ExitCode {
         if exit.signal_name.as_deref() == Some("SIGINT") {
             return Err(ClientError::Canceled.into());
         }
-        let known = [
-            Self::Success,
-            Self::Unhealthy,
-            Self::Usage,
-            Self::DataError,
-            Self::NoInput,
-            Self::Unavailable,
-            Self::Software,
-            Self::CannotCreate,
-            Self::TemporaryFailure,
-            Self::NoPermission,
-            Self::Configuration,
-            Self::BrokenPipe,
-        ];
-        Ok(known
-            .into_iter()
+        Ok(Self::VARIANTS
+            .iter()
+            .copied()
             .find(|code| exit.signal_name.is_none() && i64::from(code.code()) == exit.exit_code)
             .unwrap_or(Self::Software))
     }

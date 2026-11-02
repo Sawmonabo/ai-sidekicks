@@ -43,6 +43,8 @@ serde_json.workspace = true
 sidekicks-client.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-platforms.workspace = true
+# Every exit code listed from the enum itself, so reading a run's code misses none added later.
+strum.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
