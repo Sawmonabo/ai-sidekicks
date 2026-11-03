@@ -305,6 +305,23 @@ pub struct RegisteredAccount {
     pub memory_import: Option<ProviderAccountMemoryImportOutcome>,
 }
 
+impl RegisteredAccount {
+    /// Whether the account signs in with a pasted token or API key, which cannot refresh itself
+    /// and is replaced only by pasting a new one; an unrecognized or unobserved mode is not.
+    pub fn has_pasted_credential(&self) -> bool {
+        match self.observed_auth_mode {
+            Some(ProviderAuthMode::OauthToken | ProviderAuthMode::ApiKey) => true,
+            Some(
+                ProviderAuthMode::OauthSubscription
+                | ProviderAuthMode::External
+                | ProviderAuthMode::None
+                | ProviderAuthMode::Unknown,
+            )
+            | None => false,
+        }
+    }
+}
+
 /// The registry of provider accounts, over the daemon's read connections and its one writer; it
 /// holds no write handle of its own.
 pub struct ProviderAccountRegistry {

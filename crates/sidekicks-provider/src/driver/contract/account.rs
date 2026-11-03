@@ -13,12 +13,13 @@ use secrecy::SecretString;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::{
     PROVIDER_ACCOUNT_EMAIL_MAX_LEN, PROVIDER_ACCOUNT_ORG_ID_MAX_LEN,
-    PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN, PROVIDER_ACCOUNT_PLAN_MAX_LEN, ProviderAccountHealthState,
-    ProviderAccountId, ProviderAuthMode,
+    PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN, PROVIDER_ACCOUNT_PLAN_MAX_LEN,
+    PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN, ProviderAccountHealthState, ProviderAccountId,
+    ProviderAuthMode,
 };
 use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, PROVIDER_SIGN_IN_USER_CODE_MAX_LEN,
-    PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN, ProviderSignInCancelStatus,
+    PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN, ProviderSignInArm, ProviderSignInCancelStatus,
 };
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
@@ -108,15 +109,15 @@ pub trait HelperModeAccountLegs: Send + Sync {
 /// A provider's own interactive sign-in, run in one account's home: the flow's start, and the
 /// status read that names who signed in once the flow has ended.
 pub trait ProviderSignInLegs: Send + Sync {
-    /// Starts the provider's own sign-in for `provider_account_id` in `home` and no other, on the
-    /// arm `origin` calls for, and answers once the flow has shown what the person needs. Fails
-    /// with a `provider.account.signInUnsupported` refusal, nothing started, where the arm emits
-    /// neither an address nor a code, and with the driver's error where the flow could not start.
+    /// Starts the provider's own sign-in for `provider_account_id` in `home` and no other, on
+    /// `arm`, and answers once the flow has shown what the person needs. Fails with a
+    /// `provider.account.signInUnsupported` refusal, nothing started, where the arm emits neither
+    /// an address nor a code, and with the driver's error where the flow could not start.
     fn start_sign_in(
         &self,
         provider_account_id: ProviderAccountId,
         home: CredentialHome,
-        origin: SignInOrigin,
+        arm: ProviderSignInArm,
     ) -> BoxFuture<'_, Result<ProviderSignInHandle, DriverError>>;
 
     /// Reads the provider's own status in `home` after a sign-in there ended: the account's
@@ -128,22 +129,11 @@ pub trait ProviderSignInLegs: Send + Sync {
         home: CredentialHome,
     ) -> BoxFuture<'_, Result<ProviderSignInObservation, DriverError>>;
 
-    /// Whether a sign-in started from the given origin holds something the machine has only one
-    /// of, such as a fixed callback port, so the broker keeps one such sign-in of this provider
-    /// open at a time.
-    fn is_one_per_machine(&self, _origin: SignInOrigin) -> bool {
+    /// Whether a sign-in on `arm` holds something the machine has only one of, such as a fixed
+    /// callback port, so the broker keeps one such sign-in of this provider open at a time.
+    fn is_one_per_machine(&self, _arm: ProviderSignInArm) -> bool {
         false
     }
-}
-
-/// Where a sign-in was started: a browser on another device cannot reach a provider's callback on
-/// this machine, so a sign-in started there takes the arm that needs none.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SignInOrigin {
-    /// This machine's own client.
-    ThisMachine,
-    /// A linked device.
-    AnotherDevice,
 }
 
 /// A started sign-in as the provider's flow reported it, parsed into typed fields and never a line
@@ -186,12 +176,16 @@ pub trait ProviderSignInInput: Send + Sync {
 }
 
 /// How the provider's own sign-in flow ended, before any observation of the account.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProviderSignInEnd {
     /// The provider reported its flow finished.
     Finished,
     /// The flow failed or its process ended without finishing.
-    Failed,
+    Failed {
+        /// Why, in the provider's own words where it reported any, bounded; `None` where it
+        /// reported none.
+        reason: Option<FreeFormText<PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN>>,
+    },
     /// The attempt outlived its bound.
     Expired,
     /// The flow was canceled.

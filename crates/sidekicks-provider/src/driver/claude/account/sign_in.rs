@@ -14,9 +14,11 @@ use futures::channel::mpsc as prompt_channel;
 use futures::future::BoxFuture;
 use memchr::memmem;
 use process_wrap::tokio::ChildWrapper;
-use sidekicks_contracts::provider::account::record::ProviderAuthMode;
+use sidekicks_contracts::provider::account::record::{
+    PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN, ProviderAuthMode,
+};
 use sidekicks_contracts::provider::account::sign_in::{
-    PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderSignInCancelStatus,
+    PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderSignInArm, ProviderSignInCancelStatus,
 };
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{ChildEnd, wrap_child_command};
@@ -41,9 +43,9 @@ use crate::driver::claude::spawn::launch::control_only::{
 };
 use crate::driver::contract::account::{
     ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInObservation,
-    SignInOrigin, read_sign_in_address,
+    read_sign_in_address,
 };
-use crate::driver::contract::error::DriverError;
+use crate::driver::contract::error::{DriverError, bound_provider_words};
 use crate::spawned_version::ResolvedProviderExecutable;
 
 /// The arguments after the Claude Code command that start its claude.ai sign-in.
@@ -74,13 +76,19 @@ const STOP_GRACE: Duration = Duration::from_secs(5);
 /// The variable naming the program Claude Code opens its sign-in page with.
 const BROWSER_VARIABLE: &str = "BROWSER";
 
-/// A program that opens nothing and succeeds, so a sign-in finished on another device opens no
-/// browser on this machine.
+/// A program that opens nothing and succeeds, so a device-code sign-in opens no browser on this
+/// machine.
 const NO_BROWSER: &str = "/usr/bin/true";
 
 /// The most of one error output line held, far above the refusal line's length; a longer line is
 /// read in pieces of this length.
 const ERROR_LINE_CAP: u64 = 4 * 1024;
+
+/// How long the error stream is still read once the flow has exited, for the reason it gives.
+const ERROR_DRAIN_WAIT: Duration = Duration::from_secs(1);
+
+/// A failed flow's reason, the last line with text Claude Code wrote to its error stream.
+type ErrorReason = FreeFormText<PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN>;
 
 /// The most output held while the address line is still unread, far above its length.
 const ADDRESS_OUTPUT_CAP: usize = 64 * 1024;
@@ -161,14 +169,15 @@ fn claude_home_folders(home: &CredentialHome) -> ClaudeAccountFolders {
 }
 
 /// Starts `claude auth login --claudeai` on `home`'s folders and answers once it wrote its sign-in
-/// address; on `AnotherDevice` its browser opener is a program that opens nothing. Fails with the
+/// address; on the device-code arm its browser opener is a program that opens nothing, so the
+/// person reaches the address and pastes the code back from any device. Fails with the
 /// resolve's error as the environment cannot be composed, and with `DriverError::Internal` where
 /// the command cannot start or writes no address on Claude Code's own host within the wait, the
 /// command then stopped.
 pub(super) async fn start_claude_sign_in(
     legs: &ClaudeAccountLegs,
     home: CredentialHome,
-    origin: SignInOrigin,
+    arm: ProviderSignInArm,
 ) -> Result<ProviderSignInHandle, DriverError> {
     let folders = claude_home_folders(&home);
     let scope = SignInScope::read(&legs.base_environment);
@@ -182,7 +191,7 @@ pub(super) async fn start_claude_sign_in(
         &legs.data_folder.to_string_lossy(),
         Path::new(&folders.config_folder),
     );
-    Ok(start_flow(legs, executable, working_folder, origin, &scope.hosts).await?)
+    Ok(start_flow(legs, executable, working_folder, arm, &scope.hosts).await?)
 }
 
 /// Reads who signed in on `home` after a sign-in there, through a process that keeps nothing run
@@ -230,7 +239,7 @@ async fn start_flow(
     legs: &ClaudeAccountLegs,
     executable: ResolvedProviderExecutable,
     working_folder: PathBuf,
-    origin: SignInOrigin,
+    arm: ProviderSignInArm,
     hosts: &[String],
 ) -> Result<ProviderSignInHandle, ClaudeSignInError> {
     tokio::fs::create_dir_all(&working_folder)
@@ -246,7 +255,7 @@ async fn start_flow(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if origin == SignInOrigin::AnotherDevice {
+    if arm == ProviderSignInArm::DeviceCode {
         command.env(BROWSER_VARIABLE, NO_BROWSER);
     }
     let daemon_pid = std::process::id();
@@ -301,10 +310,15 @@ async fn start_flow(
         verification_uri,
         user_code: None,
         expires_at: None,
-        is_browser_opened_by_provider: origin == SignInOrigin::ThisMachine,
+        is_browser_opened_by_provider: arm == ProviderSignInArm::Browser,
         code_prompts: Box::pin(code_prompts),
         input: Box::new(ClaudeSignInInput { inputs }),
-        completion: async move { completion.await.unwrap_or(ProviderSignInEnd::Failed) }.boxed(),
+        completion: async move {
+            completion
+                .await
+                .unwrap_or(ProviderSignInEnd::Failed { reason: None })
+        }
+        .boxed(),
     })
 }
 
@@ -442,6 +456,9 @@ impl Flow {
         tokio::pin!(bound);
         let mut chunk = [0_u8; OUTPUT_CHUNK];
         let mut error_line = Vec::new();
+        // The last line Claude Code wrote to its error stream with any text, the reason a failed
+        // flow gives; the broker scrubs it before it leaves.
+        let mut last_error: Option<ErrorReason> = None;
         let (mut is_output_open, mut is_errors_open, mut is_input_open) = (true, true, true);
         let mut asked_end: Option<ProviderSignInEnd> = None;
         // Cancels answered by how the flow ends, not at once.
@@ -473,10 +490,12 @@ impl Flow {
                     None
                 }
                 FlowEvent::ErrorLine(Ok(read)) if read > 0 => {
-                    // Its text is never kept or logged: it may echo what the person pasted.
+                    // Never logged, since it may echo what the person pasted; only the last line
+                    // with text is kept, as a failed flow's reason.
                     if error_line.starts_with(REFUSED_CODE_START) {
                         self.report_prompt();
                     }
+                    keep_error_line(&error_line, &mut last_error);
                     error_line.clear();
                     self.errors.set_limit(ERROR_LINE_CAP);
                     None
@@ -558,11 +577,14 @@ impl Flow {
                 asked_end = Some(end);
             }
         };
+        if is_errors_open {
+            self.drain_errors(error_line, &mut last_error).await;
+        }
         let end = asked_end.unwrap_or(match status {
             Ok(status) if status.success() => ProviderSignInEnd::Finished,
             // A flow a cancel was asked of ended unfinished: it is canceled.
             Ok(_) | Err(_) if !unanswered_cancels.is_empty() => ProviderSignInEnd::Canceled,
-            Ok(_) | Err(_) => ProviderSignInEnd::Failed,
+            Ok(_) | Err(_) => ProviderSignInEnd::Failed { reason: last_error },
         });
         let canceled = if end == ProviderSignInEnd::Canceled {
             ProviderSignInCancelStatus::Canceled
@@ -577,6 +599,28 @@ impl Flow {
         }
     }
 
+    // Reads what the error stream still holds once the flow has exited, from `line`'s unfinished
+    // text on, for up to `ERROR_DRAIN_WAIT`, keeping its last line with text in `last_error`.
+    async fn drain_errors(&mut self, mut line: Vec<u8>, last_error: &mut Option<ErrorReason>) {
+        let drained = tokio::time::timeout(ERROR_DRAIN_WAIT, async {
+            loop {
+                match self.errors.read_until(b'\n', &mut line).await {
+                    Ok(read) if read > 0 => {
+                        keep_error_line(&line, last_error);
+                        line.clear();
+                        self.errors.set_limit(ERROR_LINE_CAP);
+                    }
+                    Ok(_) | Err(_) => break,
+                }
+            }
+        })
+        .await;
+        if drained.is_err() {
+            tracing::debug!("Claude Code's sign-in error output was still open after it exited");
+        }
+        keep_error_line(&line, last_error);
+    }
+
     fn report_prompts(&mut self) {
         for _ in 0..self.scan.take_prompts() {
             self.report_prompt();
@@ -587,6 +631,13 @@ impl Flow {
         if self.prompts.try_send(()).is_err() {
             tracing::debug!("a Claude Code sign-in waited for a code while a wait was unread");
         }
+    }
+}
+
+// Keeps `line` in `last_error` where it holds text once its terminal controls are left out.
+fn keep_error_line(line: &[u8], last_error: &mut Option<ErrorReason>) {
+    if let Some(reason) = bound_provider_words(&strip_terminal_controls(line)) {
+        *last_error = Some(reason);
     }
 }
 

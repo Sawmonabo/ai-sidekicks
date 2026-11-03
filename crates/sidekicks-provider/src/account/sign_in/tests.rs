@@ -15,7 +15,8 @@ use sidekicks_contracts::provider::account::record::{
 };
 use sidekicks_contracts::provider::account::sign_in::{
     NewAccountSignIn, PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderAccountSignInRequest,
-    ProviderSignInCancelStatus, ProviderSignInCodeSubmitStatus, RegisteredAccountSignIn,
+    ProviderSignInArm, ProviderSignInCancelStatus, ProviderSignInCodeSubmitStatus,
+    RegisteredAccountSignIn,
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::web_address::HttpsAddress;
@@ -28,7 +29,7 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::{
     AccountsInFlight, AttemptId, ProviderAccountNotificationPublisher, ProviderSignInBroker,
-    ProviderSignInError, SignedInAccountWatcher,
+    ProviderSignInError, SignInOrigin, SignedInAccountWatcher,
 };
 use crate::account::credential_home::CredentialHome;
 use crate::account::home_lock::AccountHomeLock;
@@ -39,12 +40,13 @@ use crate::account::registry::{
 };
 use crate::driver::contract::account::{
     ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs,
-    ProviderSignInObservation, SignInOrigin,
+    ProviderSignInObservation,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
 
 mod machine_slot;
+mod pasted_credential;
 mod stop;
 
 /// The provider's own prompt, which only a broker forwarding raw text would let out.
@@ -59,11 +61,19 @@ const NOTIFICATION_WAIT: Duration = Duration::from_secs(5);
 /// How long the test tries for the home before it reads as held.
 const HELD_HOME_WAIT: Duration = Duration::from_millis(50);
 
+/// The provider's own words for why a scripted flow failed, quoting a code and an address.
+const PROVIDER_FAILURE_REASON: &str =
+    "Login failed for code Xa9fQ2bT7kLm3nPq#state-4e1b at https://claude.com/cai/oauth?code=true";
+
+/// Those words as the person reads them, the code and the address replaced.
+const SHOWN_FAILURE_REASON: &str = "Login failed for code *** at ***";
+
 /// The kind of sign-in the scripted status read reports.
 const OBSERVED_AUTH_MODE: ProviderAuthMode = ProviderAuthMode::OauthSubscription;
 
-/// The kind of sign-in a registered account holds before it signs in again.
-const EARLIER_AUTH_MODE: ProviderAuthMode = ProviderAuthMode::ApiKey;
+/// The kind of sign-in a registered account holds before it signs in again, one a brokered sign-in
+/// may replace.
+const EARLIER_AUTH_MODE: ProviderAuthMode = ProviderAuthMode::External;
 
 type Code = FreeFormText<PROVIDER_SIGN_IN_CODE_MAX_LEN>;
 
@@ -134,7 +144,7 @@ pub(crate) struct ScriptedLegs {
     pub(crate) flows: mpsc::UnboundedSender<ScriptedFlow>,
     /// Each home a flow started in.
     pub(crate) homes: Mutex<Vec<PathBuf>>,
-    /// Whether a sign-in at this machine holds what the machine has only one of.
+    /// Whether a browser sign-in holds what the machine has only one of.
     pub(crate) holds_machine_slot: bool,
 }
 
@@ -143,7 +153,7 @@ impl ProviderSignInLegs for ScriptedLegs {
         &self,
         provider_account_id: ProviderAccountId,
         home: CredentialHome,
-        _origin: SignInOrigin,
+        _arm: ProviderSignInArm,
     ) -> BoxFuture<'_, Result<ProviderSignInHandle, DriverError>> {
         lock(&self.homes).push(home.path().to_owned());
         if matches!(self.status, Status::Unsupported) {
@@ -177,7 +187,11 @@ impl ProviderSignInLegs for ScriptedLegs {
                 end: end_sender,
                 written,
             }),
-            completion: async move { end.await.unwrap_or(ProviderSignInEnd::Failed) }.boxed(),
+            completion: async move {
+                end.await
+                    .unwrap_or(ProviderSignInEnd::Failed { reason: None })
+            }
+            .boxed(),
         };
         async move { Ok(handle) }.boxed()
     }
@@ -206,8 +220,8 @@ impl ProviderSignInLegs for ScriptedLegs {
         .boxed()
     }
 
-    fn is_one_per_machine(&self, origin: SignInOrigin) -> bool {
-        self.holds_machine_slot && origin == SignInOrigin::ThisMachine
+    fn is_one_per_machine(&self, arm: ProviderSignInArm) -> bool {
+        self.holds_machine_slot && arm == ProviderSignInArm::Browser
     }
 }
 
@@ -283,6 +297,13 @@ async fn register_with_kind(
         .expect("the account is admitted")
 }
 
+// A failed end giving `reason` in the provider's own words, or none.
+fn failed(reason: Option<&str>) -> ProviderSignInEnd {
+    ProviderSignInEnd::Failed {
+        reason: reason.map(|text| FreeFormText::new(text.to_owned()).expect("a test reason")),
+    }
+}
+
 fn code(text: &str) -> Code {
     Code::new(text.to_owned()).expect("a test code")
 }
@@ -310,7 +331,8 @@ fn refusal_of(error: ProviderSignInError) -> (RefusalCode, Option<serde_json::Va
 // as that end leaves it, a new account and a re-signed registered one with the kind of sign-in its
 // status read reported. No published notification carries the prompt or the code, and no session
 // event is appended. Killed by a row inserted at the start, by a raw line forwarded as the failure
-// text, by a code written before the prompt or twice, by a failed new account keeping its home, by
+// text, by the provider's own reason for a failed flow dropped or passing a code or an address
+// through, by a code written before the prompt or twice, by a failed new account keeping its home, by
 // the home held across the flow or after it, by a written row not published, and by the reported
 // kind not written or an earlier kind kept over it, a registered account's included.
 #[rstest]
@@ -324,16 +346,16 @@ fn refusal_of(error: ProviderSignInError) -> (RefusalCode, Option<serde_json::Va
     ProviderSignInEnd::Finished,
     Some(ProviderSignInOutcome::Failed)
 )]
-#[case::new_failed(false, Status::Read { is_account_named: true }, ProviderSignInEnd::Failed,
-    Some(ProviderSignInOutcome::Failed))]
+#[case::new_failed(false, Status::Read { is_account_named: true },
+    failed(Some(PROVIDER_FAILURE_REASON)), Some(ProviderSignInOutcome::Failed))]
 #[case::new_expired(false, Status::Read { is_account_named: true }, ProviderSignInEnd::Expired,
     Some(ProviderSignInOutcome::Expired))]
 #[case::new_canceled(false, Status::Read { is_account_named: true }, ProviderSignInEnd::Canceled,
     Some(ProviderSignInOutcome::Canceled))]
-#[case::new_unsupported(false, Status::Unsupported, ProviderSignInEnd::Failed, None)]
+#[case::new_unsupported(false, Status::Unsupported, failed(None), None)]
 #[case::registered_named(true, Status::Read { is_account_named: true },
     ProviderSignInEnd::Finished, Some(ProviderSignInOutcome::Succeeded))]
-#[case::registered_failed(true, Status::Read { is_account_named: true }, ProviderSignInEnd::Failed,
+#[case::registered_failed(true, Status::Read { is_account_named: true }, failed(None),
     Some(ProviderSignInOutcome::Failed))]
 #[case::registered_canceled(true, Status::Read { is_account_named: true },
     ProviderSignInEnd::Canceled, Some(ProviderSignInOutcome::Canceled))]
@@ -380,9 +402,11 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
     let request = match &existing {
         Some(account) => ProviderAccountSignInRequest::Registered(RegisteredAccountSignIn {
             account_id: account.account_id.clone(),
+            arm: None,
         }),
         None => ProviderAccountSignInRequest::New(NewAccountSignIn {
             provider: provider("claude"),
+            arm: None,
         }),
     };
 
@@ -471,7 +495,7 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
         let canceled = broker.cancel(&attempt_id).await.expect("a cancel");
         assert_eq!(canceled, ProviderSignInCancelStatus::Canceled);
     } else {
-        flow.finish(end);
+        flow.finish(end.clone());
     }
     // A row the attempt wrote goes out as the account it now is, before the attempt's end.
     let is_row_written = end == ProviderSignInEnd::Finished
@@ -500,6 +524,13 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
         failure_reason.is_some(),
         outcome == ProviderSignInOutcome::Failed
     );
+    // A failed flow's own words are the failure's reason, its code and address replaced.
+    if let ProviderSignInEnd::Failed { reason: Some(_) } = &end {
+        assert_eq!(
+            failure_reason.as_ref().map(FreeFormText::as_str),
+            Some(SHOWN_FAILURE_REASON)
+        );
+    }
     // The home is free once the attempt has settled.
     drop(
         tokio::time::timeout(NOTIFICATION_WAIT, home_lock.hold(flow.account_id.clone()))
@@ -618,6 +649,7 @@ async fn a_sign_in_whose_home_changed_under_it_writes_nothing() {
     );
     let request = ProviderAccountSignInRequest::Registered(RegisteredAccountSignIn {
         account_id: account.account_id.clone(),
+        arm: None,
     });
     let started = broker
         .start(request.clone(), SignInOrigin::ThisMachine)
@@ -711,6 +743,7 @@ async fn a_cancel_while_the_flow_starts_cancels_it_once_started() {
     );
     let request = ProviderAccountSignInRequest::Registered(RegisteredAccountSignIn {
         account_id: account.account_id.clone(),
+        arm: None,
     });
     // The home held keeps the attempt starting until the cancel is asked.
     let home_hold = home_lock.hold(account.account_id.clone()).await;
@@ -777,6 +810,7 @@ async fn a_sign_in_waits_out_a_renewal_and_marks_its_home_while_the_flow_runs() 
     );
     let request = ProviderAccountSignInRequest::Registered(RegisteredAccountSignIn {
         account_id: account.account_id.clone(),
+        arm: None,
     });
     let renewal = home_lock.hold(account.account_id.clone()).await;
 

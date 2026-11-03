@@ -7,7 +7,9 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::{
     ProviderAccountHealthState, ProviderAuthMode,
 };
-use sidekicks_contracts::provider::account::sign_in::ProviderSignInCancelStatus;
+use sidekicks_contracts::provider::account::sign_in::{
+    ProviderSignInArm, ProviderSignInCancelStatus,
+};
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::writer::test_file::TestDatabase;
@@ -22,7 +24,7 @@ use crate::driver::codex::service::supervisor::test_service::{
     start_scripted_codex_service,
 };
 use crate::driver::codex::session::side_questions::test_copies::{CopySocket, accept_copy};
-use crate::driver::contract::account::{ProviderSignInEnd, ProviderSignInLegs, SignInOrigin};
+use crate::driver::contract::account::{ProviderSignInEnd, ProviderSignInLegs};
 use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
 use crate::driver::test_registry::NothingServed;
@@ -30,6 +32,13 @@ use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The device-code login the stand-in starts.
 const DEVICE_LOGIN: &str = "login-device";
+
+/// What Codex answers a device-code start on a server that has not turned it on.
+const DEVICE_CODE_OFF: &str = "device code login is not enabled for this Codex server. Use the \
+                               browser login or verify the server URL.";
+
+/// Why Codex ended a login unsuccessfully.
+const FAILURE_REASON: &str = "device auth failed with status 500";
 
 /// How long a test waits on the daemon.
 const WAIT: Duration = Duration::from_secs(10);
@@ -77,10 +86,11 @@ fn completed(login_id: Option<&str>, success: bool) -> Value {
         "params": {"loginId": login_id, "success": success, "error": null}})
 }
 
-// Killed by a completion with no id or another id taken as this login's, and by a device code or
-// bound dropped from the handle.
+// Killed by the arm read from anything but the argument (Codex is sent `chatgpt`), by a completion
+// with no id or another id taken as this login's, and by a device code or bound dropped from the
+// handle.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_device_sign_in_shows_its_code_and_ends_only_on_its_own_completion() {
+async fn a_device_code_sign_in_runs_the_arm_it_is_given_and_ends_only_on_its_own_completion() {
     let scripted = start_scripted_codex_service();
     let Some(listener) = bind_test_listener(scripted.service.socket_path()) else {
         return;
@@ -101,7 +111,7 @@ async fn a_device_sign_in_shows_its_code_and_ends_only_on_its_own_completion() {
         .start_sign_in(
             test_provider_account_id(),
             home(&scripted),
-            SignInOrigin::AnotherDevice,
+            ProviderSignInArm::DeviceCode,
         )
         .await
         .expect("the sign-in starts");
@@ -162,7 +172,7 @@ async fn a_browser_start_meeting_a_held_callback_port_is_refused_as_in_use() {
         .start_sign_in(
             test_provider_account_id(),
             home(&scripted),
-            SignInOrigin::ThisMachine,
+            ProviderSignInArm::Browser,
         )
         .await;
 
@@ -176,16 +186,103 @@ async fn a_browser_start_meeting_a_held_callback_port_is_refused_as_in_use() {
         .expect("the stand-in ran");
 }
 
-// Killed by Codex declaring no machine slot, which lets two browser sign-ins collide on Codex's one
-// callback port, and by one declared from another device, which refuses a device-code start for no
-// reason.
+// A start Codex refuses, as it refuses device code a server has not turned on, answers a refusal
+// carrying Codex's own words, which the person reads under `Sign-in did not finish.`. Killed by
+// the refusal's words dropped, an internal fault included, which tells the client nothing.
 #[tokio::test(flavor = "multi_thread")]
-async fn only_a_sign_in_at_this_machine_holds_the_machine_s_one_callback_port() {
+async fn a_refused_device_code_start_answers_in_codex_s_own_words() {
+    let scripted = start_scripted_codex_service();
+    let Some(listener) = bind_test_listener(scripted.service.socket_path()) else {
+        return;
+    };
+    let (legs, _registry) = legs_holding(&scripted).await;
+    let served = tokio::spawn(async move {
+        let mut socket = accept_copy(&listener).await;
+        let start = next_socket_request(&mut socket).await;
+        send_on_socket(
+            &mut socket,
+            json!({"id": start["id"], "error": {"code": -32600, "message": DEVICE_CODE_OFF}}),
+        )
+        .await;
+    });
+
+    let started = legs
+        .start_sign_in(
+            test_provider_account_id(),
+            home(&scripted),
+            ProviderSignInArm::DeviceCode,
+        )
+        .await;
+
+    let Err(DriverError::Refused(refusal)) = started else {
+        panic!("a refused start is a refusal");
+    };
+    assert_eq!(refusal.code, RefusalCode::ProviderUnavailable);
+    let detail = refusal.detail.expect("the refusal carries details");
+    let words = detail["providerFailureDetail"]
+        .as_str()
+        .expect("the refusal carries Codex's words");
+    assert!(words.contains(DEVICE_CODE_OFF), "{words}");
+    tokio::time::timeout(WAIT, served)
+        .await
+        .expect("the stand-in served the start")
+        .expect("the stand-in ran");
+}
+
+// A login Codex ends unsuccessfully before its wait runs out fails with Codex's own reason, which
+// the person reads under `Sign-in did not finish.`. Killed by the completion's error dropped.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_completion_carries_codex_s_reason() {
+    let scripted = start_scripted_codex_service();
+    let Some(listener) = bind_test_listener(scripted.service.socket_path()) else {
+        return;
+    };
+    let (legs, _registry) = legs_holding(&scripted).await;
+    let served = tokio::spawn(async move {
+        let mut socket = accept_copy(&listener).await;
+        answer_start(&mut socket, device_reply()).await;
+        send_on_socket(
+            &mut socket,
+            json!({"jsonrpc": "2.0", "method": "account/login/completed", "params":
+                {"loginId": DEVICE_LOGIN, "success": false, "error": FAILURE_REASON}}),
+        )
+        .await;
+    });
+
+    let handle = legs
+        .start_sign_in(
+            test_provider_account_id(),
+            home(&scripted),
+            ProviderSignInArm::DeviceCode,
+        )
+        .await
+        .expect("the sign-in starts");
+    let end = tokio::time::timeout(WAIT, handle.completion)
+        .await
+        .expect("the login ends");
+
+    assert_eq!(
+        end,
+        ProviderSignInEnd::Failed {
+            reason: Some(FreeFormText::new(FAILURE_REASON.to_owned()).expect("a reason")),
+        }
+    );
+    tokio::time::timeout(WAIT, served)
+        .await
+        .expect("the stand-in served the login")
+        .expect("the stand-in ran");
+}
+
+// Killed by Codex declaring no machine slot, which lets two browser sign-ins collide on Codex's one
+// callback port, and by one declared for the device-code arm, which refuses a device-code start for
+// no reason.
+#[tokio::test(flavor = "multi_thread")]
+async fn only_a_browser_sign_in_holds_the_machine_s_one_callback_port() {
     let scripted = start_scripted_codex_service();
     let (legs, _registry) = legs_holding(&scripted).await;
 
-    assert!(legs.is_one_per_machine(SignInOrigin::ThisMachine));
-    assert!(!legs.is_one_per_machine(SignInOrigin::AnotherDevice));
+    assert!(legs.is_one_per_machine(ProviderSignInArm::Browser));
+    assert!(!legs.is_one_per_machine(ProviderSignInArm::DeviceCode));
 }
 
 // Killed by a cancel that sends nothing to Codex, which would hold its sign-in until it timed out,
@@ -232,7 +329,7 @@ async fn a_cancel_sends_codex_s_own_cancel_for_this_login(
         .start_sign_in(
             test_provider_account_id(),
             home(&scripted),
-            SignInOrigin::AnotherDevice,
+            ProviderSignInArm::DeviceCode,
         )
         .await
         .expect("the sign-in starts");

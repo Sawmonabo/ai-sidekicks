@@ -8,23 +8,27 @@ use futures::StreamExt as _;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use sidekicks_contracts::provider::account::record::{
-    BillingMode, CredentialGeneration, ProviderAccountId, ProviderAccountNotification,
-    ProviderSignInOutcome,
+    BillingMode, CredentialGeneration, PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN, ProviderAccountId,
+    ProviderAccountNotification, ProviderSignInOutcome,
 };
-use sidekicks_contracts::provider::account::sign_in::ProviderAccountSignInResponse;
+use sidekicks_contracts::provider::account::sign_in::{
+    ProviderAccountSignInResponse, ProviderSignInArm,
+};
+use sidekicks_ipc::redaction::sanitize_sign_in_failure_reason;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot;
 
 use super::{
-    AttemptId, AttemptServices, AttemptStage, InFlightGuard, ProviderSignInError,
+    AttemptId, AttemptServices, AttemptStage, FailureReason, InFlightGuard, ProviderSignInError,
     failure_reason_text,
 };
 use crate::account::credential_home::CredentialHome;
 use crate::account::home_lock::SigningInMark;
 use crate::account::registry::{AccountAdmission, MintedAccount, ProviderAccountRegistry};
 use crate::driver::contract::account::{
-    ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs, SignInOrigin,
+    ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs,
 };
+use crate::driver::contract::error::bound_provider_words;
 
 /// An account's sign-in slot and its listed attempt, held from the start until the attempt
 /// settles. Every path that ends it before a row took its minted home removes that home first,
@@ -52,14 +56,14 @@ pub(super) struct Reservation {
 
 impl Reservation {
     // Takes the account's home once a renewal running there has ended, marks it as signing in,
-    // notes a registered account's credential generation, starts the flow in it, lets the home go
-    // and answers `answer` whether the flow started, then runs the attempt to its end. A caller
-    // that stopped waiting before the home was free, or the broker's stop meanwhile, starts
+    // notes a registered account's credential generation, starts the flow on `arm` in it, lets the
+    // home go and answers `answer` whether the flow started, then runs the attempt to its end. A
+    // caller that stopped waiting before the home was free, or the broker's stop meanwhile, starts
     // nothing; a caller that stopped after leaves the started flow to run to its end.
     pub(super) async fn run_attempt(
         mut self,
         legs: Arc<dyn ProviderSignInLegs>,
-        origin: SignInOrigin,
+        arm: ProviderSignInArm,
         mut answer: oneshot::Sender<Result<ProviderAccountSignInResponse, ProviderSignInError>>,
     ) {
         let home_lock = Arc::clone(&self.services.home_lock);
@@ -89,7 +93,7 @@ impl Reservation {
             }
         }
         let started = legs
-            .start_sign_in(self.account_id.clone(), self.home.clone(), origin)
+            .start_sign_in(self.account_id.clone(), self.home.clone(), arm)
             .await;
         drop(hold);
         let ProviderSignInHandle {
@@ -225,7 +229,7 @@ impl Attempt {
             attempt_id,
             account_id,
             outcome,
-            failure_reason: failure_reason.map(failure_reason_text),
+            failure_reason,
         }
     }
 
@@ -256,17 +260,30 @@ impl Attempt {
     }
 
     // Takes the status read after a finished flow and writes what it found; a new account that
-    // ends any other way loses its minted home.
+    // ends any other way loses its minted home. A failed flow's reason is the provider's own words
+    // where it gave any, every address, code and credential in them replaced first.
     async fn settle(
         &mut self,
         legs: &dyn ProviderSignInLegs,
         end: ProviderSignInEnd,
-    ) -> (ProviderSignInOutcome, Option<&'static str>) {
+    ) -> (ProviderSignInOutcome, Option<FailureReason>) {
         let settled = match end {
-            ProviderSignInEnd::Finished => self.observe(legs).await,
-            ProviderSignInEnd::Failed => (
+            ProviderSignInEnd::Finished => {
+                let (outcome, reason) = self.observe(legs).await;
+                (outcome, reason.map(failure_reason_text))
+            }
+            ProviderSignInEnd::Failed { reason } => (
                 ProviderSignInOutcome::Failed,
-                Some("The sign-in did not finish"),
+                Some(
+                    reason
+                        .and_then(|words| {
+                            bound_provider_words(&sanitize_sign_in_failure_reason(
+                                words.as_str(),
+                                PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN,
+                            ))
+                        })
+                        .unwrap_or_else(|| failure_reason_text("The sign-in did not finish")),
+                ),
             ),
             ProviderSignInEnd::Expired => (ProviderSignInOutcome::Expired, None),
             ProviderSignInEnd::Canceled => (ProviderSignInOutcome::Canceled, None),

@@ -25,6 +25,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use secrecy::SecretString;
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
+use sidekicks_contracts::provider::account::sign_in::ProviderSignInArm;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_std::mutex_lock::lock;
@@ -49,7 +50,7 @@ use crate::driver::contract::account::{
     MemoryImportStore, ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObservation,
     ProviderObserveLegs, ProviderSignInHandle, ProviderSignInLegs, ProviderSignInObservation,
     ProviderSwitchLegs, ProviderTokenLimitsLegs, ProviderTokenStatusLegs, ProviderWindowTurnLegs,
-    SessionAccountMove, SessionToMove, SignInOrigin,
+    SessionAccountMove, SessionToMove,
 };
 use crate::driver::contract::error::DriverError;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
@@ -317,9 +318,9 @@ impl ProviderSignInLegs for CodexAccountLegs {
         &self,
         provider_account_id: ProviderAccountId,
         home: CredentialHome,
-        origin: SignInOrigin,
+        arm: ProviderSignInArm,
     ) -> BoxFuture<'_, Result<ProviderSignInHandle, DriverError>> {
-        sign_in::start_codex_sign_in(self, provider_account_id, home, origin).boxed()
+        sign_in::start_codex_sign_in(self, provider_account_id, home, arm).boxed()
     }
 
     fn observe_sign_in(
@@ -330,10 +331,10 @@ impl ProviderSignInLegs for CodexAccountLegs {
         sign_in::observe_codex_sign_in(self, provider_account_id, home).boxed()
     }
 
-    /// Yes at this machine: Codex's browser sign-in calls back on one fixed port the whole machine
-    /// shares, and a second one would end the first's listener.
-    fn is_one_per_machine(&self, origin: SignInOrigin) -> bool {
-        origin == SignInOrigin::ThisMachine
+    /// Yes for the browser arm: Codex's browser sign-in calls back on one fixed port the whole
+    /// machine shares, and a second one would end the first's listener.
+    fn is_one_per_machine(&self, arm: ProviderSignInArm) -> bool {
+        arm == ProviderSignInArm::Browser
     }
 }
 

@@ -211,10 +211,7 @@ impl ProviderTokenCustody {
         token: &SecretString,
     ) -> Result<RegisteredAccount, TokenCustodyError> {
         let account = self.registry.read(account_id).await?;
-        if !matches!(
-            account.observed_auth_mode,
-            Some(ProviderAuthMode::OauthToken | ProviderAuthMode::ApiKey)
-        ) {
+        if !account.has_pasted_credential() {
             return Err(TokenCustodyError::NotTokenAccount);
         }
         let status_legs = self.status_legs(&account.provider)?;
