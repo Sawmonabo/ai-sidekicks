@@ -127,6 +127,8 @@ pub(crate) struct RepoServices {
     pub(crate) worktree_events: Arc<WorktreeEventEmitter>,
     /// Each turn's checkout snapshot and the prune of a run's snapshot refs.
     pub(crate) snapshots: Arc<TurnSnapshotService>,
+    /// The packing of the capture folders, which forgets a purged session's folders.
+    pub(crate) packing: Arc<CapturePacking>,
     /// The per-checkout lock, keyed by the canonical folder, that the turn snapshots, the worktree
     /// creator and the run setup gate share.
     pub(crate) checkout_lock: Arc<KeyedLock<PathBuf>>,
@@ -228,7 +230,7 @@ pub(crate) fn build_repo_services(
         git.clone(),
         Arc::clone(&reads),
         Arc::clone(&checkout_lock),
-        packing,
+        Arc::clone(&packing),
     ));
     let worktrees = Arc::new(WorktreeService::new(WorktreeServiceDeps {
         git: git.clone(),
@@ -256,6 +258,7 @@ pub(crate) fn build_repo_services(
         worktrees,
         worktree_events,
         snapshots,
+        packing,
         checkout_lock,
         mount_health,
         scheduler,
