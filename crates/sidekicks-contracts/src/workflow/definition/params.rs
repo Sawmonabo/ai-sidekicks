@@ -374,9 +374,9 @@ fn in_expression_issue(place: &[IssuePathSegment]) -> WorkflowParamIssue {
     }
 }
 
-// A repeating collection holds a list of records and a single one a record, which an absent value
-// holds empty so its required fields are still found; a value of any other shape is refused at
-// its place.
+// A repeating collection holds a list of records and a single one a record, which an absent or
+// `null` value holds empty so its required fields are still found; a value of any other shape is
+// refused at its place.
 fn check_collection(
     spec: &WorkflowCollectionParamSpec,
     value: Option<&Value>,
@@ -400,7 +400,7 @@ fn check_collection(
                 message: "expected a list of the collection's entries".to_owned(),
                 rule: None,
             }),
-            None => {}
+            None | Some(Value::Null) => {}
         }
     } else {
         match value {
@@ -408,7 +408,9 @@ fn check_collection(
                 check_field_list(fields, &spec.fields, place, issues);
             }
             Some(_) => issues.push(not_a_record_issue(place.to_vec())),
-            None => check_field_list(&Map::new(), &spec.fields, place, issues),
+            None | Some(Value::Null) => {
+                check_field_list(&Map::new(), &spec.fields, place, issues);
+            }
         }
     }
 }
@@ -551,9 +553,9 @@ mod tests {
 
     // A required parameter is refused when it is drawn and left empty, its default filling one the
     // node leaves out, a field a `showWhen` hides passing, and a single collection's required field
-    // found even when the node leaves the collection out. Mutations: drop the required check; skip
-    // the `showWhen` read; read the default as no value; read blank text as filled; skip an absent
-    // collection.
+    // found even when the node leaves the collection out or sets it to `null`. Mutations: drop the
+    // required check; skip the `showWhen` read; read the default as no value; read blank text as
+    // filled; skip an absent collection; read `null` as a collection of the wrong shape.
     #[rstest]
     #[case::left_out(json!({ "mode": "plain", "auth": { "user": "a" } }), json!([["target"]]))]
     #[case::blank(
@@ -575,6 +577,10 @@ mod tests {
     )]
     #[case::a_collection_left_out(
         json!({ "mode": "plain", "target": "a" }),
+        json!([["auth", "user"]])
+    )]
+    #[case::a_collection_set_to_null(
+        json!({ "mode": "plain", "target": "a", "auth": null }),
         json!([["auth", "user"]])
     )]
     fn a_required_param_left_empty_is_refused(#[case] params: Value, #[case] missing: Value) {
