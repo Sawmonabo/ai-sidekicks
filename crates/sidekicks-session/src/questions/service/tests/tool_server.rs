@@ -25,7 +25,7 @@ use super::RecordingTaskAnswer;
 use crate::questions::service::test_fixture::{Fixture, HandedAnswers, choice_page, failed};
 use crate::questions::service::{HeldRequestAnswerer, QuestionRecording};
 use crate::run::engine::test_fixture::insert_running_run;
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 /// A stand-in tool-server task that keeps each answer once `release` is notified, notifying
 /// `entered` as it takes the answer.
@@ -156,7 +156,7 @@ async fn a_kept_answer_whose_question_settled_meanwhile_reads_its_settled_state(
                 .engine
                 .transition(
                     RunStateChange::new(fixture.run_id, failed()),
-                    RunStateChangeCompanions::default(),
+                    RunWriteCompanions::default(),
                 )
                 .await
                 .expect("the run ends");
