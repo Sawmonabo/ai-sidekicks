@@ -137,7 +137,9 @@ async fn send_hold(
         () = cancel.cancelled() => Some(GateWaitEnd::Canceled {
             hold_started_at: Some(hold_started_at.clone()),
         }),
-        sent = send(reports, step, at, held) => sent.err().map(|ReportsClosed| GateWaitEnd::ReportsClosed),
+        sent = send(reports, step, at, held) => {
+            sent.err().map(|ReportsClosed| GateWaitEnd::ReportsClosed)
+        }
     }
 }
 
