@@ -12,6 +12,7 @@ doctest = false
 
 [dependencies]
 futures.workspace = true
+jiff.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
 sidekicks-approval.workspace = true
