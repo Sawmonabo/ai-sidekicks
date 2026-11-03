@@ -324,7 +324,13 @@ impl RunInboundDispatch {
             }
             InboundDelivery::AfterRunRow { row, content, .. } => {
                 let (session_id, event, source) = row.into_event(None);
-                return Ok(appended(session_id, event, body_linkage(content), source));
+                return Ok(appended(
+                    session_id,
+                    Vec::new(),
+                    event,
+                    body_linkage(content),
+                    source,
+                ));
             }
             InboundDelivery::TurnBoundary { binding_id } => {
                 return self.open_turn(&binding_id).map(Attributed::Settled);
