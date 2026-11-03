@@ -8,6 +8,7 @@ mod sign_in;
 mod sign_in_move;
 mod sign_out;
 mod switch;
+mod token_resupply;
 mod token_status;
 mod window_start;
 
@@ -241,6 +242,17 @@ impl ProviderTokenStatusLegs for ClaudeAccountLegs {
         token: &'call SecretString,
     ) -> BoxFuture<'call, Result<Option<ProviderAuthMode>, DriverError>> {
         token_status::read_claude_token_status(self, provider_account_id, folders, token).boxed()
+    }
+
+    // The new token is read from where it is sealed at each start, so it is never handed here.
+    fn hand_resupplied_token<'call>(
+        &'call self,
+        provider_account_id: &'call ProviderAccountId,
+        _folders: &'call ProviderAccountFolders,
+        _token: &'call SecretString,
+    ) -> BoxFuture<'call, Result<(), DriverError>> {
+        let relaunched = token_resupply::relaunch_on_resupplied_token(self, provider_account_id);
+        async move { relaunched }.boxed()
     }
 }
 

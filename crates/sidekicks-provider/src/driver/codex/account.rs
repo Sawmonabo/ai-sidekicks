@@ -269,6 +269,26 @@ impl ProviderTokenStatusLegs for CodexAccountLegs {
     ) -> BoxFuture<'call, Result<Option<ProviderAuthMode>, DriverError>> {
         token_status::read_codex_token_status(self, token).boxed()
     }
+
+    fn hand_resupplied_token<'call>(
+        &'call self,
+        provider_account_id: &'call ProviderAccountId,
+        folders: &'call ProviderAccountFolders,
+        token: &'call SecretString,
+    ) -> BoxFuture<'call, Result<(), DriverError>> {
+        async move {
+            api_key::hand_resupplied_codex_key(
+                &self.registry,
+                &self.dependencies,
+                provider_account_id,
+                folders,
+                token,
+            )
+            .await
+            .map_err(DriverError::from)
+        }
+        .boxed()
+    }
 }
 
 impl ProviderObserveLegs for CodexAccountLegs {

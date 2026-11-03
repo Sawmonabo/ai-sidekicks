@@ -248,8 +248,9 @@ pub(crate) fn read_sign_in_address(
     (is_provider_host && parsed.port().is_none()).then_some(address)
 }
 
-/// A provider's status read of a pasted token or API key: the registration-time invocation that
-/// observes whether the provider accepts it, run once per registration and once per re-supply.
+/// A provider's legs for a pasted token or API key: the status read that observes whether the
+/// provider accepts it, run once per registration and once per re-supply, and the hand-over of a
+/// re-supplied one to the account's processes running on the one before it.
 pub trait ProviderTokenStatusLegs: Send + Sync {
     /// The signed-in mode the provider's own status read reports for `token` on
     /// `provider_account_id`'s account, run in a folder made for the read with the token handed to
@@ -262,6 +263,17 @@ pub trait ProviderTokenStatusLegs: Send + Sync {
         folders: &'call ProviderAccountFolders,
         token: &'call SecretString,
     ) -> BoxFuture<'call, Result<Option<ProviderAuthMode>, DriverError>>;
+
+    /// Hands `token`, just sealed in place of the earlier one of `provider_account_id`'s account,
+    /// whose home is `folders`, to the account's processes running now, which took the earlier one
+    /// at their start; a process that starts later reads the sealed one itself. Fails with the
+    /// driver's error when a running process could not be handed it.
+    fn hand_resupplied_token<'call>(
+        &'call self,
+        provider_account_id: &'call ProviderAccountId,
+        folders: &'call ProviderAccountFolders,
+        token: &'call SecretString,
+    ) -> BoxFuture<'call, Result<(), DriverError>>;
 }
 
 /// What one limits read of an account's home answered, as the account plane stores it: each arm

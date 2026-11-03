@@ -6,8 +6,9 @@
 //! at each start or rejoin of the service, before it answers, so before any resume or admission
 //! there; at a switch, and at any hand onto another account than the one carried, its answer the
 //! acknowledgment that moves every session on the service with it; and when a limits read in the
-//! carried account's home finds its access token renewed. Never on a timer, since each such login
-//! refreshes the tool servers of every conversation loaded there.
+//! carried account's home finds its access token renewed, and when the API key of the account it
+//! carries on its key is re-supplied. Never on a timer, since each such login refreshes the tool
+//! servers of every conversation loaded there.
 //! One hand at a time: each holds the switching service's hand through its login's answer, so a
 //! renewal never hands an account back over a switch that landed meanwhile. A login written and
 //! never answered leaves the service's account unknown, carried as none until the next hand.
@@ -331,6 +332,35 @@ impl CodexSwitchingAccount {
         )?;
         self.renew_carried_token(provider_account_id, access_token);
         Ok(true)
+    }
+
+    /// Hands the switching service on `connection` `api_key`, just re-supplied for
+    /// `provider_account_id`'s account, where it carries that account on its key, so its running
+    /// conversations take the new key; carrying another account or that one on tokens, it is
+    /// handed nothing, its next hand reading the sealed key. The carried account is checked under
+    /// the hand and stays as it was. Fails with Codex's refusal of the login.
+    pub(crate) async fn hand_resupplied_key(
+        &self,
+        connection: &CodexAppServerConnection,
+        provider_account_id: &ProviderAccountId,
+        api_key: SecretString,
+    ) -> Result<(), CodexError> {
+        let _hand = self.hands.lock().await;
+        if !matches!(self.carried_token(), Some((carried, None)) if carried == *provider_account_id)
+        {
+            return Ok(());
+        }
+        let prepared = self
+            .prepare_login(connection, CodexHandedLogin::ApiKey(api_key))
+            .await?;
+        self.windows.close();
+        self.settle_handed_login(
+            connection
+                .request(CODEX_LOGIN_START_METHOD, &prepared.params)
+                .await,
+            prepared.is_signed_out,
+        )
+        .map(drop)
     }
 
     // A login's answer: one written and never answered may have landed or not, so the service's

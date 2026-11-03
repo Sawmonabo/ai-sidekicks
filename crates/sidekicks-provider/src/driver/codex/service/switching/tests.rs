@@ -26,6 +26,9 @@ use crate::runtime_binding::test_store::test_provider_account_id;
 /// The key sealed for the account that signs in with one.
 const TEST_KEY: &str = "sk-the-key-the-switching-service-is-handed";
 
+/// The key the person pastes again for the key account.
+const NEW_KEY: &str = "sk-the-key-pasted-again-for-the-key-account";
+
 /// The `ChatGPT` workspace the account left signs in to.
 const WORKSPACE_LEFT: &str = "workspace-of-the-account-left";
 
@@ -293,4 +296,64 @@ async fn a_key_account_carried_never_takes_its_homes_tokens() {
     );
     assert!(!handed, "the home's tokens were handed over the key");
     assert_eq!(fixture.unread_requests(), Vec::<Value>::new());
+}
+
+// Killed by the carried check removed (the service carrying the account left on its tokens is
+// signed out and sent the key, which no one answers), and by a sign-out sent before the login over
+// the key carried.
+#[tokio::test]
+async fn a_resupplied_key_reaches_the_switching_service_only_while_it_carries_the_account() {
+    let mut on_the_key = Fixture::new(true);
+    on_the_key.hand_the_key_at_start().await;
+    let connection = on_the_key
+        .scripted
+        .service
+        .connection()
+        .expect("the service is up");
+    let switching = Arc::clone(&on_the_key.scripted.dependencies.switching);
+
+    let (handed, answered) = tokio::join!(
+        switching.hand_resupplied_key(
+            &connection,
+            &on_the_key.key_account,
+            SecretString::from(NEW_KEY)
+        ),
+        answer_through_login(&mut on_the_key.scripted, false)
+    );
+
+    handed.expect("the new key's login is answered");
+    assert_eq!(answered.methods, [CODEX_LOGIN_START_METHOD]);
+    assert_eq!(
+        answered.login["params"],
+        json!({"type": "apiKey", "apiKey": NEW_KEY})
+    );
+    assert_eq!(
+        switching.carried_account(),
+        Some(on_the_key.key_account.clone())
+    );
+    assert_eq!(on_the_key.unread_requests(), Vec::<Value>::new());
+
+    let mut on_another = Fixture::new(false);
+    on_another.carry_the_account_left().await;
+    let connection = on_another
+        .scripted
+        .service
+        .connection()
+        .expect("the service is up");
+    let switching = Arc::clone(&on_another.scripted.dependencies.switching);
+
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        switching.hand_resupplied_key(
+            &connection,
+            &on_another.key_account,
+            SecretString::from(NEW_KEY),
+        ),
+    )
+    .await
+    .expect("nothing is sent that waits on an answer")
+    .expect("a service carrying another account is handed nothing");
+
+    assert_eq!(switching.carried_account(), Some(on_another.left.clone()));
+    assert_eq!(on_another.unread_requests(), Vec::<Value>::new());
 }
