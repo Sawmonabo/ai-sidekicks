@@ -121,7 +121,8 @@ mod tests {
     use crate::driver::claude::account::helper_mode::ClaudeHelperModeLegs;
     use crate::driver::claude::account::test_account_legs;
     use crate::driver::contract::account::{HelperModeAccountLegs, ProviderAccountLegs};
-    use crate::driver::test_registry::{helper_mode_services_over, test_driver_services};
+    use crate::driver::helper_mode_services_over;
+    use crate::driver::test_registry::test_driver_services;
     use crate::driver::{DriverServices, ProviderAccountFolders};
     use crate::runtime_binding::test_store::test_provider_account_id;
 

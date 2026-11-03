@@ -26,7 +26,7 @@ impl ClaudeHelperModeLegs {
     /// The legs over `services`; they hold handles and do no I/O.
     pub(crate) fn new(services: &HelperModeServices) -> Self {
         Self {
-            sources: ClaudeAccountProcessSources::of_helper_mode(services),
+            sources: ClaudeAccountProcessSources::new(services),
         }
     }
 }

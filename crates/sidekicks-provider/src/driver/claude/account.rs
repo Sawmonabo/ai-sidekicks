@@ -46,7 +46,9 @@ use crate::driver::contract::account::{
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
-use crate::driver::{DriverServices, HelperModeServices, ProviderAccountFolders};
+use crate::driver::{
+    DriverServices, HelperModeServices, ProviderAccountFolders, helper_mode_services_over,
+};
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::spawn_environment::{ReservedEnvironmentNames, SessionEnvironment};
 use crate::spawned_version::ResolvedProviderExecutable;
@@ -64,20 +66,9 @@ struct ClaudeAccountProcessSources {
 }
 
 impl ClaudeAccountProcessSources {
-    // The sources over a driver's shared services; they hold handles and do no I/O.
-    fn of_driver(services: &DriverServices) -> Self {
-        Self {
-            spawner: services.spawner.clone(),
-            command_search: Arc::clone(&services.command_search),
-            home_folder: services.home_folder.clone(),
-            data_folder: services.data_folder.clone(),
-            base_environment: Arc::clone(&services.base_environment),
-            reserved_names: Arc::clone(&services.reserved_names),
-        }
-    }
-
-    // The sources over a helper mode's bundle; they hold handles and do no I/O.
-    fn of_helper_mode(services: &HelperModeServices) -> Self {
+    // The sources over a helper mode's bundle, which a driver's services also build; they hold
+    // handles and do no I/O.
+    fn new(services: &HelperModeServices) -> Self {
         Self {
             spawner: services.spawner.clone(),
             command_search: Arc::clone(&services.command_search),
@@ -151,7 +142,7 @@ impl ClaudeAccountLegs {
         usage_probe_models: Arc<ClaudeUsageProbeModels>,
     ) -> Self {
         Self {
-            sources: ClaudeAccountProcessSources::of_driver(services),
+            sources: ClaudeAccountProcessSources::new(&helper_mode_services_over(services)),
             launcher,
             usage_probe_models,
             sessions: OnceLock::new(),

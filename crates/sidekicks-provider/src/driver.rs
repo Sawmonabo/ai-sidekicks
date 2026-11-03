@@ -585,6 +585,19 @@ pub struct HelperModeServices {
     pub reserved_names: Arc<ReservedEnvironmentNames>,
 }
 
+/// The bundle a helper mode builds, over the handles a driver's `services` hold, for code that
+/// serves both; it clones handles and does no I/O.
+pub(crate) fn helper_mode_services_over(services: &DriverServices) -> HelperModeServices {
+    HelperModeServices {
+        spawner: services.spawner.clone(),
+        data_folder: services.data_folder.clone(),
+        home_folder: services.home_folder.clone(),
+        command_search: Arc::clone(&services.command_search),
+        base_environment: Arc::clone(&services.base_environment),
+        reserved_names: Arc::clone(&services.reserved_names),
+    }
+}
+
 /// Where and as whom one session's provider process runs, and the settings the daemon keeps for the
 /// session, as the daemon resolves them at every spawn; a provider's own settings for the session
 /// stay with its driver.

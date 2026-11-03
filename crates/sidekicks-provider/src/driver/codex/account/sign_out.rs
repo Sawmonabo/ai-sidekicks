@@ -97,10 +97,9 @@ mod tests {
     use crate::driver::codex::service::registry::CodexServiceRegistry;
     use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
     use crate::driver::contract::account::{HelperModeAccountLegs, ProviderAccountLegs};
+    use crate::driver::helper_mode_services_over;
     use crate::driver::schema::schema_parts;
-    use crate::driver::test_registry::{
-        NothingServed, helper_mode_services_over, test_driver_services,
-    };
+    use crate::driver::test_registry::{NothingServed, test_driver_services};
     use crate::runtime_binding::test_store::test_provider_account_id;
 
     // Killed by a sign-out sent on a service other than the named home's, the person's own folder
