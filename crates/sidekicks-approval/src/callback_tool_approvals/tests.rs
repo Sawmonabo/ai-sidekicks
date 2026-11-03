@@ -360,7 +360,7 @@ async fn a_call_of_the_apps_own_tools_is_gated_by_the_sessions_level() {
 // standing: the person's answer to it is kept, the same call made again settles by that answer with
 // no card, and the next one raises a card of its own. Killed by reading every card as awaited,
 // which leaves the answer unkept and raises a card for the call made again, and by a claim of the
-// kept answer that is not checked, which settles the next call too.
+// orphaned answer that is not checked, which settles the next call too.
 #[tokio::test]
 async fn a_callback_card_answered_with_no_waiter_settles_the_call_made_again() {
     let fixture = SeamFixture::new().await;

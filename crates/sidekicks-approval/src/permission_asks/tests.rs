@@ -1,7 +1,7 @@
 //! The permission asks over the check's fixture, the run bound to a stand-in driver that records
 //! every answer it is handed and fails its first hand where a test says.
 
-mod kept;
+mod orphaned;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};

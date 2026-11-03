@@ -1,8 +1,8 @@
-//! The kept answers: an answer to a card no live call held when the person gave it, kept so the
+//! The orphaned answers: an answer to a card no live call held when the person gave it, kept so the
 //! call made again and the run's continue each take it once.
 //!
-//! - The kept row is written in the answer's own write, so the answer never stands without it. A
-//!   card answered while a live call held it has no row: that call took the answer.
+//! - The orphaned row is written in the answer's own write, so the answer never stands without it.
+//!   A card answered while a live call held it has no row: that call took the answer.
 //! - Each hand claims its mark before the answer goes out, so a stop between the two loses that
 //!   hand and never repeats it. A continue that failed gives its mark back for the next continue.
 
@@ -26,43 +26,43 @@ use crate::refusals::approval_persistence_unavailable;
 use crate::service::ApprovalServiceError;
 use crate::store::{SELECT_REQUESTS_SQL, StoredApprovalRequest, stored_request_of};
 
-const INSERT_KEPT_ANSWER_SQL: &str = "INSERT INTO approval_kept_answers
-    (approval_request_id, session_id, run_id, kept_at)
-  VALUES (@id, @session_id, @run_id, @kept_at)";
+const INSERT_ORPHANED_ANSWER_SQL: &str = "INSERT INTO approval_orphaned_answers
+    (approval_request_id, session_id, run_id, recorded_at)
+  VALUES (@id, @session_id, @run_id, @recorded_at)";
 
 const CALL_HAND: HandedMark = HandedMark {
-    table: "approval_kept_answers",
+    table: "approval_orphaned_answers",
     key_column: "approval_request_id",
     mark_column: "call_handed_at",
 };
 
 const CONTINUE_HAND: HandedMark = HandedMark {
-    table: "approval_kept_answers",
+    table: "approval_orphaned_answers",
     key_column: "approval_request_id",
     mark_column: "continue_handed_at",
 };
 
-static SELECT_KEPT_CALL_REQUESTS_SQL: LazyLock<String> = LazyLock::new(|| {
+static SELECT_ORPHANED_CALL_REQUESTS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "{SELECT_REQUESTS_SQL}
-  JOIN approval_kept_answers AS kept ON kept.approval_request_id = request.id
+  JOIN approval_orphaned_answers AS orphaned ON orphaned.approval_request_id = request.id
   WHERE request.run_id = @run_id AND request.input_digest = @input_digest
-    AND kept.call_handed_at IS NULL
+    AND orphaned.call_handed_at IS NULL
   ORDER BY request.created_at, request.id"
     )
 });
 
-// A kept answer the call made again already took is not repeated to the agent, and a workflow
+// An orphaned answer the call made again already took is not repeated to the agent, and a workflow
 // step's card, which no agent's call holds (no ask and no tool call), is owed to no continue.
 static SELECT_OWED_CONTINUES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "{SELECT_REQUESTS_SQL}
-  JOIN approval_kept_answers AS kept ON kept.approval_request_id = request.id
-  WHERE kept.session_id = ? AND kept.continue_handed_at IS NULL
-    AND kept.call_handed_at IS NULL
+  JOIN approval_orphaned_answers AS orphaned ON orphaned.approval_request_id = request.id
+  WHERE orphaned.session_id = ? AND orphaned.continue_handed_at IS NULL
+    AND orphaned.call_handed_at IS NULL
     AND (request.ask_id IS NOT NULL OR request.tool_call_id IS NOT NULL)
     AND resolution.request_id IS NOT NULL
-  ORDER BY kept.kept_at, request.id"
+  ORDER BY orphaned.recorded_at, request.id"
     )
 });
 
@@ -85,23 +85,23 @@ pub struct OwedContinue {
     pub edited_action: Option<NonEmptyText>,
 }
 
-/// Reads the answers the runs' continues owe and claims each hand of a kept answer; shared by
+/// Reads the answers the runs' continues owe and claims each hand of an orphaned answer; shared by
 /// `Arc`.
-pub struct KeptAnswers {
-    /// Where the kept answers are read.
+pub struct OrphanedAnswers {
+    /// Where the orphaned answers are read.
     reads: Arc<DatabaseReadPool>,
     /// Where each hand is claimed.
     writer: Arc<DatabaseWriter>,
 }
 
-impl KeptAnswers {
-    /// The kept answers, read through `reads` and claimed through `writer`.
+impl OrphanedAnswers {
+    /// The orphaned answers, read through `reads` and claimed through `writer`.
     pub fn new(reads: Arc<DatabaseReadPool>, writer: Arc<DatabaseWriter>) -> Self {
         Self { reads, writer }
     }
 
-    /// Every kept answer the session's runs' continues still owe, oldest first: one no call made
-    /// again took, to a card an agent's call raised. Fails as the read fails.
+    /// Every orphaned answer the session's runs' continues still owe, oldest first: one no call
+    /// made again took, to a card an agent's call raised. Fails as the read fails.
     pub async fn owed_continues(
         &self,
         session_id: SessionId,
@@ -120,8 +120,8 @@ impl KeptAnswers {
         Ok(cards.into_iter().map(owed_continue_of).collect())
     }
 
-    /// Claims the card's kept answer for a run's continue: true for the one caller that takes it,
-    /// false once it was taken and for a card with no kept answer. Refuses
+    /// Claims the card's orphaned answer for a run's continue: true for the one caller that takes
+    /// it, false once it was taken and for a card with no orphaned answer. Refuses
     /// `approval.persistenceUnavailable` when the claim could not be recorded.
     pub async fn claim_continue(
         &self,
@@ -130,8 +130,8 @@ impl KeptAnswers {
         self.claim(CONTINUE_HAND, approval_request_id).await
     }
 
-    /// Gives back a continue's claim on the card's kept answer, the continue having failed before
-    /// it reached the agent, so the next continue takes it. Refuses
+    /// Gives back a continue's claim on the card's orphaned answer, the continue having failed
+    /// before it reached the agent, so the next continue takes it. Refuses
     /// `approval.persistenceUnavailable` when the release could not be recorded.
     pub async fn release_continue(
         &self,
@@ -143,8 +143,8 @@ impl KeptAnswers {
             .map_err(|failure| approval_persistence_unavailable(failure).into())
     }
 
-    /// Claims the card's kept answer for the call made again, as [`Self::claim_continue`] claims
-    /// it for a continue.
+    /// Claims the card's orphaned answer for the call made again, as [`Self::claim_continue`]
+    /// claims it for a continue.
     pub(crate) async fn claim_call(
         &self,
         approval_request_id: ApprovalRequestId,
@@ -152,7 +152,7 @@ impl KeptAnswers {
         self.claim(CALL_HAND, approval_request_id).await
     }
 
-    /// The run's answered asks of `input_digest` whose kept answer no call made again took yet,
+    /// The run's answered asks of `input_digest` whose orphaned answer no call made again took yet,
     /// oldest first. Fails as the read fails.
     pub(crate) async fn read_call_requests(
         &self,
@@ -163,7 +163,7 @@ impl KeptAnswers {
             .read(ReadLength::Short, move |connection| {
                 Ok::<_, ApprovalServiceError>(
                     connection
-                        .prepare_cached(&SELECT_KEPT_CALL_REQUESTS_SQL)?
+                        .prepare_cached(&SELECT_ORPHANED_CALL_REQUESTS_SQL)?
                         .query_map(
                             named_params! {
                                 "@run_id": run_id.text().as_str(),
@@ -177,7 +177,7 @@ impl KeptAnswers {
             .await
     }
 
-    // Takes `hand` of the card's kept answer, a failed write refused as unkept.
+    // Takes `hand` of the card's orphaned answer, a failed write refused as unkept.
     async fn claim(
         &self,
         hand: HandedMark,
@@ -189,18 +189,19 @@ impl KeptAnswers {
     }
 }
 
-/// The statement that keeps the answer to `request`, given at `kept_at`, in the answer's own write.
-pub(crate) fn insert_kept_answer_statement(
+/// The statement that keeps the answer to `request`, given at `recorded_at`, in the answer's own
+/// write.
+pub(crate) fn insert_orphaned_answer_statement(
     request: &StoredApprovalRequest,
-    kept_at: &WireInstant,
+    recorded_at: &WireInstant,
 ) -> WriteStatement {
     WriteStatement {
-        sql: Cow::Borrowed(INSERT_KEPT_ANSWER_SQL),
+        sql: Cow::Borrowed(INSERT_ORPHANED_ANSWER_SQL),
         bindings: StatementBindings::Named(vec![
             text_binding("@id", request.approval_request_id.text().as_str()),
             text_binding("@session_id", request.session_id.text().as_str()),
             text_binding("@run_id", request.run_id.text().as_str()),
-            text_binding("@kept_at", kept_at.as_str()),
+            text_binding("@recorded_at", recorded_at.as_str()),
         ]),
         expected_row_count: Some(1),
     }

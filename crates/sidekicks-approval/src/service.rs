@@ -11,8 +11,8 @@
 //!   the write that settles the card, so a decline's words reach them as the card settles.
 //! - Each write that changes a run's open asks has the run's hold reconciled once it commits.
 //! - An answer to a card no live call holds, no provider ask held for it and no waiter on the
-//!   daemon's own card, is kept in the answer's own write for the call made again and the run's
-//!   continue, and its run's hold is reconciled before the answer returns.
+//!   daemon's own card, is kept as an orphaned answer in the answer's own write for the call made
+//!   again and the run's continue, and its run's hold is reconciled before the answer returns.
 //! - An approval marks the session's working folder stale once it commits, since work the person
 //!   has not seen may land there; a decline and a cancel mark nothing.
 //! - An approval that corrected the command or path records the corrected words with the answer,
@@ -59,7 +59,7 @@ use sidekicks_store::events::session::pending::PendingSessions;
 use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 
 use crate::events::resolved_event;
-use crate::kept_answers::{KeptAnswers, insert_kept_answer_statement};
+use crate::orphaned_answers::{OrphanedAnswers, insert_orphaned_answer_statement};
 use crate::refusals::{
     approval_already_resolved, approval_late_create, approval_not_found,
     approval_persistence_unavailable, approval_request_canceled, approval_resolution_invalid,
@@ -119,15 +119,15 @@ pub(crate) struct RaisedCard {
 }
 
 /// One answer as [`ApprovalService::resolve`] settled it: what the caller is answered, the ask as
-/// the answer settled it, with the stored answer, and whether this answer was kept.
+/// the answer settled it, with the stored answer, and whether this answer is orphaned.
 #[derive(Clone, Debug)]
 pub(crate) struct ResolvedAnswer {
     /// What the caller is answered.
     pub(crate) response: ApprovalResolveResponse,
     /// The ask the answer settled.
     pub(crate) request: StoredApprovalRequest,
-    /// Whether this answer was kept, no live call holding its card when it was recorded.
-    pub(crate) is_kept: bool,
+    /// Whether this answer is orphaned, no live call holding its card when it was recorded.
+    pub(crate) is_orphaned: bool,
 }
 
 /// The members of one `approval.resolve` answer, read out of whichever decision it carries.
@@ -238,7 +238,7 @@ pub struct ApprovalService {
     /// Reconciles a run's hold once its open asks change.
     run_holds: Arc<ApprovalRunHolds>,
     /// The answers kept while no live call held their card.
-    kept_answers: KeptAnswers,
+    orphaned_answers: OrphanedAnswers,
     /// Whoever waits on a raised card, until it settles.
     raised_cards: KeyedWaits<RaisedCardKey, RaisedRequestSettlement>,
     /// Closed sessions whose pending asks the sweep has yet to cancel.
@@ -257,7 +257,7 @@ impl ApprovalService {
         run_holds: Arc<ApprovalRunHolds>,
     ) -> Self {
         Self {
-            kept_answers: KeptAnswers::new(Arc::clone(&reads), Arc::clone(&writer)),
+            orphaned_answers: OrphanedAnswers::new(Arc::clone(&reads), Arc::clone(&writer)),
             reads,
             events,
             writer,
@@ -379,7 +379,7 @@ impl ApprovalService {
             return Ok(ResolvedAnswer {
                 response: answer_settled(&stored, &answer)?,
                 request: stored,
-                is_kept: false,
+                is_orphaned: false,
             });
         }
         let effective_scope = answer
@@ -417,7 +417,7 @@ impl ApprovalService {
             run_id: stored.run_id,
             approval_request_id,
         };
-        let is_kept = match &stored.ask_id {
+        let is_orphaned = match &stored.ask_id {
             Some(ask_id) => !is_ask_held(stored.run_id, ask_id),
             None => !self.raised_cards.is_armed(&raised_key),
         };
@@ -426,8 +426,8 @@ impl ApprovalService {
             run_live_statement(&stored.session_id, &stored.run_id),
             insert_resolution_statement(&resolution),
         ];
-        if is_kept {
-            transactional_prelude.push(insert_kept_answer_statement(&stored, &resolved_at));
+        if is_orphaned {
+            transactional_prelude.push(insert_orphaned_answer_statement(&stored, &resolved_at));
         }
         let draft = SessionEventDraft::new(payload, resolved_event(answer.decision))?;
         let linkage = SessionEventLinkage {
@@ -447,7 +447,7 @@ impl ApprovalService {
                     Ok(ResolvedAnswer {
                         response: answer_settled(&settled, &answer)?,
                         request: settled,
-                        is_kept: false,
+                        is_orphaned: false,
                     })
                 }
                 // The run ended before its end canceled the ask, which that cancel is about to do.
@@ -458,10 +458,10 @@ impl ApprovalService {
             };
         }
         // A call of the app's tools made again since the keep was decided waits on the card, and
-        // the settlement below reaches it, so the kept answer's call hand is its.
+        // the settlement below reaches it, so the orphaned answer's call hand is its.
         let call_claim =
-            if is_kept && stored.ask_id.is_none() && self.raised_cards.is_armed(&raised_key) {
-                Some(self.kept_answers.claim_call(approval_request_id).await)
+            if is_orphaned && stored.ask_id.is_none() && self.raised_cards.is_armed(&raised_key) {
+                Some(self.orphaned_answers.claim_call(approval_request_id).await)
             } else {
                 None
             };
@@ -474,7 +474,7 @@ impl ApprovalService {
                 },
             },
         );
-        if is_kept {
+        if is_orphaned {
             self.run_holds.reconcile_or_log(stored.run_id).await;
         } else {
             self.run_holds.spawn_reconcile(stored.run_id);
@@ -488,7 +488,7 @@ impl ApprovalService {
             tracing::warn!(
                 approval_request_id = %approval_request_id,
                 error = &failure as &(dyn Error + 'static),
-                "the call hand of a kept answer could not be claimed"
+                "the call hand of an orphaned answer could not be claimed"
             );
         }
         Ok(ResolvedAnswer {
@@ -515,7 +515,7 @@ impl ApprovalService {
                 }),
                 ..stored
             },
-            is_kept,
+            is_orphaned,
         })
     }
 
@@ -571,8 +571,8 @@ impl ApprovalService {
     }
 
     /// The answers kept while no live call held their card.
-    pub fn kept_answers(&self) -> &KeptAnswers {
-        &self.kept_answers
+    pub fn orphaned_answers(&self) -> &OrphanedAnswers {
+        &self.orphaned_answers
     }
 
     /// Whether `run_id` holds an ask the person has not answered yet. Fails as the read fails.

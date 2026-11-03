@@ -507,7 +507,7 @@ impl PermissionCheck {
 
     // The daemon's card of the same run, action and call a call made again after its wait was let
     // go returns to, found by its tool call or else its input: a pending one no one waits on, whose
-    // settlement the call then waits for, or an answered one whose kept answer it claims and
+    // settlement the call then waits for, or an answered one whose orphaned answer it claims and
     // settles by. A card answered or canceled between the arm and the read, its answer not kept for
     // this call, leaves the call to the wait the answer settled, or, canceled, to a card of its
     // own; `None` where no card is left to return to.
@@ -542,7 +542,7 @@ impl PermissionCheck {
             if !is_canceled {
                 if let Some(resolution) = read_back.and_then(|card| card.resolution)
                     && approvals
-                        .kept_answers()
+                        .orphaned_answers()
                         .claim_call(approval_request_id)
                         .await?
                 {
@@ -560,12 +560,16 @@ impl PermissionCheck {
         let Some(input_digest) = ask.input_digest.clone() else {
             return Ok(None);
         };
-        let kept_answers = approvals.kept_answers();
-        for card in kept_answers
+        let orphaned_answers = approvals.orphaned_answers();
+        for card in orphaned_answers
             .read_call_requests(ask.run_id, input_digest)
             .await?
         {
-            if is_same_call(&card) && kept_answers.claim_call(card.approval_request_id).await? {
+            if is_same_call(&card)
+                && orphaned_answers
+                    .claim_call(card.approval_request_id)
+                    .await?
+            {
                 let resolution = card
                     .resolution
                     .expect("a card whose answer was kept holds its answer");

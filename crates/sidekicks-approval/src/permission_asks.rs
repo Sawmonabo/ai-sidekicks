@@ -19,9 +19,9 @@
 //! - A card's answer is recorded, kept with the held ask, then handed to the provider that holds
 //!   the call, decision first, with the rule it made, which is recorded once the provider kept it.
 //! - An answer to a pending card whose ask is no longer held, as after a restart, is recorded and
-//!   kept, not refused. The first call made again with the card's action and input digest takes
-//!   it once, as the card's own ask would, and any later one raises its own card.
-//!   A hand that failed before the provider took it is handed again when the client sends the
+//!   kept as an orphaned answer, not refused. The first call made again with the card's action and
+//!   input digest takes it once, as the card's own ask would, and any later one raises its own
+//!   card. A hand that failed before the provider took it is handed again when the client sends the
 //!   answer again; one the provider took, or may have taken, is never handed blind a second time.
 //! - A card the daemon raised itself names no provider ask: its answer goes to whoever raised it,
 //!   and the session rule it made is recorded at once, kept and honored by the daemon alone; the
@@ -166,13 +166,14 @@ struct HeldAsk {
 type HeldAsks = HashMap<(RunId, String), HeldAsk>;
 
 /// One answer as [`PermissionAsks::resolve`] recorded it: what the client is answered and, for an
-/// answer kept because no live call held its card, the session and run whose continue owes it.
+/// orphaned answer, kept because no live call held its card, the session and run whose continue
+/// owes it.
 #[derive(Clone, Debug)]
 pub struct ResolvedCard {
     /// What the client is answered.
     pub response: ApprovalResolveResponse,
-    /// The card's session and run where this answer was kept.
-    pub kept: Option<(SessionId, RunId)>,
+    /// The card's session and run where this answer is orphaned.
+    pub orphaned: Option<(SessionId, RunId)>,
 }
 
 /// What the intake raises cards through and answers providers with.
@@ -209,9 +210,9 @@ impl PermissionAsks {
     /// answered gets that answer again, one with no hold whose pending card stands, found by its
     /// tool call or else by its input, is held again under that card, and one with no hold whose
     /// card's answer was kept, found by its input, takes that answer once. Fails, once the call is
-    /// refused at its provider, as the check, the read of its card or the claim of a kept answer
-    /// fails or as withdrawing the card of another ask held under its request id fails; and as
-    /// handing an answer fails.
+    /// refused at its provider, as the check, the read of its card or the claim of an orphaned
+    /// answer fails or as withdrawing the card of another ask held under its request id fails; and
+    /// as handing an answer fails.
     pub(crate) async fn take_ask(
         &self,
         ask: ProviderPermissionAsk,
@@ -228,7 +229,7 @@ impl PermissionAsks {
                 Ok(false) => {}
                 Err(failure) => return Err(self.refuse_unchecked(&ask, failure).await),
             }
-            match self.claim_kept_card(&ask, &key, input_digest).await {
+            match self.claim_orphaned_card(&ask, &key, input_digest).await {
                 Ok(Some((card, ask_id))) => return self.hand_card_answer(&card, &ask_id).await,
                 Ok(None) => {}
                 Err(failure) => return Err(self.refuse_unchecked(&ask, failure).await),
@@ -383,11 +384,12 @@ impl PermissionAsks {
         Ok(true)
     }
 
-    // Claims, for `ask` with no hold, the kept answer of the oldest answered card of its run with
-    // its action and `input_digest` whose answer no call made again took, and holds the ask under
-    // that card's ask id; answers that card and its ask id, or `None` where none is left to claim
-    // or a delivery was held under `key` meanwhile. A claim another caller won goes on to the next.
-    async fn claim_kept_card(
+    // Claims, for `ask` with no hold, the orphaned answer of the oldest answered card of its run
+    // with its action and `input_digest` whose answer no call made again took, and holds the ask
+    // under that card's ask id; answers that card and its ask id, or `None` where none is left to
+    // claim or a delivery was held under `key` meanwhile. A claim another caller won goes on to the
+    // next.
+    async fn claim_orphaned_card(
         &self,
         ask: &ProviderPermissionAsk,
         key: &(RunId, String),
@@ -396,8 +398,8 @@ impl PermissionAsks {
         let Some(input_digest) = input_digest else {
             return Ok(None);
         };
-        let kept_answers = self.deps.approvals.kept_answers();
-        for card in kept_answers
+        let orphaned_answers = self.deps.approvals.orphaned_answers();
+        for card in orphaned_answers
             .read_call_requests(ask.run_id, input_digest)
             .await?
         {
@@ -411,7 +413,10 @@ impl PermissionAsks {
             if is_delivered {
                 return Ok(None);
             }
-            if !kept_answers.claim_call(card.approval_request_id).await? {
+            if !orphaned_answers
+                .claim_call(card.approval_request_id)
+                .await?
+            {
                 continue;
             }
             self.lock_held().entry(key.clone()).or_insert(HeldAsk {
@@ -454,13 +459,13 @@ impl PermissionAsks {
     /// words and its rule, never a resend's. The same answer sent again hands it again only where
     /// no earlier hand reached, or may have reached, the provider, and records a daemon card's rule
     /// whose record failed. An answer to a pending card no live call holds, a provider ask no
-    /// longer held or a daemon card no one waits on, is kept, not refused, and answered with the
-    /// card's session and run; a provider ask held under the card since is handed it once its call
-    /// hand is claimed. Fails with the approval service's refusals; `approval.rule.notKept` when
-    /// the call was answered but its provider could not keep the rule, which is then not recorded;
-    /// [`PermissionAskError::RuleWithoutAction`] for a daemon card that names no action for its
-    /// rule; and as claiming the kept answer's hand, reaching the provider or recording the rule
-    /// fails, the answer kept.
+    /// longer held or a daemon card no one waits on, is kept as an orphaned answer, not refused,
+    /// and answered with the card's session and run; a provider ask held under the card since is
+    /// handed it once its call hand is claimed. Fails with the approval service's refusals;
+    /// `approval.rule.notKept` when the call was answered but its provider could not keep the rule,
+    /// which is then not recorded; [`PermissionAskError::RuleWithoutAction`] for a daemon card that
+    /// names no action for its rule; and as claiming the orphaned answer's hand, reaching the
+    /// provider or recording the rule fails, the answer kept.
     pub async fn resolve(
         &self,
         request: &ApprovalResolveRequest,
@@ -469,7 +474,7 @@ impl PermissionAsks {
         let ResolvedAnswer {
             response,
             request: stored,
-            is_kept,
+            is_orphaned,
         } = self
             .deps
             .approvals
@@ -479,7 +484,7 @@ impl PermissionAsks {
             .await?;
         let resolved = ResolvedCard {
             response,
-            kept: is_kept.then_some((stored.session_id, stored.run_id)),
+            orphaned: is_orphaned.then_some((stored.session_id, stored.run_id)),
         };
         let Some(ask_id) = stored.ask_id.clone() else {
             // A card's rule is the one its stored answer asked for, recorded once: the answer sent
@@ -490,14 +495,15 @@ impl PermissionAsks {
             }
             return Ok(resolved);
         };
-        // A kept answer goes only to an ask held under its card since, the call made again, once
-        // its call hand is claimed, so a call made again that claims it first is not handed twice.
-        if is_kept
+        // An orphaned answer goes only to an ask held under its card since, the call made again,
+        // once its call hand is claimed, so a call made again that claims it first is not handed
+        // twice.
+        if is_orphaned
             && (self.find_held(stored.run_id, &ask_id).is_none()
                 || !self
                     .deps
                     .approvals
-                    .kept_answers()
+                    .orphaned_answers()
                     .claim_call(stored.approval_request_id)
                     .await?)
         {
@@ -547,7 +553,8 @@ impl PermissionAsks {
     // Keeps the stored answer with the held ask and claims its hand: the answer to hand, its
     // request id and the rule the stored answer asked for, or `None` where no ask is held for it,
     // or a hand of it is under way or reached its provider. This in-memory state serves the hands
-    // to a live call; the kept answer's row serves the call made again after its ask was let go.
+    // to a live call; the orphaned answer's row serves the call made again after its ask was let
+    // go.
     async fn claim_hand(
         &self,
         stored: &StoredApprovalRequest,

@@ -31,8 +31,8 @@ use sidekicks_store::database::stored_column::{closed_word, optional_text_column
 
 use crate::request_create::ApprovalResourceDescriptor;
 
-/// The distinct statements [`ApprovalRequestReader`] and the kept answers' reads prepare, for the
-/// reading connection's statement cache.
+/// The distinct statements [`ApprovalRequestReader`] and the orphaned answers' reads prepare, for
+/// the reading connection's statement cache.
 pub const APPROVAL_REQUEST_READER_STATEMENT_CAPACITY: usize = 11;
 
 /// An ask as its rows hold it, with the answers its card may offer and its answer once it has one.

@@ -20,16 +20,16 @@ impl AsksFixture {
     }
 
     /// The cards whose answer is kept.
-    fn kept_cards(&self) -> Vec<String> {
-        self.read_texts("SELECT approval_request_id FROM approval_kept_answers")
+    fn orphaned_cards(&self) -> Vec<String> {
+        self.read_texts("SELECT approval_request_id FROM approval_orphaned_answers")
     }
 
-    /// The cards whose kept answer the session's continue still owes.
+    /// The cards whose orphaned answer the session's continue still owes.
     async fn owed_cards(&self) -> Vec<String> {
         let approvals = &self.check.approvals;
         approvals
             .service
-            .kept_answers()
+            .orphaned_answers()
             .owed_continues(approvals.session_id)
             .await
             .expect("the owed continues read")
@@ -53,7 +53,7 @@ impl AsksFixture {
 
 // An answer to a pending card whose ask the restarted intake does not hold is recorded and kept,
 // not refused, and its run reads `running` once the answer returns; the call made again under a
-// new tool call id with the same input takes the kept answer at once with no card, and a third
+// new tool call id with the same input takes the orphaned answer at once with no card, and a third
 // such call raises its own card. A continue's claim leaves the call hand open, and once given
 // back the continue owes the answer no longer, the call made again having taken it. Killed by
 // keeping the withdraw-and-refuse branch, by a call hand whose claim is not checked (the third
@@ -61,7 +61,7 @@ impl AsksFixture {
 // when the answer returns), by a continue's claim that also takes the call hand (the call made
 // again raises a card), and by the continue still owing an answer the call made again took.
 #[tokio::test]
-async fn an_answer_no_live_request_holds_is_kept_and_answers_the_call_made_again_once() {
+async fn an_answer_no_live_request_holds_is_orphaned_and_answers_the_call_made_again_once() {
     let fixture = AsksFixture::moving_its_run().await;
     let approvals = &fixture.check.approvals;
     fixture
@@ -79,17 +79,17 @@ async fn an_answer_no_live_request_holds_is_kept_and_answers_the_call_made_again
         .expect("the answer is kept");
     assert_eq!(resolved.response.state, ApprovalState::Approved);
     assert_eq!(
-        resolved.kept,
+        resolved.orphaned,
         Some((approvals.session_id, approvals.run_id))
     );
-    assert_eq!(fixture.kept_cards(), std::slice::from_ref(&card));
+    assert_eq!(fixture.orphaned_cards(), std::slice::from_ref(&card));
     assert_eq!(approvals.run_state(approvals.run_id), "running");
     assert_eq!(fixture.handed(), []);
     assert_eq!(fixture.owed_cards().await, std::slice::from_ref(&card));
-    let kept_answers = approvals.service.kept_answers();
+    let orphaned_answers = approvals.service.orphaned_answers();
     let card_id = ApprovalRequestId::new(&card).expect("a card's id");
     assert!(
-        kept_answers
+        orphaned_answers
             .claim_continue(card_id)
             .await
             .expect("the continue's claim is written")
@@ -102,7 +102,7 @@ async fn an_answer_no_live_request_holds_is_kept_and_answers_the_call_made_again
     assert_eq!(fixture.pending_cards(), Vec::<String>::new());
     assert_eq!(fixture.handed(), [plain_allow()]);
     assert_eq!(fixture.handed_under(), ["ask-2"]);
-    kept_answers
+    orphaned_answers
         .release_continue(card_id)
         .await
         .expect("the continue's claim is given back");
@@ -116,11 +116,11 @@ async fn an_answer_no_live_request_holds_is_kept_and_answers_the_call_made_again
     assert_eq!(fixture.handed(), [plain_allow()]);
 }
 
-// An answer handed to the live call that holds its card writes no kept row, so a later call with
-// the same input raises a card of its own. Killed by keeping every answer, which hands the later
-// call the first one's answer.
+// An answer handed to the live call that holds its card writes no orphaned row, so a later call
+// with the same input raises a card of its own. Killed by keeping every answer, which hands the
+// later call the first one's answer.
 #[tokio::test]
-async fn a_live_answer_writes_no_kept_row() {
+async fn a_live_answer_writes_no_orphaned_row() {
     let fixture = AsksFixture::new().await;
     fixture
         .asks
@@ -133,8 +133,8 @@ async fn a_live_answer_writes_no_kept_row() {
         .resolve(&approval(&card), device())
         .await
         .expect("the answer is handed");
-    assert_eq!(resolved.kept, None);
-    assert_eq!(fixture.kept_cards(), Vec::<String>::new());
+    assert_eq!(resolved.orphaned, None);
+    assert_eq!(fixture.orphaned_cards(), Vec::<String>::new());
     assert_eq!(fixture.handed(), [plain_allow()]);
 
     fixture
