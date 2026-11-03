@@ -6,6 +6,7 @@
 //! of the session's bindings onto another account, made in its place among those frames.
 
 mod exit_settle;
+mod rest_settle;
 mod resume;
 
 use std::collections::HashSet;
