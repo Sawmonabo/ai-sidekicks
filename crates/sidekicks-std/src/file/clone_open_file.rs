@@ -7,7 +7,6 @@ use std::path::Path;
 
 use sidekicks_platforms::{CloneRefusal, read_clone_refusal};
 
-use crate::cleanup_failures::CleanupFailures;
 use crate::file::removal_after_failure::remove_file_after_failure;
 
 /// Why an open file was not cloned.
@@ -45,14 +44,11 @@ pub fn clone_open_file(source: &File, destination: &Path) -> Result<(), CloneOpe
         }
         // The clone's permissions are set once its file is made, so a failure there, refusal or
         // not, leaves that file at `destination` for this removal.
-        let (error, removal_failures, operation) =
-            remove_file_after_failure(error, destination, CLONING).into_parts();
-        if !removal_failures.is_empty() {
-            return CloneOpenFileError::Failed(
-                CleanupFailures::new(error, removal_failures, operation).into_io_error(),
-            );
+        let removal = remove_file_after_failure(error, destination, CLONING);
+        if !removal.cleanup_failures().is_empty() {
+            return CloneOpenFileError::Failed(removal.into_io_error());
         }
-        match read_clone_refusal(source, destination, error) {
+        match read_clone_refusal(source, destination, removal.into_io_error()) {
             Ok(refusal) => CloneOpenFileError::Refused(refusal),
             Err(error) => CloneOpenFileError::Failed(error),
         }
