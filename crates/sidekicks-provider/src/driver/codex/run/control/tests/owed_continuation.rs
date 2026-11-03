@@ -12,10 +12,11 @@ use crate::driver::run_control::{ResumeRunParams, WaitingMessage};
 use crate::driver::test_registry::new_message_id;
 
 // A continue owed its continuation starts the run's next turn with Codex's continuation words,
-// then the waiting message, under that message's id; Codex's echo of the turn's input settles the
-// message taken by its id alone, so its words, the continuation's among them, reach no row: the
-// person's message reads as the queue wrote it. Killed by the flag ignored (the turn holds the
-// message alone), and by the echo's words written to the run (the continuation reaches the engine).
+// then the waiting message, under that message's id; the continue's answer settles the message,
+// so Codex's echo of the turn's input tells the queue nothing and its words, the continuation's
+// among them, reach no row: the person's message reads as the queue wrote it. Killed by the flag
+// ignored (the turn holds the message alone), and by the echo's words written to the run (the
+// continuation reaches the engine).
 #[tokio::test]
 async fn a_continue_owed_its_continuation_starts_with_it() {
     let mut session = TestCodexSession::start().await;
@@ -87,8 +88,8 @@ async fn a_continue_owed_its_continuation_starts_with_it() {
         .expect("the echo is handled");
 
     assert!(
-        lock(&session.queue.taken).contains(&message_id.to_string()),
-        "the echo settles the waiting message taken"
+        !lock(&session.queue.taken).contains(&message_id.to_string()),
+        "the echo settles again a message the continue's answer settled"
     );
     let engine_calls = format!("{:?}", session.engine.calls());
     assert!(
