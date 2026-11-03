@@ -689,10 +689,10 @@ mod step_actions {
 
     // A command step's card offers a rule only over the one plain command its line names, in the
     // words that command's rule names: never over a line of several commands, a wrapped command,
-    // one after an assignment or a force push, which is destructive git; a program's launch line
-    // offering none is proven at each level above. Killed by a compound or wrapped subject offered,
-    // by the command's subject dropped or replaced by the whole line, and by skipping the line's
-    // category.
+    // one after an assignment, or a force push, which is destructive git and shows its rule's words
+    // with no rule offered; a program's launch line offering none is proven at each level above.
+    // Killed by a compound or wrapped subject offered, by the command's subject dropped or replaced
+    // by the whole line, and by skipping the line's category.
     #[rstest]
     #[case::plain(command_step("cargo test"), ("toolExecution", "cargo test", true))]
     #[case::with_options(
@@ -710,7 +710,7 @@ mod step_actions {
     )]
     #[case::force_push(
         command_step("git push --force"),
-        ("destructiveGit", "git push --force", false)
+        ("destructiveGit", "git push", false)
     )]
     #[tokio::test]
     async fn a_steps_card_offers_a_rule_only_over_one_plain_command(
