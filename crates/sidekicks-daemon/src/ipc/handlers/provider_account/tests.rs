@@ -25,7 +25,7 @@ use sidekicks_contracts::provider::account::methods::{
     PROVIDER_ACCOUNT_METHOD_DESCRIPTORS, ProviderAccountCredentialHomeReset,
     ProviderAccountCurrentUpdate, ProviderAccountCurrentUpdateResponse, ProviderAccountRegister,
     ProviderAccountSignIn, ProviderAccountSubscribe, ProviderAccountUpdate,
-    ProviderAccountUpdateResponse, ProviderWakeHelperState,
+    ProviderAccountUpdateResponse,
 };
 use sidekicks_contracts::provider::account::record::{
     BillingMode, ProviderAccountId, ProviderAccountNotification, ProviderAuthMode,
@@ -65,9 +65,7 @@ use sidekicks_provider::account::sign_in::{
     AccountsInFlight, ProviderSignInBroker, SignedInAccountWatcher,
 };
 use sidekicks_provider::account::token_custody::ProviderTokenCustody;
-use sidekicks_provider::account::wake_helper::{
-    MachineWakeHelper, ScriptedWakeHelper, WakeHelperCall,
-};
+use sidekicks_provider::account::wake_helper::{MachineWakeHelper, ScriptedWakeHelper};
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::contract::account::{
     ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs, ProviderSignInObservation,
@@ -93,10 +91,11 @@ use tempfile::TempDir;
 use tokio::sync::watch;
 
 use super::notifications::ProviderAccountNotifications;
-use super::registration::WAKE_HELPER_REMOVED_REASON;
 use super::{ProviderAccountMethodSources, register_provider_account_methods};
 use crate::daemon::schema::schema_parts;
 use crate::orchestration::account_switch::{AccountSwitch, AccountSwitchDeps, SessionLevelMoves};
+
+mod wake_switch;
 
 /// This start's session token.
 const SESSION_TOKEN: &str = "the-session-token";
@@ -565,19 +564,6 @@ impl MethodInputs {
         };
         feed
     }
-
-    // Turns `account_id`'s wake switch to `is_on`.
-    async fn switch_wake(
-        &self,
-        account_id: &ProviderAccountId,
-        is_on: bool,
-    ) -> ProviderAccountUpdateResponse {
-        self.call(
-            ProviderAccountUpdate::DESCRIPTOR.method,
-            &json!({ "accountId": account_id.as_str(), "wakeForWindowStartEnabled": is_on }),
-        )
-        .await
-    }
 }
 
 // A client subscribed before a pasted token is registered reads that account, as the registration
@@ -852,61 +838,4 @@ async fn making_the_current_account_current_again_publishes_nothing() {
             account: renamed.account
         }
     );
-}
-
-// A wake switch turned on whose install the person refuses stays off, in the reply and the stored
-// row, and the reply names why. Killed by the refusal dropped, where the switch is stored on with
-// no helper to wake the computer.
-#[tokio::test]
-async fn a_refused_install_leaves_the_wake_switch_off_and_says_why() {
-    let helper = Arc::new(ScriptedWakeHelper::new(WakeHelperStatus::Missing));
-    helper.refuse_installs();
-    let inputs = MethodInputs::new(Arc::clone(&helper)).await;
-    let account_id = inputs
-        .register_token_account()
-        .await
-        .account
-        .account_id()
-        .clone();
-
-    let updated = inputs.switch_wake(&account_id, true).await;
-
-    assert!(matches!(
-        updated.wake_helper,
-        Some(ProviderWakeHelperState::NotInstalled { .. })
-    ));
-    assert_eq!(helper.calls(), [WakeHelperCall::Install]);
-    let stored = inputs
-        .accounts
-        .read(account_id)
-        .await
-        .expect("the account reads");
-    assert!(!stored.wake_for_window_start_enabled);
-}
-
-// The last wake switch turned off removes the helper and the reply says why it is gone. Killed by
-// the removal's reason missing, where the reply reads the helper as still installed.
-#[tokio::test]
-async fn the_last_wake_switch_off_removes_the_helper_with_its_reason() {
-    let helper = Arc::new(ScriptedWakeHelper::new(WakeHelperStatus::Installed));
-    let inputs = MethodInputs::new(Arc::clone(&helper)).await;
-    let account_id = inputs
-        .register_token_account()
-        .await
-        .account
-        .account_id()
-        .clone();
-    let turned_on = inputs.switch_wake(&account_id, true).await;
-    assert_eq!(
-        turned_on.wake_helper,
-        Some(ProviderWakeHelperState::Installed {})
-    );
-
-    let turned_off = inputs.switch_wake(&account_id, false).await;
-
-    let Some(ProviderWakeHelperState::NotInstalled { reason }) = turned_off.wake_helper else {
-        panic!("the helper reads as removed");
-    };
-    assert_eq!(reason.as_str(), WAKE_HELPER_REMOVED_REASON);
-    assert_eq!(helper.calls(), [WakeHelperCall::Uninstall]);
 }
