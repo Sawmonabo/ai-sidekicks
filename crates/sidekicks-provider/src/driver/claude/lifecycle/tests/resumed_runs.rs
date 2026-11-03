@@ -1,5 +1,6 @@
 //! What a resume answers of each run it names, the turn of the run in progress a fresh process
-//! continues on that run, and the resume that starts no process where every run waits or stops.
+//! continues on that run, the resume that starts no process where every run waits, the lead is
+//! pausing, or stops, and a held lead's continue on a live process.
 
 use std::sync::Arc;
 use std::time::Duration;
