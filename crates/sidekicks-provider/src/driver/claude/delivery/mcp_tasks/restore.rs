@@ -109,12 +109,16 @@ pub(crate) enum ClaudeHeldCallSettle {
     /// The session closed, so no process restores a call again: one read as recorded, a kept
     /// file not yet readable among them, ends with the process too.
     SessionClose,
+    /// The daemon restarted with no process of the session running, so a call its record keeps
+    /// may still be restored, and one kept nowhere ended with the restart.
+    Restart,
 }
 
 impl ClaudeKeptCall {
     /// How the call ends once the process that held it is gone, settled for `settle`: as its saved
-    /// ending says, else failed as ended with the process, with no body; `None` when a process
-    /// ended for a call read as recorded, which a later process may restore.
+    /// ending says, else failed as ended with the process, or with the restart after one, with no
+    /// body; `None` when a process ended or the daemon restarted for a call read as recorded, which
+    /// a later process may restore.
     pub(crate) fn into_end(
         self,
         settle: ClaudeHeldCallSettle,
@@ -128,10 +132,20 @@ impl ClaudeKeptCall {
         match self {
             Self::Ended { outcome, text } => Some((outcome, text)),
             Self::Recorded => match settle {
-                ClaudeHeldCallSettle::ProcessExit => None,
+                ClaudeHeldCallSettle::ProcessExit | ClaudeHeldCallSettle::Restart => None,
                 ClaudeHeldCallSettle::SessionClose => Some(ended_with_the_process),
             },
-            Self::Unkept => Some(ended_with_the_process),
+            Self::Unkept => match settle {
+                ClaudeHeldCallSettle::ProcessExit | ClaudeHeldCallSettle::SessionClose => {
+                    Some(ended_with_the_process)
+                }
+                ClaudeHeldCallSettle::Restart => Some((
+                    ClaudeToolCallOutcome::Failed {
+                        end_cause: Some(ToolCallEndCause::DaemonRestart),
+                    },
+                    None,
+                )),
+            },
         }
     }
 }
