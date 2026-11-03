@@ -482,7 +482,15 @@ impl ApprovalService {
         if answer.decision == ApprovalDecision::Approved {
             self.mark_working_folder_stale(stored.session_id).await;
         }
-        call_claim.transpose()?;
+        // The answer is committed and handed to its waiter, so a claim that failed is logged:
+        // its mark left open, the call made again may take the answer once more.
+        if let Some(Err(failure)) = call_claim {
+            tracing::warn!(
+                approval_request_id = %approval_request_id,
+                error = &failure as &(dyn Error + 'static),
+                "the call hand of a kept answer could not be claimed"
+            );
+        }
         Ok(ResolvedAnswer {
             response: ApprovalResolveResponse {
                 approval_request_id,
@@ -567,26 +575,15 @@ impl ApprovalService {
         &self.kept_answers
     }
 
-    /// Whether anyone waits on how the run's card `approval_request_id` settles.
-    pub(crate) fn is_card_awaited(
-        &self,
-        run_id: RunId,
-        approval_request_id: ApprovalRequestId,
-    ) -> bool {
-        self.raised_cards.is_armed(&RaisedCardKey {
-            run_id,
-            approval_request_id,
-        })
-    }
-
     /// Arms a wait on how the run's standing card `approval_request_id` settles, for a call made
-    /// again that returns to it; a settlement before the arm finds no waiter.
-    pub(crate) fn arm_card_wait(
+    /// again that returns to it, only while no one waits on it, so two calls never take one card;
+    /// `None` where a wait is armed already. A settlement before the arm finds no waiter.
+    pub(crate) fn arm_unawaited_card(
         &self,
         run_id: RunId,
         approval_request_id: ApprovalRequestId,
-    ) -> ArmedWait<RaisedCardKey, RaisedRequestSettlement> {
-        self.raised_cards.arm(RaisedCardKey {
+    ) -> Option<ArmedWait<RaisedCardKey, RaisedRequestSettlement>> {
+        self.raised_cards.arm_unless_armed(RaisedCardKey {
             run_id,
             approval_request_id,
         })

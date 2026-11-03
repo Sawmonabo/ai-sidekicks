@@ -138,3 +138,38 @@ async fn a_limits_accepted_row_left_by_a_restart_is_carried_out_once() {
     assert_eq!(harness.interrupted_trigger().as_deref(), Some("stepLimit"));
     assert_eq!(harness.holds_taken.load(Ordering::SeqCst), 0);
 }
+
+// A person's `accepted` row the hand read, carried out by the live path while the hand waited for
+// the run's interrupt lock, is not sent again: no driver call and no hold taken. Killed by the hand
+// sending the state it read before the lock (the driver is called a second time).
+#[tokio::test]
+async fn a_row_carried_out_while_the_hand_waited_is_sent_once() {
+    let mut driver = MockProviderDriver::new();
+    driver.expect_apply_intervention().never();
+    let harness = harness(driver).await;
+    let person =
+        harness.record_pending_interrupt("accepted", r#"{"pending":"nextTurn"}"#, Some("device-1"));
+    let lock = std::sync::Arc::clone(&harness.service.interrupt_lock);
+    let live_hold = lock.acquire(harness.run_id).await;
+    let handles = lock.queue_handle_count(harness.run_id);
+    let service = harness.service.clone();
+    let run_id = harness.run_id;
+    let hand = tokio::spawn(async move { service.carry_out_pending_interrupts(run_id).await });
+    lock.wait_for_queue_past(harness.run_id, handles).await;
+    harness
+        .database
+        .reader()
+        .execute(
+            "UPDATE interventions SET state = 'applied' WHERE id = ?1",
+            [&person],
+        )
+        .expect("the live path carries the row out");
+    drop(live_hold);
+
+    hand.await
+        .expect("the hand's task ends")
+        .expect("the hand skips the row");
+
+    assert_eq!(harness.intervention_state(&person), "applied");
+    assert_eq!(harness.holds_taken.load(Ordering::SeqCst), 0);
+}

@@ -100,7 +100,8 @@ fn contains(bytes: &[u8], text: &str) -> bool {
 // receipt outside the delete's write or naming another range, a count of live runs that only run
 // state changes move (the purged run stays counted), and a purge that skips a run's snapshot refs
 // (the run's ref stays in its repository), and any of the messaging deletes left out (its row on
-// the session, at either end of a pair, stays, and the reminder's note keeps the marker).
+// the session, at either end of a pair, stays, and the reminder's note keeps the marker), and
+// either kept answers' delete left out (its row stays, and the question's answer keeps the marker).
 #[tokio::test]
 async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log() {
     let fixture = purge_fixture().await;
@@ -211,6 +212,16 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
                VALUES ('r-1', ?1, ?2, ?3, ?3)",
             [session, MARKER, at],
         ),
+        (
+            "INSERT INTO approval_kept_answers (approval_request_id, session_id, run_id, kept_at)
+               VALUES ('card-1', ?1, ?2, ?3)",
+            [session, lead_run_id.text().as_str(), at],
+        ),
+        (
+            "INSERT INTO question_kept_answers (question_id, session_id, run_id, answer, kept_at)
+               VALUES ('question-1', ?1, 'run-1', ?2, ?3)",
+            [session, MARKER, at],
+        ),
     ] {
         reader
             .execute(sql, row)
@@ -273,6 +284,8 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
         ),
         ("session_waits WHERE awaited_session_id = ?1", session),
         ("session_reminders WHERE session_id = ?1", session),
+        ("approval_kept_answers WHERE session_id = ?1", session),
+        ("question_kept_answers WHERE session_id = ?1", session),
     ] {
         let left: i64 = reader
             .query_row(&format!("SELECT COUNT(*) FROM {rows}"), [id], |row| {

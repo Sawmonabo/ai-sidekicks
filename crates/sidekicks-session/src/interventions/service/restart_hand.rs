@@ -46,32 +46,41 @@ impl InterventionService {
 
     /// Carries out each interrupt pending on `run_id`, oldest first, each under the run's interrupt
     /// lock, through the live path: a person's as its request would go, a limit's as its live hand
-    /// would, recording its own failure. Every row is tried, and the person's failures are returned
-    /// together.
+    /// would, recording its own failure. Each row's state is read again under the lock, so one the
+    /// live path carried out meanwhile is not sent again. Every row is tried, and the person's
+    /// failures are returned together.
     pub(super) async fn carry_out_pending_interrupts(
         &self,
         run_id: RunId,
     ) -> Result<(), InterventionError> {
-        let pending = self
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                Ok::<_, InterventionError>(read_pending_interrupts(reader, &run_id)?)
-            })
-            .await?;
+        let pending = self.read_pending(run_id).await?;
         if pending.is_empty() {
             return Ok(());
         }
         let session_id = self.require_run(run_id).await?.session_id;
         let mut handed = Vec::new();
-        for PendingInterrupt {
-            intervention_id,
-            state,
-            actor,
-            record,
-            expected_run_version,
-            client_idempotency_key,
-        } in pending
-        {
+        for intervention_id in pending.into_iter().map(|row| row.intervention_id) {
+            let _hold = self.interrupt_lock.acquire(run_id).await;
+            let still_pending = match self.read_pending(run_id).await {
+                Ok(rows) => rows,
+                Err(failure) => {
+                    handed.push(Err(failure));
+                    continue;
+                }
+            };
+            let Some(PendingInterrupt {
+                intervention_id,
+                state,
+                actor,
+                record,
+                expected_run_version,
+                client_idempotency_key,
+            }) = still_pending
+                .into_iter()
+                .find(|row| row.intervention_id == intervention_id)
+            else {
+                continue;
+            };
             let target = InterventionTarget {
                 session_id,
                 intervention_id,
@@ -79,7 +88,6 @@ impl InterventionService {
                 intervention_type: InterventionType::Interrupt,
                 actor,
             };
-            let _hold = self.interrupt_lock.acquire(run_id).await;
             match record {
                 InterruptInterventionRecord::Person(record) => {
                     let interrupt = person_request_of(
@@ -108,6 +116,18 @@ impl InterventionService {
                 Err(InterventionError::Several(Box::new(many)))
             }
         }
+    }
+
+    // The interrupts pending on `run_id`, oldest first.
+    async fn read_pending(
+        &self,
+        run_id: RunId,
+    ) -> Result<Vec<PendingInterrupt>, InterventionError> {
+        self.pool
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, InterventionError>(read_pending_interrupts(reader, &run_id)?)
+            })
+            .await
     }
 
     // Takes the run queue's hold for the person's `interrupt` that `target` names, carries its

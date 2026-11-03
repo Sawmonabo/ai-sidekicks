@@ -54,8 +54,26 @@ impl<Key: Eq + Hash + Clone, Settlement: Clone> KeyedWaits<Key, Settlement> {
     /// Arms a wait on `key`. Arm before the action whose result settles it: a settlement sent
     /// before the wait is armed finds no waiter.
     pub fn arm(&self, key: Key) -> ArmedWait<Key, Settlement> {
-        let (sender, receiver) = oneshot::channel();
+        self.arm_held(&mut lock(&self.waits), key)
+    }
+
+    /// Arms a wait on `key` as [`Self::arm`] does, only while no wait is armed on it, the check and
+    /// the arm under one lock: `None` where another wait holds the key.
+    pub fn arm_unless_armed(&self, key: Key) -> Option<ArmedWait<Key, Settlement>> {
         let mut waits = lock(&self.waits);
+        if waits.by_key.contains_key(&key) {
+            return None;
+        }
+        Some(self.arm_held(&mut waits, key))
+    }
+
+    // Arms a wait on `key` in `waits`, the map's lock held by the caller.
+    fn arm_held(
+        &self,
+        waits: &mut ArmedWaits<Key, Settlement>,
+        key: Key,
+    ) -> ArmedWait<Key, Settlement> {
+        let (sender, receiver) = oneshot::channel();
         let waiter_id = waits.next_waiter_id;
         waits.next_waiter_id += 1;
         waits
@@ -63,7 +81,6 @@ impl<Key: Eq + Hash + Clone, Settlement: Clone> KeyedWaits<Key, Settlement> {
             .entry(key.clone())
             .or_default()
             .insert(waiter_id, sender);
-        drop(waits);
         ArmedWait {
             waits: Arc::clone(&self.waits),
             key,

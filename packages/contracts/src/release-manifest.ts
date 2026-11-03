@@ -29,7 +29,10 @@ export const ReleaseVersionSchema: z.ZodType<string, string> = z
 /** The longest artifact name or artifact URL a manifest carries. */
 export const RELEASE_MANIFEST_FIELD_MAX_LEN = 2048;
 
-const SHA256_HEX = /^[0-9a-f]{64}$/u;
+/** A SHA-256 written as 64 lowercase hex digits. */
+export const Sha256HexSchema: z.ZodType<string, string> = z
+  .string()
+  .regex(/^[0-9a-f]{64}$/u, { message: "A SHA-256 is 64 lowercase hex digits." });
 
 /** One published artifact: where to fetch it and the SHA-256 of its bytes, in lowercase hex. */
 export interface ReleaseManifestArtifact {
@@ -41,7 +44,7 @@ export interface ReleaseManifestArtifact {
 export const ReleaseManifestArtifactSchema: z.ZodType<ReleaseManifestArtifact> = z
   .object({
     url: z.url({ protocol: /^https$/u }).max(RELEASE_MANIFEST_FIELD_MAX_LEN),
-    sha256: z.string().regex(SHA256_HEX, { message: "sha256 is 64 lowercase hex digits." }),
+    sha256: Sha256HexSchema,
   })
   .strict();
 

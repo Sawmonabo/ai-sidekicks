@@ -18,6 +18,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use sidekicks_store::database::handed_mark::HandedMark;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::writer::DatabaseWriter;
 
@@ -29,15 +30,17 @@ const INSERT_KEPT_ANSWER_SQL: &str = "INSERT INTO approval_kept_answers
     (approval_request_id, session_id, run_id, kept_at)
   VALUES (@id, @session_id, @run_id, @kept_at)";
 
-// Each claim changes no row once another caller took that hand.
-const CLAIM_CALL_SQL: &str = "UPDATE approval_kept_answers SET call_handed_at = @at
-  WHERE approval_request_id = @id AND call_handed_at IS NULL";
+const CALL_HAND: HandedMark = HandedMark {
+    table: "approval_kept_answers",
+    key_column: "approval_request_id",
+    mark_column: "call_handed_at",
+};
 
-const CLAIM_CONTINUE_SQL: &str = "UPDATE approval_kept_answers SET continue_handed_at = @at
-  WHERE approval_request_id = @id AND continue_handed_at IS NULL";
-
-const RELEASE_CONTINUE_SQL: &str = "UPDATE approval_kept_answers SET continue_handed_at = NULL
-  WHERE approval_request_id = @id";
+const CONTINUE_HAND: HandedMark = HandedMark {
+    table: "approval_kept_answers",
+    key_column: "approval_request_id",
+    mark_column: "continue_handed_at",
+};
 
 static SELECT_KEPT_CALL_REQUESTS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -124,7 +127,7 @@ impl KeptAnswers {
         &self,
         approval_request_id: ApprovalRequestId,
     ) -> Result<bool, ApprovalServiceError> {
-        self.claim(CLAIM_CONTINUE_SQL, approval_request_id).await
+        self.claim(CONTINUE_HAND, approval_request_id).await
     }
 
     /// Gives back a continue's claim on the card's kept answer, the continue having failed before
@@ -134,18 +137,10 @@ impl KeptAnswers {
         &self,
         approval_request_id: ApprovalRequestId,
     ) -> Result<(), ApprovalServiceError> {
-        let release = WriteStatement {
-            sql: Cow::Borrowed(RELEASE_CONTINUE_SQL),
-            bindings: StatementBindings::Named(vec![text_binding(
-                "@id",
-                approval_request_id.text().as_str(),
-            )]),
-            expected_row_count: None,
-        };
-        match self.writer.write(vec![release]).await {
-            Ok(_results) => Ok(()),
-            Err(failure) => Err(approval_persistence_unavailable(failure).into()),
-        }
+        CONTINUE_HAND
+            .release(&self.writer, approval_request_id.text().as_str())
+            .await
+            .map_err(|failure| approval_persistence_unavailable(failure).into())
     }
 
     /// Claims the card's kept answer for the call made again, as [`Self::claim_continue`] claims
@@ -154,7 +149,7 @@ impl KeptAnswers {
         &self,
         approval_request_id: ApprovalRequestId,
     ) -> Result<bool, ApprovalServiceError> {
-        self.claim(CLAIM_CALL_SQL, approval_request_id).await
+        self.claim(CALL_HAND, approval_request_id).await
     }
 
     /// The run's answered asks of `input_digest` whose kept answer no call made again took yet,
@@ -182,26 +177,15 @@ impl KeptAnswers {
             .await
     }
 
-    // One guarded claim: true where it changed the row, false where another caller took it first
-    // or the card has no kept answer.
+    // Takes `hand` of the card's kept answer, a failed write refused as unkept.
     async fn claim(
         &self,
-        sql: &'static str,
+        hand: HandedMark,
         approval_request_id: ApprovalRequestId,
     ) -> Result<bool, ApprovalServiceError> {
-        let claim = WriteStatement {
-            sql: Cow::Borrowed(sql),
-            bindings: StatementBindings::Named(vec![
-                text_binding("@id", approval_request_id.text().as_str()),
-                text_binding("@at", WireInstant::now().as_str()),
-            ]),
-            expected_row_count: Some(1),
-        };
-        match self.writer.write(vec![claim]).await {
-            Ok(_results) => Ok(true),
-            Err(refused) if refused.refused_statement_index().is_some() => Ok(false),
-            Err(failure) => Err(approval_persistence_unavailable(failure).into()),
-        }
+        hand.claim(&self.writer, approval_request_id.text().as_str())
+            .await
+            .map_err(|failure| approval_persistence_unavailable(failure).into())
     }
 }
 

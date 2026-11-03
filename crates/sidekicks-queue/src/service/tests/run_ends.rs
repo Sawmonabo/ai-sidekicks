@@ -2,7 +2,8 @@
 //! continue, move them to the run before it, to the live run or to a next run; rest until a send
 //! when a limit ended it; a start that failed; a process gone for good after its restart; and the
 //! queue's stop waiting for a start a run's end made meanwhile and the hand that start's drain made
-//! after it; and a lead running before its session's process opened, which is handed nothing.
+//! after it; a lead running before its session's process opened, which is handed nothing; and a
+//! lead whose continue after a kept answer failed, moved back to its wait.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -19,6 +20,7 @@ use sidekicks_provider::driver::contract::params_and_results::SessionProcessStat
 use sidekicks_provider::driver::session_control::{DriverResumeResult, answer_every_run_gone};
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_provider::process_identity::TEST_PROVIDER_PROCESS;
+use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_provider::runtime_binding::test_store::spawned_build;
 use sidekicks_session::queue_store::RecordedQueueItemState;
 use sidekicks_std::mutex_lock::lock;
@@ -382,4 +384,26 @@ async fn a_running_lead_in_an_unopened_session_is_handed_nothing() {
     );
     assert!(calls.steers().is_empty(), "the message was steered");
     assert!(calls.starts().is_empty(), "the message was started");
+}
+
+// A lead the kept answer moved to `running` whose continue fails, here for a session with no
+// conversation to resume, is moved back to the wait the answer ended once the queue's stop has
+// waited for the continue's task. Killed by the failure leaving the lead `running`.
+#[tokio::test]
+async fn a_lead_whose_continue_failed_waits_again() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let run_id = fixture.insert_run("waitingForApproval");
+    fixture.set_run_state(run_id, "running");
+
+    fixture.queue.continue_after_answer(
+        fixture.session_id,
+        run_id,
+        RunStateEntry::WaitingForApproval,
+    );
+    timeout(WAIT, fixture.queue.stop())
+        .await
+        .expect("the continue's task ends");
+
+    assert_eq!(fixture.run_state(run_id), "waitingForApproval");
 }
