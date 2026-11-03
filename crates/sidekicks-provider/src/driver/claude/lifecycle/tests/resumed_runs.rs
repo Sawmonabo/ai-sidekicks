@@ -443,9 +443,10 @@ async fn a_held_lead_s_continue_carries_the_answers_to_its_process() {
 #[tokio::test(start_paused = true)]
 async fn a_live_process_is_sent_a_held_lead_s_answers_as_its_next_message() {
     let fixture = ScriptedDriver::new();
-    let session_id = fixture.closed_session().await;
     let channel = Arc::new(ScriptedChannel::default());
-    fixture.starts.script_session(Arc::clone(&channel));
+    let session_id = fixture
+        .closed_session_resumed_on(Arc::clone(&channel))
+        .await;
     let params = resume_params(session_id);
     fixture
         .driver
@@ -528,9 +529,10 @@ async fn a_failed_continue_write_leaves_the_stream_s_turn_as_it_was(
     #[case] delivery: ClaudeWriteDelivery,
 ) {
     let fixture = ScriptedDriver::new();
-    let session_id = fixture.closed_session().await;
     let channel = Arc::new(ScriptedChannel::default());
-    fixture.starts.script_session(Arc::clone(&channel));
+    let session_id = fixture
+        .closed_session_resumed_on(Arc::clone(&channel))
+        .await;
     let params = resume_params(session_id);
     fixture
         .driver
