@@ -505,7 +505,7 @@ impl RunInboundDispatch {
 
     // Absorbs a run's row that lands after its run on `binding_id` once a cut froze that binding,
     // as the turns the cut took ended with it; `None` for a binding not frozen, and for one whose
-    // cursor is gone, since its run ended with no cut left to fence.
+    // cursor has dropped, which no longer says whether a cut froze it.
     fn absorb_after_cut(
         &self,
         binding_id: &RuntimeBindingId,
