@@ -15,6 +15,7 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
 use sidekicks_provider::driver::idle_sleep::SessionSleepState;
@@ -36,6 +37,7 @@ use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 
 use crate::provider_session::errors::ProviderSessionError;
+use crate::provider_session::held_run_continue::ClaimedContinue;
 use crate::provider_session::resumed_runs::ResumedRuns;
 use crate::provider_session::{OpenedSession, ProviderSessions, close_unrecorded, posture_of};
 
@@ -272,8 +274,12 @@ impl ProviderSessions {
                     .await);
             }
         };
-        let (held_run_continue, claims) = self
-            .claim_held_run_continue(session_id, &params.live_runs, &params.kept_schedules)
+        let ClaimedContinue {
+            held_run_continue,
+            claims,
+            answered_runs,
+        } = self
+            .claim_held_run_continue(session_id, &mut params.live_runs, &params.kept_schedules)
             .await?;
         if matches!(relaunch, Relaunch::Continue) && held_run_continue.is_none() {
             return Ok((None, ResumedSession::default()));
@@ -360,10 +366,13 @@ impl ProviderSessions {
         // A continue reached its lead only where the provider runs the lead's turn on; one it did
         // not take up is given back, so the next relaunch of that lead carries it. One it took up
         // stays handed, for the driver to give back should its turn not carry it after all.
-        if let Some(lead_run_id) = continued_lead_id
-            && !runs.iter().any(|run| {
+        let is_continue_carried = continued_lead_id.is_some_and(|lead_run_id| {
+            runs.iter().any(|run| {
                 run.run_id == lead_run_id && run.turn == ProviderTurnAnswer::StillRunning
             })
+        });
+        if continued_lead_id.is_some()
+            && !is_continue_carried
             && let Err(cause) = self
                 .release_marks(self.take_handed_continue(session_id))
                 .await
@@ -377,15 +386,35 @@ impl ProviderSessions {
                 unreleased
             });
         }
+        // A run the continue carries on from a wait whose asks are all answered runs again before
+        // the runs are taken, so its settle reads it running; one the provider did not run on
+        // keeps its wait.
+        if is_continue_carried
+            && !answered_runs.is_empty()
+            && let Err(cause) = self.continue_answered_runs(answered_runs).await
+        {
+            let unmoved = ProviderSessionError::ResumedRuns { session_id, cause };
+            self.deps.binding_cursors.forget_binding(&minted_id);
+            let unmoved = if binding_id == minted_id {
+                close_unrecorded(driver.as_ref(), session_id, unmoved).await
+            } else {
+                unmoved
+            };
+            let claims = self.take_handed_continue(session_id);
+            return Err(self.release_marks_after(session_id, claims, unmoved).await);
+        }
         let named_run_ids = runs.iter().map(|run| run.run_id).collect();
         // Each run the resume named is settled before the binding is recorded, so none goes live
-        // on the resumed process ahead of its settlement.
+        // on the resumed process ahead of its settlement. A failure from here on gives the
+        // continue back, so the next relaunch carries it.
         let taken = self.take_resumed_runs(session_id, runs).await;
         let is_binding_recorded = binding_id == minted_id;
         if is_binding_recorded {
             if let Err(untaken) = taken {
                 self.deps.binding_cursors.forget_binding(&minted_id);
-                return Err(close_unrecorded(driver.as_ref(), session_id, untaken).await);
+                let untaken = close_unrecorded(driver.as_ref(), session_id, untaken).await;
+                let claims = self.take_handed_continue(session_id);
+                return Err(self.release_marks_after(session_id, claims, untaken).await);
             }
             // A provider that continued the conversation in a new one left the old one behind.
             let left_conversations = leg
@@ -411,13 +440,21 @@ impl ProviderSessions {
                 })
                 .await;
             if let Err(unrecorded) = recorded {
-                return Err(close_unrecorded(driver.as_ref(), session_id, unrecorded.into()).await);
+                let unrecorded =
+                    close_unrecorded(driver.as_ref(), session_id, unrecorded.into()).await;
+                let claims = self.take_handed_continue(session_id);
+                return Err(self
+                    .release_marks_after(session_id, claims, unrecorded)
+                    .await);
             }
         } else {
             // A process already up answered on the binding that brought it up, which has its
             // cursor and its row.
             self.deps.binding_cursors.forget_binding(&minted_id);
-            taken?;
+            if let Err(untaken) = taken {
+                let claims = self.take_handed_continue(session_id);
+                return Err(self.release_marks_after(session_id, claims, untaken).await);
+            }
         }
         Ok((
             Some(OpenedSession {
@@ -435,6 +472,17 @@ impl ProviderSessions {
 
     // Hands the provider's answer for each run `session_id`'s resume named to the resumed runs'
     // ingress, under the caller's transition lock.
+    async fn continue_answered_runs(
+        &self,
+        runs: Vec<(RunId, RunState)>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        self.deps
+            .resumed_runs
+            .require_port()?
+            .continue_answered_runs(runs)
+            .await
+    }
+
     async fn take_resumed_runs(
         &self,
         session_id: SessionId,

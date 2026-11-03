@@ -263,6 +263,8 @@ struct Fixture {
     home: TempDir,
     process: Arc<ProcessStandIn>,
     halted_runs: Arc<HaltedRunsStandIn>,
+    // The cards' kept answers and open asks the queue reads.
+    kept_approvals: Arc<KeptAnswersStandIn<ApprovalRequestId>>,
 }
 
 /// The runs the queue halted in the recovery status, each beside its session, in order.
@@ -284,6 +286,7 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
     insert_lead(&database, session_id, PROVIDERS[0].id);
     let process = Arc::new(ProcessStandIn::default());
     let halted_runs = Arc::new(HaltedRunsStandIn::default());
+    let kept_approvals = Arc::new(KeptAnswersStandIn::default());
     let queue = queue_over(
         &database,
         &log,
@@ -292,6 +295,7 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         Arc::clone(&process) as _,
         CurrentProviderAccount::Current(test_provider_account_id()),
         Arc::clone(&halted_runs) as _,
+        &kept_approvals,
     );
     Fixture {
         database,
@@ -301,12 +305,14 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         home,
         process,
         halted_runs,
+        kept_approvals,
     }
 }
 
 /// A run queue over `database` and its `log`, built as the daemon's start builds it, its lead's
 /// provider answered by `driver`, its process read from `processes`, its account by `account`,
-/// and the runs it halts recorded in `halted_runs`.
+/// the runs it halts recorded in `halted_runs`, and its cards' kept answers and open asks read
+/// from `kept_approvals`.
 fn queue_over(
     database: &TestDatabase,
     log: &TestLog,
@@ -315,6 +321,7 @@ fn queue_over(
     processes: Arc<dyn ProviderProcessIds>,
     account: CurrentProviderAccount,
     halted_runs: Arc<dyn HaltedRunRecord>,
+    kept_approvals: &Arc<KeptAnswersStandIn<ApprovalRequestId>>,
 ) -> Arc<RunQueue> {
     let pool = Arc::new(DatabaseReadPool::new(
         database.path(),
@@ -347,7 +354,7 @@ fn queue_over(
         process_follower: Arc::new(RecordedProcessFollowing::default()),
         execution_postures: test_execution_postures(),
         resumed_runs: Arc::new(RecordedResumedRuns::default()).registered(),
-        kept_approvals: Arc::new(KeptAnswersStandIn::<ApprovalRequestId>::default()),
+        kept_approvals: Arc::clone(kept_approvals) as Arc<_>,
         kept_questions: Arc::new(KeptAnswersStandIn::<QuestionId>::default()),
     }));
     let memory_gate = Arc::new(MemoryGate::new(

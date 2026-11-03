@@ -403,6 +403,7 @@ impl Fixture {
             Arc::clone(&self.process) as _,
             CurrentProviderAccount::Current(test_provider_account_id()),
             Arc::clone(&self.halted_runs) as _,
+            &self.kept_approvals,
         );
         restarted
             .provider_sessions

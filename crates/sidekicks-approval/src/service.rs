@@ -571,8 +571,16 @@ impl ApprovalService {
     }
 
     /// The answers kept while no live call held their card.
-    pub(crate) fn kept_answers(&self) -> &KeptAnswers {
+    pub fn kept_answers(&self) -> &KeptAnswers {
         &self.kept_answers
+    }
+
+    /// Whether `run_id` holds an ask the person has not answered yet. Fails as the read fails.
+    pub async fn has_pending_ask(&self, run_id: RunId) -> Result<bool, ApprovalServiceError> {
+        let pending = self
+            .read(move |reader| reader.list_pending_for_run(&run_id))
+            .await?;
+        Ok(!pending.is_empty())
     }
 
     /// Arms a wait on how the run's standing card `approval_request_id` settles, for a call made

@@ -3,8 +3,10 @@
 //! runs' ingress standing in that records each resume's runs, and kept answers standing in that
 //! owe what a test gives them; the queue's own tests also record that provider's contract version.
 
+use std::collections::HashSet;
 use std::error::Error;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
@@ -15,6 +17,8 @@ use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -189,10 +193,13 @@ pub fn test_execution_postures() -> Arc<ExecutionPostureService> {
 pub type ResumedRunsHook = Box<dyn Fn(&ResumedRuns) + Send + Sync>;
 
 /// A resumed runs' ingress standing in for the provider sessions' tests, settling nothing and
-/// recording each resume's runs it was handed, after running its hook on them.
+/// recording each resume's runs it was handed, after running its hook on them, and each run it
+/// was asked to move on from an answered wait; while refused, it fails each take instead.
 pub struct RecordedResumedRuns {
     taken: Mutex<Vec<ResumedRuns>>,
+    continued: Mutex<Vec<(RunId, RunState)>>,
     on_take: ResumedRunsHook,
+    is_refused: AtomicBool,
 }
 
 impl RecordedResumedRuns {
@@ -200,13 +207,25 @@ impl RecordedResumedRuns {
     pub fn new(on_take: ResumedRunsHook) -> Self {
         Self {
             taken: Mutex::new(Vec::new()),
+            continued: Mutex::new(Vec::new()),
             on_take,
+            is_refused: AtomicBool::new(false),
         }
+    }
+
+    /// Fails every take from now on while `is_refused`, as a settle whose write fails.
+    pub fn set_refused(&self, is_refused: bool) {
+        self.is_refused.store(is_refused, Ordering::SeqCst);
     }
 
     /// Each resume's runs it was handed, in order.
     pub fn taken(&self) -> Vec<ResumedRuns> {
         lock(&self.taken).clone()
+    }
+
+    /// Each run it was asked to move on from an answered wait, with the wait, in order.
+    pub fn continued(&self) -> Vec<(RunId, RunState)> {
+        lock(&self.continued).clone()
     }
 
     /// The resumed runs' port with this stand-in registered on it.
@@ -229,8 +248,19 @@ impl ResumedRunsIngress for RecordedResumedRuns {
         &self,
         resumed: ResumedRuns,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        if self.is_refused.load(Ordering::SeqCst) {
+            return async { Err("the resumed runs' settle failed".into()) }.boxed();
+        }
         (self.on_take)(&resumed);
         lock(&self.taken).push(resumed);
+        async { Ok(()) }.boxed()
+    }
+
+    fn continue_answered_runs(
+        &self,
+        runs: Vec<(RunId, RunState)>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        lock(&self.continued).extend(runs);
         async { Ok(()) }.boxed()
     }
 }
@@ -254,16 +284,28 @@ pub(crate) fn record_first_provider_capabilities(providers: &ProviderRegistry, i
 }
 
 /// Kept answers standing in for the provider sessions' tests: they owe each answer a test gives
-/// them until a continue claims it, and owe it again once that continue gives it back.
+/// them until a continue claims it, and owe it again once that continue gives it back; a run holds
+/// an open ask while a test says so.
 pub struct KeptAnswersStandIn<Id> {
     owed: Mutex<Vec<OwedAnswer<Id>>>,
     claimed: Mutex<Vec<Id>>,
+    open_asks: Mutex<HashSet<RunId>>,
 }
 
 impl<Id> KeptAnswersStandIn<Id> {
     /// Owes `answer` after every answer owed before it.
     pub fn owe(&self, answer: OwedAnswer<Id>) {
         lock(&self.owed).push(answer);
+    }
+
+    /// Has `run_id` hold an open ask while `is_open`.
+    pub fn set_open_ask(&self, run_id: RunId, is_open: bool) {
+        let mut open_asks = lock(&self.open_asks);
+        if is_open {
+            open_asks.insert(run_id);
+        } else {
+            open_asks.remove(&run_id);
+        }
     }
 }
 
@@ -272,6 +314,7 @@ impl<Id> Default for KeptAnswersStandIn<Id> {
         Self {
             owed: Mutex::new(Vec::new()),
             claimed: Mutex::new(Vec::new()),
+            open_asks: Mutex::new(HashSet::new()),
         }
     }
 }
@@ -299,5 +342,10 @@ impl<Id: Clone + PartialEq + Send + Sync> KeptAnswerSource<Id> for KeptAnswersSt
     fn release_continue(&self, id: Id) -> KeptAnswerFuture<'_, ()> {
         lock(&self.claimed).retain(|claimed| *claimed != id);
         async { Ok(()) }.boxed()
+    }
+
+    fn has_open_ask(&self, run_id: RunId) -> KeptAnswerFuture<'_, bool> {
+        let is_open = lock(&self.open_asks).contains(&run_id);
+        async move { Ok(is_open) }.boxed()
     }
 }

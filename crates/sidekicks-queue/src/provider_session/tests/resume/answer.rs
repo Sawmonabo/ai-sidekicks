@@ -1,13 +1,16 @@
 //! A held lead continued once the person answered: the resume carries the answers owed it only
 //! while the lead runs, each answer once, and owes it again to the next resume when the provider
-//! refused the one that carried it or resumed without continuing the lead.
+//! refused the one that carried it or resumed without continuing the lead, or when the resume's
+//! runs could not be settled or its binding recorded.
 
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
+use rstest::rstest;
 use rusqlite::params;
 use sidekicks_contracts::approval::{ApprovalDecision, ApprovalRequestId};
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::events::{ProviderWarningSource, SessionNotice};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -83,22 +86,28 @@ async fn resume_after_answer(opening: &Opening) -> Result<(), ProviderSessionErr
     .expect("the continue takes its own lock once")
 }
 
-// While the lead still waits on the person the answer resumes nothing; once it runs, one resume
-// carries the answer, and neither a second answer's continue nor a restart carries it again.
-// Killed by the member composed while the lead is held (a resume while it waits), by the claim
-// skipped (the second continue or the restart carries the answer again), and by a continue run
-// with no member (a resume carrying `None`).
+// While the lead still waits on an ask of its own the answer resumes nothing; once its every ask
+// is answered, one resume carries the answer and moves the lead on from its wait, and neither a
+// second answer's continue nor a restart carries it again. Killed by the member composed while
+// the lead is held (a resume while it waits), by a waiting lead skipped though its asks are
+// answered (no resume), by the claim skipped (the second continue or the restart carries the
+// answer again), and by a continue run with no member (a resume carrying `None`).
 #[tokio::test]
 async fn a_kept_answer_continues_the_lead_once() {
     let (opening, carried, entry) = held_lead().await;
     set_run_state(&opening, opening.earlier_run_id, "waitingForApproval");
+    opening
+        .kept_approvals
+        .set_open_ask(opening.earlier_run_id, true);
 
     resume_after_answer(&opening)
         .await
         .expect("a held lead's continue waits");
     assert!(lock(&carried).is_empty(), "a held lead was resumed");
 
-    set_run_state(&opening, opening.earlier_run_id, "running");
+    opening
+        .kept_approvals
+        .set_open_ask(opening.earlier_run_id, false);
     resume_after_answer(&opening)
         .await
         .expect("the lead's continue resumes it");
@@ -110,6 +119,10 @@ async fn a_kept_answer_continues_the_lead_once() {
         .expect("the restart takes its own lock once")
         .expect("the restart answers");
 
+    assert_eq!(
+        opening.resumed_runs.continued(),
+        [(opening.earlier_run_id, RunState::WaitingForApproval)]
+    );
     let continued = lock(&carried).clone();
     let [Some(held_run_continue), None] = continued.as_slice() else {
         panic!("one resume carries the continue and the restart none: {continued:?}");
@@ -166,6 +179,57 @@ async fn a_continue_the_lead_never_took_owes_its_answer_to_the_next() {
         .await
         .expect("the resume answers without the lead");
     opening.is_continue_dropped.store(false, Ordering::SeqCst);
+    resume_after_answer(&opening)
+        .await
+        .expect("the next continue resumes the lead");
+
+    let entries: Vec<_> = lock(&carried)
+        .iter()
+        .map(|carried| carried.as_ref().map(|carried| carried.entries.clone()))
+        .collect();
+    assert_eq!(entries, [Some(vec![entry.clone()]), Some(vec![entry])]);
+}
+
+// Where a resume the provider accepted fails on the daemon's side.
+#[derive(Clone, Copy, Debug)]
+enum AcceptedResumeFailure {
+    // Settling the runs the resume named fails.
+    RunsUnsettled,
+    // Recording the binding the resume ran under fails.
+    BindingUnrecorded,
+    // Settling the runs fails where the process was already up and answered on its own binding.
+    RunsUnsettledOnProcessUp,
+}
+
+// A continue whose resume the provider accepted, but whose runs could not be settled or whose
+// binding could not be recorded, gives its answer back, so the next continue carries it again, a
+// process already up included. Killed by the give-back on that path dropped (the second continue
+// resumes nothing).
+#[rstest]
+#[case::runs_unsettled(AcceptedResumeFailure::RunsUnsettled)]
+#[case::binding_unrecorded(AcceptedResumeFailure::BindingUnrecorded)]
+#[case::runs_unsettled_on_process_up(AcceptedResumeFailure::RunsUnsettledOnProcessUp)]
+#[tokio::test]
+async fn a_continue_failed_after_its_resume_owes_its_answer_to_the_next(
+    #[case] failure: AcceptedResumeFailure,
+) {
+    let (opening, carried, entry) = held_lead().await;
+    let fail = |is_failing: bool| match failure {
+        AcceptedResumeFailure::RunsUnsettled => opening.resumed_runs.set_refused(is_failing),
+        AcceptedResumeFailure::BindingUnrecorded => {
+            opening.is_row_taken.store(is_failing, Ordering::SeqCst);
+        }
+        AcceptedResumeFailure::RunsUnsettledOnProcessUp => {
+            *lock(&opening.came_up_on) = Some(opening.predecessor_id.clone());
+            opening.resumed_runs.set_refused(is_failing);
+        }
+    };
+    fail(true);
+
+    resume_after_answer(&opening)
+        .await
+        .expect_err("the continue fails after its resume");
+    fail(false);
     resume_after_answer(&opening)
         .await
         .expect("the next continue resumes the lead");

@@ -28,7 +28,7 @@ use sidekicks_store::database::stored_column::text_column;
 use crate::questions::answer_text::compose_answer_text;
 use crate::questions::resolve::asked_pages;
 use crate::questions::service::{HeldRequestAnswerer, QuestionError, QuestionsService};
-use crate::questions::store::read_asked;
+use crate::questions::store::{read_asked, read_unsettled_held_questions};
 
 const INSERT_KEPT_ANSWER_SQL: &str = "INSERT INTO question_kept_answers
     (question_id, session_id, run_id, answer, kept_at)
@@ -205,6 +205,18 @@ impl QuestionsService {
     /// Forgets the answers with a secret kept in memory for `session_id`, once a purge removed it.
     pub fn forget_purged_session(&self, session_id: SessionId) {
         self.kept_secrets.forget_session(session_id);
+    }
+
+    /// Whether `run_id` holds a question its agent waits on that the person has not answered yet,
+    /// open or waiting for the run. Fails as the read fails.
+    pub async fn has_open_question(&self, run_id: RunId) -> Result<bool, QuestionError> {
+        let unsettled = self
+            .reads
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, QuestionError>(read_unsettled_held_questions(reader, &run_id)?)
+            })
+            .await?;
+        Ok(!unsettled.is_empty())
     }
 
     /// Every kept answer the session's runs' continues still owe, oldest first: one the question
