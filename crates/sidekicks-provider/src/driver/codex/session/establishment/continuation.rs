@@ -9,22 +9,36 @@
 //! pausing lead on its own service; neither is a pausing lead whose continuation is already over.
 //! A joined service's continuation of a lead held on the person is marked held, so its end is
 //! written as the daemon's and the lead keeps waiting for the person's answer.
+//!
+//! Once the person answered, the lead's continue carries the answers: a turn the daemon starts
+//! for the lead holds them after Codex's continuation words, and a continuation Codex still runs
+//! for it is held and the answers steered into it under the first answered card's or question's
+//! id, a turn holding them started instead where that continuation ended first.
 
 use std::error::Error;
 
 use sidekicks_contracts::run::events::TurnEndCause;
+use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::turn::ProviderTurnId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::adoption::request_bare_thread_resume;
 use super::{CodexResumedThread, CodexSessionEstablishment};
-use crate::driver::codex::run::routes::CodexRunBinding;
+use crate::driver::codex::attachments::compose_codex_message_input;
+use crate::driver::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
 use crate::driver::codex::run::start::record::{
     CodexTurnRequest, apply_run_turn_acceptance, compose_run_turn, route_accepted_turn,
 };
+use crate::driver::codex::run::start::{CODEX_TURN_START_TIMEOUT, CodexRunStart};
+use crate::driver::codex::run::steer::steer_codex_run;
+use crate::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
 use crate::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
 use crate::driver::codex::session::history::{CodexListedTurn, read_codex_resumed_newest_turn};
+use crate::driver::codex::session::inbound::CodexSessionInboundSender;
 use crate::driver::codex::session::owed_turn_ends::{
     is_codex_turn_in_progress, read_codex_listed_turn,
 };
@@ -32,18 +46,44 @@ use crate::driver::codex::session::state::{CodexSessionRecord, CodexTurnMessage}
 use crate::driver::codex::thread::view::{CodexThreadStatus, TURN_START_METHOD, read_turn_id};
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
+use crate::driver::contract::error::DriverError;
+use crate::driver::session_control::continuation::{
+    ContinueAnswer, HeldRunContinue, compose_continuation_text,
+};
 use crate::driver::session_control::{
     DriverResumeResult, LiveRunResume, ProviderTurnAnswer, ResumedRunAnswer,
 };
 use crate::run::turn_end::TurnOutcome;
 
 /// Codex's own words for the turn that continues work its server's restart interrupted.
-const CODEX_CONTINUATION_TEXT: &str = "The server restarted and interrupted the previous turn. \
+pub(crate) const CODEX_CONTINUATION_TEXT: &str = "The server restarted and interrupted the previous turn. \
      Continue the unfinished work from the saved conversation. Check the current state before \
      repeating actions that may already have completed.";
 
 /// Codex's own classification of the caller that starts a turn recovering from its restart.
 const DAEMON_RECOVERY_TURN_TRIGGER: &str = "daemon_recovery";
+
+/// The steer a held lead's running continuation owes the person's answers, sent once the
+/// session's task runs, and the turn that carries them where that continuation ended first.
+pub(crate) struct CodexAnswerSteer {
+    /// The lead.
+    pub(super) run_id: RunId,
+    /// The continuation Codex runs for it.
+    pub(super) turn_id: String,
+    /// The first answered card's or question's id, which the steer goes under.
+    pub(super) message_id: QueueItemId,
+    /// The answers' words.
+    pub(super) answer_text: String,
+    /// Where the lead's deliveries go.
+    binding: CodexRunBinding,
+}
+
+// A continuation turn to start: the first turn of the chain it continues, as Codex names it, and
+// its words.
+struct ContinuationTurn {
+    root_turn_id: Option<String>,
+    words: String,
+}
 
 /// The turns of a lead run the service's end cut, and the first turn of the newest one's chain.
 pub(super) struct CutTurns {
@@ -59,10 +99,10 @@ impl CodexSessionEstablishment {
     /// deliveries on `binding`. On the daemon's own service, with the conversation idle, its cut
     /// turns are ended in the log as the daemon's restart interrupted them, and one turn started
     /// with Codex's own continuation words is held as the run's next turn: the run answers
-    /// `StillRunning`, or `Gone` where Codex refused the turn. On a service the daemon only joined,
-    /// the turn Codex continued it in is adopted instead, as `adopt_continued_turns` says.
-    /// A run whose cut turn's end could not be written is not taken, and answers as Codex's
-    /// listing has it.
+    /// `StillRunning`, or `Gone` where Codex refused the turn; the lead `held_run_continue` names
+    /// has the person's answers after the words. On a service the daemon only joined, the turn
+    /// Codex continued it in is adopted instead, as `adopt_continued_turns` says. A run whose cut
+    /// turn's end could not be written is not taken, and answers as Codex's listing has it.
     pub(super) async fn continue_cut_runs(
         &self,
         record: &mut CodexSessionRecord,
@@ -70,6 +110,7 @@ impl CodexSessionEstablishment {
         live_runs: &[LiveRunResume],
         resumed: &CodexResumedThread,
         binding: &CodexRunBinding,
+        held_run_continue: Option<&HeldRunContinue>,
     ) -> Vec<ResumedRunAnswer> {
         if !record.service.kind().is_daemons_own() {
             return self
@@ -89,34 +130,131 @@ impl CodexSessionEstablishment {
             if !self.end_cut_turns(record, run, &cut.turn_numbers).await {
                 continue;
             }
-            let turn = match self
-                .start_continuation(
-                    record,
-                    connection,
-                    run,
-                    cut.root_turn_id,
-                    listed_turns,
-                    binding,
-                )
-                .await
-            {
-                Ok(()) => ProviderTurnAnswer::StillRunning,
-                Err(error) => {
-                    tracing::warn!(
-                        session_id = %record.session_id,
-                        run_id = %run.run_id,
-                        error = &error as &(dyn Error + 'static),
-                        "codex refused the turn continuing a run its service's end cut"
-                    );
-                    ProviderTurnAnswer::Gone
-                }
+            let continuation = ContinuationTurn {
+                root_turn_id: cut.root_turn_id,
+                words: compose_continuation_words(
+                    held_run_continue.filter(|held| held.lead_run_id == run.run_id),
+                ),
             };
+            let turn = self
+                .answer_continuation(record, connection, run, continuation, listed_turns, binding)
+                .await;
             continued.push(ResumedRunAnswer {
                 run_id: run.run_id,
                 turn,
             });
         }
         continued
+    }
+
+    /// Carries the person's answers `held_run_continue` holds to its lead where `continued`, the
+    /// runs the cut turns' continue took, holds no turn carrying them yet. A lead with a
+    /// continuation Codex still runs has it marked held, so its end leaves the lead live, and
+    /// answers the steer owed it; a lead with no turn Codex runs, on an idle conversation, has
+    /// its cut turns ended and a turn started with Codex's continuation words and the answers,
+    /// added to `continued`. A lead the daemon's own service's continue already took, or one
+    /// whose cut turns' end could not be written, is left as it stands.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the adoption's record, connection, runs, page, binding and continues it reads"
+    )]
+    pub(super) async fn continue_held_lead(
+        &self,
+        record: &mut CodexSessionRecord,
+        connection: &CodexAppServerConnection,
+        live_runs: &[LiveRunResume],
+        resumed: &CodexResumedThread,
+        binding: &CodexRunBinding,
+        held_run_continue: Option<&HeldRunContinue>,
+        continued: &mut Vec<ResumedRunAnswer>,
+    ) -> Option<CodexAnswerSteer> {
+        let held = held_run_continue?;
+        let run = live_runs
+            .iter()
+            .find(|run| run.run_id == held.lead_run_id)?;
+        let listed_turns = &resumed.listed_turns;
+        let running_turn_id = match continued.iter().find(|taken| taken.run_id == run.run_id) {
+            Some(_) if record.service.kind().is_daemons_own() => return None,
+            Some(taken) if matches!(taken.turn, ProviderTurnAnswer::StillRunning) => {
+                Some(record.newest_active_turn_for_run(run.run_id)?.to_owned())
+            }
+            Some(_) => return None,
+            None => run
+                .open_turns
+                .iter()
+                .filter_map(|turn| turn.provider_turn_id.as_ref().map(ProviderTurnId::as_str))
+                .find(|turn_id| {
+                    listed_turns.iter().any(|listed| {
+                        listed.id == *turn_id && is_codex_turn_in_progress(&listed.turn)
+                    })
+                })
+                .map(str::to_owned),
+        };
+        if let Some(turn_id) = running_turn_id {
+            record.held_continuation_turn_ids.insert(turn_id.clone());
+            return Some(CodexAnswerSteer {
+                run_id: run.run_id,
+                turn_id,
+                message_id: read_answer_steer_key(held),
+                answer_text: compose_answer_text(held),
+                binding: binding.clone(),
+            });
+        }
+        let cut = read_cut_turns(run, listed_turns);
+        if resumed.status != Some(CodexThreadStatus::Idle)
+            || (cut.is_none() && !run.open_turns.is_empty())
+        {
+            return None;
+        }
+        let root_turn_id = match cut {
+            Some(cut) => {
+                if !self.end_cut_turns(record, run, &cut.turn_numbers).await {
+                    return None;
+                }
+                cut.root_turn_id
+            }
+            None => None,
+        };
+        let continuation = ContinuationTurn {
+            root_turn_id,
+            words: compose_continuation_words(Some(held)),
+        };
+        let turn = self
+            .answer_continuation(record, connection, run, continuation, listed_turns, binding)
+            .await;
+        continued.push(ResumedRunAnswer {
+            run_id: run.run_id,
+            turn,
+        });
+        None
+    }
+
+    // Starts `run`'s `continuation` as `start_continuation` does, answering `StillRunning`, or
+    // `Gone` where Codex refused it, which is logged.
+    async fn answer_continuation(
+        &self,
+        record: &mut CodexSessionRecord,
+        connection: &CodexAppServerConnection,
+        run: &LiveRunResume,
+        continuation: ContinuationTurn,
+        listed_turns: &[CodexListedTurn],
+        binding: &CodexRunBinding,
+    ) -> ProviderTurnAnswer {
+        let started = self
+            .start_continuation(record, connection, run, continuation, listed_turns, binding)
+            .await;
+        match started {
+            Ok(()) => ProviderTurnAnswer::StillRunning,
+            Err(error) => {
+                tracing::warn!(
+                    session_id = %record.session_id,
+                    run_id = %run.run_id,
+                    error = &error as &(dyn Error + 'static),
+                    "codex refused the turn continuing a run its service's end cut"
+                );
+                ProviderTurnAnswer::Gone
+            }
+        }
     }
 
     // Adopts, on a service the daemon only joined, the turn Codex continued each lead's cut turns
@@ -238,8 +376,9 @@ impl CodexSessionEstablishment {
         true
     }
 
-    // Starts the turn that continues `run` on the record's conversation, composed as a run's turn
-    // is, so it names the session's mode, reviewer, model and environments, and carrying no
+    // Starts `continuation`, the turn that continues `run`, on the record's conversation, composed
+    // as a run's turn is, so it names the session's mode, reviewer, model and environments, and
+    // carrying no
     // message id, so it never reads as the person's; then holds the turn as the run's, its
     // deliveries on `binding`. Its `turn/started`, waiting in the session's queue, opens the run's
     // next turn. A start left unanswered past its deadline may still have started the turn, so the
@@ -253,13 +392,13 @@ impl CodexSessionEstablishment {
         record: &mut CodexSessionRecord,
         connection: &CodexAppServerConnection,
         run: &LiveRunResume,
-        root_turn_id: Option<String>,
+        continuation: ContinuationTurn,
         listed_turns: &[CodexListedTurn],
         binding: &CodexRunBinding,
     ) -> Result<(), CodexError> {
         let request = CodexTurnRequest {
             messages: vec![CodexTurnMessage {
-                text: CODEX_CONTINUATION_TEXT.to_owned(),
+                text: continuation.words,
                 skills: Vec::new(),
                 attachments: Vec::new(),
             }],
@@ -272,7 +411,7 @@ impl CodexSessionEstablishment {
         };
         let (mut params, run_turn) = compose_run_turn(record, connection, request).await?;
         params.turn_trigger = Some(DAEMON_RECOVERY_TURN_TRIGGER.to_owned());
-        params.root_turn_id = root_turn_id;
+        params.root_turn_id = continuation.root_turn_id;
         let turn_id = match connection.request(TURN_START_METHOD, &params).await {
             Ok(reply) => read_turn_id(&reply, TURN_START_METHOD)?,
             Err(
@@ -297,6 +436,73 @@ impl CodexSessionEstablishment {
     }
 }
 
+/// Steers the person's answers `steer` holds into its lead's running continuation on the session
+/// `inbound` reaches, its task running; where that continuation already ended, the lead's
+/// deliveries are bound to it again and a turn holding Codex's continuation words and the
+/// answers is started instead. A steer or a turn that fails otherwise is logged, the lead left
+/// as it stands.
+pub(crate) async fn send_codex_answer_steer(
+    steer: CodexAnswerSteer,
+    inbound: &CodexSessionInboundSender,
+    run_routes: &CodexRunRoutes,
+    run_start: &CodexRunStart,
+) {
+    let input = compose_codex_message_input(&[CodexTurnMessage {
+        text: steer.answer_text.clone(),
+        skills: Vec::new(),
+        attachments: Vec::new(),
+    }]);
+    let steered = steer_codex_run(
+        inbound,
+        steer.run_id,
+        Some(steer.turn_id),
+        steer.message_id,
+        std::future::ready(Ok(input)),
+    )
+    .await;
+    let failed = match steered {
+        Ok(_) => return,
+        Err(DriverError::SteerTurnEnded(_)) => {
+            run_routes.bind_run(steer.run_id, steer.binding.session_id);
+            run_routes.bind_run_delivery(steer.run_id, steer.binding.clone());
+            let turn = CodexTurnRequest {
+                messages: vec![CodexTurnMessage {
+                    text: format!("{CODEX_CONTINUATION_TEXT}\n\n{}", steer.answer_text),
+                    skills: Vec::new(),
+                    attachments: Vec::new(),
+                }],
+                client_message_ids: Vec::new(),
+                model: None,
+                output_speed: None,
+                output_speed_for_turn: run_routes.output_speed_for_turn_of(steer.run_id),
+                output_schema: None,
+                level: None,
+            };
+            let started = run_start
+                .start_turn(
+                    inbound,
+                    steer.run_id,
+                    steer.binding.binding_id,
+                    turn,
+                    None,
+                    &CodexTurnEndDeadline::new(CODEX_TURN_START_TIMEOUT),
+                )
+                .await;
+            match started {
+                Ok(()) => return,
+                Err(error) => DriverError::from(error),
+            }
+        }
+        Err(error) => error,
+    };
+    tracing::warn!(
+        session_id = %inbound.session_id(),
+        run_id = %steer.run_id,
+        error = &failed as &(dyn Error + 'static),
+        "the person's answers could not reach the codex lead the restart held"
+    );
+}
+
 /// Puts each answer of `continued` in place of its run's in `result`.
 pub(super) fn answer_continued_runs(
     result: &mut DriverResumeResult,
@@ -310,6 +516,47 @@ pub(super) fn answer_continued_runs(
             answer.turn = taken.turn;
         }
     }
+}
+
+// Codex's continuation words, followed by the person's answers where `held_run_continue` is set.
+fn compose_continuation_words(held_run_continue: Option<&HeldRunContinue>) -> String {
+    held_run_continue.map_or_else(
+        || CODEX_CONTINUATION_TEXT.to_owned(),
+        |held| format!("{CODEX_CONTINUATION_TEXT}\n\n{}", compose_answer_text(held)),
+    )
+}
+
+// The person's answers `held` carries, a helper's closed by asking the lead to continue it.
+fn compose_answer_text(held: &HeldRunContinue) -> String {
+    compose_continuation_text(held, ask_codex_helper_again)
+}
+
+// Codex's sentence asking the lead to continue its helper `subagent_id` where it left off.
+fn ask_codex_helper_again(subagent_id: &SubagentId) -> String {
+    format!(
+        "Continue that helper with followup_task on {}, so it goes on with everything it knew.",
+        subagent_id.as_str()
+    )
+}
+
+// The id the answers' steer goes under: the first answered card's or question's, so the steer
+// names the answer it carries; a fresh one where every entry is a continued helper.
+fn read_answer_steer_key(held: &HeldRunContinue) -> QueueItemId {
+    held.entries
+        .iter()
+        .find_map(|entry| match &entry.answer {
+            ContinueAnswer::Approval {
+                approval_request_id,
+                ..
+            } => QueueItemId::new(approval_request_id.text().as_str()).ok(),
+            ContinueAnswer::Question { question_id, .. } => {
+                QueueItemId::new(question_id.text().as_str()).ok()
+            }
+            ContinueAnswer::HelperContinued { .. } => None,
+        })
+        .unwrap_or_else(|| {
+            QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item's id")
+        })
 }
 
 // `run`'s cut turns as `read_cut_turns` reads them, where it is a running lead with no stop

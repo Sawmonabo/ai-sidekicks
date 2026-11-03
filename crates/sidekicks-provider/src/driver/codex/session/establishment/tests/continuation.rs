@@ -24,6 +24,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::codex::session::establishment::CodexEstablishedSession;
 use crate::driver::codex::session::test_fixture::TestCodexSession;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
+use crate::driver::session_control::continuation::HeldRunContinue;
 use crate::driver::session_control::{
     DriverResumeResult, LiveRunResume, OpenTurnResume, ProviderTurnAnswer,
 };
@@ -132,7 +133,7 @@ pub(super) struct HelperScript {
 impl AdoptionScript {
     // The conversation held unloaded and read idle with no page, its turns `listed_turns`, each
     // `turn/start` answered with `turn_start_answer`.
-    fn unloaded(listed_turns: Value, turn_start_answer: Value) -> Self {
+    pub(super) fn unloaded(listed_turns: Value, turn_start_answer: Value) -> Self {
         Self {
             is_loaded: false,
             status: "idle",
@@ -164,6 +165,16 @@ pub(super) async fn adopt(
     live_runs: Vec<LiveRunResume>,
     answers: AdoptionScript,
 ) -> Adoption {
+    adopt_continuing(session, live_runs, None, answers).await
+}
+
+// Adopts as `adopt` does, the resume carrying `held_run_continue`.
+pub(super) async fn adopt_continuing(
+    session: &mut TestCodexSession,
+    live_runs: Vec<LiveRunResume>,
+    held_run_continue: Option<HeldRunContinue>,
+    answers: AdoptionScript,
+) -> Adoption {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let establishment = session.establishment(folder.path());
     session.scripted.report_version("codex-cli 0.163.0");
@@ -177,7 +188,7 @@ pub(super) async fn adopt(
         .create(input)
         .await
         .expect("the binding is recorded");
-    let params = compose_resume_session_params(
+    let mut params = compose_resume_session_params(
         new_session_id(),
         new_agent_id(),
         &binding,
@@ -195,6 +206,7 @@ pub(super) async fn adopt(
         live_runs,
     )
     .expect("the binding resumes");
+    params.held_run_continue = held_run_continue;
     let AdoptionScript {
         is_loaded,
         status,
