@@ -388,8 +388,8 @@ fn follows_a_cmd_escape(text: &str, at: usize) -> bool {
 fn variable_before(text: &str, at: usize) -> Option<&str> {
     let before = &text[..at];
     let start = before
-        .rfind(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
-        .map_or(0, |found| found + 1);
+        .trim_end_matches(|character: char| character.is_ascii_alphanumeric() || character == '_')
+        .len();
     let name = &before[start..];
     let starts_a_name = name
         .chars()
