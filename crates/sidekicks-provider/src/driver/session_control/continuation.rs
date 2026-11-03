@@ -3,7 +3,8 @@
 //! the one text each driver sends the lead for it.
 
 use jiff::Timestamp;
-use sidekicks_contracts::approval::ApprovalDecision;
+use sidekicks_contracts::approval::{ApprovalDecision, ApprovalRequestId};
+use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentId;
 
@@ -65,6 +66,8 @@ pub struct ContinueEntry {
 pub enum ContinueAnswer {
     /// A card the run raised and the person's answer to it.
     Approval {
+        /// The card.
+        approval_request_id: ApprovalRequestId,
         /// The words the card named, such as the command.
         subject: String,
         /// The tool the card held a call of, where it named one.
@@ -78,6 +81,8 @@ pub enum ContinueAnswer {
     },
     /// A question the run asked and the person's answer, a secret read only as answered.
     Question {
+        /// The question.
+        question_id: QuestionId,
         /// The question's pages, one line each.
         question: String,
         /// The answers, one line each.
@@ -111,6 +116,7 @@ pub fn compose_continuation_text(
                 decision,
                 decline_reason,
                 edited_action,
+                ..
             } => {
                 let asked = tool_name.as_ref().map_or_else(
                     || one_line(subject),
@@ -128,7 +134,9 @@ pub fn compose_continuation_text(
                 };
                 format!("{asker} asked to approve {asked}. The person {answered}.")
             }
-            ContinueAnswer::Question { question, answer } => format!(
+            ContinueAnswer::Question {
+                question, answer, ..
+            } => format!(
                 "{asker} asked: {}. The person answered: {}.",
                 one_line(question),
                 one_line(answer)

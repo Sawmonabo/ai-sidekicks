@@ -66,6 +66,7 @@ impl KeptAnswerSource<ApprovalRequestId> for KeptAnswers {
                     id: card.approval_request_id,
                     run_id: card.run_id,
                     answer: ContinueAnswer::Approval {
+                        approval_request_id: card.approval_request_id,
                         subject: card.subject.as_str().to_owned(),
                         tool_name: card
                             .tool_name
@@ -104,6 +105,7 @@ impl KeptAnswerSource<QuestionId> for QuestionsService {
                     id: kept.question_id,
                     run_id: kept.run_id,
                     answer: ContinueAnswer::Question {
+                        question_id: kept.question_id,
                         question: kept.question,
                         answer: kept.answer,
                     },
