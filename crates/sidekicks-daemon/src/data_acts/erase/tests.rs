@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use secrecy::SecretString;
 use sidekicks_contracts::daemon::data::{
     DaemonDataEraseResponse, DataEraseSignOutFailure, DataEraseSignedInAccount,
@@ -11,6 +12,7 @@ use sidekicks_contracts::daemon::data::{
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::CredentialStore;
 use sidekicks_provider::account::credential_home::HomeSignOutError;
+use sidekicks_provider::account::errors::ProviderAccountRegistryError;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
@@ -23,6 +25,10 @@ use tokio::sync::{Notify, watch};
 use super::{DataErase, DataEraseDeps, DataEraseRefusal};
 
 type CallLog = Arc<Mutex<Vec<String>>>;
+
+// What the accounts' sign-out answers.
+type SignOutAnswer =
+    Result<Vec<(ProviderAccountId, HomeSignOutError)>, ProviderAccountRegistryError>;
 
 fn record(calls: &CallLog, call: String) {
     lock(calls).push(call);
@@ -202,4 +208,48 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     assert_eq!(left, ["backups"]);
     assert!(backup.is_file(), "an earlier backup keeps its copy");
     assert!(project_file.is_file(), "a project folder is untouched");
+}
+
+// An erase that ends before it answers, here as its sign-out panics, fails with an error and lets
+// the next erase start rather than refusing it as already running. Killed by the running flag left
+// set on that path (the second erase is refused as running and never signs out).
+#[tokio::test]
+async fn an_erase_that_ends_before_it_answers_fails_and_admits_the_next() {
+    let data_folder = tempfile::tempdir().expect("the data folder is made");
+    let data = data_folder.path().join(".ai-sidekicks");
+    let secret_items = SecretItems::new(SecretItemsStart {
+        data_folder: data.clone(),
+        runs_while_logged_out: false,
+        access: TestStoreAccess::new(CredentialStore::in_memory()) as _,
+        call_timeout: Duration::from_secs(5),
+    })
+    .expect("the system gives random bytes");
+    let sign_outs = Arc::new(Mutex::new(0_usize));
+    let sign_out_count = Arc::clone(&sign_outs);
+    let erase = Arc::new(DataErase::new(DataEraseDeps {
+        data_folder: data,
+        secret_items,
+        providers: Arc::new(registry_of_first_provider(Arc::new(
+            MockProviderDriver::new(),
+        ))),
+        sign_out_accounts: Arc::new(move || -> BoxFuture<'static, SignOutAnswer> {
+            *lock(&sign_out_count) += 1;
+            panic!("a provider's sign-out panics")
+        }),
+        stop_work: Arc::new(|| -> BoxFuture<'static, ()> {
+            unreachable!("an erase that did not answer stops no work")
+        }),
+        close_data_folder: Arc::new(|| -> BoxFuture<'static, ()> {
+            unreachable!("an erase that did not answer closes nothing")
+        }),
+        end_process: Arc::new(|| unreachable!("an erase that did not answer ends no process")),
+    }));
+
+    assert!(matches!(erase.begin().await, Err(DataEraseRefusal::Ended)));
+    assert!(matches!(erase.begin().await, Err(DataEraseRefusal::Ended)));
+    assert_eq!(
+        *lock(&sign_outs),
+        2,
+        "the second erase starts and signs out"
+    );
 }

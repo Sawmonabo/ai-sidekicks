@@ -154,6 +154,7 @@ fn erase_refusal(refusal: DataEraseRefusal) -> HandlerError {
             |cause| DaemonDataStoreUnavailableDetails { cause },
         )
         .into(),
+        ended @ DataEraseRefusal::Ended => HandlerError::Internal(Box::new(ended)),
     }
 }
 

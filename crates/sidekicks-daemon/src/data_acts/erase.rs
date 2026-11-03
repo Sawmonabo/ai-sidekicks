@@ -69,15 +69,20 @@ pub(crate) struct DataEraseDeps {
     pub(crate) end_process: Arc<dyn Fn() + Send + Sync>,
 }
 
-/// Why an erase did not start; nothing was erased by this call.
+/// Why an erase gave no answer: refused before it started, or ended before it answered.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum DataEraseRefusal {
-    /// An erase already runs, and erases everything.
+    /// An erase already runs, and erases everything; nothing was erased by this call.
     #[error("an erase is already running")]
     Running,
-    /// The keychain the erase must empty is locked or cannot be used.
+    /// The keychain the erase must empty is locked or cannot be used; nothing was erased by this
+    /// call.
     #[error(transparent)]
     Keychain(#[from] KeychainRefusal),
+    /// The erase ended before it answered, as when a provider's sign-out panicked; another erase
+    /// may start.
+    #[error("the erase ended before it answered")]
+    Ended,
 }
 
 /// The erase of everything the service keeps.
@@ -100,8 +105,9 @@ impl DataErase {
     /// the reply is written while the erase stops the work; a locked store raises its unlock
     /// prompt while the person is at the screen. Fails with [`DataEraseRefusal::Running`] while
     /// an erase runs, and with [`DataEraseRefusal::Keychain`] when the store is locked or cannot
-    /// be used; this call then starts nothing. An erase once started runs to its end even when
-    /// its caller stops waiting for the answer.
+    /// be used; this call then starts nothing. Fails with [`DataEraseRefusal::Ended`] when the
+    /// erase ends before it answers, and lets the next erase start. An erase once started runs to
+    /// its end even when its caller stops waiting for the answer.
     pub(crate) async fn begin(
         self: &Arc<Self>,
     ) -> Result<DaemonDataEraseResponse, DataEraseRefusal> {
@@ -116,9 +122,12 @@ impl DataErase {
         let (answer, answered) = oneshot::channel();
         let erase = Arc::clone(self);
         tokio::spawn(async move { erase.erase(answer).await });
-        Ok(answered
-            .await
-            .expect("the erase answers before it stops the work"))
+        // The erase answers before it stops anything, so one that ended without answering
+        // erased nothing and the next may run.
+        answered.await.map_err(|_ended| {
+            self.is_running.store(false, Ordering::Release);
+            DataEraseRefusal::Ended
+        })
     }
 
     // Signs every account out and answers `answer` with the accounts left signed in, then erases
