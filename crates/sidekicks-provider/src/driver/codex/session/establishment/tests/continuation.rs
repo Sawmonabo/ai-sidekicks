@@ -684,8 +684,8 @@ async fn a_joined_services_running_continuation_is_held_and_opened_as_the_runs_t
         .expect("the cut turn is ended in the log");
     let opened_at = calls
         .iter()
-        .position(|call| *call == EngineCall::StartTurn(run_id))
-        .expect("the continuation is opened");
+        .position(|call| *call == EngineCall::StartTurn(run_id, None))
+        .expect("the continuation is opened, with no message opening it");
     assert!(
         ended_at < opened_at,
         "the continuation opened first: {calls:?}"
@@ -743,7 +743,11 @@ async fn a_joined_services_ended_continuation_is_held_unless_a_stop_settles_its_
 
     assert_eq!(adoption.answer_of(run_id), lead_answer);
     let calls = session.engine.calls();
-    assert!(!calls.contains(&EngineCall::StartTurn(run_id)));
+    assert!(
+        !calls
+            .iter()
+            .any(|call| matches!(call, EngineCall::StartTurn(opened, _) if *opened == run_id))
+    );
     assert!(session.task.run_routes.binding_for(run_id).is_some());
     let established = adoption.established.expect("the session is established");
     let record = &established.record;
