@@ -202,9 +202,9 @@ impl ProviderSessions {
     /// Fails with [`ProviderSessionError::Closed`] or [`ProviderSessionError::BeingDeleted`] for
     /// an ended session, [`ProviderSessionError::NoConversation`] for one with none to resume,
     /// [`ProviderSessionError::ResumeRefused`] for a resume the provider refused, its answers then
-    /// owed to the next resume, and as the composition, the driver or the binding's record fails.
-    /// A continue whose provider no driver answers, or is not installed, posts the
-    /// `providerMissing` notice first.
+    /// owed to the next resume and its words posted as the session's provider warning, and as the
+    /// composition, the driver or the binding's record fails. A continue whose provider no driver
+    /// answers, or is not installed, posts the `providerMissing` notice first.
     pub async fn resume_after_answer(
         &self,
         session_id: SessionId,
@@ -214,7 +214,10 @@ impl ProviderSessions {
         let leg = read_session_leg(&self.deps.pool, session_id)
             .await?
             .ok_or(ProviderSessionError::NoConversation { session_id })?;
-        let (opened, _resumed) = self.relaunch(session_id, leg, Relaunch::Continue).await?;
+        let (opened, _resumed) = match self.relaunch(session_id, leg, Relaunch::Continue).await {
+            Ok(relaunched) => relaunched,
+            Err(failed) => return Err(self.answer_failed_continue(session_id, failed).await),
+        };
         // The opening it replaces holds the provider, the posture and the git folder, each composed
         // again from the stored leg and level, which every level move stores under this lock.
         if let Some(opened) = opened {

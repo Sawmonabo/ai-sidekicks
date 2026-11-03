@@ -62,6 +62,7 @@ use crate::provider_session::errors::ProviderSessionError;
 use crate::provider_session::held_run_continue::KeptAnswerSource;
 use crate::provider_session::resumed_runs::ResumedRunsIngress;
 
+mod continue_refusal;
 pub mod controls;
 pub mod errors;
 pub mod held_run_continue;

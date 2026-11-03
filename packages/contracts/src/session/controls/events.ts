@@ -132,7 +132,8 @@ export const RunSafetyBufferingUpdatedPayloadSchema: z.ZodType<RunSafetyBufferin
  * - `review_started` and `review_finished`: the two ends of a review.
  * - `goal_not_met` and `goal_check_unfinished`: Claude Code ended the turn at its cap on unmet
  *   checks, or a goal check ran past its limit; the goal stays active.
- * - `provider_warning`: a warning or a deprecation notice from the provider, in its own words.
+ * - `provider_warning`: a warning, a deprecation notice or a refusal to continue the
+ *   conversation from the provider, in its own words.
  * - `level_unavailable`: an account switch moved the session onto an account that cannot run the
  *   level it left, so it runs at `ask`; `level` is the level it left.
  * - `provider_updated`: the session moved to the provider's new build, both versions as the
@@ -205,9 +206,12 @@ export type SessionNoticePayload =
       placeHasNeitherProvider: boolean;
     };
 
-const PROVIDER_WARNING_SOURCE_VALUES = ["warning", "deprecation"] as const;
+const PROVIDER_WARNING_SOURCE_VALUES = ["warning", "deprecation", "refusal"] as const;
 
-/** Which kind of notice a provider warning came from: a warning or a deprecation notice. */
+/**
+ * Which kind of notice a provider warning came from: a warning, a deprecation notice, or the
+ * provider's refusal to continue the session's conversation.
+ */
 export type ProviderWarningSource = (typeof PROVIDER_WARNING_SOURCE_VALUES)[number];
 
 /**

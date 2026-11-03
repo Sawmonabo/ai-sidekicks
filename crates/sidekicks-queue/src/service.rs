@@ -8,7 +8,7 @@
 //! first, and one the provider does not give back reads not delivered and leaves the change. A send
 //! into a paused or pausing run resumes it once the lock is let go.
 
-mod answer_continue;
+pub mod answer_continue;
 mod interrupt;
 #[cfg(test)]
 mod tests;
@@ -59,6 +59,7 @@ use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEve
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use tokio_util::task::TaskTracker;
 
+use self::answer_continue::HaltedRunRecord;
 use crate::admission::{QUEUE_DELIVERY_TIMEOUT, QueueAdmission, QueueAdmissionDeps, RunOpenings};
 use crate::changes::QueueChangeSignals;
 use crate::delivery::{
@@ -127,6 +128,8 @@ pub struct RunQueueDeps {
     pub provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     /// Reads the token limit a new lead run is admitted with.
     pub token_limits: Arc<PortRegistration<Arc<dyn RunTokenLimitReader>>>,
+    /// Marks a run whose continue after a kept answer failed on the daemon's side as halted.
+    pub halted_runs: Arc<dyn HaltedRunRecord>,
 }
 
 /// The daemon's one run queue: the handlers' sends and changes, the interventions' interrupts, and
@@ -149,6 +152,8 @@ pub struct RunQueue {
     releases: TaskTracker,
     // The continues the person's answers owe the leads a restart held.
     continues: TaskTracker,
+    // Where a continue that failed on the daemon's side halts its run.
+    halted_runs: Arc<dyn HaltedRunRecord>,
     _following: FollowerAttachment,
 }
 
@@ -170,6 +175,7 @@ impl RunQueue {
             read_damaged_from_sequence,
             provider_accounts,
             token_limits,
+            halted_runs,
         } = deps;
         let recorder = Arc::new(QueueRecorder::new(QueueRecorderDeps {
             event_log,
@@ -248,6 +254,7 @@ impl RunQueue {
                 this: this.clone(),
                 releases: TaskTracker::new(),
                 continues: TaskTracker::new(),
+                halted_runs,
                 _following: following,
             }
         })

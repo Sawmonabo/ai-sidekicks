@@ -10,7 +10,10 @@ use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use rstest::rstest;
+use sidekicks_contracts::daemon::recovery::DaemonRecoveryHaltedRun;
+use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -386,9 +389,10 @@ async fn a_running_lead_in_an_unopened_session_is_handed_nothing() {
     assert!(calls.starts().is_empty(), "the message was started");
 }
 
-// A lead the kept answer moved to `running` whose continue fails, here for a session with no
-// conversation to resume, is moved back to the wait the answer ended once the queue's stop has
-// waited for the continue's task. Killed by the failure leaving the lead `running`.
+// A lead the kept answer moved to `running` whose continue fails on the daemon's side, here for a
+// session with no conversation to resume, is moved back to the wait the answer ended and halted
+// in the recovery status once the queue's stop has waited for the continue's task. Killed by the
+// failure leaving the lead `running`, and by the halt dropped (no run reads halted).
 #[tokio::test]
 async fn a_lead_whose_continue_failed_waits_again() {
     let calls = Arc::new(DriverCalls::default());
@@ -406,4 +410,16 @@ async fn a_lead_whose_continue_failed_waits_again() {
         .expect("the continue's task ends");
 
     assert_eq!(fixture.run_state(run_id), "waitingForApproval");
+    let halted = lock(&fixture.halted_runs.0).clone();
+    assert_eq!(
+        halted,
+        [(
+            fixture.session_id,
+            DaemonRecoveryHaltedRun {
+                run_id,
+                recovery_condition: RecoveryCondition::RecoveryNeeded,
+                failure_category: Some(RunFailureCategory::LocalPersistenceFailure),
+            }
+        )]
+    );
 }
