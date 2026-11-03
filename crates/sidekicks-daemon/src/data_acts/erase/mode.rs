@@ -9,6 +9,7 @@
 //! and then the data folder but its backups. The mode installs no log, so its answer, one JSON
 //! object on its standard output, names every failure.
 
+use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
 use std::process::ExitCode;
@@ -17,10 +18,10 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use sidekicks_contracts::daemon::mode_outcome::DaemonModeOutcome;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_provider::account::credential_home::HomeSignOutError;
-use sidekicks_provider::account::homes::AccountHome;
+use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_provider::account::credential_home::{HomeSignOut, HomeSignOutError, sign_out_homes};
 use sidekicks_provider::driver::contract::account::HelperModeAccountLegs;
-use sidekicks_provider::driver::{HelperModeServices, PROVIDER_REGISTRATIONS, ProviderDescriptor};
+use sidekicks_provider::driver::{HelperModeServices, PROVIDER_REGISTRATIONS};
 use sidekicks_shell::orphan::guard::sweep_left_orphans;
 use sidekicks_shell::orphan::sweep::OrphanSweepResult;
 use sidekicks_std::error_description::describe_error;
@@ -128,9 +129,6 @@ async fn erase_held_data_folder(
     DaemonModeOutcome::failed(failures.join("; "))
 }
 
-// One registered provider and its helper-mode account legs.
-type ProviderLegs = (&'static ProviderDescriptor, Arc<dyn HelperModeAccountLegs>);
-
 // Signs every account the accounts table in `data_folder` lists out in its home through its
 // provider's helper-mode legs over the bundle `account_services` gives, all at once and each
 // within its bound, and answers each account left signed in, naming its provider and why, or why
@@ -154,60 +152,72 @@ async fn sign_out_account_homes(
         Ok(services) => services,
         Err(failure) => return unreached(&failure),
     };
-    let legs: Vec<ProviderLegs> = PROVIDER_REGISTRATIONS
+    let legs: HashMap<&str, Arc<dyn HelperModeAccountLegs>> = PROVIDER_REGISTRATIONS
         .iter()
         .map(|registration| {
             (
-                registration.descriptor,
+                registration.descriptor.id,
                 (registration.helper_mode_account_legs)(&services),
             )
         })
         .collect();
-    let sign_outs = homes.iter().map(|home| sign_out_account_home(&legs, home));
-    futures::future::join_all(sign_outs)
-        .await
-        .into_iter()
-        .flatten()
-        .collect()
+    let mut failures = Vec::new();
+    let mut accounts = Vec::new();
+    let mut provider_names = HashMap::new();
+    for home in homes {
+        let provider_name = PROVIDER_REGISTRATIONS
+            .iter()
+            .find(|registration| registration.descriptor.id == home.provider)
+            .map_or(home.provider.as_str(), |registration| {
+                registration.descriptor.name()
+            })
+            .to_owned();
+        let (Some(provider), Ok(folders)) =
+            (ProviderId::new(home.provider.clone()), home.folders())
+        else {
+            failures.push(left_signed_in(
+                &provider_name,
+                &home.account_id,
+                &HomeSignOutError::NoProvider,
+            ));
+            continue;
+        };
+        let Some(account_id) = ProviderAccountId::new(home.account_id.clone()) else {
+            failures.push(format!(
+                "the {provider_name} account stored as {} was left signed in: its id is no account \
+                 id",
+                home.account_id
+            ));
+            continue;
+        };
+        provider_names.insert(home.account_id, provider_name);
+        accounts.push(HomeSignOut {
+            account_id,
+            provider,
+            folders,
+        });
+    }
+    let sign_out = |provider: &ProviderId, account_id, folders| {
+        legs.get(provider.as_str())
+            .map(|legs| legs.sign_out_home(account_id, folders))
+    };
+    for (account_id, cause) in sign_out_homes(accounts, sign_out, ACCOUNT_SIGN_OUT_BOUND).await {
+        let account_id = account_id.as_str();
+        failures.push(left_signed_in(
+            &provider_names[account_id],
+            account_id,
+            &cause,
+        ));
+    }
+    failures
 }
 
-// Signs `home`'s account out through the legs of its provider among `legs`, within its bound, and
-// answers why it was left signed in, naming its provider, or `None` once it signed out.
-async fn sign_out_account_home(legs: &[ProviderLegs], home: &AccountHome) -> Option<String> {
-    let left_signed_in = |provider: &str, cause: &(dyn Error + 'static)| {
-        format!(
-            "the {provider} account {} was left signed in: {}",
-            home.account_id,
-            describe_error(cause)
-        )
-    };
-    let provider_legs = legs
-        .iter()
-        .find(|(descriptor, _)| descriptor.id == home.provider);
-    let (Some((descriptor, legs)), Ok(folders)) = (provider_legs, home.folders()) else {
-        return Some(left_signed_in(
-            &home.provider,
-            &HomeSignOutError::NoProvider,
-        ));
-    };
-    let provider = descriptor.name();
-    let Some(account_id) = ProviderAccountId::new(home.account_id.clone()) else {
-        return Some(format!(
-            "the {provider} account stored as {} was left signed in: its id is no account id",
-            home.account_id
-        ));
-    };
-    let signed_out = tokio::time::timeout(
-        ACCOUNT_SIGN_OUT_BOUND,
-        legs.sign_out_home(account_id, folders),
+// The line naming `provider`'s account `account_id` as left signed in, and why.
+fn left_signed_in(provider: &str, account_id: &str, cause: &HomeSignOutError) -> String {
+    format!(
+        "the {provider} account {account_id} was left signed in: {}",
+        describe_error(cause)
     )
-    .await;
-    let cause = match signed_out {
-        Ok(Ok(())) => return None,
-        Ok(Err(failure)) => HomeSignOutError::SignOut(failure),
-        Err(_elapsed) => HomeSignOutError::Overran,
-    };
-    Some(left_signed_in(provider, &cause))
 }
 
 // What the sweep of the orphan registry could not do, each as one of the erase's failures: the
