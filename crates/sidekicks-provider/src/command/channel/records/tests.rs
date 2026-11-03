@@ -108,7 +108,9 @@ impl CommandCapture for HeldCapture {
             if opened == Some(true) {
                 Ok(CommandWindowId::new(start.party.to_string()))
             } else {
-                Err(CommandWindowOpenError("the test failed it".into()))
+                Err(CommandWindowOpenError::CaptureFailed(
+                    "the test failed it".into(),
+                ))
             }
         }
         .boxed()

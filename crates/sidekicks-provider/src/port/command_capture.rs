@@ -60,8 +60,25 @@ pub enum CommandWindowEnd {
 
 /// Why a window could not be opened.
 #[derive(Debug, thiserror::Error)]
-#[error("a command's capture window could not be opened: {0}")]
-pub struct CommandWindowOpenError(#[source] pub Box<dyn Error + Send + Sync>);
+pub enum CommandWindowOpenError {
+    /// The capture has nothing to cover the command against, so it recorded nothing.
+    #[error("a command's capture window was refused: {0}")]
+    Refused(CommandWindowRefusal),
+    /// A read or write of the capture failed.
+    #[error("a command's capture failed")]
+    CaptureFailed(#[source] Box<dyn Error + Send + Sync>),
+}
+
+/// Why the capture refused a window: no coverage to lose and nothing an undo could put back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum CommandWindowRefusal {
+    /// The session has no checkpoint yet.
+    #[error("the session has no checkpoint")]
+    NoCheckpoint,
+    /// The run has no checkout.
+    #[error("the run has no checkout")]
+    NoCheckout,
+}
 
 /// The capture around every command an agent runs through the wrapper's line form. A channel's
 /// follower makes each call from a task of the window's own, in order, so no call holds up the
@@ -70,10 +87,9 @@ pub trait CommandCapture: Send + Sync {
     /// Opens a window for `start`, once the wrapper's `Starting` is read; the wrapper is told to
     /// go once this answers, either way, and a command whose open failed runs with no window.
     /// Answers the window opened where the session's capture can cover the command.
-    /// Fails with a [`CommandWindowOpenError`] that records nothing for a session with no
-    /// checkpoint or a run with no checkout, where there is no coverage to lose and nothing an
-    /// undo could put back.
-    /// Fails with a [`CommandWindowOpenError`] for a failed read or write of the capture once it
+    /// Fails `Refused`, recording nothing, for a session with no checkpoint or a run with no
+    /// checkout, where there is no coverage to lose and nothing an undo could put back.
+    /// Fails `CaptureFailed` for a failed read or write of the capture once it
     /// recorded the command as run uncovered, or, where that record cannot be written, marked the
     /// session's capture failed until its next capture succeeds, which the undo's preview and
     /// its list of uncovered commands show as a failed capture.

@@ -30,7 +30,9 @@ use crate::command::channel::{
 };
 use crate::command::running_set::{PromptAnswer, RunningCommandSets, WrapperCommand};
 use crate::command::waiting_checks::{InputWaitReader, WaitingChecks};
-use crate::port::command_capture::{CommandCapture, CommandWindowEnd, CommandWindowStart};
+use crate::port::command_capture::{
+    CommandCapture, CommandWindowEnd, CommandWindowOpenError, CommandWindowStart,
+};
 
 #[cfg(test)]
 mod tests;
@@ -416,7 +418,15 @@ fn open_window(
         send_request(&channel, party, &DaemonRequest::Go {}).await;
         let window = match opened {
             Ok(window) => window,
-            Err(error) => {
+            Err(CommandWindowOpenError::Refused(refusal)) => {
+                tracing::debug!(
+                    party,
+                    error = &refusal as &(dyn std::error::Error + 'static),
+                    "a command runs with no capture window to cover"
+                );
+                return;
+            }
+            Err(error @ CommandWindowOpenError::CaptureFailed(_)) => {
                 tracing::warn!(
                     party,
                     error = &error as &(dyn std::error::Error + 'static),
