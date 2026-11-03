@@ -111,3 +111,6 @@ pub(crate) async fn run_offline_mode(
         ))),
     }
 }
+
+#[cfg(test)]
+mod tests;
