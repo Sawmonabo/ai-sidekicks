@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use rusqlite::params_from_iter;
 use serde_json::{Value, json};
 use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
@@ -8,7 +7,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::port::question::test_card::QuestionCard;
-use sidekicks_store::database::statement::StatementBindings;
+use sidekicks_store::database::statement::run_statement;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use tokio::time::{Duration, Instant};
@@ -116,16 +115,12 @@ impl Fixture {
     /// connection of the test's own: awaiting the writer's thread would let the paused clock jump
     /// to the call's next timer meanwhile.
     pub(super) fn move_to_background(&self, command_id: &str) {
-        let statement = background_statement(command_id);
-        let StatementBindings::Positional(values) = statement.bindings else {
-            unreachable!("the background statement binds by position")
-        };
-        let moved = self
-            .database
-            .reader()
-            .execute(&statement.sql, params_from_iter(values))
+        let moved = run_statement(&self.database.reader(), &background_statement(command_id))
             .expect("the call moves to the background");
-        assert_eq!(moved, 1, "one claimed receipt moves to the background");
+        assert_eq!(
+            moved.row_count, 1,
+            "one claimed receipt moves to the background"
+        );
     }
 
     /// Every receipt row.

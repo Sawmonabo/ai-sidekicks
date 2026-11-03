@@ -1,14 +1,14 @@
 //! The agents' events as tests write them, the projection's statements run on a test's own
 //! connection as the writer runs them, and a log row written as a test spells it.
 
-use rusqlite::{Connection, params, params_from_iter};
+use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_store::database::statement::{StatementBindings, WriteStatement, named_bindings};
+use sidekicks_store::database::statement::{WriteStatement, run_statement};
 use sidekicks_store::database::writer::test_file::test_envelope;
 
 use crate::agents::projection::agents_projection_statements;
@@ -136,17 +136,9 @@ pub(crate) fn project(connection: &Connection, session_id: SessionId, event: &Se
 /// Runs `statements` in order, each held to the rows it must change.
 pub(crate) fn run_statements(connection: &Connection, statements: &[WriteStatement]) {
     for statement in statements {
-        let mut prepared = connection
-            .prepare(&statement.sql)
-            .expect("the statement prepares");
-        let changed = match &statement.bindings {
-            StatementBindings::None => prepared.execute([]),
-            StatementBindings::Positional(values) => prepared.execute(params_from_iter(values)),
-            StatementBindings::Named(values) => prepared.execute(named_bindings(values).as_slice()),
-        }
-        .expect("the statement runs");
+        let changed = run_statement(connection, statement).expect("the statement runs");
         if let Some(expected) = statement.expected_row_count {
-            assert_eq!(changed, expected, "{}", statement.sql);
+            assert_eq!(changed.row_count, expected, "{}", statement.sql);
         }
     }
 }
