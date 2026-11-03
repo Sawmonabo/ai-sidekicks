@@ -246,7 +246,8 @@ pub(crate) fn coded_step_error(
 pub(crate) struct NodeKind {
     /// The kind's spec, as the catalog lists it.
     pub(crate) spec: WorkflowNodeKindSpec,
-    /// The id of the param holding the kind's shell line; `None` for a kind that runs none.
+    /// The id of the param holding the kind's shell line, one the spec lists, so a save holds it to
+    /// its spec like any other param; `None` for a kind that runs none.
     pub(crate) shell_line_param: Option<&'static str>,
     /// Whether the kind is the loop, whose one input takes both the loop's entry and the edge its
     /// body's last node wires back, so an edge from its body into it closes the loop.
@@ -407,14 +408,15 @@ pub(crate) fn test_kind(
 }
 
 /// The command step `developer.shell` at version 1, with one main input and one main output,
-/// whose shell line is its `command` param, passing its inputs on as its outputs.
+/// whose shell line is the `command` param it lists, passing its inputs on as its outputs.
 #[cfg(test)]
 pub(crate) fn command_test_kind() -> NodeKind {
     test_kind(
         serde_json::json!({
             "kind": "developer.shell", "version": 1, "category": "developer",
             "displayName": "Run a command", "description": "A command in a working directory.",
-            "icon": "terminal", "params": [],
+            "icon": "terminal",
+            "params": [{ "id": COMMAND_PARAM, "label": "Command", "type": "text" }],
             "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
             "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
             "outputsDeriveFromParams": false,
