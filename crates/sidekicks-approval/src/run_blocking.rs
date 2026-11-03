@@ -8,7 +8,9 @@
 //!   a wait for input, a pause or a continue, is reconciled then, since a follower of every session
 //!   hears each `agent.run.running`.
 //! - A reconcile runs on a tracked task, never on the caller's: a move waits for a starting run's
-//!   start, and a provider that hands an ask while it starts would otherwise wait on itself.
+//!   start, and a provider that hands an ask while it starts would otherwise wait on itself. The
+//!   one exception is an answer kept while no live call held its card, whose reconcile the
+//!   person's answer awaits, so the run reads `running` once the answer returns.
 //! - A failed move is logged and leaves every recorded ask standing; the card stays the one gate.
 
 use std::collections::HashSet;
@@ -88,15 +90,20 @@ impl ApprovalRunHolds {
     /// Reconciles the run's hold on a tracked task; a failure is logged, since no caller waits.
     pub(crate) fn spawn_reconcile(self: &Arc<Self>, run_id: RunId) {
         let holds = Arc::clone(self);
-        self.reconciles.spawn(async move {
-            if let Err(error) = holds.reconcile(run_id).await {
-                tracing::warn!(
-                    %run_id,
-                    error = &error as &(dyn Error + 'static),
-                    "approval_run_hold_failed"
-                );
-            }
-        });
+        self.reconciles
+            .spawn(async move { holds.reconcile_or_log(run_id).await });
+    }
+
+    /// Reconciles the run's hold on the caller's task; a failure is logged, since the write that
+    /// changed the run's open asks already stands and the card stays the one gate.
+    pub(crate) async fn reconcile_or_log(&self, run_id: RunId) {
+        if let Err(error) = self.reconcile(run_id).await {
+            tracing::warn!(
+                %run_id,
+                error = &error as &(dyn Error + 'static),
+                "approval_run_hold_failed"
+            );
+        }
     }
 
     /// Moves the run to match its open asks as they read now: into `waitingForApproval` with one

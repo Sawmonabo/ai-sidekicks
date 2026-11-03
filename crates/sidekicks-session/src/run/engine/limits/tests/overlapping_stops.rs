@@ -377,7 +377,7 @@ async fn a_late_failed_hand_withdraws_its_own_cut_and_leaves_another_of_its_limi
     };
 
     engine
-        .forget_late_limit_hand(
+        .forget_unawaited_hand(
             run_id,
             RunLimit::TokenLimit,
             Some(HandedCut {

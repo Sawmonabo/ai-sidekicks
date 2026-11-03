@@ -173,7 +173,8 @@ pub struct SettingsIgnoredAtKeyNotice {
     pub line: Option<Never>,
 }
 
-/// Which kind of notice a provider warning came from: a warning or a deprecation notice.
+/// Which kind of notice a provider warning came from: a warning, a deprecation notice, or the
+/// provider's refusal to continue the session's conversation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum ProviderWarningSource {
@@ -181,6 +182,8 @@ pub enum ProviderWarningSource {
     Warning,
     /// A deprecation notice.
     Deprecation,
+    /// A refusal to continue the session's conversation.
+    Refusal,
 }
 
 /// Every `session.notice.posted` kind but `settingsIgnored`, each drawn as one plain sentence. A
@@ -228,7 +231,8 @@ pub enum SessionNotice {
         /// The agent whose goal it is.
         agent_id: AgentId,
     },
-    /// A warning or a deprecation notice from the provider, in its own words.
+    /// A warning, a deprecation notice or a refusal to continue the conversation from the
+    /// provider, in its own words.
     ProviderWarning {
         /// The session.
         session_id: SessionId,

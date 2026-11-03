@@ -8,6 +8,7 @@
 //! first, and one the provider does not give back reads not delivered and leaves the change. A send
 //! into a paused or pausing run resumes it once the lock is let go.
 
+pub mod answer_continue;
 mod interrupt;
 #[cfg(test)]
 mod tests;
@@ -35,7 +36,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_provider::driver::ProviderAccountReader;
-use sidekicks_provider::driver::ports::ProcessGoneListener;
+use sidekicks_provider::driver::ports::{ContinueGivenBackListener, ProcessGoneListener};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::process_identity::ProviderProcessIds;
 use sidekicks_session::changes::refuse_unchangeable_session;
@@ -58,6 +59,7 @@ use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEve
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use tokio_util::task::TaskTracker;
 
+use self::answer_continue::HaltedRunRecord;
 use crate::admission::{QUEUE_DELIVERY_TIMEOUT, QueueAdmission, QueueAdmissionDeps, RunOpenings};
 use crate::changes::QueueChangeSignals;
 use crate::delivery::{
@@ -66,6 +68,7 @@ use crate::delivery::{
 use crate::error::QueueError;
 use crate::memory_gate::MemoryGate;
 use crate::provider_session::ProviderSessions;
+use crate::provider_session::held_run_continue::ContinueGivenBack;
 use crate::recorder::{QueueRecorder, QueueRecorderDeps};
 use crate::refusals::{
     UnreturnedReason, change_refused, left_queue_refusal, queue_item_not_found, unreturned_refusal,
@@ -126,6 +129,8 @@ pub struct RunQueueDeps {
     pub provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     /// Reads the token limit a new lead run is admitted with.
     pub token_limits: Arc<PortRegistration<Arc<dyn RunTokenLimitReader>>>,
+    /// Marks a run whose continue after an orphaned answer failed on the daemon's side as halted.
+    pub halted_runs: Arc<dyn HaltedRunRecord>,
 }
 
 /// The daemon's one run queue: the handlers' sends and changes, the interventions' interrupts, and
@@ -135,6 +140,7 @@ pub struct RunQueue {
     writer: Arc<DatabaseWriter>,
     pauses: Arc<RunPauseControl>,
     engine: Arc<RunEngine>,
+    provider_sessions: Arc<ProviderSessions>,
     recorder: Arc<QueueRecorder>,
     delivery: QueueDelivery,
     admission: Arc<QueueAdmission>,
@@ -145,6 +151,10 @@ pub struct RunQueue {
     this: Weak<RunQueue>,
     // The releases settling once the session's hold is free.
     releases: TaskTracker,
+    // The continues the person's answers owe the leads a restart held.
+    continues: TaskTracker,
+    // Where a continue that failed on the daemon's side halts its run.
+    halted_runs: Arc<dyn HaltedRunRecord>,
     _following: FollowerAttachment,
 }
 
@@ -166,6 +176,7 @@ impl RunQueue {
             read_damaged_from_sequence,
             provider_accounts,
             token_limits,
+            halted_runs,
         } = deps;
         let recorder = Arc::new(QueueRecorder::new(QueueRecorderDeps {
             event_log,
@@ -208,7 +219,7 @@ impl RunQueue {
                 recorder: Arc::clone(&recorder),
                 admission,
                 delivery,
-                provider_sessions,
+                provider_sessions: Arc::clone(&provider_sessions),
                 memory_gate,
                 pauses: Arc::clone(&pauses),
                 session_lock: Arc::clone(&session_lock),
@@ -234,6 +245,7 @@ impl RunQueue {
                 writer,
                 pauses,
                 engine,
+                provider_sessions,
                 recorder,
                 delivery,
                 admission,
@@ -242,6 +254,8 @@ impl RunQueue {
                 session_lock,
                 this: this.clone(),
                 releases: TaskTracker::new(),
+                continues: TaskTracker::new(),
+                halted_runs,
                 _following: following,
             }
         })
@@ -262,6 +276,15 @@ impl RunQueue {
     /// what the process kept for runs that ended; it holds the queue's run lifecycle weakly.
     pub fn process_gone_listener(&self) -> Arc<dyn ProcessGoneListener> {
         Arc::new(RunLifecycleListener(Arc::downgrade(&self.lifecycle)))
+    }
+
+    /// The listener a driver tells of a held lead's continue it did not carry, which gives each
+    /// answer's continue mark back for the next relaunch; it holds the provider sessions weakly.
+    pub fn continue_given_back_listener(&self) -> Arc<dyn ContinueGivenBackListener> {
+        Arc::new(ContinueGivenBack {
+            sessions: Arc::downgrade(&self.provider_sessions),
+            releases: self.releases.clone(),
+        })
     }
 
     /// Sends one message from `device_id` to the lead of `to`, else of `session_id`, and answers it
@@ -609,23 +632,26 @@ impl RunQueue {
         Ok(failures)
     }
 
-    /// Waits until no start, drain, release or hand of the queue runs, so a hand in flight
-    /// finishes or fails before it answers. Work keeps being taken meanwhile: each kind of work is
-    /// waited for in turn, again until all four are idle at once, since a drain may start a run, a
-    /// run's end a release and either a hand.
+    /// Waits until no continue, start, drain, release or hand of the queue runs, so a hand in
+    /// flight finishes or fails before it answers. Work keeps being taken meanwhile: each kind of
+    /// work is waited for in turn, again until all five are idle at once, since a continue may
+    /// drain, a drain may start a run, a run's end a release and either a hand.
     pub async fn stop(&self) {
+        self.continues.close();
         self.lifecycle.close();
         self.admission.close();
         self.releases.close();
         self.delivery.close();
-        // A drain may start a run, a run's end a release, and either a hand: each tracker is
-        // waited in that order until none holds work.
+        // A continue may drain, a drain may start a run, a run's end a release, and either a hand:
+        // each tracker is waited in that order until none holds work.
         loop {
+            self.continues.wait().await;
             self.lifecycle.wait().await;
             self.admission.wait().await;
             self.releases.wait().await;
             self.delivery.wait().await;
-            if self.lifecycle.is_idle()
+            if self.continues.is_empty()
+                && self.lifecycle.is_idle()
                 && self.admission.is_idle()
                 && self.releases.is_empty()
                 && self.delivery.is_idle()

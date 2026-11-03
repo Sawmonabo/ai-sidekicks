@@ -2,7 +2,9 @@
 //! for them handed on before the binding is recorded, a run bound on it after the resume, the idle
 //! sleep's wake of a session no process holds, and a resume the provider deferred, which opens
 //! nothing; a resume or restart whose provider is missing posts the session's `providerMissing`
-//! notice.
+//! notice. A held lead's continue is tested in `answer`.
+
+mod answer;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -349,15 +351,16 @@ async fn a_wake_resumes_a_sleeping_session_once_with_its_kept_schedules() {
         |_, _| {},
     )
     .await;
+    let expires_at = "2030-01-01T00:00:00.000Z";
     for (stored_session_id, cron) in [(opening.session_id, CRON), (test_session_id(), "0 0 * * *")]
     {
         opening
             .database
             .reader()
             .execute(
-                "INSERT INTO session_kept_schedules (session_id, position, cron) \
-                 VALUES (?1, 0, ?2)",
-                [stored_session_id.text().as_str(), cron],
+                "INSERT INTO session_kept_schedules (session_id, position, cron, expires_at) \
+                 VALUES (?1, 0, ?2, ?3)",
+                [stored_session_id.text().as_str(), cron, expires_at],
             )
             .expect("the test stores a kept schedule");
     }
@@ -380,6 +383,7 @@ async fn a_wake_resumes_a_sleeping_session_once_with_its_kept_schedules() {
         [vec![KeptSchedule::Recurring {
             cron: CRON.to_owned(),
             next_fire_at: None,
+            expires_at: expires_at.parse().expect("a test instant"),
         }]],
         "one process comes up for the session, with its own kept schedules"
     );

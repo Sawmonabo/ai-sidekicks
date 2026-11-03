@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
-use sidekicks_contracts::approval::{ApprovalCategory, RememberedRuleSense};
+use sidekicks_contracts::approval::{ApprovalCategory, ApprovalState, RememberedRuleSense};
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
@@ -59,12 +59,14 @@ use crate::ask_description::{
     AskDescriptionError, ProviderAskDescription, bounded_wire_text, derive_rule_subject,
     describe_provider_ask, may_allow_stand, read_command_line,
 };
+use crate::callback_tool_approvals::decided_outcome;
 use crate::provider_ask_answers::{ProviderAskAnswer, answer_provider_ask};
 use crate::request_create::{
     ApprovalRequestCreateRequest, ApprovalRequestOrigin, ApprovalResourceDescriptor, ToolServerTool,
 };
 use crate::rules::{ApprovalRuleError, ApprovalRules};
 use crate::service::{ApprovalService, ApprovalServiceError, RaisedCard};
+use crate::store::StoredApprovalRequest;
 use crate::workflow_start::{WorkflowStart, check_workflow_start};
 
 // A tool's name stands within a card's scope, so a tool call's card always reads it.
@@ -420,8 +422,9 @@ impl PermissionCheck {
     }
 
     // The daemon's own card over `ask`, answered first by the session rule the daemon keeps over
-    // its subject. A subject the wire bound had to cut offers no rule, since it no longer names
-    // exactly what the rule would cover, and a blank one is refused, since it names nothing.
+    // its subject, then by the card a call made again returns to. A subject the wire bound had to
+    // cut offers no rule, since it no longer names exactly what the rule would cover, and a blank
+    // one is refused, since it names nothing.
     async fn ask_by_daemon_card(
         &self,
         ask: DaemonCardAsk,
@@ -446,6 +449,9 @@ impl PermissionCheck {
                     reason: BLOCKED_BY_RULE_REFUSAL.to_owned(),
                 },
             }));
+        }
+        if let Some(verdict) = self.return_to_daemon_card(&ask).await? {
+            return Ok(verdict);
         }
         let Some(scope) = bounded_wire_text(&ask.subject) else {
             return Ok(ToolCallVerdict::Settled(
@@ -497,6 +503,83 @@ impl PermissionCheck {
             )
             .await?;
         Ok(ToolCallVerdict::CardRaised(card))
+    }
+
+    // The daemon's card of the same run, action and call a call made again after its wait was let
+    // go returns to, found by its tool call or else its input: a pending one no one waits on, whose
+    // settlement the call then waits for, or an answered one whose orphaned answer it claims and
+    // settles by. A card answered or canceled between the arm and the read, its answer not kept for
+    // this call, leaves the call to the wait the answer settled, or, canceled, to a card of its
+    // own; `None` where no card is left to return to.
+    async fn return_to_daemon_card(
+        &self,
+        ask: &DaemonCardAsk,
+    ) -> Result<Option<ToolCallVerdict>, PermissionCheckError> {
+        if ask.tool_call_id.is_none() && ask.input_digest.is_none() {
+            return Ok(None);
+        }
+        let approvals = &self.deps.approvals;
+        let is_same_call = |card: &StoredApprovalRequest| {
+            card.ask_id.is_none() && card.resource_descriptor.action.as_ref() == Some(&ask.action)
+        };
+        let pending = approvals
+            .read_pending_call_requests(
+                ask.run_id,
+                ask.tool_call_id.clone(),
+                ask.input_digest.clone(),
+            )
+            .await?;
+        let unawaited = pending.into_iter().filter(is_same_call).find_map(|card| {
+            approvals
+                .arm_unawaited_card(card.run_id, card.approval_request_id)
+                .map(|settled| (card.approval_request_id, settled))
+        });
+        if let Some((approval_request_id, settled)) = unawaited {
+            let read_back = approvals.read_request(approval_request_id).await?;
+            let is_canceled = read_back
+                .as_ref()
+                .is_none_or(|card| card.state == ApprovalState::Canceled);
+            if !is_canceled {
+                if let Some(resolution) = read_back.and_then(|card| card.resolution)
+                    && approvals
+                        .orphaned_answers()
+                        .claim_call(approval_request_id)
+                        .await?
+                {
+                    return Ok(Some(ToolCallVerdict::Settled(decided_outcome(
+                        resolution.decision,
+                        resolution.decline_reason,
+                    ))));
+                }
+                return Ok(Some(ToolCallVerdict::CardRaised(RaisedCard {
+                    approval_request_id,
+                    settled,
+                })));
+            }
+        }
+        let Some(input_digest) = ask.input_digest.clone() else {
+            return Ok(None);
+        };
+        let orphaned_answers = approvals.orphaned_answers();
+        for card in orphaned_answers
+            .read_call_requests(ask.run_id, input_digest)
+            .await?
+        {
+            if is_same_call(&card)
+                && orphaned_answers
+                    .claim_call(card.approval_request_id)
+                    .await?
+            {
+                let resolution = card
+                    .resolution
+                    .expect("a card whose answer was kept holds its answer");
+                return Ok(Some(ToolCallVerdict::Settled(decided_outcome(
+                    resolution.decision,
+                    resolution.decline_reason,
+                ))));
+            }
+        }
+        Ok(None)
     }
 
     /// Decides one workflow start under the machine's workflow rules, as its owner, under the

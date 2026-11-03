@@ -129,6 +129,14 @@ pub(crate) enum CodexSessionCall {
         /// The steered message's id.
         message_id: QueueItemId,
     },
+    /// Takes the mark that the lead's held continuation ended before the steer of the person's
+    /// answers was sent, so the answers are owed a turn of their own.
+    TakeAnswerTurnOwed {
+        /// The lead.
+        run_id: RunId,
+        /// Whether the mark was there.
+        reply: oneshot::Sender<bool>,
+    },
     /// Registers a wait on the session's turns.
     WaitForTurns {
         /// What the wait waits for.

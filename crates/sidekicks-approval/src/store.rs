@@ -31,9 +31,9 @@ use sidekicks_store::database::stored_column::{closed_word, optional_text_column
 
 use crate::request_create::ApprovalResourceDescriptor;
 
-/// The distinct statements [`ApprovalRequestReader`] prepares, for the reading connection's
-/// statement cache.
-pub const APPROVAL_REQUEST_READER_STATEMENT_CAPACITY: usize = 9;
+/// The distinct statements [`ApprovalRequestReader`] and the orphaned answers' reads prepare, for
+/// the reading connection's statement cache.
+pub const APPROVAL_REQUEST_READER_STATEMENT_CAPACITY: usize = 11;
 
 /// An ask as its rows hold it, with the answers its card may offer and its answer once it has one.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -296,8 +296,9 @@ fn pending() -> &'static str {
     ApprovalState::Pending.into()
 }
 
-// Every read of asks selects these columns, in this order, which `stored_request_of` reads.
-const SELECT_REQUESTS_SQL: &str = "SELECT request.id, request.session_id, request.run_id,
+/// The columns every read of asks selects, in the order [`stored_request_of`] reads them.
+pub(crate) const SELECT_REQUESTS_SQL: &str =
+    "SELECT request.id, request.session_id, request.run_id,
        request.requested_by, request.category, request.scope, request.resource_descriptor,
        request.ask_id, request.state, request.created_at, request.updated_at,
        resolution.device_id, resolution.client_resolution_id, resolution.decision,
@@ -681,8 +682,8 @@ fn non_empty_text(text: String) -> Result<NonEmptyText, EmptyStoredText> {
     NonEmptyText::new(text).ok_or(EmptyStoredText)
 }
 
-// Reads the columns `SELECT_REQUESTS_SQL` selects, in its order.
-fn stored_request_of(row: &Row<'_>) -> rusqlite::Result<StoredApprovalRequest> {
+/// The ask a row of [`SELECT_REQUESTS_SQL`]'s columns holds; fails as a column does not read.
+pub(crate) fn stored_request_of(row: &Row<'_>) -> rusqlite::Result<StoredApprovalRequest> {
     // Written by the create from a typed descriptor, so it reads back as one.
     let resource_descriptor: ApprovalResourceDescriptor =
         text_column(row, 6, |text| serde_json::from_str(&text))?;

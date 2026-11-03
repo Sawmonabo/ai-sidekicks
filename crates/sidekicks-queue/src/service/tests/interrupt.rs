@@ -392,16 +392,24 @@ impl Fixture {
             .expect("the test reads the interrupt's row")
     }
 
-    /// A run queue built again over the fixture's record, as the daemon's next start builds it.
+    /// A run queue built again over the fixture's record, as the daemon's next start builds it,
+    /// the session's process opened again, as the start's recovery resumes it before the queue's.
     fn restart(&self, driver: MockProviderDriver) -> Arc<RunQueue> {
-        queue_over(
+        let restarted = queue_over(
             &self.database,
             &self.log,
             &self.home,
             driver,
             Arc::clone(&self.process) as _,
             CurrentProviderAccount::Current(test_provider_account_id()),
-        )
+            Arc::clone(&self.halted_runs) as _,
+            &self.orphaned_approvals,
+            &self.resumed_runs,
+        );
+        restarted
+            .provider_sessions
+            .record_test_opening(self.session_id);
+        restarted
     }
 }
 

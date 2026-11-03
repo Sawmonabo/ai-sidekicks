@@ -46,6 +46,10 @@ pub(crate) const CODEX_INVALID_REQUEST_CODE: i64 = -32600;
 /// The `data.reason` of the service's answer while it drains toward its exit.
 pub(crate) const CODEX_DRAINING_REASON: &str = "serverShuttingDown";
 
+/// The words of the service's answer while it drains toward its exit, which a release that sends
+/// no `data.reason` gives alone.
+const CODEX_DRAINING_MESSAGE: &str = "Server is draining";
+
 /// The words of Codex's refusal to resume a conversation another runtime still writes.
 const CODEX_ACTIVE_WRITER_MESSAGE: &str = "active writer";
 
@@ -303,12 +307,16 @@ impl CodexError {
     }
 
     /// Whether this is the service's answer that it is draining toward its exit and takes no new
-    /// work, while its running turns, reads and interrupts go on.
+    /// work, while its running turns, reads and interrupts go on: read from its `data.reason`
+    /// where it carries one, and from its words where it carries none.
     pub(crate) fn is_service_draining(&self) -> bool {
         matches!(
             self,
-            Self::ProviderRequest { code: CODEX_INVALID_REQUEST_CODE, reason: Some(reason), .. }
-                if reason == CODEX_DRAINING_REASON
+            Self::ProviderRequest { code: CODEX_INVALID_REQUEST_CODE, reason, message, .. }
+                if match reason {
+                    Some(reason) => reason == CODEX_DRAINING_REASON,
+                    None => message.contains(CODEX_DRAINING_MESSAGE),
+                }
         )
     }
 
