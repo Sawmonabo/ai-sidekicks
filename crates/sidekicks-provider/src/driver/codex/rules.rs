@@ -1,16 +1,23 @@
-//! A project's standing rules as Codex keeps them, in the `.rules` files of the project's
-//! `.codex/rules/`, which Codex reads in conversations started after a change. The daemon writes
-//! one file of its own there, holding a command's `prefix_rule` and a host's `network_rule`, and
-//! lists it in the repository's own exclude list so it stays on this machine. Codex drops every
-//! rule file's rules when one rule file does not load, so a rule Codex would refuse is refused
-//! before anything is written. A command allow a prefix rule would stretch over a force push or a
-//! branch delete is never written: the daemon answers each ask it covers. The rules in force are
-//! read by evaluating every rule file Codex loads, the system's and the person's own among them, as
-//! Codex's own loader evaluates them.
+//! Codex's standing rules, kept in the `.rules` files of the system folder's, each Codex home's and
+//! each trusted project's `rules/` folders, which Codex reads in conversations started after a
+//! change. The daemon writes one file of its own in a project's `.codex/rules/`, holding a
+//! command's `prefix_rule` and a host's `network_rule`, and lists it in the repository's own
+//! exclude list so it stays on this machine; a revoke, from the settings page or of an approval's
+//! rule, takes a rule out of each home or project file that holds it, never out of a system file.
+//! Codex drops every rule file's rules when one rule file does not load, so a rule Codex would
+//! refuse is refused before anything is written, and a revoke that would leave a file Codex refuses
+//! is refused with the file untouched. A command allow a prefix rule would stretch over a force
+//! push or a branch delete is never written: the daemon answers each ask it covers. The rules in
+//! force are read by evaluating every rule file Codex loads, the system's and the person's own
+//! among them, as Codex's own loader evaluates them.
 
 mod evaluator;
+mod listing;
+mod protected_paths;
+mod removal;
 
 use std::io;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, LazyLock, Mutex};
@@ -19,23 +26,25 @@ use std::time::{Duration, Instant};
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_contracts::approval::RememberedRuleSense;
-use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
+use sidekicks_contracts::wire::text::{TextError, is_ecmascript_whitespace};
 use sidekicks_platforms::PathRules;
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use sidekicks_policy::destructive_git::covers_destructive_git;
 use sidekicks_std::bounded_wait::wait_within;
-use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use sidekicks_std::file::atomic_write::{AtomicWriteError, rewrite_file_in_place};
 use sidekicks_std::file::real_location::resolve_real_location;
-use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::missing_entry::MissingEntry;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_workspace::git::exclude::{ExcludeError, add_repository_exclude};
 
 use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::config_read::CodexConfigFileError;
 use crate::driver::codex::delivery::asks::CodexProjectRules;
-use crate::driver::codex::rules::evaluator::RuleFileEvaluator;
+use crate::driver::codex::rules::evaluator::{EvaluatedRuleFile, RuleFileEvaluator};
 use crate::port::repository_reader::RepositoryReader;
+use crate::project_rule_folders::RuleFileHolds;
 
 /// The folder a project keeps its Codex settings in.
 pub(crate) const CODEX_PROJECT_SETTINGS_FOLDER: &str = ".codex";
@@ -48,8 +57,9 @@ const CODEX_RULE_FILE_EXTENSION: &str = "rules";
 const CODEX_PROJECT_RULE_FILE_NAME: &str = "sidekicks.rules";
 const CODEX_PROJECT_RULE_EXCLUDE_PATTERN: &str = "/.codex/rules/sidekicks.rules";
 
-// The rule file is the person's to read, as Codex leaves such files.
-const CODEX_PROJECT_RULE_FILE_MODE: u32 = 0o644;
+// A rule file the daemon makes is the person's to read, as Codex leaves such files; one already
+// there keeps its own mode.
+const CODEX_RULE_FILE_MODE: u32 = 0o644;
 
 // A host's rule covers both protocols a fetch takes.
 const CODEX_NETWORK_RULE_PROTOCOLS: [&str; 2] = ["https", "http"];
@@ -63,10 +73,11 @@ pub(crate) const RULE_EVALUATION_TIME_LIMIT: Duration = Duration::from_secs(5);
 // that never reaches starlark's cancel check, before the read answers without it.
 const RULE_EVALUATION_WAIT_MARGIN: Duration = Duration::from_secs(1);
 
-// Held on the daemon's rule file across its read and write, so two edits never drop each other's.
-static PROJECT_RULE_FILE_LOCK: LazyLock<KeyedLock<PathBuf>> = LazyLock::new(KeyedLock::new);
+// Held on a rule file the daemon edits across its read and write, so two edits never drop each
+// other's.
+static RULE_FILE_LOCK: LazyLock<KeyedLock<PathBuf>> = LazyLock::new(KeyedLock::new);
 
-/// Why a Codex project rule could not be written, removed or read.
+/// Why a Codex rule could not be written, removed, listed or read.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CodexRulesError {
     /// Codex keeps no project rule on this kind of ask.
@@ -100,8 +111,8 @@ pub(crate) enum CodexRulesError {
         #[source]
         failure: io::Error,
     },
-    /// The rule file could not be written.
-    #[error("writing the project's rule file failed")]
+    /// A rule file could not be written.
+    #[error("writing a rule file failed")]
     Write(#[source] AtomicWriteError),
     /// The rule file could not be listed in the repository's exclude list.
     #[error("keeping the project's rule file out of commits failed")]
@@ -118,7 +129,7 @@ pub(crate) enum CodexRulesError {
     /// The task evaluating the rule files ended before it answered.
     #[error("evaluating the rule files stopped")]
     EvaluationStopped(#[source] tokio::task::JoinError),
-    /// The daemon's rule file could not be deleted once its last rule went.
+    /// A rule file could not be deleted once its last rule went.
     #[error("deleting the emptied rule file {} failed", path.display())]
     Delete {
         /// The rule file.
@@ -135,6 +146,41 @@ pub(crate) enum CodexRulesError {
     RuleInUneditedFile {
         /// The file that keeps it.
         path: PathBuf,
+    },
+    /// Taking a rule out of its file would leave a file Codex refuses, which drops every rule
+    /// file's rules, or one that still makes the rule, so the file is left as it was.
+    #[error("taking the rule out of {} is refused: {reason}", path.display())]
+    RevokeRefused {
+        /// The rule file.
+        path: PathBuf,
+        /// Why, in Codex's own words where Codex would refuse the file.
+        reason: String,
+    },
+    /// A Codex config file cannot be read or is not TOML, so Codex does not start on it.
+    #[error("a Codex config file cannot be read")]
+    UnreadableConfig(#[source] CodexConfigFileError),
+    /// The permission profile Codex's config selects does not resolve, so Codex does not start on
+    /// it: it or a profile it extends is not defined, it extends a built-in profile, or the chain
+    /// runs in a circle.
+    #[error("Codex does not resolve the permission profile {profile}: {reason}")]
+    UnresolvedProfile {
+        /// The profile the config selects.
+        profile: String,
+        /// Why, in Codex's terms.
+        reason: String,
+    },
+    /// Codex's config defines permission profiles but no layer selects one or the older sandbox
+    /// key, so Codex does not start on it.
+    #[error("Codex's config defines permission profiles but does not select one")]
+    ProfileUnselected,
+    /// A rule's text, a protected path or a file's path does not fit the settings list's bounds.
+    #[error("a rule or path read from {} does not fit the settings list", path.display())]
+    Unlistable {
+        /// The file it was read from.
+        path: PathBuf,
+        /// The bound it broke.
+        #[source]
+        failure: TextError,
     },
 }
 
@@ -167,19 +213,20 @@ pub(crate) struct CodexRuleSources<'a> {
     pub(crate) evaluation_time_limit: Duration,
 }
 
-// Whether an evaluation goes on past the first file Codex refuses: a read stops there, since the
-// whole read then fails, while a revoke's search reads every file.
+// Which of Codex's rule folders a file is in: the system folder's, which Codex reads for every
+// home, a Codex home's, or a project's.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum AfterFailure {
-    Stop,
-    Continue,
+enum RuleFileOrigin {
+    System,
+    Home,
+    Project,
 }
 
-// One rule file's text as read, and whether it is one of the project's.
+// One rule file's text as read, and the folder it is in.
 struct RuleFileText {
     path: PathBuf,
     text: String,
-    is_project: bool,
+    origin: RuleFileOrigin,
 }
 
 /// The project rule files the daemon edits: a rule an answer made written into a project, and a
@@ -192,9 +239,9 @@ pub(crate) struct CodexProjectRuleFiles {
 }
 
 impl CodexProjectRuleFiles {
-    /// Takes a revoked `rule` back out of `project_folder`'s own rule file, read beside the rules
-    /// of `codex_home`, the session's; a rule the file no longer holds is already out of force.
-    /// Fails as [`remove_codex_project_rule`] does otherwise.
+    /// Takes a revoked `rule` out of each rule file of `codex_home`, the session's, and of
+    /// `project_folder` that makes it; a rule no file makes is already out of force. Fails as
+    /// [`remove_codex_project_rule`] does otherwise.
     pub(crate) async fn revoke(
         &self,
         codex_home: &Path,
@@ -240,7 +287,8 @@ impl CodexProjectRules for CodexProjectRuleFiles {
         codex_home: &'call Path,
         project_folder: &'call Path,
         rule: &'call ProviderAskRule,
-    ) -> BoxFuture<'call, Result<(), CodexRulesError>> {
+        hold: &'call KeyHold<'static, PathBuf>,
+    ) -> BoxFuture<'call, Result<CodexProjectRuleWrite, CodexRulesError>> {
         async move {
             let repository = match self.repositories.port() {
                 Some(repositories) => repositories.read_repository(project_folder).await,
@@ -251,61 +299,79 @@ impl CodexProjectRules for CodexProjectRuleFiles {
                 &self.sources(codex_home, project_folder),
                 common_git_folder.as_deref(),
                 rule,
+                hold,
             )
             .await
         }
         .boxed()
     }
 
-    fn remove<'call>(
+    fn take_back<'call>(
         &'call self,
-        codex_home: &'call Path,
         project_folder: &'call Path,
-        rule: &'call ProviderAskRule,
+        change: &'call CodexProjectRuleWrite,
+        hold: &'call KeyHold<'static, PathBuf>,
     ) -> BoxFuture<'call, Result<(), CodexRulesError>> {
-        async move {
-            remove_codex_project_rule(&self.sources(codex_home, project_folder), rule).await
-        }
-        .boxed()
+        take_back_codex_project_rule(project_folder, change, hold).boxed()
     }
+}
+
+/// Holds the edit lock of the project's own rule file in each of `project_folders`, every file in
+/// one order, for a write into all of them and any take-back. Fails with `Read` where a file's
+/// location cannot be resolved.
+pub(crate) async fn hold_codex_project_rule_files(
+    project_folders: &[PathBuf],
+) -> Result<RuleFileHolds, CodexRulesError> {
+    let mut files = Vec::with_capacity(project_folders.len());
+    for project_folder in project_folders {
+        let lock_key = resolve_lock_key(&project_rule_file(project_folder)).await?;
+        files.push((project_folder.clone(), lock_key));
+    }
+    Ok(RuleFileHolds::acquire(&RULE_FILE_LOCK, files).await)
+}
+
+/// What [`write_codex_project_rule`] changed in the project's own rule file, which
+/// [`take_back_codex_project_rule`] puts back.
+pub(crate) enum CodexProjectRuleWrite {
+    /// The rule takes no line, so the file was left as it was.
+    Unchanged,
+    /// The file was written over `text_before`, its text until then, or made where that is `None`.
+    Written { text_before: Option<String> },
 }
 
 /// Writes `rule` into the project's own rule file, replacing a rule of the other sense over the
 /// same subject; a file the daemon creates is first listed in the exclude list of
-/// `common_git_folder`, the repository the project folder belongs to, where it is one. One edit at
-/// a time on the file. Refuses, with nothing written, a kind Codex keeps no project rule on, a
+/// `common_git_folder`, the repository the project folder belongs to, where it is one, under
+/// `_hold`, the file's edit lock. Refuses, with nothing written, a kind Codex keeps no project rule on, a
 /// command with no word, a host Codex would refuse and a project whose `.codex` is the Codex home.
+/// Answers what it changed, for a take-back.
 pub(crate) async fn write_codex_project_rule(
     sources: &CodexRuleSources<'_>,
     common_git_folder: Option<&Path>,
     rule: &ProviderAskRule,
-) -> Result<(), CodexRulesError> {
+    _hold: &KeyHold<'_, PathBuf>,
+) -> Result<CodexProjectRuleWrite, CodexRulesError> {
     let written = compose_rule_lines(rule)?;
     if written.is_empty() {
-        return Ok(());
+        return Ok(CodexProjectRuleWrite::Unchanged);
     }
     let opposite = compose_rule_lines(&ProviderAskRule {
         sense: opposite_sense(rule.sense),
         ..rule.clone()
     })?;
-    if is_codex_home_project(sources).await {
+    if is_codex_home_project(sources.project_folder, sources.codex_home).await {
         return Err(CodexRulesError::ProjectIsCodexHome);
     }
     let file_path = project_rule_file(sources.project_folder);
-    let _hold = PROJECT_RULE_FILE_LOCK
-        .acquire(resolve_lock_key(&file_path).await?)
-        .await;
-    let text = if let Some(text) = read_if_present(&file_path).await? {
-        text
-    } else {
-        if let Some(common_git_folder) = common_git_folder {
-            add_repository_exclude(common_git_folder, CODEX_PROJECT_RULE_EXCLUDE_PATTERN)
-                .await
-                .map_err(CodexRulesError::Exclude)?;
-        }
-        String::new()
-    };
-    let mut lines: Vec<&str> = rule_lines(&text)
+    let text_before = read_if_present(&file_path).await?;
+    if text_before.is_none()
+        && let Some(common_git_folder) = common_git_folder
+    {
+        add_repository_exclude(common_git_folder, CODEX_PROJECT_RULE_EXCLUDE_PATTERN)
+            .await
+            .map_err(CodexRulesError::Exclude)?;
+    }
+    let mut lines: Vec<&str> = rule_lines(text_before.as_deref().unwrap_or_default())
         .filter(|line| {
             !opposite
                 .iter()
@@ -314,48 +380,102 @@ pub(crate) async fn write_codex_project_rule(
         })
         .collect();
     lines.extend(written.iter().map(String::as_str));
-    write_rule_file(&file_path, &lines).await
+    write_rule_file(&file_path, &lines).await?;
+    Ok(CodexProjectRuleWrite::Written { text_before })
 }
 
-/// Removes a revoked rule from the project's own rule file, one edit at a time on it, and deletes
-/// the file once it holds no rule. Refuses the rules [`write_codex_project_rule`] refuses; answers
-/// `RuleInUneditedFile`, changing nothing, where another rule file Codex reads keeps the rule (one
-/// that does not load counts when its text holds the rule's line), since it would still apply;
-/// else `RuleNotFound` where the daemon's file does not hold it either.
+/// Puts the project's own rule file back as it was before [`write_codex_project_rule`] made
+/// `change`, where a write into another of the project's folders failed: the text it held written
+/// back, or the file deleted where the write made it, so a rule the write replaced stands again,
+/// under `_hold`, the file's edit lock held since the write. No other rule file is read or touched.
+/// Fails as the file cannot be written or deleted.
+pub(crate) async fn take_back_codex_project_rule(
+    project_folder: &Path,
+    change: &CodexProjectRuleWrite,
+    _hold: &KeyHold<'_, PathBuf>,
+) -> Result<(), CodexRulesError> {
+    let text_before = match change {
+        CodexProjectRuleWrite::Unchanged => return Ok(()),
+        CodexProjectRuleWrite::Written { text_before } => text_before,
+    };
+    let file_path = project_rule_file(project_folder);
+    match text_before {
+        Some(text) => rewrite_file_in_place(&file_path, text.clone(), CODEX_RULE_FILE_MODE)
+            .await
+            .map_err(CodexRulesError::Write),
+        None => tokio::fs::remove_file(&file_path)
+            .await
+            .none_if_missing()
+            .map(|_was_there| ())
+            .map_err(|failure| CodexRulesError::Delete {
+                path: file_path.clone(),
+                failure,
+            }),
+    }
+}
+
+/// Takes a revoked rule out of every home and project rule file Codex reads for the project's
+/// sessions that makes it, each file held while every edit is checked together and written only
+/// once all pass, as [`removal::remove_rule_calls`] does, a file left with no rule deleted. Refuses
+/// the rules [`write_codex_project_rule`] refuses; answers `RuleInUneditedFile` where a system rule
+/// file makes the rule, since the daemon never edits one and the rule would still apply,
+/// `RevokeRefused` where a call that makes it makes another rule too, which a revoke would take
+/// with it, or where an edited file would not load or still make it, each changing nothing;
+/// `RuleNotFound` where no file makes it; and fails with `Unloadable` where Codex refuses a rule
+/// file.
 pub(crate) async fn remove_codex_project_rule(
     sources: &CodexRuleSources<'_>,
     rule: &ProviderAskRule,
 ) -> Result<(), CodexRulesError> {
-    let removed = compose_rule_lines(rule)?;
-    if is_codex_home_project(sources).await {
+    compose_rule_lines(rule)?;
+    if is_codex_home_project(sources.project_folder, sources.codex_home).await {
         return Err(CodexRulesError::ProjectIsCodexHome);
     }
-    let file_path = project_rule_file(sources.project_folder);
-    if let Some(path) = find_rule_elsewhere(sources, &file_path, rule, &removed).await? {
-        return Err(CodexRulesError::RuleInUneditedFile { path });
-    }
-    let _hold = PROJECT_RULE_FILE_LOCK
-        .acquire(resolve_lock_key(&file_path).await?)
-        .await;
-    let text = read_if_present(&file_path).await?.unwrap_or_default();
-    let lines: Vec<&str> = rule_lines(&text).collect();
-    let kept: Vec<&str> = lines
-        .iter()
-        .copied()
-        .filter(|line| !removed.iter().any(|rule_line| rule_line == line))
-        .collect();
-    if kept.len() == lines.len() {
-        return Err(CodexRulesError::RuleNotFound);
-    }
-    if kept.is_empty() {
-        return tokio::fs::remove_file(&file_path).await.map_err(|failure| {
-            CodexRulesError::Delete {
-                path: file_path.clone(),
-                failure,
+    let wanted = normalize_rule_subject(rule)?;
+    loop {
+        let making = read_files_making_rule(sources, &wanted).await?;
+        if making.is_empty() {
+            return Err(CodexRulesError::RuleNotFound);
+        }
+        if let Some((system_file, _)) = making
+            .iter()
+            .find(|(file, _)| file.origin == RuleFileOrigin::System)
+        {
+            return Err(CodexRulesError::RuleInUneditedFile {
+                path: system_file.path.clone(),
+            });
+        }
+        // Every file is held in one order, so two revokes never wait on each other.
+        let mut lock_keys = Vec::with_capacity(making.len());
+        for (file, _) in &making {
+            lock_keys.push(resolve_lock_key(&file.path).await?);
+        }
+        let _holds = RULE_FILE_LOCK.acquire_all(lock_keys).await;
+        // Each file is read again under the holds; where one changed since, the files are read
+        // and evaluated again.
+        let mut is_unchanged = true;
+        for (file, _) in &making {
+            if read_if_present(&file.path).await?.as_deref() != Some(file.text.as_str()) {
+                is_unchanged = false;
+                break;
             }
-        });
+        }
+        if !is_unchanged {
+            continue;
+        }
+        let edits = making
+            .into_iter()
+            .map(|(file, spans)| removal::RuleFileEdit {
+                path: file.path,
+                text: file.text,
+                spans,
+            })
+            .collect();
+        return removal::remove_rule_calls(sources, edits, |evaluated, _| {
+            evaluated.rules.contains(&wanted)
+        })
+        .await;
     }
-    write_rule_file(&file_path, &kept).await
 }
 
 /// Every allow and block Codex enforces from the project's rule files, read as Codex loads them:
@@ -376,13 +496,13 @@ pub(crate) async fn read_codex_project_rules(
 ) -> Result<Vec<CodexProjectRule>, CodexRulesError> {
     let files = read_rule_file_texts(sources).await?;
     let mut rules = Vec::new();
-    for (file, evaluated) in evaluate_rule_files(files, sources, AfterFailure::Stop).await? {
-        let file_rules = evaluated.map_err(|reason| CodexRulesError::Unloadable {
+    for (file, evaluated) in evaluate_rule_files(files, sources).await? {
+        let evaluated = evaluated.map_err(|reason| CodexRulesError::Unloadable {
             path: file.path.clone(),
             reason,
         })?;
-        if file.is_project {
-            rules.extend(file_rules.into_iter().map(|rule| CodexProjectRule {
+        if file.origin == RuleFileOrigin::Project {
+            rules.extend(evaluated.rules.into_iter().map(|rule| CodexProjectRule {
                 file: file.path.clone(),
                 rule,
             }));
@@ -391,32 +511,38 @@ pub(crate) async fn read_codex_project_rules(
     Ok(rules)
 }
 
-// The first rule file Codex reads, other than the daemon's own, that keeps a revoked rule, by its
-// evaluated rules or, for one that does not load, by one of `literal_lines` in its text; `None`
-// where none does.
-async fn find_rule_elsewhere(
+// Every rule file Codex reads for the project's sessions that makes `wanted`, with the places of
+// the calls that make it. Refuses with `RevokeRefused` where one of those calls makes another rule
+// too, and fails with `Unloadable` where Codex refuses a file.
+async fn read_files_making_rule(
     sources: &CodexRuleSources<'_>,
-    own_file: &Path,
-    rule: &ProviderAskRule,
-    literal_lines: &[String],
-) -> Result<Option<PathBuf>, CodexRulesError> {
-    let wanted = normalize_rule_subject(rule)?;
+    wanted: &ProviderAskRule,
+) -> Result<Vec<(RuleFileText, Vec<Range<usize>>)>, CodexRulesError> {
     let files = read_rule_file_texts(sources).await?;
-    for (file, evaluated) in evaluate_rule_files(files, sources, AfterFailure::Continue).await? {
-        if file.path == own_file {
-            continue;
+    let mut making = Vec::new();
+    for (file, evaluated) in evaluate_rule_files(files, sources).await? {
+        let evaluated = evaluated.map_err(|reason| CodexRulesError::Unloadable {
+            path: file.path.clone(),
+            reason,
+        })?;
+        let mut spans = Vec::new();
+        for call in evaluated.calls {
+            if !call.rules.contains(wanted) {
+                continue;
+            }
+            if call.rules.iter().any(|made| made != wanted) {
+                return Err(CodexRulesError::RevokeRefused {
+                    path: file.path,
+                    reason: "the call that makes the rule makes other rules too".to_owned(),
+                });
+            }
+            spans.push(call.span);
         }
-        let is_kept = match evaluated {
-            Ok(rules) => rules.contains(&wanted),
-            Err(_) => literal_lines
-                .iter()
-                .any(|line| file.text.contains(line.as_str())),
-        };
-        if is_kept {
-            return Ok(Some(file.path));
+        if !spans.is_empty() {
+            making.push((file, spans));
         }
     }
-    Ok(None)
+    Ok(making)
 }
 
 // The text of every rule file Codex loads for the project's sessions, in the order it loads them.
@@ -424,35 +550,41 @@ async fn read_rule_file_texts(
     sources: &CodexRuleSources<'_>,
 ) -> Result<Vec<RuleFileText>, CodexRulesError> {
     let mut folders = vec![
-        (sources.system_folder.join(CODEX_RULES_FOLDER), false),
-        (sources.codex_home.join(CODEX_RULES_FOLDER), false),
+        (
+            sources.system_folder.join(CODEX_RULES_FOLDER),
+            RuleFileOrigin::System,
+        ),
+        (
+            sources.codex_home.join(CODEX_RULES_FOLDER),
+            RuleFileOrigin::Home,
+        ),
     ];
-    if sources.is_project_trusted && !is_codex_home_project(sources).await {
-        folders.push((project_rules_folder(sources.project_folder), true));
+    if sources.is_project_trusted
+        && !is_codex_home_project(sources.project_folder, sources.codex_home).await
+    {
+        folders.push((
+            project_rules_folder(sources.project_folder),
+            RuleFileOrigin::Project,
+        ));
     }
     let mut files = Vec::new();
-    for (folder, is_project) in folders {
+    for (folder, origin) in folders {
         for path in list_rule_files(&folder).await? {
             let text = read_rule_file(&path).await?;
-            files.push(RuleFileText {
-                path,
-                text,
-                is_project,
-            });
+            files.push(RuleFileText { path, text, origin });
         }
     }
     Ok(files)
 }
 
 // Each file evaluated in turn by one evaluator, as Codex's loader carries one across them, away
-// from the async workers, up to the first file Codex refuses where `after_failure` stops there.
+// from the async workers, up to the first file Codex refuses, after which Codex loads none.
 // The evaluation stops at the sources' time limit; a call that runs on past it without reaching
 // starlark's check is left to its thread, and the file it is in reads as one that did not finish.
 async fn evaluate_rule_files(
     files: Vec<RuleFileText>,
     sources: &CodexRuleSources<'_>,
-    after_failure: AfterFailure,
-) -> Result<Vec<(RuleFileText, Result<Vec<ProviderAskRule>, String>)>, CodexRulesError> {
+) -> Result<Vec<(RuleFileText, Result<EvaluatedRuleFile, String>)>, CodexRulesError> {
     let Some(first_file) = files.first() else {
         return Ok(Vec::new());
     };
@@ -471,7 +603,7 @@ async fn evaluate_rule_files(
             let outcome = evaluator.evaluate(&file.path.to_string_lossy(), &file.text, deadline);
             let is_refused = outcome.is_err();
             evaluated.push((file, outcome));
-            if is_refused && after_failure == AfterFailure::Stop {
+            if is_refused {
                 break;
             }
         }
@@ -493,19 +625,19 @@ async fn evaluate_rule_files(
     finished.map_err(CodexRulesError::EvaluationStopped)
 }
 
-// Whether the project's `.codex` folder is the Codex home, as written or once resolved, which
+// Whether `project_folder`'s `.codex` folder is `codex_home`, as written or once resolved, which
 // Codex never reads as a project's.
-async fn is_codex_home_project(sources: &CodexRuleSources<'_>) -> bool {
-    let project_settings = sources.project_folder.join(CODEX_PROJECT_SETTINGS_FOLDER);
-    if project_settings == sources.codex_home {
+async fn is_codex_home_project(project_folder: &Path, codex_home: &Path) -> bool {
+    let project_settings = project_folder.join(CODEX_PROJECT_SETTINGS_FOLDER);
+    if project_settings == codex_home {
         return true;
     }
     // A path that does not resolve is compared as written, as Codex's loader compares it.
     let resolve = |path: PathBuf| async move { resolve_real_location(&path).await.unwrap_or(path) };
-    resolve(project_settings).await == resolve(sources.codex_home.to_path_buf()).await
+    resolve(project_settings).await == resolve(codex_home.to_path_buf()).await
 }
 
-// The daemon's rule file as its lock knows it, one key for every spelling of the file.
+// A rule file as its lock knows it, one key for every spelling of the file.
 async fn resolve_lock_key(file_path: &Path) -> Result<PathBuf, CodexRulesError> {
     resolve_real_location(file_path)
         .await
@@ -726,7 +858,7 @@ async fn write_rule_file(file_path: &Path, lines: &[&str]) -> Result<(), CodexRu
     }
     let mut text = lines.join("\n");
     text.push('\n');
-    write_file_atomically(file_path, text, CODEX_PROJECT_RULE_FILE_MODE)
+    rewrite_file_in_place(file_path, text, CODEX_RULE_FILE_MODE)
         .await
         .map_err(CodexRulesError::Write)
 }

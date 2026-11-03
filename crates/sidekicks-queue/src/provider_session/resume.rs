@@ -134,16 +134,24 @@ impl ProviderSessions {
     /// [`ProviderSessionError::Provider`] when no driver answers its provider or the driver cannot
     /// resume, the driver never called, [`ProviderSessionError::ResumeRefused`] for a restart the
     /// provider refused, [`ProviderSessionError::ResumedRuns`] for runs the resume named that were
-    /// not settled, and as the composition, the driver or the binding's record fails.
+    /// not settled, and as the composition, the driver or the binding's record fails. A restart
+    /// whose provider no driver answers, or is not installed, posts the `providerMissing` notice
+    /// first.
     pub async fn restart(&self, session_id: SessionId) -> Result<(), ProviderSessionError> {
         let _hold = self.deps.transition_lock.acquire(session_id).await;
         self.refuse_ended(session_id).await?;
         let leg = read_session_leg(&self.deps.pool, session_id)
             .await?
             .ok_or(ProviderSessionError::NoConversation { session_id })?;
-        self.deps
+        if let Err(refusal) = self
+            .deps
             .providers
-            .check_capability(&leg.provider_name, DriverCapabilityFlag::Resume)?;
+            .check_capability(&leg.provider_name, DriverCapabilityFlag::Resume)
+        {
+            return Err(self
+                .answer_failed_start(session_id, &leg.provider_name, refusal.into())
+                .await);
+        }
         let (opened, _resumed) = self.relaunch(session_id, leg, Relaunch::Restart).await?;
         self.record_opened(session_id, opened);
         Ok(())
@@ -158,7 +166,8 @@ impl ProviderSessions {
     /// [`ProviderSessionError::NoConversation`] for one with none to resume, the driver never
     /// called, [`ProviderSessionError::ResumeRefused`] for a resume the provider refused,
     /// [`ProviderSessionError::ResumedRuns`] for runs the resume named that were not settled, and
-    /// as the composition, the driver or the binding's record fails.
+    /// as the composition, the driver or the binding's record fails. A resume whose provider no
+    /// driver answers, or is not installed, posts the `providerMissing` notice first.
     pub async fn resume_after_restart(
         &self,
         session_id: SessionId,
@@ -208,7 +217,14 @@ impl ProviderSessions {
             .compose_resume(session_id, &leg, minted_id.clone())
             .await?;
         params.on_mcp_server_status = function_legs_for(&minted_id).on_mcp_server_status;
-        let driver = self.deps.providers.lookup(&leg.provider_name)?;
+        let driver = match self.deps.providers.lookup(&leg.provider_name) {
+            Ok(driver) => driver,
+            Err(refusal) => {
+                return Err(self
+                    .answer_failed_start(session_id, &leg.provider_name, refusal.into())
+                    .await);
+            }
+        };
         self.deps
             .binding_cursors
             .open_relaunch(session_id, &leg, minted_id.clone())
@@ -221,7 +237,9 @@ impl ProviderSessions {
             Ok(answer) => answer,
             Err(error) => {
                 self.deps.binding_cursors.forget_binding(&minted_id);
-                return Err(error.into());
+                return Err(self
+                    .answer_failed_start(session_id, &leg.provider_name, error.into())
+                    .await);
             }
         };
         let (binding_id, resume_handle, spawned_version, runs) = match answer {

@@ -18,8 +18,8 @@ const CLAUDE_HOME_SETTINGS_FILE: &str = "settings.json";
 // The setting that holds how many days Claude Code keeps a conversation file.
 const CLAUDE_CLEANUP_PERIOD_SETTING: &str = "cleanupPeriodDays";
 
-// The home's settings file is readable by the person alone.
-const CLAUDE_HOME_SETTINGS_MODE: u32 = 0o600;
+/// The mode of an account home's settings file, which the person alone reads.
+pub(crate) const CLAUDE_HOME_SETTINGS_MODE: u32 = 0o600;
 
 /// Sets `cleanupPeriodDays` in the `settings.json` of the account home at `config_folder` to
 /// [`CLAUDE_CLEANUP_PERIOD_DAYS`], every other byte kept, and writes nothing when it already holds

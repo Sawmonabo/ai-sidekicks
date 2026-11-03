@@ -1,11 +1,12 @@
 //! The lookups the session verbs and the sessions list share: whether a session has a directory
-//! row, the states of a session that has ended, closed or being purged, and a write kept only while
-//! its session has a row.
+//! row, where it runs, the states of a session that has ended, closed or being purged, and a write
+//! kept only while its session has a row.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
-use rusqlite::{Connection, named_params};
+use rusqlite::{Connection, OptionalExtension as _, named_params};
+use sidekicks_contracts::place::Place;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_ipc::domain_error::DomainError;
@@ -15,6 +16,7 @@ use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::statement::{
     StatementBindings, StatementResult, WriteStatement, text_binding,
 };
+use sidekicks_store::database::stored_column::place_column;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 /// The states of a session that has ended, closed or being purged, as a SQL list of quoted words
@@ -31,6 +33,25 @@ pub fn session_exists(reader: &Connection, session_id: &SessionId) -> rusqlite::
     reader
         .prepare_cached(SESSION_EXISTS_SQL)?
         .exists(named_params! { "@sessionId": session_id.text().as_str() })
+}
+
+// The place the session the `@sessionId` parameter names runs in.
+const SESSION_PLACE_SQL: &str = "SELECT place FROM sessions WHERE id = @sessionId";
+
+/// Where the session runs, read on `reader`: `None` on macOS and Linux, and for a session with no
+/// directory row. Fails when SQLite refuses the read or the stored place reads as no place.
+pub fn read_session_place(
+    reader: &Connection,
+    session_id: &SessionId,
+) -> rusqlite::Result<Option<Place>> {
+    Ok(reader
+        .prepare_cached(SESSION_PLACE_SQL)?
+        .query_row(
+            named_params! { "@sessionId": session_id.text().as_str() },
+            |row| place_column(row, 0),
+        )
+        .optional()?
+        .flatten())
 }
 
 /// Holds only while the session has a directory row: the write refuses and rolls back otherwise.

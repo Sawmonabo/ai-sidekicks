@@ -15,7 +15,7 @@ use jsonc_parser::cst::{CstInputValue, CstObject, CstRootNode};
 use serde::de::IgnoredAny;
 use serde_json::{Map, Value};
 use sidekicks_platforms::PathRules;
-use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use sidekicks_std::file::atomic_write::{AtomicWriteError, rewrite_file_in_place};
 use sidekicks_std::file::real_location::resolve_real_location;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::missing_entry::MissingEntry;
@@ -26,6 +26,7 @@ use crate::driver::claude::session::rules::{
     resolve_claude_local_settings_file, settings_path,
 };
 use crate::inbound_json::decode_inbound_json;
+use crate::project_rule_folders::RuleFileHolds;
 
 // Held on a settings file the daemon edits across its read and write, so two edits never drop each
 // other's.
@@ -61,6 +62,15 @@ pub(crate) enum ClaudeSettingsFileError {
     /// The file's folder could not be made.
     #[error("making the folder of {} failed", path.display())]
     CreateFolder {
+        /// The settings file.
+        path: PathBuf,
+        /// The file system's failure.
+        #[source]
+        failure: io::Error,
+    },
+    /// The file could not be deleted.
+    #[error("deleting the settings file {} failed", path.display())]
+    Delete {
         /// The settings file.
         path: PathBuf,
         /// The file system's failure.
@@ -146,19 +156,26 @@ pub(crate) fn is_unreadable_path(error: &io::Error) -> bool {
     )
 }
 
+/// One settings file as read: `None` when the daemon cannot read it, else its text parsed as
+/// strict JSON, the parse failure where it is not; each caller decides what a file that is not a
+/// settings object means. Returns any other read failure.
+pub(crate) async fn read_claude_settings_json(
+    file_path: &Path,
+) -> io::Result<Option<serde_json::Result<Value>>> {
+    match tokio::fs::read(file_path).await {
+        Ok(bytes) => Ok(Some(serde_json::from_str(&decode_inbound_json(&bytes)))),
+        Err(error) if is_unreadable_path(&error) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
 /// One settings file as its JSON object, or `None` when the daemon cannot read it or it holds no
 /// settings object. Returns any other read failure.
 pub(crate) async fn read_claude_settings_file(
     file_path: &Path,
 ) -> io::Result<Option<Map<String, Value>>> {
-    let bytes = match tokio::fs::read(file_path).await {
-        Ok(bytes) => bytes,
-        Err(error) if is_unreadable_path(&error) => return Ok(None),
-        Err(error) => return Err(error),
-    };
     // A file that is not JSON sets nothing, as one holding some other JSON value does.
-    let parsed = serde_json::from_str::<Value>(&decode_inbound_json(&bytes));
-    if let Ok(Value::Object(settings)) = parsed {
+    if let Some(Ok(Value::Object(settings))) = read_claude_settings_json(file_path).await? {
         return Ok(Some(settings));
     }
     Ok(None)
@@ -175,35 +192,82 @@ pub(crate) fn find_claude_setting<'settings>(
         .try_fold(settings.get(*first)?, |value, key| value.get(*key))
 }
 
-/// Reads one key from the managed settings in `managed_settings_folder` as Claude Code merges
-/// them: `managed-settings.json`, then each `managed-settings.d/*.json` in name order, the last
-/// file whose value `select` takes deciding. Name order is JavaScript's, by UTF-16 code units. A
-/// missing file or folder sets nothing; any other read failure is returned beside the answer.
-pub(crate) async fn read_claude_managed_setting<Setting>(
+/// Fails with the first of `failures` as a settings file's read failure, for a caller that cannot
+/// go on past a managed file it could not read; `Ok` where there is none.
+pub(crate) fn refuse_unread_settings(
+    failures: Vec<ClaudeSettingsReadError>,
+) -> Result<(), ClaudeSettingsFileError> {
+    match failures.into_iter().next() {
+        Some(unread) => Err(ClaudeSettingsFileError::Read {
+            path: unread.path,
+            failure: unread.failure,
+        }),
+        None => Ok(()),
+    }
+}
+
+/// The managed settings files in a managed folder that hold a settings object, each read once, in
+/// the order Claude Code applies them, and every file or folder that could not be read.
+#[derive(Debug, Default)]
+pub(crate) struct ClaudeManagedSettings {
+    /// Each file that holds a settings object, with that object.
+    pub(crate) files: Vec<(PathBuf, Map<String, Value>)>,
+    /// What could not be read.
+    pub(crate) failures: Vec<ClaudeSettingsReadError>,
+}
+
+impl ClaudeManagedSettings {
+    /// The value at `key_path` in force as Claude Code merges the files, key by key: the last
+    /// file whose value `select` takes decides, with that file; `None` where no file sets it.
+    pub(crate) fn find<Setting>(
+        &self,
+        key_path: &[&str],
+        select: impl Fn(&Value) -> Option<Setting>,
+    ) -> Option<ClaudeManagedSetting<Setting>> {
+        self.files.iter().rev().find_map(|(file, settings)| {
+            let value = find_claude_setting(settings, key_path).and_then(&select)?;
+            Some(ClaudeManagedSetting {
+                file: file.clone(),
+                value,
+            })
+        })
+    }
+}
+
+/// Reads the managed settings in `managed_settings_folder` once: `managed-settings.json`, then each
+/// `managed-settings.d/*.json` in name order, JavaScript's, by UTF-16 code units. A missing file or
+/// folder, or one holding no settings object, sets nothing; any other read failure is kept beside
+/// the files read.
+pub(crate) async fn read_claude_managed_settings(
     managed_settings_folder: &Path,
-    key_path: &[&str],
-    select: impl Fn(&Value) -> Option<Setting>,
-) -> ClaudeManagedSettingRead<Setting> {
-    let mut failures = Vec::new();
-    let mut deciding = None;
-    for file in list_managed_settings_files(managed_settings_folder, &mut failures).await {
+) -> ClaudeManagedSettings {
+    let mut managed = ClaudeManagedSettings::default();
+    for file in list_managed_settings_files(managed_settings_folder, &mut managed.failures).await {
         match read_claude_settings_file(&file).await {
-            Ok(settings) => {
-                let value = settings
-                    .as_ref()
-                    .and_then(|settings| find_claude_setting(settings, key_path))
-                    .and_then(&select);
-                if let Some(value) = value {
-                    deciding = Some(ClaudeManagedSetting { file, value });
-                }
-            }
-            Err(failure) => failures.push(ClaudeSettingsReadError {
+            Ok(Some(settings)) => managed.files.push((file, settings)),
+            Ok(None) => {}
+            Err(failure) => managed.failures.push(ClaudeSettingsReadError {
                 path: file,
                 failure,
             }),
         }
     }
-    ClaudeManagedSettingRead { deciding, failures }
+    managed
+}
+
+/// Reads one key from the managed settings in `managed_settings_folder` as Claude Code merges
+/// them, the last file whose value `select` takes deciding, as [`read_claude_managed_settings`]
+/// reads the files. Any read failure is returned beside the answer.
+pub(crate) async fn read_claude_managed_setting<Setting>(
+    managed_settings_folder: &Path,
+    key_path: &[&str],
+    select: impl Fn(&Value) -> Option<Setting>,
+) -> ClaudeManagedSettingRead<Setting> {
+    let managed = read_claude_managed_settings(managed_settings_folder).await;
+    ClaudeManagedSettingRead {
+        deciding: managed.find(key_path, select),
+        failures: managed.failures,
+    }
 }
 
 /// The managed files in `managed_settings_folder` in the order Claude Code applies them: the base
@@ -323,14 +387,32 @@ pub(crate) async fn read_claude_setting<Setting>(
 pub(crate) async fn hold_settings_file(
     file: &Path,
 ) -> Result<KeyHold<'static, PathBuf>, ClaudeSettingsFileError> {
-    let key =
-        resolve_real_location(file)
-            .await
-            .map_err(|failure| ClaudeSettingsFileError::Read {
-                path: file.to_path_buf(),
-                failure,
-            })?;
-    Ok(SETTINGS_FILE_LOCK.acquire(key).await)
+    Ok(SETTINGS_FILE_LOCK
+        .acquire(settings_lock_key(file).await?)
+        .await)
+}
+
+/// Waits for the edit lock on each of `files`, every file in one order as [`hold_settings_file`]
+/// keys it, for a write into all of them and any take-back. Fails with `Read` where a file's
+/// location cannot be resolved.
+pub(crate) async fn hold_settings_files(
+    files: &[PathBuf],
+) -> Result<RuleFileHolds, ClaudeSettingsFileError> {
+    let mut keyed_files = Vec::with_capacity(files.len());
+    for file in files {
+        keyed_files.push((file.clone(), settings_lock_key(file).await?));
+    }
+    Ok(RuleFileHolds::acquire(&SETTINGS_FILE_LOCK, keyed_files).await)
+}
+
+// A settings file as its edit lock knows it, one key for every spelling of the file.
+async fn settings_lock_key(file: &Path) -> Result<PathBuf, ClaudeSettingsFileError> {
+    resolve_real_location(file)
+        .await
+        .map_err(|failure| ClaudeSettingsFileError::Read {
+            path: file.to_path_buf(),
+            failure,
+        })
 }
 
 /// The text of `file`, whose edit lock `_hold` holds, or `None` where there is no file. Fails with
@@ -348,8 +430,9 @@ pub(crate) async fn read_settings_file(
         })
 }
 
-/// Replaces `file`, whose edit lock `_hold` holds, with `text` crash-safely, a new file made with
-/// `mode` less the umask and its folder made where missing. Fails with `CreateFolder` or `Write`.
+/// Replaces `file`, whose edit lock `_hold` holds, with `text` crash-safely, through any link to it
+/// and keeping its mode; a new file is made with `mode` less the umask and its folder made where
+/// missing. Fails with `CreateFolder` or `Write`.
 pub(crate) async fn write_settings_file(
     _hold: &KeyHold<'_, PathBuf>,
     file: &Path,
@@ -364,11 +447,27 @@ pub(crate) async fn write_settings_file(
             }
         })?;
     }
-    write_file_atomically(file, text, mode)
+    rewrite_file_in_place(file, text, mode)
         .await
         .map_err(|failure| ClaudeSettingsFileError::Write {
             path: file.to_path_buf(),
             failure: Box::new(failure),
+        })
+}
+
+/// Deletes `file`, whose edit lock `_hold` holds; a file already gone needs nothing. Fails with
+/// `Delete`.
+pub(crate) async fn delete_settings_file(
+    _hold: &KeyHold<'_, PathBuf>,
+    file: &Path,
+) -> Result<(), ClaudeSettingsFileError> {
+    tokio::fs::remove_file(file)
+        .await
+        .none_if_missing()
+        .map(|_was_there| ())
+        .map_err(|failure| ClaudeSettingsFileError::Delete {
+            path: file.to_path_buf(),
+            failure,
         })
 }
 

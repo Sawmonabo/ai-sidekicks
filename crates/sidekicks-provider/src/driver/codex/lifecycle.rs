@@ -61,7 +61,7 @@ use crate::driver::codex::run::start::{CodexRunStart, CodexRunStartDependencies}
 use crate::driver::codex::run::stopped_helpers::CodexStoppedHelpers;
 use crate::driver::codex::service::home::CodexHomes;
 use crate::driver::codex::service::program::CodexInstalledProgram;
-use crate::driver::codex::service::registry::CodexServiceRegistry;
+use crate::driver::codex::service::registry::{CodexHomeResolver, CodexServiceRegistry};
 use crate::driver::codex::service::supervisor::drain::LastingServiceDrains;
 use crate::driver::codex::service::supervisor::{CodexServiceDependencies, CodexServiceId};
 use crate::driver::codex::service::switching::CodexSwitchingAccount;
@@ -220,6 +220,7 @@ impl CodexDriver {
             )),
             data_folder: services.data_folder.clone(),
             logs_folder: service_log_folder(&services.data_folder),
+            personal_home: homes.terminal_reach_home().codex_home,
             additional_config_overrides: Vec::new(),
             startup_timeout: CODEX_SERVICE_STARTUP_TIMEOUT,
             dispatches_hook_mode: services.dispatches_hook_mode,
