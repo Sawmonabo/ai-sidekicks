@@ -599,7 +599,7 @@ fn a_pending_stop_wins_over_the_resume_before_any_pause(
 #[test]
 fn a_helper_of_a_stopping_lead_reads_stopping() {
     let database = TestDatabase::new(schema_parts());
-    let reader = database.reader();
+    let reader = database.opener()().expect("the test creates its database");
     let session_id = test_session_id();
     let new_run = |parent: Option<RunId>, reached_by: Option<&str>| {
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
