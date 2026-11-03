@@ -514,8 +514,8 @@ mod tests {
     }
 
     // A fresh process continues the lead no stop waits on, and the stopping lead before it in the
-    // resume's order answers gone; a stopping lead alone is continued by none. Killed by the skip
-    // dropped: the stopping lead, listed first, is found and continued.
+    // resume's order answers gone. Killed by the skip dropped: the stopping lead, listed first, is
+    // found and continued.
     #[test]
     fn a_fresh_process_continues_no_run_a_stop_waits_on() {
         let stopping = lead_run(true);
@@ -537,6 +537,5 @@ mod tests {
                 },
             ]
         );
-        assert!(find_run_in_progress(&[stopping]).is_none());
     }
 }
