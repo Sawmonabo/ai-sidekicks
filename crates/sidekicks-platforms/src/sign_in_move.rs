@@ -9,12 +9,11 @@
 
 use std::io;
 use std::path::PathBuf;
+use std::process::ExitStatus;
 
-use crate::{AtomicWriteError, CredentialStoreError};
-
-/// The steps one sign-in's move runs, each timed against the caller's step bound: read from its
-/// source, written at its destination, read back and deleted from its source. A move whose every
-/// step keeps within that bound ends within this many bounds for each sign-in.
+/// The steps one sign-in's move runs, each held to the caller's step bound: read from its source,
+/// written at its destination, read back and deleted from its source. A move ends within this many
+/// bounds for each sign-in, plus the moment a step past its bound takes to end its child.
 pub const SIGN_IN_MOVE_STEPS: u32 = 4;
 
 /// One sign-in to move: its keychain item, by service and account, and the file it moves to.
@@ -29,30 +28,28 @@ pub struct KeychainSignIn {
 }
 
 /// Why a sign-in move stopped; every sign-in before it is moved, and it and every one after it
-/// are where they were or in both places. It never carries a sign-in's bytes, nor its file's path,
-/// which names the account's home.
+/// are where they were or in both places. It never carries a sign-in's bytes, the keychain tool's
+/// output, nor its file's path, which names the account's home.
 #[derive(Debug, thiserror::Error)]
 pub enum SignInMoveError {
-    /// The credential store refused or could not answer a call on the item.
+    /// The keychain refused or could not answer a call on the item.
     #[error("the keychain item {service} for {account} could not be used")]
-    Store {
+    Keychain {
         /// The item's service.
         service: String,
         /// The item's account.
         account: String,
-        /// The store's refusal.
+        /// The keychain's refusal.
         #[source]
-        source: CredentialStoreError,
+        refusal: KeychainItemRefusal,
     },
     /// The sign-in's file could not be read, removed or flushed.
     #[error("the sign-in file could not be used")]
     File(#[source] io::Error),
-    /// The sign-in's file could not be written.
-    #[error("the sign-in file could not be written")]
-    Write(#[source] AtomicWriteError),
-    /// The sign-in's file holds something other than UTF-8 text, which no keychain item holds.
-    #[error("the sign-in file is not text")]
-    NotText,
+    /// The sign-in's file could not be written, for the reason its kind names; the write's own
+    /// error is not kept, since it can name the file's folder.
+    #[error("the sign-in file could not be written: {0}")]
+    Write(io::ErrorKind),
     /// The copy read back from the destination differs from the source, so the source is kept.
     #[error("the sign-in copied to {destination} read back differently")]
     CopyDiffers {
@@ -60,9 +57,31 @@ pub enum SignInMoveError {
         /// never its path.
         destination: String,
     },
-    /// A step of the move outlasted the caller's bound, so the move stopped before its next step.
+    /// A step of the move outlasted the caller's bound, so the move stopped there, the step's
+    /// child ended.
     #[error("a step of the sign-in move outlasted its bound, so the move stopped")]
     Overran,
+}
+
+/// Why the keychain refused a call on a sign-in's item, as the keychain tool's exit answers it.
+#[derive(Debug, thiserror::Error)]
+pub enum KeychainItemRefusal {
+    /// The login keychain is locked, as it is while the account is logged out.
+    #[error("the login keychain is locked")]
+    Locked,
+    /// The account has no login keychain to hold the item.
+    #[error("this account has no login keychain")]
+    NoLoginKeychain,
+    /// The keychain tool ended with a code or a signal no other refusal names.
+    #[error("the keychain tool ended with {0}")]
+    Ended(ExitStatus),
+    /// The keychain tool could not be started, or its input or output failed.
+    #[error("the keychain tool could not be reached")]
+    Unreachable(#[source] io::Error),
+    /// The item's service or account holds a line break or a NUL, which the tool's input line
+    /// cannot carry.
+    #[error("the item's name holds a line break or a NUL")]
+    UnwritableName,
 }
 
 /// The sign-in move on a system with none built: the type has no value, so no method is ever
@@ -74,9 +93,9 @@ pub enum SignInMove {}
 #[cfg(not(target_os = "macos"))]
 impl SignInMove {
     /// Moves sign-ins into files; never called, since no value exists.
-    pub fn move_into_files(
+    pub async fn move_into_files(
         &self,
-        _store: &crate::CredentialStore,
+        _spawner: &crate::Spawner,
         _sign_ins: &[KeychainSignIn],
         _step_bound: std::time::Duration,
     ) -> Result<(), SignInMoveError> {
@@ -84,9 +103,9 @@ impl SignInMove {
     }
 
     /// Moves sign-ins back into the keychain; never called, since no value exists.
-    pub fn move_into_keychain(
+    pub async fn move_into_keychain(
         &self,
-        _store: &crate::CredentialStore,
+        _spawner: &crate::Spawner,
         _sign_ins: &[KeychainSignIn],
         _step_bound: std::time::Duration,
     ) -> Result<(), SignInMoveError> {

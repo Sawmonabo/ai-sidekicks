@@ -2,6 +2,7 @@
 //! Codex last renewed it and when its access token expires, and the tokens the switching service is
 //! handed, which leave the read only as secrets.
 
+use std::borrow::Borrow;
 use std::io::ErrorKind;
 use std::path::Path;
 
@@ -10,7 +11,8 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use jiff::Timestamp;
 use secrecy::{ExposeSecret as _, SecretString};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serializer};
+use subtle::ConstantTimeEq as _;
 use zeroize::Zeroizing;
 
 /// The file Codex's `file` store writes in its home.
@@ -26,7 +28,8 @@ pub(crate) struct CodexAuthFile {
 }
 
 /// A `ChatGPT` sign-in's tokens as a Codex home's `auth.json` holds them, what `account/login/start`
-/// hands a service as `chatgptAuthTokens`.
+/// hands a service as `chatgptAuthTokens` and a token refresh is answered with.
+#[derive(Clone)]
 pub(crate) struct CodexAuthTokens {
     /// `tokens.access_token`.
     pub(crate) access_token: SecretString,
@@ -34,6 +37,23 @@ pub(crate) struct CodexAuthTokens {
     pub(crate) chatgpt_account_id: String,
     /// The identity token's `chatgpt_plan_type` claim, absent where it names none.
     pub(crate) chatgpt_plan_type: Option<String>,
+}
+
+/// Writes a secret's text into an encoded request or answer, the one place a token leaves its
+/// wrapper; serde hands it the secret or a borrow of it.
+pub(crate) fn serialize_secret<S: Serializer>(
+    secret: &impl Borrow<SecretString>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(secret.borrow().expose_secret())
+}
+
+/// Whether two access tokens are the same, compared in constant time.
+pub(crate) fn is_same_token(left: &SecretString, right: &SecretString) -> bool {
+    left.expose_secret()
+        .as_bytes()
+        .ct_eq(right.expose_secret().as_bytes())
+        .into()
 }
 
 /// Why a Codex home's `auth.json` could not be read. No variant carries the file's content.

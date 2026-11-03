@@ -50,6 +50,17 @@ fn refused_limits_read() -> (&'static str, Value) {
     )
 }
 
+/// Codex's refusal of a limits read the usage server answered by refusing the sign-in, worded as
+/// Codex words it.
+fn sign_in_refused_limits_read() -> (&'static str, Value) {
+    (
+        "account/rateLimits/read",
+        json!({"error": {"code": -32603, "message": "failed to fetch codex rate limits: GET \
+            https://chatgpt.com/backend-api/wham/usage failed: 401 Unauthorized; \
+            content-type=application/json; body={}"}}),
+    )
+}
+
 /// The home's account read finding an account signed in.
 fn signed_in_account_read() -> (&'static str, Value) {
     (
@@ -110,7 +121,7 @@ impl UsageSink for RecordedWindows {
 /// driver registry holding that service, every account resolving to another home, as the one the
 /// unpinned sessions run in.
 struct Fixture {
-    legs: CodexAccountLegs,
+    legs: Arc<CodexAccountLegs>,
     database: TestDatabase,
     recorded: Arc<RecordedWindows>,
     scripted: ScriptedCodexService,
@@ -165,6 +176,7 @@ impl Fixture {
             CodexRateLimitFiling::new(usage),
             accounts,
             Arc::new(NothingServed),
+            Arc::new(PortRegistration::new("account home lock")),
         );
         Self {
             legs,
@@ -233,10 +245,11 @@ impl Fixture {
     }
 }
 
-// Killed by the windows filed or answered under another account than the home's, by the plan the
-// reply named dropped, by the read sent on the service the account resolves to rather than its
-// home's own (that home's start fails, so no figures come), and by the reset credits left
-// unwritten or kept when the next read carried none.
+// Killed by the read's windows pushed beside the whole set the observer records (recorded twice
+// per read), by the plan the reply named dropped, by the account read's email dropped or its plan
+// not taken where the reply names none, by the read sent on the service the account resolves to
+// rather than its home's own (that home's start fails, so no figures come), and by the reset
+// credits left unwritten or kept when the next read carried none.
 #[tokio::test]
 async fn a_snapshot_becomes_windows_under_the_home_s_account_and_its_credits_land_in_the_row() {
     let mut fixture = Fixture::new(ProviderAuthMode::OauthSubscription).await;
@@ -249,23 +262,41 @@ async fn a_snapshot_becomes_windows_under_the_home_s_account_and_its_credits_lan
 
     let with_credits = fixture
         .observe(
-            &[(
-                "account/rateLimits/read",
-                json!({"result": {
-                    "rateLimits": snapshot,
-                    "rateLimitResetCredits": {"availableCount": 3, "credits": null},
-                }}),
-            )],
+            &[
+                (
+                    "account/rateLimits/read",
+                    json!({"result": {
+                        "rateLimits": snapshot,
+                        "rateLimitResetCredits": {"availableCount": 3, "credits": null},
+                    }}),
+                ),
+                (
+                    "account/read",
+                    json!({"result": {"account": {
+                        "type": "chatgpt", "email": "made-up-email", "planType": "pro",
+                    }}}),
+                ),
+            ],
             None,
         )
         .await;
     let credits_after_first = fixture.reset_credits();
+    let mut snapshot_without_plan = snapshot.clone();
+    snapshot_without_plan["planType"] = Value::Null;
     let without_credits = fixture
         .observe(
-            &[(
-                "account/rateLimits/read",
-                json!({"result": {"rateLimits": snapshot}}),
-            )],
+            &[
+                (
+                    "account/rateLimits/read",
+                    json!({"result": {"rateLimits": snapshot_without_plan}}),
+                ),
+                (
+                    "account/read",
+                    json!({"result": {"account": {
+                        "type": "chatgpt", "email": null, "planType": "pro",
+                    }}}),
+                ),
+            ],
             None,
         )
         .await;
@@ -282,23 +313,65 @@ async fn a_snapshot_becomes_windows_under_the_home_s_account_and_its_credits_lan
         [("codex", 300), ("codex", 10_080)]
     );
     assert_eq!(
-        figures.identity.plan.as_ref().map(FreeFormText::as_str),
-        Some("plus")
+        (
+            figures.identity.email.as_ref().map(FreeFormText::as_str),
+            figures.identity.plan.as_ref().map(FreeFormText::as_str),
+        ),
+        (Some("made-up-email"), Some("plus"))
     );
-    assert!(matches!(without_credits, ProviderObservation::Figures(_)));
-    let recorded = lock(&fixture.recorded.0).clone();
-    assert_eq!(recorded.len(), 1, "{recorded:?}");
-    let (filed_under, windows) = &recorded[0];
-    assert_eq!(filed_under, &fixture.account_id);
+    let ProviderObservation::Figures(figures) = without_credits else {
+        panic!("the read answers figures, not {without_credits:?}");
+    };
     assert_eq!(
-        windows
-            .iter()
-            .map(|window| (window.limit_id.as_str(), window.window_mins))
-            .collect::<Vec<_>>(),
-        [("codex", 300), ("codex", 10_080)]
+        (
+            figures.identity.email.as_ref().map(FreeFormText::as_str),
+            figures.identity.plan.as_ref().map(FreeFormText::as_str),
+        ),
+        (None, Some("pro"))
     );
+    // The observer records the whole set the read answered, so the read pushes none of its own.
+    let recorded = lock(&fixture.recorded.0).clone();
+    assert!(recorded.is_empty(), "{recorded:?}");
     assert_eq!(credits_after_first, Some(3));
     assert_eq!(fixture.reset_credits(), None);
+}
+
+// Killed by a failed account read failing the limits read it follows, which drops its figures.
+#[tokio::test]
+async fn a_failed_account_read_keeps_the_figures_and_names_no_one() {
+    let mut fixture = Fixture::new(ProviderAuthMode::OauthSubscription).await;
+
+    let observed = fixture
+        .observe(
+            &[
+                (
+                    "account/rateLimits/read",
+                    json!({"result": {"rateLimits": {
+                        "limitId": "codex",
+                        "planType": "plus",
+                        "primary": {"usedPercent": 25, "windowDurationMins": 300},
+                    }}}),
+                ),
+                (
+                    "account/read",
+                    json!({"error": {"code": -32603, "message": "the account read failed"}}),
+                ),
+            ],
+            None,
+        )
+        .await;
+
+    let ProviderObservation::Figures(figures) = observed else {
+        panic!("the read answers figures, not {observed:?}");
+    };
+    assert_eq!(figures.windows.len(), 1);
+    assert_eq!(
+        (
+            figures.identity.email.as_ref().map(FreeFormText::as_str),
+            figures.identity.plan.as_ref().map(FreeFormText::as_str),
+        ),
+        (None, Some("plus"))
+    );
 }
 
 // Killed by dropping the mode check: the read would reach the home's service.
@@ -369,19 +442,23 @@ const EXPIRED: i64 = 1_700_000_000;
 const UNEXPIRED: i64 = 4_000_000_000;
 
 // Killed by the count never reaching two, by an unexpired token counting, by the before-and-after
-// comparison skipped, and by a file rewritten during the read not clearing the count.
+// comparison skipped, by a file rewritten during the read not clearing the count, and by a read
+// the usage server never answered, as with no network, counting a dead renewal.
 #[rstest]
-#[case::a_dead_renewal_twice(EXPIRED, None, ProviderObservation::SignInGone)]
+#[case::a_dead_renewal_twice(EXPIRED, None, true, ProviderObservation::SignInGone)]
 #[case::a_renewal_written(
     EXPIRED,
     Some(("2026-10-29T19:00:00.5Z", EXPIRED)),
+    true,
     ProviderObservation::RefusedInBand
 )]
-#[case::no_renewal_needed(UNEXPIRED, None, ProviderObservation::RefusedInBand)]
+#[case::no_renewal_needed(UNEXPIRED, None, true, ProviderObservation::RefusedInBand)]
+#[case::offline_twice(EXPIRED, None, false, ProviderObservation::RefusedInBand)]
 #[tokio::test]
 async fn a_renewal_that_leaves_auth_json_unchanged_twice_reads_as_a_lost_sign_in(
     #[case] access_token_expiry: i64,
     #[case] second_read_renews: Option<(&str, i64)>,
+    #[case] is_sign_in_refused: bool,
     #[case] second: ProviderObservation,
 ) {
     let mut fixture = Fixture::new(ProviderAuthMode::OauthSubscription).await;
@@ -390,7 +467,12 @@ async fn a_renewal_that_leaves_auth_json_unchanged_twice_reads_as_a_lost_sign_in
         "2026-10-29T18:00:00.123456Z",
         access_token_expiry,
     );
-    let answers = [refused_limits_read(), signed_in_account_read()];
+    let limits_refusal = if is_sign_in_refused {
+        sign_in_refused_limits_read()
+    } else {
+        refused_limits_read()
+    };
+    let answers = [limits_refusal, signed_in_account_read()];
 
     let first = fixture.observe(&answers, None).await;
     let observed_second = fixture.observe(&answers, second_read_renews).await;

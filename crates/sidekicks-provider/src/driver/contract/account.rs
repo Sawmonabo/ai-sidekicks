@@ -13,12 +13,13 @@ use secrecy::SecretString;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::{
     PROVIDER_ACCOUNT_EMAIL_MAX_LEN, PROVIDER_ACCOUNT_ORG_ID_MAX_LEN,
-    PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN, PROVIDER_ACCOUNT_PLAN_MAX_LEN, ProviderAccountId,
+    PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN, PROVIDER_ACCOUNT_PLAN_MAX_LEN,
+    PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN, ProviderAccountHealthState, ProviderAccountId,
     ProviderAuthMode,
 };
 use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, PROVIDER_SIGN_IN_USER_CODE_MAX_LEN,
-    PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN,
+    PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN, ProviderSignInArm, ProviderSignInCancelStatus,
 };
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
@@ -27,6 +28,8 @@ use sidekicks_contracts::web_address::HttpsAddress;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_platforms::KeychainSignIn;
+use tokio::sync::oneshot;
 
 use crate::account::credential_home::CredentialHome;
 use crate::account::registry::{HealthObservation, ProviderAccountRegistry};
@@ -70,13 +73,19 @@ pub trait ProviderAccountLegs: Send + Sync {
     /// account of the plane's.
     fn switch_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderSwitchLegs>>;
 
-    /// These legs as the provider's throwaway turns, which the background observer runs to start
-    /// an account's closed windows and to read a pasted token's limits; `None` for a provider with
-    /// no such turn, whose windows are then never started.
+    /// These legs as the provider's throwaway turn that starts an account's closed windows, which
+    /// the background observer runs; `None` for a provider with no such turn, whose windows are
+    /// then never started.
     fn window_turn_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderWindowTurnLegs>>;
 
+    /// These legs as the provider's read of a pasted token's limits by a throwaway turn, which the
+    /// background observer runs in place of the limits read; `None` for a provider whose pasted
+    /// token reads its limits as any sign-in does, or that takes no pasted token.
+    fn token_limits_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderTokenLimitsLegs>>;
+
     /// These legs as the provider's interactive sign-in, which the sign-in broker runs; `None` for
-    /// a provider with no sign-in of its own here, whose sign-ins the broker refuses as unsupported.
+    /// a provider with no sign-in of its own here, whose sign-ins the broker refuses as
+    /// unsupported.
     fn sign_in_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderSignInLegs>>;
 
     /// These legs as the provider's status read of a pasted token, which the token custody runs
@@ -85,39 +94,46 @@ pub trait ProviderAccountLegs: Send + Sync {
     fn token_status_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderTokenStatusLegs>>;
 }
 
+/// A provider's own acts on one account's home that the daemon program's helper modes run, with no
+/// daemon serving, no driver and no database pool.
+pub trait HelperModeAccountLegs: Send + Sync {
+    /// The keychain item and the file the sign-in of the account in `folders` moves between, where
+    /// the provider keeps it in the login keychain; `None` where it keeps it in a file already.
+    /// Fails with [`DriverError::Internal`] when the names cannot be composed.
+    fn keychain_sign_in(
+        &self,
+        folders: &ProviderAccountFolders,
+    ) -> Result<Option<KeychainSignIn>, DriverError>;
+}
+
 /// A provider's own interactive sign-in, run in one account's home: the flow's start, and the
 /// status read that names who signed in once the flow has ended.
 pub trait ProviderSignInLegs: Send + Sync {
-    /// Starts the provider's own sign-in for `provider_account_id` in `home` and no other, on the
-    /// arm `origin` calls for, and answers once the flow has shown what the person needs. Fails
-    /// with a `provider.account.signInUnsupported` refusal, nothing started, where the arm emits
-    /// neither an address nor a code, and with the driver's error where the flow could not start.
+    /// Starts the provider's own sign-in for `provider_account_id` in `home` and no other, on
+    /// `arm`, and answers once the flow has shown what the person needs. Fails with a
+    /// `provider.account.signInUnsupported` refusal, nothing started, where the arm emits neither
+    /// an address nor a code, and with the driver's error where the flow could not start.
     fn start_sign_in(
         &self,
         provider_account_id: ProviderAccountId,
         home: CredentialHome,
-        origin: SignInOrigin,
+        arm: ProviderSignInArm,
     ) -> BoxFuture<'_, Result<ProviderSignInHandle, DriverError>>;
 
     /// Reads the provider's own status in `home` after a sign-in there ended: the account's
     /// health, whether the provider named the account and the kind of sign-in it reports. Opens
-    /// no credential file. Fails with
-    /// the driver's error where the status could not be read.
+    /// no credential file. Fails with the driver's error where the status could not be read.
     fn observe_sign_in(
         &self,
         provider_account_id: ProviderAccountId,
         home: CredentialHome,
     ) -> BoxFuture<'_, Result<ProviderSignInObservation, DriverError>>;
-}
 
-/// Where a sign-in was started: a browser on another device cannot reach a provider's callback on
-/// this machine, so a sign-in started there takes the arm that needs none.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SignInOrigin {
-    /// This machine's own client.
-    ThisMachine,
-    /// A linked device.
-    AnotherDevice,
+    /// Whether a sign-in on `arm` holds something the machine has only one of, such as a fixed
+    /// callback port, so the broker keeps one such sign-in of this provider open at a time.
+    fn is_one_per_machine(&self, _arm: ProviderSignInArm) -> bool {
+        false
+    }
 }
 
 /// A started sign-in as the provider's flow reported it, parsed into typed fields and never a line
@@ -130,6 +146,8 @@ pub struct ProviderSignInHandle {
     pub user_code: Option<FreeFormText<PROVIDER_SIGN_IN_USER_CODE_MAX_LEN>>,
     /// Where the provider bounds the attempt, in the future and within its ceiling, else `None`.
     pub expires_at: Option<WireInstant>,
+    /// Whether the provider opened the address in a browser itself, so the client opens none.
+    pub is_browser_opened_by_provider: bool,
     /// One item each time the flow waits for a pasted code, read from its prompt and carrying
     /// none of the prompt's text; empty on a flow that never asks.
     pub code_prompts: BoxStream<'static, ()>,
@@ -151,18 +169,23 @@ pub trait ProviderSignInInput: Send + Sync {
     ) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// Ends this flow through the provider's own cancel, freeing its sign-in slot; the flow's
-    /// completion then answers canceled. Fails with the driver's error where the cancel could not
-    /// be sent.
-    fn cancel(&self) -> BoxFuture<'_, Result<(), DriverError>>;
+    /// completion then answers canceled. Answers `NotFound` for a flow that had already ended on
+    /// its own, whose completion says how. Fails with the driver's error where the cancel could
+    /// not be sent.
+    fn cancel(&self) -> BoxFuture<'_, Result<ProviderSignInCancelStatus, DriverError>>;
 }
 
 /// How the provider's own sign-in flow ended, before any observation of the account.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProviderSignInEnd {
     /// The provider reported its flow finished.
     Finished,
     /// The flow failed or its process ended without finishing.
-    Failed,
+    Failed {
+        /// Why, in the provider's own words where it reported any, bounded; `None` where it
+        /// reported none.
+        reason: Option<FreeFormText<PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN>>,
+    },
     /// The attempt outlived its bound.
     Expired,
     /// The flow was canceled.
@@ -181,19 +204,70 @@ pub struct ProviderSignInObservation {
     pub observed_auth_mode: Option<ProviderAuthMode>,
 }
 
-/// A provider's status read of a pasted token or API key: the registration-time invocation that
-/// observes whether the provider accepts it, run once per registration and once per re-supply.
+impl ProviderSignInObservation {
+    /// The status read taken now: signed in with `signed_in_mode`, the account named only where
+    /// `is_account_named` and it is signed in, or signed out where `signed_in_mode` is `None`.
+    pub(crate) fn read_now(
+        signed_in_mode: Option<ProviderAuthMode>,
+        is_account_named: bool,
+    ) -> Self {
+        let (state, observed_auth_mode) = match signed_in_mode {
+            Some(mode) => (ProviderAccountHealthState::Authenticated, mode),
+            None => (
+                ProviderAccountHealthState::ReauthRequired,
+                ProviderAuthMode::None,
+            ),
+        };
+        Self {
+            health: HealthObservation {
+                state,
+                observed_at: WireInstant::now(),
+            },
+            is_account_named: is_account_named && signed_in_mode.is_some(),
+            observed_auth_mode: Some(observed_auth_mode),
+        }
+    }
+}
+
+/// `text` as a sign-in address when it parses as an `https:` address on one of `hosts` with no
+/// port of its own, else `None`, so a flow never hands the person an address its provider did not
+/// name.
+pub(crate) fn read_sign_in_address(
+    text: &str,
+    hosts: &[&str],
+) -> Option<HttpsAddress<PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN>> {
+    let address = HttpsAddress::new(text)?;
+    let parsed = url::Url::parse(address.as_str()).ok()?;
+    let is_provider_host = parsed.host_str().is_some_and(|host| hosts.contains(&host));
+    (is_provider_host && parsed.port().is_none()).then_some(address)
+}
+
+/// A provider's legs for a pasted token or API key: the status read that observes whether the
+/// provider accepts it, run once per registration and once per re-supply, and the hand-over of a
+/// re-supplied one to the account's processes running on the one before it.
 pub trait ProviderTokenStatusLegs: Send + Sync {
     /// The signed-in mode the provider's own status read reports for `token` on
-    /// `provider_account_id`'s account, run in `folders` with the token handed to that one child on
-    /// the provider's documented channel; `None` when it reports no signed-in mode. Has no bound of
-    /// its own, the caller bounds it. Fails with the driver's error when the read could not run.
+    /// `provider_account_id`'s account, run in a folder made for the read with the token handed to
+    /// that one child on the provider's documented channel, so no file in the account's home
+    /// `folders` changes; `None` when it reports no signed-in mode. Has no bound of its own, the
+    /// caller bounds it. Fails with the driver's error when the read could not run.
     fn read_token_status<'call>(
         &'call self,
         provider_account_id: &'call ProviderAccountId,
         folders: &'call ProviderAccountFolders,
         token: &'call SecretString,
     ) -> BoxFuture<'call, Result<Option<ProviderAuthMode>, DriverError>>;
+
+    /// Hands `token`, just sealed in place of the earlier one of `provider_account_id`'s account,
+    /// whose home is `folders`, to the account's processes running now, which took the earlier one
+    /// at their start; a process that starts later reads the sealed one itself. Fails with the
+    /// driver's error when a running process could not be handed it.
+    fn hand_resupplied_token<'call>(
+        &'call self,
+        provider_account_id: &'call ProviderAccountId,
+        folders: &'call ProviderAccountFolders,
+        token: &'call SecretString,
+    ) -> BoxFuture<'call, Result<(), DriverError>>;
 }
 
 /// What one limits read of an account's home answered, as the account plane stores it: each arm
@@ -212,7 +286,7 @@ pub enum ProviderObservation {
     /// The answer is outside what this read judges for the account, as a pasted token's scope,
     /// which another read takes.
     OutOfScope,
-    /// The provider answered with neither the account's limits nor a judgement of its sign-in, as
+    /// The provider answered with neither the account's limits nor a judgment of its sign-in, as
     /// a read it does not serve where it ran.
     Unanswered,
 }
@@ -327,7 +401,7 @@ pub enum WindowTurnAnswer {
 }
 
 /// What a pasted token's limits read by a turn answered: the reading its turn carried, as the
-/// account plane stores it, and what the turn spent, `None` where it ran no turn.
+/// account plane stores it, and what the turn spent, `None` where it ended in an error.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TokenLimitsReading {
     /// What the turn's answer said of the account's limits and sign-in.
@@ -336,9 +410,8 @@ pub struct TokenLimitsReading {
     pub spend: Option<WindowTurnSpend>,
 }
 
-/// A provider's smallest turns in an account's home, each in a throwaway process holding no
-/// session: the one that starts the account's closed usage windows, and the one that reads a
-/// pasted token's limits, which the token's own scope cannot read.
+/// A provider's smallest turn in an account's home, in a throwaway process holding no session,
+/// which starts the account's closed usage windows.
 pub trait ProviderWindowTurnLegs: Send + Sync {
     /// Sends one short message to the provider's smallest model on `provider_account_id`'s
     /// account, run in `folders` and no other home, and answers what the turn spent or the
@@ -349,7 +422,11 @@ pub trait ProviderWindowTurnLegs: Send + Sync {
         provider_account_id: ProviderAccountId,
         folders: ProviderAccountFolders,
     ) -> BoxFuture<'_, Result<WindowTurnAnswer, DriverError>>;
+}
 
+/// A provider's read of a pasted token's limits, which the token's own scope cannot read, by one
+/// smallest turn in the account's home whose answer carries them.
+pub trait ProviderTokenLimitsLegs: Send + Sync {
     /// Reads the limits of `provider_account_id`'s pasted `token` by one such turn, run in
     /// `folders` with the token handed to that one child on the provider's documented channel.
     /// Has no bound of its own, the caller bounds it. Fails with the driver's error when the turn
@@ -401,6 +478,20 @@ impl SessionAccountMove {
         Self {
             session_id,
             first_request: futures::future::ready(Ok(FirstRequestAfterMove::Unobserved)).boxed(),
+        }
+    }
+
+    /// `session_id`'s move whose first request settles as `first_request` answers, a dropped
+    /// sender settling it as [`FirstRequestAfterMove::Unobserved`].
+    pub fn watched(
+        session_id: SessionId,
+        first_request: oneshot::Receiver<Result<FirstRequestAfterMove, DriverError>>,
+    ) -> Self {
+        Self {
+            session_id,
+            first_request: first_request
+                .map(|answer| answer.unwrap_or(Ok(FirstRequestAfterMove::Unobserved)))
+                .boxed(),
         }
     }
 }

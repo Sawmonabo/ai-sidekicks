@@ -23,7 +23,6 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
 use crate::driver::codex::transport::connection::CODEX_REQUEST_TIMEOUT;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
-use crate::runtime_binding::test_store::test_provider_account_id;
 
 // A stand-in for Codex's program in `folder`: `codex mcp list --json` prints `listing` and exits
 // with `list_exit`; any other call records its arguments in `arguments` and fails.
@@ -51,7 +50,8 @@ fn write_stand_in(folder: &Path, listing: &str, list_exit: u8, arguments: &Path)
 }
 
 // A service whose program is `program`, with its folders under `folder`, up on a connection the
-// test scripts.
+// test scripts; on the person's own folder, whose commands carry no store switch, so the stand-in
+// reads the server list by its first argument.
 fn service_running(folder: &Path, program: PathBuf) -> (Arc<CodexService>, ScriptedService) {
     let dependencies = test_codex_service_dependencies(
         folder,
@@ -66,7 +66,7 @@ fn service_running(folder: &Path, program: PathBuf) -> (Arc<CodexService>, Scrip
     script_codex_service(
         CodexServiceHome {
             codex_home: folder.join("home"),
-            kind: CodexHomeKind::Account(test_provider_account_id()),
+            kind: CodexHomeKind::PersonalFolder,
         },
         CodexServiceSocket {
             path: socket.clone(),

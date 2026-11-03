@@ -119,6 +119,8 @@ mod spawner;
 #[cfg(any(test, feature = "test-support"))]
 mod stand_in_program;
 mod standard_streams;
+#[cfg(any(test, feature = "test-support"))]
+mod stop_refusing_child;
 mod system_folder;
 mod system_locale;
 mod terminal;
@@ -468,7 +470,7 @@ pub use shell_line_command::{
 };
 pub use shell_start::{DOES_SHELL_MODE_KEEP_ITS_FOLDER, SHELL_START_CONFIRMATION};
 pub use shell_start::{ShellLaunch, ShellStart, ShellStartError, describe_start_failure};
-pub use sign_in_move::{KeychainSignIn, SIGN_IN_MOVE_STEPS, SignInMoveError};
+pub use sign_in_move::{KeychainItemRefusal, KeychainSignIn, SIGN_IN_MOVE_STEPS, SignInMoveError};
 #[cfg(not(target_os = "macos"))]
 pub use sign_in_move::{SignInMove, sign_in_move};
 pub use socket::connection::found_no_listener;
@@ -479,6 +481,8 @@ pub use stand_in_program::{
     StandInAnswer, StandInProgram, read_recorded_arguments, write_stand_in_program,
 };
 pub use standard_streams::set_binary_standard_streams;
+#[cfg(any(test, feature = "test-support"))]
+pub use stop_refusing_child::StopRefusingChild;
 pub use system_folder::{
     LinuxSystemFolder, MacosSystemFolder, PerSystem, SystemFolder, SystemFolders,
     WindowsSystemFolder,

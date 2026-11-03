@@ -5,9 +5,9 @@
 use secrecy::SecretString;
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 
+use crate::account::read_folder::run_in_read_folder;
 use crate::driver::ProviderAccountFolders;
 use crate::driver::claude::account::ClaudeAccountLegs;
-use crate::driver::claude::account::read_folder::run_in_read_folder;
 use crate::driver::claude::spawn::environment::{ClaudeAccountFolders, ClaudeProcessHome};
 use crate::driver::claude::spawn::launch::control_only::probe_claude_sign_in;
 use crate::driver::contract::error::DriverError;
@@ -31,10 +31,13 @@ pub(super) async fn read_claude_token_status(
         async |folder| {
             let folders = ClaudeAccountFolders::from(folders);
             let executable = legs
-                .resolve_build_on(ClaudeProcessHome::AccountStore {
-                    folder,
-                    credential_store_folder: &folders.credential_store_folder,
-                })
+                .resolve_build_on(
+                    ClaudeProcessHome::AccountStore {
+                        folder,
+                        credential_store_folder: &folders.credential_store_folder,
+                    },
+                    &[],
+                )
                 .await?;
             let sources = probe_claude_sign_in(
                 &legs.launcher,
@@ -63,8 +66,8 @@ mod tests {
     use sidekicks_std::file::atomic_write::write_file_atomically;
 
     use super::CLAUDE_TOKEN_STATUS_FOLDER;
+    use crate::account::read_folder::compose_reads_folder;
     use crate::driver::ProviderAccountFolders;
-    use crate::driver::claude::account::read_folder::compose_reads_folder;
     use crate::driver::claude::account::test_account_legs;
     use crate::driver::contract::account::ProviderTokenStatusLegs;
     use crate::driver::test_registry::test_driver_services;

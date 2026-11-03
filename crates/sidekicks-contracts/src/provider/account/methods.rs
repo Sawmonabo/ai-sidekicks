@@ -511,6 +511,7 @@ methods! {
                 ProviderAccountSignInInFlight,
                 ProviderAccountSignInUnsupported,
                 ProviderAccountCredentialHomeUnavailable,
+                ProviderUnavailable,
             ],
         },
         /// Sends the code a sign-in page shows to the sign-in waiting for it.

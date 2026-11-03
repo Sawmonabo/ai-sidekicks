@@ -19,10 +19,8 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::create_missing_private_folders;
+use sidekicks_std::file::tree_copy::{TreeCopyError, TreeCopyFollower, TreeCopyPolicy, copy_tree};
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_workspace::git::worktree::copy::{
-    TreeCopyError, TreeCopyFollower, TreeCopyPolicy, copy_tree,
-};
 
 use crate::account::credential_home::CredentialHome;
 use crate::account::errors::ProviderAccountRegistryError;

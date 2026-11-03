@@ -26,12 +26,11 @@ use serde::Deserialize as _;
 use sidekicks_contracts::event::envelope::{DAEMON_SCOPE_SENTINEL_SESSION_ID, EventEnvelope};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::event::usage::{
-    DEFAULT_RATE_LIMIT_ID, UsageRateLimitUpdatedPayload, UsageRateLimitWindowKey,
-};
+use sidekicks_contracts::event::usage::{UsageRateLimitUpdatedPayload, UsageRateLimitWindowKey};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::{
-    ProviderAccountId, ProviderAccountUsageWindow, ProviderAccountUsageWindowSource,
+    PROVIDER_QUOTA_DEFAULT_LIMIT_ID, ProviderAccountId, ProviderAccountUsageWindow,
+    ProviderAccountUsageWindowSource,
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
@@ -230,7 +229,7 @@ fn compose_named_windows(whole_set: &[UsageRateLimitWindowKey]) -> String {
 
 // The limit a reading names, the reserved one where it names none.
 fn limit_id(limit_id: Option<&BoundedText<1, EVENT_FIELD_MAX_LEN>>) -> &str {
-    limit_id.map_or(DEFAULT_RATE_LIMIT_ID, BoundedText::as_str)
+    limit_id.map_or(PROVIDER_QUOTA_DEFAULT_LIMIT_ID, BoundedText::as_str)
 }
 
 /// Every stored quota reading of a registered account, or of `provider`'s accounts alone, in key

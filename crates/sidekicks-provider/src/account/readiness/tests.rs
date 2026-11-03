@@ -6,7 +6,8 @@ use sidekicks_contracts::provider::account::record::readiness::{
     ProviderSignInExpiredRemedy, ProviderSignInRemedy, RegisterRemedyKind, SignInRemedyKind,
 };
 use sidekicks_contracts::provider::account::record::{
-    BillingMode, ProviderAccountHealthState, ProviderAccountId, ProviderAuthMode,
+    BillingMode, CredentialGeneration, ProviderAccountHealthState, ProviderAccountId,
+    ProviderAuthMode,
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -44,7 +45,7 @@ fn row(
         account_id: account_id(id),
         provider: provider(provider_id),
         credential_home: CredentialHome::from_stored(format!("/data/accounts/{id}")),
-        credential_generation: serde_json::from_value(1.into()).expect("a test generation"),
+        credential_generation: CredentialGeneration::new(1).expect("a test generation"),
         billing_mode: BillingMode::Subscription,
         is_default,
         health: health.map(|state| HealthObservation {

@@ -8927,6 +8927,7 @@ dependencies = [
  "unicode-normalization",
  "url",
  "uuid",
+ "vte",
  "zeroize",
  "zstd",
 ]
@@ -9094,6 +9095,7 @@ dependencies = [
  "base16ct 1.0.0",
  "futures",
  "getrandom 0.4.3",
+ "ignore",
  "reflink-copy",
  "reqwest",
  "rstest",

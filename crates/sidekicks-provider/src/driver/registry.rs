@@ -215,16 +215,16 @@ mod tests {
     use crate::driver::capabilities::DriverCapabilityFlag;
     use crate::driver::contract::MockProviderDriver;
     use crate::driver::test_registry::test_driver_services;
-    use crate::driver::{PROVIDERS, ProviderRegistration};
+    use crate::driver::{PROVIDER_REGISTRATIONS, PROVIDERS, ProviderRegistration};
 
     #[tokio::test]
     async fn the_registry_keeps_the_table_order_and_refuses_an_unknown_id() {
         let services = test_driver_services();
-        let table: Vec<ProviderRegistration> = PROVIDERS
+        let table: Vec<ProviderRegistration> = PROVIDER_REGISTRATIONS
             .iter()
-            .map(|descriptor| ProviderRegistration {
-                descriptor,
+            .map(|registration| ProviderRegistration {
                 build: |_| Arc::new(MockProviderDriver::new()),
+                ..*registration
             })
             .collect();
         let registry = ProviderRegistry::register_from(&table, &services);

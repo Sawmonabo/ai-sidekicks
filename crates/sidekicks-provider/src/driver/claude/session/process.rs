@@ -24,7 +24,7 @@ use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAI
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::{
-    ChildEnd, ChildExit, ProgramStart, Spawner, ask_child_to_stop, read_child_exit, secret_pipe,
+    ChildEnd, ChildExit, ProgramStart, Spawner, read_child_exit, secret_pipe,
 };
 use sidekicks_std::output_tail::{OutputTail, read_output_chunks};
 use tokio::io::AsyncRead;
@@ -35,6 +35,7 @@ use tokio::time::Instant;
 use self::account::ClaudeProcessAccount;
 use self::stdin::ClaudeInputWriter;
 pub(crate) use self::stdout::{CLAUDE_OUTPUT_LINE_MAX_BYTES, ClaudeOutputReader};
+use crate::child_ending::ChildEnding;
 use crate::driver::child_records::{
     ChildRecord, ChildSecret, DaemonChildRecords, RecordedChild, spawn_recorded_child,
 };
@@ -496,19 +497,13 @@ async fn own_child(
     settlement: ProcessExitSettlement,
 ) {
     let waiting = async {
-        let mut asked_end = None;
+        let mut ending = ChildEnding::new(CLAUDE_STOP_KILL_GRACE);
         let mut is_handle_held = true;
-        let kill_grace = tokio::time::sleep(CLAUDE_STOP_KILL_GRACE);
-        tokio::pin!(kill_grace);
-        let mut is_kill_armed = false;
-        let waited = loop {
+        let status = loop {
             let end = tokio::select! {
                 biased;
-                status = child.wait() => break status.map(|status| (status, asked_end)),
-                () = &mut kill_grace, if is_kill_armed => {
-                    is_kill_armed = false;
-                    ChildEnd::Kill
-                }
+                status = child.wait() => break status,
+                () = ending.kill_due() => ChildEnd::Kill,
                 changed = ends.changed(), if is_handle_held => {
                     if changed.is_ok() {
                         let Some(end) = *ends.borrow_and_update() else {
@@ -521,28 +516,14 @@ async fn own_child(
                     }
                 }
             };
-            // A stop asked after a kill or a stop changes nothing.
-            if asked_end == Some(ChildEnd::Kill) || asked_end == Some(end) {
-                continue;
-            }
-            let asked = match end {
-                ChildEnd::Stop => ask_child_to_stop(&mut *child),
-                ChildEnd::Kill => child.start_kill(),
-            };
-            if let Err(error) = asked {
+            if let Err(error) = ending.ask(&mut *child, end) {
                 tracing::warn!(
                     error = &error as &(dyn Error + 'static),
                     "the Claude Code process could not be asked to end"
                 );
             }
-            if end == ChildEnd::Stop {
-                kill_grace
-                    .as_mut()
-                    .reset(Instant::now() + CLAUDE_STOP_KILL_GRACE);
-                is_kill_armed = true;
-            }
-            asked_end = Some(end);
         };
+        let waited = status.map(|status| (status, ending.asked()));
         // A wait that failed leaves the record for the next start's sweep.
         if waited.is_ok() {
             record.retire().await;

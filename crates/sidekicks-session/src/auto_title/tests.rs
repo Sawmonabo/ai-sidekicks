@@ -17,7 +17,7 @@ use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_provider::driver::test_registry::test_driver_services;
-use sidekicks_provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
+use sidekicks_provider::driver::{DriverServices, PROVIDER_REGISTRATIONS, ProviderRegistration};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
@@ -76,8 +76,8 @@ async fn harness(build: fn(&DriverServices) -> Arc<dyn ProviderDriver>) -> Harne
     let services = test_driver_services();
     let providers = Arc::new(ProviderRegistry::register_from(
         &[ProviderRegistration {
-            descriptor: PROVIDERS[0],
             build,
+            ..PROVIDER_REGISTRATIONS[0]
         }],
         &services,
     ));

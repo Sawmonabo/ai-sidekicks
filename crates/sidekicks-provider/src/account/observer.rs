@@ -9,8 +9,9 @@
 //! - A provider whose reads each start a process reads one account at a time.
 //! - `Check now` answers the last read while it is under a minute old, and a hold's end while the
 //!   throttle ladder holds the account; the opt-out stops every read but `Check now`.
-//! - An answer with figures records its quota windows as the account's whole set, and the
-//!   identity and sign-in renewal the provider reported with it on the account's row.
+//! - An answer with figures records its quota windows as the account's whole set, or as a partial
+//!   set where a pasted token's turn read them, and the identity and sign-in renewal the provider
+//!   reported with it on the account's row.
 //! - The stored health: an answer with figures reads signed in and takes the account off the
 //!   ladder; a sign-in gone reads `reauthRequired`; a refused read climbs the ladder; a sign-in
 //!   refused on the way to the answer, or the second read in a row with no answer, reads
@@ -56,7 +57,7 @@ use crate::account::sign_in::{
 use crate::account::token_custody::{ProviderTokenCustody, TokenCustodyError};
 use crate::account::wake_helper::MachineWakeHelper;
 use crate::driver::contract::account::{
-    ProviderObservation, ProviderObserveLegs, ProviderWindowTurnLegs,
+    ProviderObservation, ProviderObserveLegs, ProviderTokenLimitsLegs, ProviderWindowTurnLegs,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::{AccountFoldersError, ProviderAccountFolders, ProviderAccountReader};
@@ -93,8 +94,11 @@ pub struct ProviderAccountObserverDeps {
     pub account_reader: Arc<dyn ProviderAccountReader>,
     /// Each provider's limits read; an account of a provider with none is not observed.
     pub legs: HashMap<ProviderId, Arc<dyn ProviderObserveLegs>>,
-    /// Each provider's smallest turns; an account of a provider with none starts no window.
+    /// Each provider's smallest turn; an account of a provider with none starts no window.
     pub window_turn_legs: HashMap<ProviderId, Arc<dyn ProviderWindowTurnLegs>>,
+    /// Each provider's read of a pasted token's limits by a turn; a pasted token of a provider
+    /// with none is read as any sign-in is.
+    pub token_limits_legs: HashMap<ProviderId, Arc<dyn ProviderTokenLimitsLegs>>,
     /// The sealed pasted tokens, one of which a turn that reads its limits is handed.
     pub token_custody: Arc<ProviderTokenCustody>,
     /// The daemon's read connections, which read each account's windows.
@@ -244,6 +248,7 @@ struct ObserverShared {
     account_reader: Arc<dyn ProviderAccountReader>,
     legs: HashMap<ProviderId, Arc<dyn ProviderObserveLegs>>,
     window_turn_legs: HashMap<ProviderId, Arc<dyn ProviderWindowTurnLegs>>,
+    token_limits_legs: HashMap<ProviderId, Arc<dyn ProviderTokenLimitsLegs>>,
     token_custody: Arc<ProviderTokenCustody>,
     database_reads: Arc<DatabaseReadPool>,
     database_writer: Arc<DatabaseWriter>,
@@ -282,6 +287,7 @@ impl ProviderAccountObserver {
                 account_reader: deps.account_reader,
                 legs: deps.legs,
                 window_turn_legs: deps.window_turn_legs,
+                token_limits_legs: deps.token_limits_legs,
                 token_custody: deps.token_custody,
                 database_reads: deps.database_reads,
                 database_writer: deps.database_writer,
@@ -614,8 +620,9 @@ impl ObserverShared {
             .resolve_account_folders(account.account_id.clone())
             .await
             .map_err(ProviderAccountObserverError::Folders)?;
-        let observation = if token_read::reads_limits_by_turn(&account) {
-            self.read_token_limits(&account, folders).await?
+        let observation = if let Some(token_limits) = self.token_limits_legs_of(&account) {
+            self.read_token_limits(&account, token_limits, folders)
+                .await?
         } else {
             self.observe(&account, &*legs, folders).await
         };

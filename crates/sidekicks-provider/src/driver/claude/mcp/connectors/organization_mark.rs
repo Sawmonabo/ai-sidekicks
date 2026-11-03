@@ -14,15 +14,15 @@ use reqwest::StatusCode;
 use reqwest::header::{
     ACCEPT, ACCEPT_ENCODING, AUTHORIZATION, CONTENT_TYPE, HeaderValue, USER_AGENT,
 };
+use secrecy::SecretString;
 use serde::Deserialize;
-use sidekicks_platforms::PathRules;
 use tokio::sync::OnceCell;
 use tokio::time::Instant;
 use zeroize::Zeroizing;
 
 use crate::driver::claude::account::credentials::{
-    CUSTOM_SIGN_IN_HOST_VARIABLE, ClaudeAiSignIn, ClaudeSignInReader, ClaudeSignInReading,
-    is_claude_api_key_approved,
+    ClaudeAiSignIn, ClaudeCustomSignInBase, ClaudeSignInReader, ClaudeSignInReading,
+    is_claude_api_key_approved, read_custom_sign_in_base,
 };
 use crate::driver::claude::mcp::connectors::list_fetch::{
     ClaudeConnectorFetchSettings, does_api_key_need_approval, skips_connector_fetch,
@@ -36,13 +36,6 @@ mod tests;
 
 /// Where Claude Code reads the connector list from unless its account names another approved host.
 const CLAUDE_API_BASE: &str = "https://api.anthropic.com";
-
-/// The hosts Claude Code accepts in `CLAUDE_CODE_CUSTOM_OAUTH_URL`, refusing any other.
-const APPROVED_CUSTOM_BASES: [&str; 3] = [
-    "https://beacon.claude-ai.staging.ant.dev",
-    "https://claude.fedstart.com",
-    "https://claude-staging.fedstart.com",
-];
 
 /// The connector list's path and query, the whole list in one page.
 const CONNECTOR_LIST_PATH: &str = "/v1/mcp_servers?limit=1000";
@@ -167,7 +160,8 @@ impl ClaudeOrganizationMarks {
     }
 
     /// The marks of the connectors on the list of the account whose process `environment`
-    /// started with `settings`, read as the build `build_version` reads it. Not fetched, and not
+    /// started with `settings`, signed in with `handed_token` where it is a token account, read as
+    /// the build `build_version` reads it. Not fetched, and not
     /// read, where Claude Code skips its own fetch for the environment, the settings, an approved
     /// API key, an absent sign-in or its scopes; unread, with the reason logged at debug, where
     /// its sign-in cannot be read, the build reported no version, the account names a host Claude
@@ -175,6 +169,7 @@ impl ClaudeOrganizationMarks {
     pub(crate) async fn read(
         &self,
         environment: &[(String, String)],
+        handed_token: Option<&SecretString>,
         build_version: Option<&str>,
         settings: &ClaudeConnectorFetchSettings,
     ) -> ClaudeConnectorListReading {
@@ -184,7 +179,7 @@ impl ClaudeOrganizationMarks {
         if skips_connector_fetch(environment, settings, is_api_key_approved) {
             return ClaudeConnectorListReading::NotFetched;
         }
-        let sign_in = match self.sign_in.read(environment).await {
+        let sign_in = match self.sign_in.read(environment, handed_token).await {
             ClaudeSignInReading::Absent => return ClaudeConnectorListReading::NotFetched,
             ClaudeSignInReading::Unreadable => return ClaudeConnectorListReading::Unread,
             ClaudeSignInReading::Read(sign_in) => sign_in,
@@ -263,19 +258,15 @@ async fn build_http_client() -> Result<reqwest::Client, reqwest::Error> {
 /// its trailing `/` dropped, else the default. `None`, logged, where it names a host Claude Code
 /// refuses.
 pub(crate) fn claude_api_base(environment: &[(String, String)]) -> Option<String> {
-    let Some(custom) =
-        PathRules::NATIVE.environment_value(environment, CUSTOM_SIGN_IN_HOST_VARIABLE)
-    else {
-        return Some(CLAUDE_API_BASE.to_owned());
-    };
-    let custom = custom.strip_suffix('/').unwrap_or(custom);
-    if APPROVED_CUSTOM_BASES.contains(&custom) {
-        Some(custom.to_owned())
-    } else {
-        tracing::debug!(
-            "no connector marks read: the account names an API host Claude Code refuses"
-        );
-        None
+    match read_custom_sign_in_base(environment) {
+        ClaudeCustomSignInBase::Unset => Some(CLAUDE_API_BASE.to_owned()),
+        ClaudeCustomSignInBase::Approved(base) => Some(base.to_owned()),
+        ClaudeCustomSignInBase::Refused => {
+            tracing::debug!(
+                "no connector marks read: the account names an API host Claude Code refuses"
+            );
+            None
+        }
     }
 }
 

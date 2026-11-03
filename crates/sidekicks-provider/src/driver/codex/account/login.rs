@@ -1,13 +1,25 @@
-//! The params of Codex's `account/login/start`, written by hand so a credential it carries stays a
-//! secret until the request is encoded.
+//! Codex's sign-in and sign-out requests: the params of `account/login/start`, written by hand so
+//! a credential it carries stays a secret until the request is encoded, and `account/logout`.
 
-use secrecy::{ExposeSecret as _, SecretString};
-use serde::{Serialize, Serializer};
+use secrecy::SecretString;
+use serde::Serialize;
+
+use crate::driver::codex::account::auth_file::serialize_secret;
+
+/// Codex's request that signs a service in.
+pub(crate) const CODEX_LOGIN_START_METHOD: &str = "account/login/start";
+
+/// Codex's request that signs a service out; it takes no params.
+pub(crate) const CODEX_ACCOUNT_LOGOUT_METHOD: &str = "account/logout";
 
 /// One `account/login/start` request, its arm named by `type`.
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub(crate) enum CodexLoginAccountParams {
+    /// A `ChatGPT` sign-in in a browser on this machine, which returns to Codex's own callback.
+    Chatgpt {},
+    /// A `ChatGPT` sign-in by a device code, finished from a browser on any device.
+    ChatgptDeviceCode {},
     /// A `ChatGPT` sign-in's tokens the daemon read from an account's home and hands a service that
     /// keeps no sign-in of its own; Codex holds them in its memory alone.
     #[serde(rename_all = "camelCase")]
@@ -21,12 +33,12 @@ pub(crate) enum CodexLoginAccountParams {
         /// token's claims.
         chatgpt_plan_type: Option<String>,
     },
-}
-
-// Writes the secret's text into the encoded request, the one place it leaves its wrapper.
-fn serialize_secret<S: Serializer>(
-    secret: &SecretString,
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    serializer.serialize_str(secret.expose_secret())
+    /// A pasted API key the daemon read from where it seals its secrets and hands the service of
+    /// the key's account; Codex holds it in its memory alone.
+    #[serde(rename_all = "camelCase")]
+    ApiKey {
+        /// The key.
+        #[serde(serialize_with = "serialize_secret")]
+        api_key: SecretString,
+    },
 }

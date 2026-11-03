@@ -17,14 +17,13 @@ use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use serde::Deserialize;
-use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_store::data_folder::plugin_home;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 use url::Url;
 
 use self::login_failure::read_codex_login_failure;
@@ -37,9 +36,8 @@ use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
-use crate::driver::codex::transport::connection::{
-    CodexConnectionEvents, CodexForgottenRequest, read_codex_object,
-};
+use crate::driver::codex::transport::connection::read_codex_object;
+use crate::driver::codex::transport::login_notices::{LoginNotice, LoginNotices};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
     BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInFailure, ProviderSignInTakeover,
@@ -76,9 +74,6 @@ const SIGN_IN_FOLDER_NAME_BYTES: usize = 4;
 /// How long past the sign-in's lifetime the wait for Codex's own end of the login runs, since
 /// Codex ends a login that outlived its timeout itself.
 const COMPLETION_MARGIN: Duration = Duration::from_secs(10);
-
-/// The notices one login's wait reads, a few at most.
-const LOGIN_NOTICE_CAPACITY: usize = 8;
 
 /// The member of a server entry holding its sign-in client, and that client's secret.
 const OAUTH_MEMBER: &str = "oauth";
@@ -321,46 +316,6 @@ fn drop_nulls(value: Value) -> Value {
     }
 }
 
-// What one login's wait reads: a completion notice, or the connection's close.
-enum LoginNotice {
-    Completed(Box<RawValue>),
-    Closed(String),
-}
-
-// Hands the throwaway connection's completion notices and its close to the login's wait.
-struct LoginNotices(mpsc::Sender<LoginNotice>);
-
-impl LoginNotices {
-    fn forward(&self, notice: LoginNotice) {
-        if self.0.try_send(notice).is_err() {
-            tracing::debug!("a Codex MCP sign-in's notice came after its wait ended");
-        }
-    }
-}
-
-impl CodexConnectionEvents for LoginNotices {
-    fn notification(&self, method: &str, params: Box<RawValue>) {
-        if method == OAUTH_LOGIN_COMPLETED_METHOD {
-            self.forward(LoginNotice::Completed(params));
-        }
-    }
-
-    fn dropped(&self, reason: &str) {
-        self.forward(LoginNotice::Closed(reason.to_owned()));
-    }
-
-    // The connection holds no ask: it has no responder.
-    fn held_requests_dropped(&self, _dropped: Vec<CodexForgottenRequest>) {}
-
-    // A throwaway service never drains: the daemon stops it.
-    fn service_draining(&self, _message: &str) {}
-
-    // The login's own request reports its deadline.
-    fn request_timed_out(&self, _silent_for: Duration) {}
-
-    fn answered_after_timeout(&self) {}
-}
-
 // The members of the login's reply the sign-in reads.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -392,10 +347,8 @@ async fn run_login(
     lifetime: Duration,
     authorization_url: oneshot::Sender<Url>,
 ) -> Result<(), DriverError> {
-    let (notices, mut received) = mpsc::channel(LOGIN_NOTICE_CAPACITY);
-    let connection = service
-        .open_detached_connection(Arc::new(LoginNotices(notices)))
-        .await?;
+    let (notices, mut received) = LoginNotices::open(OAUTH_LOGIN_COMPLETED_METHOD);
+    let connection = service.open_detached_connection(notices).await?;
     let login = async {
         let reply = connection
             .request(

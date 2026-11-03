@@ -1,8 +1,8 @@
 //! Where Claude Code keeps the person's own memory, and where the memory import copies it: each
 //! project's memory under their own `projects/<folder>/memory/` into the same folder of the
-//! account's home, since the daemon names a project's folder the same in every home, and each
-//! agent's notes under their own `agent-memory/<name>/` into the daemon's one agent-memory folder,
-//! which every account's agents share.
+//! account's home, since Claude Code names a project's folder from its path alone, the same in
+//! every home, and each agent's notes under their own `agent-memory/<name>/` into the daemon's one
+//! agent-memory folder, which every account's agents share.
 
 use std::fs;
 use std::io;

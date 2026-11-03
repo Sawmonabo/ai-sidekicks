@@ -3,13 +3,15 @@
 //! answer the acknowledgment for every conversation on the service. At that answer's place among
 //! the service's frames the service carries the new account, its limit readings start afresh, and
 //! each moved session takes its move in its queue, its binding moving once the spend metered
-//! before is recorded. A refused login moves nothing.
+//! before is recorded. A refused login moves nothing. Each move's first request is watched by the
+//! switching service's hand-back window, which settles it.
 
 use std::path::Path;
 use std::sync::Arc;
 
 use futures::future::join_all;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_ipc::domain_error::DomainError;
@@ -21,60 +23,83 @@ use crate::driver::codex::service::switching::CodexNamedMove;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::account::{SessionAccountMove, SessionToMove};
 use crate::driver::contract::error::DriverError;
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 /// Moves each of `sessions` onto `to` through `legs` with one login on the switching service for
 /// `actor`, as [`crate::driver::contract::account::ProviderSwitchLegs::move_sessions`] says. The
 /// account it leaves is the one the service carries. A refused login, or a service that cannot
 /// start, fails every move with that error.
-pub(super) async fn move_codex_sessions(
+pub(crate) async fn move_codex_sessions(
     legs: &CodexAccountLegs,
     to: ProviderAccountId,
     sessions: Vec<SessionToMove>,
     actor: DeviceId,
 ) -> Vec<Result<SessionAccountMove, (SessionId, DriverError)>> {
-    let (queued, landings): (Vec<_>, Vec<_>) = sessions
+    let (named, landings): (Vec<_>, Vec<_>) = sessions
         .into_iter()
         .map(|session| {
             let (moved, landed) = oneshot::channel();
-            ((session.clone(), moved), (session, landed))
+            let (watch, first_request) = oneshot::channel();
+            let named = CodexNamedMove {
+                session_id: session.session_id,
+                binding_id: session.binding_id.clone(),
+                moved,
+                first_request: watch,
+            };
+            (named, (session, landed, first_request))
         })
         .unzip();
-    if let Err(error) = switch_service(legs, to.clone(), queued, actor).await {
+    if let Err(error) = switch_service(legs, to.clone(), named, actor).await {
         let error = Arc::new(DriverError::from(error));
         return landings
             .into_iter()
-            .map(|(session, _landed)| Err((session.session_id, share_failure(&error))))
+            .map(|(session, _landed, _first_request)| {
+                Err((session.session_id, share_failure(&error)))
+            })
             .collect();
     }
-    join_all(landings.into_iter().map(|(session, landed)| {
-        let to = to.clone();
-        async move {
-            let session_id = session.session_id;
-            let moved = match landed.await {
-                Ok(moved) => moved,
-                // The session's queue took no move, so no frame of it waits: it moves at once.
-                Err(_untaken) => legs
-                    .bindings
-                    .move_account(session.binding_id, to)
-                    .await
-                    .map_err(DriverError::Internal),
-            };
-            moved.map_err(|error| (session_id, error))?;
-            // Codex reports a login it then refuses through its own refresh request, which the
-            // hand-back answers, so no first request is watched here.
-            Ok(SessionAccountMove::unobserved(session_id))
-        }
-    }))
+    join_all(
+        landings
+            .into_iter()
+            .map(|(session, landed, first_request)| {
+                let to = to.clone();
+                async move {
+                    let session_id = session.session_id;
+                    wait_for_move(landed, &*legs.bindings, session.binding_id, to)
+                        .await
+                        .map_err(|error| (session_id, error))?;
+                    Ok(SessionAccountMove::watched(session_id, first_request))
+                }
+            }),
+    )
     .await
 }
 
+/// Waits for a session's move queued among its frames to land on `landed`, its lead's binding
+/// `binding_id` with it; a queue that took no move holds no frame of it, so the binding moves onto
+/// `to` through `bindings` at once. Fails with the move's error.
+pub(crate) async fn wait_for_move(
+    landed: oneshot::Receiver<Result<(), DriverError>>,
+    bindings: &dyn RuntimeBindingWriter,
+    binding_id: RuntimeBindingId,
+    to: ProviderAccountId,
+) -> Result<(), DriverError> {
+    match landed.await {
+        Ok(moved) => moved,
+        Err(_untaken) => bindings
+            .move_account(binding_id, to)
+            .await
+            .map_err(DriverError::Internal),
+    }
+}
+
 // Starts the switching service where it is not up and hands it `to`'s tokens for `actor`; at the
-// answer the service's readings start afresh and each session on it, each of `queued` among them,
+// answer the service's readings start afresh and each session on it, each of `named` among them,
 // takes its move in its queue.
 async fn switch_service(
     legs: &CodexAccountLegs,
     to: ProviderAccountId,
-    queued: Vec<(SessionToMove, oneshot::Sender<Result<(), DriverError>>)>,
+    named: Vec<CodexNamedMove>,
     actor: DeviceId,
 ) -> Result<(), CodexError> {
     let service = legs
@@ -85,14 +110,6 @@ async fn switch_service(
     service
         .ensure_started(legs.dependencies.startup_timeout)
         .await?;
-    let named = queued
-        .into_iter()
-        .map(|(session, moved)| CodexNamedMove {
-            session_id: session.session_id,
-            binding_id: session.binding_id,
-            moved,
-        })
-        .collect();
     service
         .dependencies()
         .switching
@@ -126,14 +143,14 @@ pub(super) async fn hand_switching_service_again(
     Ok(())
 }
 
-// One failed switch's failure, shared by the move of every session it held back.
+// One failure shared by every session it held back: a failed switch's, or a hand-back's.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
 struct SharedSwitchFailure(Arc<DriverError>);
 
-// `error` as one session's move carries it: a refusal under its own code and words, any other
-// failure as the driver's own, each with the switch's failure underneath.
-fn share_failure(error: &Arc<DriverError>) -> DriverError {
+/// `error` as one session's move carries it: a refusal under its own code and words, any other
+/// failure as the driver's own, each with the shared failure underneath.
+pub(crate) fn share_failure(error: &Arc<DriverError>) -> DriverError {
     let shared = Box::new(SharedSwitchFailure(Arc::clone(error)));
     if let DriverError::Refused(refusal) = &**error {
         let mut shared_refusal = DomainError::new(refusal.message.clone(), refusal.code);

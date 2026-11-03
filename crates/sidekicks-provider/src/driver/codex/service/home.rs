@@ -1,7 +1,8 @@
 //! The Codex home one service runs on, and the three kinds of service the daemon keeps there: its
-//! own on an account home, the switching home, the capability read's or an MCP sign-in's, the
-//! lasting one on the person's own Codex folder that terminals join, and one already there that is
-//! not the daemon's, which it only joins; and how the driver resolves the home an account runs in.
+//! own on an account home, the switching home, the capability read's, an MCP sign-in's or a pasted
+//! key's status read's, the lasting one on the person's own Codex folder that terminals join, and
+//! one already there that is not the daemon's, which it only joins; and how the driver resolves the
+//! home an account runs in.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -9,7 +10,7 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use serde_json::{Map, Value};
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 use sidekicks_platforms::PathRules;
 use sidekicks_std::port_registration::PortRegistration;
 
@@ -26,6 +27,9 @@ const CODEX_PERSONAL_HOME_FOLDER_NAME: &str = ".codex";
 pub(crate) enum CodexHomeKind {
     /// The home the app manages for the account it names.
     Account(ProviderAccountId),
+    /// The home the app manages for an account signed in with a pasted API key; its service keeps
+    /// the key it is handed in memory alone.
+    ApiKeyAccount(ProviderAccountId),
     /// The daemon's own home under its data folder, apart from every account home, where the one
     /// switching service runs on tokens the daemon hands it, carrying every session that follows
     /// the provider's current account; it keeps no sign-in of its own.
@@ -39,6 +43,9 @@ pub(crate) enum CodexHomeKind {
     /// A folder of the daemon's own, made for one MCP server's sign-in through Codex's own client
     /// and deleted after it, holding only that server's entry and the sign-in Codex saves.
     McpSignIn,
+    /// A folder of the daemon's own that one status read of a pasted API key runs one short-lived
+    /// service in.
+    TokenStatusRead,
 }
 
 /// The Codex home one service runs on.
@@ -52,14 +59,16 @@ pub(crate) struct CodexServiceHome {
 
 impl CodexServiceHome {
     /// The account the home belongs to; `None` for the switching home, the person's own folder
-    /// and the folders the capability read and an MCP sign-in run in.
+    /// and the folders the capability read, an MCP sign-in and a pasted key's status read run in.
     pub(crate) fn provider_account_id(&self) -> Option<&ProviderAccountId> {
         match &self.kind {
-            CodexHomeKind::Account(provider_account_id) => Some(provider_account_id),
+            CodexHomeKind::Account(provider_account_id)
+            | CodexHomeKind::ApiKeyAccount(provider_account_id) => Some(provider_account_id),
             CodexHomeKind::Switching
             | CodexHomeKind::PersonalFolder
             | CodexHomeKind::CapabilityRead
-            | CodexHomeKind::McpSignIn => None,
+            | CodexHomeKind::McpSignIn
+            | CodexHomeKind::TokenStatusRead => None,
         }
     }
 }
@@ -86,9 +95,11 @@ impl CodexConversationHome {
         match home.kind {
             CodexHomeKind::Switching => Self::Switching,
             CodexHomeKind::Account(_)
+            | CodexHomeKind::ApiKeyAccount(_)
             | CodexHomeKind::PersonalFolder
             | CodexHomeKind::CapabilityRead
-            | CodexHomeKind::McpSignIn => Self::Account,
+            | CodexHomeKind::McpSignIn
+            | CodexHomeKind::TokenStatusRead => Self::Account,
         }
     }
 
@@ -189,15 +200,25 @@ impl CodexHomeResolver for CodexHomes {
         provider_account_id: &'call ProviderAccountId,
     ) -> BoxFuture<'call, Result<CodexServiceHome, DriverError>> {
         async move {
-            let folders = self
+            let accounts = self
                 .provider_accounts
                 .require_port()
-                .map_err(|error| DriverError::Internal(Box::new(error)))?
+                .map_err(|error| DriverError::Internal(Box::new(error)))?;
+            let folders = accounts
                 .resolve_account_folders(provider_account_id.clone())
                 .await?;
+            let mode = accounts
+                .read_observed_auth_mode(provider_account_id.clone())
+                .await
+                .map_err(DriverError::Internal)?;
+            let kind = if mode == Some(ProviderAuthMode::ApiKey) {
+                CodexHomeKind::ApiKeyAccount(provider_account_id.clone())
+            } else {
+                CodexHomeKind::Account(provider_account_id.clone())
+            };
             Ok(CodexServiceHome {
                 codex_home: folders.configuration_folder,
-                kind: CodexHomeKind::Account(provider_account_id.clone()),
+                kind,
             })
         }
         .boxed()

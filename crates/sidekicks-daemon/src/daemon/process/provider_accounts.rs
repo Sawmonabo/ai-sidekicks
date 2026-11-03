@@ -1,22 +1,26 @@
 //! The provider account plane at the daemon's start: the account registry, the accounts reader the
 //! drivers resolve folders through, the token custody and its sweep of what a stop left, the sweep
-//! of what each provider's stopped sign-in move left, the background observer over each provider's
-//! own legs, the sign-in broker and the sources the `provider.account.*` methods act through, the
-//! current-account switch, and the machine's wake helper where the system has one; and, once the
-//! recovery pass has run, the observer's schedule, its follow of each metered turn and each run's
-//! end, the publishing of each quota reading the window projection keeps, and the move of each
-//! session a stop left on another account than its provider's current one.
+//! of what each provider's stopped sign-in move left, the background sweep of the homes a stop left
+//! minted for new accounts, the background observer over each provider's own legs, the sign-in
+//! broker and the sources the `provider.account.*` methods act through, the current-account switch,
+//! and the machine's wake helper where the system has one; and, once the recovery pass has run, the
+//! observer's schedule, its follow of each metered turn and each run's end, the publishing of each
+//! quota reading the window projection keeps, and the move of each session a stop left on another
+//! account than its provider's current one.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde::Deserialize as _;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::usage::{
-    DEFAULT_RATE_LIMIT_ID, UsageRateLimitUpdatedPayload, UsageTokenCountRecordedPayload,
+    UsageRateLimitUpdatedPayload, UsageTokenCountRecordedPayload,
 };
-use sidekicks_contracts::provider::account::record::ProviderAccountNotification;
+use sidekicks_contracts::provider::account::record::{
+    PROVIDER_QUOTA_DEFAULT_LIMIT_ID, ProviderAccountNotification,
+};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::transcript::run_facts::RunStateEventType;
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -38,10 +42,11 @@ use sidekicks_provider::account::wake_helper::{MachineWakeHelper, SystemWakeHelp
 use sidekicks_provider::driver::ProviderAccountReader;
 use sidekicks_provider::driver::contract::account::{
     ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObserveLegs, ProviderSignInLegs,
-    ProviderSwitchLegs, ProviderTokenStatusLegs, ProviderWindowTurnLegs,
+    ProviderSwitchLegs, ProviderTokenLimitsLegs, ProviderTokenStatusLegs, ProviderWindowTurnLegs,
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_queue::provider_session::ProviderSessions;
+use sidekicks_recovery::account_homes::LeftoverMintedHomes;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::usage_record::UsageRecord;
 use sidekicks_std::scheduler::Scheduler;
@@ -54,13 +59,19 @@ use sidekicks_store::events::session::followers::{
 };
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use tokio::runtime::Handle;
+use tokio::task::JoinHandle;
 
 use crate::daemon::process::start_error::DaemonStartError;
+use crate::daemon::process::stop::{DaemonStopFailure, end_start_tasks};
+use crate::data_acts::erase::ACCOUNT_SIGN_OUT_BOUND;
 use crate::ipc::handlers::provider_account::ProviderAccountMethodSources;
 use crate::ipc::handlers::provider_account::notifications::ProviderAccountNotifications;
 use crate::orchestration::account_switch::{
     AccountSwitch, AccountSwitchDeps, SessionAccountMoveRecord,
 };
+
+// What the background sweep of new accounts' homes does, as a stop that ends it names it.
+const MINTED_HOME_SWEEP_TASK: &str = "sweep of the homes a stop left minted for new accounts";
 
 // The wake helper's program, which the service ships beside its own.
 const WAKE_HELPER_PROGRAM_NAME: &str = "sidekicks-wake-helper";
@@ -108,6 +119,8 @@ pub(crate) struct ProviderAccountPlane {
     /// The record of each session a driver moves onto another account outside a switch, which
     /// the drivers' port takes.
     pub(crate) account_move_record: Arc<SessionAccountMoveRecord>,
+    /// The one lock on account homes every act in a home holds, which the drivers' port takes.
+    pub(crate) home_lock: Arc<AccountHomeLock>,
     /// What the `provider.account.*` methods act through.
     pub(crate) methods: ProviderAccountMethodSources,
     /// The background observer, started once the recovery pass has run.
@@ -115,8 +128,9 @@ pub(crate) struct ProviderAccountPlane {
 }
 
 /// Builds the account plane over `start` and sweeps the provider tokens a stop left, then what
-/// each provider's stopped sign-in move left; a failed sweep is logged, and the next start sweeps
-/// what it left. Runs inside the daemon's runtime.
+/// each provider's stopped sign-in move left, and begins in the background the sweep of the homes
+/// a stop left minted for new accounts, which the start never waits on; a failed sweep is logged,
+/// and the next start sweeps what it left. Runs inside the daemon's runtime.
 pub(crate) async fn build_provider_account_plane(
     start: ProviderAccountPlaneStart<'_>,
 ) -> ProviderAccountPlane {
@@ -159,6 +173,7 @@ pub(crate) async fn build_provider_account_plane(
         memory_import: memory_import_legs,
         switch: switch_legs,
         window_turn: window_turn_legs,
+        token_limits: token_limits_legs,
         sign_in: sign_in_legs,
         token_status: token_status_legs,
     } = collect_provider_account_legs(&providers);
@@ -174,6 +189,13 @@ pub(crate) async fn build_provider_account_plane(
         );
     }
     remove_sign_in_move_leftovers(&account_legs, &registry).await;
+    let minted_home_sweep = start_minted_home_sweep(
+        &registry,
+        &account_legs,
+        data_folder.to_path_buf(),
+        ACCOUNT_SIGN_OUT_BOUND,
+    )
+    .await;
     let home_lock = Arc::new(AccountHomeLock::default());
     let accounts_in_flight = Arc::new(AccountsInFlight::default());
     let live_turns: Arc<dyn AccountLiveTurns> = binding_cursors;
@@ -183,6 +205,7 @@ pub(crate) async fn build_provider_account_plane(
         account_reader: Arc::clone(&reader),
         legs: observe_legs,
         window_turn_legs,
+        token_limits_legs,
         token_custody: Arc::clone(&token_custody),
         database_reads: Arc::clone(&reads),
         database_writer: writer,
@@ -222,14 +245,14 @@ pub(crate) async fn build_provider_account_plane(
         methods: ProviderAccountMethodSources {
             accounts: Arc::clone(&registry),
             providers,
-            sign_in,
+            sign_in: Arc::clone(&sign_in),
             accounts_in_flight,
             token_custody,
             observer: Arc::clone(&observer),
             account_reader: Arc::clone(&reader),
             account_legs,
             memory_import_legs,
-            home_lock,
+            home_lock: Arc::clone(&home_lock),
             live_turns,
             publisher: Arc::clone(&publisher),
             database_reads: Arc::clone(&reads),
@@ -240,15 +263,32 @@ pub(crate) async fn build_provider_account_plane(
         reader,
         registry,
         account_move_record,
+        home_lock,
         observation: ProviderAccountObservation {
             observer,
             usage_events: None,
+            sign_in,
             account_switch,
             machine_device_id,
             reads,
             publisher,
+            minted_home_sweep: Some(minted_home_sweep),
         },
     }
+}
+
+/// Reads the homes a stop left minted for new accounts before any sign-in can mint another, then
+/// signs out and removes on a task of its own those no row took, each sign-out within `bound`, so
+/// the start never waits on a provider's sign-out. Answers that task.
+pub(super) async fn start_minted_home_sweep(
+    registry: &ProviderAccountRegistry,
+    account_legs: &HashMap<ProviderId, Arc<dyn ProviderAccountLegs>>,
+    data_folder: PathBuf,
+    bound: Duration,
+) -> JoinHandle<()> {
+    let leftovers = LeftoverMintedHomes::read(registry, data_folder).await;
+    let account_legs = account_legs.clone();
+    tokio::spawn(async move { leftovers.remove_unadmitted(&account_legs, bound).await })
 }
 
 // Removes what each provider's stopped sign-in move left beside its accounts, logging each
@@ -288,8 +328,10 @@ pub(super) struct ProviderAccountLegSet {
     pub(super) memory_import: HashMap<ProviderId, Arc<dyn ProviderMemoryImportLegs>>,
     /// The moves of running sessions onto another account the providers offer.
     pub(super) switch: HashMap<ProviderId, Arc<dyn ProviderSwitchLegs>>,
-    /// The throwaway window and token-limits turns the providers offer.
+    /// The throwaway window-start turns the providers offer.
     pub(super) window_turn: HashMap<ProviderId, Arc<dyn ProviderWindowTurnLegs>>,
+    /// The pasted-token limits reads by a turn the providers offer.
+    pub(super) token_limits: HashMap<ProviderId, Arc<dyn ProviderTokenLimitsLegs>>,
     /// The interactive sign-ins the providers offer.
     pub(super) sign_in: HashMap<ProviderId, Arc<dyn ProviderSignInLegs>>,
     /// The pasted-token status reads the providers offer.
@@ -315,6 +357,9 @@ pub(super) fn collect_provider_account_legs(providers: &ProviderRegistry) -> Pro
         if let Some(window_turn) = Arc::clone(&legs).window_turn_legs() {
             legs_set.window_turn.insert(provider.clone(), window_turn);
         }
+        if let Some(token_limits) = Arc::clone(&legs).token_limits_legs() {
+            legs_set.token_limits.insert(provider.clone(), token_limits);
+        }
         if let Some(sign_in) = Arc::clone(&legs).sign_in_legs() {
             legs_set.sign_in.insert(provider.clone(), sign_in);
         }
@@ -327,15 +372,19 @@ pub(super) fn collect_provider_account_legs(providers: &ProviderRegistry) -> Pro
 }
 
 /// The background observer, and its follow of each metered turn and each quota reading once
-/// started, beside the switch that moves the sessions a stop left behind.
+/// started, beside the sign-ins and the sweep of new accounts' homes the stop ends and the switch
+/// that moves the sessions a stop left behind.
 pub(crate) struct ProviderAccountObservation {
     observer: Arc<ProviderAccountObserver>,
     usage_events: Option<FollowerAttachment>,
+    sign_in: Arc<ProviderSignInBroker>,
     account_switch: Arc<AccountSwitch>,
     machine_device_id: DeviceId,
     // The window projection's reads, and where each reading it keeps goes out.
     reads: Arc<DatabaseReadPool>,
     publisher: Arc<ProviderAccountNotifications>,
+    // The start's sweep of the homes a stop left minted for new accounts, until the stop ends it.
+    minted_home_sweep: Option<JoinHandle<()>>,
 }
 
 impl ProviderAccountObservation {
@@ -370,6 +419,28 @@ impl ProviderAccountObservation {
             )?)
         }));
         Ok(())
+    }
+
+    /// Cancels every sign-in under way and waits up to `bound` for each to settle, a new
+    /// account's minted home removed, answering whether all did.
+    pub(crate) async fn end_sign_ins(&self, bound: Duration) -> bool {
+        self.sign_in.stop(bound).await
+    }
+
+    /// Waits up to `bound` for the start's sweep of the homes a stop left minted for new accounts,
+    /// ending it then; a home it did not reach stays marked for the next start. Answers the sweep
+    /// when it ended abnormally or ran past the bound.
+    pub(crate) async fn end_minted_home_sweep(
+        &mut self,
+        bound: Duration,
+    ) -> Vec<DaemonStopFailure> {
+        end_start_tasks(
+            self.minted_home_sweep
+                .take()
+                .map(|sweep| (MINTED_HOME_SWEEP_TASK, sweep)),
+            bound,
+        )
+        .await
     }
 
     /// Ends the follow and every account's job, timer and the wake watch; a read under way
@@ -450,7 +521,9 @@ pub(super) async fn publish_usage_window(
     let limit_id = updated
         .limit_id
         .as_ref()
-        .map_or(DEFAULT_RATE_LIMIT_ID, |limit_id| limit_id.as_str());
+        .map_or(PROVIDER_QUOTA_DEFAULT_LIMIT_ID, |limit_id| {
+            limit_id.as_str()
+        });
     let window = read_usage_windows(reads, Some(updated.provider.clone()))
         .await?
         .into_iter()

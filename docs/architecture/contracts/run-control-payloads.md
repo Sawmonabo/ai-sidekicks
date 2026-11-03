@@ -367,6 +367,8 @@ interface RunStateChangeEvent {
     | {
         cause: ProviderUsageLimitCause; // "planAllowanceExhausted"
         origin: "provider";
+        providerAccountId: ProviderAccountId; // the account whose allowance is spent
+        credentialGeneration: CredentialGeneration; // the account's generation when the limit was met
         resetBoundary?: ProviderUsageLimitResetBoundary; // absent when no reset instant was known
       }
     | {

@@ -72,6 +72,7 @@ async fn a_server_unsettled_at_the_ceiling_reads_its_listed_status() {
         CodexConnectionHandlers {
             events,
             responder: None,
+            token_refresher: None,
         },
     );
     let site = CodexMcpProbeSite {
@@ -370,6 +371,7 @@ async fn a_refused_plugin_server_is_not_sent_and_reads_switched_off_at_once() {
         CodexConnectionHandlers {
             events,
             responder: None,
+            token_refresher: None,
         },
     );
     let refused = McpServerBindingRef::Plugin {

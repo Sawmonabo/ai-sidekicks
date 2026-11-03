@@ -59,7 +59,7 @@ use self::rows::{
 };
 use crate::git::process::GitRunner;
 use crate::git::worktree::claims::KeptCopyClaims;
-use crate::git::worktree::copy::progress::WorktreeCopiesUnderWay;
+use crate::git::worktree::copy_progress::WorktreeCopiesUnderWay;
 use crate::git::worktree::errors::WorktreeRefusal;
 use crate::git::worktree::kept_copy::folder_move::FolderMoveTools;
 use crate::git::worktree::kept_copy::held_work::{HeldWorkSubject, log_landed_late};

@@ -367,14 +367,15 @@ impl ClaudeDriver {
         resolve_claude_model_catalog(reading, &self.figures.current(), &environment)
     }
 
-    /// The levels Claude Code runs for a session's level control, as modes: with a model named,
-    /// the levels that model runs on the named account and this system, in the session's own place
+    /// The levels Claude Code runs for a session's level control, as modes: with a model named, the
+    /// levels that model runs on the named account and this system, in the session's own place
     /// where a session is named; with none, the levels this system runs. With no account named, a
-    /// live session's levels are read on the account it was admitted on, and any other list on the
-    /// current account. A live session's process already read its catalog, so only a session with
-    /// no process, or one listed on another account than its process runs on, starts a
-    /// control-only read. A catalog that cannot be read offers no Reviewed and is recorded; fails
-    /// as the current account, the session's place or the account's environment cannot be read.
+    /// live session's levels are read on the account its process runs on now, and any other list on
+    /// the current account. A live session's process already read its catalog at its launch, so
+    /// only a session with no process, or one listed on another account than its process launched
+    /// on, starts a control-only read. A catalog that cannot be read offers no Reviewed and is
+    /// recorded; fails as the current account, the session's place or the account's environment
+    /// cannot be read.
     pub(crate) async fn list_modes(
         &self,
         params: ListModesParams,
@@ -399,19 +400,22 @@ impl ClaudeDriver {
                 is_offered_on_system(level, can_run_sandbox)
             }));
         };
-        // A live process read only its own account's catalog.
-        let live = params
-            .session_id
-            .and_then(|session_id| {
-                self.composed_parts()
-                    .and_then(|parts| parts.slots().live_session(session_id))
-            })
-            .filter(|live| {
-                params
-                    .provider_account_id
-                    .as_ref()
-                    .is_none_or(|named| *named == live.admitted_provider_account_id())
-            });
+        let live = params.session_id.and_then(|session_id| {
+            self.composed_parts()
+                .and_then(|parts| parts.slots().live_session(session_id))
+        });
+        // The account the levels are read on: the one named, else the live session's own.
+        let listed_account = params.provider_account_id.or_else(|| {
+            live.as_ref()
+                .map(|live| live.admitted_provider_account_id())
+        });
+        // A live process read only the catalog of the account it launched on, which an in-place
+        // switch has since left.
+        let live = live.filter(|live| {
+            listed_account
+                .as_ref()
+                .is_some_and(|account| live.account.is_launched_on(account))
+        });
         let offered = if let Some(live) = live {
             let legs = &live.spawn_bound_legs;
             ClaudeOfferedLevels {
@@ -425,7 +429,7 @@ impl ClaudeDriver {
                 .await,
             }
         } else {
-            let provider_account_id = match params.provider_account_id {
+            let provider_account_id = match listed_account {
                 Some(provider_account_id) => provider_account_id,
                 None => {
                     read_current_account(

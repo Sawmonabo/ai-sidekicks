@@ -52,7 +52,7 @@ pub(crate) async fn register(
 }
 
 fn generation(value: u64) -> CredentialGeneration {
-    serde_json::from_value(value.into()).expect("a test generation")
+    CredentialGeneration::new(value).expect("a test generation")
 }
 
 // A probe crossing into or out of being signed in raises the generation by one, judged against

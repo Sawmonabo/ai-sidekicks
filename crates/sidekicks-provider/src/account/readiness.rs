@@ -10,7 +10,7 @@ use sidekicks_contracts::provider::account::record::readiness::{
     ProviderSignInExpiredRemedy, ProviderSignInRemedy, RegisterRemedyKind, SignInRemedyKind,
 };
 use sidekicks_contracts::provider::account::record::{
-    ProviderAccountHealthState, ProviderAccountId, ProviderAuthMode,
+    ProviderAccountHealthState, ProviderAccountId,
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::list::BoundedVec;
@@ -128,21 +128,14 @@ pub fn derive_account_readiness(account: &RegisteredAccount) -> ProviderReadines
     }
 }
 
-// A token or API-key account cannot refresh itself, so its one remedy is a fresh token pasted in;
-// every other mode, an unrecognized or unobserved one included, signs in through the provider.
+// A token or API-key account's one remedy is a fresh token pasted in; every other account signs in
+// through the provider.
 fn sign_in_expired_remedy(account: &RegisteredAccount) -> ProviderSignInExpiredRemedy {
     let account_id = account.account_id.clone();
-    match account.observed_auth_mode {
-        Some(ProviderAuthMode::OauthToken | ProviderAuthMode::ApiKey) => {
-            ProviderSignInExpiredRemedy::PasteToken { account_id }
-        }
-        Some(
-            ProviderAuthMode::OauthSubscription
-            | ProviderAuthMode::External
-            | ProviderAuthMode::None
-            | ProviderAuthMode::Unknown,
-        )
-        | None => ProviderSignInExpiredRemedy::SignIn { account_id },
+    if account.has_pasted_credential() {
+        ProviderSignInExpiredRemedy::PasteToken { account_id }
+    } else {
+        ProviderSignInExpiredRemedy::SignIn { account_id }
     }
 }
 

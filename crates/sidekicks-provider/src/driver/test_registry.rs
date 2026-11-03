@@ -269,11 +269,11 @@ pub fn registry_of_first_providers(drivers: Vec<Arc<dyn ProviderDriver>>) -> Pro
 pub fn registrations_of_first_providers(
     drivers: Vec<Arc<dyn ProviderDriver>>,
 ) -> Vec<ProviderRegistration> {
-    let table = PROVIDERS[..drivers.len()]
+    let table = PROVIDER_REGISTRATIONS[..drivers.len()]
         .iter()
-        .map(|descriptor| ProviderRegistration {
-            descriptor,
+        .map(|registration| ProviderRegistration {
             build: take_next_driver,
+            ..*registration
         })
         .collect();
     NEXT_DRIVERS.with_borrow_mut(|next| *next = drivers.into());
@@ -291,12 +291,12 @@ pub fn registrations_over_scripted_codex(
     PROVIDER_REGISTRATIONS
         .iter()
         .map(|registration| ProviderRegistration {
-            descriptor: registration.descriptor,
             build: if registration.descriptor.id == codex::DESCRIPTOR.id {
                 codex::build_over_scripted_service
             } else {
                 registration.build
             },
+            ..*registration
         })
         .collect::<Vec<_>>()
         .leak()
