@@ -436,8 +436,8 @@ mod tests {
 
     // Each place a save accepts: a word, a word joined to unquoted text, a substitution's word, a
     // string's text, a substitution inside a string, escaped quotes around a fill, which every
-    // reading takes as text beside a bare word, and a `^` inside double quotes, which cmd.exe
-    // reads as plain text.
+    // reading takes as text beside a bare word, a `^` inside double quotes, which cmd.exe reads as
+    // plain text, and a `^` cmd.exe's own `^` escapes.
     #[rstest]
     #[case::a_bare_word("echo {{ x }}")]
     #[case::joined_to_an_option("echo --name={{ x }}")]
@@ -447,6 +447,7 @@ mod tests {
     #[case::between_escaped_quotes("echo \\\"{{ x }}\\\"")]
     #[case::an_unexported_value("export -n a={{ x }}")]
     #[case::a_caret_in_a_string("grep \"^{{ x }}\" file")]
+    #[case::an_escaped_caret("echo ^^{{ x }}")]
     fn a_save_accepts_a_fill_where_every_reading_expands_it(#[case] line: &str) {
         assert_eq!(save(line, LIMIT), vec![Ok(())]);
     }
@@ -467,6 +468,7 @@ mod tests {
         name: "HOME".to_owned()
     })]
     #[case::a_cmd_escape("echo ^{{ x }}", FillRefusal::CmdCaret)]
+    #[case::a_cmd_escape_after_an_escaped_quote("echo ^\"^{{ x }}^\"", FillRefusal::CmdCaret)]
     #[case::arithmetic_expansion("echo $(( {{ x }} ))", FillRefusal::Arithmetic)]
     #[case::arithmetic_expansion_quoted("echo $(( \"{{ x }}\" ))", FillRefusal::Arithmetic)]
     #[case::arithmetic_command("(( {{ x }} ))", FillRefusal::Arithmetic)]
