@@ -629,15 +629,15 @@ mod tests {
                 &question,
                 &time_zone,
                 HourField {
-                    cycle: HourCycle::H12,
-                    is_padded: false,
+                    cycle: HourCycle::H23,
+                    is_padded: true,
                 },
             ),
         );
 
         assert_eq!(
             request.prompt.as_str(),
-            "Nightly sync has started 2,000 runs from its 3:00 AM start. Keep going?"
+            "Nightly sync has started 2,000 runs from its 03:00 start. Keep going?"
         );
         assert_eq!(
             request.wait_id,
