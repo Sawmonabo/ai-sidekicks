@@ -102,7 +102,7 @@ fn epoch_position(epoch: u64, position: u64) -> EpochPosition {
 
 // Lists the session's checkpoints, asserting each reads back by its snapshot and by its message,
 // and answers each one's message sequence and turn.
-fn listed_checkpoints(
+fn check_listed_checkpoints(
     database: &TestDatabase,
     session_id: SessionId,
     run_id: RunId,
@@ -170,7 +170,7 @@ async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_star
         end(&engine, run_id, turn_number).await;
     }
     assert_eq!(
-        listed_checkpoints(&database, session_id, run_id),
+        check_listed_checkpoints(&database, session_id, run_id),
         vec![
             (first_sequence, epoch_position(0, 1)),
             (second_sequence, epoch_position(0, 2)),
@@ -197,7 +197,7 @@ async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_star
     assert_eq!(start(&engine, run_id, Some(fourth)).await, None);
 
     assert_eq!(
-        listed_checkpoints(&database, session_id, run_id),
+        check_listed_checkpoints(&database, session_id, run_id),
         vec![(third_sequence, epoch_position(1, 1))]
     );
 }
