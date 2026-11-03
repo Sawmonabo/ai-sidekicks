@@ -614,8 +614,8 @@ impl RuntimeBindingWriter for RunBindingCursors {
     }
 }
 
-// The cursor's view of a stored binding.
-fn epoch_binding_of(binding: &RuntimeBinding) -> EpochBinding {
+/// The cursor's view of a stored binding.
+pub(crate) fn epoch_binding_of(binding: &RuntimeBinding) -> EpochBinding {
     EpochBinding {
         id: binding.id.clone(),
         run_id: binding.run_id,

@@ -1,78 +1,152 @@
 use rstest::rstest;
-use serde_json::json;
-use sidekicks_contracts::event::envelope::SourcePosition;
-use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use serde_json::{Value, json};
 use sidekicks_contracts::run::state::RunState;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_provider::driver::registry::test_provider;
 use sidekicks_provider::run::delivery::{
     InboundDelivery, InboundOutcome, LateAppendableRow, LateEventAbsorbReason,
 };
+use sidekicks_provider::runtime_binding::store::CreateRuntimeBindingInput;
+use sidekicks_provider::runtime_binding::test_store::{
+    binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
+};
+use sidekicks_store::database::writer::test_file::insert_test_event;
+use sidekicks_store::events::test_log::AT;
 
 use super::Harness;
-use crate::run::epochs::ConfirmedCut;
 
 // What the row's run's cursor holds when its row lands.
 #[derive(Clone, Copy)]
 enum CursorState {
     // Open as the run's start left it.
     Open,
-    // Frozen by a fork and restart onto a new binding, so its row is from a turn the cut took.
-    FrozenByAForkRestart,
-    // Dropped with its binding.
+    // Dropped with its binding, as a run's cursors drop once it ended.
     Dropped,
 }
 
-// Killed by the arm not gated on a cut's freeze, which appends the frozen cursor's row; by a
-// dropped cursor failing `NotOpen` or an open one absorbing the row; by a stamp on an appended
-// row; and by a body dropped, or one written for a row that has none.
+// The row that lands after its run.
+#[derive(Clone, Copy)]
+enum LateRow {
+    // A held call's close, completed with a body or stopped with none.
+    ToolCallClose,
+    // The ending of the command `call-1` started.
+    CommandEnding,
+}
+
+// The run opens `call-1` in turn `opening_turn` of two, then an undo cuts it back to turn 1, and
+// the row lands after the run ended. Killed by the opening's turn not read, which appends the cut
+// turn's rows; by an absorb of a kept turn's row; by a command ending that does not find its call;
+// by a dropped cursor failing `NotOpen`; by a stamp on an appended row; and by a body dropped, or
+// one written for a row that has none.
 #[rstest]
-#[case::open(CursorState::Open, Some("Exported 3 files"))]
-#[case::frozen_by_a_fork_restart(CursorState::FrozenByAForkRestart, None)]
-#[case::dropped(CursorState::Dropped, None)]
+#[case::kept_turn_close(1, LateRow::ToolCallClose, CursorState::Open, Some("Exported 3 files"))]
+#[case::kept_turn_close_dropped_cursor(1, LateRow::ToolCallClose, CursorState::Dropped, None)]
+#[case::cut_turn_close(2, LateRow::ToolCallClose, CursorState::Open, None)]
+#[case::cut_turn_close_dropped_cursor(2, LateRow::ToolCallClose, CursorState::Dropped, None)]
+#[case::cut_turn_command(2, LateRow::CommandEnding, CursorState::Dropped, None)]
 #[tokio::test]
-async fn inbound_appends_an_after_run_row_as_it_is_unless_a_cut_froze_its_binding(
+async fn inbound_absorbs_an_after_run_row_only_from_a_cut_turn(
+    #[case] opening_turn: u64,
+    #[case] late_row: LateRow,
     #[case] cursor: CursorState,
     #[case] body: Option<&'static str>,
 ) {
     // The run has ended, as a held call's run has by the time the call closes.
     let harness = Harness::new(RunState::Completed).await;
-    {
-        let mut epochs = harness
-            .epochs
-            .lock()
-            .expect("no test thread panics holding the cursors");
-        match cursor {
-            CursorState::Open => {}
-            CursorState::FrozenByAForkRestart => epochs
-                .fence_cut(ConfirmedCut::ForkRestart {
-                    binding_id: harness.binding_id.clone(),
-                    point: SourcePosition(SafeInt::new(1).expect("a small turn")),
-                    new_binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string())
-                        .expect("a UUID is a binding id"),
-                })
-                .expect("the cursor is open and not frozen"),
-            CursorState::Dropped => epochs.close_binding(&harness.binding_id),
+    let session_id = harness.session_id();
+    let run_id = harness.run_id;
+    open_store(&harness.database)
+        .await
+        .create(CreateRuntimeBindingInput {
+            id: harness.binding_id.clone(),
+            run_id,
+            provider_name: test_provider(),
+            ..binding_input(
+                spawn_config_on(test_provider_account_id()),
+                spawned_build("1.0.0", "/opt/provider/bin"),
+            )
+        })
+        .await
+        .expect("the run's binding is recorded");
+    let writer = harness.database.reader();
+    let write = |event: Value, body: Option<&str>| {
+        insert_test_event(&writer, session_id, event, body, AT);
+    };
+    for turn_number in 1..=2 {
+        write(
+            json!({
+                "type": "agent.turn.started",
+                "payload": {
+                    "sessionId": session_id,
+                    "runId": run_id,
+                    "runVersion": 1,
+                    "turnNumber": turn_number,
+                },
+            }),
+            None,
+        );
+        if turn_number == opening_turn {
+            write(
+                json!({
+                    "type": "agent.toolCall.invoked",
+                    "payload": {
+                        "sessionId": session_id,
+                        "runId": run_id,
+                        "toolName": "Bash",
+                        "toolCallId": "call-1",
+                    },
+                }),
+                Some("npm run export"),
+            );
         }
     }
-    let mut call = json!({
-        "sessionId": harness.session_id(),
-        "runId": harness.run_id,
-        "toolName": "export",
+    write(
+        json!({
+            "type": "agent.run.rolledBack",
+            "payload": {
+                "sessionId": session_id,
+                "runId": run_id,
+                "runVersion": 2,
+                "targetPosition": 1,
+            },
+        }),
+        None,
+    );
+    if let CursorState::Dropped = cursor {
+        harness
+            .epochs
+            .lock()
+            .expect("no test thread panics holding the cursors")
+            .close_binding(&harness.binding_id);
+    }
+    let call = json!({
+        "sessionId": session_id,
+        "runId": run_id,
+        "toolName": "Bash",
         "toolCallId": "call-1",
     });
-    // A call that closes with a body completed; one that closes with none was stopped.
-    let row = if body.is_some() {
-        LateAppendableRow::AgentToolCallCompleted(
+    let row = match (late_row, body) {
+        (LateRow::ToolCallClose, Some(_)) => LateAppendableRow::AgentToolCallCompleted(
             serde_json::from_value(call).expect("the test writes a completion's payload"),
-        )
-    } else {
-        call["endCause"] = json!("stopped");
-        LateAppendableRow::AgentToolCallFailed(
-            serde_json::from_value(call).expect("the test writes a failure's payload"),
-        )
+        ),
+        (LateRow::ToolCallClose, None) => {
+            let mut stopped = call;
+            stopped["endCause"] = json!("stopped");
+            LateAppendableRow::AgentToolCallFailed(
+                serde_json::from_value(stopped).expect("the test writes a failure's payload"),
+            )
+        }
+        (LateRow::CommandEnding, _) => LateAppendableRow::AgentCommandEnded(
+            serde_json::from_value(json!({
+                "sessionId": session_id,
+                "runId": run_id,
+                "commandId": "task-1",
+                "toolCallId": "call-1",
+                "ending": "endedByPerson",
+                "durationMs": 5,
+            }))
+            .expect("the test writes a command ending's payload"),
+        ),
     };
-
     let stored_before = harness.stored_event_count();
 
     let outcome = harness
@@ -83,7 +157,7 @@ async fn inbound_appends_an_after_run_row_as_it_is_unless_a_cut_froze_its_bindin
         })
         .await;
 
-    if let CursorState::FrozenByAForkRestart = cursor {
+    if opening_turn == 2 {
         assert_eq!(
             outcome,
             InboundOutcome::Absorbed {
@@ -94,7 +168,7 @@ async fn inbound_appends_an_after_run_row_as_it_is_unless_a_cut_froze_its_bindin
         return;
     }
     let InboundOutcome::Appended { event_id } = outcome else {
-        panic!("the row is appended as it is: {outcome:?}");
+        panic!("a kept turn's row is appended as it is: {outcome:?}");
     };
     let (source_epoch, source_position, content) = harness
         .database

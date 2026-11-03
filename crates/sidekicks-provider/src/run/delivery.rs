@@ -184,7 +184,8 @@ pub enum InboundDelivery<'key> {
         content: Option<String>,
     },
     /// A row of a run that may land after the run's cursor moved on, on that run's own binding:
-    /// appended as it is and never stamped, unless a cut froze the binding, which absorbs it.
+    /// appended as it is and never stamped, unless its tool call opened in a turn an undo cut,
+    /// which absorbs it.
     AfterRunRow {
         /// The binding of the row's run, which names the delivery in a diagnostic.
         binding_id: RuntimeBindingId,
