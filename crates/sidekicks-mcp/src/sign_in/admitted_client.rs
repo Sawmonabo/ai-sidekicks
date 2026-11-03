@@ -45,7 +45,10 @@ const RECORD_ADMITTED_PROVIDER_SQL: &str = "INSERT INTO mcp_server_admitted_clie
     admitted_oauth_client = excluded.admitted_oauth_client,
     own_client_unfinished_at = NULL";
 
-// No provider's flow admitted the server, so the daemon's own client is the one to try again.
+// No provider's flow admitted the server, so the daemon's own client is the one to try again: a
+// row that held only the mark goes, since a row holds a provider or the mark.
+const DELETE_OWN_CLIENT_UNFINISHED_ONLY_SQL: &str = "DELETE FROM mcp_server_admitted_clients
+  WHERE server_address = @server_address AND admitted_oauth_client IS NULL";
 const CLEAR_OWN_CLIENT_UNFINISHED_SQL: &str = "UPDATE mcp_server_admitted_clients
   SET own_client_unfinished_at = NULL WHERE server_address = @server_address";
 
@@ -170,20 +173,31 @@ impl AdmittedClientStore {
     }
 
     /// Clears the mark that the daemon's own client did not finish at `address`, once no
-    /// provider's flow admits the server or one ended without a sign-in. Fails with
-    /// [`AdmittedClientError::Write`] when the write is not kept.
+    /// provider's flow admits the server or one ended without a sign-in; a row that held only the
+    /// mark is removed. Fails with [`AdmittedClientError::Write`] when the write is not kept.
     pub(crate) async fn clear_own_client_unfinished(
         &self,
         address: &McpServerAddress,
     ) -> Result<(), AdmittedClientError> {
-        self.write(
-            CLEAR_OWN_CLIENT_UNFINISHED_SQL,
-            vec![text_binding(
-                "@server_address",
-                &canonical_server_address(address),
-            )],
-        )
-        .await
+        let bindings = vec![text_binding(
+            "@server_address",
+            &canonical_server_address(address),
+        )];
+        self.writer
+            .write(vec![
+                WriteStatement {
+                    sql: Cow::Borrowed(DELETE_OWN_CLIENT_UNFINISHED_ONLY_SQL),
+                    bindings: StatementBindings::Named(bindings.clone()),
+                    expected_row_count: None,
+                },
+                WriteStatement {
+                    sql: Cow::Borrowed(CLEAR_OWN_CLIENT_UNFINISHED_SQL),
+                    bindings: StatementBindings::Named(bindings),
+                    expected_row_count: None,
+                },
+            ])
+            .await?;
+        Ok(())
     }
 
     async fn write(
