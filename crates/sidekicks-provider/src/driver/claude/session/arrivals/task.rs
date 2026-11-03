@@ -14,6 +14,7 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
+use sidekicks_std::scheduler::Scheduler;
 use tokio::time::Instant;
 
 use super::{ClaudeRoutedFrame, ClaudeSessionArrival, ClaudeSessionArrivalHandler};
@@ -27,19 +28,20 @@ use crate::driver::claude::delivery::stream::{
     ClaudeDeliveryStream, ClaudeSessionStream, ClaudeSessionStreams,
 };
 use crate::driver::claude::goals::ClaudeGoalCommands;
+use crate::driver::claude::goals::endings::ClaudeGoalEndings;
 use crate::driver::claude::hooks::callbacks::{
     ClaudeRequestRoute, answer_background_work_check, answer_claude_request, route_claude_request,
     route_helper_start,
 };
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
+use crate::driver::claude::hooks::hold_renewal::arm_hold_renewal;
 use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudeRunPauses};
 use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
 use crate::driver::claude::intervention::ClaudeInterventions;
 use crate::driver::claude::run::controls::claude_dialog_session;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::rewind::ClaudeConversationCuts;
-use crate::driver::claude::run::routes::ClaudeRunRoute;
 use crate::driver::claude::run::self_started_turns::ClaudeSelfStartedTurns;
 use crate::driver::claude::run::settlement::ClaudeTurnSettlement;
 use crate::driver::claude::session::context_reading::ClaudeContextReadings;
@@ -81,6 +83,8 @@ pub(crate) struct ClaudeSessionTaskServices {
     pub(crate) interventions: Arc<ClaudeInterventions>,
     /// The goal commands waiting on each session.
     pub(crate) goals: Arc<ClaudeGoalCommands>,
+    /// Each session's goal as its endings leave it.
+    pub(crate) goal_endings: Arc<ClaudeGoalEndings>,
     /// The runs of turns Claude Code starts by itself, and the session's slots and routes.
     pub(crate) self_started: ClaudeSelfStartedTurns,
     /// Each turn's settlement.
@@ -89,6 +93,8 @@ pub(crate) struct ClaudeSessionTaskServices {
     pub(crate) cuts: Arc<ClaudeConversationCuts>,
     /// The bound on reading shell lines, which the background-work hook reads through.
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
+    /// The program's scheduler, which renews a held helper's call before Claude Code's bound.
+    pub(crate) scheduler: Arc<Scheduler>,
     /// Every provider's background work, which the background-work hook refuses.
     pub(crate) background_work: Arc<BackgroundWorkForms>,
     /// The in-process tool servers, once registered.
@@ -183,7 +189,7 @@ impl ClaudeSessionTask {
             answer_claude_request(
                 &*live.channel,
                 &session_id,
-                &live.admitted_provider_account_id,
+                &live.admitted_provider_account_id(),
                 request_id,
                 &ClaudeHookAnswer::Pass,
             )
@@ -231,7 +237,7 @@ impl ClaudeSessionTask {
         let services = Arc::clone(&self.services);
         let live = &self.live;
         let session_id = live.session_id;
-        let account = &live.admitted_provider_account_id;
+        let account = &live.admitted_provider_account_id();
         match route {
             ClaudeRequestRoute::CheckHelperStart {
                 request_id,
@@ -252,9 +258,18 @@ impl ClaudeSessionTask {
                 answer_claude_request(&*live.channel, &session_id, account, request_id, &answer)
                     .await;
             }
-            ClaudeRequestRoute::Held { helper_held } => {
-                if let Some(agent_id) = helper_held {
-                    self.report_helper_paused(&agent_id).await;
+            ClaudeRequestRoute::Held { helper } => {
+                if let Some(helper) = helper {
+                    if helper.has_taken_effect {
+                        self.report_helper_paused(&helper.agent_id).await;
+                    }
+                    arm_hold_renewal(
+                        &services.scheduler,
+                        &services.pauses,
+                        &services.self_started.start.slots,
+                        session_id,
+                        helper.agent_id,
+                    );
                 }
             }
             ClaudeRequestRoute::CheckBackgroundWork { request_id, call } => {
@@ -286,10 +301,7 @@ impl ClaudeSessionTask {
     async fn report_helper_paused(&self, agent_id: &str) {
         let start = &self.services.self_started.start;
         let session_id = self.live.session_id;
-        let Some(child_run_id) = start.routes.child_run_for(session_id, agent_id) else {
-            return;
-        };
-        let Some(ClaudeRunRoute::Child(route)) = start.routes.route_of(child_run_id) else {
+        let Some((child_run_id, route)) = start.routes.child_route_for(session_id, agent_id) else {
             return;
         };
         let delivery = InboundDelivery::RunLifecycle {
@@ -305,7 +317,7 @@ impl ClaudeSessionTask {
             is_daemon_interrupt_end: false,
         };
         let origin = claude_delivery_origin(
-            Some(self.stream.provider_account_id().clone()),
+            Some(self.stream.provider_account_id()),
             Some("control_request/hook_callback"),
         );
         dispatch_delivery(&*start.dispatch, origin, delivery).await;
@@ -346,6 +358,7 @@ impl ClaudeSessionTask {
         services.dialogs.forget_session(session_id);
         services.reviewer.forget_session(session_id);
         services.goals.forget_session(session_id);
+        services.goal_endings.forget_session(session_id);
         services.interventions.forget_session(session_id);
         services.controls.forget_process(session_id).await;
         lock(&services.prompts).forget_session(session_id);

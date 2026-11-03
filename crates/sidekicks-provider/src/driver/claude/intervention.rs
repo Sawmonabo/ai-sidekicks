@@ -10,6 +10,9 @@
 //! answers, then delivered `interrupted`. An interrupt whose choice takes waiting messages back
 //! asks Claude Code to drop the ones it holds and answers their ids, on a build that can; one that
 //! cannot answers `Degraded` with the plain interrupt as its fallback.
+//!
+//! An interrupt on a helper's run holds that helper at its next tool call and stops the commands it
+//! runs, its lead going on.
 
 mod held_steers;
 mod steers;
@@ -29,7 +32,9 @@ use crate::driver::claude::delivery::requests::ClaudeInboundRequests;
 use crate::driver::claude::delivery::stream::ClaudeSessionStream;
 use crate::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
+use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::run::controls::{ClaudeChoiceSettling, settle_claude_choice};
+use crate::driver::claude::run::routes::{ClaudeChildRunRoute, ClaudeRunRoute};
 use crate::driver::claude::run::start::{ClaudeRunStart, claude_session_unavailable};
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, ClaudeUnansweredCause,
@@ -44,6 +49,7 @@ use crate::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterruptPayload, InterruptPendingChoice,
     InterventionResultStatus,
 };
+use crate::usage_delta_accountant::UsageAxisCounts;
 
 // The capability a build declares when its interrupt can drop the messages it holds and list them.
 const CLAUDE_INTERRUPT_CANCEL_QUEUED_CAPABILITY: &str = "interrupt_cancel_queued_v1";
@@ -85,16 +91,22 @@ pub(crate) async fn send_claude_interrupt(
             live.channel.terminate().await;
             Ok(ClaudeInterruptOutcome::Stopped)
         }
-        Err(error) if stop_on_cut_write(live, &error).await => Ok(ClaudeInterruptOutcome::Stopped),
+        Err(error) if stop_on_cut_write(&*live.channel, &error).await => {
+            Ok(ClaudeInterruptOutcome::Stopped)
+        }
         Err(error) => Err(error),
     }
 }
 
-// Stops `live`'s process when `error` is a request cut mid-write; answers whether it did.
-async fn stop_on_cut_write(live: &LiveClaudeSession, error: &ClaudeSessionError) -> bool {
+/// Stops the process on `channel` when `error` is a request cut mid-write, which leaves its input
+/// mid-frame; answers whether it did.
+pub(crate) async fn stop_on_cut_write(
+    channel: &dyn ClaudeProcessChannel,
+    error: &ClaudeSessionError,
+) -> bool {
     let is_cut = is_cut_write(error);
     if is_cut {
-        live.channel.terminate().await;
+        channel.terminate().await;
     }
     is_cut
 }
@@ -143,22 +155,26 @@ pub(crate) struct ClaudeInterventions {
     requests: Arc<ClaudeInboundRequests>,
     helper_steers: Arc<Mutex<ClaudeHelperSteers>>,
     // Each live session's routing band, whose router knows the calls the session's thread waits
-    // on: its foreground helpers.
+    // on, its foreground helpers, and whose accountant the usage the thread was last metered at.
     routing_bands: Mutex<HashMap<SessionId, Arc<Mutex<ClaudeSessionRoutingBand>>>>,
     // Each session's steers, in the order handed over: a fair lock, which waiters take in the
     // order they first asked.
     steer_order: Mutex<HashMap<SessionId, Arc<tokio::sync::Mutex<()>>>>,
+    // Every session's pauses, which hold a helper an interrupt names.
+    pauses: Arc<Mutex<ClaudeRunPauses>>,
 }
 
 impl ClaudeInterventions {
     /// Interventions starting next turns through `start`, settling choices through `dialogs`,
-    /// holding a `Send now` while `requests` holds an ask open, and reaching helpers through
-    /// `helper_steers`, which the session's hooks fill.
+    /// holding a `Send now` while `requests` holds an ask open, reaching helpers through
+    /// `helper_steers`, which the session's hooks fill, and holding an interrupted helper through
+    /// `pauses`.
     pub(crate) fn new(
         start: ClaudeRunStart,
         dialogs: Arc<ClaudeProviderDialogs<ClaudeStreamDialogPorts>>,
         requests: Arc<ClaudeInboundRequests>,
         helper_steers: Arc<Mutex<ClaudeHelperSteers>>,
+        pauses: Arc<Mutex<ClaudeRunPauses>>,
     ) -> Self {
         Self {
             writer: ClaudeSteerWriter {
@@ -170,14 +186,16 @@ impl ClaudeInterventions {
             helper_steers,
             routing_bands: Mutex::new(HashMap::new()),
             steer_order: Mutex::new(HashMap::new()),
+            pauses,
         }
     }
 
     /// Writes a steer into its run's turn, or carries out an interrupt. Steers on one session are
     /// written in the order they were handed over, however long their files take to read. Fails
     /// `NoLiveRun` when the run has no live process, with `SteerTurnEnded` when the run's turn
-    /// ended before its steer could go, as the files' read fails before anything is sent, and as a
-    /// write or the interrupt fails; nothing is written twice.
+    /// ended before its steer could go, as the files' read fails before anything is sent,
+    /// `session.message.resetRefused` with nothing written for a lead's steer that would reset the
+    /// session, and as a write or the interrupt fails; nothing is written twice.
     pub(crate) async fn apply_intervention(
         &self,
         params: ApplyInterventionParams,
@@ -216,6 +234,27 @@ impl ClaudeInterventions {
         lock(&self.routing_bands).insert(session_id, band);
     }
 
+    /// The cumulative usage `live`'s own thread was last metered at, the whole conversation's
+    /// spend so far. Fails `NoLiveSession` once the session is forgotten.
+    pub(crate) fn session_thread_cumulative(
+        &self,
+        live: &LiveClaudeSession,
+    ) -> Result<UsageAxisCounts, ClaudeSessionError> {
+        let band = lock(&self.routing_bands).get(&live.session_id).cloned();
+        band.and_then(|band| {
+            lock(&band)
+                .accountant
+                .base_registers(&live.provider_session_id)
+        })
+        .ok_or_else(|| {
+            claude_session_unavailable(
+                ClaudeSessionUnavailableReason::NoLiveSession,
+                live.session_id,
+                None,
+            )
+        })
+    }
+
     /// Forgets a session whose process is gone: its held steers are dropped unwritten, the queue
     /// handing them again, and its helpers' tracking goes.
     pub(crate) fn forget_session(&self, session_id: SessionId) {
@@ -235,6 +274,9 @@ impl ClaudeInterventions {
         // writes.
         if routes.stop_apart_run(run_id, true) {
             return Ok(applied());
+        }
+        if let Some(ClaudeRunRoute::Child(route)) = routes.route_of(run_id) {
+            return self.interrupt_helper(run_id, &route).await;
         }
         let live = self.writer.start.live_session_for_run(run_id)?;
         let session_id = live.session_id;
@@ -306,6 +348,71 @@ impl ClaudeInterventions {
             self.writer.write_released(&live, held, false).await;
         }
         Ok(response)
+    }
+
+    // Interrupts a helper's run alone: the helper is held at its next tool call, as a pause holds
+    // it, and each command it runs is stopped, all at once; the lead's turn goes on. Claude Code's
+    // refusal of a stop names a task it no longer holds, so that command no longer runs, and a stop
+    // whose write was cut stops the process, whose end ends its commands; any other failed stop
+    // answers `Degraded`, since not every command could be stopped.
+    async fn interrupt_helper(
+        &self,
+        run_id: RunId,
+        route: &ClaudeChildRunRoute,
+    ) -> Result<ApplyInterventionResponse, DriverError> {
+        let live = self.writer.start.live_session(route.session_id)?;
+        if settle_claude_choice(
+            &self.writer.dialogs,
+            &live,
+            run_id,
+            ClaudeChoiceSettling::Interrupt,
+        )
+        .await?
+        {
+            return Ok(applied());
+        }
+        lock(&self.pauses).hold_interrupted_helper(&route.session_id, &route.agent_id);
+        let command_ids = self
+            .writer
+            .start
+            .streams
+            .get(route.session_id)
+            .map_or_else(Vec::new, |stream| stream.command_ids_of_run(run_id));
+        let stops = command_ids.into_iter().map(|task_id| {
+            let live = &live;
+            async move {
+                let stopped = live
+                    .channel
+                    .send_control_request(ClaudeControlRequest::StopTask {
+                        task_id: task_id.clone(),
+                    })
+                    .await;
+                match stopped {
+                    Ok(_) | Err(ClaudeSessionError::ControlRequestRefused { .. }) => true,
+                    Err(error) if stop_on_cut_write(&*live.channel, &error).await => true,
+                    Err(error) => {
+                        tracing::warn!(
+                            session_id = %live.session_id,
+                            task_id,
+                            error = &error as &(dyn std::error::Error + 'static),
+                            "a command of an interrupted Claude Code helper could not be stopped"
+                        );
+                        false
+                    }
+                }
+            }
+        });
+        let is_every_command_stopped = futures::future::join_all(stops)
+            .await
+            .into_iter()
+            .all(|is_stopped| is_stopped);
+        if is_every_command_stopped {
+            return Ok(applied());
+        }
+        Ok(ApplyInterventionResponse {
+            status: InterventionResultStatus::Degraded,
+            ..applied()
+        })
     }
 
     // Moves each helper the session's own thread waits on to the background, one request per
@@ -382,7 +489,7 @@ pub(crate) async fn background_claude_task(
 ) -> Result<bool, ClaudeSessionError> {
     let moved = request_claude_background_task(&*live.channel, tool_use_id).await;
     if let Err(error) = &moved {
-        stop_on_cut_write(live, error).await;
+        stop_on_cut_write(&*live.channel, error).await;
     }
     moved
 }

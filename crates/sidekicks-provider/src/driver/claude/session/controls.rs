@@ -78,7 +78,7 @@ use crate::port::session_rules::SessionRulePort;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
 use crate::run::delivery::{InboundDelivery, InboundOutcome, SessionScopedRow};
 use crate::usage_delta_accountant::{
-    CumulativeUsageReading, ThreadBaseEstablishment, UsageDeltaAccountant,
+    CumulativeUsageReading, ThreadBaseEstablishment, UsageAxisCounts, UsageDeltaAccountant,
 };
 
 /// Reads a session's command list as the driver answers it now; `None` before it holds one.
@@ -113,6 +113,11 @@ pub(crate) struct ClaudeSessionControls {
     tables: Arc<Mutex<ClaudeControlTables>>,
 }
 
+/// The copy a one-turn process runs on, composed once awaited; fails as its context, legs or
+/// model catalog cannot be read.
+pub(crate) type ClaudeCopyComposition =
+    BoxFuture<'static, Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>>>;
+
 /// The copy a side question runs on: the legs at the session's full model id, the account and the
 /// conversation copied.
 pub(crate) struct ClaudeSideQuestionCopy {
@@ -122,6 +127,21 @@ pub(crate) struct ClaudeSideQuestionCopy {
     pub(crate) provider_account_id: ProviderAccountId,
     /// The conversation copied, which the copy resumes.
     pub(crate) parent_provider_session_id: String,
+    /// The conversation's cumulative usage at the fork, which the copy's total includes.
+    pub(crate) parent_cumulative: UsageAxisCounts,
+}
+
+impl ClaudeSideQuestionCopy {
+    /// The copy of `live`'s own conversation, whose thread was last metered at
+    /// `parent_cumulative`.
+    pub(crate) fn of_live(live: &LiveClaudeSession, parent_cumulative: UsageAxisCounts) -> Self {
+        Self {
+            legs: without_credential_prompts(one_turn_legs(live, None, None)),
+            provider_account_id: live.admitted_provider_account_id(),
+            parent_provider_session_id: live.provider_session_id.clone(),
+            parent_cumulative,
+        }
+    }
 }
 
 impl ClaudeSessionControls {
@@ -302,12 +322,13 @@ impl ClaudeSessionControls {
         binding_id: RuntimeBindingId,
         side_question_id: SideQuestionId,
         question: String,
-        copy: BoxFuture<'static, Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>>>,
+        copy: ClaudeCopyComposition,
         usage: &PortRegistration<Arc<dyn UsageSink>>,
         _hold: ClaudeSideQuestionHold,
     ) -> Result<(), DriverError> {
+        let copy = copy.await.map_err(DriverError::Internal)?;
         let reply = self
-            .run_side_question(copy, question.clone(), &binding_id, usage)
+            .run_copy_turn(&copy, question.clone(), &binding_id, usage)
             .await?;
         let row = side_question_row(session_id, side_question_id, question, reply)?;
         self.deliver(session_id, InboundDelivery::SessionEvent { row })
@@ -487,23 +508,22 @@ impl ClaudeSessionControls {
         Ok(attached)
     }
 
-    // The side question's one turn on its copy, and its usage metered on `binding_id` once the
-    // model answered.
-    async fn run_side_question(
+    /// One turn on `copy` in plan mode sending `text`, its usage metered on `binding_id` through
+    /// `usage` once the model answered. Fails as the copy's turn fails.
+    pub(crate) async fn run_copy_turn(
         &self,
-        copy: BoxFuture<'static, Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>>>,
-        question: String,
+        copy: &ClaudeSideQuestionCopy,
+        text: String,
         binding_id: &RuntimeBindingId,
         usage: &PortRegistration<Arc<dyn UsageSink>>,
     ) -> Result<ClaudeOneTurnReply, DriverError> {
-        let copy = copy.await.map_err(DriverError::Internal)?;
         let reply = self
             .run_one_turn(
                 &copy.legs,
                 copy.provider_account_id.clone(),
                 Some(copy.parent_provider_session_id.clone()),
                 Some(ClaudePermissionMode::Plan),
-                question,
+                text,
                 CancellationToken::new(),
             )
             .await?;
@@ -511,6 +531,7 @@ impl ClaudeSessionControls {
             usage,
             copy.legs.session_id,
             binding_id,
+            copy.parent_cumulative,
             reply.usage.as_ref(),
         )
         .await;
@@ -536,12 +557,12 @@ impl ClaudeSessionControls {
             .run_one_turn(ClaudeOneTurnRequest {
                 spawn: ClaudeSessionSpawn {
                     legs,
-                    provider_account_id,
                     session_rules: &session_rules,
                     step_bound: None,
                     in_process_servers,
                     path_rules: PathRules::NATIVE,
                 },
+                provider_account_id,
                 resume_handle,
                 permission_mode,
                 text: OutboundText {
@@ -588,11 +609,12 @@ impl ClaudeSessionControls {
 }
 
 /// The legs a one-turn process of `live`'s session starts on: its own, at the level, advisor and
-/// style it runs with now, on the full id of the model it runs, in `working_directory` where one is
-/// given, its commands reaching `command_channel` where given. The session's own channel stays the
-/// session process's, since it admits only parties under that process, so its variables give way
-/// to `command_channel`'s, and a process given none runs its commands with no channel. It reports
-/// its MCP servers on no status leg, since its servers are the session's.
+/// style it runs with now, signed in to the credential store its process runs on now, on the full
+/// id of the model it runs, in `working_directory` where one is given, its commands reaching
+/// `command_channel` where given. The session's own channel stays the session process's, since it
+/// admits only parties under that process, so its variables give way to `command_channel`'s, and a
+/// process given none runs its commands with no channel. It reports its MCP servers on no status
+/// leg, since its servers are the session's.
 pub(crate) fn one_turn_legs(
     live: &LiveClaudeSession,
     working_directory: Option<std::path::PathBuf>,
@@ -608,12 +630,11 @@ pub(crate) fn one_turn_legs(
         .as_deref()
         .map_or(&[][..], ClaudeCommandChannel::environment);
     ClaudeSpawnBoundLegs {
-        spawn_environment: legs
-            .spawn_environment
-            .iter()
+        spawn_environment: live
+            .signed_in_spawn_environment()
+            .into_iter()
             .filter(|variable| !session_variables.contains(variable))
-            .chain(own_variables)
-            .cloned()
+            .chain(own_variables.iter().cloned())
             .collect(),
         command_channel,
         model: claude_full_model_id(&live.initialize, &settings.running_model),
@@ -668,13 +689,15 @@ pub(crate) fn claude_full_model_id(
         .unwrap_or_else(|| model.to_owned())
 }
 
-// The copy's turn's own usage, metered on the session's `binding_id` as a thread of its own from
-// a zero base: the copy's process ran that one turn, so the turn's usage is all it spent. With no
-// usage record registered it goes nowhere; a refused record is reported.
+// The copy's own spend, metered on the session's `binding_id` as a thread of its own based on
+// `parent_cumulative`: a fork's total counts the whole conversation it copied, so the copy spent
+// the fork's total less the parent's cumulative at the fork. With no usage record registered it
+// goes nowhere; a refused record is reported.
 async fn meter_side_question(
     usage: &PortRegistration<Arc<dyn UsageSink>>,
     session_id: SessionId,
     binding_id: &RuntimeBindingId,
+    parent_cumulative: UsageAxisCounts,
     observed: Option<&ClaudeCumulativeUsageObservation>,
 ) {
     let (Some(observed), Some(sink)) = (observed, usage.port()) else {
@@ -682,7 +705,12 @@ async fn meter_side_question(
     };
     let thread_id = binding_id.as_str().to_owned();
     let mut accountant = UsageDeltaAccountant::new(DESCRIPTOR.provider_id());
-    accountant.establish_thread(thread_id.clone(), ThreadBaseEstablishment::Fresh);
+    accountant.establish_thread(
+        thread_id.clone(),
+        ThreadBaseEstablishment::Resume {
+            prior_emitted_cumulative: parent_cumulative,
+        },
+    );
     let Some(delta) = accountant.meter_reading(CumulativeUsageReading {
         thread_id,
         named_turn_id: None,

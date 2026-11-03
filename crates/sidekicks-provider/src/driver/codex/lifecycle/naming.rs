@@ -71,25 +71,26 @@ const TITLE_SCHEMA_FILE_NAME: &str = "title-schema.json";
 /// The file the one-shot pass writes its last answer to, beside the schema.
 const TITLE_ANSWER_FILE_NAME: &str = "title.json";
 
-/// How long `codex mcp list` may take to name the servers the one-shot pass disables, well inside
-/// the pass's own bound.
-const CODEX_SERVER_LIST_DEADLINE: Duration = Duration::from_secs(10);
+/// How long `codex mcp list` may take to name the servers a one-shot `codex exec` disables, well
+/// inside the pass's own bound.
+pub(crate) const CODEX_SERVER_LIST_DEADLINE: Duration = Duration::from_secs(10);
 
 /// How long a whole naming pass may run, its pass on the live service and its one-shot pass
 /// together.
 const CODEX_NAMING_DEADLINE: Duration = Duration::from_secs(90);
 
 /// Codex's small model, which its own terminal names a conversation with where the account's
-/// catalog offers it.
-const TITLE_MODEL: &str = "gpt-5.6-luna";
+/// catalog offers it, and which a window-start turn runs on.
+pub(crate) const CODEX_SMALL_MODEL: &str = "gpt-5.6-luna";
 
-/// The effort the small title model answers at.
-const TITLE_MODEL_EFFORT: &str = "low";
+/// The effort Codex's small model answers at.
+pub(crate) const CODEX_SMALL_MODEL_EFFORT: &str = "low";
 
-/// The config keys of the model and its effort, which the one-shot pass sets as overrides.
-const MODEL_KEY: &str = "model";
+/// The config key of the model, which a one-shot `codex exec` sets as an override.
+pub(crate) const MODEL_KEY: &str = "model";
 
-const REASONING_EFFORT_KEY: &str = "model_reasoning_effort";
+/// The config key of the model's effort, which a one-shot `codex exec` sets as an override.
+pub(crate) const REASONING_EFFORT_KEY: &str = "model_reasoning_effort";
 
 /// The words the pass names the session by.
 const TITLE_INSTRUCTIONS: &str = "Name this coding session from its first exchange below, in at \
@@ -361,6 +362,8 @@ async fn draw_title_until_stopped(
         collaboration_mode: None,
         model: None,
         client_user_message_id: None,
+        turn_trigger: None,
+        root_turn_id: None,
         output_schema: Some(title_schema()),
         effort: effort.map(|effort| effort.parse().expect("the title effort is an effort")),
         service_tier: None,
@@ -442,7 +445,7 @@ async fn start_title_thread(
                 selected_capability_roots: Some(Vec::new()),
                 thread_source: Some(ThreadSource(TITLE_THREAD_SOURCE.to_owned())),
                 config: Some(
-                    lockdown::compose_title_overrides(&server_names)
+                    lockdown::compose_lockdown_overrides(&server_names)
                         .into_iter()
                         .collect(),
                 ),
@@ -514,7 +517,9 @@ async fn choose_title_model(
 ) -> TitleModel {
     let is_offered = match connection {
         Some(connection) => match read_codex_service_model_catalog(connection).await {
-            Ok(models) => models.iter().any(|model| model.id.as_str() == TITLE_MODEL),
+            Ok(models) => models
+                .iter()
+                .any(|model| model.id.as_str() == CODEX_SMALL_MODEL),
             Err(error) => {
                 tracing::info!(
                     error = &error as &(dyn std::error::Error + 'static),
@@ -527,8 +532,8 @@ async fn choose_title_model(
     };
     if is_offered {
         return TitleModel {
-            model: Some(TITLE_MODEL.to_owned()),
-            effort: Some(TITLE_MODEL_EFFORT),
+            model: Some(CODEX_SMALL_MODEL.to_owned()),
+            effort: Some(CODEX_SMALL_MODEL_EFFORT),
         };
     }
     TitleModel {
@@ -582,7 +587,7 @@ async fn name_in_one_shot(
         () = tokio::time::sleep_until(deadline) => return Ok(None),
         title_model = choose_title_model(connection.as_deref(), session_model) => title_model,
     };
-    let mut overrides = lockdown::compose_title_overrides(&server_names);
+    let mut overrides = lockdown::compose_lockdown_overrides(&server_names);
     overrides.extend(
         title_model
             .model
@@ -636,9 +641,9 @@ async fn name_in_one_shot(
     }
 }
 
-// The MCP servers `codex mcp list --json` names on the home `executable` runs for, within
-// `deadline`. Fails with `CodexError::Transport` when the list cannot be run or read.
-async fn list_mcp_server_names(
+/// The MCP servers `codex mcp list --json` names on the home `executable` runs for, within
+/// `deadline`. Fails with `CodexError::Transport` when the list cannot be run or read.
+pub(crate) async fn list_mcp_server_names(
     dependencies: &CodexServiceDependencies,
     executable: &ResolvedProviderExecutable,
     deadline: Duration,

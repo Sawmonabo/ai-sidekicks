@@ -52,7 +52,7 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::schema::session_directory::ConvertedFileOutcome;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::{
-    closed_word, optional_text_column, safe_int_column, text_column,
+    closed_word, place_column, safe_int_column, text_column,
 };
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::session::appender::{
@@ -143,6 +143,12 @@ static OPEN_CHAT_SQL: LazyLock<String> = LazyLock::new(|| {
 
 // The open-chat guard is the first statement of `session.converted`'s write.
 const OPEN_CHAT_GUARD_INDEX: usize = 0;
+
+// The converted session's create record names the project its folder is attached as, so a read
+// of the session's project finds it once the session no longer works there.
+const RECORD_CONVERTED_PROJECT_SQL: &str = "UPDATE session_create_requests
+  SET project_id = (SELECT project_id FROM repo_mounts WHERE id = @repo_mount_id)
+  WHERE session_id = @session_id";
 
 /// What converting a chat reads, locks, attaches, binds and appends through.
 pub struct SessionConversionDeps {
@@ -676,17 +682,28 @@ impl SessionConversion {
         payload: SessionConvertedPayload,
     ) -> Result<(), SessionConversionError> {
         let session_id = payload.session_id;
+        let repo_mount_id = payload.repo_mount_id;
         let draft =
             SessionEventDraft::of_session(session_id, &SessionEvent::SessionConverted(payload))?;
         let linkage = SessionEventLinkage {
-            transactional_prelude: vec![WriteStatement {
-                sql: Cow::Borrowed(OPEN_CHAT_SQL.as_str()),
-                bindings: StatementBindings::Named(vec![text_binding(
-                    "@session_id",
-                    session_id.text().as_str(),
-                )]),
-                expected_row_count: Some(1),
-            }],
+            transactional_prelude: vec![
+                WriteStatement {
+                    sql: Cow::Borrowed(OPEN_CHAT_SQL.as_str()),
+                    bindings: StatementBindings::Named(vec![text_binding(
+                        "@session_id",
+                        session_id.text().as_str(),
+                    )]),
+                    expected_row_count: Some(1),
+                },
+                WriteStatement {
+                    sql: Cow::Borrowed(RECORD_CONVERTED_PROJECT_SQL),
+                    bindings: StatementBindings::Named(vec![
+                        text_binding("@session_id", session_id.text().as_str()),
+                        text_binding("@repo_mount_id", repo_mount_id.text().as_str()),
+                    ]),
+                    expected_row_count: Some(1),
+                },
+            ],
             ..SessionEventLinkage::default()
         };
         match self.appender.append(draft, linkage).await {
@@ -711,9 +728,7 @@ fn read_session_facts(
                 Ok(ChatFacts {
                     shape: text_column(row, 0, closed_word)?,
                     state: text_column(row, 1, closed_word)?,
-                    place: optional_text_column(row, 2, |text| {
-                        serde_json::from_str::<Place>(&text)
-                    })?,
+                    place: place_column(row, 2)?,
                 })
             },
         )

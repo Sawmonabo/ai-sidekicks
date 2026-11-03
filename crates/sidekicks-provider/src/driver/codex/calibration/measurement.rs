@@ -150,7 +150,7 @@ pub(super) async fn read_codex_service_catalog(
     service: &CodexService,
 ) -> Result<CodexCatalogReading, CodexCalibrationError> {
     let dump = read_codex_model_catalog_dump(service).await?;
-    let windows = read_codex_service_model_windows(Ok(&dump), service.home());
+    let windows = read_codex_service_model_windows(Ok(&dump), service);
     Ok(CodexCatalogReading {
         dump: Arc::from(dump),
         windows: Arc::new(windows),

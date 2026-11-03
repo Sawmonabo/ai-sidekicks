@@ -31,6 +31,7 @@ use sidekicks_contracts::approval::{
 };
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
+use sidekicks_contracts::release_manifest::Sha256Hex;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -262,7 +263,8 @@ impl ApprovalService {
 
     /// Raises one ask, pending until it is answered or canceled, and answers its id with the wait
     /// for how it settles, armed before the write. `origin` carries what only the daemon knows:
-    /// the provider ask it was minted for and the tool call it holds. Refuses
+    /// the provider ask it was minted for, the tool call it holds and that call's input digest.
+    /// Refuses
     /// `approval.requestCanceled` with its `reason` when the session has closed or the run has
     /// ended, the session's own refusal of the write, and `approval.persistenceUnavailable` when
     /// the record could not be kept.
@@ -292,6 +294,7 @@ impl ApprovalService {
             resource_descriptor: resource_descriptor.to_record(),
             ask_id: origin.ask_id.clone(),
             tool_call_id: origin.tool_call_id.clone(),
+            input_digest: origin.input_digest.clone(),
         };
         let inserted = InsertedApprovalRequest {
             approval_request_id,
@@ -303,6 +306,7 @@ impl ApprovalService {
             resource_descriptor,
             ask_id: origin.ask_id,
             tool_call_id: origin.tool_call_id,
+            input_digest: origin.input_digest,
             created_at: created_at.clone(),
         };
         let draft = SessionEventDraft::new(payload, SessionEvent::ApprovalRequested)?;
@@ -545,19 +549,30 @@ impl ApprovalService {
             .await
     }
 
-    /// The run's pending ask that holds `tool_call_id`, oldest first where several do, or `None`
-    /// when none does. Fails as the read fails.
-    pub(crate) async fn read_pending_tool_call_request(
+    /// The run's pending asks a call made again may return to, in one read: the oldest that holds
+    /// `tool_call_id` where one does, else every one of `input_digest`, oldest first. Fails as the
+    /// read fails.
+    pub(crate) async fn read_pending_call_requests(
         &self,
         run_id: RunId,
-        tool_call_id: ToolCallId,
-    ) -> Result<Option<StoredApprovalRequest>, ApprovalServiceError> {
-        let pending = self
+        tool_call_id: Option<ToolCallId>,
+        input_digest: Option<Sha256Hex>,
+    ) -> Result<Vec<StoredApprovalRequest>, ApprovalServiceError> {
+        let mut pending = self
             .read(move |reader| reader.list_pending_for_run(&run_id))
             .await?;
-        Ok(pending
-            .into_iter()
-            .find(|stored| stored.tool_call_id.as_ref() == Some(&tool_call_id)))
+        if let Some(tool_call_id) = tool_call_id
+            && let Some(at) = pending
+                .iter()
+                .position(|stored| stored.tool_call_id.as_ref() == Some(&tool_call_id))
+        {
+            return Ok(vec![pending.swap_remove(at)]);
+        }
+        let Some(input_digest) = input_digest else {
+            return Ok(Vec::new());
+        };
+        pending.retain(|stored| stored.input_digest.as_ref() == Some(&input_digest));
+        Ok(pending)
     }
 
     /// Cancels every ask the run still holds pending, one `approval.canceled` each and no

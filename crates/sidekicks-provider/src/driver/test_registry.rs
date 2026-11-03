@@ -12,13 +12,18 @@ use std::path::PathBuf;
 use std::sync::Arc;
 #[cfg(test)]
 use std::sync::Mutex;
+use std::time::SystemTime;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use rusqlite::params;
+use secrecy::SecretString;
 use serde_json::{Map, Value};
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::artifacts::id::ArtifactId;
-use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
+use sidekicks_contracts::provider::account::record::{
+    CredentialGeneration, ProviderAccountId, ProviderAuthMode,
+};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
@@ -33,6 +38,8 @@ use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 #[cfg(test)]
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
+use sidekicks_std::scheduler::Scheduler;
+use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_workspace::git::process::{GitLimits, GitRunner};
@@ -40,6 +47,7 @@ use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tokio::runtime::Handle;
 #[cfg(test)]
 use tokio::sync::Notify;
+use tokio::sync::watch;
 
 use crate::background_work::BackgroundWorkForms;
 use crate::command::waiting_checks::SystemInputWaitReader;
@@ -48,9 +56,9 @@ use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::{AttachmentResolver, ProviderAttachment};
 use crate::driver::child_records::UnrecordedChildren;
 pub use crate::driver::codex::{
-    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, ScriptedCodexService,
-    serve_as_codex_service_stand_in, stand_in_codex_service, start_scripted_codex_service,
-    write_codex_service_script,
+    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, RESUMED_TURN_NAME,
+    ScriptedCodexService, serve_as_codex_service_stand_in, stand_in_codex_service,
+    start_scripted_codex_service, write_codex_service_script,
 };
 use crate::driver::contract::ProviderDriver;
 use crate::driver::ports::DriverPorts;
@@ -101,6 +109,14 @@ impl RuntimeBindingWriter for NothingServed {
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         async { Err(NotServedInTest("runtime binding").into()) }.boxed()
     }
+
+    fn move_account(
+        &self,
+        _binding_id: RuntimeBindingId,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async { Err(NotServedInTest("runtime binding").into()) }.boxed()
+    }
 }
 
 impl AttachmentResolver for NothingServed {
@@ -139,6 +155,21 @@ impl ProviderAccountReader for TestProviderAccounts {
     ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>> {
         async { Err(NotServedInTest("credential generation").into()) }.boxed()
     }
+
+    fn read_observed_auth_mode(
+        &self,
+
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
+    }
+
+    fn read_sealed_token(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
+    }
 }
 
 /// A registration holding [`TestProviderAccounts`] answering `current`.
@@ -155,12 +186,15 @@ pub fn registered_test_accounts(
 /// The shared services every driver's build takes, with every port unregistered, the spawn
 /// contexts among them, no attachment or binding rebind served, no child recorded, the read pool
 /// on a database no test opens, every folder under a relative one that no test makes, and a set of
-/// held provider services of its own, which a test reads through its field. Called on a tokio
-/// runtime, which the spawner thread starts on.
+/// held provider services of its own, which a test reads through its field, and a scheduler on a
+/// test wall clock set to the present and never moved, so no job a driver sets for an instant
+/// falls due. Called on a tokio runtime, which the spawner thread and the scheduler start on.
 pub fn test_driver_services() -> DriverServices {
     let spawner = Spawner::new(Handle::current()).expect("the spawner thread starts");
     let folder = PathBuf::from("driver-services");
     let base_environment: Arc<[(String, String)]> = Arc::from([]);
+    let clock = Arc::new(TestWallClock::default());
+    clock.set_now(SystemTime::now());
     DriverServices {
         spawner: spawner.clone(),
         data_folder: folder.join("data"),
@@ -193,6 +227,7 @@ pub fn test_driver_services() -> DriverServices {
         runtime_bindings: Arc::new(NothingServed),
         shell_lines: Arc::new(ShellLineReadingBound::new(TEST_SHELL_LINE_LIMIT)),
         background_work: Arc::new(BackgroundWorkForms::of_providers(PROVIDERS)),
+        scheduler: Arc::new(Scheduler::start(clock, None, watch::channel(0).1)),
         dispatches_hook_mode: false,
         caller_processes: Arc::new(
             ProcessTableReader::for_this_program().expect("this program's reader builds"),
@@ -300,6 +335,11 @@ pub fn session_inbox_addresser() -> Arc<dyn SessionInboxAddresser> {
         .drivers()
         .find_map(|(_, driver)| driver.session_inbox_addresser())
         .expect("a provider in the table answers a session inbox")
+}
+
+/// A minted agent id.
+pub fn new_agent_id() -> AgentId {
+    AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id")
 }
 
 /// A minted run id.

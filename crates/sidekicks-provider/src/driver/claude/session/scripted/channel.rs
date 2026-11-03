@@ -15,6 +15,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::{Notify, oneshot};
 
+use crate::driver::claude::session::control_requests::ClaudeAccountMoveMarker;
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
 use crate::driver::claude::session::process::ClaudeProcessListener;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
@@ -65,13 +66,14 @@ pub(crate) enum ScriptedAnswer {
 }
 
 /// A Claude Code process that records what the driver writes and answers as scripted: a control
-/// request with no scripted answer is answered with an empty response, a user line is written
-/// unless a hold or a failure was scripted for it, and a close ends the process, whose exit its
-/// listener takes as a real reader hands it over.
+/// request with no scripted answer is answered with an empty response once any hold scripted for it
+/// lets go, a user line is written unless a hold or a failure was scripted for it, and a close
+/// ends the process, whose exit its listener takes as a real reader hands it over.
 #[derive(Default)]
 pub(crate) struct ScriptedChannel {
     writes: Mutex<Vec<ScriptedWrite>>,
     answers: Mutex<HashMap<String, VecDeque<ScriptedAnswer>>>,
+    control_holds: Mutex<HashMap<String, VecDeque<oneshot::Receiver<()>>>>,
     user_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
     user_failures: Mutex<VecDeque<ClaudeWriteDelivery>>,
     close_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
@@ -87,6 +89,17 @@ impl ScriptedChannel {
             .entry(subtype.to_owned())
             .or_default()
             .push_back(answer);
+    }
+
+    /// Holds the answer to the next control request of `subtype` until the returned sender fires or
+    /// drops; the request is recorded as its write starts.
+    pub(crate) fn hold_next_control(&self, subtype: &str) -> oneshot::Sender<()> {
+        let (release, held) = oneshot::channel();
+        lock(&self.control_holds)
+            .entry(subtype.to_owned())
+            .or_default()
+            .push_back(held);
+        release
     }
 
     /// Holds the next user line's write until the returned sender fires or drops; the line is
@@ -190,8 +203,15 @@ impl ClaudeProcessChannel for ScriptedChannel {
         let answer = lock(&self.answers)
             .get_mut(&subtype)
             .and_then(VecDeque::pop_front);
+        let hold = lock(&self.control_holds)
+            .get_mut(&subtype)
+            .and_then(VecDeque::pop_front);
         let control_subtype = request.subtype();
         async move {
+            if let Some(hold) = hold {
+                // A dropped sender releases the answer too.
+                hold.await.unwrap_or(());
+            }
             match answer {
                 None => Ok(ClaudeControlAnswer::default()),
                 Some(ScriptedAnswer::Reply(response)) => Ok(ClaudeControlAnswer {
@@ -214,6 +234,24 @@ impl ClaudeProcessChannel for ScriptedChannel {
                     cause: ClaudeUnansweredCause::WriteCut,
                 }),
             }
+        }
+        .boxed()
+    }
+
+    // Answered as scripted, the move handed into the session's queue at a success, as the
+    // process's reader hands it at the answer.
+    fn send_account_move(
+        &self,
+        request: ClaudeControlRequest,
+        account_move: ClaudeAccountMoveMarker,
+    ) -> BoxFuture<'_, Result<ClaudeControlAnswer, ClaudeSessionError>> {
+        let answer = self.send_control_request(request);
+        async move {
+            let answer = answer.await;
+            if answer.is_ok() {
+                account_move.hand_over();
+            }
+            answer
         }
         .boxed()
     }

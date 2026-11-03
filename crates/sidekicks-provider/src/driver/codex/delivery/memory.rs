@@ -149,8 +149,6 @@ pub(crate) struct CodexDeliveryMemory {
     pub(crate) pending_reroute_by_thread_id: HashMap<String, CodexRowDelivery>,
     /// Helpers' child runs, by the helper's thread id.
     pub(crate) child_run_by_thread_id: HashMap<String, CodexChildRun>,
-    /// Each started child run's helper thread, by the child's run id.
-    pub(crate) child_thread_id_by_run_id: HashMap<RunId, String>,
     /// Each helper-spawning tool call in flight, by its thread; oldest first.
     pub(crate) spawn_calls_by_thread_id: HashMap<String, Vec<CodexSpawnCall>>,
     /// When each tool item started, in Unix milliseconds, by turn id then item id, for its row's
@@ -199,7 +197,6 @@ impl CodexDeliveryMemory {
             seen_review_ids: VecDeque::new(),
             pending_reroute_by_thread_id: HashMap::new(),
             child_run_by_thread_id: HashMap::new(),
-            child_thread_id_by_run_id: HashMap::new(),
             spawn_calls_by_thread_id: HashMap::new(),
             item_started_at_ms_by_turn_id: HashMap::new(),
             running_command_by_item_id: HashMap::new(),

@@ -465,11 +465,7 @@ impl ProjectionRebuildService {
             // The page's envelopes are done with once its statements are built.
             drop(events);
             if !has_more {
-                statements.extend(
-                    self.projections
-                        .iter()
-                        .flat_map(|rebuilt| rebuilt.projection.closing_statements(&session_id)),
-                );
+                statements.extend(folds.iter().flat_map(|(_, fold)| fold.closing_statements()));
             }
             let (last_sequence, state) = if has_more {
                 (next_sequence, ProjectionCursorState::Rebuilding)

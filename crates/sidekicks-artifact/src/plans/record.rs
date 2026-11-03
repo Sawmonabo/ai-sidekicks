@@ -12,7 +12,8 @@ use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_provider::port::plan::ProviderPlan;
 
 /// The `plan.proposed` payload for `plan`, kept by `artifact_id`, under the plan id its driver
-/// minted.
+/// minted. Its title holds no NUL: one is written U+FFFD, as markdown reads it, so the title can
+/// always name a session.
 pub(crate) fn compose_plan_proposed_payload(
     plan: ProviderPlan,
     artifact_id: ArtifactId,
@@ -20,7 +21,8 @@ pub(crate) fn compose_plan_proposed_payload(
     let reading = read_plan_markdown(&plan.text);
     let title = reading
         .title
-        .unwrap_or_else(|| read_first_line(&plan.text).to_owned());
+        .unwrap_or_else(|| read_first_line(&plan.text).to_owned())
+        .replace('\0', "\u{FFFD}");
     PlanProposedPayload {
         plan_id: plan.plan_id,
         session_id: plan.session_id,
@@ -236,6 +238,7 @@ fn trim_ecmascript_whitespace(text: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use sidekicks_contracts::plan::PlanProposedPayload;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -243,6 +246,20 @@ mod tests {
 
     use super::compose_plan_proposed_payload;
     use crate::id::mint_artifact_id;
+
+    fn compose_payload_of(markdown: &str) -> PlanProposedPayload {
+        compose_plan_proposed_payload(
+            ProviderPlan {
+                plan_id: mint_plan_id(),
+                session_id: SessionId::try_from(mint_uuid_v7()).expect("a minted UUID"),
+                run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID"),
+                text: markdown.to_owned(),
+                plan_file_path: None,
+                holds_request: true,
+            },
+            mint_artifact_id(),
+        )
+    }
 
     #[rstest]
     #[case::bullets_count_only_their_top_level_items("- one\n- two\n  - nested\n- three\n", 3, 0)]
@@ -272,18 +289,18 @@ mod tests {
         #[case] step_count: u64,
         #[case] file_count: u64,
     ) {
-        let payload = compose_plan_proposed_payload(
-            ProviderPlan {
-                plan_id: mint_plan_id(),
-                session_id: SessionId::try_from(mint_uuid_v7()).expect("a minted UUID"),
-                run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID"),
-                text: markdown.to_owned(),
-                plan_file_path: None,
-                holds_request: true,
-            },
-            mint_artifact_id(),
-        );
+        let payload = compose_payload_of(markdown);
         assert_eq!(payload.step_count.get(), step_count);
         assert_eq!(payload.file_count.get(), file_count);
+    }
+
+    // A fresh session is named after the title, which a NUL would leave unnameable. Killed by the
+    // replacement dropped (the first line's NUL is kept).
+    #[test]
+    fn a_plan_s_title_holds_no_nul() {
+        assert_eq!(
+            compose_payload_of("Add the\0 export\nBody.\n").title,
+            "Add the\u{FFFD} export"
+        );
     }
 }

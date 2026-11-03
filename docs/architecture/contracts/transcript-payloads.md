@@ -646,8 +646,10 @@ interface QuestionResolveRequest {
 interface QuestionResolveResponse {
   questionId: QuestionId;
   // The record is the receipt: a question that has been answered cannot be answered again, and a
-  // second call reads this state rather than re-applying.
-  state: "answered" | "canceled";
+  // second call reads this state rather than re-applying. `kept` is a tool server's question whose
+  // answer the server kept for its next ask: the question stays open and its run keeps waiting until
+  // that ask settles it.
+  state: "answered" | "canceled" | "kept";
 }
 ```
 

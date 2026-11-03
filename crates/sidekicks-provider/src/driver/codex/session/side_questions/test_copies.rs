@@ -7,7 +7,6 @@ use futures::StreamExt as _;
 use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::{Map, Value, json};
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::session::controls::methods::{
@@ -24,6 +23,7 @@ use crate::driver::codex::service::supervisor::test_service::{
     next_socket_request, send_on_socket,
 };
 use crate::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
+use crate::driver::test_registry::new_agent_id;
 use crate::run::posture::compose_execution_posture;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 use crate::runtime_binding::test_store::test_provider_account_id;
@@ -45,7 +45,7 @@ pub(crate) fn resting_session(session_id: SessionId, folder: &Path) -> ResumeSes
     ResumeSessionParams {
         session_id,
         binding_id: mint_runtime_binding_id(),
-        agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
+        agent_id: new_agent_id(),
         resume_handle: STORED_THREAD.to_owned(),
         model: ProviderToken::new("gpt-5".to_owned()).expect("the model fits"),
         larger_window: None,
@@ -95,7 +95,7 @@ pub(crate) fn read_only_profile(folder: &Path) -> String {
 }
 
 /// The service's side of a copy's connection.
-type CopySocket = WebSocketStream<interprocess::local_socket::tokio::Stream>;
+pub(crate) type CopySocket = WebSocketStream<interprocess::local_socket::tokio::Stream>;
 
 /// Serves the copy's connection as Codex through the connection's start; answers the connection.
 pub(super) async fn accept_copy(listener: &Listener) -> CopySocket {
@@ -116,9 +116,13 @@ pub(super) async fn accept_copy(listener: &Listener) -> CopySocket {
     socket
 }
 
-// Serves the copy's connection as Codex up to its turn's start: the connection's start and a fork
-// of the stored conversation under `profile`; answers the connection and the fork's params.
-async fn open_copy(listener: &Listener, profile: &str) -> (CopySocket, Map<String, Value>) {
+/// Serves the copy's connection as Codex up to its turn's start: the connection's start and a fork
+/// of the stored conversation under `profile`; answers the connection, the fork's params and the
+/// turn's.
+pub(crate) async fn open_copy(
+    listener: &Listener,
+    profile: &str,
+) -> (CopySocket, Map<String, Value>, Value) {
     let mut socket = accept_copy(listener).await;
     let fork = next_socket_request(&mut socket).await;
     assert_eq!(fork["method"], "thread/fork");
@@ -143,7 +147,7 @@ async fn open_copy(listener: &Listener, profile: &str) -> (CopySocket, Map<Strin
         .as_object()
         .expect("the fork's params are an object")
         .clone();
-    (socket, fork)
+    (socket, fork, turn["params"].clone())
 }
 
 /// How the copy's one turn ends.
@@ -165,7 +169,7 @@ pub(crate) async fn serve_copy(
     profile: String,
     ending: CopyTurnEnding,
 ) -> Map<String, Value> {
-    let (mut socket, fork) = open_copy(&listener, &profile).await;
+    let (mut socket, fork, _turn) = open_copy(&listener, &profile).await;
     let turn = match ending {
         CopyTurnEnding::Answered => {
             send_on_socket(
@@ -208,7 +212,7 @@ pub(crate) async fn serve_copy(
 /// answers each later request, the let-go of the conversation among them, so a stop does not wait
 /// out its bound; answers the interrupt the daemon sent once it let the connection go.
 pub(crate) async fn serve_unended_copy(listener: Listener, profile: String) -> Value {
-    let (mut socket, _fork) = open_copy(&listener, &profile).await;
+    let (mut socket, _fork, _turn) = open_copy(&listener, &profile).await;
     let interrupt = next_socket_request(&mut socket).await;
     send_on_socket(&mut socket, json!({"id": interrupt["id"], "result": {}})).await;
     while let Some(Ok(message)) = socket.next().await {

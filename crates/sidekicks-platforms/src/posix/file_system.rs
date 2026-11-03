@@ -95,7 +95,13 @@ fn open_through_no_link(root: &File, relative: &Path, flags: OFlag) -> io::Resul
 /// Whether the entry at `path`, never followed through a link, has exactly the mode bits `mode`:
 /// its permission, set-id and sticky bits. Fails with the stat's error.
 pub fn has_file_mode(path: &Path, mode: u32) -> io::Result<bool> {
-    Ok(fs::symlink_metadata(path)?.permissions().mode() & 0o7777 == mode)
+    Ok(file_mode(path)? == mode)
+}
+
+/// The mode bits of the entry at `path`, never followed through a link: its permission, set-id and
+/// sticky bits. Fails with the stat's error, `NotFound` where nothing is there.
+pub fn file_mode(path: &Path) -> io::Result<u32> {
+    Ok(fs::symlink_metadata(path)?.permissions().mode() & 0o7777)
 }
 
 /// Renames `from` to `to` in one step: a file at `to` is replaced, and a folder renamed onto an
@@ -176,8 +182,13 @@ pub fn is_superuser() -> bool {
 }
 
 /// Makes `link` a symbolic link to the folder `target`. Fails with the system's error.
-#[cfg(any(test, feature = "test-support"))]
 pub fn make_folder_link(target: &Path, link: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+/// Makes `link` a symbolic link to the file `target`. Fails with the system's error.
+#[cfg(any(test, feature = "test-support"))]
+pub fn make_file_link(target: &Path, link: &Path) -> io::Result<()> {
     std::os::unix::fs::symlink(target, link)
 }
 

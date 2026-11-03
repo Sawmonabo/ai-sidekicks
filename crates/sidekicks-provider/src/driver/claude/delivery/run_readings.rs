@@ -11,7 +11,6 @@ use std::collections::{HashMap, HashSet};
 
 use sidekicks_contracts::event::declared_variants::RunAgentOutputPayload;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::run::id::RunId;
@@ -179,6 +178,8 @@ pub(crate) struct ClaudeStreamSession {
     pub(crate) refusal: Option<RunFailureCause>,
     /// Whether Claude Code spent its own retries during the turn.
     pub(crate) is_retries_spent: bool,
+    /// Whether Claude Code ended the turn's goal checks at its cap on unmet checks in a row.
+    pub(crate) is_goal_check_capped: bool,
     /// The runs whose turn the driver's own interrupt is stopping.
     pub(crate) interrupted_runs: HashSet<RunId>,
     /// The newest run whose turn ended interrupted, kept for its next turn, and whether it holds
@@ -206,6 +207,8 @@ pub(crate) struct ClaudeStreamSession {
     pub(crate) tool_server_tasks: ClaudeToolServerTasks,
     /// What the working line reads about the lead's running turn.
     pub(crate) turn_readings: ClaudeTurnReadings,
+    /// Whether the open turn already took a message.
+    pub(crate) has_turn_message: bool,
 }
 
 /// A turn's end as the stream delivers it on its run's binding: held while the daemon's own end
@@ -222,8 +225,8 @@ pub(crate) struct ClaudeTurnEndDelivery {
 }
 
 impl ClaudeStreamSession {
-    /// Empty readings for a process running on `provider_account_id`'s home.
-    pub(crate) fn new(provider_account_id: ProviderAccountId) -> Self {
+    /// Empty readings for a process.
+    pub(crate) fn new() -> Self {
         Self {
             open_tool_calls: HashMap::new(),
             buffer: NormalizedEventReorderBuffer::new(
@@ -236,11 +239,12 @@ impl ClaudeStreamSession {
             failed_call_words: HashMap::new(),
             refusal: None,
             is_retries_spent: false,
+            is_goal_check_capped: false,
             interrupted_runs: HashSet::new(),
             continuable_run: None,
             event_ids_by_message_key: HashMap::new(),
             counted_step_messages: HashSet::new(),
-            streamed_blocks: ClaudeStreamedBlocks::new(provider_account_id),
+            streamed_blocks: ClaudeStreamedBlocks::new(),
             now_steers: HashSet::new(),
             reader_carried_run: None,
             daemon_ended: HashMap::new(),
@@ -249,6 +253,7 @@ impl ClaudeStreamSession {
             command_tasks: ClaudeCommandTasks::default(),
             tool_server_tasks: ClaudeToolServerTasks::default(),
             turn_readings: ClaudeTurnReadings::default(),
+            has_turn_message: false,
         }
     }
 

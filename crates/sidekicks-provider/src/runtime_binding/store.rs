@@ -135,6 +135,17 @@ const INSERT_RELAUNCHED_BINDING_SQL: &str = "
     FROM runtime_bindings
    WHERE id = @predecessor_id";
 
+// Only the account member of the spawn record changes, in SQL, so a concurrent patch of another
+// column is kept.
+const MOVE_BINDING_ACCOUNT_SQL: &str = "
+  UPDATE runtime_bindings
+     SET spawn_config = json_set(spawn_config, @account_member, @provider_account_id),
+         updated_at   = @updated_at
+   WHERE id = @id";
+
+// The spawn record's member naming the account, as the record is serialized.
+const PROVIDER_ACCOUNT_MEMBER: &str = "providerAccountId";
+
 const DELETE_BINDING_SQL: &str = "DELETE FROM runtime_bindings WHERE id = ?";
 
 /// The spawn-bound legs a resume rebuilds from, stored at every binding write, since a resume is a
@@ -612,6 +623,30 @@ impl RuntimeBindingStore {
         }));
         self.writer.write(statements).await?;
         Ok(())
+    }
+
+    /// Moves binding `id` onto `provider_account_id`'s account, so the usage recorded on it from
+    /// then on and a resume of it are that account's; returns whether it had a row. A move onto
+    /// the account it already names writes the same record. Fails when the write fails.
+    pub async fn move_account(
+        &self,
+        id: &RuntimeBindingId,
+        provider_account_id: &ProviderAccountId,
+    ) -> Result<bool, RuntimeBindingStoreError> {
+        let results = self
+            .writer
+            .write(vec![WriteStatement {
+                sql: Cow::Borrowed(MOVE_BINDING_ACCOUNT_SQL),
+                bindings: StatementBindings::Named(vec![
+                    text_binding("@id", id.as_str()),
+                    text_binding("@account_member", &format!("$.{PROVIDER_ACCOUNT_MEMBER}")),
+                    text_binding("@provider_account_id", provider_account_id.as_str()),
+                    text_binding("@updated_at", WireInstant::now().as_str()),
+                ]),
+                expected_row_count: None,
+            }])
+            .await?;
+        Ok(results.first().is_some_and(|result| result.row_count > 0))
     }
 
     /// Deletes binding `id` and returns whether it had a row. Fails when the write fails.

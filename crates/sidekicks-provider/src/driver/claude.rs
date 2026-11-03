@@ -24,6 +24,9 @@ use sidekicks_platforms::{
 };
 
 use crate::command::running_set::takes_no_input;
+use crate::driver::claude::account::credentials::{
+    CONFIG_FOLDER_VARIABLE, OAUTH_TOKEN_VARIABLE, SECURE_STORAGE_FOLDER_VARIABLE,
+};
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
 use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
 use crate::driver::claude::lifecycle::ClaudeDriver;
@@ -31,13 +34,17 @@ use crate::driver::claude::mcp::{read_claude_mcp_servers, reread_claude_live_mcp
 use crate::driver::claude::session::establishment::context::{
     CLAUDE_ADVISOR_ROW_ID, read_claude_row_choice,
 };
+use crate::driver::claude::spawn::environment::CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE;
 use crate::driver::contract::ProviderDriver;
+use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
     ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
     ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
+use crate::driver::contract::plan_verdict::{AnswerPlanParams, PlanVerdictAnswer};
+use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
@@ -47,18 +54,18 @@ use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
-    FindTakenMessagesParams, HelperTokenLimitParams, InterruptRunRequest, OverrideDenialParams,
-    PauseRunParams, PickedSkill, ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams,
-    WithdrawQueuedMessageResult,
+    FindTakenMessagesParams, HelperStopOutcome, HelperStopParams, InterruptRunRequest,
+    OverrideDenialParams, PauseRunParams, PickedSkill, ResumeRunParams, TakenMessages,
+    WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
-    CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverResumeResult,
-    MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
-    ProviderCommandsListener, ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams,
-    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, StartingLevel,
-    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
-    UpdateSessionModeParams,
+    CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverHandoverBriefResult,
+    DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, MoveSessionToForkParams,
+    MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
+    ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
+    SessionCommandAnswer, SetSessionGoalParams, StartingLevel, StartingLevelParams,
+    SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{
@@ -68,7 +75,7 @@ use crate::driver::{
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 
-mod account_credentials;
+mod account;
 mod attachments;
 mod capabilities;
 mod capability_probe;
@@ -78,23 +85,28 @@ mod delivery;
 mod event_normalizer;
 mod frame_routing;
 mod goals;
+mod hand_over;
 mod handshake_register;
 mod hooks;
 pub(crate) mod inbox;
 mod intervention;
 mod lifecycle;
+mod live_sessions;
 mod mcp;
 mod output_speed;
 mod rate_limit_windows;
 mod release_notes;
 mod run;
+mod self_update;
 mod session;
 mod settings_rows;
 mod spawn;
 mod spent_retries_signal;
+mod switch_variable;
 mod tools;
 mod turn_evidence;
 mod version;
+mod written_names;
 
 /// Claude Code's fixed facts. Its plan ids read as their own words, and it reads no tool-server
 /// declaration member beyond the shared ones.
@@ -187,8 +199,8 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     // The account's configuration home, its credential store, and the scratch folder the daemon
     // keeps per account home, so a session's temporary files sit where its purge finds them.
     credential_home_environment_names: &[
-        "CLAUDE_CONFIG_DIR",
-        "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+        CONFIG_FOLDER_VARIABLE,
+        SECURE_STORAGE_FOLDER_VARIABLE,
         "CLAUDE_CODE_TMPDIR",
     ],
     withheld_environment_names: &[
@@ -200,13 +212,29 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         "CLAUDE_CODE_DISABLE_DANGEROUS_RM_TIMEOUT",
         // Joins the per-session memories the daemon keeps apart.
         "CLAUDE_CODE_REMOTE_MEMORY_DIR",
+        // A shell's own sign-in token, which would beat the account's.
+        OAUTH_TOKEN_VARIABLE,
+        // Names the pipe a pasted token is handed on, which only the daemon's start sets.
+        CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE,
     ],
     screen_reader_environment_names: &["CLAUDE_AX_SCREEN_READER"],
     voice_kinds: &[VoiceKind::Dictation],
     mcp_transports: &[McpTransport::Stdio, McpTransport::Http, McpTransport::Sse],
     mcp_config_members: &[],
+    mcp_server_names: mcp::server_name::CLAUDE_MCP_SERVER_NAMES,
+    // It keeps a project's `local` servers in its own config.
+    is_mcp_local_scope_emulated: false,
     skill_name_max_length: None,
+    written_name_forms: &written_names::CLAUDE_WRITTEN_NAME_FORMS,
+    permission_identifiers: &[
+        "ExitPlanMode",
+        "plan mode",
+        "permission mode",
+        "auto-accept",
+    ],
     callback_tools_asked: true,
+    // Its sign-in takes the daemon's receiver's address when the authorization server accepts it.
+    can_mcp_sign_in_return_to_daemon_receiver: true,
     background_work: Some(BackgroundWork {
         // Background sessions and their supervisor, a restart of them, and every form that serves
         // or runs a session from elsewhere: Remote Control, a self-hosted runner, the gateway.
@@ -256,7 +284,13 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         &["uploads"],
         &["dev-mods"],
     ],
+    // Each agent's user-scope memory, which every account's agents share with the daemon's own.
+    account_home_memory_folder: Some(&["agent-memory"]),
+    switching_home_folder: None,
+    // The sign-in's own folder, which `CLAUDE_SECURESTORAGE_CONFIG_DIR` names.
+    account_home_credential_store_folder: &["store"],
     shell_prefix_command: Some(command_shape::CLAUDE_SHELL_PREFIX_COMMAND),
+    token_limits_read_by_turn: true,
 };
 
 /// Builds the Claude Code driver over the shared services; it stores handles and does no I/O.
@@ -289,6 +323,14 @@ impl ProviderDriver for ClaudeDriver {
         params: ResumeSessionParams,
     ) -> BoxFuture<'_, Result<DriverResumeResult, DriverError>> {
         self.resume_session(params).boxed()
+    }
+
+    // Claude Code runs as the daemon's own child, so its turn ended with the daemon that ran it.
+    fn end_kept_turns(
+        &self,
+        _params: EndKeptTurnsParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        ready(Ok(())).boxed()
     }
 
     fn settle_session(&self, session_id: SessionId) -> BoxFuture<'_, Result<(), DriverError>> {
@@ -329,6 +371,13 @@ impl ProviderDriver for ClaudeDriver {
         params: RespondToRequestParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
         self.respond_to_request(params).boxed()
+    }
+
+    fn answer_plan(
+        &self,
+        params: AnswerPlanParams,
+    ) -> BoxFuture<'_, Result<PlanVerdictAnswer, DriverError>> {
+        self.answer_plan(params).boxed()
     }
 
     fn override_denial(
@@ -546,7 +595,7 @@ impl ProviderDriver for ClaudeDriver {
         &self,
         params: ListProviderCommandsParams,
     ) -> BoxFuture<'_, Result<ProviderCommandBindingGroup, DriverError>> {
-        ready(self.list_provider_commands(params)).boxed()
+        self.list_provider_commands(params).boxed()
     }
 
     fn stop_command(&self, params: RunningCommandParams) -> BoxFuture<'_, Result<(), DriverError>> {
@@ -595,9 +644,16 @@ impl ProviderDriver for ClaudeDriver {
 
     fn stop_helper_at_token_limit(
         &self,
-        params: HelperTokenLimitParams,
+        params: HelperStopParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
         ready(self.stop_helper_at_token_limit(&params)).boxed()
+    }
+
+    fn stop_child_run(
+        &self,
+        params: HelperStopParams,
+    ) -> BoxFuture<'_, Result<HelperStopOutcome, DriverError>> {
+        async move { self.stop_child_run(&params).await }.boxed()
     }
 
     fn observed_output_speed_for(
@@ -664,6 +720,13 @@ impl ProviderDriver for ClaudeDriver {
         self.ask_side_question(params).boxed()
     }
 
+    fn export_handover_brief(
+        &self,
+        params: ExportHandoverBriefParams,
+    ) -> BoxFuture<'_, Result<DriverHandoverBriefResult, DriverError>> {
+        self.export_handover_brief(params).boxed()
+    }
+
     fn subscribe_provider_commands(
         &self,
         params: SubscribeProviderCommandsParams,
@@ -678,6 +741,25 @@ impl ProviderDriver for ClaudeDriver {
 
     fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>> {
         self.session_inbox_addresser()
+    }
+
+    fn account_legs(&self) -> Arc<dyn ProviderAccountLegs> {
+        Arc::clone(&self.account_legs) as _
+    }
+
+    fn forget_account(&self, provider_account_id: &ProviderAccountId) {
+        self.usage_probe_models.forget(provider_account_id);
+    }
+
+    fn sign_in_with_own_client(
+        &self,
+        request: ProviderSignInTakeoverRequest,
+    ) -> BoxFuture<'_, Result<ProviderSignInTakeover, DriverError>> {
+        self.sign_in_with_own_client(request).boxed()
+    }
+
+    fn remove_left_sign_in_folders(&self) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.remove_left_sign_in_folders().boxed()
     }
 }
 

@@ -386,6 +386,22 @@ impl RunEngine {
         })
     }
 
+    /// Writes the end the daemon gives `turn_number` of `run_id` with no provider frame, as
+    /// [`RunEngine::daemon_turn_end`] reports it from `outcome`, on its own beside the run, which
+    /// it does not move; answers whether it was written, a duplicate dropped. Fails with
+    /// `RunRefusal::NotFound` for an unknown run and with the read's or the append's failure.
+    pub(crate) async fn record_daemon_turn_end(
+        &self,
+        run_id: RunId,
+        turn_number: SafeInt<1>,
+        outcome: TurnOutcome,
+    ) -> Result<bool, RunEngineError> {
+        let run = self.require_run(run_id).await?;
+        let turn_end = self.daemon_turn_end(&run_id, turn_number, &[], outcome);
+        self.record_turn_end_alone(run_id, &run, turn_end, false, None)
+            .await
+    }
+
     /// Hands the interventions service again the step limit's interrupt of `run_id` that a stop
     /// wrote the reached event of and could not hand: the run's newest open turn is cut with the
     /// limit, and the run rests at the step limit. A run that owes no such interrupt, or whose

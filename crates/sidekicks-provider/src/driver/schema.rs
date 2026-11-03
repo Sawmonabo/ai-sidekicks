@@ -14,12 +14,14 @@ use sidekicks_store::database::sql_list::sql_list_of_every;
 use crate::driver::capabilities::DriverCapabilityFlag;
 use crate::output_validation::{CLI_VERSION_SEMVER_MAX_LEN, RESUME_HANDLE_MAX_LEN};
 
-/// The worktrees' list and the provider drivers' own part.
+/// The worktrees' list, the provider drivers' own part and each provider's readings in each place.
 pub fn schema_parts() -> SchemaParts {
-    sidekicks_workspace::git::worktree::schema::schema_parts().with_part(SchemaPart::new(
-        "provider_drivers",
-        provider_drivers_schema_sql(),
-    ))
+    sidekicks_workspace::git::worktree::schema::schema_parts()
+        .with_part(SchemaPart::new(
+            "provider_drivers",
+            provider_drivers_schema_sql(),
+        ))
+        .with_part(crate::installation::schema_part())
 }
 
 // The provider drivers' tables and indexes.
@@ -138,8 +140,9 @@ CREATE TABLE provider_builds (
     )
 }
 
-// A printed version's bound on `column`: within the wire's bound in code points, no NUL.
-fn printed_version_bound(column: &str) -> String {
+/// A printed version's bound on `column`, a SQL condition for a `CHECK`: within the wire's bound in
+/// code points, no NUL.
+pub(crate) fn printed_version_bound(column: &str) -> String {
     format!(
         "length({column}) > 0 AND length({column}) <= {PROVIDER_VERSION_MAX_LEN} \
          AND instr({column}, char(0)) = 0"

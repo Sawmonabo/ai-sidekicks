@@ -1,10 +1,12 @@
 //! Reads Codex's account rate-limit readings into a usage-limit signal with the reset boundary the
-//! provider reported.
+//! provider reported, filed under the account and credential generation of the conversation that
+//! met the limit.
 
 use std::collections::BTreeMap;
 
 use jiff::Timestamp;
 use serde_json::{Map, Value};
+use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::provider::driver::usage_limit::{
     ProviderUsageLimitCause, ProviderUsageLimitResetBoundary, ProviderUsageLimitSignal,
 };
@@ -23,6 +25,15 @@ pub(crate) const CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD: &str = "account/rateL
 /// credits, not a window turning over, so there is no reset instant to park a run against.
 const CODEX_PLAN_ALLOWANCE_REACHED_TYPES: [&str; 3] = [
     "rate_limit_reached",
+    "workspace_owner_usage_limit_reached",
+    "workspace_member_usage_limit_reached",
+];
+
+/// The `rateLimitReachedType` arms Codex's own client takes as a hard stop, which no complete read
+/// sent before it may undo.
+const CODEX_HARD_STOP_REACHED_TYPES: [&str; 4] = [
+    "workspace_owner_credits_depleted",
+    "workspace_member_credits_depleted",
     "workspace_owner_usage_limit_reached",
     "workspace_member_usage_limit_reached",
 ];
@@ -68,6 +79,41 @@ impl CodexRateLimitObservation {
                     .map(move |window| (limit_id.as_str(), window))
             })
     }
+
+    /// Lays `pushed`, the pushes merged since a complete read was sent, over this read: each
+    /// window and the reached mark they hold replace the read's, so no push is undone by a read
+    /// that left before it.
+    pub(crate) fn lay_pushes_over(&mut self, pushed: &Self) {
+        for (limit_id, pushed_windows) in &pushed.windows_by_limit_id {
+            let windows = self
+                .windows_by_limit_id
+                .entry(limit_id.clone())
+                .or_default();
+            if let Some(primary) = &pushed_windows.primary {
+                windows.primary = Some(primary.clone());
+            }
+            if let Some(secondary) = &pushed_windows.secondary {
+                windows.secondary = Some(secondary.clone());
+            }
+        }
+        if let Some(reached) = &pushed.reached {
+            self.reached = Some(reached.clone());
+        }
+    }
+}
+
+/// Whether an `account/rateLimits/updated` push is a hard stop, as Codex's own client reads one: a
+/// credits-depleted or workspace usage-limit arm, or a spend control reached.
+pub(crate) fn is_codex_hard_stop(update: &Value) -> bool {
+    let Some(snapshot) = update.get("rateLimits").and_then(Value::as_object) else {
+        return false;
+    };
+    let is_hard_reached = read_present_member(snapshot, "rateLimitReachedType")
+        .and_then(Value::as_str)
+        .is_some_and(|reached_type| CODEX_HARD_STOP_REACHED_TYPES.contains(&reached_type));
+    is_hard_reached
+        || read_present_member(snapshot, "spendControlReached").and_then(Value::as_bool)
+            == Some(true)
 }
 
 /// A snapshot's `limitId`, or Codex's own `codex` when it names none.
@@ -165,9 +211,13 @@ pub(crate) fn observe_codex_rate_limit_update(
 /// Classifies the account's rate-limit readings as a spent usage allowance, or `None`, which means
 /// "not known to be limited". Only the `rateLimitReachedType` arm recognizes one, never prose,
 /// `usedPercent` alone, or a turn error's own info, which carries no reset boundary; the boundary
-/// is read from the limit the mark names alone.
+/// is read from the limit the mark names alone. The signal is filed under `provider_account_id`
+/// at `credential_generation`, the conversation's, never the account the service carries now: a
+/// push from one account's last turn can be read after the service moved to another.
 pub(crate) fn classify_codex_usage_limit_signal(
     observation: &CodexRateLimitObservation,
+    provider_account_id: ProviderAccountId,
+    credential_generation: CredentialGeneration,
 ) -> Option<ProviderUsageLimitSignal> {
     let reached = observation.reached.as_ref()?;
     // An arm the person can remedy, an unrecognized arm and an absent one all give nothing rather
@@ -185,6 +235,8 @@ pub(crate) fn classify_codex_usage_limit_signal(
         .reduce(f64::max);
     Some(ProviderUsageLimitSignal {
         cause: ProviderUsageLimitCause::PlanAllowanceExhausted,
+        provider_account_id,
+        credential_generation,
         reset_boundary: latest_spent_reset
             .and_then(codex_epoch_seconds_to_wire_instant)
             .map(|resets_at| ProviderUsageLimitResetBoundary { resets_at }),
@@ -195,6 +247,8 @@ pub(crate) fn classify_codex_usage_limit_signal(
 mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
+
+    use crate::runtime_binding::test_store::test_provider_account_id;
 
     use super::{
         classify_codex_usage_limit_signal, observe_codex_rate_limit_read,
@@ -252,7 +306,12 @@ mod tests {
             observe_codex_rate_limit_read(&read),
             observe_codex_rate_limit_update,
         );
-        let signal = classify_codex_usage_limit_signal(&observation).unwrap();
+        let signal = classify_codex_usage_limit_signal(
+            &observation,
+            test_provider_account_id(),
+            serde_json::from_value(json!(1)).unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(
             signal

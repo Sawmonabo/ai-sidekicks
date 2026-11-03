@@ -7,13 +7,13 @@
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
-use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_platforms::PathRules;
 
-use crate::driver::claude::account_credentials::{API_KEY_VARIABLE, OAUTH_TOKEN_VARIABLE};
+use crate::driver::claude::account::credentials::{API_KEY_VARIABLE, OAUTH_TOKEN_VARIABLE};
 use crate::driver::claude::spawn::environment::{
     CLAUDE_GATEWAY_SWITCH_VARIABLE, CLAUDE_PROVIDER_SWITCH_VARIABLES, claude_text_variable,
 };
+use crate::driver::claude::switch_variable::{is_switched_off, is_switched_on};
 
 /// The variable that switches Claude Code's claude.ai connectors off.
 const CONNECTORS_SWITCH_VARIABLE: &str = "ENABLE_CLAUDEAI_MCP_SERVERS";
@@ -185,7 +185,7 @@ pub(crate) fn skips_fetch_for_scopes(scopes: &[String]) -> bool {
 fn are_connectors_switched_off(environment: &[(String, String)]) -> bool {
     PathRules::NATIVE
         .environment_value(environment, CONNECTORS_SWITCH_VARIABLE)
-        .is_some_and(|value| matches!(fold_switch(value).as_str(), "0" | "false" | "no" | "off"))
+        .is_some_and(is_switched_off)
 }
 
 // Whether `environment` sets the variable `name` to a value that reads as on.
@@ -193,15 +193,4 @@ fn is_variable_on(environment: &[(String, String)], name: &str) -> bool {
     PathRules::NATIVE
         .environment_value(environment, name)
         .is_some_and(is_switched_on)
-}
-
-// Whether a variable's `value` reads as on, as Claude Code reads it: `1`, `true`, `yes` or `on`,
-// trimmed and in any case.
-fn is_switched_on(value: &str) -> bool {
-    matches!(fold_switch(value).as_str(), "1" | "true" | "yes" | "on")
-}
-
-// A switch's value as Claude Code compares it: trimmed of ECMAScript white space, lower-cased.
-fn fold_switch(value: &str) -> String {
-    value.trim_matches(is_ecmascript_whitespace).to_lowercase()
 }

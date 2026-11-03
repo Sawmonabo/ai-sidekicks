@@ -416,7 +416,7 @@ async fn restore_held_socket_link(service: &CodexService, physical_socket: &Path
         Ok(true) => {}
         Ok(false) => service.set_holds_home_link(false),
         Err(error) => CodexTransportDiagnostic::HomeLinkRestoreFailed {
-            codex_home: service.home().codex_home.clone(),
+            provider_account_id: service.provider_account_id(),
             error: Box::new(error),
         }
         .report(),

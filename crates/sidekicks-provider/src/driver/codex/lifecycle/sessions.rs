@@ -8,7 +8,9 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 
 use super::{CODEX_SERVICE_STARTUP_TIMEOUT, CodexDriver, CodexDriverParts};
+use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnWait};
+use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::history::read_codex_turn_id_by_client_message_id;
@@ -21,6 +23,7 @@ use crate::driver::codex::session::slots::CODEX_LET_GO_TIMEOUT;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::prior_usage::read_prior_emitted;
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{FindTakenMessagesParams, TakenMessages};
 use crate::driver::session_control::{
@@ -51,7 +54,10 @@ impl CodexDriver {
             .into());
         }
         let (handle, established) = parts.establishment.create(&params).await?;
-        let opened = parts.establishment.open(established, None).await;
+        let opened = parts
+            .establishment
+            .open(established, UsageAxisCounts::default())
+            .await;
         claim.install(opened.record.inbound.clone());
         self.spawn_session_task(parts, opened);
         Ok(handle)
@@ -76,14 +82,21 @@ impl CodexDriver {
         let Some(mut established) = resumed.established else {
             return Ok(resumed.result);
         };
-        let prior_emitted = self
-            .read_prior_emitted(session_id, &params.resume_handle)
-            .await;
+        let prior_emitted = read_prior_emitted(
+            &self.ports.usage,
+            DESCRIPTOR.provider_id(),
+            session_id,
+            &params.resume_handle,
+        )
+        .await;
         for helper in established.restored_helpers_mut() {
-            helper.prior_emitted = self
-                .read_prior_emitted(session_id, &helper.thread_id)
-                .await
-                .unwrap_or_default();
+            helper.prior_emitted = read_prior_emitted(
+                &self.ports.usage,
+                DESCRIPTOR.provider_id(),
+                session_id,
+                &helper.thread_id,
+            )
+            .await;
         }
         let opened = parts.establishment.open(established, prior_emitted).await;
         claim.install(opened.record.inbound.clone());
@@ -91,9 +104,10 @@ impl CodexDriver {
         Ok(resumed.result)
     }
 
-    /// The person's restart of a session whose service stayed down: the service starts again and
-    /// its recovery resumes the session with the rest; a session the service holds no record of
-    /// is resumed as a resume is. Fails as the service's start fails.
+    /// The person's restart of a session whose service stayed down: the service of the home that
+    /// holds its conversation starts again and its recovery resumes the session with the rest; a
+    /// session the service holds no record of is resumed as a resume is. Fails as the service's
+    /// start fails.
     pub(crate) async fn restart_session(
         &self,
         params: ResumeSessionParams,
@@ -101,7 +115,10 @@ impl CodexDriver {
         let parts = self.parts()?;
         let service = parts
             .registry
-            .service_for(&params.provider_account_id)
+            .service_for_conversation(
+                &params.provider_account_id,
+                CodexConversationHome::read(&params.runtime_metadata),
+            )
             .await?;
         match parts
             .recovery
@@ -314,30 +331,6 @@ impl CodexDriver {
                 Vec::new()
             };
         Ok(TakenMessages { taken })
-    }
-
-    // The spend the session's conversation emitted before its resume, which its usage is based
-    // on; with no usage sink yet, or an unreadable record, the base starts at zero, logged.
-    async fn read_prior_emitted(
-        &self,
-        session_id: SessionId,
-        thread_id: &str,
-    ) -> Option<UsageAxisCounts> {
-        let sink = self.ports.usage.port()?;
-        match sink
-            .read_prior_emitted(session_id, thread_id.to_owned())
-            .await
-        {
-            Ok(prior) => Some(prior),
-            Err(error) => {
-                tracing::warn!(
-                    error = &*error as &(dyn std::error::Error + 'static),
-                    %session_id,
-                    "a resumed codex conversation's prior usage could not be read"
-                );
-                None
-            }
-        }
     }
 }
 

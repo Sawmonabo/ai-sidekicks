@@ -133,3 +133,37 @@ pub(super) fn stored_payload_of(request: &AgentRunInterveneRequest) -> String {
     };
     serialized.expect("an intervention's record serializes")
 }
+
+/// The person's interrupt of `target_run_id` its row stores as `record`, asked against
+/// `expected_run_version` under `client_idempotency_key`: the inverse of [`stored_payload_of`].
+pub(super) fn person_request_of(
+    target_run_id: RunId,
+    expected_run_version: SafeInt<0>,
+    client_idempotency_key: ClientUuid,
+    record: PersonInterruptRecord,
+) -> InterventionInterruptRequest {
+    match record {
+        PersonInterruptRecord::NextTurn {
+            deliver_first,
+            reason,
+            limit: _,
+        } => InterventionInterruptRequest::NextTurn {
+            target_run_id,
+            expected_run_version,
+            client_idempotency_key,
+            reason,
+            deliver_first,
+        },
+        PersonInterruptRecord::ReturnToDraft {
+            deliver_first,
+            reason,
+            limit: _,
+        } => InterventionInterruptRequest::ReturnToDraft {
+            target_run_id,
+            expected_run_version,
+            client_idempotency_key,
+            reason,
+            deliver_first,
+        },
+    }
+}

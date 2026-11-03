@@ -1,11 +1,13 @@
 //! The runtime binding store's test store and the bindings tests record through it: a store on a
-//! real writer, a binding input of a fresh run, and a session's stored leg.
+//! real writer, a binding input of a fresh run, a run's binding a resume brings back, and a
+//! session's stored leg.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde_json::Map;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 #[cfg(test)]
@@ -81,6 +83,27 @@ pub fn binding_input(
         spawn_config,
         runtime_metadata: Map::new(),
     }
+}
+
+/// Records in `bindings` a binding of `run_id` on `provider_name`, on the test's account, holding
+/// the conversation a resume brings back, and answers its id.
+pub async fn bind_resumable(
+    bindings: &RuntimeBindingStore,
+    run_id: RunId,
+    provider_name: ProviderId,
+) -> RuntimeBindingId {
+    bindings
+        .create(CreateRuntimeBindingInput {
+            run_id,
+            provider_name,
+            ..binding_input(
+                spawn_config_on(test_provider_account_id()),
+                spawned_build("1.0.0", "/opt/provider/bin"),
+            )
+        })
+        .await
+        .expect("the run's binding is recorded")
+        .id
 }
 
 /// Records the leg of a session that ran and now rests: a binding of a fresh run naming

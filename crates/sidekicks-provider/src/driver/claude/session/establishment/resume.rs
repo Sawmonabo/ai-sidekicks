@@ -2,7 +2,8 @@
 //! session's live process, one a relaunch or the person's restart brought up, when that process
 //! runs the conversation and settings the resume asks for; one on other settings is ended and
 //! brought up again with the resume's own. A fresh process continues the turn of the run in
-//! progress where the resume names one, on that run and turn.
+//! progress where the resume names one, on that run and turn; where every run in progress waits on
+//! the person or stops, no process is started and the resume is deferred.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -11,20 +12,23 @@ use jiff::Timestamp;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistrationError;
 
+use super::errors::ClaudeEstablishmentError;
 use super::{
-    ClaudeEstablishmentError, ClaudeResumeAnswer, ClaudeSessionEstablishment, ClaudeSessionStart,
-    ClaudeSpawnRequest,
+    ClaudeResumeAnswer, ClaudeSessionEstablishment, ClaudeSessionStart, ClaudeSpawnRequest,
 };
 use crate::driver::claude::output_speed::resolve_claude_output_speed;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoute, ClaudeRunRoutes};
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::conversation_file::read_turn_count;
+use crate::driver::claude::session::conversation_home::read_claude_conversation_home;
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionSlotState, ClaudeSessionUnavailableReason,
 };
@@ -32,7 +36,7 @@ use crate::driver::claude::session::slots::ClaudeResumeSlot;
 use crate::driver::claude::session::state::{ClaudeUsageEstablishment, LiveClaudeSession};
 use crate::driver::claude::session::ultracode::requested_claude_ultracode;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
-use crate::driver::contract::error::bound_failure_detail;
+use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::driver::session_control::{
@@ -55,12 +59,22 @@ impl ClaudeSessionEstablishment {
     /// Resumes the conversation `params` names in a fresh process under the binding the caller
     /// minted into it, or answers the session's live process when it runs that conversation at the
     /// settings `params` asks for, on the binding the resume that brought it up answered, else on
-    /// the minted one; every failure answers the `Failed` arm, nothing left running.
-    pub(crate) async fn resume(&self, mut params: ResumeSessionParams) -> ClaudeResumeAnswer {
+    /// the minted one; every failure answers the `Failed` arm, nothing left running, but a
+    /// service the daemon has not registered yet, which refuses `provider.unavailable` with its
+    /// words and leaves the session needing no recovery.
+    pub(crate) async fn resume(
+        &self,
+        mut params: ResumeSessionParams,
+    ) -> Result<ClaudeResumeAnswer, DriverError> {
         let session_id = params.session_id;
         let schedules = std::mem::take(&mut params.kept_schedules);
         let answer = match self.try_resume(params).await {
             Ok(answer) => answer,
+            Err(
+                error @ ClaudeEstablishmentError::Port(PortRegistrationError::NotRegistered(_)),
+            ) => {
+                return Err(error.into());
+            }
             Err(error) => ClaudeResumeAnswer {
                 result: resume_failure(error.recovery_condition(), &error),
                 has_started_process: false,
@@ -73,7 +87,7 @@ impl ClaudeSessionEstablishment {
                 .idle_sleep
                 .seed_schedules(session_id, schedules, Timestamp::now());
         }
-        answer
+        Ok(answer)
     }
 
     // A resume's bring-up; its failures are the caller's to answer through the `Failed` arm.
@@ -124,6 +138,14 @@ impl ClaudeSessionEstablishment {
                 ClaudeResumeSlot::CameUp(live) => self.end_came_up(&live).await,
             }
         };
+        if !is_process_owed(&params.live_runs) {
+            // Dropping the claim frees the slot for the person's answer or a later resume.
+            drop(claim);
+            return Ok(ClaudeResumeAnswer {
+                result: DriverResumeResult::Deferred { runs },
+                has_started_process: false,
+            });
+        }
         let resume_handle = params.resume_handle.clone();
         let request = ClaudeSpawnRequest {
             session_id,
@@ -141,6 +163,7 @@ impl ClaudeSessionEstablishment {
             // The create's start checked the lead's effort.
             effort: None,
             continued_turn,
+            conversation_home: read_claude_conversation_home(&params.runtime_metadata),
         };
         let output_speed = params.output_speed.map(FreeFormText::into_string);
         let (started, session_position) = self
@@ -240,7 +263,7 @@ fn runs_as_asked(live: &LiveClaudeSession, params: &ResumeSessionParams) -> bool
     let requested = &live.requested_spawn;
     let settings = lock(&live.settings);
     live.agent_id == params.agent_id
-        && live.admitted_provider_account_id == params.provider_account_id
+        && live.admitted_provider_account_id() == params.provider_account_id
         && legs.tool_servers.as_slice() == params.tool_servers.as_deref().unwrap_or_default()
         && requested.callback_tools.as_deref().unwrap_or_default()
             == params.callback_tools.as_deref().unwrap_or_default()
@@ -259,28 +282,62 @@ fn runs_as_asked(live: &LiveClaudeSession, params: &ResumeSessionParams) -> bool
 }
 
 // The run in progress among `live_runs` and its newest open turn, which a fresh process continues:
-// a lead run, started on its own and no helper, with a turn started and not ended.
+// a lead run, started on its own and no helper, starting or running with a turn started and not
+// ended, with no stop it waits on, which wins over continuing it, and not held on the person, whose
+// answer continues it instead.
 fn find_run_in_progress(live_runs: &[LiveRunResume]) -> Option<(&LiveRunResume, &OpenTurnResume)> {
     live_runs
         .iter()
-        .filter(|run| run.subagent_id.is_none() && run.parent_run_id.is_none())
+        .filter(|run| {
+            is_lead(run)
+                && !run.is_stopping
+                && matches!(run.run_state, RunState::Starting | RunState::Running)
+                && !run.is_held(live_runs)
+        })
         .find_map(|run| run.open_turns.last().map(|turn| (run, turn)))
 }
 
-// What a fresh process holds of each run in `live_runs`: the turn of the run in progress, which it
-// continues, still runs; every other run's turn, a helper's included, is gone.
+// What a fresh process holds of each run in `live_runs`: a run held on the person waits on its
+// answer; the turn of the run in progress, which it continues, still runs; every other run's turn,
+// a helper's included, is gone.
 fn answer_fresh_process(
     live_runs: &[LiveRunResume],
     in_progress: Option<RunId>,
 ) -> Vec<ResumedRunAnswer> {
     let mut runs = answer_every_run_gone(live_runs);
-    if let Some(answer) = runs
-        .iter_mut()
-        .find(|answer| Some(answer.run_id) == in_progress)
-    {
-        answer.turn = ProviderTurnAnswer::StillRunning;
+    for (answer, run) in runs.iter_mut().zip(live_runs) {
+        if run.is_held(live_runs) {
+            answer.turn = ProviderTurnAnswer::Waiting;
+        } else if Some(answer.run_id) == in_progress {
+            answer.turn = ProviderTurnAnswer::StillRunning;
+        }
     }
     runs
+}
+
+// Whether a fresh process has work in `live_runs`: a lead with neither a stop nor a hold stands
+// queued, starting or running, or no run is in progress at all (none, or each queued or paused),
+// so the process comes up as a plain resume. Otherwise every run in progress waits on the person
+// or stops, and no process is started for it.
+fn is_process_owed(live_runs: &[LiveRunResume]) -> bool {
+    let has_lead_to_run = live_runs.iter().any(|run| {
+        is_lead(run)
+            && !run.is_stopping
+            && !run.is_held(live_runs)
+            && matches!(
+                run.run_state,
+                RunState::Queued | RunState::Starting | RunState::Running
+            )
+    });
+    let has_run_in_progress = live_runs
+        .iter()
+        .any(|run| !matches!(run.run_state, RunState::Queued | RunState::Paused));
+    has_lead_to_run || !has_run_in_progress
+}
+
+// Whether `run` is a lead: started on its own and no helper.
+fn is_lead(run: &LiveRunResume) -> bool {
+    run.subagent_id.is_none() && run.parent_run_id.is_none()
 }
 
 // What the session's live process holds of each run in `live_runs`: the run holding the session's
@@ -367,5 +424,57 @@ fn resume_failure(
             &sidekicks_std::error_description::describe_error(error),
             UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
+
+    use super::*;
+    use crate::driver::test_registry::new_run_id;
+
+    // A lead run with turn 1 open, one a pending stop waits on where `is_stopping`.
+    fn lead_run(is_stopping: bool) -> LiveRunResume {
+        LiveRunResume {
+            run_id: new_run_id(),
+            parent_run_id: None,
+            open_turns: vec![OpenTurnResume {
+                turn_number: SafeInt::<1>::new(1).expect("one is a turn number"),
+                provider_turn_id: None,
+                started_event_id: FreeFormText::new(mint_uuid_v7().to_string())
+                    .expect("an event id fits"),
+            }],
+            subagent_id: None,
+            is_stopping,
+            run_state: RunState::Running,
+        }
+    }
+
+    // A fresh process continues the lead no stop waits on, and the stopping lead before it in the
+    // resume's order answers gone; a stopping lead alone is continued by none. Killed by the skip
+    // dropped: the stopping lead, listed first, is found and continued.
+    #[test]
+    fn a_fresh_process_continues_no_run_a_stop_waits_on() {
+        let stopping = lead_run(true);
+        let live = lead_run(false);
+        let both = [stopping.clone(), live.clone()];
+
+        let found = find_run_in_progress(&both).map(|(run, _)| run.run_id);
+        assert_eq!(found, Some(live.run_id));
+        assert_eq!(
+            answer_fresh_process(&both, found),
+            vec![
+                ResumedRunAnswer {
+                    run_id: stopping.run_id,
+                    turn: ProviderTurnAnswer::Gone,
+                },
+                ResumedRunAnswer {
+                    run_id: live.run_id,
+                    turn: ProviderTurnAnswer::StillRunning,
+                },
+            ]
+        );
+        assert!(find_run_in_progress(&[stopping]).is_none());
     }
 }

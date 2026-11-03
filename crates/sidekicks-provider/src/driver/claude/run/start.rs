@@ -31,13 +31,14 @@ use crate::driver::claude::session::slots::ClaudeSessionSlots;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
 use crate::driver::claude::session::transport::user_message::{
-    ClaudeUserContentBlock, ClaudeWriteAttempt, ClaudeWriteDelivery, compose_claude_user_frame,
+    CLAUDE_RESET_REFUSAL_SENTENCE, ClaudeUserContentBlock, ClaudeWriteAttempt, ClaudeWriteDelivery,
+    compose_claude_user_frame, is_reset_request, reset_refusal,
 };
 use crate::driver::claude::spawn::legs::assert_claude_spawn_bound_realization;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::StartRunParams;
 use crate::driver::run_control::{DaemonTurnBindingResolver, DriverRunRefusal};
-use crate::outbound_text::OutboundText;
+use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
 use crate::port::session_wake::SessionWaker;
@@ -110,7 +111,8 @@ impl ClaudeRunStart {
     /// another holds it `SessionTurnInFlight`; a run whose last turn an interrupt is ending first
     /// waits, within the request deadline, for that turn's end. Fails with no live session, a
     /// failed wake, a run the session's process cannot carry, files that cannot be read (before
-    /// anything is held), and the failed write; nothing is resent.
+    /// anything is held), and the failed write; nothing is resent. Words that would reset the
+    /// session refuse the run, with nothing held or written.
     pub(crate) async fn start_run(
         &self,
         params: &StartRunParams,
@@ -227,7 +229,7 @@ impl ClaudeRunStart {
         let request = DaemonTurnStartRequest {
             session_id,
             provider: DESCRIPTOR.provider_id(),
-            admitted_provider_account_id: live.admitted_provider_account_id.clone(),
+            admitted_provider_account_id: live.admitted_provider_account_id(),
             execution_posture,
             is_provider_started,
             start_turn: Box::new(move |run_id| {
@@ -307,7 +309,8 @@ impl ClaudeRunStart {
 
     // Holds the session's turn for the run and writes its opening words and files, after the
     // output-speed level it asks for. The hold is taken before any await, so it covers the level's
-    // request, and before the write, since an interrupt racing the words must find the run.
+    // request, and before the write, since an interrupt racing the words must find the run. Words
+    // that would reset the session refuse the run before anything is held, sent or recorded.
     async fn open_turn(
         &self,
         live: &Arc<LiveClaudeSession>,
@@ -317,6 +320,12 @@ impl ClaudeRunStart {
         attachment_blocks: Vec<ClaudeUserContentBlock>,
         output_speed: Option<&str>,
     ) -> Result<(), DriverError> {
+        if text.origin != OutboundTextOrigin::SystemNarration && is_reset_request(&text.text) {
+            return Err(
+                claude_run_refusal(live, CLAUDE_RESET_REFUSAL_SENTENCE.to_owned())
+                    .unwrap_or_else(|| reset_refusal().into()),
+            );
+        }
         let ClaudeBoundRun { run_id, binding_id } = run;
         let session_id = live.session_id;
         self.routes
@@ -453,34 +462,48 @@ pub(crate) fn claude_attachment_failure(
     live: &LiveClaudeSession,
     error: ClaudeAttachmentError,
 ) -> DriverError {
+    error
+        .picture_refusal()
+        .and_then(|sentence| claude_run_refusal(live, sentence))
+        .unwrap_or_else(|| DriverError::Internal(Box::new(error)))
+}
+
+// The run's refusal in `sentence`, naming the full id of the model the session runs; none for a
+// model id no refusal can carry.
+fn claude_run_refusal(live: &LiveClaudeSession, sentence: String) -> Option<DriverError> {
     let running_model = lock(&live.settings).running_model.clone();
-    let model = FreeFormText::new(claude_full_model_id(&live.initialize, &running_model)).ok();
-    match (error.picture_refusal(), model) {
-        (Some(sentence), Some(model)) => {
-            DriverError::RunRefused(DriverRunRefusal { model, sentence })
-        }
-        (Some(_) | None, _) => DriverError::Internal(Box::new(error)),
-    }
+    let model = FreeFormText::new(claude_full_model_id(&live.initialize, &running_model)).ok()?;
+    Some(DriverError::RunRefused(DriverRunRefusal {
+        model,
+        sentence,
+    }))
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use rstest::rstest;
     use serde_json::json;
-    use sidekicks_contracts::agent::definition::AgentId;
     use sidekicks_contracts::artifacts::id::ArtifactId;
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_contracts::wire::text::FreeFormText;
+    use sidekicks_std::mutex_lock::lock;
 
     use crate::driver::claude::session::scripted::{
         SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
     };
+    use crate::driver::claude::session::transport::user_message::CLAUDE_RESET_REFUSAL_SENTENCE;
     use crate::driver::contract::error::DriverError;
     use crate::driver::contract::params_and_results::{RunOpening, RunOpeningItem, StartRunParams};
-    use crate::driver::run_control::{ResumeRunParams, WaitingMessage};
-    use crate::driver::test_registry::new_run_id;
+    use crate::driver::run_control::{
+        ApplyInterventionParams, ResumeRunParams, SteerPayload, WaitingMessage,
+    };
+    use crate::driver::test_registry::{new_agent_id, new_run_id};
     use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 
     // The opening of `run_id` on `session`'s lead binding, carrying `attachments`.
@@ -494,8 +517,7 @@ mod tests {
             opening: RunOpening {
                 session_id: session.session_id,
                 binding_id: binding_id("lead"),
-                agent_id: AgentId::new(&mint_uuid_v7().to_string())
-                    .expect("a minted UUID is an agent id"),
+                agent_id: new_agent_id(),
                 message_id: QueueItemId::new(&mint_uuid_v7().to_string())
                     .expect("a minted UUID is an item id"),
                 item: RunOpeningItem::Message {
@@ -571,6 +593,7 @@ mod tests {
                         attachments: vec![picture],
                         skills: Vec::new(),
                     }],
+                    is_continuation_owed: false,
                 })
                 .await
         };
@@ -590,6 +613,106 @@ mod tests {
                 .start
                 .routes
                 .lead_run_on(session.session_id)
+                .is_none()
+        );
+    }
+
+    // The write a reset word is handed to.
+    #[derive(Clone, Copy, Debug)]
+    enum ResetWrite {
+        Start,
+        Resume,
+        Steer,
+    }
+
+    // Killed by checking after the write (a line is written), after `record_written` (the message
+    // is recorded as sent), after the start holds the session's turn (the turn stays held), by
+    // letting files change the verdict, and by answering a start with anything but the run's
+    // refusal or a continue or a steer with anything but `session.message.resetRefused`.
+    #[rstest]
+    #[case::start(ResetWrite::Start)]
+    #[case::resume(ResetWrite::Resume)]
+    #[case::steer(ResetWrite::Steer)]
+    #[tokio::test]
+    async fn a_reset_word_with_files_writes_and_records_nothing(#[case] write: ResetWrite) {
+        let session = ScriptedSession::new().await;
+        let file = session.attachments.slow_file(Duration::ZERO);
+        let words = "/clear now";
+        let message_id =
+            QueueItemId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an item id");
+        let writes_before = session.channel.writes().len();
+
+        let refused = match write {
+            ResetWrite::Start => {
+                let mut params = opening_params(&session, new_run_id(), Vec::new());
+                params.opening.item = RunOpeningItem::Message {
+                    content: FreeFormText::new(words.to_owned()).expect("the words fit"),
+                    attachments: vec![file],
+                    skills: Vec::new(),
+                };
+                start_message(&session, &params).await
+            }
+            ResetWrite::Resume => {
+                let run_id = session.hold_lead_turn("lead");
+                session
+                    .parts
+                    .run_controls
+                    .resume_run(ResumeRunParams {
+                        session_id: session.session_id,
+                        run_id,
+                        messages: vec![WaitingMessage {
+                            id: message_id,
+                            content: MessageContent::new(words.to_owned())
+                                .expect("the words are a message"),
+                            attachments: vec![file],
+                            skills: Vec::new(),
+                        }],
+                        is_continuation_owed: false,
+                    })
+                    .await
+            }
+            ResetWrite::Steer => {
+                let run_id = session.hold_lead_turn("lead");
+                session
+                    .interventions
+                    .apply_intervention(ApplyInterventionParams::Steer {
+                        target_run_id: run_id,
+                        expected_run_version: SafeInt::new(0).expect("zero is a run version"),
+                        client_idempotency_key: message_id,
+                        payload: SteerPayload {
+                            content: FreeFormText::new(words.to_owned()).expect("the words fit"),
+                            attachments: vec![file],
+                            skills: Vec::new(),
+                            expected_turn_id: None,
+                            is_priority: false,
+                        },
+                    })
+                    .await
+                    .map(drop)
+            }
+        };
+
+        match (write, refused) {
+            (ResetWrite::Start, Err(DriverError::RunRefused(refusal))) => {
+                assert_eq!(refusal.model.as_str(), "opus");
+                assert_eq!(refusal.sentence, CLAUDE_RESET_REFUSAL_SENTENCE);
+                assert!(
+                    session
+                        .start
+                        .routes
+                        .lead_run_on(session.session_id)
+                        .is_none()
+                );
+            }
+            (ResetWrite::Resume | ResetWrite::Steer, Err(DriverError::Refused(refusal))) => {
+                assert_eq!(refusal.code, RefusalCode::SessionMessageResetRefused);
+            }
+            (write, refused) => panic!("a reset word at {write:?} is refused, not {refused:?}"),
+        }
+        assert_eq!(session.channel.writes().len(), writes_before);
+        assert!(
+            lock(&session.start.prompts)
+                .newest_for(session.session_id)
                 .is_none()
         );
     }

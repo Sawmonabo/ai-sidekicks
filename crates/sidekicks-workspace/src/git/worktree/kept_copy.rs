@@ -53,7 +53,6 @@ use crate::git::worktree::reads::{
     LinkedTreeRecordError, RECORD_COMMONDIR_FILE_NAME, RECORD_GITDIR_FILE_NAME,
     common_folder_of_record, read_linked_tree_record,
 };
-use crate::git::worktree::service::remove_folder;
 
 /// The entry of a kept folder that holds the tree itself.
 pub(crate) const KEPT_TREE_ENTRY: &str = "worktree";
@@ -403,7 +402,7 @@ pub(crate) async fn delete_kept_copy(
         }
     };
     let folder_removed = async {
-        remove_folder(kept_folder)
+        sidekicks_platforms::remove_tree_awaited(kept_folder)
             .await
             .map_err(KeptCopyPartError::Folder)
     };

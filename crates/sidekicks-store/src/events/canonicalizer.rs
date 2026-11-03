@@ -1,12 +1,14 @@
 //! RFC 8785 canonical bytes (the JSON Canonicalization Scheme): the one place a value or an event
-//! envelope becomes the bytes a hash is taken over or a version stub keeps, and where an
-//! `occurredAt` takes the one form the log stores. The append path keeps no canonical bytes, so
-//! it never runs here.
+//! envelope becomes the bytes a hash is taken over or a version stub keeps, and the SHA-256 of a
+//! value's bytes, and where an `occurredAt` takes the one form the log stores. The append path
+//! keeps no canonical bytes, so it never runs here.
 
 use serde_json::Value;
+use sha2::{Digest as _, Sha256};
 use sidekicks_contracts::event::envelope::{
     EventEnvelope, EventOccurredAt, OccurredAtRefusal, parse_occurred_at,
 };
+use sidekicks_contracts::release_manifest::Sha256Hex;
 
 /// The deepest container nesting [`canonicalize_json`] serializes, `{}` being depth 1. The
 /// serializer recurses, so a deeper value is refused before it reaches the stack.
@@ -67,6 +69,14 @@ pub fn normalize_occurred_at(
 pub fn canonicalize_json(value: &Value) -> Result<CanonicalBytes, CanonicalizationRefusal> {
     refuse_over_deep(value)?;
     Ok(CanonicalBytes(serde_json_canonicalizer::to_vec(value)?))
+}
+
+/// The lower-case hex SHA-256 of `value`'s RFC 8785 bytes: key order does not change it, array
+/// order does. Refuses what [`canonicalize_json`] refuses.
+pub fn digest_canonical_json(value: &Value) -> Result<Sha256Hex, CanonicalizationRefusal> {
+    let bytes = canonicalize_json(value)?;
+    let digest = base16ct::lower::encode_string(&Sha256::digest(bytes.as_bytes()));
+    Ok(Sha256Hex::new(digest).expect("a SHA-256 in lower-case hex matches its pattern"))
 }
 
 /// `envelope`'s RFC 8785 bytes, with its `occurredAt` in the stored form. An absent `actor` and a
@@ -132,12 +142,12 @@ fn refuse_over_deep(value: &Value) -> Result<(), CanonicalizationRefusal> {
 mod tests {
     use rstest::rstest;
     use serde::Deserialize;
-    use serde_json::{Number, Value};
+    use serde_json::{Number, Value, json};
     use sidekicks_contracts::event::envelope::{EventEnvelope, OccurredAtRefusal};
 
     use super::{
         CanonicalizationRefusal, OccurredAtNormalizationRefusal, canonicalize_event,
-        canonicalize_json, normalize_occurred_at,
+        canonicalize_json, digest_canonical_json, normalize_occurred_at,
     };
 
     /// The canonical-bytes table: the RFC's published vectors and the pinned envelopes.
@@ -258,6 +268,20 @@ mod tests {
             );
             assert_eq!(refusal.is_some(), case.is_refused);
         }
+    }
+
+    // A digest is taken over the canonical bytes: an object's key order does not change it, and
+    // an array's order does. Killed by hashing the value's serde bytes, which keep key order, and
+    // by sorting arrays before hashing.
+    #[test]
+    fn a_digest_follows_array_order_and_not_key_order() {
+        let digest = |value: Value| digest_canonical_json(&value).expect("the value is canonical");
+
+        assert_eq!(
+            digest(json!({"b": 1, "a": 2})),
+            digest(json!({"a": 2, "b": 1}))
+        );
+        assert_ne!(digest(json!([1, 2])), digest(json!([2, 1])));
     }
 
     /// The refusal's variant, by name, so a case names the guard it expects to fire.

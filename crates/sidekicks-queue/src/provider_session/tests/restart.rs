@@ -10,11 +10,14 @@ use sidekicks_provider::driver::contract::params_and_results::SessionProcessStat
 
 use super::Opening;
 use crate::provider_session::errors::ProviderSessionError;
-use crate::provider_session::test_opening::record_first_provider_capabilities;
+use crate::provider_session::test_opening::{
+    read_provider_missing_notices, record_first_provider_capabilities,
+};
 
-// A restart reaches no driver whose provider cannot resume: it is refused with its code and no
-// process comes up. Killed by the capability check dropped: the driver that cannot resume is
-// resumed.
+// A restart reaches no driver whose provider cannot resume: it is refused with its code, no
+// process comes up, and the provider, installed, is not posted missing. Killed by the capability
+// check dropped: the driver that cannot resume is resumed, and by every refusal of the check
+// posting the `providerMissing` notice.
 #[tokio::test]
 async fn a_restart_the_provider_cannot_take_is_refused_before_its_driver() {
     let resumes = Arc::new(AtomicUsize::new(0));
@@ -42,6 +45,10 @@ async fn a_restart_the_provider_cannot_take_is_refused_before_its_driver() {
         "{restarted:?}"
     );
     assert_eq!(resumes.load(Ordering::SeqCst), 0, "no process comes up");
+    assert_eq!(
+        read_provider_missing_notices(&opening.database.reader()),
+        Vec::new()
+    );
 }
 
 // A process gone with no restart pending is forgotten, so the next admission resumes the session

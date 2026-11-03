@@ -12,6 +12,9 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::governance::McpServerConfigWriteConflictReason;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::driver::contract::error::DriverError;
+use sidekicks_store::credential_store::KeychainRefusal;
 
 use crate::binding::store::McpBindingKey;
 
@@ -32,7 +35,32 @@ pub enum McpConfigWriteConflict {
     ProjectFileChanged,
 }
 
-/// A refusal of an `mcp.*` call, converted into the reply's error by its code.
+/// Why no sign-in the daemon or a provider can run reaches a server, which the refusal's message
+/// names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum SignInUnsupportedReason {
+    /// The binding is a program the provider starts or a provider account's connector.
+    #[error("it is not reached at an address")]
+    NotReachedAtAddress,
+    /// The server publishes no protected-resource or authorization-server metadata.
+    #[error("it publishes no sign-in route")]
+    NoSignInRoute,
+    /// The authorization server's metadata names endpoints or a flow the daemon cannot use.
+    #[error("its authorization server's metadata names nothing the daemon's client can use")]
+    UnusableMetadata,
+    /// The authorization server's metadata does not list `S256` among its PKCE methods.
+    #[error("its authorization server does not say it takes S256 PKCE challenges")]
+    NoS256Challenge,
+    /// The client the server's owner issued names a callback the daemon cannot serve.
+    #[error("the callback its owner registered is not one the daemon can serve")]
+    OwnerCallbackUnserved,
+    /// The server does not admit the daemon's own client, and no provider's flow signs in to it.
+    #[error("no provider's own client can sign in to it")]
+    NoProviderFlow,
+}
+
+/// A refusal of an `mcp.*` call, converted into the reply's error by its code. Each arm boxes the
+/// binding it names, so every `Result` carrying the refusal stays small.
 #[derive(Debug, thiserror::Error)]
 pub enum McpRefusal {
     /// The binding store cannot be reached, so every MCP change fails closed, changing nothing.
@@ -55,7 +83,7 @@ pub enum McpRefusal {
     )]
     ServerConfigWriteConflict {
         /// The binding the write was for.
-        binding: McpServerBindingRef,
+        binding: Box<McpServerBindingRef>,
         /// How the write lost.
         conflict: McpConfigWriteConflict,
     },
@@ -63,29 +91,67 @@ pub enum McpRefusal {
     #[error("{} was not found", binding_words(.binding))]
     ServerNotFound {
         /// The binding asked for.
-        binding: McpServerBindingRef,
+        binding: Box<McpServerBindingRef>,
     },
     /// The server is off or not working in the session, so it cannot answer a read.
     #[error("{} is off or not working in this session", binding_words(.binding))]
     ServerNotRunning {
         /// The binding asked for.
-        binding: McpServerBindingRef,
+        binding: Box<McpServerBindingRef>,
     },
     /// The sign-in could not be started for a passing reason; it can be tried again.
     #[error("the sign-in to {} could not be started", binding_words(.binding))]
     ServerSignInFailed {
         /// The binding being signed in to.
-        binding: McpServerBindingRef,
+        binding: Box<McpServerBindingRef>,
         /// Why it could not be started.
         #[source]
         source: Box<dyn Error + Send + Sync>,
     },
     /// The server publishes no sign-in route, or one the daemon cannot read.
-    #[error("{} offers no sign-in the daemon can use", binding_words(.binding))]
+    #[error("{} offers no sign-in the daemon can use: {reason}", binding_words(.binding))]
     ServerSignInUnsupported {
         /// The binding being signed in to.
-        binding: McpServerBindingRef,
+        binding: Box<McpServerBindingRef>,
+        /// Why no sign-in reaches it.
+        reason: SignInUnsupportedReason,
     },
+    /// The keychain refused to delete the sign-in, so the server stays signed in.
+    #[error("the sign-out of {} did not finish: {source}", binding_words(.binding))]
+    ServerSignOutFailed {
+        /// The binding being signed out of.
+        binding: Box<McpServerBindingRef>,
+        /// The keychain's refusal, whose cause goes on the wire.
+        #[source]
+        source: Box<KeychainRefusal>,
+    },
+}
+
+const _: () = assert!(size_of::<McpRefusal>() <= 64);
+
+/// Why an `mcp.server.signIn` launch opened no browser: an `mcp.*` refusal, or a provider's own
+/// flow that failed before the browser opened for a cause its driver names, answered as the
+/// driver's error is.
+#[derive(Debug, thiserror::Error)]
+pub enum SignInLaunchError {
+    /// An `mcp.*` refusal.
+    #[error(transparent)]
+    Refused(#[from] McpRefusal),
+    /// The provider's driver failed before the browser opened: a provider not installed, its
+    /// process failing or too slow, or a fault of the daemon's own.
+    #[error("a provider's own MCP sign-in failed before the browser opened")]
+    Provider(#[source] DriverError),
+}
+
+impl From<SignInLaunchError> for HandlerError {
+    /// An `mcp.*` refusal answers by its code, and a provider's failure as the driver's error
+    /// answers.
+    fn from(error: SignInLaunchError) -> Self {
+        match error {
+            SignInLaunchError::Refused(refusal) => Self::Refused(refusal.into()),
+            SignInLaunchError::Provider(driver_error) => Self::from(driver_error),
+        }
+    }
 }
 
 impl From<McpRefusal> for DomainError {
@@ -118,11 +184,25 @@ impl From<McpRefusal> for DomainError {
                 Some(binding_fields(&binding)),
                 Some(source),
             ),
-            McpRefusal::ServerSignInUnsupported { binding } => (
+            McpRefusal::ServerSignInUnsupported { binding, .. } => (
                 RefusalCode::McpServerSignInUnsupported,
                 Some(binding_fields(&binding)),
                 None,
             ),
+            McpRefusal::ServerSignOutFailed { binding, source } => {
+                return Self {
+                    message,
+                    ..Self::keychain_refused(
+                        *source,
+                        RefusalCode::McpServerSignOutFailed,
+                        |cause| {
+                            let mut fields = binding_fields(&binding);
+                            fields.extend(refusal_fields(json!({ "cause": cause })));
+                            fields
+                        },
+                    )
+                };
+            }
         };
         DomainError {
             message,

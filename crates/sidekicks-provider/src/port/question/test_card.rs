@@ -1,7 +1,7 @@
 //! A questions card for tests: it takes one open question per run at a time, as a run waiting on
 //! one does, keeps the rest waiting for their run until it reads running again, and can hold back
-//! its record writes, its takes' outcomes and its withdrawals, or fail the run's read that opens a
-//! question waiting for its run.
+//! its record writes, its takes' outcomes and its withdrawals, or fail its record writes, its
+//! settles of a kept answer or the run's read that opens a question waiting for its run.
 
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,8 +16,8 @@ use tokio::sync::{Notify, Semaphore};
 use tokio::time::{Duration, timeout};
 
 use crate::port::question::{
-    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, ToolServerQuestionAnswer,
-    WaitingQuestionOpening,
+    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, ToolServerAnswerDelivery,
+    ToolServerQuestionAnswer, WaitingQuestionOpening,
 };
 
 /// One question on the card with its answerer, a tool server's, or none for a driver's.
@@ -25,15 +25,17 @@ type CardQuestion = (ProviderQuestion, Option<Arc<dyn ToolServerQuestionAnswer>>
 
 /// A questions card that holds one open question per run, as a run waiting on one refuses a
 /// second, its run reading running again once none is open: each question opened, those still
-/// open with their answerers until answered or withdrawn, and those waiting for their run. A
-/// withdrawal of a question it does not hold leaves the card as it is.
+/// open with their answerers until answered, settled once their kept answer is taken, or
+/// withdrawn, and those waiting for their run. A withdrawal of a question it does not hold leaves
+/// the card as it is.
 #[derive(Default)]
 pub struct QuestionCard {
     taken: Mutex<Vec<ProviderQuestion>>,
     open: Mutex<Vec<CardQuestion>>,
     waiting: Mutex<Vec<CardQuestion>>,
     asked: Notify,
-    /// Notified whenever an open question is answered or withdrawn, as its run reads running.
+    /// Notified whenever an open question is answered, settled or withdrawn, as its run reads
+    /// running.
     closed: Notify,
     take_gate: Mutex<Option<Arc<Notify>>>,
     withdraw_gate: Mutex<Option<Arc<Notify>>>,
@@ -45,6 +47,8 @@ pub struct QuestionCard {
     is_waiting_open_failing: AtomicBool,
     /// Set by [`Self::fail_records`].
     is_record_failing: AtomicBool,
+    /// Set by [`Self::fail_settles`].
+    is_settle_failing: AtomicBool,
     /// The request id of every withdrawal taken, in order.
     withdrawals: Mutex<Vec<String>>,
 }
@@ -200,6 +204,12 @@ impl QuestionCard {
         self.is_record_failing.store(true, Ordering::SeqCst);
     }
 
+    /// Fails each later settle of a kept answer, the question left open, as a write the store
+    /// refused.
+    pub fn fail_settles(&self) {
+        self.is_settle_failing.store(true, Ordering::SeqCst);
+    }
+
     /// Waits until `count` record writes wait at the gate of [`Self::hold_records`]; fails the
     /// test past 60 s.
     #[cfg(test)]
@@ -223,8 +233,7 @@ impl QuestionCard {
     }
 
     /// The request id of every withdrawal the card took, in order.
-    #[cfg(test)]
-    pub(crate) fn withdrawals(&self) -> Vec<String> {
+    pub fn withdrawals(&self) -> Vec<String> {
         self.withdrawals.lock().expect("never poisoned").clone()
     }
 
@@ -236,9 +245,23 @@ impl QuestionCard {
         gate
     }
 
-    /// Waits for an open question, answers the oldest with `answers` through its answerer and
-    /// closes it.
+    /// Waits for an open question and answers the oldest with `answers` through its answerer: a
+    /// delivered answer closes it, and a kept one leaves it open at the front of the card, as the
+    /// questions service keeps a kept answer's question open until its settle. Fails the test
+    /// when the answerer fails.
     pub async fn answer_open(&self, answers: Vec<QuestionAnswer>) -> ProviderQuestion {
+        self.try_answer_open(answers)
+            .await
+            .expect("the answer is sent")
+    }
+
+    /// Answers the oldest open question as [`Self::answer_open`] does, once one is open; when its
+    /// answerer fails, the question is put back open at the front of the card, as the questions
+    /// service leaves a question open whose answer was not sent, and the answerer's error returned.
+    pub async fn try_answer_open(
+        &self,
+        answers: Vec<QuestionAnswer>,
+    ) -> Result<ProviderQuestion, Box<dyn Error + Send + Sync>> {
         loop {
             let asked = self.asked.notified();
             let open = {
@@ -246,16 +269,31 @@ impl QuestionCard {
                 (!open.is_empty()).then(|| open.remove(0))
             };
             if let Some((question, answer)) = open {
-                answer
-                    .expect("a question answered on the card has a tool server's answerer")
-                    .answer(answers)
-                    .await
-                    .expect("the answer is sent");
-                self.closed.notify_waiters();
-                return question;
+                let answer =
+                    answer.expect("a question answered on the card has a tool server's answerer");
+                let delivery = answer.answer(answers).await;
+                match delivery {
+                    Ok(ToolServerAnswerDelivery::Delivered) => self.closed.notify_waiters(),
+                    Ok(ToolServerAnswerDelivery::Kept) | Err(_) => self
+                        .open
+                        .lock()
+                        .expect("never poisoned")
+                        .insert(0, (question.clone(), Some(answer))),
+                }
+                return delivery.map(|_| question);
             }
             asked.await;
         }
+    }
+
+    /// The questions open on the card, oldest first.
+    pub fn open_questions(&self) -> Vec<ProviderQuestion> {
+        self.open
+            .lock()
+            .expect("never poisoned")
+            .iter()
+            .map(|(question, _)| question.clone())
+            .collect()
     }
 }
 
@@ -397,5 +435,21 @@ impl QuestionPort for QuestionCard {
             Ok(())
         }
         .boxed()
+    }
+
+    fn settle_kept_answer(
+        &self,
+        _session_id: SessionId,
+        request_id: String,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        if self.is_settle_failing.load(Ordering::SeqCst) {
+            return async { Err("the settle's write failed".into()) }.boxed();
+        }
+        self.open
+            .lock()
+            .expect("never poisoned")
+            .retain(|(held, _)| held.request_id != request_id);
+        self.closed.notify_waiters();
+        async { Ok(()) }.boxed()
     }
 }

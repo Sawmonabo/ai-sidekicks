@@ -21,10 +21,13 @@
 pub(crate) mod errors;
 pub(super) mod reached_state;
 mod request;
+mod restart_hand;
 mod saved;
 mod send_now;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_fixture;
 #[cfg(test)]
-pub(super) mod tests;
+pub(crate) mod tests;
 
 use std::sync::Arc;
 
@@ -71,7 +74,9 @@ use self::request::{
 };
 use self::saved::{idempotency_conflict, with_failed_read};
 use crate::driver_resolution::read_run_driver;
-use crate::interventions::interrupt_queue::{InterruptCause, InterruptEnd, InterruptQueue};
+use crate::interventions::interrupt_queue::{
+    InterruptCause, InterruptChoice, InterruptEnd, InterruptQueue,
+};
 use crate::interventions::store::{
     InterventionTransition, RequestedIntervention, UnresolvedInterventionState,
     insert_requested_intervention_statement, move_intervention_statement, run_at_version_statement,
@@ -88,7 +93,8 @@ use crate::run::transitions::states_that_may_enter;
 /// The statements the service's reads prepare on its pooled connection that no other reading
 /// service's set holds: an intervention's row by its id and under a reused key, and a send-now
 /// request by its run and key. Its other reads (the run's row and its provider, in the run pause's
-/// set; a queue item by its id, in the run queue's) are counted there.
+/// set; a queue item by its id, in the run queue's; a run's pending interrupts, in the run
+/// engine's) are counted there.
 pub const INTERVENTION_SERVICE_STATEMENT_CAPACITY: usize = 3;
 
 // The insert of a request is the first statement of its write.
@@ -105,7 +111,7 @@ pub struct InterventionServiceDeps {
     pub pool: Arc<DatabaseReadPool>,
     /// The event log every intervention event is appended to.
     pub event_log: Arc<EventLogService>,
-    /// The run engine, which routes an interrupt and forgets a limit's late hand.
+    /// The run engine, which routes an interrupt and forgets a limit's hand no stop awaits.
     pub engine: Arc<RunEngine>,
     /// The registered drivers, which carry out a dispatch.
     pub providers: Arc<ProviderRegistry>,
@@ -332,20 +338,32 @@ impl InterventionService {
             .hold_for_interrupt(run_id, target.intervention_id, choice)
             .await
             .map_err(InterventionError::Queue)?;
+        let applied = self.record_and_apply(&target, &request, payload).await;
+        self.release_unless_settled(&target, choice, applied).await
+    }
+
+    // Answers `applied`, first letting go the run queue's hold the interrupt took with `choice`
+    // unless a settle lets it go; both are tried, their failures kept together.
+    async fn release_unless_settled(
+        &self,
+        target: &InterventionTarget,
+        choice: InterruptChoice,
+        applied: Applied,
+    ) -> Result<AgentRunInterveneResponse, InterventionError> {
         let Applied {
-            answer: applied,
+            answer,
             hold_release,
-        } = self.record_and_apply(&target, &request, payload).await;
+        } = applied;
         if hold_release == HoldRelease::BySettle {
-            return applied;
+            return answer;
         }
         let released = self
             .queue
-            .release_interrupt(run_id, target.intervention_id, choice)
+            .release_interrupt(target.target_run_id, target.intervention_id, choice)
             .await
             .map_err(InterventionError::Queue);
         match settle_all(
-            (applied, released),
+            (answer, released),
             "applying an interrupt and releasing its hold",
         ) {
             Ok((answer, ())) => Ok(answer),
@@ -421,10 +439,19 @@ impl InterventionService {
         target: &InterventionTarget,
         request: &AgentRunInterveneRequest,
     ) -> Applied {
-        let dispatched = match self.accept_and_dispatch(target, request).await {
-            Ok(dispatched) => dispatched,
-            Err(error) => return Applied::failed(error),
-        };
+        match self.accept_and_dispatch(target, request).await {
+            Ok(dispatched) => self.settle_dispatched(target, request, dispatched).await,
+            Err(error) => Applied::failed(error),
+        }
+    }
+
+    // Records what the dispatch of the accepted request came to as its row's outcome.
+    async fn settle_dispatched(
+        &self,
+        target: &InterventionTarget,
+        request: &AgentRunInterveneRequest,
+        dispatched: Dispatched,
+    ) -> Applied {
         let row_move = match dispatched {
             // The provider may still carry it out, so the row and the hold stay for the run's end
             // or a turn's end, the run's end settling it here when it read the row too early.
@@ -521,7 +548,17 @@ impl InterventionService {
                 _ => Err(error.into()),
             };
         }
-        Ok(match self.dispatch(target.session_id, request).await {
+        Ok(self.dispatch_once(target, request).await)
+    }
+
+    // Dispatches the accepted request once, telling an answer from a throw and from a dispatch
+    // the provider got with no answer back.
+    async fn dispatch_once(
+        &self,
+        target: &InterventionTarget,
+        request: &AgentRunInterveneRequest,
+    ) -> Dispatched {
+        match self.dispatch(target.session_id, request).await {
             Ok(outcome) => Dispatched::Answered(outcome),
             Err(DispatchError::Driver(DriverError::Unanswered(unanswered))) => {
                 tracing::info!(
@@ -532,7 +569,7 @@ impl InterventionService {
                 Dispatched::Unanswered
             }
             Err(dispatch) => Dispatched::Threw(dispatch),
-        })
+        }
     }
 
     // Sends a person's request to whatever carries it out, exactly once.

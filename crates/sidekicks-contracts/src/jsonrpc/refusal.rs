@@ -368,6 +368,9 @@ refusal_codes! {
     /// handed off and the next `fresh` runs the unfinished steps again (`data.fields`:
     /// `PlanHandOffUnfinishedDetails`).
     PlanHandOffUnfinished = "plan.handOffUnfinished" (FailedPrecondition, 409);
+    /// The keychain refused to delete the server's sign-in, so it stays held and in use
+    /// (`data.fields`: `provider`, `scope`, `serverName`, and the keychain's `cause`).
+    McpServerSignOutFailed = "mcp.server.signOutFailed" (Unavailable, 503);
     /// `plan.resolve` named a plan the daemon does not hold.
     PlanNotFound = "plan.notFound" (NotFound, 404);
     /// An address Preview will not open.
@@ -403,6 +406,12 @@ refusal_codes! {
     /// from the account; `data.fields` carries the reset time when the provider gives one.
     ProviderAccountAllowanceExhausted = "provider.account.allowanceExhausted"
         (ResourceExhausted, 429);
+    /// The place the daemon keeps its secrets would not destroy a removed account's token, so the
+    /// removal stopped with the account marked; it no longer reads as registered, and the next
+    /// start destroys the token and finishes the removal. `data.fields.cause` is `locked` or
+    /// `unavailable`.
+    ProviderAccountCredentialDestroyRefused = "provider.account.credentialDestroyRefused"
+        (Unavailable, 503);
     /// The account's credential home is missing, unreadable, or structurally unusable.
     ProviderAccountCredentialHomeUnavailable = "provider.account.credentialHome.unavailable"
         (Unavailable, 503);
@@ -422,8 +431,13 @@ refusal_codes! {
     /// provider's other account names, trimmed and compared by full Unicode case folding
     /// (`foldName`).
     ProviderAccountDisplayLabelTaken = "provider.account.displayLabelTaken" (AlreadyExists, 409);
-    /// `provider.account.delete` refused because a run bound to the account is live.
+    /// `provider.account.delete` refused because a run bound to the account is live or a workflow
+    /// step waits on it.
     ProviderAccountInUse = "provider.account.inUse" (FailedPrecondition, 409);
+    /// `provider.account.memory.import` refused because the account's one memory import has
+    /// already run; its outcome stays on the account and nothing is copied again.
+    ProviderAccountMemoryAlreadyImported = "provider.account.memory.alreadyImported"
+        (FailedPrecondition, 409);
     /// The account's sign-in is gone or the provider refused it: `provider.account.current.update`
     /// named a known-dead target (its stored reading is `reauthRequired`, or its last limits read
     /// showed its provider sign-in gone), or a provider call such as a voice call needed a sign-in.
@@ -440,7 +454,8 @@ refusal_codes! {
     /// only an account added from a pasted token or API key is named by the person, and every other
     /// account is named by the identity its provider reports.
     ProviderAccountRenameRefused = "provider.account.renameRefused" (FailedPrecondition, 409);
-    /// A brokered sign-in is already in flight for this account.
+    /// A brokered sign-in, an account switch or a credential-home reset is already in flight for
+    /// this account, so another of the three is refused until it ends.
     ProviderAccountSignInInFlight = "provider.account.signInInFlight" (FailedPrecondition, 409);
     /// Brokered sign-in was requested for a provider whose pinned flow emits neither an
     /// authorization URL nor a device code, so there is nothing the person could act on.
@@ -481,6 +496,13 @@ refusal_codes! {
     /// listed or unavailable, a none the row does not offer, text past its length, or a place on a
     /// row that is not set per place.
     ProviderRowValueInvalid = "provider.row.valueInvalid" (InvalidArgument, 422);
+    /// `provider.standingRule.revoke` named a rule that taking out would leave its file one the
+    /// provider refuses, or one that still makes the rule, so the file is left as it was.
+    ProviderStandingRuleRevokeRefused =
+        "provider.standingRule.revokeRefused" (FailedPrecondition, 409);
+    /// `provider.standingRule.revoke` named a rule kept in a file the daemon never edits, the
+    /// administrator's managed or system settings, so it still applies.
+    ProviderStandingRuleUneditable = "provider.standingRule.uneditable" (FailedPrecondition, 409);
     /// Provider driver operation timed out.
     ProviderTimeout = "provider.timeout" (DeadlineExceeded, 504);
     /// Provider driver is currently unavailable.
@@ -592,6 +614,9 @@ refusal_codes! {
     /// `session.link.remove` named a link the daemon wrote from an event (`started`, `copiedFrom`,
     /// `messaged`, `asked`, `mentioned`), which records what happened.
     SessionLinkNotRemovable = "session.link.notRemovable" (FailedPrecondition, 409);
+    /// A message, a steer or a queued message whose first token is `/clear`, `/reset` or `/new`,
+    /// refused before any of it reaches the provider, since a session is never reset in place.
+    SessionMessageResetRefused = "session.message.resetRefused" (InvalidArgument, 422);
     /// The session's provider refused a message, a steer or a queued message as longer than its
     /// own limit, so none of it reached the conversation (`data.fields`:
     /// `SessionMessageTooLargeDetails`).

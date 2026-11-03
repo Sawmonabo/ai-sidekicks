@@ -4,7 +4,6 @@
 //! shared driver diagnostics already name are logged through them, with their counters.
 
 use std::error::Error;
-use std::path::PathBuf;
 
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -49,6 +48,18 @@ pub(crate) enum CodexTeardownStep {
     BackgroundTerminalClean,
     /// Stopping the service.
     ServiceStop,
+}
+
+/// Why a goal notification drew no goal row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "camelCase")]
+pub(crate) enum CodexGoalDropReason {
+    /// It is about a conversation other than the session's own, a helper's.
+    OtherThread,
+    /// Its goal names no objective a session goal can hold.
+    NoObjective,
+    /// Its goal's status is none of the words the protocol names.
+    UnknownStatus,
 }
 
 /// A port the daemon wired that the driver hands deliveries to.
@@ -183,23 +194,26 @@ pub(crate) enum CodexTransportDiagnostic {
     },
     /// The connection to a service closed while its process still ran, or on the person's own.
     ServiceConnectionDropped {
-        /// The service's Codex home.
-        codex_home: PathBuf,
+        /// The account the service runs on; `None` for the person's own folder's, the capability
+        /// read's, and the switching service's while it carries no account.
+        provider_account_id: Option<ProviderAccountId>,
         /// How the connection closed, in words.
         reason: String,
     },
     /// A restart or reconnect of a service failed.
     ServiceStartFailed {
-        /// The service's Codex home.
-        codex_home: PathBuf,
+        /// The account the service runs on; `None` for the person's own folder's, the capability
+        /// read's, and the switching service's while it carries no account.
+        provider_account_id: Option<ProviderAccountId>,
         /// The start's failure.
         error: DiagnosticCause,
     },
     /// The home's link could not be pointed back at the restarted service that holds it, so a
     /// plain `codex` does not reach it.
     HomeLinkRestoreFailed {
-        /// The service's Codex home.
-        codex_home: PathBuf,
+        /// The account the service runs on; `None` for the person's own folder's, the capability
+        /// read's, and the switching service's while it carries no account.
+        provider_account_id: Option<ProviderAccountId>,
         /// The move's failure.
         error: DiagnosticCause,
     },
@@ -219,8 +233,9 @@ pub(crate) enum CodexTransportDiagnostic {
     },
     /// The connection to a service that kept running came back, and its conversations resumed.
     ServiceReconnected {
-        /// The service's Codex home.
-        codex_home: PathBuf,
+        /// The account the service runs on; `None` for the person's own folder's, the capability
+        /// read's, and the switching service's while it carries no account.
+        provider_account_id: Option<ProviderAccountId>,
         /// Each conversation resumed.
         conversations: Vec<String>,
     },
@@ -334,6 +349,17 @@ pub(crate) enum CodexTransportDiagnostic {
         method: String,
         /// The session it came on.
         session_id: SessionId,
+    },
+    /// A goal notification that drew no goal row, by why.
+    GoalNotificationDropped {
+        /// The frame's method.
+        method: String,
+        /// The session it came on.
+        session_id: SessionId,
+        /// The conversation it named, or `None` when it named none.
+        thread_id: Option<String>,
+        /// Why it drew no row.
+        reason: CodexGoalDropReason,
     },
     /// A frame whose run no live route, interrupt or starting turn names, so nothing is written.
     UnattributedTurnFrame {
@@ -453,18 +479,27 @@ impl CodexTransportDiagnostic {
                 error = &**error as &(dyn Error + 'static),
                 "a notification to the Codex service could not be sent"
             ),
-            Self::ServiceConnectionDropped { codex_home, reason } => tracing::warn!(
-                codex_home = %codex_home.display(),
+            Self::ServiceConnectionDropped {
+                provider_account_id,
+                reason,
+            } => tracing::warn!(
+                provider_account_id = provider_account_id.as_ref().map(ProviderAccountId::as_str),
                 reason = reason.as_str(),
                 "the connection to a Codex service closed"
             ),
-            Self::ServiceStartFailed { codex_home, error } => tracing::warn!(
-                codex_home = %codex_home.display(),
+            Self::ServiceStartFailed {
+                provider_account_id,
+                error,
+            } => tracing::warn!(
+                provider_account_id = provider_account_id.as_ref().map(ProviderAccountId::as_str),
                 error = &**error as &(dyn Error + 'static),
                 "a Codex service could not be started or reached again"
             ),
-            Self::HomeLinkRestoreFailed { codex_home, error } => tracing::warn!(
-                codex_home = %codex_home.display(),
+            Self::HomeLinkRestoreFailed {
+                provider_account_id,
+                error,
+            } => tracing::warn!(
+                provider_account_id = provider_account_id.as_ref().map(ProviderAccountId::as_str),
                 error = &**error as &(dyn Error + 'static),
                 "the Codex folder's socket link could not be pointed back at its service"
             ),
@@ -479,10 +514,10 @@ impl CodexTransportDiagnostic {
                 "a Codex conversation could not be resumed"
             ),
             Self::ServiceReconnected {
-                codex_home,
+                provider_account_id,
                 conversations,
             } => tracing::info!(
-                codex_home = %codex_home.display(),
+                provider_account_id = provider_account_id.as_ref().map(ProviderAccountId::as_str),
                 conversations = ?conversations,
                 "the connection to a Codex service came back and its conversations resumed"
             ),
@@ -591,6 +626,18 @@ impl CodexTransportDiagnostic {
                 method = method.as_str(),
                 session_id = %session_id,
                 "a Codex notice the service log keeps"
+            ),
+            Self::GoalNotificationDropped {
+                method,
+                session_id,
+                thread_id,
+                reason,
+            } => tracing::warn!(
+                method = method.as_str(),
+                session_id = %session_id,
+                thread_id = thread_id.as_deref(),
+                reason = <&str>::from(*reason),
+                "a Codex goal notification drew no goal row"
             ),
             Self::UnattributedTurnFrame { method, turn_id } => tracing::warn!(
                 method = method.as_str(),

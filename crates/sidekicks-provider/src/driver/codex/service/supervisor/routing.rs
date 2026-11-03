@@ -9,9 +9,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde::Deserialize;
+use serde::de::IgnoredAny;
 use serde_json::Value;
 use serde_json::value::RawValue;
+use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::oneshot;
 
 use crate::driver::codex::event_normalizer::{
@@ -20,13 +23,11 @@ use crate::driver::codex::event_normalizer::{
 };
 use crate::driver::codex::service::config_warnings::CodexConfigWarnings;
 use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::service::supervisor::rate_limit_readings::CodexRateLimitReadings;
 use crate::driver::codex::service::threads::{CodexHeldThreadFrame, CodexThreadFrameHold};
 use crate::driver::codex::session::inbound::{CodexSessionInbound, CodexSessionInboundSender};
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::driver::codex::usage_limit_signal::{
-    CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD, CodexRateLimitObservation,
-    observe_codex_rate_limit_update,
-};
+use crate::driver::codex::usage_limit_signal::CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD;
 use crate::driver::diagnostics::OnceReportedDiagnostics;
 use crate::thread_frame_router::ChildThreadAnnouncement;
 
@@ -51,9 +52,8 @@ pub(super) struct CodexServiceRouting {
     closed_waiters: HashMap<String, Vec<oneshot::Sender<()>>>,
     /// The config warnings the service sent, and who was told each.
     pub(super) config_warnings: CodexConfigWarnings,
-    /// The account's rate-limit readings; the account outlives a connection, so a reconnect keeps
-    /// them.
-    pub(super) rate_limits: CodexRateLimitObservation,
+    /// The account's rate-limit readings.
+    pub(super) rate_limits: CodexRateLimitReadings,
     /// The out-of-table methods already reported on the current connection.
     reports: OnceReportedDiagnostics,
 }
@@ -130,7 +130,56 @@ struct FrameConversation {
 struct StartedThread {
     id: Option<Box<RawValue>>,
     parent_thread_id: Option<Box<RawValue>>,
-    thread_source_kind: Option<Box<RawValue>>,
+    source: Option<Box<RawValue>>,
+    agent_nickname: Option<Box<RawValue>>,
+    agent_role: Option<Box<RawValue>>,
+}
+
+// A thread's `source` as far as helpers go: its `subAgent` arm, where it has one.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ThreadSource {
+    sub_agent: Option<SubAgentSource>,
+}
+
+// The arms of `source.subAgent` this release names; an arm a newer Codex adds reads as no source.
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum SubAgentSource {
+    Review,
+    Compact,
+    ThreadSpawn { agent_path: Option<Value> },
+    MemoryConsolidation,
+    Other(IgnoredAny),
+}
+
+// A helper thread's source: the path in Codex's tree of helpers, which only a spawned one has.
+struct HelperSource {
+    agent_path: Option<String>,
+}
+
+// The helper a thread's `source` makes it, whose spend is its own: a review, a spawned helper,
+// with its path, or another Codex names. A compaction or a memory consolidation is Codex's
+// housekeeping for the parent, whose spend stays the parent run's, as is an arm a newer Codex adds
+// or a thread with no source.
+fn read_helper_source(source: Option<&RawValue>) -> Option<HelperSource> {
+    let sub_agent = crate::driver::codex::transport::connection::read_codex_object::<ThreadSource>(
+        source?.get(),
+    )?
+    .sub_agent?;
+    match sub_agent {
+        SubAgentSource::Review | SubAgentSource::Other(_) => {
+            Some(HelperSource { agent_path: None })
+        }
+        SubAgentSource::ThreadSpawn { agent_path } => Some(HelperSource {
+            agent_path: agent_path
+                .as_ref()
+                .and_then(Value::as_str)
+                .filter(|path| !path.is_empty())
+                .map(str::to_owned),
+        }),
+        SubAgentSource::Compact | SubAgentSource::MemoryConsolidation => None,
+    }
 }
 
 // A raw member read as non-empty text.
@@ -168,12 +217,44 @@ pub(crate) fn read_codex_child_thread_announcement(
     let thread = read_frame_conversation(params)?.thread?;
     let thread_id = read_text(thread.id.as_deref())?;
     let parent_thread_id = read_text(thread.parent_thread_id.as_deref())?;
-    let source_kind = read_text(thread.thread_source_kind.as_deref()).unwrap_or_default();
+    let is_subagent = read_helper_source(thread.source.as_deref()).is_some();
     Some(derive_codex_child_thread_announcement(
         thread_id,
         Some(parent_thread_id),
-        &source_kind,
+        is_subagent,
     ))
+}
+
+/// The names Codex gives a helper on its `thread/started`, each `None` where Codex gives none or
+/// one the contract refuses.
+pub(crate) struct CodexHelperNames {
+    /// Its nickname, `agentNickname`.
+    pub(crate) name: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// The role it was started in, `agentRole`.
+    pub(crate) role: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// Its path in Codex's tree of helpers, a spawned helper's `agent_path`.
+    pub(crate) provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+}
+
+/// The names a `thread/started`'s params give the helper it announces: its nickname, its role
+/// and, for a spawned helper, its path. A blank value, one holding NUL or one over the cap reads as
+/// none.
+pub(crate) fn read_codex_helper_names(params: &RawValue) -> CodexHelperNames {
+    let thread = read_frame_conversation(params).and_then(|conversation| conversation.thread);
+    let thread = thread.as_ref();
+    let provider_path = thread
+        .and_then(|thread| read_helper_source(thread.source.as_deref()))
+        .and_then(|source| source.agent_path);
+    CodexHelperNames {
+        name: read_handle(thread.and_then(|thread| read_text(thread.agent_nickname.as_deref()))),
+        role: read_handle(thread.and_then(|thread| read_text(thread.agent_role.as_deref()))),
+        provider_path: read_handle(provider_path),
+    }
+}
+
+// A name as the contract holds it; one it refuses reads as none, never cut.
+fn read_handle(text: Option<String>) -> Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>> {
+    text.and_then(|text| FreeFormText::new(text).ok())
 }
 
 /// Whether a frame belongs to one session or every session on the service.
@@ -194,13 +275,11 @@ impl CodexService {
         let thread_id = read_codex_frame_thread_id(method, &params);
         let (audience, has_rate_limits_changed) = {
             let mut routing = self.lock_routing();
-            let rate_limits_before = (method == CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD)
-                .then(|| routing.rate_limits.clone());
             // Only reported here, once per connection, when the method is outside the table; the
             // session's frame handler reads the route itself.
             let _route = resolve_codex_frame_emission_route(
                 method,
-                self.home().provider_account_id().cloned(),
+                self.provider_account_id(),
                 &mut routing.reports,
             );
             if method == CODEX_THREAD_CLOSED_METHOD
@@ -208,13 +287,10 @@ impl CodexService {
             {
                 routing.settle_closed(Some(thread_id));
             }
-            let audience = match &thread_id {
+            match &thread_id {
                 None => self.route_unthreaded(&mut routing, method, &params),
-                Some(_) => FrameAudience::Nobody,
-            };
-            let has_rate_limits_changed =
-                rate_limits_before.is_some_and(|before| before != routing.rate_limits);
-            (audience, has_rate_limits_changed)
+                Some(_) => (FrameAudience::Nobody, false),
+            }
         };
         if has_rate_limits_changed {
             self.dependencies.events.rate_limits_observed(self);
@@ -266,32 +342,34 @@ impl CodexService {
     }
 
     // A frame naming no conversation: a config warning to the sessions not told it yet, a rate
-    // limit read into the account's readings, and every frame to every session on the service.
+    // limit read into the account's readings, and every frame to every session on the service;
+    // answers whether the readings changed.
     fn route_unthreaded(
         &self,
         routing: &mut CodexServiceRouting,
         method: &str,
         params: &RawValue,
-    ) -> FrameAudience {
+    ) -> (FrameAudience, bool) {
         let sessions = self.lock_threads().sessions();
         if method == CODEX_CONFIG_WARNING_METHOD {
             // Only the sessions not told it already, so a reconnect repeats nothing.
-            return FrameAudience::Sessions(
-                routing
-                    .config_warnings
-                    .record_warning(params.to_owned(), &sessions),
+            return (
+                FrameAudience::Sessions(
+                    routing
+                        .config_warnings
+                        .record_warning(params.to_owned(), &sessions),
+                ),
+                false,
             );
         }
+        let mut has_rate_limits_changed = false;
         if method == CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD {
             match serde_json::from_str::<Value>(params.get()) {
-                Ok(update) => {
-                    routing.rate_limits =
-                        observe_codex_rate_limit_update(routing.rate_limits.clone(), &update);
-                }
-                Err(_unreadable) => return FrameAudience::Nobody,
+                Ok(update) => has_rate_limits_changed = routing.rate_limits.merge_update(&update),
+                Err(_unreadable) => return (FrameAudience::Nobody, false),
             }
         }
-        FrameAudience::Sessions(sessions)
+        (FrameAudience::Sessions(sessions), has_rate_limits_changed)
     }
 
     // A helper's conversation belongs to the session its parent's does.

@@ -140,6 +140,7 @@ impl CheckFixture {
                 ApprovalRequestOrigin {
                     ask_id: (!is_daemon_kept).then(|| from_json(json!(mint_uuid_v7()))),
                     tool_call_id: None,
+                    input_digest: None,
                 },
             )
             .await

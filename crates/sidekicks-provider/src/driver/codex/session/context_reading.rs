@@ -23,6 +23,7 @@ use crate::driver::codex::model_windows::{
     CODEX_DEFAULT_COMPACTION_PERCENT, CODEX_DEFAULT_USABLE_PERCENT, CodexModelWindows,
 };
 use crate::driver::codex::notification_routing::CodexContextWindowReading;
+use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::context_window::{BOTTOM_STOP_HEADROOM_PERCENT, share_percent};
 use crate::port::context_reading_publisher::ContextReadingPublisher;
@@ -185,9 +186,11 @@ impl CodexSessionContextReadings {
         let runtime_bindings = Arc::clone(&parts.runtime_bindings);
         let binding_id = binding_id.clone();
         let session_id = self.session_id;
+        // The write replaces the recovery data whole, so it keeps the conversation's home too.
+        let mut runtime_metadata =
+            Map::from_iter([(FIXED_START_TOKENS_KEY.to_owned(), Value::from(tokens))]);
+        CodexConversationHome::of_service(record.service.home()).keep_in(&mut runtime_metadata);
         parts.tasks.spawn(async move {
-            let runtime_metadata =
-                Map::from_iter([(FIXED_START_TOKENS_KEY.to_owned(), Value::from(tokens))]);
             if let Err(error) = runtime_bindings
                 .keep_recovery_data(binding_id.clone(), runtime_metadata)
                 .await
@@ -321,6 +324,7 @@ fn compose_report_reading(
         used_tokens: SafeInt::new(window_used_tokens)?,
         used_percent: Percent::new(share_percent(window_used_tokens, window_max_tokens))?,
         breakdown: SessionContextBreakdown::Totals {
+            categories: None,
             cached_input_tokens: count(breakdown.cached_input)?,
             input_tokens: count(breakdown.input)?,
             output_tokens: count(breakdown.output)?,

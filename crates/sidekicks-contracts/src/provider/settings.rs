@@ -9,6 +9,7 @@ use std::borrow::Cow;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
+use strum::{EnumDiscriminants, IntoStaticStr, VariantArray};
 
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::refusal::RefusalCode;
@@ -62,12 +63,18 @@ type WholePercent = BoundedInt<0, 100>;
 /// What the provider check found where the command resolves. `indeterminate` is a check that
 /// could not settle and is never folded into another arm; `noBuildForSystem` and
 /// `distributionNeedsWsl2` are rows no check runs on and no install offers.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, EnumDiscriminants)]
 #[serde(
     tag = "state",
     rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
+)]
+#[strum_discriminants(
+    name(ProviderInstallationState),
+    doc = "Which arm an installation is, spelled as its `state` tag, `installed` first.",
+    derive(IntoStaticStr, VariantArray),
+    strum(serialize_all = "camelCase")
 )]
 pub enum ProviderInstallation {
     /// A runnable command.
@@ -593,8 +600,9 @@ pub struct ProviderProtectedPathListResponse {
 }
 
 branded_text! {
-    /// The daemon-minted id of one standing rule, derived from the rule's place, its file and its
-    /// text, so one file path in two places names two rules.
+    /// The daemon-minted id of one standing rule, a digest of the rule's place, its file, its
+    /// scope, the provider's decision word and its text, so the same text in two places, files,
+    /// scopes or decisions names two rules and a file read again gives the same ids.
     pub struct ProviderStandingRuleId(1..=PROVIDER_STANDING_RULE_ID_MAX_LEN);
 }
 
@@ -626,8 +634,15 @@ pub enum ProviderStandingRuleScope {
 pub struct ProviderStandingRule {
     /// The rule's id.
     pub rule_id: ProviderStandingRuleId,
-    /// Where the rule holds.
-    pub scope: ProviderStandingRuleScope,
+    /// Where the rule holds; absent for a rule of the provider's own system settings, which holds
+    /// for every account and project on the machine and which the daemon never revokes.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ProviderStandingRuleScope")]
+    pub scope: Option<ProviderStandingRuleScope>,
     /// Where the rule's file is, the file's path in that place's form; absent on a computer
     /// without a WSL 2 distribution.
     #[serde(
@@ -776,7 +791,11 @@ methods! {
             mutating: true,
             params: ProviderStandingRuleRevokeRequest,
             result: ProviderStandingRuleRevokeResponse,
-            refusals: [ProviderNotFound],
+            refusals: [
+                ProviderNotFound,
+                ProviderStandingRuleUneditable,
+                ProviderStandingRuleRevokeRefused,
+            ],
         },
     ];
 }

@@ -114,7 +114,8 @@ mod tests {
     use crate::client::tasks::{McpTaskContact, McpToolCallEnd, McpToolCallError};
     use crate::client::test_server::{
         CountingSink, Reply, Responder, TestServer, board_accepted, board_answer, board_form,
-        contact, method_not_found, open_test_server, test_client, text_result, track_call,
+        call_tool_as_dispatched, contact, method_not_found, open_test_server, test_client,
+        text_result, track_call,
     };
 
     /// A 2025-11-25 server with no tasks, the stdio window's, whose `tools/call` is `call`.
@@ -155,7 +156,7 @@ mod tests {
         .await;
         let sink = CountingSink::new(&server);
         let contact = contact();
-        let call = connection.call_tool(track_call(), &sink, &contact);
+        let call = call_tool_as_dispatched(&connection, track_call(), &sink, &contact);
         tokio::pin!(call);
 
         tokio::select! {
@@ -187,7 +188,7 @@ mod tests {
         let sink = CountingSink::new(&server);
         let contact = contact();
         let started = Instant::now();
-        let call = connection.call_tool(track_call(), &sink, &contact);
+        let call = call_tool_as_dispatched(&connection, track_call(), &sink, &contact);
         tokio::pin!(call);
         tokio::select! {
             _ = &mut call => panic!("the call ended before its server asked"),
@@ -237,7 +238,7 @@ mod tests {
         let sink = CountingSink::new(&server);
         let contact = contact();
         let started = Instant::now();
-        let call = connection.call_tool(track_call(), &sink, &contact);
+        let call = call_tool_as_dispatched(&connection, track_call(), &sink, &contact);
         tokio::pin!(call);
         tokio::select! {
             _ = &mut call => panic!("the call ended before its window ran out"),

@@ -27,7 +27,7 @@ use sidekicks_provider::driver::capabilities::{
 };
 #[cfg(test)]
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_provider::driver::session_control::CreateSessionParams;
+use sidekicks_provider::driver::session_control::{CreateSessionParams, SessionAccountPin};
 use sidekicks_provider::run::posture::{ExecutionPostureService, compose_execution_posture};
 use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
 use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
@@ -38,6 +38,40 @@ use crate::provider_session::resumed_runs::{ResumedRuns, ResumedRunsIngress};
 use crate::provider_session::{
     ProviderSessionGitFolderReader, ProviderSessionOpening, ProviderSessionOpeningComposer,
 };
+
+/// Each `providerMissing` notice posted in the database `reader` reads, in the order posted.
+#[cfg(test)]
+pub(crate) fn read_provider_missing_notices(
+    reader: &rusqlite::Connection,
+) -> Vec<sidekicks_contracts::session::controls::events::SessionNotice> {
+    use sidekicks_contracts::event::registry::SessionEventType;
+    use sidekicks_contracts::session::controls::events::{
+        SessionNotice, SessionNoticePostedPayload,
+    };
+
+    reader
+        .prepare("SELECT payload FROM session_events WHERE type = ?1 ORDER BY sequence")
+        .expect("the test reads the notices")
+        .query_map([SessionEventType::SessionNoticePosted.as_str()], |row| {
+            row.get::<_, String>(0)
+        })
+        .expect("the notices read")
+        .map(|payload| {
+            serde_json::from_str::<SessionNoticePostedPayload>(&payload.expect("each notice reads"))
+                .expect("a stored notice parses")
+        })
+        .filter_map(|posted| {
+            if let SessionNoticePostedPayload::Notice(
+                notice @ SessionNotice::ProviderMissing { .. },
+            ) = posted
+            {
+                Some(notice)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
 
 /// The table's first provider.
 pub(crate) fn first_provider() -> ProviderId {
@@ -74,6 +108,7 @@ pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
                     tool_servers: None,
                     output_schema: None,
                     provider_account_id,
+                    account_pin: SessionAccountPin::Pinned,
                     on_mcp_server_status: None,
                 },
                 function_legs_for: Arc::new(|_| ResumeFunctionLegs::default()),

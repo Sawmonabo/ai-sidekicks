@@ -24,6 +24,8 @@ use std::time::{Duration, Instant};
 use jiff::Timestamp;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_platforms::DaemonRunFolder;
+use sidekicks_provider::account::observer::window_store::usage_window_projection_statements;
+use sidekicks_provider::account::usage_turns::usage_turn_projection_statements;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_recovery::database_file::check::{DatabaseFileCheck, DatabaseFileCheckAnswer};
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
@@ -37,6 +39,7 @@ use sidekicks_recovery::database_file::repair::{
 use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
 use sidekicks_recovery::session_write_refusal::refuse_session_event;
 use sidekicks_recovery::status::RecoveryStatusTracker;
+use sidekicks_session::agents::projection::agents_projection_statements;
 use sidekicks_session::attention::changes::{AttentionChanges, attention_changes_after_commits};
 use sidekicks_session::attention::projection::attention_projection_statements;
 use sidekicks_session::directory::row::{DirectoryEvent, directory_statements_for};
@@ -520,14 +523,18 @@ async fn open_writer(
 }
 
 // The statements the projections kept in each event's own write take for `envelope`: the session's
-// directory row first, which the others' rows refer to, then the questions' queued answers, then
-// the attention entries.
+// directory row first, which the others' rows refer to, then the agents' rows, then the questions'
+// queued answers, then the attention entries, then the provider accounts' metered turn and quota
+// windows.
 fn session_projection_statements(
     envelope: &UnsequencedEventEnvelope,
 ) -> Result<Vec<WriteStatement>, ProjectionError> {
     let mut statements = directory_statements_for(&DirectoryEvent::from(envelope))?;
+    statements.extend(agents_projection_statements(envelope)?);
     statements.extend(question_projection_statements(envelope));
     statements.extend(attention_projection_statements(envelope)?);
+    statements.extend(usage_turn_projection_statements(envelope)?);
+    statements.extend(usage_window_projection_statements(envelope)?);
     Ok(statements)
 }
 

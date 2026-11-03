@@ -18,6 +18,7 @@ use strum::{IntoStaticStr, VariantArray};
 use crate::provider::driver::length_limits::{
     PROVIDER_MCP_SERVER_NAME_MAX_LEN, PROVIDER_TOOL_NAME_MAX_LEN,
 };
+use crate::provider::id::ProviderId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::literal;
 use crate::wire::text::{FreeFormText, pattern_text};
@@ -314,7 +315,57 @@ binding_addressed! {
     pub enum McpServerBindingRef in every scope {}
 }
 
+impl From<&McpWritableBindingRef> for McpServerBindingRef {
+    /// The same binding in the union of every scope, so a writable binding compares against the
+    /// bindings a provider declares.
+    fn from(binding: &McpWritableBindingRef) -> Self {
+        match binding.clone() {
+            McpWritableBindingRef::User {
+                provider,
+                server_name,
+            } => Self::User {
+                provider,
+                server_name,
+            },
+            McpWritableBindingRef::Project {
+                provider,
+                scope_ref,
+                place,
+                server_name,
+            } => Self::Project {
+                provider,
+                scope_ref,
+                place,
+                server_name,
+            },
+            McpWritableBindingRef::Local {
+                provider,
+                scope_ref,
+                place,
+                server_name,
+            } => Self::Local {
+                provider,
+                scope_ref,
+                place,
+                server_name,
+            },
+        }
+    }
+}
+
 impl McpServerBindingRef {
+    /// The provider whose config declares the binding, which every scope carries.
+    pub fn provider(&self) -> &ProviderId {
+        match self {
+            Self::User { provider, .. }
+            | Self::Project { provider, .. }
+            | Self::Local { provider, .. }
+            | Self::Plugin { provider, .. }
+            | Self::Connector { provider, .. }
+            | Self::Managed { provider, .. } => provider,
+        }
+    }
+
     /// The name of the server the binding declares, which every scope carries.
     pub fn server_name(&self) -> &McpServerName {
         match self {
@@ -378,6 +429,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<inventory::McpStoreUnavailableInventoryEntry>(),
         Definition::read::<inventory::McpServerInventoryEntry>(),
         Definition::read::<requests::McpServerListRequest>().checked(),
+        Definition::read::<requests::McpProviderReadFailure>(),
         Definition::read::<requests::McpServerListResponse>().checked(),
         Definition::read::<requests::McpServerReadResponse>().checked(),
         Definition::read::<requests::McpRegistrySearchRequest>().checked(),

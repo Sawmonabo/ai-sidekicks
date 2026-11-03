@@ -24,12 +24,15 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
 
+use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
     ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
     ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
+use crate::driver::contract::plan_verdict::{AnswerPlanParams, PlanVerdictAnswer};
+use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
@@ -38,25 +41,28 @@ use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
-    FindTakenMessagesParams, HelperTokenLimitParams, InterruptRunRequest, OverrideDenialParams,
-    PauseRunParams, PickedSkill, ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams,
-    WithdrawQueuedMessageResult,
+    FindTakenMessagesParams, HelperStopOutcome, HelperStopParams, InterruptRunRequest,
+    OverrideDenialParams, PauseRunParams, PickedSkill, ReattachHelpersParams, ResumeRunParams,
+    TakenMessages, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
-    CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverResumeResult,
-    MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
-    ProviderCommandsListener, ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams,
-    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, StartingLevel,
-    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
-    UpdateSessionModeParams,
+    CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverHandoverBriefResult,
+    DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, MoveSessionToForkParams,
+    MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
+    ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
+    SessionCommandAnswer, SetSessionGoalParams, StartingLevel, StartingLevelParams,
+    SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 
+pub mod account;
 pub mod error;
 pub mod params_and_results;
+pub mod plan_verdict;
+pub mod sign_in;
 
 /// The operations every provider driver carries out for the daemon. Each refusal comes back as
 /// [`DriverError::Refused`]; an operation gated on a capability flag the driver does not declare
@@ -75,6 +81,11 @@ pub trait ProviderDriver: Send + Sync {
         &self,
         params: ResumeSessionParams,
     ) -> BoxFuture<'_, Result<DriverResumeResult, DriverError>>;
+
+    /// Ends on the provider each turn a restart kept running in a session the start does not
+    /// resume. Answers once the driver holds the session for the work, which then runs on the
+    /// driver's own tasks under `params.stop`, each turn's outcome logged.
+    fn end_kept_turns(&self, params: EndKeptTurnsParams) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// Waits until the session's process no longer comes back on its own, so a run's binding is
     /// opened on the leg it settles on: answers once the process is live, and fails
@@ -115,6 +126,15 @@ pub trait ProviderDriver: Send + Sync {
         &self,
         params: RespondToRequestParams,
     ) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// Answers the person's verdict on a plan: a request the provider holds open for it is
+    /// answered with the verdict, `NotHeld` once it was answered or withdrawn; a plan holding no
+    /// request moves the session to Build for a build and answers its follow-up message. Fails as
+    /// the answer's write or the mode move fails.
+    fn answer_plan(
+        &self,
+        params: AnswerPlanParams,
+    ) -> BoxFuture<'_, Result<PlanVerdictAnswer, DriverError>>;
 
     /// `Allow once` on a block the provider's own reviewer made, carried by the provider's own
     /// means: it reaches a running turn at once and starts a turn when none runs, and retries
@@ -357,9 +377,10 @@ pub trait ProviderDriver: Send + Sync {
         params: CompactContextParams,
     ) -> BoxFuture<'_, Result<AgentRunContextCompactResponse, DriverError>>;
 
-    /// A live read of the provider's own commands and skills for the bound session (gated on
-    /// `providerCommands`), held with the session and never stored: one group carrying the
-    /// params' run and binding, every entry stamped with that binding.
+    /// The provider's own commands and skills for the bound session (gated on `providerCommands`):
+    /// one group carrying the params' run and binding, every entry stamped with that binding. A
+    /// live session's list is held with it; a driver that can read the list with no live process
+    /// reads it afresh and holds nothing.
     fn list_provider_commands(
         &self,
         params: ListProviderCommandsParams,
@@ -426,8 +447,33 @@ pub trait ProviderDriver: Send + Sync {
     /// [`HelperStopReason::TokenLimit`]: crate::driver::run_control::HelperStopReason::TokenLimit
     fn stop_helper_at_token_limit(
         &self,
-        params: HelperTokenLimitParams,
+        params: HelperStopParams,
     ) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// Stops one helper alone from the console, while its lead goes on, and answers how the
+    /// provider took it: stopped for good, its running turn interrupted, found interrupted, or
+    /// already ended. The provider's own deadline bounds it; an error or a passed deadline is
+    /// `Err`.
+    fn stop_child_run(
+        &self,
+        params: HelperStopParams,
+    ) -> BoxFuture<'_, Result<HelperStopOutcome, DriverError>>;
+
+    /// Attaches what the provider still holds of `params.helpers` after a restart, in the order
+    /// given, parents first; a helper it can no longer attach is left as the restart's settle
+    /// recorded it. Fails only for a session the driver no longer runs.
+    #[expect(
+        unused_variables,
+        reason = "only a driver whose helpers outlive its process reads the helpers"
+    )]
+    fn reattach_helpers(
+        &self,
+        params: ReattachHelpersParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        // A provider whose helpers end with its process holds none past a restart, so it answers
+        // at once; a helper's continuation arrives as a new start the daemon reads off its tree.
+        Box::pin(async { Ok(()) })
+    }
 
     /// The output-speed state the provider last declared for the session's live binding, as sent;
     /// `None` with no live binding or no declaration yet, which means unread, never off. A read of
@@ -497,6 +543,15 @@ pub trait ProviderDriver: Send + Sync {
         params: AskSideQuestionParams,
     ) -> BoxFuture<'_, Result<(), DriverError>>;
 
+    /// Takes the session's summary for a hand-over brief on a throwaway copy of its conversation,
+    /// the session's own conversation left as it was and starting no turn; the copy's one turn is
+    /// metered on the session's binding. Answers the provider's own summary, or where it cannot be
+    /// read the copy's answer to the fixed template, saying which; fails as the copy's turn fails.
+    fn export_handover_brief(
+        &self,
+        params: ExportHandoverBriefParams,
+    ) -> BoxFuture<'_, Result<DriverHandoverBriefResult, DriverError>>;
+
     /// Follows the session's live command list (gated on `providerCommands`): `listener` gets the
     /// current list and each change until the returned subscription drops.
     fn subscribe_provider_commands(
@@ -513,6 +568,14 @@ pub trait ProviderDriver: Send + Sync {
     /// The inbox addresses the daemon holds for every session, where this provider's sessions
     /// must answer them; `None` for a provider whose sessions answer no inbox.
     fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>>;
+
+    /// The provider's own acts on one account's home, one object built with the driver, which
+    /// the account plane runs every provider's account acts through.
+    fn account_legs(&self) -> Arc<dyn ProviderAccountLegs>;
+
+    /// Drops what the driver keeps in memory for `provider_account_id`'s account, which has been
+    /// removed; an account it keeps nothing for is left as it is.
+    fn forget_account(&self, provider_account_id: &ProviderAccountId);
 
     /// Deletes what the provider keeps for its own diagnosis in account home `home` from before
     /// `cutoff`, beyond the descriptor's folders, which the expiry deletes itself, and answers the
@@ -536,4 +599,17 @@ pub trait ProviderDriver: Send + Sync {
     fn running_service_log_files(&self) -> io::Result<Vec<PathBuf>> {
         Ok(Vec::new())
     }
+
+    /// Signs in to an MCP server through the provider's own client, in a folder of the daemon's
+    /// own deleted after, and answers the credentials the provider saved there. Fails with
+    /// [`DriverError::NoPersonServerEntry`] for a binding with no entry of the person's at the
+    /// request's server address, and when the flow fails or ends unfinished, or no saved sign-in
+    /// reads back.
+    fn sign_in_with_own_client(
+        &self,
+        request: ProviderSignInTakeoverRequest,
+    ) -> BoxFuture<'_, Result<ProviderSignInTakeover, DriverError>>;
+
+    /// Removes the folders of MCP sign-ins a stopped daemon left. Fails as a removal fails.
+    fn remove_left_sign_in_folders(&self) -> BoxFuture<'_, Result<(), DriverError>>;
 }

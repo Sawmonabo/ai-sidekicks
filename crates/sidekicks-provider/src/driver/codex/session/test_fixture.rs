@@ -11,19 +11,21 @@ use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use secrecy::SecretString;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
+use sidekicks_contracts::provider::account::record::{
+    CredentialGeneration, ProviderAccountId, ProviderAuthMode,
+};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
@@ -74,8 +76,8 @@ use crate::driver::codex::session::establishment::{
 use crate::driver::codex::session::fork::CodexForkDependencies;
 use crate::driver::codex::session::fork::config_change::CodexConfigForks;
 use crate::driver::codex::session::inbound::{
-    CodexSessionCall, CodexSessionInbound, CodexSessionInboundHandler, CodexSessionInboundSender,
-    codex_session_inbound, drain_codex_session_inbound,
+    CodexAccountMove, CodexSessionCall, CodexSessionInbound, CodexSessionInboundHandler,
+    CodexSessionInboundSender, codex_session_inbound, drain_codex_session_inbound,
 };
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::driver::codex::session::slots::CodexSessionSlots;
@@ -89,8 +91,8 @@ use crate::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, RunToolBoundary,
 };
 use crate::driver::schema::schema_parts;
-use crate::driver::session_control::CreateSessionParams;
-use crate::driver::test_registry::{RecordedQueue, new_session_id};
+use crate::driver::session_control::{CreateSessionParams, SessionAccountPin};
+use crate::driver::test_registry::{RecordedQueue, new_agent_id, new_session_id};
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, PROVIDERS, ProviderAccountFolders,
     ProviderAccountReader, SessionSpawnContext, SessionSpawnContextResolver,
@@ -183,10 +185,10 @@ impl TestCodexSession {
             pending_compactions: pending_compactions.clone(),
             stopped_helpers: Arc::new(CodexStoppedHelpers::new(TaskTracker::new())),
             effects: Arc::new(NoEffects),
+            provider_accounts: Arc::new(PortRegistration::new("provider accounts")),
         }));
         let session_id = new_session_id();
-        let lead_agent_id =
-            AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id");
+        let lead_agent_id = new_agent_id();
         let (inbound, receiver) = codex_session_inbound(session_id);
         let slots = Arc::new(CodexSessionSlots::new());
         slots
@@ -197,6 +199,7 @@ impl TestCodexSession {
         let (record, routing) = open_test_record(
             &scripted,
             session_id,
+            lead_agent_id,
             inbound,
             &delivery,
             pending_compactions.clone(),
@@ -421,6 +424,22 @@ impl ProviderAccountReader for OneFolder {
     ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn std::error::Error + Send + Sync>>> {
         async { Err("the test reads no generation".into()) }.boxed()
     }
+
+    fn read_observed_auth_mode(
+        &self,
+
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn std::error::Error + Send + Sync>>>
+    {
+        async { Ok(None) }.boxed()
+    }
+
+    fn read_sealed_token(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn std::error::Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
+    }
 }
 
 impl TestCodexTask {
@@ -499,7 +518,8 @@ impl TestCodexTask {
             }
             CodexSessionInbound::Ask { .. }
             | CodexSessionInbound::AsksWithdrawn { .. }
-            | CodexSessionInbound::Lifecycle(_) => {
+            | CodexSessionInbound::Lifecycle(_)
+            | CodexSessionInbound::AccountMoved(_) => {
                 panic!(
                     "the test's service asks nothing and its driver calls nothing else of its own"
                 )
@@ -541,11 +561,13 @@ impl TestCodexTask {
     }
 }
 
-/// The record of `session_id`'s conversation [`TEST_THREAD`] at Ask on `scripted`'s service, its
-/// queue `inbound` attached there and its frames routed through `delivery`, and its routing band.
+/// The record of `session_id`'s conversation [`TEST_THREAD`] at Ask on `scripted`'s service, led
+/// by `lead_agent_id`, its queue `inbound` attached there and its frames routed through `delivery`,
+/// and its routing band.
 pub(crate) async fn open_test_record(
     scripted: &ScriptedCodexService,
     session_id: SessionId,
+    lead_agent_id: AgentId,
     inbound: CodexSessionInboundSender,
     delivery: &Arc<CodexFrameDelivery>,
     pending_compactions: PendingCompactionRegistry,
@@ -557,6 +579,7 @@ pub(crate) async fn open_test_record(
     let mut routing = CodexSessionRouting::new(pending_compactions);
     let mut record = CodexSessionRecord::new(CodexEstablishedConversation {
         session_id,
+        lead_agent_id,
         service: Arc::clone(&scripted.service),
         inbound,
         thread_id: TEST_THREAD.to_owned(),
@@ -622,7 +645,7 @@ pub(crate) fn fork_reply(thread_id: &str, settings: &CodexThreadSettings) -> Val
 pub(crate) fn create_session_params(session_id: SessionId) -> CreateSessionParams {
     CreateSessionParams {
         session_id,
-        agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
+        agent_id: new_agent_id(),
         config: Map::new(),
         model: ProviderToken::new("gpt-5".to_owned()).expect("the model fits"),
         effort: None,
@@ -640,6 +663,7 @@ pub(crate) fn create_session_params(session_id: SessionId) -> CreateSessionParam
         tool_servers: None,
         output_schema: None,
         provider_account_id: test_provider_account_id(),
+        account_pin: SessionAccountPin::Pinned,
         on_mcp_server_status: None,
     }
 }
@@ -810,6 +834,11 @@ impl CodexSessionInboundHandler for ItemsToTest {
 
     fn lifecycle(&mut self, call: CodexLifecycleCall) -> BoxFuture<'_, ()> {
         self.hand(CodexSessionInbound::Lifecycle(call));
+        async {}.boxed()
+    }
+
+    fn account_moved(&mut self, account_move: CodexAccountMove) -> BoxFuture<'_, ()> {
+        self.hand(CodexSessionInbound::AccountMoved(account_move));
         async {}.boxed()
     }
 

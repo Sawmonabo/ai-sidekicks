@@ -17,6 +17,7 @@ use tokio::time::Instant;
 
 use super::{ClaudeMcpProbeSources, ClaudeProbePlan, plan_claude_probe, probe_claude_mcp_servers};
 use crate::command_search::ProviderCommandSearch;
+use crate::driver::CurrentProviderAccount;
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::mcp::config::{
@@ -33,6 +34,7 @@ use crate::driver::claude::spawn::launch::installed_build::{
 use crate::driver::contract::error::DriverError;
 use crate::driver::mcp_server::read::{McpProbeReading, McpProbeTarget};
 use crate::driver::mcp_server::status::McpServerReading;
+use crate::driver::test_registry::registered_test_accounts;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
@@ -604,6 +606,7 @@ async fn a_real_claude_code_probe_reads_a_sent_server_connected_with_its_tools()
             spawner.clone(),
             Arc::new(UnrecordedChildren),
             Arc::new(ProviderProcessRegistry::default()),
+            registered_test_accounts(CurrentProviderAccount::NoneRegistered),
             home.path(),
         )),
         Arc::new(ProviderCommandSearch::new(spawner)),

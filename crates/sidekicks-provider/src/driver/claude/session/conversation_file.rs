@@ -5,6 +5,8 @@
 //! config folder and the daemon's scratch folder, a batch of conversations of one home listing
 //! each folder it searches once.
 
+pub(crate) mod lines;
+pub(crate) mod peer_replies;
 pub(crate) mod title;
 
 use std::collections::HashSet;
@@ -16,21 +18,18 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use serde::de::{self, Deserializer, SeqAccess, Visitor};
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
 use sidekicks_std::missing_entry::MissingEntry;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 
+use crate::driver::claude::session::conversation_file::lines::read_conversation_lines;
 use crate::driver::claude::session::plan_files::{ClaudePlan, find_claude_plan_files};
-use crate::driver::claude::session::process::CLAUDE_OUTPUT_LINE_MAX_BYTES;
 use crate::driver::claude::session::rules::{
     ClaudeProjectFolder, resolve_claude_local_settings_file,
 };
 use crate::driver::claude::spawn::environment::{
     claude_config_folder, compose_claude_scratch_folder,
 };
-use crate::inbound_json::decode_inbound_json;
 use crate::lenient_json::{
     Lenient, LenientElement, LenientVisitor, lenient_object, read_lenient, skip_other_shapes,
 };
@@ -54,8 +53,6 @@ pub(crate) struct ClaudeConversationFolders<'a> {
     pub(crate) path_rules: PathRules,
     /// The daemon's data folder, which holds the home's scratch folder.
     pub(crate) data_folder: &'a str,
-    /// The account the conversations ran on.
-    pub(crate) provider_account_id: &'a ProviderAccountId,
 }
 
 /// One conversation a purge deletes.
@@ -212,7 +209,7 @@ pub(crate) async fn delete_claude_conversations(
     }
     let scratch_projects = list_scratch_projects(&compose_claude_scratch_folder(
         folders.data_folder,
-        folders.provider_account_id,
+        config_folder,
     ))
     .await?;
     let mut plans = Vec::new();
@@ -257,9 +254,7 @@ pub(crate) async fn delete_claude_conversations(
     removed.extend(find_claude_plan_files(config_folder, &plans).await?);
     removed.extend(conversation_files.into_iter().flatten());
     for path in removed {
-        tokio::task::spawn_blocking(move || sidekicks_platforms::remove_tree(&path))
-            .await
-            .map_err(io::Error::other)??;
+        sidekicks_platforms::remove_tree_awaited(&path).await?;
     }
     Ok(())
 }
@@ -348,70 +343,15 @@ async fn read_claude_plan_slug(file: &Path) -> io::Result<Option<String>> {
     Ok(found)
 }
 
-// Hands each line of `file` that is a JSON object to `visit` until it breaks, reusing one buffer.
-// A line past the ceiling is skipped unread, so a file cut mid-write or with no newline never
-// grows the buffer past it; the first one skipped is logged once.
+// Hands each line of `file` that is a JSON object to `visit` until it breaks; fails as the file
+// cannot be opened or read.
 async fn read_entries(
     file: &Path,
     mut visit: impl FnMut(ConversationEntry) -> ControlFlow<()>,
 ) -> io::Result<()> {
-    let mut reader = BufReader::new(tokio::fs::File::open(file).await?);
-    let mut line = Vec::new();
-    let mut line_number: u64 = 0;
-    let mut is_skip_logged = false;
-    loop {
-        line.clear();
-        line_number += 1;
-        let read = (&mut reader)
-            .take(CONVERSATION_LINE_READ_LIMIT)
-            .read_until(b'\n', &mut line)
-            .await?;
-        if read == 0 {
-            return Ok(());
-        }
-        if line.len() > CLAUDE_OUTPUT_LINE_MAX_BYTES && line.last() != Some(&b'\n') {
-            skip_to_next_line(&mut reader).await?;
-            if !is_skip_logged {
-                is_skip_logged = true;
-                tracing::warn!(
-                    file = %file.display(),
-                    line_number,
-                    "a line of a Claude Code conversation file passed the line ceiling, so it \
-                     was skipped"
-                );
-            }
-            continue;
-        }
-        let text = decode_inbound_json(&line);
-        let mut deserializer = serde_json::Deserializer::from_str(&text);
-        let Ok(Some(entry)) = ConversationEntry::read(&mut deserializer)
-            .and_then(|entry| deserializer.end().map(|()| entry))
-        else {
-            continue;
-        };
-        if visit(entry).is_break() {
-            return Ok(());
-        }
-    }
-}
-
-// One past the ceiling, so a line that reaches it without its newline reads as over it.
-const CONVERSATION_LINE_READ_LIMIT: u64 = CLAUDE_OUTPUT_LINE_MAX_BYTES as u64 + 1;
-
-// Consumes the rest of the line being read, through its newline or to the end of the file.
-async fn skip_to_next_line(reader: &mut BufReader<tokio::fs::File>) -> io::Result<()> {
-    loop {
-        let buffered = reader.fill_buf().await?;
-        if buffered.is_empty() {
-            return Ok(());
-        }
-        if let Some(newline) = memchr::memchr(b'\n', buffered) {
-            reader.consume(newline + 1);
-            return Ok(());
-        }
-        let length = buffered.len();
-        reader.consume(length);
-    }
+    let opened = tokio::fs::File::open(file).await?;
+    read_conversation_lines(opened, file, 0, |line| visit(line.entry)).await?;
+    Ok(())
 }
 
 // The members of an entry the outline, the taken read and the purge read, each read leniently: a
@@ -549,7 +489,7 @@ mod tests {
     };
     use crate::driver::claude::session::process::CLAUDE_OUTPUT_LINE_MAX_BYTES;
     use crate::driver::claude::session::rules::{ClaudeProjectFolder, ClaudeRepository};
-    use crate::runtime_binding::test_store::test_provider_account_id;
+    use crate::driver::claude::spawn::environment::compose_claude_scratch_folder;
 
     const SESSION_ID: &str = "3f1c0d4e-0000-4000-8000-000000000001";
     const OTHER_SESSION_ID: &str = "3f1c0d4e-0000-4000-8000-000000000002";
@@ -708,9 +648,7 @@ mod tests {
             config.join("debug").join(format!("{SESSION_ID}.txt")),
             config.join("uploads").join(SESSION_ID).join("a.png"),
             config.join("dev-mods").join(SESSION_ID).join("m"),
-            data.join("claude-scratch")
-                .join("accounts")
-                .join("account-1")
+            compose_claude_scratch_folder(data_text, &config)
                 .join("claude-501")
                 .join("-worktree")
                 .join(SESSION_ID)
@@ -731,7 +669,6 @@ mod tests {
                 // The repository's root keeps the local settings, as on macOS and Linux.
                 path_rules: PathRules::Posix,
                 data_folder: data_text,
-                provider_account_id: &test_provider_account_id(),
             },
             &[SESSION_ID, OTHER_SESSION_ID].map(|provider_session_id| ClaudeConversation {
                 provider_session_id,
@@ -777,7 +714,6 @@ mod tests {
                     .path()
                     .to_str()
                     .expect("the scratch folder is UTF-8"),
-                provider_account_id: &test_provider_account_id(),
             },
             &[ClaudeConversation {
                 provider_session_id: SESSION_ID,
@@ -806,12 +742,13 @@ mod tests {
         let kept = [
             config.join("file-history").join(SESSION_ID).join("v1"),
             config.join("projects").join("-project").join("a.jsonl"),
-            data.join("claude-scratch")
-                .join("accounts")
-                .join("account-1")
-                .join("claude-501")
-                .join("-project")
-                .join("a"),
+            compose_claude_scratch_folder(
+                data.to_str().expect("the scratch folder is UTF-8"),
+                &config,
+            )
+            .join("claude-501")
+            .join("-project")
+            .join("a"),
             config.join("settings.json"),
         ];
         for path in &kept {
@@ -825,7 +762,6 @@ mod tests {
                 home_folder: scratch.path(),
                 path_rules: PathRules::Posix,
                 data_folder: data.to_str().expect("the scratch folder is UTF-8"),
-                provider_account_id: &test_provider_account_id(),
             },
             &[ClaudeConversation {
                 provider_session_id,

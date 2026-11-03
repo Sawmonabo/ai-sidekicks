@@ -112,20 +112,43 @@ CREATE INDEX idx_session_related_related ON session_related(related_session_id);
 
 -- Each session.create's idempotency key, the session it made and where that session works: its
 -- project (NULL for a chat, which works in its own managed mount), its execution mode and the group
--- it asked for (NULL for none, and for every chat). Written in the session.created write, so a
--- retry with the key, or the daemon's start, finishes a session left provisioning; a session made
--- in a project still cloning is finished once the clone attaches it.
+-- it asked for (NULL for none, and for every chat), the account its lead was born on, the current
+-- one that write's guard held, and where in the mount the session works, NULL at the mount's root
+-- (a plan's fresh session works in its planning session's folder). Written in the session.created
+-- write, so a retry with the key, or the daemon's start, finishes a session left provisioning; a
+-- session made in a project still cloning is finished once the clone attaches it.
 CREATE TABLE session_create_requests (
   client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
   session_id              TEXT NOT NULL UNIQUE,
   project_id              TEXT,
   execution_mode          TEXT NOT NULL
     CHECK (execution_mode IN ('boundRoot', 'provisionedWorktree')),
-  group_id                TEXT
+  group_id                TEXT,
+  provider_account_id     TEXT NOT NULL,
+  directory               TEXT
 ) STRICT;
 
 -- A project's sessions, which its rules reach, found by the project they were made in.
 CREATE INDEX idx_session_create_requests_project ON session_create_requests(project_id);
+
+-- A plan handed to a fresh session: what its verdict fixed for the session it births, under the
+-- fresh session's id as that create's idempotency key. The lead is a create's lead as JSON, and
+-- the title the plan's first heading, which names the fresh session. Written in the verdict's
+-- write; the birth reads it.
+CREATE TABLE session_hand_offs (
+  session_id              TEXT NOT NULL PRIMARY KEY,
+  client_idempotency_key  TEXT NOT NULL UNIQUE,
+  plan_id                 TEXT NOT NULL UNIQUE,
+  planning_session_id     TEXT NOT NULL,
+  lead                    TEXT NOT NULL,
+  permission_level        TEXT NOT NULL
+    CHECK (permission_level IN ('readonly', 'ask', 'reviewed', 'sandboxed', 'yolo')),
+  title                   TEXT NOT NULL,
+  device_id               TEXT NOT NULL
+) STRICT;
+
+-- The purge mark's refusal finds a planning session's hand-offs by it.
+CREATE INDEX idx_session_hand_offs_planning ON session_hand_offs(planning_session_id);
 
 -- A chat's conversion: the session.convert key it runs under, which the latest request that
 -- resumed it takes over, the project mount it attached and the working tree it copies into.
@@ -162,7 +185,7 @@ A conversion records each file as its copy lands without waiting for that record
 
 ## Session Console State (Plan-001)
 
-The daemon's own session-scoped store for what a session holds outside its event log. [Spec-001 §State And Data Implications](../../specs/001-session-core.md#state-and-data-implications) declares the composer draft, its staged attachments and the review notes left on a file's lines durable here, so that a half-written message, its files and an unsent review reach the person's other devices. The staged files' columns are defined with the verbs that write them, `session.attachment.add` / `session.attachment.remove` ([api-payload-contracts §Operations Not Yet Built](../contracts/api-payload-contracts.md#operations-not-yet-built)). The first block below holds the draft, which `session.draft.update` writes, and the columns the spawn path reads: the session's own step bound and a Claude Code session's own advisor. The second holds the review notes, which `session.reviewNote.add` / `session.reviewNote.update` / `session.reviewNote.delete` write ([Gitflow Payload Contracts](../contracts/gitflow-payloads.md)).
+The daemon's own session-scoped store for what a session holds outside its event log. [Spec-001 §State And Data Implications](../../specs/001-session-core.md#state-and-data-implications) declares the composer draft, its staged attachments and the review notes left on a file's lines durable here, so that a half-written message, its files and an unsent review reach the person's other devices. The staged files' columns are defined with the verbs that write them, `session.attachment.add` / `session.attachment.remove` ([api-payload-contracts §Operations Not Yet Built](../contracts/api-payload-contracts.md#operations-not-yet-built)). The first block below holds the draft, which `session.draft.update` writes, and the columns the spawn path reads: the session's own step bound, a Claude Code session's own advisor and the session's `Auto memory` switch. The second holds the review notes, which `session.reviewNote.add` / `session.reviewNote.update` / `session.reviewNote.delete` write ([Gitflow Payload Contracts](../contracts/gitflow-payloads.md)).
 
 It is **configuration, not session history**: it is not events-canonical and is not rebuilt from the event log. A session's step bound is a preference the person set, so a log that can rebuild what a turn did has nothing to say about it.
 
@@ -183,13 +206,15 @@ CREATE TABLE session_console_state (
   advisor_model       TEXT,  -- a Claude Code session's own advisor: the model, or NULL when it is off. Copied at `session.create` from the app's pick on Claude Code's declared `Advisor` row, kept in the machine settings file's `providerSettings`, where one is set, else from the `advisorModel` Claude Code's own settings resolve for the session's project, and NULL where none sets one; changed only by `/advisor` in this session, each change appending `session.advisor.changed`; a later change to the default never reaches it
   advisor_set         INTEGER NOT NULL DEFAULT 0
                       CHECK (advisor_set IN (0, 1)),  -- 1 once the session's advisor is set, by `session.create`, by `/advisor` or by the advisor Claude Code resolved at the session's first start where no one picked one, which fills the row only while this is 0; a row the mode or the step bound made first reads as no advisor of the session's own
+  auto_memory         INTEGER
+                      CHECK (auto_memory IS NULL OR auto_memory IN (0, 1)),  -- the session's own `Auto memory` switch, 1 on and 0 off, written by `session.autoMemory.update`; NULL until the person first sets it, when nothing is sent and the provider's own settings decide
   session_mode        TEXT NOT NULL DEFAULT 'build'
                       CHECK (session_mode IN ('build', 'plan')),  -- the composer's Build or Plan mode, written `plan` at `session.create` where Claude Code's own `permissions.defaultMode` resolves to `plan`, and otherwise once the provider has taken a `session.mode.update`; a restart's resume opens in it
   updated_at          TEXT NOT NULL
 ) STRICT;
 ```
 
-The number is carried onto a spawn through `runtime_bindings.spawn_config` and counted by the daemon per turn on every provider, a Claude Code process also started with the number plus one as `--max-turns`, a backstop the daemon's interrupt comes before; a change reaches the session's next turn and never the turn in flight. The mode is read when a restart resumes the session, so a session left in Plan comes back in Plan. The advisor rides the same path: every Claude Code process started for the session (after a restart, a resume or a provider switch, and a helper the bridge starts) reads `advisor_model` at launch.
+The number is carried onto a spawn through `runtime_bindings.spawn_config` and counted by the daemon per turn on every provider, a Claude Code process also started with the number plus one as `--max-turns`, a backstop the daemon's interrupt comes before; a change reaches the session's next turn and never the turn in flight. The mode is read when a restart resumes the session, so a session left in Plan comes back in Plan. The advisor rides the same path: every Claude Code process started for the session (after a restart, a resume or a provider switch, and a helper the bridge starts) reads `advisor_model` at launch. So does the `Auto memory` switch once it is set: every process the daemon starts for the session carries it.
 
 ```sql
 -- Owner: Plan-008

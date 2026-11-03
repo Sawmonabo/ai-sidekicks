@@ -53,6 +53,17 @@ lenient_object!(
     ClaudeStreamUsage
 );
 
+/// Whether the streamed event `text` is a `message_start`, which opens the reply to a model request
+/// Claude Code just made.
+pub(crate) fn is_claude_message_start(text: &str) -> bool {
+    <ClaudeStreamEventFrame as Lenient>::read(&mut serde_json::Deserializer::from_str(text))
+        .ok()
+        .flatten()
+        .and_then(|frame| frame.event)
+        .and_then(|event| event.event_type)
+        .is_some_and(|event_type| event_type == "message_start")
+}
+
 /// What one task-list call of Claude Code does to the agent's list: `None` for any other tool, and
 /// `Nothing` for a call that changes nothing, a call's opening, whose change needs its result, a
 /// failed call and a read of one task among them.

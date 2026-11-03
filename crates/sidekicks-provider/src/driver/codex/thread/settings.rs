@@ -244,6 +244,13 @@ pub(crate) struct CodexTurnStartParams {
     /// The id the person's message was sent with, which Codex keeps on the message.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) client_user_message_id: Option<String>,
+    /// Who starts the turn, as Codex classifies its caller; the daemon names only its recovery's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) turn_trigger: Option<String>,
+    /// The first turn in the chain of work that led to this one; omitted, the turn is its own
+    /// root.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) root_turn_id: Option<String>,
     /// The JSON Schema the turn's final message must follow.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) output_schema: Option<Value>,
@@ -671,6 +678,8 @@ mod tests {
                 collaboration_mode: None,
                 model: None,
                 client_user_message_id: None,
+                turn_trigger: None,
+                root_turn_id: None,
                 output_schema: None,
                 effort: None,
                 service_tier,
@@ -728,6 +737,8 @@ mod tests {
                 collaboration_mode,
                 model: Some("gpt".to_owned()),
                 client_user_message_id: Some("message".to_owned()),
+                turn_trigger: Some("daemon_recovery".to_owned()),
+                root_turn_id: Some("turn".to_owned()),
                 output_schema: Some(json!({ "type": "object" })),
                 effort: Some("low".parse().expect("low is an effort")),
                 service_tier: Some(Some("fast".to_owned())),

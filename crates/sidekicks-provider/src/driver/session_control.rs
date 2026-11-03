@@ -3,8 +3,8 @@
 //! resume, close and naming, the helper policy and tool servers it opens with, the level and mode a
 //! new session starts at, the live permission-level and mode moves, a revoked rule's removal, the
 //! session's goal, the commands the daemon answers itself, the side question and the review, the
-//! live command list, the move onto a fork or a new provider build, the sign-in probe, and the
-//! purge of the provider's own copy of its conversations.
+//! hand-over brief's summary, the live command list, the move onto a fork or a new provider build,
+//! the sign-in probe, and the purge of the provider's own copy of its conversations.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -22,6 +22,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::ProviderOptionSetting;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
+use sidekicks_contracts::provider::driver::declared_loss::DeclaredLossKind;
 use sidekicks_contracts::provider::driver::length_limits::{
     PROVIDER_FAILURE_DETAIL_MAX_LEN, PROVIDER_FALLBACK_ACTION_MAX_LEN,
 };
@@ -29,6 +30,7 @@ use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::controls::methods::{
     PermissionLevel, SessionMode, SideQuestionId,
@@ -104,9 +106,21 @@ pub struct CreateSessionParams {
     /// The account the leg is admitted against, resolved by the daemon before the spawn. The spawn
     /// path pins the account's credential home, so the driver only carries it.
     pub provider_account_id: ProviderAccountId,
+    /// Whether the session follows its provider's current account, `provider_account_id` now, or
+    /// stays on that account whatever becomes current.
+    pub account_pin: SessionAccountPin,
     /// The MCP server-status sink, bound to this leg's session and binding at spawn, so a driver
     /// cannot report for another leg and needs no id for the census it reports while opening.
     pub on_mcp_server_status: Option<McpServerStatusProducer>,
+}
+
+/// Whether a session moves with its provider's current account or stays on its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionAccountPin {
+    /// It runs on the provider's current account and moves onto each account made current.
+    FollowsCurrent,
+    /// It stays on the account it was started on, as its agent definition or workflow step names.
+    Pinned,
 }
 
 /// What the daemon hands a driver to resume a session in a fresh process. A resume is a fresh
@@ -164,7 +178,8 @@ pub struct ResumeSessionParams {
 }
 
 /// A run of a resumed session not yet ended, as its log names it to the provider: the run it was
-/// started beneath, its open turns and, for a provider's helper, the helper's own id.
+/// started beneath, its open turns, for a provider's helper the helper's own id, whether a pending
+/// stop wins over its resume, and the state it stands in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LiveRunResume {
     /// The run.
@@ -176,6 +191,62 @@ pub struct LiveRunResume {
     /// The provider's own id of the helper the run is, as its `agent.subagent.started` recorded
     /// it; `None` for a lead or any run no helper's start names.
     pub subagent_id: Option<SubagentId>,
+    /// Whether a stop the run waits on, its own or that of the run whose helper it is, wins over
+    /// the resume, so no turn of it is continued.
+    pub is_stopping: bool,
+    /// The state the run stands in as the start reads it.
+    pub run_state: RunState,
+}
+
+impl LiveRunResume {
+    /// Whether the run is held on the person, its own ask or question or a helper's beneath it
+    /// in `live_runs`, so a resume leaves it waiting; a run with a stop that wins is never held.
+    pub fn is_held(&self, live_runs: &[LiveRunResume]) -> bool {
+        if self.is_stopping {
+            return false;
+        }
+        match self.run_state {
+            RunState::WaitingForApproval | RunState::WaitingForInput => true,
+            // A lead's own pause wins over the resume; only a provider's helper waits paused.
+            RunState::Pausing | RunState::Paused => self.subagent_id.is_some(),
+            RunState::Starting | RunState::Running => live_runs.iter().any(|run| {
+                run.subagent_id.is_some()
+                    && !run.is_stopping
+                    && matches!(
+                        run.run_state,
+                        RunState::WaitingForApproval
+                            | RunState::WaitingForInput
+                            | RunState::Pausing
+                            | RunState::Paused
+                    )
+                    && self.is_above(run, live_runs)
+            }),
+            RunState::Queued
+            | RunState::Completed
+            | RunState::Interrupted
+            | RunState::Stopped
+            | RunState::Failed => false,
+        }
+    }
+
+    /// Whether `run`'s chain of parents through `live_runs` reaches this run, walking at most
+    /// once per run so a parent cycle ends the walk.
+    fn is_above(&self, run: &LiveRunResume, live_runs: &[LiveRunResume]) -> bool {
+        let mut parent_run_id = run.parent_run_id;
+        for _ in 0..live_runs.len() {
+            let Some(parent) = parent_run_id else {
+                return false;
+            };
+            if parent == self.run_id {
+                return true;
+            }
+            parent_run_id = live_runs
+                .iter()
+                .find(|live_run| live_run.run_id == parent)
+                .and_then(|live_run| live_run.parent_run_id);
+        }
+        false
+    }
 }
 
 /// A turn of a live run started with no end.
@@ -190,6 +261,40 @@ pub struct OpenTurnResume {
     pub started_event_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
 }
 
+/// A run's turns a restart kept running on the provider, in a session the start does not resume,
+/// so the driver ends them there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeptRunTurns {
+    /// The run.
+    pub run_id: RunId,
+    /// The provider's own id of the helper the run is, as its `agent.subagent.started` recorded
+    /// it; `None` for a lead or any run no helper's start names.
+    pub subagent_id: Option<SubagentId>,
+    /// The provider's ids of its turns started with no end, in turn order.
+    pub turn_ids: Vec<ProviderTurnId>,
+    /// Whether a stop of the run's own ends it, so a turn the provider continued under another id
+    /// is ended too.
+    pub is_for_stop: bool,
+}
+
+/// What the daemon hands a driver to end the turns a restart kept in one session the start does
+/// not resume.
+#[derive(Clone, Debug)]
+pub struct EndKeptTurnsParams {
+    /// The session.
+    pub session_id: SessionId,
+    /// The account the session's leg ran on, read back from its stored spawn record.
+    pub provider_account_id: ProviderAccountId,
+    /// The provider's own handle of the leg's conversation, which a lead's turns run on.
+    pub conversation: String,
+    /// The provider's own recovery data the leg's binding kept, handed back as stored.
+    pub runtime_metadata: Map<String, Value>,
+    /// The runs whose turns are ended, each with at least one turn.
+    pub runs: Vec<KeptRunTurns>,
+    /// The recovery pass's stop, which ends the work where it stands.
+    pub stop: CancellationToken,
+}
+
 /// What the provider holds of one run's turn after a resume.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProviderTurnAnswer {
@@ -199,6 +304,9 @@ pub enum ProviderTurnAnswer {
     EndedByProvider,
     /// The provider holds no turn of the run.
     Gone,
+    /// The run waits on the person: an ask or a question its provider's process no longer holds,
+    /// its own or a helper's beneath it; the person's answer continues it.
+    Waiting,
 }
 
 /// The provider's answer for one run a resume named.
@@ -416,14 +524,17 @@ pub struct ProviderBuildChange {
     pub(crate) to_version: String,
 }
 
-/// One provider conversation a session opened, by the handle it was resumed from, and the account
-/// home it ran in.
+/// One provider conversation a session opened, by the handle it was resumed from, the account it
+/// ran on, and the recovery data its binding kept, which names the home holding it where the
+/// provider keeps that apart from the account's.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PurgedConversation {
+pub struct SessionConversation {
     /// The handle the conversation was resumed from.
     pub resume_handle: String,
-    /// The account whose home it ran in.
+    /// The account it ran on.
     pub provider_account_id: ProviderAccountId,
+    /// The provider's own recovery data its binding kept, handed over as stored.
+    pub runtime_metadata: Map<String, Value>,
 }
 
 /// Params of `purge_session`: every conversation the session's own bindings opened, newest first,
@@ -434,7 +545,7 @@ pub struct PurgeSessionParams {
     /// The session.
     pub session_id: SessionId,
     /// Its conversations, newest first.
-    pub conversations: Vec<PurgedConversation>,
+    pub conversations: Vec<SessionConversation>,
 }
 
 /// Params of `update_session_mode`: Build or Plan, applied by the provider from the next turn.
@@ -465,6 +576,55 @@ pub struct AskSideQuestionParams {
     /// The session's newest resume material, composed as a resume's is, which the copy is forked
     /// from when no live process runs the session; `None` for a session with no conversation yet.
     pub resume: Option<ResumeSessionParams>,
+}
+
+/// Params of `export_handover_brief`: the session's summary taken on a throwaway copy of its
+/// conversation, leaving the session's own conversation as it was.
+#[derive(Clone)]
+pub struct ExportHandoverBriefParams {
+    /// The session.
+    pub session_id: SessionId,
+    /// The session's binding, which the copy's usage is recorded on.
+    pub binding_id: RuntimeBindingId,
+    /// The session's newest resume material, composed as a resume's is, which the copy is forked
+    /// from where the driver forks the stored conversation.
+    pub resume: ResumeSessionParams,
+}
+
+/// Which summary a hand-over brief carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HandoverSummaryKind {
+    /// The provider's own summary of the conversation, its own framing taken out.
+    ProviderSummary,
+    /// The copy's answer to the fixed template.
+    Template,
+}
+
+/// What `export_handover_brief` answers: the summary, which kind it is, and what it could not
+/// carry. It is never the brief's message, which the daemon composes around it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DriverHandoverBriefResult {
+    /// The summary's text, never blank.
+    pub summary: String,
+    /// Which summary it is.
+    pub kind: HandoverSummaryKind,
+    /// What the summary could not carry, never empty.
+    pub declared_losses: Vec<DeclaredLossKind>,
+}
+
+impl DriverHandoverBriefResult {
+    /// `summary` as a brief's summary of `kind`, declaring the conversation summarized and the
+    /// provider's private reasoning left behind, which no summary carries.
+    pub(crate) fn summarized(summary: String, kind: HandoverSummaryKind) -> Self {
+        Self {
+            summary,
+            kind,
+            declared_losses: vec![
+                DeclaredLossKind::ProviderPrivateReasoning,
+                DeclaredLossKind::ConversationHistorySummarized,
+            ],
+        }
+    }
 }
 
 /// Params of `answer_session_command`: the text the person sent, before any run is made for it.
@@ -540,6 +700,12 @@ pub enum DriverResumeResult {
         /// The provider's failure, fitted by
         /// [`bound_failure_detail`](super::contract::error::bound_failure_detail).
         provider_failure_detail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
+    },
+    /// No process was started, since every run in progress waits on the person, is pausing, or
+    /// stops: what the provider answered for each run, with no binding, position or build.
+    Deferred {
+        /// What the provider holds of each run the resume's `live_runs` named.
+        runs: Vec<ResumedRunAnswer>,
     },
 }
 

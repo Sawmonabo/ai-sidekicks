@@ -61,7 +61,7 @@ pub(crate) struct ProviderPort {
 }
 
 /// Builds the project records and the session directory's port over `start`, and registers the
-/// port as the drivers' spawn-context resolver and relaunch listener. Fails when either port is
+/// port as the drivers' spawn-context resolver and relaunch listener. Fails when either is
 /// registered already, which only a second call does.
 pub(crate) fn build_provider_port(
     start: ProviderPortStart<'_>,

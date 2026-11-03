@@ -1,19 +1,24 @@
 //! Claude Code's MCP servers as the driver reads them: the person's own config, each account's
-//! connectors and organization servers, Claude Code's precedence over them, and the machine probe
-//! of the bindings no live session reads.
+//! connectors and organization servers, Claude Code's precedence over them, the machine probe of
+//! the bindings no live session reads, the sign-in to one server through Claude Code's own client,
+//! and the names a person may give a server.
 
 pub(crate) mod config;
 pub(crate) mod connectors;
 pub(crate) mod machine_probe;
 pub(crate) mod organization;
 pub(crate) mod precedence;
+pub(crate) mod server_name;
+pub(crate) mod sign_in;
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use futures::future::join_all;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus};
 use sidekicks_ipc::redaction::sanitize_failure_chain;
 use sidekicks_store::data_folder::plugin_home;
+use tokio::sync::mpsc;
 
 use self::config::{
     ClaudeMcpConfigSources, ClaudeMcpRoot, ClaudePersonConfigFiles, read_claude_mcp_config,
@@ -26,11 +31,35 @@ use self::precedence::{ClaudeMcpAccountServers, rank_claude_mcp_servers};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::session::account_servers::ClaudeAccountReadAsk;
+use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::driver::claude::spawn::launch::control_only::{
+    ClaudeShortProcess, ClaudeShortProcessArrival,
+};
 use crate::driver::contract::error::DriverError;
 use crate::driver::mcp_server::read::{
     McpProbeReading, McpProbeTarget, McpServersReadRequest, ProviderMcpServersReading,
 };
 use crate::driver::mcp_server::status::{FAILURE_TEXT_MAX_CODE_POINTS, McpServerReading};
+
+/// A process of the probe or of a sign-in once its `initialize` is answered: the process to send
+/// requests on and close, and what it writes, in order, which its one reader takes.
+pub(crate) struct ClaudeMcpProcess {
+    /// The process.
+    pub(crate) channel: Arc<dyn ClaudeProcessChannel>,
+    /// What the process writes: its frames, the requests it waits on, and its end.
+    pub(crate) arrivals: mpsc::UnboundedReceiver<ClaudeShortProcessArrival>,
+}
+
+impl From<ClaudeShortProcess> for ClaudeMcpProcess {
+    /// The short process taken apart into its process and its one reader's arrivals.
+    fn from(short: ClaudeShortProcess) -> Self {
+        let ClaudeShortProcess { process, arrivals } = short;
+        Self {
+            channel: process,
+            arrivals: arrivals.into_inner(),
+        }
+    }
+}
 
 /// Answers which MCP servers Claude Code declares and loads on this computer for `request`: the
 /// person's config ranked under each requested account's connectors and organization servers, a

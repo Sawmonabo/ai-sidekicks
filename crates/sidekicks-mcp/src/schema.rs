@@ -9,14 +9,16 @@ use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 use sidekicks_store::database::sql_list::{sql_list_of, sql_list_of_every};
 
 use crate::binding::store::PROJECT_SWITCH_SCOPES;
-use crate::client::tasks::McpTaskGeneration;
 use crate::client::tasks::recorder::MCP_TASK_ID_MAX_LENGTH;
+use crate::client::tasks::{McpServerEndpoint, McpTaskGeneration};
 use crate::command_receipts::{CommandAcceptance, CommandOutcome};
 
 /// A governance mutation's receipt status: written `pending` before the provider is touched, and
 /// `committed` with the saved response in the same write as the mutation's own rows. Stored by its
 /// camelCase name.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::IntoStaticStr, strum::VariantArray)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, strum::EnumString, strum::IntoStaticStr, strum::VariantArray,
+)]
 #[strum(serialize_all = "camelCase")]
 pub(crate) enum McpMutationReceiptStatus {
     /// The intent is recorded and the mutation has not finished.
@@ -46,6 +48,12 @@ fn command_receipts_schema_sql() -> String {
         sql_list_of_every::<CommandOutcome>()
     );
     let task_generations = sql_list_of_every::<McpTaskGeneration>();
+    let stdio_endpoint = McpServerEndpoint::STDIO;
+    let address_endpoint_glob = format!(
+        "{}{}",
+        McpServerEndpoint::ADDRESS_PREFIX,
+        "[0-9a-f]".repeat(McpServerEndpoint::ADDRESS_DIGEST_HEX_LEN)
+    );
     format!(
         "
 -- ---------------------------------------------------------------------------
@@ -54,15 +62,16 @@ fn command_receipts_schema_sql() -> String {
 CREATE TABLE command_receipts (
   id                   TEXT PRIMARY KEY,
   command_id           TEXT NOT NULL UNIQUE,      -- the client-supplied idempotency key
-  run_id               TEXT,
+  run_id               TEXT NOT NULL,
   status               TEXT NOT NULL CHECK(status IN ({receipt_statuses})),
-  -- The two-phase commit: started_at is set once by the claim's compare-and-set, completed_at by
-  -- the terminal write. Claimed and not completed is in flight.
+  -- started_at is set in the write that records the command, and completed_at by its end's write.
+  -- Started and not completed is in flight.
   started_at           TEXT,
   completed_at         TEXT,
   -- The receiver-generated task id from a task-augmented call's acceptance, the one handle the
-  -- call is resumed by after a restart. NULL until the acceptance is stored, so a crash before it
-  -- leaves the call halted, never run again. Untrusted peer output, bounded in code points.
+  -- call is resumed by after a restart. NULL until the acceptance is stored; a call a restart
+  -- finds with no handle is never run again, and its run goes on, told the outcome is unknown.
+  -- Untrusted peer output, bounded in code points.
   mcp_task_id          TEXT
                        CHECK(mcp_task_id IS NULL OR (length(mcp_task_id) > 0
                          AND length(mcp_task_id) <= {MCP_TASK_ID_MAX_LENGTH}
@@ -70,14 +79,26 @@ CREATE TABLE command_receipts (
   -- The task's protocol generation, set exactly when mcp_task_id is and in the same statement,
   -- since a task is resumed by its generation.
   mcp_task_generation  TEXT CHECK(mcp_task_generation IN ({task_generations})),
-  -- 1 once a task-augmented call's result has reached the conversation, so a result that arrives
-  -- after a restart is delivered once.
+  -- The name of the server the task was accepted on; a resume reaches only that server.
+  mcp_server_name      TEXT,
+  -- Which server the task was accepted on, by its endpoint; a resume reaches only that server.
+  mcp_server_endpoint  TEXT CHECK(mcp_server_endpoint IS NULL
+                         OR mcp_server_endpoint = '{stdio_endpoint}'
+                         OR mcp_server_endpoint GLOB '{address_endpoint_glob}'),
+  -- 1 once the call moved to the background, so its result is owed a delivery.
+  backgrounded         INTEGER NOT NULL DEFAULT 0 CHECK(backgrounded IN (0, 1)),
+  -- 1 once a backgrounded call's result has reached the conversation, so a result that arrives
+  -- after a restart is delivered once; only a backgrounded call's result is owed a delivery.
   delivered            INTEGER NOT NULL DEFAULT 0 CHECK(delivered IN (0, 1)),
   created_at           TEXT NOT NULL,
-  CHECK((mcp_task_generation IS NULL) = (mcp_task_id IS NULL))
+  -- The task's handle, generation, server name and endpoint are set together or NULL together.
+  CHECK((mcp_task_id IS NULL) = (mcp_task_generation IS NULL)
+    AND (mcp_task_id IS NULL) = (mcp_server_name IS NULL)
+    AND (mcp_task_id IS NULL) = (mcp_server_endpoint IS NULL)),
+  CHECK(delivered <= backgrounded)
 ) STRICT;
 
-CREATE INDEX idx_command_receipts_run ON command_receipts(run_id) WHERE run_id IS NOT NULL;
+CREATE INDEX idx_command_receipts_run ON command_receipts(run_id);
 -- The in-flight receipts the restart's sweep reads.
 CREATE INDEX idx_command_receipts_inflight ON command_receipts(run_id)
   WHERE started_at IS NOT NULL AND completed_at IS NULL;
@@ -165,6 +186,22 @@ CREATE TABLE mcp_mutation_receipts (
   client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
   -- The mcp.* method the key was spent on.
   operation               TEXT NOT NULL,
+  -- The binding the mutation writes, keyed as its row is. No foreign key: a first add's row does
+  -- not exist when the receipt begins, and a committed remove's receipt outlives its binding.
+  provider                TEXT NOT NULL,
+  scope                   TEXT NOT NULL CHECK(scope IN ({scopes})),
+  scope_ref               TEXT NOT NULL DEFAULT '',
+  scope_place             TEXT NOT NULL DEFAULT '',
+  server_name             TEXT NOT NULL,
+  -- The keyed digest of the idempotency key and the request; NULL only on a row committed when
+  -- the receipt key was lost.
+  request_digest          BLOB CHECK(request_digest IS NULL OR length(request_digest) = 32),
+  -- The keyed digest of the binding's declaration before the write; NULL where it had none.
+  before_digest           BLOB CHECK(before_digest IS NULL OR length(before_digest) = 32),
+  -- The keyed digest of the declaration the write leaves; NULL for a remove.
+  after_digest            BLOB CHECK(after_digest IS NULL OR length(after_digest) = 32),
+  -- A switch's wanted state; NULL for every other mutation.
+  wanted_enabled          INTEGER CHECK(wanted_enabled IS NULL OR wanted_enabled IN (0, 1)),
   status                  TEXT NOT NULL CHECK(status IN ({receipt_statuses})),
   -- The response a retry with the same key gets back; NULL while pending. A sign-in's is saved
   -- without its sign-in address.
@@ -172,7 +209,10 @@ CREATE TABLE mcp_mutation_receipts (
   -- Committed rows older than a day are pruned on later mutation writes; a pending one is settled
   -- at start.
   created_at              TEXT NOT NULL,
-  CHECK((status = '{committed}') = (response_json IS NOT NULL))
+  CHECK((status = '{committed}') = (response_json IS NOT NULL)),
+  CHECK(request_digest IS NOT NULL OR status = '{committed}'),
+  CHECK((scope IN ({scopes_without_ref})) = (scope_ref = '')),
+  CHECK(scope IN ({scopes_with_place}) OR scope_place = '')
 ) STRICT;
 
 -- ---------------------------------------------------------------------------
@@ -199,15 +239,17 @@ CREATE TABLE mcp_project_server_switches (
 ) STRICT;
 
 -- ---------------------------------------------------------------------------
--- mcp_server_admitted_clients: which sign-in client each server admitted at its last sign-in, kept
--- through a sign-out. Not a credential.
+-- mcp_server_admitted_clients: which sign-in client each server admitted, one row per server
+-- address however many bindings name it, kept through a sign-out. Not a credential.
 -- ---------------------------------------------------------------------------
 CREATE TABLE mcp_server_admitted_clients (
-  provider               TEXT NOT NULL,
-  server_name            TEXT NOT NULL,
-  -- 'daemon', or the open id of the provider whose own client the server admits.
-  admitted_oauth_client  TEXT NOT NULL,
-  PRIMARY KEY (provider, server_name)
+  -- The server's canonical address, the account its sign-in is kept under.
+  server_address            TEXT NOT NULL PRIMARY KEY,
+  -- The open id of the provider whose own client the server admitted; NULL until one has.
+  admitted_oauth_client     TEXT,
+  -- When the daemon's own client last ended an attempt with no callback; NULL otherwise.
+  own_client_unfinished_at  TEXT,
+  CHECK(admitted_oauth_client IS NOT NULL OR own_client_unfinished_at IS NOT NULL)
 ) STRICT;
 "
     )
@@ -312,9 +354,11 @@ mod tests {
             };
             connection
                 .execute(
-                    "INSERT INTO mcp_mutation_receipts
-                       (client_idempotency_key, operation, status, response_json, created_at)
-                     VALUES (?1, 'mcp.server.upsert', ?1, ?2, 't')",
+                    "INSERT INTO mcp_mutation_receipts (client_idempotency_key, operation,
+                       provider, scope, server_name, request_digest, status, response_json,
+                       created_at)
+                     VALUES (?1, 'mcp.server.upsert', 'provider-a', 'user', 'server',
+                       zeroblob(32), ?1, ?2, 't')",
                     params![word, response],
                 )
                 .unwrap_or_else(|error| panic!("receipt status {word} is stored: {error}"));
@@ -350,8 +394,15 @@ mod tests {
          VALUES ('provider-a', 'user', 'server', 'tool', 'manualReconcileOnly', 't', 't')"
     )]
     #[case::outsider_receipt_status(
-        "INSERT INTO mcp_mutation_receipts (client_idempotency_key, operation, status, created_at)
-         VALUES ('key-1', 'mcp.server.upsert', 'expired', 't')"
+        "INSERT INTO mcp_mutation_receipts (client_idempotency_key, operation, provider, scope,
+           server_name, request_digest, status, created_at)
+         VALUES ('key-1', 'mcp.server.upsert', 'provider-a', 'user', 'server', zeroblob(32),
+           'expired', 't')"
+    )]
+    #[case::pending_without_request_digest(
+        "INSERT INTO mcp_mutation_receipts (client_idempotency_key, operation, provider, scope,
+           server_name, status, created_at)
+         VALUES ('key-1', 'mcp.server.upsert', 'provider-a', 'user', 'server', 'pending', 't')"
     )]
     #[case::outsider_switch_scope(
         "INSERT INTO mcp_project_server_switches (provider, scope, scope_ref, server_name,

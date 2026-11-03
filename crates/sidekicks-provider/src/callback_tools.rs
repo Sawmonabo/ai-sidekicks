@@ -2,4 +2,4 @@
 //! `sidekicks` tool route, and each spawn's binding to it.
 
 pub mod host;
-pub(crate) mod spawn_binding;
+pub mod spawn_binding;

@@ -5,9 +5,25 @@ use std::borrow::Cow;
 use rusqlite::types::Value;
 use sidekicks_contracts::place::Place;
 
+// The form every stored time is written in, as a SQL literal.
+macro_rules! stored_time_form_sql {
+    () => {
+        "'%Y-%m-%dT%H:%M:%fZ'"
+    };
+}
+
 /// The database clock's current time as a SQL expression, in the same ISO 8601 form as every
 /// stored time.
-pub const DATABASE_NOW_SQL: &str = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
+pub const DATABASE_NOW_SQL: &str = concat!("strftime(", stored_time_form_sql!(), ", 'now')");
+
+/// The database clock's time moved by `modifier`, SQLite date modifiers written as SQL (a quoted
+/// literal such as `'-1 day'`, or a parameter), as a SQL expression in [`DATABASE_NOW_SQL`]'s form.
+pub fn database_time_sql(modifier: &str) -> String {
+    format!(
+        concat!("strftime(", stored_time_form_sql!(), ", 'now', {})"),
+        modifier
+    )
+}
 
 /// A statement's bound values: none, positional, or named with SQLite's `@` prefix kept in each
 /// name (`@session_id`).

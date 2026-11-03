@@ -5,6 +5,8 @@
 //! however late it comes; the engine's stop waits on it for a bounded time. A hand the provider
 //! got with no answer back leaves its row pending and the stop's cut kept, for the run's end to
 //! settle: applied when the run ended `interrupted`, else expired with the limit still owed.
+//! A restart's hand carries out once a row the old process left `accepted`, its outcome recorded
+//! as a hand no stop awaits.
 
 use std::pin::Pin;
 use std::time::Duration;
@@ -97,7 +99,9 @@ impl LimitInterrupter for InterventionService {
                     let handed = service.hand_limit_interrupt(run_id, limit, cut_turn).await;
                     // A failed send is an answer past the bound, which the stop no longer awaits.
                     if let Err(late) = answer_sender.send(handed) {
-                        service.record_late_hand(run_id, limit, cut, late).await;
+                        service
+                            .record_unawaited_hand(run_id, limit, cut, late)
+                            .await;
                     }
                 }
                 .instrument(tracing::Span::current()),
@@ -202,6 +206,30 @@ impl InterventionService {
             });
         }
         self.carry_out_limit_interrupt(&accepted).await
+    }
+
+    /// Carries out once the limit's interrupt `target` names, whose `record` a restart found
+    /// `accepted` at `accepted_run_version`, as its live hand would; a failure is recorded as a
+    /// hand no stop awaits, with the cut the restart restored from the row. The caller holds the
+    /// run's interrupt lock.
+    pub(super) async fn hand_limit_interrupt_again(
+        &self,
+        target: InterventionTarget,
+        record: LimitInterruptRecord,
+        accepted_run_version: i64,
+    ) {
+        let run_id = target.target_run_id;
+        let LimitInterruptRecord { limit, turn_number } = record;
+        let accepted = AcceptedLimitInterrupt {
+            target,
+            limit,
+            cut_turn: turn_number,
+            accepted_run_version,
+        };
+        let handed = self.carry_out_limit_interrupt(&accepted).await;
+        let cut = turn_number
+            .and_then(|turn_number| self.engine.restored_cut(run_id, turn_number, limit));
+        self.record_unawaited_hand(run_id, limit, cut, handed).await;
     }
 
     // Dispatches an accepted limit's interrupt unless the run's read says its end is already done
@@ -362,24 +390,24 @@ impl InterventionService {
         }
     }
 
-    // A hand that answers past its bound: one that left no row pending withdraws the stop's own
-    // cut and owes the limit again; one that applied has ended the run, and one still pending
-    // keeps its cut.
-    async fn record_late_hand(
+    // The outcome of a hand no stop awaits, one past its bound or one a restart handed again: one
+    // that left no row pending withdraws its `cut` and owes the limit again; one that applied has
+    // ended the run, and one still pending keeps its cut for the run's end to settle.
+    async fn record_unawaited_hand(
         &self,
         run_id: RunId,
         limit: RunLimit,
         cut: Option<HandedCut>,
-        late: Result<(), LimitInterruptFailure>,
+        outcome: Result<(), LimitInterruptFailure>,
     ) {
-        let Err(failure) = late else {
+        let Err(failure) = outcome else {
             return;
         };
         tracing::warn!(
             run_id = %run_id,
             limit = <&'static str>::from(limit),
             error = &failure as &(dyn std::error::Error + 'static),
-            "a limit's interrupt failed past its bound"
+            "a limit's interrupt failed with no stop awaiting it"
         );
         if let LimitInterruptFailure::NoRow { .. } = failure
             && let Err(error) = self.engine.forget_late_limit_hand(run_id, limit, cut).await
@@ -388,7 +416,7 @@ impl InterventionService {
                 run_id = %run_id,
                 limit = <&'static str>::from(limit),
                 error = &error as &(dyn std::error::Error + 'static),
-                "the late failure of a limit's interrupt could not be forgotten"
+                "the unawaited failure of a limit's interrupt could not be forgotten"
             );
         }
     }

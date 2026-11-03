@@ -30,12 +30,15 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 use sidekicks_contracts::context_window::ContextWindowSource;
-use sidekicks_contracts::event::usage::UsageContainment;
+use sidekicks_contracts::event::usage::{UsageContainment, UsageCostSource};
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
 use strum::{IntoStaticStr, VariantArray};
 
+use crate::driver::contract::account::WindowTurnSpend;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -357,20 +360,41 @@ impl UsageDeltaAccountant {
     }
 }
 
-/// Where a cost update's figure came from.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the pricing step sets each request's cost and its source through this ladder"
-    )
-)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum UsageCostSource {
-    /// The provider's own figure.
-    ProviderReported,
-    /// The price list's entry for the model's exact id, applied to the full breakdown.
-    DerivedExact,
+/// What a process that ran one turn and nothing else spent on `provider`: its cumulative `counts`
+/// metered from a zero base, the input normalized as a session's usage rows are, on `model_id` as
+/// the provider names it. Fails with `None` where a count is past the wire's integer range.
+pub(crate) fn compose_one_turn_spend(
+    provider: ProviderId,
+    model_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+    counts: UsageAxisCounts,
+) -> Option<WindowTurnSpend> {
+    const THREAD_ID: &str = "one-turn";
+    let mut accountant = UsageDeltaAccountant::new(provider);
+    accountant.establish_thread(THREAD_ID.to_owned(), ThreadBaseEstablishment::Fresh);
+    let delta = accountant.meter_reading(CumulativeUsageReading {
+        thread_id: THREAD_ID.to_owned(),
+        named_turn_id: None,
+        cumulative: counts,
+        declared_per_turn: None,
+    })?;
+    // An absent axis stays absent; a present one past the range answers `None`.
+    let figure = |figure: Option<u64>| match figure {
+        Some(figure) => SafeInt::new(figure).map(Some),
+        None => Some(None),
+    };
+    Some(WindowTurnSpend {
+        model_id,
+        input_tokens: figure(
+            delta
+                .axis_deltas
+                .input
+                .map(|_| delta.normalized_input_tokens),
+        )?,
+        output_tokens: figure(delta.axis_deltas.output)?,
+        cache_read_tokens: figure(delta.axis_deltas.cached_input)?,
+        cache_write_tokens: figure(delta.axis_deltas.cache_write_input)?,
+        reasoning_tokens: figure(delta.axis_deltas.reasoning_output)?,
+    })
 }
 
 /// A price list's answer for one request: whole micro-dollars from the provider's full breakdown,

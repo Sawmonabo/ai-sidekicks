@@ -83,7 +83,7 @@ pub(crate) fn register_repo_mounts(
             let list_feed = Arc::clone(&list_feed);
             async move {
                 // Read first: the re-attach moves the project onto a new mount without an event.
-                let project_id = match usage.read_usage(&request.repo_mount_id).await?.origin {
+                let project_id = match usage.read_origin(&request.repo_mount_id).await? {
                     RepoMountOrigin::Attached { project_id, .. } => Some(project_id),
                     RepoMountOrigin::Managed { .. } | RepoMountOrigin::Worktree { .. } => None,
                 };

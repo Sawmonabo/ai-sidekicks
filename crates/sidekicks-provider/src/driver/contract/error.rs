@@ -2,6 +2,8 @@
 //! failure text it carries.
 
 use std::error::Error;
+use std::io;
+use std::sync::Arc;
 
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -13,6 +15,7 @@ use sidekicks_ipc::registry::HandlerError;
 use sidekicks_std::text_cut::cut_to_code_points;
 
 use crate::capability::probe::CapabilityProbeError;
+use crate::driver::contract::sign_in::{NoPersonServerEntry, ProviderSignInFailure};
 use crate::driver::error_causes::{
     ExecutableUnresolvable, ModelCatalogUnreadable, ProviderAxisInvalid, RequestUnanswered,
 };
@@ -61,6 +64,14 @@ pub enum DriverError {
     /// the send for it.
     #[error("the provider does not list skill {} in {}", .0.name.as_str(), .0.folder_path.as_str())]
     SkillNotListed(QueuedSkillPick),
+    /// An MCP sign-in through the provider's own client was asked for a binding with no entry of
+    /// the person's.
+    #[error(transparent)]
+    NoPersonServerEntry(Box<NoPersonServerEntry>),
+    /// An MCP sign-in through the provider's own client ended without a sign-in, for this kind of
+    /// reason.
+    #[error("the provider's own MCP sign-in did not sign in")]
+    SignInFailed(#[source] ProviderSignInFailure),
     /// The driver or its provider failed.
     #[error("the provider driver failed")]
     Internal(#[source] Box<dyn Error + Send + Sync>),
@@ -68,6 +79,52 @@ pub enum DriverError {
 
 // The large payloads are boxed so every `Result` carrying the error stays small.
 const _: () = assert!(size_of::<DriverError>() <= 64);
+
+impl DriverError {
+    /// `failure`, which several waiters share, as one of them answers it: a refusal, a request
+    /// with no answer and a command that names no runnable build under their own code, words and
+    /// detail, any other failure as the driver's own, each with the shared failure underneath.
+    pub(crate) fn shared(failure: &Arc<DriverError>) -> Self {
+        let underneath = || -> Box<dyn Error + Send + Sync> {
+            Box::new(SharedDriverFailure(Arc::clone(failure)))
+        };
+        match &**failure {
+            Self::Refused(refusal) => Self::from(copy_refusal(refusal).with_source(underneath())),
+            Self::Unanswered(unanswered) => Self::from(RequestUnanswered {
+                refusal: copy_refusal(&unanswered.refusal).with_source(underneath()),
+            }),
+            Self::ExecutableUnresolvable(unresolvable) => Self::from(ExecutableUnresolvable {
+                provider: unresolvable.provider.clone(),
+                requested_command: unresolvable.requested_command.clone(),
+                is_typed_path: unresolvable.is_typed_path,
+                is_build_found: unresolvable.is_build_found,
+                cause: io::Error::new(unresolvable.cause.kind(), underneath()),
+            }),
+            Self::SteerTurnEnded(_)
+            | Self::RunRefused(_)
+            | Self::CapabilityProbe(_)
+            | Self::ModelCatalogUnreadable(_)
+            | Self::ProviderAxisInvalid(_)
+            | Self::RuleNotKept(_)
+            | Self::SkillNotListed(_)
+            | Self::NoPersonServerEntry(_)
+            | Self::SignInFailed(_)
+            | Self::Internal(_) => Self::Internal(underneath()),
+        }
+    }
+}
+
+// One failure several waiters share, under each waiter's own answer.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+struct SharedDriverFailure(Arc<DriverError>);
+
+// `refusal`'s words, code and detail, with no failure underneath.
+fn copy_refusal(refusal: &DomainError) -> DomainError {
+    let mut copy = DomainError::new(refusal.message.clone(), refusal.code);
+    copy.detail.clone_from(&refusal.detail);
+    copy
+}
 
 impl From<DomainError> for DriverError {
     fn from(refusal: DomainError) -> Self {
@@ -99,6 +156,18 @@ impl From<ProviderAxisInvalid> for DriverError {
     }
 }
 
+impl From<NoPersonServerEntry> for DriverError {
+    fn from(no_entry: NoPersonServerEntry) -> Self {
+        Self::NoPersonServerEntry(Box::new(no_entry))
+    }
+}
+
+impl From<ProviderSignInFailure> for DriverError {
+    fn from(failure: ProviderSignInFailure) -> Self {
+        Self::SignInFailed(failure)
+    }
+}
+
 impl From<RuntimeBindingStoreError> for DriverError {
     /// A driver's read of the daemon's stored bindings that failed is the driver's own failure.
     fn from(error: RuntimeBindingStoreError) -> Self {
@@ -113,8 +182,9 @@ impl From<DriverError> for HandlerError {
     /// command that names no runnable build as `ExecutableUnresolvable::into_refusal` says; a
     /// provider axis the provider does not offer answers `agent.providerAxisInvalid` naming the
     /// agent, the axis and the value; a steer whose turn ended, a refused run start, a rule the
-    /// provider could not keep or a skill pick it does not list, reaching a handler, is a fault in
-    /// the daemon, as is the driver's own failure.
+    /// provider could not keep, a skill pick it does not list, an MCP sign-in binding with no entry
+    /// of the person's or a provider's own MCP sign-in that did not sign in, reaching a handler, is
+    /// a fault in the daemon, as is the driver's own failure.
     fn from(error: DriverError) -> Self {
         match error {
             DriverError::Refused(refusal) => Self::Refused(*refusal),
@@ -156,6 +226,8 @@ impl From<DriverError> for HandlerError {
             DriverError::RuleNotKept(not_kept) => Self::Internal(Box::new(not_kept)),
             DriverError::RunRefused(refusal) => Self::Internal(Box::new(refusal)),
             error @ DriverError::SkillNotListed(_) => Self::Internal(Box::new(error)),
+            DriverError::NoPersonServerEntry(no_entry) => Self::Internal(no_entry),
+            DriverError::SignInFailed(failure) => Self::Internal(Box::new(failure)),
             DriverError::Internal(fault) => Self::Internal(fault),
         }
     }

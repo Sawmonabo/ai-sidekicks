@@ -5,6 +5,8 @@
 
 use std::sync::Arc;
 
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::run::id::RunId;
 use tokio::sync::oneshot;
 
@@ -20,7 +22,9 @@ use crate::driver::codex::run::steer::{register_codex_steer, withdraw_codex_stee
 use crate::driver::codex::run::turn_end_waiters::{
     CodexTurnEndDeadline, CodexTurnEndWaiters, CodexTurnWait,
 };
+use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::establishment::helpers::restore_reattached_codex_helper;
 use crate::driver::codex::session::fork::config_change::run_codex_config_fork;
 use crate::driver::codex::session::fork::{CodexForkDependencies, move_codex_session_to_fork};
 use crate::driver::codex::session::inbound::{
@@ -53,9 +57,12 @@ pub(crate) struct CodexSessionCallDependencies {
     pub(crate) runs: CodexRunCallDependencies,
 }
 
-/// What a goal's turn, a rewind and `Allow once` read of a session: the connection its
-/// conversation is on, the conversation, and the state of its turns.
+/// What a goal's turn, a rewind, `Allow once`, a helper's reopen and a message's delivery read of
+/// a session: the service and connection its conversation is on, the conversation, the state of
+/// its turns, and the posture and account a turn the daemon starts on it runs at.
 pub(crate) struct CodexSessionReading {
+    /// The service, which a reopened helper is registered on.
+    pub(crate) service: Arc<CodexService>,
     /// The connection, or why the service has none.
     pub(crate) connection: Result<Arc<CodexAppServerConnection>, CodexError>,
     /// The session's conversation.
@@ -67,6 +74,26 @@ pub(crate) struct CodexSessionReading {
     /// Whether the service holds the conversation the reading was asked about loaded: the
     /// session's own or one of its helpers'.
     pub(crate) is_thread_loaded: bool,
+    /// The session's level and roots as they stand now.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the driver method that delivers another session's message, wake-up or \
+                      reminder starts its turn at it"
+        )
+    )]
+    pub(crate) execution_posture: ExecutionPosture,
+    /// The account the session's process was admitted against.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the driver method that delivers another session's message, wake-up or \
+                      reminder starts its turn on it"
+        )
+    )]
+    pub(crate) provider_account_id: ProviderAccountId,
 }
 
 /// Runs `call` on the session's task, answering on the call's own reply, and settles the waits
@@ -139,6 +166,15 @@ pub(crate) async fn run_codex_session_call(
         }
         CodexSessionCall::RunControl(call) => {
             run_codex_run_control_call(call, task.record, &dependencies.runs);
+        }
+        CodexSessionCall::RestoreHelper {
+            helper,
+            prior_emitted,
+            reply,
+        } => {
+            routed =
+                restore_reattached_codex_helper(task, dependencies, *helper, prior_emitted).await;
+            let _unheard = reply.send(());
         }
         CodexSessionCall::StopTurnForRetry {
             run_id,
@@ -266,10 +302,12 @@ pub(crate) async fn wait_for_codex_turns(
     }
 }
 
-// What the session's task reads for a goal's turn, a rewind or an `Allow once`.
+// What the session's task reads for a goal's turn, a rewind, an `Allow once`, a helper's reopen
+// or a message's delivery.
 fn read_codex_session(task: &CodexSessionTask<'_>, thread_id: Option<&str>) -> CodexSessionReading {
     let record = &*task.record;
     CodexSessionReading {
+        service: Arc::clone(&record.service),
         connection: record.service.connection(),
         thread_id: record.thread_id.clone(),
         is_turn_in_flight: record.is_turn_in_flight(None),
@@ -281,5 +319,7 @@ fn read_codex_session(task: &CodexSessionTask<'_>, thread_id: Option<&str>) -> C
         is_thread_loaded: thread_id.is_none_or(|thread_id| {
             thread_id == record.thread_id || task.routing.is_helper_thread(thread_id)
         }),
+        execution_posture: record.execution_posture.clone(),
+        provider_account_id: record.provider_account_id.clone(),
     }
 }

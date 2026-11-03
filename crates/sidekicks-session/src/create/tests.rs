@@ -11,7 +11,6 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::machine::settings::{MachineSettings, ProviderRowValue};
 use sidekicks_contracts::project::ProjectId;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::ProviderDeclarationId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::ExecutionMode;
@@ -61,10 +60,12 @@ use crate::directory::row::{DirectoryEvent, directory_statements_for};
 use crate::questions::schema::schema_parts;
 
 /// The project the fixture stores, its id its attached mount's too.
-const PROJECT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e81";
+pub(super) const PROJECT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e81";
 const OTHER_PROJECT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e91";
-const FIRST_ACCOUNT: &str = "account-a";
-const SECOND_ACCOUNT: &str = "account-b";
+/// The lead's provider's current account as the fixture stores it.
+pub(super) const FIRST_ACCOUNT: &str = "account-a";
+/// The lead's provider's other account.
+pub(super) const SECOND_ACCOUNT: &str = "account-b";
 
 // Long enough for a create that is not held by its key's lock to reach the append.
 const UNHELD_REACH_BOUND: Duration = Duration::from_millis(500);
@@ -96,17 +97,20 @@ impl SessionListRefresh for UnreadList {
 /// `PROJECT_ID` attached at a repository, and the lead's provider with two accounts, the first
 /// current, its driver starting every session read-only in Plan and picking an advisor wherever
 /// the app set one of its rows.
-struct Fixture {
-    database: TestDatabase,
+pub(super) struct Fixture {
+    pub(super) database: TestDatabase,
+    /// Writes rows straight to the database, as a service outside the creation does.
+    pub(super) writer: Arc<DatabaseWriter>,
     _scratch: TempDir,
     _writes: mpsc::Receiver<sidekicks_workspace::managed::write_watcher::ManagedWorkspaceReport>,
     settings: Arc<StoredSettings>,
     managed_workspaces: Arc<ManagedWorkspaceService>,
-    creation: Arc<SessionCreation>,
+    pub(super) creation: Arc<SessionCreation>,
 }
 
 impl Fixture {
-    async fn new() -> Self {
+    /// The fixture as the type's doc says.
+    pub(super) async fn new() -> Self {
         let database = TestDatabase::new(schema_parts());
         let writer = Arc::new(
             DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
@@ -221,6 +225,7 @@ impl Fixture {
         }));
         Self {
             database,
+            writer,
             _scratch: scratch,
             _writes: writes,
             settings,
@@ -246,21 +251,24 @@ impl Fixture {
             .expect("no provider is named __proto__");
     }
 
-    fn count(&self, sql: &str) -> i64 {
+    /// The count `sql` reads.
+    pub(super) fn count(&self, sql: &str) -> i64 {
         self.database
             .reader()
             .query_row(sql, [], |row| row.get(0))
             .expect("the test counts rows")
     }
 
-    fn text(&self, sql: &str) -> Option<String> {
+    /// The one value `sql` reads.
+    pub(super) fn text(&self, sql: &str) -> Option<String> {
         self.database
             .reader()
             .query_row(sql, [], |row| row.get(0))
             .expect("the test reads a value")
     }
 
-    fn execute(&self, sql: &str) {
+    /// Runs `sql` straight on the database.
+    pub(super) fn execute(&self, sql: &str) {
         self.database
             .reader()
             .execute_batch(sql)
@@ -268,7 +276,7 @@ impl Fixture {
     }
 
     /// Puts the project back to cloning, its folder detached.
-    fn start_cloning(&self) {
+    pub(super) fn start_cloning(&self) {
         self.execute(&format!(
             "UPDATE repo_mounts SET state = 'detached' WHERE id = '{PROJECT_ID}';
              UPDATE projects SET state = 'cloning', clone_url = 'https://example.com/app.git', \
@@ -277,7 +285,7 @@ impl Fixture {
     }
 
     /// Ends the project's clone, its folder attached again.
-    fn end_cloning(&self) {
+    pub(super) fn end_cloning(&self) {
         self.execute(&format!(
             "UPDATE projects SET state = 'active', clone_url = NULL, clone_outcome = NULL \
              WHERE id = '{PROJECT_ID}';
@@ -294,11 +302,13 @@ fn lead_provider() -> ProviderId {
     ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id is a provider id")
 }
 
-fn new_key() -> ClientUuid {
+/// A fresh idempotency key.
+pub(super) fn new_key() -> ClientUuid {
     ClientUuid::new(mint_uuid_v7().to_string()).expect("a minted UUID is a client UUID")
 }
 
-fn lead() -> SessionLead {
+/// The lead every test session is made with.
+pub(super) fn lead() -> SessionLead {
     SessionLead {
         provider_name: lead_provider(),
         model_id: ProviderToken::new("model-a".to_owned()).expect("the model fits"),
@@ -309,7 +319,11 @@ fn lead() -> SessionLead {
     }
 }
 
-fn project_request(key: ClientUuid, group_id: Option<SessionGroupId>) -> SessionCreateRequest {
+/// A project session's create in the fixture's project, under `key`.
+pub(super) fn project_request(
+    key: ClientUuid,
+    group_id: Option<SessionGroupId>,
+) -> SessionCreateRequest {
     SessionCreateRequest::Project(SessionCreateProjectRequest {
         client_idempotency_key: key,
         binding: SessionProjectBinding {
@@ -322,7 +336,8 @@ fn project_request(key: ClientUuid, group_id: Option<SessionGroupId>) -> Session
     })
 }
 
-fn chat_request(key: ClientUuid) -> SessionCreateRequest {
+/// A chat's create under `key`.
+pub(super) fn chat_request(key: ClientUuid) -> SessionCreateRequest {
     SessionCreateRequest::Chat(SessionCreateChatRequest {
         client_idempotency_key: key,
         binding: SessionChatBinding {
@@ -406,13 +421,16 @@ async fn a_create_runs_the_lead_on_the_account_made_current_on_its_way() {
     let (created, ()) = tokio::join!(create, move_current);
 
     let created = created.expect("the create lands");
-    let second = ProviderAccountId::new(SECOND_ACCOUNT.to_owned()).expect("an account id");
-    assert_eq!(created.lead.provider_account_id, Some(second));
+    assert_eq!(created.lead.provider_account_id, None, "the lead follows");
     assert_eq!(
         fixture.text(
             "SELECT json_extract(payload, '$.mainAgent.binding.providerAccountId') \
              FROM session_events WHERE type = 'session.created'"
         ),
+        None
+    );
+    assert_eq!(
+        fixture.text("SELECT provider_account_id FROM session_create_requests"),
         Some(SECOND_ACCOUNT.to_owned())
     );
 }
@@ -494,8 +512,9 @@ async fn a_chat_not_born_leaves_no_workspace_and_the_start_keeps_one_being_made(
     let key = new_key();
     let orphan = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
     fixture.execute(&format!(
-        "INSERT INTO session_create_requests (client_idempotency_key, session_id, execution_mode) \
-         VALUES ('{}', '{orphan}', 'boundRoot')",
+        "INSERT INTO session_create_requests \
+         (client_idempotency_key, session_id, execution_mode, provider_account_id) \
+         VALUES ('{}', '{orphan}', 'boundRoot', '{FIRST_ACCOUNT}')",
         key.as_str()
     ));
     fixture
@@ -537,6 +556,46 @@ async fn a_chat_not_born_leaves_no_workspace_and_the_start_keeps_one_being_made(
         )),
         1
     );
+}
+
+// Dies to the start's removal taking a folder another chat holds (the namesake's folder and mount
+// gone), and to a removal that counts the founding chat's own hold as another's (the lone folder
+// kept).
+#[tokio::test]
+async fn the_start_removes_an_unborn_chat_s_folder_only_while_no_other_chat_holds_it() {
+    let fixture = Fixture::new().await;
+    let new_session = || SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is an id");
+    let (namesake, holder, alone) = (new_session(), new_session(), new_session());
+    let held = fixture
+        .managed_workspaces
+        .create(namesake)
+        .await
+        .expect("the namesake's workspace is made");
+    fixture.execute(&format!(
+        "INSERT INTO managed_folder_holds (repo_mount_id, session_id) VALUES ('{}', '{holder}')",
+        held.repo_mount_id
+    ));
+    let lone = fixture
+        .managed_workspaces
+        .create(alone)
+        .await
+        .expect("the lone chat's workspace is made");
+
+    fixture
+        .creation
+        .finish_stopped_creates()
+        .await
+        .expect("the stopped creates are finished");
+
+    let mounts_of = |session_id: SessionId| {
+        fixture.count(&format!(
+            "SELECT count(*) FROM repo_mounts WHERE managed_session_id = '{session_id}'"
+        ))
+    };
+    assert!(held.path.exists());
+    assert_eq!(mounts_of(namesake), 1);
+    assert!(!lone.path.exists());
+    assert_eq!(mounts_of(alone), 0);
 }
 
 // Dies to the level statement omitted from `session.activated`'s prelude, and to the advisor's

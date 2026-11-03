@@ -1,10 +1,10 @@
 //! How each kind of Codex service starts, and what every start shares: the connect, the read of
 //! the loaded conversations and of the reported version, the launch on Codex's native program and
-//! the launch of a lasting service kept in its record. A service on an account home is a lasting
-//! service started or joined as `account` says, with the daemon's relay to its executor added
-//! before it answers; the capability read's, and a read's transient one on the person's own Codex
-//! folder, are the daemon's own children, dialed once they listen, with no relay; the terminal
-//! service on that folder starts as `terminal` says.
+//! the launch of a lasting service kept in its record. A service on an account home or the
+//! switching home is a lasting service started or joined as `account` says, with the daemon's
+//! relay to its executor added before it answers; the capability read's, and a read's transient
+//! one on the person's own Codex folder, are the daemon's own children, dialed once they listen,
+//! with no relay; the terminal service on that folder starts as `terminal` says.
 
 mod account;
 pub(crate) mod kept_records;
@@ -26,6 +26,7 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::ThreadLoadedListParams;
 use crate::driver::codex::exec_relay::{CODEX_EXECUTOR_ARGUMENTS, CodexExecRelay, RelayedThread};
 use crate::driver::codex::native_program::resolve_codex_native_program;
+use crate::driver::codex::privacy::read_codex_privacy;
 use crate::driver::codex::service::command_line::{
     CodexServiceCommandLineInput, compose_codex_service_arguments,
 };
@@ -167,10 +168,10 @@ pub(super) async fn start_codex_service(
             cause: Some(Box::new(error)),
         })?;
     match service.home().kind {
-        CodexHomeKind::Account(_) => {
+        CodexHomeKind::Account(_) | CodexHomeKind::Switching => {
             start_relayed_service(&service, launch, &cancel, &executable).await
         }
-        CodexHomeKind::CapabilityRead => {
+        CodexHomeKind::CapabilityRead | CodexHomeKind::McpSignIn => {
             start_own_child_service(&service, launch, &cancel, &executable).await
         }
         // A read's transient service on the folder is the daemon's own child, as the capability
@@ -187,7 +188,9 @@ pub(super) async fn start_codex_service(
 // An account's service: its relay readied first, the service then started or joined as a lasting
 // service, and the relay's environment added on its connection before the start answers, so it
 // precedes any resume of a conversation there; a joined service takes the new relay's environment
-// in place of the one its former daemon's relay served.
+// in place of the one its former daemon's relay served. The switching service is handed its
+// account's tokens there too, after the environment, so a start, a crash's restart and a rejoin
+// all carry the account before any conversation resumes or any run is admitted on it.
 async fn start_relayed_service(
     service: &Arc<CodexService>,
     launch: u64,
@@ -206,12 +209,28 @@ async fn start_relayed_service(
     .await?;
     let environment_add = relay.start(executor_launch.into_command()).await?;
     let started = start_account_home_service(service, launch, cancel, executable).await?;
-    match started
-        .connection
-        .request(ENVIRONMENT_ADD_METHOD, &environment_add)
-        .await
-    {
-        Ok(_added) => Ok(started),
+    let readied = async {
+        started
+            .connection
+            .request(ENVIRONMENT_ADD_METHOD, &environment_add)
+            .await?;
+        match service.home().kind {
+            CodexHomeKind::Switching => {
+                service
+                    .dependencies()
+                    .switching
+                    .hand_at_start(service, &started.connection)
+                    .await
+            }
+            CodexHomeKind::Account(_)
+            | CodexHomeKind::PersonalFolder
+            | CodexHomeKind::CapabilityRead
+            | CodexHomeKind::McpSignIn => Ok(()),
+        }
+    }
+    .await;
+    match readied {
+        Ok(()) => Ok(started),
         Err(error) => Err(StartFailure {
             error,
             process: started.process.map(Box::new),
@@ -532,13 +551,17 @@ pub(super) fn read_service_version(
 }
 
 // The launch of a service on the native program the build runs, with the launcher's variables
-// set, in the dedicated empty working folder.
+// set, in the dedicated empty working folder. Every service carries the privacy choices read now
+// from the person's own Codex folder, last, so they win over any switch before them, whichever
+// home it runs on. Fails as that read does.
 async fn compose_launch(
     service: &CodexService,
     executable: &ResolvedProviderExecutable,
-    additional_config_overrides: Vec<String>,
+    mut additional_config_overrides: Vec<String>,
     launch_socket: &Path,
 ) -> Result<CodexProcessLaunch, StartFailure> {
+    let privacy = read_codex_privacy(&service.dependencies().personal_home).await?;
+    additional_config_overrides.extend(privacy.config_overrides());
     let arguments = compose_codex_service_arguments(&CodexServiceCommandLineInput {
         listen_address: service.listen_address(launch_socket),
         additional_config_overrides,

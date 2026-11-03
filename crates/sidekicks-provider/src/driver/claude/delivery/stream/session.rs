@@ -11,23 +11,43 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::oneshot;
 use tokio::time::Instant;
 
 use crate::driver::claude::delivery::commands::ClaudeHeldCommand;
 use crate::driver::claude::delivery::run_readings::{ClaudeOpenTurn, ClaudeStreamSession};
 use crate::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
+use crate::driver::claude::goals::endings::ClaudeProcessGoal;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::arrivals::{ClaudeArrivalSender, ClaudeTurnAtRead};
 use crate::driver::claude::session::permission_mode::ClaudePermissionModeRecord;
+use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::diagnostics::OnceReportedDiagnostics;
+
+/// Claude Code's error word for a request refused for its login.
+pub(crate) const CLAUDE_LOGIN_REFUSAL: &str = "authentication_failed";
+
+/// How the first request a session's process made after an account move was answered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClaudeFirstRequest {
+    /// The provider answered it.
+    Answered,
+    /// The provider refused it for its login.
+    LoginRefused,
+}
 
 /// One session's stream while its process runs: its readings, behind one lock never held across
 /// an await, and its queue.
 pub(crate) struct ClaudeSessionStream {
     pub(super) session_id: SessionId,
-    pub(super) provider_account_id: ProviderAccountId,
+    // The account the process runs on, shared with its readers and moved where it acknowledged a
+    // switch among its frames.
+    account: ClaudeProcessAccount,
     pub(super) step_bound: Option<SafeInt<1>>,
+    // The lead whose goal the process carries, and the conversation file its outcomes are read
+    // from.
+    pub(super) goal: ClaudeProcessGoal,
     readings: Mutex<ClaudeStreamSession>,
     arrivals: ClaudeArrivalSender,
     routes: Arc<ClaudeRunRoutes>,
@@ -40,15 +60,19 @@ pub(crate) struct ClaudeSessionStream {
     pub(super) unlisted_result_reports: Mutex<OnceReportedDiagnostics>,
     // How many turns the run engine could not number have ended.
     unnumbered_turns: AtomicU64,
+    // Where the next request's answer goes, once an account move asked to hear it.
+    first_request: Mutex<Option<oneshot::Sender<ClaudeFirstRequest>>>,
 }
 
 impl ClaudeSessionStream {
     /// A stream for the process running on `provider_account_id`'s home, counting each turn's
     /// steps against `step_bound`, queuing onto `arrivals` and taking the mode reports into
-    /// `permission_mode`, the process's record the live session shares.
+    /// `permission_mode`, the process's record the live session shares, and reading the goal of
+    /// `goal`'s lead from its conversation file.
     pub(crate) fn new(
         provider_account_id: ProviderAccountId,
         step_bound: Option<SafeInt<1>>,
+        goal: ClaudeProcessGoal,
         arrivals: ClaudeArrivalSender,
         routes: Arc<ClaudeRunRoutes>,
         prompts: Arc<Mutex<ClaudeSentPrompts>>,
@@ -56,9 +80,10 @@ impl ClaudeSessionStream {
     ) -> Self {
         Self {
             session_id: arrivals.session_id(),
-            readings: Mutex::new(ClaudeStreamSession::new(provider_account_id.clone())),
-            provider_account_id,
+            readings: Mutex::new(ClaudeStreamSession::new()),
+            account: ClaudeProcessAccount::new(Some(provider_account_id)),
             step_bound,
+            goal,
             arrivals,
             routes,
             prompts,
@@ -66,6 +91,7 @@ impl ClaudeSessionStream {
             unheld_reports: Mutex::default(),
             unlisted_result_reports: Mutex::default(),
             unnumbered_turns: AtomicU64::new(0),
+            first_request: Mutex::new(None),
         }
     }
 
@@ -80,6 +106,8 @@ impl ClaudeSessionStream {
     ) {
         let mut readings = self.lock();
         readings.turn_readings.open(run.run_id, provider_turn_id);
+        // The resumed turn is under way, so a message it takes in joins it.
+        readings.has_turn_message = true;
         readings.turn = Some(ClaudeOpenTurn {
             run_id: run.run_id,
             binding_id: run.binding_id,
@@ -108,14 +136,53 @@ impl ClaudeSessionStream {
         &self.arrivals
     }
 
-    /// The account the process runs on.
-    pub(crate) fn provider_account_id(&self) -> &ProviderAccountId {
-        &self.provider_account_id
+    /// The account the process runs on now: the one it started on, or the one a switch it
+    /// acknowledged moved it onto.
+    pub(crate) fn provider_account_id(&self) -> ProviderAccountId {
+        self.account
+            .read()
+            .expect("a session's stream is made on an account and only ever moved onto another")
+    }
+
+    /// The account the process runs on, which its launch hands its readers so each diagnostic
+    /// names the account the stream is on.
+    pub(crate) fn account(&self) -> ClaudeProcessAccount {
+        self.account.clone()
+    }
+
+    // Moves the stream and the process's readers onto `provider_account_id`'s account, where the
+    // process acknowledged the switch, so every frame read after it is that account's.
+    pub(super) fn move_account(&self, provider_account_id: ProviderAccountId) {
+        self.account.move_to(provider_account_id);
+    }
+
+    /// Answers `watch` how the process's next request goes; a watch held before is dropped, which
+    /// reads as no request seen.
+    pub(crate) fn watch_first_request(&self, watch: oneshot::Sender<ClaudeFirstRequest>) {
+        *lock(&self.first_request) = Some(watch);
+    }
+
+    // Whether an account move waits to hear how the process's next request goes.
+    pub(super) fn is_watching_first_request(&self) -> bool {
+        lock(&self.first_request).is_some()
+    }
+
+    // Answers the watch on the next request, where one is held.
+    pub(super) fn settle_first_request(&self, outcome: ClaudeFirstRequest) {
+        if let Some(watch) = lock(&self.first_request).take() {
+            // A watcher that stopped waiting needs no answer.
+            watch.send(outcome).unwrap_or(());
+        }
     }
 
     /// The running command `task_id` of the session's own process, where its tasks hold it.
     pub(crate) fn held_command(&self, task_id: &str) -> Option<ClaudeHeldCommand> {
         self.lock().command_tasks.held_command(task_id)
+    }
+
+    /// The ids of the session's own running command tasks that belong to `run_id`.
+    pub(crate) fn command_ids_of_run(&self, run_id: RunId) -> Vec<String> {
+        self.lock().command_tasks.command_ids_of_run(run_id)
     }
 
     /// Whether the lead `result` in `text` ends the session's turn, read on the process's reader.

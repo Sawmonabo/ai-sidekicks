@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::json;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::ProcessExit;
@@ -69,10 +70,10 @@ use self::in_place_resume::CodexInPlaceResumeCall;
 /// The words a run is failed with when its service ended with no exit the daemon could read.
 const CODEX_EXIT_UNREAD_FAILURE: &str = "The Codex service ended";
 
-/// What a process exit took from one session: the runs whose turns ended with it, and the binding
-/// its conversation ran under.
+/// What a process exit took from one session: the runs whose turns ended with it, its helpers'
+/// child runs, and the binding its conversation ran under.
 pub(crate) struct CodexDroppedTurns {
-    /// The runs, each once, oldest turn first.
+    /// The runs, each once, oldest turn first, then the helpers' child runs.
     pub(crate) run_ids: Vec<RunId>,
     /// The binding, `None` before the session's first run.
     pub(crate) binding_id: Option<RuntimeBindingId>,
@@ -242,7 +243,7 @@ impl CodexServiceRecovery {
         let resumed = self.resume_all(service, generation).await;
         if cause == CodexServiceRecoveryCause::Reconnect {
             CodexTransportDiagnostic::ServiceReconnected {
-                codex_home: service.home().codex_home.clone(),
+                provider_account_id: service.provider_account_id(),
                 conversations: resumed
                     .iter()
                     .map(|(_, thread_id, _)| thread_id.clone())
@@ -296,7 +297,10 @@ impl CodexServiceRecovery {
             ),
             (None, None) => {
                 tracing::warn!(
-                    codex_home = %service.home().codex_home.display(),
+                    provider_account_id = service
+                        .provider_account_id()
+                        .as_ref()
+                        .map(ProviderAccountId::as_str),
                     "a codex service stays down after a crash loop whose ends no wait read"
                 );
                 return;
@@ -436,7 +440,9 @@ impl CodexServiceRecovery {
                 DriverResumeResult::Resumed { resume_handle, .. } => {
                     resume_handle.as_str().to_owned()
                 }
-                DriverResumeResult::Failed { .. } => String::new(),
+                DriverResumeResult::Failed { .. } | DriverResumeResult::Deferred { .. } => {
+                    String::new()
+                }
             };
             resumed.push((session_id, thread_id, result));
         }
@@ -630,7 +636,7 @@ impl CodexServiceRecovery {
             return true;
         };
         CodexTransportDiagnostic::PortDeliveryFailed {
-            provider_account_id: service.home().provider_account_id().cloned(),
+            provider_account_id: service.provider_account_id(),
             port: CodexDeliveryPort::SessionRelaunched,
             session_id: Some(session_id),
             error,
@@ -697,7 +703,7 @@ impl CodexServiceRecovery {
                     .await
                 {
                     CodexTransportDiagnostic::PortDeliveryFailed {
-                        provider_account_id: service.home().provider_account_id().cloned(),
+                        provider_account_id: service.provider_account_id(),
                         port: CodexDeliveryPort::RunEnd,
                         session_id: Some(session_id),
                         error,
@@ -736,7 +742,7 @@ impl CodexServiceRecovery {
             &*self.dependencies.dispatch,
             DeliveryOrigin {
                 provider: DESCRIPTOR.provider_id(),
-                provider_account_id: service.home().provider_account_id().cloned(),
+                provider_account_id: service.provider_account_id(),
                 raw_wire_type: None,
             },
             InboundDelivery::SessionNotice {
@@ -758,10 +764,11 @@ fn never_left() -> CodexWriterLeft {
     Box::new(|| async { false }.boxed())
 }
 
-/// Drops every turn the session held on a service whose process ended, on the session's task:
-/// the live, interrupted, paused and retried turns with their routes, pauses and continues, the
-/// compaction wait on the conversation and the waits on its turns, which no turn ends now.
-/// Answers each run those turns belonged to, once.
+/// Drops every turn the session held on a service whose process ended, on the session's task: the
+/// live, interrupted, paused and retried turns with their routes, pauses and continues, the
+/// helpers' child runs, the marks of the turns held on the person, the compaction wait on the
+/// conversation and the waits on its turns, which no turn ends now. Answers each run those turns
+/// belonged to, then each helper's child run, once.
 pub(crate) fn drop_codex_turns(
     task: &mut CodexSessionTask<'_>,
     dependencies: &CodexSessionCallDependencies,
@@ -774,12 +781,19 @@ pub(crate) fn drop_codex_turns(
         .chain(record.interrupted_run_by_turn_id.drain(..))
         .chain(record.paused_run_id_by_interrupted_turn_id.drain())
         .chain(record.delivery.retried_run_id_by_turn_id.drain());
-    for (_, run_id) in held {
+    // A helper's child run ends with the process even where no turn of its lead was live.
+    let helpers = record
+        .delivery
+        .child_run_by_thread_id
+        .drain()
+        .filter_map(|(_, child)| child.bound.map(|bound| bound.child_run_id));
+    for run_id in held.map(|(_, run_id)| run_id).chain(helpers) {
         if !run_ids.contains(&run_id) {
             run_ids.push(run_id);
         }
     }
     record.continues_awaiting_pause.clear();
+    record.held_continuation_turn_ids.clear();
     record.pause_run_id_by_turn_id.clear();
     record.interrupting_turn_ids.clear();
     record.turn_input_by_turn_id.clear();
@@ -809,10 +823,6 @@ fn report_restarted(
     resumed: &[(SessionId, String, DriverResumeResult)],
 ) {
     let mut details = serde_json::Map::from_iter([
-        (
-            "codexHome".to_owned(),
-            json!(service.home().codex_home.display().to_string()),
-        ),
         ("cause".to_owned(), json!(format!("{cause:?}"))),
         (
             "conversations".to_owned(),
@@ -841,7 +851,7 @@ fn report_restarted(
     };
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
-        provider_account_id: service.home().provider_account_id().cloned(),
+        provider_account_id: service.provider_account_id(),
         kind: DriverDiagnosticKind::ProviderRestarted,
         raw_wire_type: None,
         disposition_reason: disposition_reason.to_owned(),

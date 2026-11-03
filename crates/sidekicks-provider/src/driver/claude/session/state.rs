@@ -30,6 +30,7 @@ use crate::driver::claude::session::answered_commands::{
 };
 use crate::driver::claude::session::mcp_server_readings::ClaudeMcpServerReadings;
 use crate::driver::claude::session::permission_mode::ClaudePermissionModeRecord;
+use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::declarations::{
     ClaudeHandshakeDeclaration, ClaudeInboundFrameObservation, ClaudeInitializeDeclaration,
@@ -205,9 +206,10 @@ pub(crate) struct LiveClaudeSession {
     pub(crate) initialize: ClaudeInitializeDeclaration,
     /// The style descriptions and advisors Claude Code offers, kept across a rewind.
     pub(crate) command_choices: ClaudeHeldCommandChoices,
-    /// The account the process was admitted against, captured when it came up, since the
-    /// registry can move; a rewind inherits it.
-    pub(crate) admitted_provider_account_id: ProviderAccountId,
+    /// The account the process runs on, its stream's own: the one it was admitted against when it
+    /// came up, since the registry can move, until a switch the process acknowledged among its
+    /// frames moves it; a rewind inherits it. Read and moved through its methods.
+    pub(crate) account: ClaudeProcessAccount,
     /// What the session runs with now.
     pub(crate) settings: Mutex<ClaudeLiveSettings>,
     /// The process's permission mode, shared with the stream that takes its reports.
@@ -240,6 +242,26 @@ pub(crate) struct LiveClaudeSession {
 }
 
 impl LiveClaudeSession {
+    /// The account the process runs on now.
+    pub(crate) fn admitted_provider_account_id(&self) -> ProviderAccountId {
+        self.account
+            .read()
+            .expect("a session's process is made on an account and only ever moved onto another")
+    }
+
+    /// Moves the session onto `provider_account_id`'s account, its stream with it, once the
+    /// process runs on it: what is read from here on, a relaunch among them, is that account's.
+    pub(crate) fn move_admitted_account(&self, provider_account_id: ProviderAccountId) {
+        self.account.move_to(provider_account_id);
+    }
+
+    /// The environment a process started from the session's legs runs with: theirs, signed in to
+    /// the credential store the session's process runs on now.
+    pub(crate) fn signed_in_spawn_environment(&self) -> Vec<(String, String)> {
+        self.account
+            .signed_in_environment(&self.spawn_bound_legs.spawn_environment)
+    }
+
     /// Records that a run on `binding_id` took the session's turn on this process.
     pub(crate) fn record_served_binding(&self, binding_id: RuntimeBindingId) {
         lock(&self.served_bindings).insert(binding_id);

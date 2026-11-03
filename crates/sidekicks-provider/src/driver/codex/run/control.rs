@@ -88,7 +88,7 @@ pub(crate) struct CodexRunControlDependencies {
 
 /// Interrupts, steers, pauses and continues runs on their live turns.
 pub(crate) struct CodexRunControl {
-    dependencies: CodexRunControlDependencies,
+    pub(super) dependencies: CodexRunControlDependencies,
 }
 
 impl CodexRunControl {
@@ -101,8 +101,10 @@ impl CodexRunControl {
     /// stopped instead, the commands its held turn left running ended, and answers no steers,
     /// since that turn's end gave its dropped steers back to the queue; a retry whose new turn
     /// already runs is interrupted as that live turn. A turn start in flight is withdrawn, its
-    /// turn interrupted once Codex names it. A run with no turn in flight answers at once with
-    /// nothing sent. Fails as [`interrupt_codex_run`] does.
+    /// turn interrupted once Codex names it. A helper's run has its own conversation's running
+    /// turn interrupted and its commands ended, its lead going on, and answers no steers. A run
+    /// with no turn in flight answers at once with nothing sent. Fails as
+    /// [`interrupt_codex_run`] does, and as a helper's interrupt request fails.
     pub(crate) async fn interrupt_run(
         &self,
         run_id: RunId,
@@ -115,7 +117,7 @@ impl CodexRunControl {
             return Ok(Vec::new());
         }
         let Some(session_id) = self.dependencies.run_routes.session_id_for(run_id) else {
-            return Ok(Vec::new());
+            return self.interrupt_helper_run(run_id).await;
         };
         let inbound = self.dependencies.slots.require_live(session_id)?;
         interrupt_codex_run(&inbound, run_id).await

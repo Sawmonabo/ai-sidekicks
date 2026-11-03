@@ -3,6 +3,7 @@
 //! of its conversations, and the messages its process took.
 
 use std::error::Error;
+use std::path::PathBuf;
 
 use futures::future::join_all;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -16,6 +17,7 @@ use crate::driver::claude::delivery::requests::answers::claude_project_folder;
 use crate::driver::claude::session::conversation_file::{
     conversation_file_of, find_claude_taken_messages,
 };
+use crate::driver::claude::session::conversation_home::read_claude_conversation_home;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::claude::session::naming::{
     name_claude_session, stored_claude_conversation, tell_claude_session_name,
@@ -46,18 +48,19 @@ impl ClaudeDriver {
         self.parts()?.establishment.create(params).await
     }
 
-    /// Resumes a session's conversation in a fresh process, every failure on the `Failed` arm.
+    /// Resumes a session's conversation in a fresh process, every failure on the `Failed` arm and
+    /// a resume whose runs all wait on the person or stop on the `Deferred` one.
     pub(crate) async fn resume_session(
         &self,
         params: ResumeSessionParams,
     ) -> Result<DriverResumeResult, DriverError> {
         let establishment = &self.parts()?.establishment;
-        Ok(establishment.resume(params).await.result)
+        Ok(establishment.resume(params).await?.result)
     }
 
     /// The person's restart of a session whose process stayed down: its crash window and any
-    /// restart still waiting are dropped, it resumes, and the person is told it runs again unless
-    /// a process already live answered it.
+    /// restart still waiting are dropped, it resumes, and the person is told it runs again only
+    /// when a process started, not when a live one answered it or every run waits or stops.
     pub(crate) async fn restart_session(
         &self,
         params: ResumeSessionParams,
@@ -65,7 +68,7 @@ impl ClaudeDriver {
         let parts = self.parts()?;
         let session_id = params.session_id;
         parts.restarts.clear_crash_window(session_id);
-        let answer = parts.establishment.resume(params).await;
+        let answer = parts.establishment.resume(params).await?;
         if answer.has_started_process {
             parts.restarts.report_restarted(session_id, true).await;
         }
@@ -247,7 +250,7 @@ impl ClaudeDriver {
             .composed_parts()
             .and_then(|parts| parts.slots().live_session(params.session_id));
         let account = if let Some(live) = &live {
-            live.admitted_provider_account_id.clone()
+            live.admitted_provider_account_id()
         } else {
             let Some(leg) = self.read_session_leg(params.session_id).await? else {
                 return Ok(None);
@@ -288,6 +291,7 @@ impl ClaudeDriver {
                     session_id,
                     leg.spawn_config.provider_account_id,
                     handle,
+                    read_claude_conversation_home(&leg.runtime_metadata).as_deref(),
                 )
                 .await?,
             );
@@ -348,8 +352,8 @@ impl ClaudeDriver {
         })
     }
 
-    /// Deletes Claude Code's own copy of each of the session's conversations from every home it
-    /// ran in, its command channel removed first; see the conversation purge. A session with no
+    /// Deletes Claude Code's own copy of each of the session's conversations from the home that
+    /// holds it, its command channel removed first; see the conversation purge. A session with no
     /// conversation has nothing to delete.
     pub(crate) async fn purge_session(
         &self,
@@ -380,31 +384,26 @@ impl ClaudeDriver {
             data_folder: &data_folder,
         };
         purge_claude_conversations(&params, &place, |provider_account_id| {
-            self.session_environment(session_id, provider_account_id)
+            self.account_home(session_id, provider_account_id)
         })
         .await
         .map_err(internal)
     }
 
-    // The environment a spawn of the session on `provider_account_id`'s home starts with.
-    async fn session_environment(
+    // The configuration home of `provider_account_id`'s account, as the session resolves it.
+    async fn account_home(
         &self,
         session_id: SessionId,
         provider_account_id: ProviderAccountId,
-    ) -> Result<Vec<(String, String)>, Box<dyn Error + Send + Sync>> {
-        let sources = &self.sources;
-        let context = sources
+    ) -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
+        let context = self
+            .sources
             .ports
             .spawn_contexts
             .require_port()?
-            .resolve_spawn_context(session_id, provider_account_id.clone())
+            .resolve_spawn_context(session_id, provider_account_id)
             .await?;
-        Ok(self.sources.account_process_environment(
-            &context.account_folders,
-            &provider_account_id,
-            &context.every_project_rows,
-            &context.project_rows,
-        )?)
+        Ok(context.account_folders.configuration_folder)
     }
 
     /// The session's stored leg, as the run engine reads it; `None` for a session that never ran.

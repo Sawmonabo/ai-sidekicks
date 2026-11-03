@@ -27,6 +27,7 @@ use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{SafeInt, SafeSignedInt};
+use crate::wire::list::BoundedVec;
 use crate::wire::number::Number;
 use crate::wire::text::{BoundedText, FreeFormText};
 
@@ -55,8 +56,9 @@ pub enum UsageContainment {
 
 /// The `usage.tokenCount.recorded` payload: one turn's own token figures, never a running total, so
 /// a run's or a session's total is the sum of its rows. A count is absent when the provider
-/// reported none, never zero. The account is the one the turn was charged to, read from the run's
-/// admission, never from the provider.
+/// reported none, never zero. The account is the one the turn was charged to: the account its
+/// runtime binding names when the reading is recorded, never the provider's word, so a turn that
+/// spans an account switch records its readings on each side of the switch under each account.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -122,7 +124,7 @@ pub struct UsageTokenCountRecordedPayload {
     pub reasoning_tokens: Option<SafeInt<0>>,
     /// Whether `input_tokens` has the cache's read and written tokens taken out.
     pub containment: UsageContainment,
-    /// The account the turn was charged to.
+    /// The account the turn was charged to: its binding's account when the reading was recorded.
     pub provider_account_id: ProviderAccountId,
     /// The account's credential generation seen with the turn.
     pub credential_generation: CredentialGeneration,
@@ -144,6 +146,57 @@ pub struct UsageTokenCountRecordedPayload {
     )]
     #[schemars(with = "SubagentId")]
     pub subagent_id: Option<SubagentId>,
+    /// The provider's id of the request the row belongs to, shared by every row of that request;
+    /// absent where the provider names none.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "BoundedText<1, EVENT_FIELD_MAX_LEN>")]
+    pub request_key: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
+    /// The speed tier the request ran at, in the provider's word; absent where it gave none.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "BoundedText<1, EVENT_FIELD_MAX_LEN>")]
+    pub speed: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
+    /// The region the request was processed in, in the driver's region word; absent for none.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "BoundedText<1, EVENT_FIELD_MAX_LEN>")]
+    pub processing_region: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
+    /// The part of `cacheWriteTokens` written at the longer cache lifetime; absent where the
+    /// provider gave no split.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "SafeInt<0>")]
+    pub cache_write_extended_tokens: Option<SafeInt<0>>,
+    /// The web searches the request ran.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "SafeInt<0>")]
+    pub web_search_requests: Option<SafeInt<0>>,
+    /// The speed tier the reading's thread declared when the reading was taken, which prices the
+    /// requests of helpers that thread spawned; absent where none was declared.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "BoundedText<1, EVENT_FIELD_MAX_LEN>")]
+    pub thread_speed: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
     /// The execution epoch a late row is attributed to; comes with `sourcePosition` and
     /// `runId`.
     #[serde(
@@ -166,8 +219,29 @@ pub struct UsageTokenCountRecordedPayload {
     pub source_position: Option<SourcePosition>,
 }
 
-/// The `usage.cost.updated` payload: one priced request, priced once when it completes and never
-/// again.
+/// Where a priced request's figure came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum UsageCostSource {
+    /// The provider's own figure.
+    ProviderReported,
+    /// The price list's exact rates for the model, applied to the request's full breakdown.
+    DerivedExact,
+}
+
+/// One token event's share of a priced request: the `usage.tokenCount.recorded` event and its
+/// figure in whole millionths of a US dollar.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UsagePricedEvent {
+    /// The token event's id.
+    pub event_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    /// Its share of the request's price.
+    pub cost_usd_micros: UsdMicros,
+}
+
+/// The `usage.cost.updated` payload: one priced request on one account, priced once and never
+/// again; `costUsdMicros` is the sum of `pricedEvents`' figures.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -175,7 +249,9 @@ pub struct UsageTokenCountRecordedPayload {
 pub struct UsageCostUpdatedPayload {
     /// The session.
     pub session_id: SessionId,
-    /// The run, absent on a turn no run owns.
+    /// The run every one of the account's rows of the request was counted toward; absent where
+    /// they name different runs or none. Each row's own run is on the token event `pricedEvents`
+    /// names.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -183,10 +259,14 @@ pub struct UsageCostUpdatedPayload {
     )]
     #[schemars(with = "RunId")]
     pub run_id: Option<RunId>,
-    /// The request's price in whole millionths of a US dollar.
+    /// The request's price on the account in whole millionths of a US dollar: the sum of
+    /// `pricedEvents`' figures.
     pub cost_usd_micros: UsdMicros,
-    /// The model the provider attributes the reading to, absent when it attributes only
-    /// the run.
+    /// Where the figure came from.
+    pub cost_source: UsageCostSource,
+    /// The account's token events of the request, each with its share of the figure.
+    pub priced_events: BoundedVec<UsagePricedEvent, 1, { usize::MAX }>,
+    /// The model the request was priced at.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -194,8 +274,9 @@ pub struct UsageCostUpdatedPayload {
     )]
     #[schemars(with = "FreeFormText<EVENT_FIELD_MAX_LEN>")]
     pub model_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
-    /// The subagent the provider attributes the reading to, paired with its start on the
-    /// run, the provider and this id.
+    /// The helper every one of the account's rows of the request was attributed to; absent where
+    /// they name different helpers or none. Each row's own helper is on the token event
+    /// `pricedEvents` names.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -333,10 +414,28 @@ fn window_dependent_required() -> Value {
     dependent_required
 }
 
+/// One window of an account's whole set of quota readings: its limit, absent naming
+/// [`DEFAULT_RATE_LIMIT_ID`], and its length in minutes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UsageRateLimitWindowKey {
+    /// Which of the account's limits the window belongs to; absent names
+    /// [`DEFAULT_RATE_LIMIT_ID`].
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "BoundedText<1, EVENT_FIELD_MAX_LEN>")]
+    pub limit_id: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
+    /// The window's length in minutes.
+    pub window_mins: SafeSignedInt,
+}
+
 /// The `usage.rateLimit.updated` payload: a snapshot of one of an account's quotas, keyed by the
 /// account, `limitId` and `windowMins`. It names no session and no run; the envelope binds it to
-/// the machine's
-/// sentinel session. A display reading only, never an input to a security or admission decision.
+/// the machine's sentinel session, and its `occurredAt` is when the quota was read. A display
+/// reading only, never an input to a security or admission decision.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -370,6 +469,16 @@ pub struct UsageRateLimitUpdatedPayload {
     #[schemars(with = "WireInstant")]
     #[garde(dive)]
     pub resets_at: Option<WireInstant>,
+    /// Every window the account's own limits read named, this one among them, on a reading that
+    /// read: the account's whole standing, so a stored window it does not name is gone. Absent on
+    /// what the provider pushes during a turn, which names only the windows that moved.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "BoundedVec<UsageRateLimitWindowKey, 1, { usize::MAX }>")]
+    pub whole_set: Option<BoundedVec<UsageRateLimitWindowKey, 1, { usize::MAX }>>,
 }
 
 /// Why a provider retried a request mid-run, in the vocabulary every provider's retry is read
@@ -633,8 +742,11 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<UsageContainment>(),
         Definition::read::<UsageTokenCountRecordedPayload>().checked(),
+        Definition::read::<UsageCostSource>(),
+        Definition::read::<UsagePricedEvent>(),
         Definition::read::<UsageCostUpdatedPayload>().checked(),
         Definition::read::<UsageContextWindowUpdatedPayload>().checked(),
+        Definition::read::<UsageRateLimitWindowKey>(),
         Definition::read::<UsageRateLimitUpdatedPayload>().checked(),
         Definition::read::<ApiRetryErrorKind>(),
         Definition::read::<UsageApiRequestRetriedPayload>().checked(),

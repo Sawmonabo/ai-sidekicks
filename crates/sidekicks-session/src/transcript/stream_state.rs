@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use rusqlite::{Connection, OptionalExtension, named_params};
+use rusqlite::{Connection, named_params};
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
@@ -29,13 +29,13 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 use sidekicks_store::events::content::codec::{
     StoredBodyColumns, stored_body_columns_sql, stored_body_encoding_sql, stored_body_length_sql,
 };
 use sidekicks_store::events::session::read::{payload_damage_of, readable_event_sql};
 use sidekicks_store::transcript::rejoin::is_row_ending_event_type;
 
+use crate::run::read::RunStateReader;
 use crate::run::transitions::is_run_terminal_event_type;
 use crate::transcript::block_cut::{BlockCutError, BlockParse, StreamingBlockCut, prose_body_of};
 use crate::transcript::child_run::read_child_counts;
@@ -106,10 +106,6 @@ static ROW_PLACE_SQL: LazyLock<String> = LazyLock::new(|| {
         length = stored_body_length_sql("event"),
     )
 });
-
-const RUN_PARENT_SQL: &str = "SELECT parent_run_id FROM runs WHERE run_id = ?";
-
-const RUN_STATE_SQL: &str = "SELECT state FROM runs WHERE run_id = ?";
 
 /// One page event's stored facts the stream reads beside it.
 #[derive(Clone, Debug)]
@@ -411,7 +407,9 @@ impl TranscriptStreamState {
             if let Some(tally) = tally.as_mut().filter(|_| is_own_event) {
                 tally.total += 1;
                 tally.readable += 1;
-                tally.state = read_state(reader, &run_id)?.unwrap_or(tally.state);
+                tally.state = RunStateReader::new(reader)
+                    .read_run_parentage(&run_id)?
+                    .map_or(tally.state, |run| run.state);
             }
             tally
         } else {
@@ -492,13 +490,9 @@ fn seed_child_tally(
     event: &EventEnvelope,
     run_id: &RunId,
 ) -> rusqlite::Result<Option<ChildTally>> {
-    let parent_run_id: Option<RunId> = reader
-        .prepare_cached(RUN_PARENT_SQL)?
-        .query_row([run_id.text().as_str()], |row| {
-            optional_text_column(row, 0, |text| RunId::new(&text))
-        })
-        .optional()?
-        .flatten();
+    let parent_run_id = RunStateReader::new(reader)
+        .read_run_parentage(run_id)?
+        .and_then(|run| run.parent_run_id);
     let Some(parent_run_id) = parent_run_id.filter(|parent| parent != run_id) else {
         return Ok(None);
     };
@@ -545,15 +539,6 @@ fn read_row_text_before(
         Ok(text)
     };
     read().map_err(|error| payload_damage_of(reader, &event.session_id, error))
-}
-
-fn read_state(reader: &Connection, run_id: &RunId) -> rusqlite::Result<Option<RunState>> {
-    reader
-        .prepare_cached(RUN_STATE_SQL)?
-        .query_row([run_id.text().as_str()], |row| {
-            text_column(row, 0, closed_word)
-        })
-        .optional()
 }
 
 #[cfg(test)]

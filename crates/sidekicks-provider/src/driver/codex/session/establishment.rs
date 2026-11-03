@@ -4,6 +4,8 @@
 //! service. A failed resume never becomes a new conversation: it answers the failure.
 
 mod adoption;
+mod continuation;
+pub(crate) mod helpers;
 mod settings;
 
 use std::path::PathBuf;
@@ -35,6 +37,7 @@ use crate::driver::codex::output_speed::{
 };
 use crate::driver::codex::run::routes::CodexRunRoutes;
 use crate::driver::codex::service::command::read_codex_model_catalog_dump;
+use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::threads::ThreadClaim;
@@ -42,9 +45,14 @@ use crate::driver::codex::session::calls::CodexSessionTask;
 use crate::driver::codex::session::context_reading::CodexFixedStart;
 use crate::driver::codex::session::controls::update_codex_session_mode;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::session::history::{CodexListedTurn, read_codex_turns};
+use crate::driver::codex::session::history::{
+    CodexListedTurn, compose_codex_newest_turn_page, read_codex_resumed_newest_turn,
+    read_codex_turns,
+};
 use crate::driver::codex::session::inbound::{CodexSessionInboundReceiver, codex_session_inbound};
-use crate::driver::codex::session::owed_turn_ends::end_owed_codex_turns;
+use crate::driver::codex::session::owed_turn_ends::{
+    end_owed_codex_helper_turn, end_owed_codex_turns,
+};
 use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::codex::session::state::{CodexEstablishedConversation, CodexSessionRecord};
 use crate::driver::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
@@ -62,7 +70,7 @@ use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::error_causes::{ProviderAxisInvalid, UNSPECIFIED_PROVIDER_FAILURE_DETAIL};
 use crate::driver::session_control::{
     CreateSessionParams, DriverResumeResult, ProviderSessionHandle, ResumeSessionParams,
-    ResumedRunAnswer,
+    ResumedRunAnswer, SessionAccountPin,
 };
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::tool_server_route::ToolServerRoute;
@@ -218,7 +226,24 @@ impl CodexSessionEstablishment {
             .await?
             .thread_settings;
         let execution_posture = require_execution_posture(params.execution_posture.as_ref())?;
-        let service = self.start_service(&params.provider_account_id).await?;
+        // A session following the current account runs on the switching service, which moves it
+        // with each switch; a pinned one on its account's own.
+        let home = match params.account_pin {
+            SessionAccountPin::FollowsCurrent => CodexConversationHome::Switching,
+            SessionAccountPin::Pinned => CodexConversationHome::Account,
+        };
+        let service = self
+            .start_service(&params.provider_account_id, home)
+            .await?;
+        // A switch with no session to move left the switching service where it was, so the new
+        // session's account is handed to it here, before its conversation starts.
+        if matches!(home, CodexConversationHome::Switching) {
+            service
+                .dependencies()
+                .switching
+                .carry_for_session(&service, &params.provider_account_id)
+                .await?;
+        }
         service.check_takes_new_work(THREAD_START_METHOD)?;
         if let Some(larger_window) = params.larger_window {
             confirm_larger_window(&service, &settings.model, larger_window.get()).await?;
@@ -282,6 +307,7 @@ impl CodexSessionEstablishment {
         let (inbound, receiver) = codex_session_inbound(params.session_id);
         let record = CodexSessionRecord::new(CodexEstablishedConversation {
             session_id: params.session_id,
+            lead_agent_id: params.agent_id,
             service,
             inbound,
             thread_id: thread.id.clone(),
@@ -320,9 +346,9 @@ impl CodexSessionEstablishment {
         ))
     }
 
-    /// The account's service, started, and the settings a resting session's stored conversation
-    /// runs under, composed from its resume material as a resume composes them. Fails as the
-    /// composition or the service's start fails.
+    /// The service of the home holding a resting session's stored conversation, started, and the
+    /// settings it runs under, composed from its resume material as a resume composes them. Fails
+    /// as the composition or the service's start fails.
     pub(crate) async fn compose_resting_conversation(
         &self,
         params: &ResumeSessionParams,
@@ -331,20 +357,26 @@ impl CodexSessionEstablishment {
             .compose_thread_settings(compose_resume_settings_request(params))
             .await?
             .thread_settings;
-        let service = self.start_service(&params.provider_account_id).await?;
+        let service = self
+            .start_service(
+                &params.provider_account_id,
+                CodexConversationHome::read(&params.runtime_metadata),
+            )
+            .await?;
         Ok((service, settings))
     }
 
     /// Opens an established conversation on its service: its routing band binds it, its usage
-    /// based at zero for a fresh one and at `prior_emitted` for a resumed one, since the provider's
-    /// counter survives a resume, and binds again each helper an adoption holds; the session's
-    /// queue is attached, the conversation and its helpers registered and its held frames
-    /// delivered, and the claim let go; last, each turn an adoption bound that Codex listed as
-    /// over is ended as Codex ended it.
+    /// based at zero for a fresh one, which leaves `prior_emitted` unread, and at `prior_emitted`
+    /// for a resumed one, since the provider's counter survives a resume, and binds again each
+    /// helper an adoption holds; the session's queue is attached, the conversation and its helpers
+    /// registered and its held frames delivered, and the claim let go; last, each turn an adoption
+    /// bound that Codex listed as over, and each restored helper's newest turn listed over, is
+    /// ended as Codex ended it.
     pub(crate) async fn open(
         &self,
         established: CodexEstablishedSession,
-        prior_emitted: Option<UsageAxisCounts>,
+        prior_emitted: UsageAxisCounts,
     ) -> CodexOpenedSession {
         let CodexEstablishedSession {
             mut record,
@@ -361,7 +393,7 @@ impl CodexSessionEstablishment {
                 .provider_commands
                 .discard_listing(record.session_id);
             ThreadBaseEstablishment::Resume {
-                prior_emitted_cumulative: prior_emitted.unwrap_or_default(),
+                prior_emitted_cumulative: prior_emitted,
             }
         } else {
             ThreadBaseEstablishment::Fresh
@@ -391,6 +423,17 @@ impl CodexSessionEstablishment {
         drop(claim);
         let ended = end_owed_codex_turns(&mut routing, delivery, &mut record, &listed_turns).await;
         routed.extend(ended);
+        for helper in &helpers {
+            let ended = end_owed_codex_helper_turn(
+                &mut routing,
+                delivery,
+                &mut record,
+                &helper.thread_id,
+                &helper.newest_turn,
+            )
+            .await;
+            routed.extend(ended);
+        }
         CodexOpenedSession {
             record,
             receiver,
@@ -577,6 +620,7 @@ impl CodexSessionEstablishment {
         );
         // The history is paged afterwards instead of arriving on one reply.
         resume.exclude_turns = Some(true);
+        resume.initial_turns_page = Some(compose_codex_newest_turn_page());
         resume.service_tier =
             compose_codex_service_tier(output_speed.as_deref()).map(CodexServiceTierChange);
         let reply = request_thread_resume(connection, &record.thread_id, &resume).await?;
@@ -584,15 +628,17 @@ impl CodexSessionEstablishment {
         Ok(reply)
     }
 
-    // The account's service, started or joined. Fails as the home's resolve or the start does.
+    // The service of `home`, the switching home or `provider_account_id`'s own, started or joined.
+    // Fails as the home's resolve or the start does.
     async fn start_service(
         &self,
         provider_account_id: &ProviderAccountId,
+        home: CodexConversationHome,
     ) -> Result<Arc<CodexService>, CodexError> {
         let service = self
             .dependencies
             .services
-            .service_for(provider_account_id)
+            .service_for_conversation(provider_account_id, home)
             .await
             .map_err(CodexError::Driver)?;
         service
@@ -633,10 +679,12 @@ impl CodexSessionEstablishment {
     }
 }
 
-/// What a resume reads back: the conversation's turns, whether the session held the conversation
-/// on the service before it, where the conversation stands, its declared tier and its effort.
+/// What a resume reads back: the conversation's turns, the newest of them, whether the session
+/// held the conversation on the service before it, where the conversation stands, its declared
+/// tier and its effort.
 struct CodexResumedThread {
     listed_turns: Vec<CodexListedTurn>,
+    newest_turn_id: Option<String>,
     was_held: bool,
     status: Option<CodexThreadStatus>,
     declared_output_speed: Option<ProviderOutputSpeedState>,
@@ -666,16 +714,25 @@ async fn request_thread_resume(
 }
 
 // What the resume `reply` of the record's conversation reads back, its turns read page by page
-// on `connection`. Fails as the turns' read does.
+// on `connection`, with the reply's newest turn, the live one where a turn runs, added where the
+// pages lack it. Fails as the turns' read does.
 async fn read_resumed_thread(
     record: &CodexSessionRecord,
     connection: &CodexAppServerConnection,
     reply: &RawValue,
     was_held: bool,
 ) -> Result<CodexResumedThread, CodexError> {
-    let listed_turns = read_codex_turns(connection, &record.thread_id).await?;
+    let mut listed_turns = read_codex_turns(connection, &record.thread_id).await?;
+    let newest_turn = read_codex_resumed_newest_turn(reply);
+    let newest_turn_id = newest_turn.as_ref().map(|newest| newest.id.clone());
+    if let Some(newest) = newest_turn
+        && !listed_turns.iter().any(|listed| listed.id == newest.id)
+    {
+        listed_turns.push(newest);
+    }
     Ok(CodexResumedThread {
         listed_turns,
+        newest_turn_id,
         was_held,
         status: read_thread(reply, THREAD_RESUME_METHOD)?.status,
         declared_output_speed: read_codex_declared_tier(record.session_id, reply),

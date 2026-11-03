@@ -3,8 +3,8 @@
 //! to its end, its questions asked on the questions card and answered back to the server.
 //!
 //! - A 2025-11-25 server takes a task only on a tool whose `execution.taskSupport` allows it, and
-//!   its replies are read raw ([`v1`]); a 2026-07-28 server decides per call and is read through
-//!   rmcp's own types ([`v2`]).
+//!   its replies are read raw ([`revision_2025_11_25`]); a 2026-07-28 server decides per call
+//!   and is read through rmcp's own types ([`revision_2026_07_28`]).
 //! - A task's question is held under its own request id, and its answer goes back to the server
 //!   that asked, never to the run's driver.
 //! - A question a server's request waits on is taken in its run's turn: asked while its run waits
@@ -16,60 +16,109 @@
 //!   servers mint the same id never share a watch.
 
 pub(crate) mod recorder;
-mod v1;
-mod v2;
+mod revision_2025_11_25;
+mod revision_2026_07_28;
+pub(in crate::client) mod watches;
 
-use std::collections::HashMap;
 use std::error::Error;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 
-use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use rmcp::model::ErrorCode;
 use rmcp::service::ServiceError;
 use serde_json::{Map, Value};
-use sidekicks_contracts::question::QuestionAnswer;
+use sha2::{Digest as _, Sha256};
+use sidekicks_contracts::mcp::server::McpServerName;
+use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_provider::mcp::elicitation_form::{
-    compose_elicitation_content, read_elicitation_questions,
-};
-use sidekicks_provider::port::question::{
-    ProviderQuestion, ProviderQuestionWithdrawal, QuestionLinePlace, QuestionPort, QuestionTurnEnd,
-    QuestionTurnError, ToolServerQuestionAnswer, take_question_in_turn,
-};
 use sidekicks_provider::record_readers::read_non_empty_string;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::port_registration::PortRegistration;
-use strum::{IntoStaticStr, VariantArray};
-use tokio::sync::{Notify, oneshot, watch};
-use tokio_util::sync::CancellationToken;
+use strum::{EnumString, IntoStaticStr, VariantArray};
+use tokio::sync::watch;
 
-use crate::client::connection::{McpConnectionScope, McpServerConnection};
+use crate::client::connection::McpServerConnection;
+use crate::client::connection::standing::McpStandingConnection;
+use crate::client::poll::{PollError, PollFailure};
 use crate::client::requests::{McpRequestError, RequestWait};
+use crate::sign_in::canonical_server_address;
 
-/// The identity of one task-augmented MCP dispatch. `command_id` is the client-supplied
-/// idempotency key on the dispatch's command receipt row; the server and tool name no stored row.
+/// The identity of one MCP tool dispatch. `command_id` is the client-supplied idempotency key on
+/// the dispatch's command receipt row; `tool_name` names no stored row.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct McpTaskDispatchIdentity {
     /// The dispatch's idempotency key.
     pub(crate) command_id: String,
-    /// The tool server the call went to.
-    pub(crate) server_name: String,
     /// The tool called.
     pub(crate) tool_name: String,
 }
 
 /// Which MCP Tasks protocol a task handle belongs to, stored beside the handle so recovery polls
 /// it the way its server answers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, IntoStaticStr, VariantArray)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumString, IntoStaticStr, VariantArray)]
 #[strum(serialize_all = "lowercase")]
 pub(crate) enum McpTaskGeneration {
     /// A task on a 2025-11-25 server, whose result `tasks/result` reads.
     V1,
     /// A task on a 2026-07-28 server, whose result `tasks/get` carries inline.
     V2,
+}
+
+/// Which server a task was accepted on, so a task is resumed only on that server: a stdio
+/// server, or a server at an address by the SHA-256 of its canonical form. One server spelled two
+/// ways is one endpoint, and a changed header or token does not change it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct McpServerEndpoint(String);
+
+impl McpServerEndpoint {
+    /// The endpoint of every stdio server.
+    pub(crate) const STDIO: &str = "stdio";
+    /// What an address endpoint starts with, before its digest.
+    pub(crate) const ADDRESS_PREFIX: &str = "address:";
+    /// The length of an address endpoint's digest, in lowercase hex digits.
+    pub(crate) const ADDRESS_DIGEST_HEX_LEN: usize = 64;
+
+    /// A stdio server's endpoint.
+    pub(crate) fn stdio() -> Self {
+        Self(Self::STDIO.to_owned())
+    }
+
+    /// The endpoint of the server at `address`: the prefix, then the lowercase hex SHA-256 of the
+    /// address's canonical form.
+    pub(crate) fn at_address(address: &McpServerAddress) -> Self {
+        let digest = Sha256::digest(canonical_server_address(address));
+        Self(format!(
+            "{}{}",
+            Self::ADDRESS_PREFIX,
+            base16ct::lower::encode_string(&digest)
+        ))
+    }
+
+    /// The endpoint as a receipt row stores it, whose form the table's check holds, so it is not
+    /// checked again.
+    pub(crate) fn from_stored(text: String) -> Self {
+        Self(text)
+    }
+
+    /// The endpoint as stored.
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Whether the server is reached at an address, so a closed connection to it can be replaced
+    /// by a Reconnect; a stdio server's task dies with its process.
+    pub(crate) fn is_address(&self) -> bool {
+        self.0.starts_with(Self::ADDRESS_PREFIX)
+    }
+}
+
+/// Why a recorded task's follow is resumed, which decides how a 2025-11-25 task waiting on input
+/// goes on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum McpTaskResumption {
+    /// On the connection a Reconnect put in place of the one the follow was on: the task's watch,
+    /// with the question kept for the server's next ask, is adopted.
+    AfterReconnect,
+    /// After the daemon's restart, whose start withdrew the task's questions: a 2025-11-25 task
+    /// its first answered poll reads waiting on input is canceled before anything is held.
+    AfterRestart,
 }
 
 /// A dispatch whose acceptance carried a receiver-generated task id, ready to be recorded.
@@ -81,6 +130,10 @@ pub(crate) struct McpTaskHandleObservation {
     pub(crate) mcp_task_id: String,
     /// The protocol of the server that accepted the task.
     pub(crate) mcp_task_generation: McpTaskGeneration,
+    /// The name of the server that accepted the task.
+    pub(crate) server_name: McpServerName,
+    /// Which server accepted the task, so it is resumed only there.
+    pub(crate) endpoint: McpServerEndpoint,
 }
 
 /// Where an observed task handle lands: the task handle recorder, which stores it on the
@@ -98,9 +151,11 @@ pub(crate) fn extract_mcp_task_id(acceptance_result: &Map<String, Value>) -> Opt
 }
 
 /// Hands `sink` the handle `mcp_task_id` a server accepted the dispatch under, with the
-/// generation of the server that sent it, and resolves once the sink has settled it.
+/// generation of the server that sent it and `connection`'s server name and endpoint, and resolves
+/// once the sink has settled it.
 pub(crate) async fn observe_mcp_task_acceptance(
     sink: &dyn McpTaskHandleSink,
+    connection: &McpServerConnection,
     dispatch: McpTaskDispatchIdentity,
     mcp_task_generation: McpTaskGeneration,
     mcp_task_id: &str,
@@ -109,6 +164,8 @@ pub(crate) async fn observe_mcp_task_acceptance(
         dispatch,
         mcp_task_id: mcp_task_id.to_owned(),
         mcp_task_generation,
+        server_name: connection.scope.server_name.clone(),
+        endpoint: connection.endpoint.clone(),
     })
     .await;
 }
@@ -139,16 +196,88 @@ pub(crate) enum McpToolCallEnd {
     },
     /// The task was canceled.
     Canceled,
+    /// The server can no longer give the task's end, as a permanent error said, so the outcome
+    /// is unknown.
+    TaskUnknown {
+        /// The JSON-RPC error object that said so, as sent.
+        error: Map<String, Value>,
+    },
+    /// The connection closed under the follow, and the task may run on, so the dispatch binds it
+    /// to a new connection or reads its end unknown.
+    ConnectionClosed,
+    /// The task waited on input its server did not ask for again in the 300 s after a re-bind, or
+    /// that the daemon's restart withdrew, and was canceled, so its outcome is unknown.
+    InputLost,
 }
 
-/// Whether a followed task's server still answers its polls: `Lost` once no poll was answered for
-/// 300 s, back to `Reached` at the next answered poll. The task is left alone either way.
+/// What a server did with a request to cancel a task.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum McpTaskCancelOutcome {
+    /// The server took the cancel, and the task's poll reads where it ended.
+    Taken,
+    /// The server cancels no task: it declares no `tasks.cancel`, so nothing was sent, or it
+    /// answered `-32601`. The task runs on, and its follow goes on.
+    Refused,
+}
+
+/// Whether a followed task's server still reads the task, and why not when it does not: no
+/// answer, an error answer, a refused sign-in or a rejected task id, each also read once it has
+/// stood for 300 s. A failed poll that says why replaces the cause that stood, and the task is
+/// left alone either way. A standing arm says what the task did and holds to the end in place of
+/// `Reached`: a poll's cause shows over it while that cause holds, and an answered poll restores
+/// it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum McpTaskContact {
-    /// The last poll, or one within the last 300 s, was answered.
+    /// A poll read the task, and no failed poll since said why it could not.
     Reached,
-    /// No poll was answered for 300 s.
+    /// No poll read the task or answered `-32602` for 300 s; until one does.
     Lost,
+    /// The server answered a poll with an error; until a poll reads the task or answers `-32602`,
+    /// or `ErrorsPersisted` 300 s after the last that did.
+    AnsweredWithErrors,
+    /// The server refused the poll's sign-in; until a poll reads the task or answers `-32602`, or
+    /// `SignInNotAccepted` 300 s after the last that did.
+    NeedsSignIn,
+    /// The server answered `-32602`, rejecting the task's id, inside the grace; until a poll reads
+    /// the task, another failure says why, or `Lost` 300 s after the last `-32602`.
+    TaskIdRejected,
+    /// No sign-in was accepted in the 300 s since a poll last read the task or answered `-32602`;
+    /// until one does.
+    SignInNotAccepted,
+    /// The polls came back with errors for the 300 s since one last read the task or answered
+    /// `-32602`; until one does.
+    ErrorsPersisted,
+    /// The task's connection closed and no connection to its server is live in the session, as
+    /// when the server was removed or disabled; until a connection of the task's endpoint
+    /// replaces it.
+    NotConfigured,
+    /// The task's connection closed and the session's connection to its server now reaches
+    /// another address; until a connection of the task's endpoint replaces it.
+    Reconfigured,
+    /// A 2025-11-25 task re-bound with a question kept did not ask it again: another status or
+    /// form came first, or its bound ran out; a standing arm.
+    DidNotAskAgain {
+        /// Whether an answer the person gave was kept and withdrawn undelivered.
+        has_undelivered_answer: bool,
+    },
+    /// The server refused to cancel the task, which runs on and is followed to its end; a
+    /// standing arm.
+    CancelRefused {
+        /// Whether the cancel was the person's or the agent's stop, which the row reads as refused,
+        /// rather than the cancel of a task the restart found waiting on input.
+        is_from_stop: bool,
+    },
+}
+
+impl McpTaskContact {
+    /// Whether this arm says what the task did, so it holds to the follow's end in place of
+    /// `Reached`, the latest written winning.
+    pub(crate) fn is_standing(self) -> bool {
+        matches!(
+            self,
+            Self::DidNotAskAgain { .. } | Self::CancelRefused { .. }
+        )
+    }
 }
 
 /// Why a tool call has no end.
@@ -180,594 +309,140 @@ pub(crate) enum McpToolCallError {
 impl McpServerConnection {
     /// Calls a tool and follows it to its end: a task's handle reaches `sink` before the first
     /// poll, `contact` says whether its server still answers, and its questions, like any the
-    /// call asks outside a task, are asked in the call's session and run. Fails as the call or
-    /// the acceptance fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session's tool-server connections, which the tool-server units open, \
-                      call tools through it"
-        )
-    )]
+    /// call asks outside a task, are asked in the call's session and run. A 2026-07-28 task's
+    /// answers go over `standing`'s live connection, so one given after a Reconnect reaches the
+    /// new connection. The caller reads `is_task_tool` first, before anything is recorded, and
+    /// passes its answer. Fails as the call or the acceptance fails.
     pub(crate) async fn call_tool(
         &self,
+        standing: &McpStandingConnection,
         call: McpToolCall,
+        is_task_tool: bool,
         sink: &dyn McpTaskHandleSink,
         contact: &watch::Sender<McpTaskContact>,
     ) -> Result<McpToolCallEnd, McpToolCallError> {
+        // Dropped, never awaited, once the call ends: nothing then waits between a follow cut by
+        // the connection's close leaving its task's watch and the re-bind adopting it.
         let in_flight = self.calls.track(&call, &self.scope);
-        let ended = if self.task_generation == Some(McpTaskGeneration::V1)
-            && self.is_task_tool(&call.dispatch.tool_name).await?
-        {
-            v1::call_task_tool(self, call, sink, contact).await
+        if is_task_tool {
+            revision_2025_11_25::call_task_tool(self, call, sink, contact).await
         } else {
-            v2::call_tool(self, &in_flight, call, sink, contact).await
-        };
-        in_flight.finish().await;
-        ended
+            revision_2026_07_28::call_tool(self, standing, &in_flight, call, sink, contact).await
+        }
     }
 
-    /// Follows the recorded task `mcp_task_id` of `call`, accepted under `mcp_task_generation`,
-    /// to its end, as after a restart: polled at once, its questions asked again in the call's
-    /// session and run, `contact` saying whether its server answers. Never fails: a poll that
-    /// fails is polled again.
-    #[expect(
-        dead_code,
-        reason = "the session's tool-server connections, which the tool-server units open, \
-                  resume a recorded task through it"
-    )]
+    /// Follows run `run_id`'s recorded task `mcp_task_id`, accepted under `mcp_task_generation`,
+    /// to its end, as `resumption` says: polled at once, `contact` saying whether its server
+    /// answers, and a 2026-07-28 task's answers going over `standing`'s live connection. The watch
+    /// a follow cut by an earlier connection's close left is adopted with its questions and asked
+    /// keys; else its questions are asked anew in the run's session and run. Never fails: a failed
+    /// poll is polled again or read as the end it says.
     pub(crate) async fn resume_task(
         &self,
-        call: McpToolCall,
+        standing: &McpStandingConnection,
+        run_id: RunId,
         mcp_task_generation: McpTaskGeneration,
         mcp_task_id: &str,
+        resumption: McpTaskResumption,
         contact: &watch::Sender<McpTaskContact>,
     ) -> McpToolCallEnd {
         match mcp_task_generation {
-            McpTaskGeneration::V1 => v1::follow_task(self, &call, mcp_task_id, contact).await,
-            McpTaskGeneration::V2 => v2::follow_task(self, &call, mcp_task_id, contact).await,
+            McpTaskGeneration::V1 => {
+                revision_2025_11_25::follow_task(
+                    self,
+                    run_id,
+                    mcp_task_id,
+                    Some(resumption),
+                    contact,
+                )
+                .await
+            }
+            McpTaskGeneration::V2 => {
+                revision_2026_07_28::follow_task(self, standing, run_id, mcp_task_id, contact).await
+            }
         }
     }
 
     /// Asks the server to cancel task `mcp_task_id`, in the protocol of the `mcp_task_generation`
-    /// it was accepted under; the task's poll then reads its end. Fails as the request fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session's tool-server connections, which the tool-server units open, \
-                      cancel a stopped run's tasks through it"
-        )
-    )]
+    /// it was accepted under: `Taken` when the server took it, and the task's poll then reads its
+    /// end. `Refused`, with the task's follow going on, when the server declares no
+    /// `tasks.cancel`, so nothing is sent, or answers `-32601` on either protocol. Fails as the
+    /// request fails otherwise, a `-32602` for a task that ended or that the server does not know
+    /// included.
     pub(crate) async fn cancel_task(
         &self,
         mcp_task_generation: McpTaskGeneration,
         mcp_task_id: &str,
-    ) -> Result<(), McpToolCallError> {
+    ) -> Result<McpTaskCancelOutcome, McpToolCallError> {
+        if !self.can_cancel_tasks {
+            return Ok(McpTaskCancelOutcome::Refused);
+        }
         match mcp_task_generation {
-            McpTaskGeneration::V1 => {
-                self.requests
-                    .send_raw(
-                        "tasks/cancel",
-                        Some(serde_json::json!({ "taskId": mcp_task_id })),
-                        RequestWait::Ordinary,
-                    )
-                    .await?;
-            }
-            McpTaskGeneration::V2 => self
+            McpTaskGeneration::V1 => match self
                 .requests
-                .cancel_v2_task(mcp_task_id)
+                .send_raw(
+                    "tasks/cancel",
+                    Some(serde_json::json!({ "taskId": mcp_task_id })),
+                    RequestWait::Ordinary,
+                )
                 .await
-                .map_err(McpToolCallError::Service)?,
-        }
-        Ok(())
-    }
-}
-
-/// A followed task's key: its session, its server's name and its id.
-type WatchKey = (SessionId, String, String);
-
-/// The tasks a client follows, across its connections, each one's early-poll wake and the run its
-/// questions are asked in; and the questions card every tool-server question goes to. It holds one
-/// entry per followed task, each until the task's poll ends, and in it each of the task's
-/// questions still open: a 2025-11-25 one until it settles, a 2026-07-28 one, at most 16 a poll,
-/// until the task ends.
-pub(crate) struct TaskWatches {
-    questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
-    watched: Mutex<HashMap<WatchKey, WatchedTask>>,
-    /// Numbers each question a server asks, so its request id is never another's.
-    next_question: AtomicU64,
-}
-
-struct WatchedTask {
-    wake: Arc<Notify>,
-    run_id: RunId,
-    /// Canceled once the task stops being followed, which ends its questions' waits for the run.
-    ended: CancellationToken,
-    /// The request ids of the task's questions taken by the card.
-    open_questions: Vec<String>,
-}
-
-/// One task while it is followed; finished or dropped, it stops following and withdraws its
-/// questions still open.
-pub(super) struct TaskWatch<'watches> {
-    watches: &'watches TaskWatches,
-    key: WatchKey,
-    pub(super) wake: Arc<Notify>,
-}
-
-/// When the card takes a question: at once, refused while its run waits on something else; or in
-/// its run's turn, waiting for the run to read running.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum QuestionTake {
-    /// At once, as a task's poll asks, which asks again later.
-    Now,
-    /// In its run's turn, as a server's request waiting on the answer asks.
-    InRunTurn,
-}
-
-/// What a question came to.
-pub(super) enum QuestionOutcome {
-    /// The person answered; the form's content.
-    Answered(Map<String, Value>),
-    /// The card did not take the question, or it was withdrawn before an answer.
-    Withdrawn,
-}
-
-impl TaskWatches {
-    /// Watches asking each task's questions through `questions`.
-    pub(crate) fn new(questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>) -> Self {
-        Self {
-            questions,
-            watched: Mutex::new(HashMap::new()),
-            next_question: AtomicU64::new(1),
-        }
-    }
-
-    /// Follows `mcp_task_id` on `scope`'s server for `call`'s run.
-    pub(super) fn watch(
-        &self,
-        scope: &McpConnectionScope,
-        call: &McpToolCall,
-        mcp_task_id: &str,
-    ) -> TaskWatch<'_> {
-        let key = watch_key(scope, mcp_task_id);
-        let wake = Arc::new(Notify::new());
-        lock(&self.watched).insert(
-            key.clone(),
-            WatchedTask {
-                wake: Arc::clone(&wake),
-                run_id: call.run_id,
-                ended: CancellationToken::new(),
-                open_questions: Vec::new(),
-            },
-        );
-        TaskWatch {
-            watches: self,
-            key,
-            wake,
-        }
-    }
-
-    /// Wakes the poll of `scope`'s task `mcp_task_id` early, as a status notification asks; the
-    /// poll still decides the task's state.
-    pub(super) fn wake(&self, scope: &McpConnectionScope, mcp_task_id: &str) {
-        if let Some(watched) = lock(&self.watched).get(&watch_key(scope, mcp_task_id)) {
-            watched.wake.notify_one();
-        }
-    }
-
-    /// Asks the elicitation `params` a 2025-11-25 task sent during its `tasks/result`, and waits
-    /// for the person's answer. `None` when the client follows no such task on the server.
-    pub(super) async fn ask_v1_task_question(
-        &self,
-        scope: &McpConnectionScope,
-        mcp_task_id: &str,
-        params: Value,
-    ) -> Option<QuestionOutcome> {
-        let (answer, answered) = ElicitationAnswer::open(params.clone());
-        let asked = self
-            .ask(scope, mcp_task_id, &params, answer, QuestionTake::InRunTurn)
-            .await?;
-        let Some(request_id) = asked else {
-            return Some(QuestionOutcome::Withdrawn);
-        };
-        let outcome = AwaitedQuestion::hold(self, scope.session_id, request_id.clone())
-            .answer(answered)
-            .await;
-        // Settled, it is no longer open, so the task's end has nothing to withdraw for it.
-        if let Some(task) = lock(&self.watched).get_mut(&watch_key(scope, mcp_task_id)) {
-            task.open_questions.retain(|open| *open != request_id);
-        }
-        Some(outcome)
-    }
-
-    /// Hands the card one question of `scope`'s task `mcp_task_id`, answered through `answer`,
-    /// taken as `take` says. `None` when the task is not followed, or stopped being followed before
-    /// the card took it; `Some(None)` when the card did not take it, which is logged, so a later
-    /// poll can ask it again; else the question's request id.
-    pub(super) async fn ask(
-        &self,
-        scope: &McpConnectionScope,
-        mcp_task_id: &str,
-        params: &Value,
-        answer: Arc<dyn ToolServerQuestionAnswer>,
-        take: QuestionTake,
-    ) -> Option<Option<String>> {
-        let key = watch_key(scope, mcp_task_id);
-        let (run_id, ended) = {
-            let watched = lock(&self.watched);
-            let task = watched.get(&key)?;
-            (task.run_id, task.ended.clone())
-        };
-        let request_id = self.mint_request_id(scope, mcp_task_id);
-        let question = compose_question(scope, run_id, request_id.clone(), params);
-        if !self
-            .take_question(scope, question, answer, take, &ended)
-            .await
-        {
-            return (!ended.is_cancelled()).then_some(None);
-        }
-        let is_followed = lock(&self.watched)
-            .get_mut(&key)
-            .map(|task| task.open_questions.push(request_id.clone()))
-            .is_some();
-        // A task that ended while its question was taken leaves nothing to answer it.
-        if !is_followed {
-            self.withdraw_questions_later(scope.session_id, vec![request_id.clone()]);
-        }
-        Some(Some(request_id))
-    }
-
-    /// A request id for one question `scope`'s server asks under `owner`, a task's id or a call.
-    pub(super) fn mint_request_id(&self, scope: &McpConnectionScope, owner: &str) -> String {
-        let number = self.next_question.fetch_add(1, Ordering::Relaxed);
-        format!("mcp:{}:{owner}:{number}", scope.server_name.as_str())
-    }
-
-    /// Hands the card `question`, answered through `answer` and taken as `take` says; false when
-    /// the card did not take it, which is logged, when it was settled before its run's turn came,
-    /// or when `owner_ended`, its call's or task's end, came first. The take runs in a task of its
-    /// own, so one whose asker or owner stops waiting still completes and its question is
-    /// withdrawn, never left open with nobody to answer it; a question waiting its turn stops
-    /// waiting with its asker or its owner and is withdrawn. Until the card's intake is registered
-    /// this reads as taken while nobody holds `answer`: a 2025-11-25 question is then answered
-    /// `cancel`, and a 2026-07-28 one is never asked again.
-    pub(super) async fn take_question(
-        &self,
-        scope: &McpConnectionScope,
-        question: ProviderQuestion,
-        answer: Arc<dyn ToolServerQuestionAnswer>,
-        take: QuestionTake,
-        owner_ended: &CancellationToken,
-    ) -> bool {
-        let Some(port) = self.questions.port().cloned() else {
-            return true;
-        };
-        let (session_id, request_id) = (question.session_id, question.request_id.clone());
-        let (mut sender, taken) = oneshot::channel();
-        // Its place in its run's line is taken as it arrives, before the take's own task runs.
-        let place =
-            (take == QuestionTake::InRunTurn).then(|| QuestionLinePlace::line_up(question.run_id));
-        tokio::spawn({
-            let request_id = request_id.clone();
-            let server = scope.server_name.clone();
-            async move {
-                // Whether the card took it; false when it was settled before its run's turn came.
-                let took: Result<bool, Box<dyn Error + Send + Sync>> = match place {
-                    None => port
-                        .take_tool_server_question(question, answer)
-                        .await
-                        .map(|()| true),
-                    Some(place) => {
-                        let ended = take_question_in_turn(
-                            port.as_ref(),
-                            question,
-                            Some(answer),
-                            place,
-                            sender.closed(),
-                        )
-                        .await;
-                        match ended {
-                            Ok(QuestionTurnEnd::Taken) => Ok(true),
-                            Ok(QuestionTurnEnd::Settled) => Ok(false),
-                            // Withdrawn already, its asker gone.
-                            Ok(QuestionTurnEnd::AskerLeft) => return,
-                            // Its asker gone, so no one else logs it.
-                            Err(QuestionTurnError::Withdrawal(error)) => {
-                                tracing::warn!(
-                                    error = &*error as &(dyn Error + 'static),
-                                    server = server.as_str(),
-                                    "a tool server's question was not withdrawn"
-                                );
-                                return;
-                            }
-                            Err(error @ QuestionTurnError::Take { .. }) => Err(Box::new(error)),
-                        }
-                    }
-                };
-                match sender.send(took) {
-                    // Delivered, or settled with nothing left to withdraw.
-                    Ok(()) | Err(Ok(false)) => {}
-                    // The asker stopped waiting while the card took the question.
-                    Err(Ok(true)) => {
-                        withdraw_questions(port.as_ref(), session_id, vec![request_id]).await;
-                    }
-                    // Its asker gone, so no one else logs it.
-                    Err(Err(error)) => tracing::warn!(
-                        error = &*error as &(dyn Error + 'static),
-                        server = server.as_str(),
-                        "the questions card did not take a tool server's question"
-                    ),
+            {
+                Ok(_) => Ok(McpTaskCancelOutcome::Taken),
+                Err(McpRequestError::Refused { code, .. })
+                    if code == i64::from(ErrorCode::METHOD_NOT_FOUND.0) =>
+                {
+                    Ok(McpTaskCancelOutcome::Refused)
                 }
-            }
-        });
-        let mut pending = PendingTake {
-            watches: self,
-            session_id,
-            request_id,
-            taken,
-        };
-        let took = tokio::select! {
-            took = &mut pending.taken => match took {
-                Ok(took) => took,
-                Err(_ended) => Err("the take ended without an outcome".into()),
+                Err(error) => Err(error.into()),
             },
-            // Its call or task ended first; the pending take, dropped, has the question withdrawn.
-            () = owner_ended.cancelled() => return false,
+            McpTaskGeneration::V2 => match self.requests.cancel_v2_task(mcp_task_id).await {
+                Ok(()) => Ok(McpTaskCancelOutcome::Taken),
+                Err(ServiceError::McpError(error)) if error.code == ErrorCode::METHOD_NOT_FOUND => {
+                    Ok(McpTaskCancelOutcome::Refused)
+                }
+                Err(error) => Err(McpToolCallError::Service(error)),
+            },
+        }
+    }
+
+    /// The end of task `mcp_task_id`, accepted under `mcp_task_generation`, from one read of it: a
+    /// terminal status read as the task's follow reads it, a 2025-11-25 result through
+    /// `tasks/result`. `None`, the end unknown, for any other status or a failed read, which is
+    /// logged.
+    pub(crate) async fn read_task_end(
+        &self,
+        mcp_task_generation: McpTaskGeneration,
+        mcp_task_id: &str,
+    ) -> Option<McpToolCallEnd> {
+        let read: Result<_, Box<dyn Error + Send + Sync>> = match mcp_task_generation {
+            McpTaskGeneration::V1 => revision_2025_11_25::read_task_end(self, mcp_task_id)
+                .await
+                .map_err(Into::into),
+            McpTaskGeneration::V2 => revision_2026_07_28::read_task_end(self, mcp_task_id)
+                .await
+                .map_err(Into::into),
         };
-        took.unwrap_or_else(|error| {
+        read.unwrap_or_else(|error| {
             tracing::warn!(
                 error = &*error as &(dyn Error + 'static),
-                server = scope.server_name.as_str(),
-                "the questions card did not take a tool server's question"
+                server = self.scope.server_name.as_str(),
+                "a tool server task's end could not be read; it reads unknown"
             );
-            false
+            None
         })
     }
+}
 
-    /// Withdraws each of `request_ids` in `session_id` still open on the card, logging any the
-    /// card could not settle.
-    pub(super) async fn withdraw_questions(&self, session_id: SessionId, request_ids: Vec<String>) {
-        if let Some(port) = self.questions.port() {
-            withdraw_questions(port.as_ref(), session_id, request_ids).await;
+impl PollError for McpToolCallError {
+    fn poll_failure(&self) -> PollFailure {
+        match self {
+            Self::Request(error) => error.poll_failure(),
+            Self::Service(error) => error.poll_failure(),
+            // The server answered, with something the call cannot take.
+            Self::AcceptanceWithoutHandle
+            | Self::UnsupportedInputRequest
+            | Self::InputRoundsExceeded { .. }
+            | Self::UnexpectedResult => PollFailure::ErrorAnswer,
         }
-    }
-
-    /// Withdraws `request_ids` as [`Self::withdraw_questions`] does, in a task of its own, for an
-    /// owner dropped where it cannot wait.
-    pub(super) fn withdraw_questions_later(&self, session_id: SessionId, request_ids: Vec<String>) {
-        if request_ids.is_empty() {
-            return;
-        }
-        let (Some(port), Ok(runtime)) = (
-            self.questions.port().cloned(),
-            tokio::runtime::Handle::try_current(),
-        ) else {
-            return;
-        };
-        runtime
-            .spawn(async move { withdraw_questions(port.as_ref(), session_id, request_ids).await });
-    }
-}
-
-/// Withdraws each of `request_ids` in `session_id` through `port`, logging any the card could not
-/// settle.
-async fn withdraw_questions(
-    port: &dyn QuestionPort,
-    session_id: SessionId,
-    request_ids: Vec<String>,
-) {
-    for request_id in request_ids {
-        let withdrawal = ProviderQuestionWithdrawal {
-            session_id,
-            request_id,
-        };
-        if let Err(error) = port.withdraw_question(withdrawal).await {
-            tracing::warn!(
-                error = &*error as &(dyn Error + 'static),
-                "a tool server's question was not withdrawn"
-            );
-        }
-    }
-}
-
-/// What a take running in its own task came to; dropped before it was read, it withdraws a
-/// question the card took after all, so a take whose asker stopped waiting leaves nothing open.
-struct PendingTake<'watches> {
-    watches: &'watches TaskWatches,
-    session_id: SessionId,
-    request_id: String,
-    taken: oneshot::Receiver<Result<bool, Box<dyn Error + Send + Sync>>>,
-}
-
-impl Drop for PendingTake<'_> {
-    fn drop(&mut self) {
-        // Closed first, so the take's own task withdraws any outcome that comes after.
-        self.taken.close();
-        if let Ok(Ok(true)) = self.taken.try_recv() {
-            let request_id = std::mem::take(&mut self.request_id);
-            self.watches
-                .withdraw_questions_later(self.session_id, vec![request_id]);
-        }
-    }
-}
-
-/// A question the card took whose answer a server's request waits on; dropped before the answer
-/// comes, as when the server canceled its request, it is withdrawn from the card.
-pub(super) struct AwaitedQuestion<'watches> {
-    watches: &'watches TaskWatches,
-    session_id: SessionId,
-    request_id: Option<String>,
-}
-
-impl<'watches> AwaitedQuestion<'watches> {
-    /// Holds question `request_id` of `session_id` until it is answered.
-    pub(super) fn hold(
-        watches: &'watches TaskWatches,
-        session_id: SessionId,
-        request_id: String,
-    ) -> Self {
-        Self {
-            watches,
-            session_id,
-            request_id: Some(request_id),
-        }
-    }
-
-    /// What `answered`, the question's outcome, comes to.
-    pub(super) async fn answer(
-        mut self,
-        answered: impl Future<Output = QuestionOutcome>,
-    ) -> QuestionOutcome {
-        let outcome = answered.await;
-        self.request_id = None;
-        outcome
-    }
-}
-
-impl Drop for AwaitedQuestion<'_> {
-    fn drop(&mut self) {
-        if let Some(request_id) = self.request_id.take() {
-            self.watches
-                .withdraw_questions_later(self.session_id, vec![request_id]);
-        }
-    }
-}
-
-/// The card's question for the elicitation `params` of `scope`'s server, asked in `run_id`
-/// under `request_id`; the run waits on it.
-pub(super) fn compose_question(
-    scope: &McpConnectionScope,
-    run_id: RunId,
-    request_id: String,
-    params: &Value,
-) -> ProviderQuestion {
-    let header = NonEmptyText::new(scope.server_name.as_str().to_owned());
-    ProviderQuestion {
-        session_id: scope.session_id,
-        run_id,
-        request_id,
-        questions: read_elicitation_questions(params, header),
-        is_agent_waiting: true,
-    }
-}
-
-fn watch_key(scope: &McpConnectionScope, mcp_task_id: &str) -> WatchKey {
-    (
-        scope.session_id,
-        scope.server_name.as_str().to_owned(),
-        mcp_task_id.to_owned(),
-    )
-}
-
-impl TaskWatch<'_> {
-    /// Stops following the task, withdrawing each of its questions still open on the card.
-    pub(super) async fn finish(self) {
-        let removed = lock(&self.watches.watched).remove(&self.key);
-        if let Some(task) = removed {
-            task.ended.cancel();
-            self.watches
-                .withdraw_questions(self.key.0, task.open_questions)
-                .await;
-        }
-    }
-}
-
-impl Drop for TaskWatch<'_> {
-    fn drop(&mut self) {
-        let removed = lock(&self.watches.watched).remove(&self.key);
-        if let Some(task) = removed {
-            task.ended.cancel();
-            self.watches
-                .withdraw_questions_later(self.key.0, task.open_questions);
-        }
-    }
-}
-
-/// The answer to an elicitation the server's request waits on: the form's content, sent to the
-/// waiting request once.
-pub(super) struct ElicitationAnswer {
-    params: Value,
-    sender: Mutex<Option<oneshot::Sender<Map<String, Value>>>>,
-}
-
-impl ElicitationAnswer {
-    /// An answer to the elicitation `params`, and what it comes to: the content once answered, or
-    /// withdrawn when the answer is dropped unsent.
-    pub(super) fn open(
-        params: Value,
-    ) -> (
-        Arc<dyn ToolServerQuestionAnswer>,
-        impl Future<Output = QuestionOutcome>,
-    ) {
-        let (sender, answered) = oneshot::channel();
-        let answer = Arc::new(Self {
-            params,
-            sender: Mutex::new(Some(sender)),
-        });
-        let outcome = async move {
-            match answered.await {
-                Ok(content) => QuestionOutcome::Answered(content),
-                Err(_withdrawn) => QuestionOutcome::Withdrawn,
-            }
-        };
-        (answer, outcome)
-    }
-}
-
-impl ToolServerQuestionAnswer for ElicitationAnswer {
-    fn answer(
-        &self,
-        answers: Vec<QuestionAnswer>,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        let content = compose_elicitation_content(&self.params, &answers);
-        let sender = lock(&self.sender).take();
-        let sent = match sender {
-            Some(sender) => sender
-                .send(content)
-                .map_err(|_unsent| "the tool server's request no longer waits".into()),
-            None => Err("the question was answered already".into()),
-        };
-        async move { sent }.boxed()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use sidekicks_provider::port::question::QuestionPort as _;
-    use tokio::sync::oneshot;
-
-    use super::{ElicitationAnswer, PendingTake, compose_question};
-    use crate::client::test_server::{board_form, test_client, test_scope, track_call};
-
-    // Mutation: in `PendingTake::drop`, leave out the withdrawal of an outcome sent but not read.
-    #[tokio::test(start_paused = true)]
-    async fn a_take_whose_outcome_came_but_was_never_read_withdraws_its_question() {
-        let (client, card) = test_client();
-        let scope = test_scope(&client);
-        let request_id = scope.task_watches.mint_request_id(&scope, "task-1");
-        let question = compose_question(
-            &scope,
-            track_call().run_id,
-            request_id.clone(),
-            &board_form(),
-        );
-        let (answer, _answered) = ElicitationAnswer::open(board_form());
-        card.take_tool_server_question(question, answer)
-            .await
-            .expect("the card takes the question");
-        let (sender, taken) = oneshot::channel();
-        sender.send(Ok(true)).expect("the take's outcome is sent");
-
-        drop(PendingTake {
-            watches: &scope.task_watches,
-            session_id: scope.session_id,
-            request_id,
-            taken,
-        });
-
-        card.wait_until_none_open().await;
     }
 }

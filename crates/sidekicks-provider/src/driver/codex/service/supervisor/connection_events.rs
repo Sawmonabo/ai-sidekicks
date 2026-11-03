@@ -30,7 +30,7 @@ impl CodexConnectionEvents for ServiceConnectionEvents {
         if let Some(service) = self.service.upgrade() {
             if service.is_routed_dial(self.dial) {
                 CodexTransportDiagnostic::ServiceConnectionDropped {
-                    codex_home: service.home.codex_home.clone(),
+                    provider_account_id: service.provider_account_id(),
                     reason: reason.to_owned(),
                 }
                 .report();

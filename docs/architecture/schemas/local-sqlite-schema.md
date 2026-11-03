@@ -310,55 +310,50 @@ CREATE TABLE interventions (
 CREATE INDEX idx_interventions_run ON interventions(target_run_id);
 CREATE INDEX idx_interventions_state ON interventions(state) WHERE state IN ('requested', 'accepted');
 
--- Owner: Plan-002 | Extended by: Plan-012 (recovery + two-phase idempotency protocol); Plan-003 (nullable mcp_task_id and mcp_task_generation — MCP Tasks durable recovery handle — and delivered)
+-- ---------------------------------------------------------------------------
+-- Command receipts.
+-- ---------------------------------------------------------------------------
 CREATE TABLE command_receipts (
-  id                TEXT PRIMARY KEY,
-  command_id        TEXT NOT NULL UNIQUE,         -- idempotency key (client-supplied)
-  run_id            TEXT,
-  status            TEXT NOT NULL
-                    CHECK(status IN ('accepted', 'rejected', 'completed', 'failed')),
-  -- Two-phase commit columns
-  started_at        TEXT,                         -- set by Phase 2 optimistic CAS; NULL until claimed
-  completed_at      TEXT,                         -- set by Phase 3; NULL until terminal-status
-  -- Plan-003's column: receiver-generated
-  -- MCP Tasks taskId for a task-augmented MCP call (from the CreateTaskResult acceptance response).
-  -- NULL until the receiver accepts — a crash before that leaves NULL and the call's run halts with
-  -- `recoveryNeeded`. Spec-013 recovery reads this handle and polls tasks/get to a terminal status, then reads the result (tasks/result on 2025-11-25, inline on 2026-07-28)
-  -- instead of halting. Written by Plan-003 T5.1 through the T3.13 receipt-write seam. Bounded like every persisted
-  -- provider-declared string (the runtime_bindings defense-in-depth convention): the taskId is untrusted
-  -- remote-peer output, so the CHECK bounds the SQLite-expressible part and the T5.1 write seam mirrors
-  -- the same 256 — in CODE POINTS, since length(X) returns "the number of Unicode code points (not bytes)
-  -- in input string X prior to the first U+0000 character"
-  -- (https://www.sqlite.org/lang_corefunc.html#length). Both halves bind: the first sets the unit, the
-  -- second is why the write seam's single bounded scan reports NUL over size whenever one walk sees
-  -- both within its 256-code-point bound — a NUL-bearing handle measures short to length(X) and would
-  -- otherwise be misreported as well-sized — while a NUL first reachable past that bound reports
-  -- too-long instead: the scan stops at the first terminal fact it meets and never walks more than
-  -- 257 code points of a hostile handle, so refusal cost is bounded. The seam additionally refuses a handle that
-  -- is not well-formed Unicode, which the CHECK cannot see: UTF-8 prohibits encoding a lone surrogate
-  -- outright ("The definition of UTF-8 prohibits encoding character numbers between U+D800 and U+DFFF",
-  -- RFC 3629 §3, https://datatracker.ietf.org/doc/html/rfc3629#section-3), and the standard
-  -- JavaScript-to-bytes conversion substitutes U+FFFD for each unpaired surrogate rather than failing
-  -- ("To convert a JavaScript string into a scalar value string, replace any surrogates with U+FFFD",
-  -- WHATWG Infra Standard, https://infra.spec.whatwg.org/#javascript-string-convert) — one or more
-  -- U+FFFD per surrogate in practice, since the substitution width is the platform encoder's choice
-  -- (both observed widths are pinned by the executable hazard proof, a test of the daemon's
-  -- task-handle recorder in crates/sidekicks-mcp/src/client/tasks/recorder.rs) — so the row
-  -- would store a handle the receiver never issued.
-  mcp_task_id       TEXT                          -- NULL default; MCP Tasks durable recovery handle
-                    CHECK (mcp_task_id IS NULL OR (length(mcp_task_id) > 0 AND length(mcp_task_id) <= 256 AND instr(mcp_task_id, char(0)) = 0)),
-  -- The task's generation, set exactly when mcp_task_id is and in the same statement, because ext-tasks
-  -- resumes a task from its generation.
-  mcp_task_generation TEXT CHECK (mcp_task_generation IN ('v1', 'v2')),
-  delivered         INTEGER NOT NULL DEFAULT 0     -- 1 once a task-augmented call's result has reached the conversation, by steering a running turn or starting one, so a result that arrives after a daemon restart is delivered once
-                    CHECK (delivered IN (0, 1)),
-  created_at        TEXT NOT NULL,
-  CHECK ((mcp_task_generation IS NULL) = (mcp_task_id IS NULL))
+  id                   TEXT PRIMARY KEY,
+  command_id           TEXT NOT NULL UNIQUE,      -- the client-supplied idempotency key
+  run_id               TEXT NOT NULL,
+  status               TEXT NOT NULL CHECK(status IN ('accepted', 'completed', 'failed', 'unknown')),
+  -- started_at is set in the write that records the command, and completed_at by its end's write.
+  -- Started and not completed is in flight.
+  started_at           TEXT,
+  completed_at         TEXT,
+  -- The receiver-generated task id from a task-augmented call's acceptance, the one handle the
+  -- call is resumed by after a restart. NULL until the acceptance is stored; a call a restart
+  -- finds with no handle is never run again, and its run goes on, told the outcome is unknown.
+  -- Untrusted peer output, bounded in code points.
+  mcp_task_id          TEXT
+                       CHECK(mcp_task_id IS NULL OR (length(mcp_task_id) > 0
+                         AND length(mcp_task_id) <= 256
+                         AND instr(mcp_task_id, char(0)) = 0)),
+  -- The task's protocol generation, set exactly when mcp_task_id is and in the same statement,
+  -- since a task is resumed by its generation.
+  mcp_task_generation  TEXT CHECK(mcp_task_generation IN ('v1', 'v2')),
+  -- The name of the server the task was accepted on; a resume reaches only that server.
+  mcp_server_name      TEXT,
+  -- Which server the task was accepted on, by its endpoint; a resume reaches only that server.
+  mcp_server_endpoint  TEXT CHECK(mcp_server_endpoint IS NULL
+                         OR mcp_server_endpoint = 'stdio'
+                         OR mcp_server_endpoint GLOB 'address:[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'),
+  -- 1 once the call moved to the background, so its result is owed a delivery.
+  backgrounded         INTEGER NOT NULL DEFAULT 0 CHECK(backgrounded IN (0, 1)),
+  -- 1 once a backgrounded call's result has reached the conversation, so a result that arrives
+  -- after a restart is delivered once; only a backgrounded call's result is owed a delivery.
+  delivered            INTEGER NOT NULL DEFAULT 0 CHECK(delivered IN (0, 1)),
+  created_at           TEXT NOT NULL,
+  -- The task's handle, generation, server name and endpoint are set together or NULL together.
+  CHECK((mcp_task_id IS NULL) = (mcp_task_generation IS NULL)
+    AND (mcp_task_id IS NULL) = (mcp_server_name IS NULL)
+    AND (mcp_task_id IS NULL) = (mcp_server_endpoint IS NULL)),
+  CHECK(delivered <= backgrounded)
 ) STRICT;
 
-CREATE INDEX idx_command_receipts_run ON command_receipts(run_id) WHERE run_id IS NOT NULL;
--- Recovery sweep index: the startup sweep's in-flight receipts, each resumed by its task handle
--- or halted
+CREATE INDEX idx_command_receipts_run ON command_receipts(run_id);
+-- The in-flight receipts the restart's sweep reads.
 CREATE INDEX idx_command_receipts_inflight ON command_receipts(run_id)
   WHERE started_at IS NOT NULL AND completed_at IS NULL;
 ```
@@ -637,6 +632,10 @@ CREATE TABLE approval_requests (
   tool_call_id          TEXT,                 -- the provider's id of the tool call the ask holds, from
                                               -- approval.requested.toolCallId; NULL where the provider sent none
                                               -- and on a card the daemon raised itself
+  input_digest          TEXT,                 -- lower-case hex SHA-256 of the asked call's tool name and input as
+                                              -- RFC 8785 canonical JSON, from approval.requested.inputDigest, by which
+                                              -- a call made again under a new tool call id after a restart finds this
+                                              -- card; NULL where the input has no canonical form or the card holds no call
   state                 TEXT NOT NULL DEFAULT 'pending'
                         CHECK(state IN ('pending', 'approved', 'rejected', 'canceled')),
                                               -- No 'expired' state and no deadline column: a request waits until it is
@@ -657,7 +656,9 @@ CREATE UNIQUE INDEX idx_approval_requests_ask ON approval_requests(run_id, ask_i
 -- UNIQUE (run_id, ask_id): one approval row per ask id. The daemon mints the id once for each
 -- provider ask it takes; a provider ask delivered again while it is held is matched to the held
 -- one in memory, and one resent with none held (after a restart) is matched to its pending row by
--- tool_call_id and action, so no second row is minted for it (Spec-010 one ask↔one approval)
+-- tool_call_id and action, or, where no pending row holds that tool_call_id, to the oldest pending
+-- row of the same action and input_digest no held ask owns, so no second row is minted for it
+-- (Spec-010 one ask↔one approval)
 
 -- Owner: Plan-009
 CREATE TABLE approval_resolutions (

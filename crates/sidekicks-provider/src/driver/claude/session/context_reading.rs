@@ -263,6 +263,7 @@ impl ClaudeContextReadings {
                 used_tokens: SafeInt::new(used)?,
                 used_percent: Percent::new(share_percent(used, window))?,
                 breakdown: SessionContextBreakdown::Totals {
+                    categories: None,
                     cached_input_tokens: figure(counts.cached_input)?,
                     input_tokens: figure(counts.input)?,
                     output_tokens: figure(counts.output)?,
@@ -413,6 +414,10 @@ pub(crate) fn compose_claude_context_read(
                     .iter()
                     .filter_map(|row| context_category(row, &reply))
                     .collect(),
+                cached_input_tokens: None,
+                input_tokens: None,
+                output_tokens: None,
+                reasoning_tokens: None,
             },
         })
     });

@@ -2,7 +2,10 @@
 //! and the daemon's own, which Claude Code's answers come back to. A connection to a session whose
 //! process is up is passed to that process at once; to one asleep or stopping, its first complete
 //! line is held, the session woken for it, and only then is anything passed on, so a wake that
-//! fails closes the connection having written nothing.
+//! fails closes the connection having written nothing. A line the daemon's own inbox receives that
+//! answers no forwarded frame is read as a receipt: an idle notice a terminal session's reply wait
+//! awaits settles that wait, and every other receipt's readings are published to the session
+//! message readings, once registered.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -25,11 +28,16 @@ use tokio::task::{JoinHandle, JoinSet};
 
 use crate::driver::claude::inbox::address::{fresh_socket_name, is_inbox_socket_name};
 use crate::driver::claude::inbox::forward::ClaudeInboxForwarding;
+use crate::driver::claude::inbox::receipts::{
+    ClaudeInboxReceipt, read_receipt, session_message_readings,
+};
+use crate::driver::claude::session::conversation_file::peer_replies::ClaudePeerReplies;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
 use crate::driver::claude::session::slots::ClaudeSessionSlots;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::port::session_inbox_address::SessionInboxAddresser;
+use crate::port::session_message_reading_publisher::SessionMessageReadingPublisher;
 use crate::port::session_wake::SessionWaker;
 
 /// How long a connection to a sleeping session has to send its first complete line, as Claude
@@ -52,6 +60,10 @@ pub(crate) struct ClaudeSessionInboxes {
     idle_sleep: Arc<ClaudeIdleSleep>,
     // Made with the daemon's inbox, at the first session's bind.
     forwarding: OnceLock<Arc<ClaudeInboxForwarding>>,
+    // Where the daemon's inbox publishes what its receipts tell, read at each receipt.
+    session_message_readings: Arc<PortRegistration<Arc<dyn SessionMessageReadingPublisher>>>,
+    // The reply waits of messages sent to terminal sessions, which their idle notices settle.
+    peer_replies: Arc<ClaudePeerReplies>,
     // Bound once, so sessions starting together share one sweep and one bind.
     daemon_inbox: tokio::sync::OnceCell<JoinHandle<()>>,
     session_inboxes: Mutex<HashMap<SessionId, JoinHandle<()>>>,
@@ -70,12 +82,16 @@ enum ClaudeInboxRefusal {
 
 impl ClaudeSessionInboxes {
     /// The inboxes at the addresses `addresser` gives, waking a sleeping session through
-    /// `session_wakes` and passing each connection to the process `slots` holds live.
+    /// `session_wakes`, passing each connection to the process `slots` holds live, and publishing
+    /// what each receipt the daemon's inbox reads tells to `session_message_readings`, as do the
+    /// reply waits of messages sent to terminal sessions; a reading made before that is registered
+    /// is dropped.
     pub(crate) fn new(
         addresser: Arc<dyn SessionInboxAddresser>,
         session_wakes: Arc<PortRegistration<Arc<dyn SessionWaker>>>,
         slots: ClaudeSessionSlots,
         idle_sleep: Arc<ClaudeIdleSleep>,
+        session_message_readings: Arc<PortRegistration<Arc<dyn SessionMessageReadingPublisher>>>,
     ) -> Self {
         Self {
             addresser,
@@ -83,6 +99,10 @@ impl ClaudeSessionInboxes {
             slots,
             idle_sleep,
             forwarding: OnceLock::new(),
+            peer_replies: Arc::new(ClaudePeerReplies::new(Arc::clone(
+                &session_message_readings,
+            ))),
+            session_message_readings,
             daemon_inbox: tokio::sync::OnceCell::new(),
             session_inboxes: Mutex::default(),
         }
@@ -145,6 +165,15 @@ impl ClaudeSessionInboxes {
         }
     }
 
+    /// The reply waits of messages sent to terminal sessions, for a send to await its reply.
+    #[expect(
+        dead_code,
+        reason = "the Claude driver's send to a terminal session awaits its reply"
+    )]
+    pub(crate) fn peer_replies(&self) -> &Arc<ClaudePeerReplies> {
+        &self.peer_replies
+    }
+
     /// Stops listening on the session's inbox, which removes its socket, for the session's close
     /// or delete.
     pub(crate) fn release(&self, session_id: SessionId) {
@@ -179,7 +208,12 @@ impl ClaudeSessionInboxes {
                 let forwarding = Arc::clone(self.forwarding.get_or_init(|| {
                     Arc::new(ClaudeInboxForwarding::new(address.as_str().to_owned()))
                 }));
-                Ok::<_, io::Error>(tokio::spawn(serve_daemon_inbox(forwarding, listener)))
+                Ok::<_, io::Error>(tokio::spawn(serve_daemon_inbox(
+                    forwarding,
+                    Arc::clone(&self.session_message_readings),
+                    Arc::clone(&self.peer_replies),
+                    listener,
+                )))
             })
             .await?;
         Ok(())
@@ -384,9 +418,15 @@ async fn serve_session_inbox(
     }
 }
 
-// Reads every line written to the daemon's inbox and passes each answer to a forwarded frame on to
-// that frame's sender.
-async fn serve_daemon_inbox(forwarding: Arc<ClaudeInboxForwarding>, listener: Listener) {
+// Reads every line written to the daemon's inbox, passing each answer to a forwarded frame on to
+// that frame's sender, settling each awaited idle notice's reply wait in `peer_replies`, and
+// publishing what each other receipt tells to `readings`, once registered.
+async fn serve_daemon_inbox(
+    forwarding: Arc<ClaudeInboxForwarding>,
+    readings: Arc<PortRegistration<Arc<dyn SessionMessageReadingPublisher>>>,
+    peer_replies: Arc<ClaudePeerReplies>,
+    listener: Listener,
+) {
     let mut connections = JoinSet::new();
     loop {
         tokio::select! {
@@ -401,8 +441,11 @@ async fn serve_daemon_inbox(forwarding: Arc<ClaudeInboxForwarding>, listener: Li
                     }
                 };
                 let forwarding = Arc::clone(&forwarding);
+                let readings = Arc::clone(&readings);
+                let peer_replies = Arc::clone(&peer_replies);
                 connections.spawn(async move {
-                    if let Err(error) = pass_answers(&forwarding, connection).await {
+                    let passed = pass_answers(&forwarding, &readings, &peer_replies, connection);
+                    if let Err(error) = passed.await {
                         record_inbox_failure(None, "reading the daemon's inbox", &error);
                     }
                 });
@@ -417,14 +460,20 @@ async fn serve_daemon_inbox(forwarding: Arc<ClaudeInboxForwarding>, listener: Li
 }
 
 // Passes each answer one connection to the daemon's inbox carries to the sender of the frame it
-// answers; a line that answers no forwarded frame has nowhere to go. Fails as the connection
-// cannot be read.
+// answers. Of each other line that is a receipt, an idle notice a reply wait in `peer_replies`
+// awaits settles that wait, and any other receipt's readings are published to `readings`, read at
+// each receipt so a publisher registered after the bind still takes them; a receipt read before
+// then is dropped, and a line of neither kind has nowhere to go, logged once for the connection.
+// Fails as the connection cannot be read.
 async fn pass_answers(
     forwarding: &ClaudeInboxForwarding,
+    readings: &PortRegistration<Arc<dyn SessionMessageReadingPublisher>>,
+    peer_replies: &ClaudePeerReplies,
     connection: UnixDomainStream,
 ) -> io::Result<()> {
     let mut lines = BufReader::new(connection);
     let mut line = Vec::new();
+    let mut is_unread_logged = false;
     while lines.read_until(b'\n', &mut line).await? > 0 {
         let text = line.strip_suffix(b"\n").unwrap_or(&line);
         if let Some((sender_socket, mut answer)) = forwarding.route_answer(text) {
@@ -433,6 +482,23 @@ async fn pass_answers(
             if let Err(error) = write_answer(&sender_socket, &answer).await {
                 record_inbox_failure(None, "passing an answer to its sender", &error);
             }
+        } else if let Some(receipt) = read_receipt(text) {
+            let is_awaited_notice = match &receipt {
+                ClaudeInboxReceipt::IdleNotice { orig_msg_id, .. } => {
+                    peer_replies.take_idle_notice(orig_msg_id).await
+                }
+                ClaudeInboxReceipt::MessageStatus { .. } | ClaudeInboxReceipt::FarReply { .. } => {
+                    false
+                }
+            };
+            if !is_awaited_notice && let Some(publisher) = readings.port() {
+                for reading in session_message_readings(receipt) {
+                    publisher.publish(reading);
+                }
+            }
+        } else if !is_unread_logged {
+            is_unread_logged = true;
+            tracing::debug!("the daemon's inbox received a line that is no answer and no receipt");
         }
         line.clear();
     }

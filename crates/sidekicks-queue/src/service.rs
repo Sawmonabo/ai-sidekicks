@@ -254,24 +254,13 @@ impl RunQueue {
     }
 
     /// The queue's admission, which opens the binding of a turn the daemon starts.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start registers the drivers' ports with it"
-    )]
-    pub(crate) fn admission(&self) -> Arc<QueueAdmission> {
+    pub fn admission(&self) -> Arc<QueueAdmission> {
         Arc::clone(&self.admission)
     }
 
     /// The listener a driver tells of a session's provider process that ended, which moves on
     /// what the process kept for runs that ended; it holds the queue's run lifecycle weakly.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start registers the drivers' ports with it"
-        )
-    )]
-    pub(crate) fn process_gone_listener(&self) -> Arc<dyn ProcessGoneListener> {
+    pub fn process_gone_listener(&self) -> Arc<dyn ProcessGoneListener> {
         Arc::new(RunLifecycleListener(Arc::downgrade(&self.lifecycle)))
     }
 
@@ -297,13 +286,10 @@ impl RunQueue {
         if let Some(saved) = self.read_saved(session_id, &key).await? {
             return Ok(created_response_of(saved));
         }
+        self.refuse_unchangeable(session_id).await?;
         let (provider, provider_account_id, driver) =
             self.admission.admit_session_account(session_id).await?;
-        let run_config = self.admission.lead_run_config(session_id)?;
-        let state = read_session_state_through::<QueueError>(&self.pool, session_id).await?;
-        if let Some(state) = state {
-            refuse_unchangeable_session(&session_id, state)?;
-        }
+        let run_config = self.admission.lead_run_config(session_id).await?;
         let skills = self
             .admission
             .resolve_skill_picks(
@@ -373,12 +359,9 @@ impl RunQueue {
         if let Some(saved) = self.read_saved(session_id, &key).await? {
             return Ok(created_response_of(saved));
         }
+        self.refuse_unchangeable(session_id).await?;
         let (_, provider_account_id, _) = self.admission.admit_session_account(session_id).await?;
-        let run_config = self.admission.lead_run_config(session_id)?;
-        let state = read_session_state_through::<QueueError>(&self.pool, session_id).await?;
-        if let Some(state) = state {
-            refuse_unchangeable_session(&session_id, state)?;
-        }
+        let run_config = self.admission.lead_run_config(session_id).await?;
         let hold = self.session_lock.hold_session(session_id).await;
         if let Some(saved) = self.read_saved(session_id, &key).await? {
             return Ok(created_response_of(saved));
@@ -414,12 +397,9 @@ impl RunQueue {
         if let Some(saved) = self.read_saved(session_id, &key).await? {
             return Ok(created_response_of(saved));
         }
+        self.refuse_unchangeable(session_id).await?;
         let (_, provider_account_id, _) = self.admission.admit_session_account(session_id).await?;
-        let run_config = self.admission.lead_run_config(session_id)?;
-        let state = read_session_state_through::<QueueError>(&self.pool, session_id).await?;
-        if let Some(state) = state {
-            refuse_unchangeable_session(&session_id, state)?;
-        }
+        let run_config = self.admission.lead_run_config(session_id).await?;
         let hold = self.session_lock.hold_session(session_id).await;
         if let Some(saved) = self.read_saved(session_id, &key).await? {
             return Ok(created_response_of(saved));
@@ -435,6 +415,17 @@ impl RunQueue {
         };
         let written = self.sends.send(&hold, item, None).await?;
         Ok(created_response_of(written.item))
+    }
+
+    // Refuses a send to a session that takes no change before admission reads its provider, so a
+    // closed or purged session gets no notice in its history.
+    async fn refuse_unchangeable(&self, session_id: SessionId) -> Result<(), QueueError> {
+        if let Some(state) =
+            read_session_state_through::<QueueError>(&self.pool, session_id).await?
+        {
+            refuse_unchangeable_session(&session_id, state)?;
+        }
+        Ok(())
     }
 
     /// A queue, the lead's or a child's, in its order, only the items in `state` when it is

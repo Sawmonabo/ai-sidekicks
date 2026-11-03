@@ -11,7 +11,6 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_std::error_description::describe_error;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio::time::Instant;
 
@@ -31,6 +30,7 @@ use crate::driver::claude::session::transport::declarations;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
+use crate::driver::prior_usage::read_prior_emitted;
 use crate::port::usage_sink::UsageSink;
 use crate::thread_frame_router::{
     ChildRegistrationResult, ChildSpendAttribution, SubagentLifecycleEmission,
@@ -160,9 +160,13 @@ impl ClaudeFrameRouting {
             ClaudeUsageEstablishment::Resume {
                 prior_emitted_thread_id,
             } => ThreadBaseEstablishment::Resume {
-                prior_emitted_cumulative: self
-                    .read_prior_emitted(session_id, prior_emitted_thread_id)
-                    .await,
+                prior_emitted_cumulative: read_prior_emitted(
+                    &self.usage,
+                    DESCRIPTOR.provider_id(),
+                    session_id,
+                    prior_emitted_thread_id,
+                )
+                .await,
             },
         };
         band.accountant
@@ -305,33 +309,6 @@ impl ClaudeFrameRouting {
             apply_route(band, &frame, &route, &mut released_routed);
             band.usage_tally.unrouted.extend(released_routed.metered);
         }
-    }
-
-    // The daemon's own sum for a resumed thread; an unregistered usage record or a failed read is
-    // recorded, the base then zero, so the first reading meters what came before again.
-    async fn read_prior_emitted(&self, session_id: SessionId, thread_id: &str) -> UsageAxisCounts {
-        let failure = match self.usage.require_port() {
-            Ok(sink) => match sink
-                .read_prior_emitted(session_id, thread_id.to_owned())
-                .await
-            {
-                Ok(counts) => return counts,
-                Err(error) => describe_error(error.as_ref()),
-            },
-            Err(error) => describe_error(&error),
-        };
-        report(
-            session_id,
-            DriverDiagnosticKind::UsageResumeBaseUnavailable,
-            None,
-            "the daemon's own emitted usage sum could not be read, so the resumed thread meters \
-             from zero and its first reading counts what came before again",
-            [
-                ("threadId", Value::from(thread_id)),
-                ("failure", Value::from(failure)),
-            ],
-        );
-        UsageAxisCounts::default()
     }
 }
 

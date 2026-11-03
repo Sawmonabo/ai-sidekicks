@@ -2,8 +2,13 @@
 //! them ended: a helper's end moves its child run, a shell or Monitor task becomes a row of the
 //! session's running commands on the run that started it, and a tool server's background call
 //! stays open until its own notification closes it. Also the usage routing metered off a frame,
-//! recorded on the run whose thread spent it.
+//! recorded on the run whose thread spent it, and the move of the session's bindings onto another
+//! account, made in its place among those frames.
 
+use std::collections::HashSet;
+
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::subagent::SubagentId;
 use tokio::time::Instant;
 
@@ -16,10 +21,12 @@ use crate::driver::claude::delivery::messages::{
 use crate::driver::claude::delivery::run_readings::ClaudeRowDelivery;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::frame_routing::ClaudeMeteredReading;
-use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoute};
+use crate::driver::claude::run::routes::ClaudeBoundRun;
+use crate::driver::claude::session::conversation_home::ClaudeConversationHomeKeep;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 /// Why usage Claude Code reported is not recorded: no run holds the session's thread and no
 /// helper's route names a binding.
@@ -101,13 +108,8 @@ impl ClaudeDeliveryStream {
             let (binding_id, owner) = match reading.subagent_id {
                 Some(agent_id) => {
                     let child_binding = routes
-                        .child_run_for(session.session_id, &agent_id)
-                        .and_then(|child_run_id| match routes.route_of(child_run_id) {
-                            Some(ClaudeRunRoute::Child(route)) => Some(route.binding_id),
-                            Some(ClaudeRunRoute::Lead { .. } | ClaudeRunRoute::Apart) | None => {
-                                None
-                            }
-                        });
+                        .child_route_for(session.session_id, &agent_id)
+                        .map(|(_, route)| route.binding_id);
                     let owner = SubagentId::new(agent_id)
                         .map_or(MeteredUsageOwner::Run, MeteredUsageOwner::Helper);
                     (child_binding.or_else(lead_binding), owner)
@@ -135,6 +137,60 @@ impl ClaudeDeliveryStream {
         }
     }
 
+    /// Moves the session's stream, the binding its lead runs on, every lead run's binding on the
+    /// session and every live helper's onto `provider_account_id`'s account through `bindings`,
+    /// each binding once, in the place the process acknowledged the switch, so each reading
+    /// metered and each report read after it is the new account's and each before it the old
+    /// one's. Each binding names `conversation_home` first where one is given, so none rests on
+    /// the new account without the home that holds its conversation; a binding whose home or move
+    /// is not written is logged, left where it is, and the others are still moved.
+    pub(super) async fn move_account(
+        &self,
+        session: &ClaudeSessionStream,
+        provider_account_id: &ProviderAccountId,
+        lead_binding_id: RuntimeBindingId,
+        bindings: &dyn RuntimeBindingWriter,
+        conversation_home: Option<&ClaudeConversationHomeKeep>,
+    ) {
+        session.move_account(provider_account_id.clone());
+        let routes = &self.dependencies.routes;
+        let mut moved = HashSet::new();
+        let binding_ids = std::iter::once(lead_binding_id).chain(
+            routes
+                .bound_runs_on(session.session_id)
+                .into_iter()
+                .chain(routes.child_runs_on(session.session_id))
+                .map(|run| run.binding_id),
+        );
+        for binding_id in binding_ids {
+            if !moved.insert(binding_id.clone()) {
+                continue;
+            }
+            if let Some(home) = conversation_home
+                && let Err(error) = home.keep_in(bindings, binding_id.clone()).await
+            {
+                tracing::warn!(
+                    session_id = %session.session_id,
+                    error = &*error as &(dyn std::error::Error + 'static),
+                    "a Claude Code session's binding could not name the home that holds its \
+                     conversation, so it stays on the account it was on"
+                );
+                continue;
+            }
+            if let Err(error) = bindings
+                .move_account(binding_id, provider_account_id.clone())
+                .await
+            {
+                tracing::warn!(
+                    session_id = %session.session_id,
+                    error = &*error as &(dyn std::error::Error + 'static),
+                    "a Claude Code session's binding could not move onto the account its process \
+                     switched to"
+                );
+            }
+        }
+    }
+
     // The run a task belongs to: the child run of the helper that started it, else `lead`, else
     // the run holding the session's turn now.
     fn task_run(
@@ -146,13 +202,10 @@ impl ClaudeDeliveryStream {
         let routes = &self.dependencies.routes;
         let helper_run = task
             .parent_task_id()
-            .and_then(|parent_task_id| routes.child_run_for(session.session_id, parent_task_id))
-            .and_then(|child_run_id| match routes.route_of(child_run_id) {
-                Some(ClaudeRunRoute::Child(route)) => Some(ClaudeBoundRun {
-                    run_id: child_run_id,
-                    binding_id: route.binding_id,
-                }),
-                Some(ClaudeRunRoute::Lead { .. } | ClaudeRunRoute::Apart) | None => None,
+            .and_then(|parent_task_id| routes.child_route_for(session.session_id, parent_task_id))
+            .map(|(run_id, route)| ClaudeBoundRun {
+                run_id,
+                binding_id: route.binding_id,
             });
         helper_run
             .or(lead)

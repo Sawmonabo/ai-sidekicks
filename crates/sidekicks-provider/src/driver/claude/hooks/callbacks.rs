@@ -46,11 +46,10 @@ pub(crate) enum ClaudeRequestRoute {
         /// The answer.
         answer: ClaudeHookAnswer,
     },
-    /// Leave it unanswered until a continue or a finished helper lets it go; `helper_held` names
-    /// a helper whose pause just took effect.
+    /// Leave it unanswered until a continue or a finished helper lets it go.
     Held {
-        /// The helper whose pause took effect with this hold.
-        helper_held: Option<String>,
+        /// The helper a pause holds, `None` on a hold the helper limit makes.
+        helper: Option<ClaudeHeldHelper>,
     },
     /// Answer it once the shell call it carries is checked for background work, through
     /// [`answer_background_work_check`].
@@ -71,6 +70,15 @@ pub(crate) enum ClaudeRequestRoute {
     /// Hand it on to the event side: every request the daemon's hooks do not answer, and every
     /// withdrawal.
     Forward(ClaudeInboundRequestEvent),
+}
+
+/// The helper whose call a pause holds, and whether this hold is the pause taking effect.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ClaudeHeldHelper {
+    /// The helper's agent id.
+    pub(crate) agent_id: String,
+    /// Whether the helper's pause took effect with this hold.
+    pub(crate) has_taken_effect: bool,
 }
 
 // The members of a hook's input the daemon's hooks read.
@@ -209,7 +217,7 @@ pub(crate) fn route_claude_request(
                     request_id: request.request_id,
                     answer: ClaudeHookAnswer::Pass,
                 },
-                ClaudeHelperStartAnswer::Hold => ClaudeRequestRoute::Held { helper_held: None },
+                ClaudeHelperStartAnswer::Hold => ClaudeRequestRoute::Held { helper: None },
             }
         }
         RegisteredHook::HelperSteerAfterTool => ClaudeRequestRoute::Answer {
@@ -290,8 +298,7 @@ fn helper_start_refused_reason(cause: &str) -> String {
     )
 }
 
-// The pause's route for a pre-tool callback: an answer now, or a hold that names the helper when
-// its pause takes effect with it.
+// The pause's route for a pre-tool callback: an answer now, or a hold that names the helper.
 fn route_before_tool(
     pauses: &mut ClaudeRunPauses,
     session_id: &SessionId,
@@ -345,8 +352,7 @@ pub(crate) async fn answer_claude_request(
     channel.terminate().await;
 }
 
-// A pause's route: an answer now, or a hold, which names the helper when it is the helper's pause
-// taking effect.
+// A pause's route: an answer now, or a hold, which names the helper it holds.
 fn pause_route(
     answer: ClaudePauseAnswer,
     request_id: String,
@@ -355,7 +361,10 @@ fn pause_route(
     match answer {
         ClaudePauseAnswer::Answer(answer) => ClaudeRequestRoute::Answer { request_id, answer },
         ClaudePauseAnswer::Hold { has_taken_effect } => ClaudeRequestRoute::Held {
-            helper_held: agent_id.filter(|_| has_taken_effect),
+            helper: agent_id.map(|agent_id| ClaudeHeldHelper {
+                agent_id,
+                has_taken_effect,
+            }),
         },
     }
 }
@@ -384,9 +393,9 @@ mod tests {
     use sidekicks_std::mutex_lock::lock;
 
     use super::{
-        ClaudeRequestRoute, ClaudeShellCall, ShellToolInput, UNTIMED_BACKGROUND_REASON,
-        answer_background_work_check, helper_start_refused_reason, route_claude_request,
-        route_helper_start,
+        ClaudeHeldHelper, ClaudeRequestRoute, ClaudeShellCall, ShellToolInput,
+        UNTIMED_BACKGROUND_REASON, answer_background_work_check, helper_start_refused_reason,
+        route_claude_request, route_helper_start,
     };
     use crate::background_work::BackgroundWorkForms;
     use crate::driver::PROVIDERS;
@@ -572,11 +581,17 @@ mod tests {
             }
         ));
         lock(&pauses).pause_helper(&fixed_session_id(), "helper-a");
-        let ClaudeRequestRoute::Held { helper_held } =
+        let ClaudeRequestRoute::Held { helper } =
             route_start(&pauses, &posture, Some("helper-a"), "r2").await
         else {
             panic!("a paused helper's helper start is held");
         };
-        assert_eq!(helper_held.as_deref(), Some("helper-a"));
+        assert_eq!(
+            helper,
+            Some(ClaudeHeldHelper {
+                agent_id: "helper-a".to_owned(),
+                has_taken_effect: true,
+            })
+        );
     }
 }
