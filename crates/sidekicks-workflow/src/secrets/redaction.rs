@@ -120,10 +120,15 @@ impl RunRedaction {
                         Cow::Borrowed(_) => None,
                     })
                     .collect();
-                for (name, scrubbed) in renamed {
-                    if let Some(member) = members.remove(&name) {
-                        members.insert(scrubbed, member);
-                    }
+                let moved: Vec<(String, serde_json::Value)> = renamed
+                    .into_iter()
+                    .filter_map(|(name, scrubbed)| {
+                        members.remove(&name).map(|member| (scrubbed, member))
+                    })
+                    .collect();
+                for (scrubbed, member) in moved {
+                    let name = free_member_name(members, scrubbed);
+                    members.insert(name, member);
                 }
                 for member in members.values_mut() {
                     self.scrub_json(member);
@@ -231,6 +236,18 @@ impl NeedleSet {
         }
         merged
     }
+}
+
+/// `name`, or when `members` holds it already, the first of `name (2)`, `name (3)` and on that it
+/// does not, so two names masked alike keep both their members.
+fn free_member_name(members: &serde_json::Map<String, serde_json::Value>, name: String) -> String {
+    if !members.contains_key(&name) {
+        return name;
+    }
+    (2_u64..)
+        .map(|number| format!("{name} ({number})"))
+        .find(|candidate| !members.contains_key(candidate))
+        .expect("a map holds finitely many names, so a free one is found")
 }
 
 /// The needle set `shared` holds now; a poisoned lock still holds a whole set, since a writer only
@@ -385,6 +402,37 @@ mod tests {
                 "count": 3,
                 "note": CREDENTIAL_REDACTION,
             })
+        );
+    }
+
+    /// Two member names that mask to the same text both keep their members. Mutation: insert
+    /// the masked name over the member already holding it.
+    #[test]
+    fn two_member_names_masked_alike_keep_both_members() {
+        let redaction = redaction_of(&["alpha-key", "omega-key"]);
+        let mut value = serde_json::json!({ "alpha-key": 1, "omega-key": 2, "plain": 3 });
+
+        redaction.scrub_json(&mut value);
+
+        let serde_json::Value::Object(members) = value else {
+            panic!("an object stays an object");
+        };
+        let mut kept: Vec<(String, serde_json::Value)> = members.into_iter().collect();
+        kept.sort_by_key(|(_, member)| member.as_u64());
+        assert_eq!(
+            kept.iter()
+                .map(|(_, member)| member.clone())
+                .collect::<Vec<_>>(),
+            [
+                serde_json::json!(1),
+                serde_json::json!(2),
+                serde_json::json!(3)
+            ]
+        );
+        assert!(
+            kept[..2]
+                .iter()
+                .all(|(name, _)| name.starts_with(CREDENTIAL_REDACTION))
         );
     }
 
