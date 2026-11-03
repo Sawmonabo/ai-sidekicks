@@ -54,8 +54,9 @@ use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_pr
 use sidekicks_provider::driver::{CurrentProviderAccount, PROVIDERS};
 use sidekicks_provider::process_identity::{ProcessStandIn, ProviderProcessIds};
 use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
-use sidekicks_provider::runtime_binding::test_store::spawned_build;
-use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
+use sidekicks_provider::runtime_binding::test_store::{
+    resumable_binding_input, spawned_build, test_provider_account_id,
+};
 use sidekicks_session::checkpoints::schema::schema_parts as checkpoint_schema_parts;
 use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::queue_store::{
@@ -87,7 +88,7 @@ use crate::changes::QueueChangeSignals;
 use crate::error::QueueError;
 use crate::memory_gate::{MemoryGate, MemoryGateFigures};
 use crate::provider_session::test_opening::{
-    OrphanedAnswersStandIn, RecordedProcessFollowing, RecordedResumedRuns,
+    OrphanedAnswersStandIn, RecordedProcessFollowing, RecordedResumedRuns, first_provider,
     record_first_provider_capabilities, test_execution_postures, test_git_folder_reader,
     test_opening_composer,
 };
@@ -430,8 +431,9 @@ fn client_key() -> ClientUuid {
 
 impl Fixture {
     /// Writes a lead run of the session in `state`, at version 1, queued on the test's account,
-    /// and answers its id; a running one has its session's process opened, as a live lead's is.
-    fn insert_run(&self, state: &str) -> RunId {
+    /// and answers its id; a running one has its session's process opened, as a live lead's is,
+    /// the opening's leg bound on the session's conversation with its cursor open.
+    async fn insert_run(&self, state: &str) -> RunId {
         let run_id = new_run_id();
         insert_running_run(&self.database, self.session_id, run_id);
         self.insert_event(
@@ -444,9 +446,16 @@ impl Fixture {
         );
         self.set_run_state(run_id, state);
         if state == "running" {
-            self.queue
-                .provider_sessions
-                .record_test_opening(self.session_id);
+            let provider_sessions = &self.queue.provider_sessions;
+            provider_sessions
+                .binding_cursors()
+                .create(
+                    self.session_id,
+                    resumable_binding_input(run_id, first_provider()),
+                )
+                .await
+                .expect("the opening's leg is recorded");
+            provider_sessions.record_test_opening(self.session_id);
         }
         run_id
     }
@@ -628,7 +637,7 @@ async fn a_send_to_a_session_that_takes_no_change_is_refused(
 #[tokio::test]
 async fn removing_a_queued_runs_last_message_ends_the_run_failed() {
     let fixture = fixture(MockProviderDriver::new()).await;
-    let run_id = fixture.insert_run("queued");
+    let run_id = fixture.insert_run("queued").await;
     let item_id = fixture.queue_message(run_id).await;
 
     fixture

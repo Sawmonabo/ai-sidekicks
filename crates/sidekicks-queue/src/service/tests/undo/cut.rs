@@ -19,7 +19,6 @@ use sidekicks_contracts::session::restore::SessionRestoreTarget;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::rewind::RewindConversationResult;
-use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_provider::port::run_host::{RunHost, RunHostError};
 use sidekicks_provider::run::turn_end::StartedTurn;
 use sidekicks_provider::runtime_binding::store::mint_runtime_binding_id;
@@ -337,9 +336,7 @@ async fn a_target_in_an_earlier_run_rolls_back_every_later_run_in_one_write() {
     let scene = scene(applied_in_place()).await;
     let fixture = &scene.fixture;
     fixture.set_run_state(scene.run_id, "completed");
-    let later_run_id = fixture.insert_run("running");
-    let later_binding_id = bind_run_to_first_provider(&fixture.database, later_run_id);
-    fixture.open_cursor(later_run_id, later_binding_id).await;
+    let later_run_id = fixture.insert_run("running").await;
     let companions = recovery_companions(
         &scene,
         later_run_id,

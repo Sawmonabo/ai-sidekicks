@@ -30,7 +30,7 @@ use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::params_and_results::SessionProcessState;
 use sidekicks_provider::driver::session_control::held_run_continue::ContinueAnswer;
 use sidekicks_provider::driver::session_control::{
-    DriverResumeResult, ProviderTurnAnswer, answer_every_run_gone,
+    DriverResumeResult, ProviderTurnAnswer, ResumedRunAnswer, answer_every_run_gone,
 };
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_provider::process_identity::TEST_PROVIDER_PROCESS;
@@ -98,25 +98,24 @@ async fn a_runs_end_moves_its_waiting_message_on(#[case] ended: EndedRun) {
     let fixture = fixture(recording_driver(&calls)).await;
     let (ended_run_id, expected) = match ended {
         EndedRun::Interrupted => {
-            let run_id = fixture.insert_run("interrupted");
+            let run_id = fixture.insert_run("interrupted").await;
             fixture.insert_interrupted_end(run_id, None);
             (run_id, Expected::Continues(run_id))
         }
         EndedRun::FailedAfterInterrupted => {
-            let interrupted_run_id = fixture.insert_run("interrupted");
+            let interrupted_run_id = fixture.insert_run("interrupted").await;
             fixture.insert_interrupted_end(interrupted_run_id, None);
             (
-                fixture.insert_run("failed"),
+                fixture.insert_run("failed").await,
                 Expected::Continues(interrupted_run_id),
             )
         }
         EndedRun::CompletedBeforeLiveRun => {
-            let ended_run_id = fixture.insert_run("completed");
-            let live_run_id = fixture.insert_run("running");
-            bind_run_to_first_provider(&fixture.database, live_run_id);
+            let ended_run_id = fixture.insert_run("completed").await;
+            let live_run_id = fixture.insert_run("running").await;
             (ended_run_id, Expected::Steered(live_run_id))
         }
-        EndedRun::Completed => (fixture.insert_run("completed"), Expected::NextRun),
+        EndedRun::Completed => (fixture.insert_run("completed").await, Expected::NextRun),
     };
     let item_id = fixture.queue_message(ended_run_id).await;
 
@@ -144,6 +143,19 @@ async fn a_runs_end_moves_its_waiting_message_on(#[case] ended: EndedRun) {
     }
 }
 
+/// The provider's answer to a resume that brought back conversation `conversation-1` on a newer
+/// build, with `runs` its answer for each live run.
+fn resumed_on_conversation(runs: Vec<ResumedRunAnswer>) -> DriverResumeResult {
+    DriverResumeResult::Resumed {
+        binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string())
+            .expect("a UUID is a binding id"),
+        session_position: SafeInt::new(1).expect("a position"),
+        resume_handle: NonEmptyText::new("conversation-1".to_owned()).expect("a resume handle"),
+        spawned_version: spawned_build("1.0.1", "/opt/provider/bin"),
+        runs,
+    }
+}
+
 // A message the provider's live process keeps past its run's end stays with that run through the
 // end, and once a driver tells the queue the process is gone it moves on as at the end, to a next
 // run, which starts with it. Killed by a process-gone listener that tells the run lifecycle
@@ -156,10 +168,13 @@ async fn a_message_a_gone_process_kept_moves_on_once_a_driver_tells_of_it() {
     driver
         .expect_session_process_state()
         .returning(|_session_id| SessionProcessState::Down);
+    driver.expect_resume_session().returning(|params| {
+        let runs = answer_every_run_gone(&params.live_runs);
+        async move { Ok(resumed_on_conversation(runs)) }.boxed()
+    });
     let fixture = fixture(driver).await;
     fixture.process.set(Some(TEST_PROVIDER_PROCESS));
-    let run_id = fixture.insert_run("running");
-    bind_run_to_first_provider(&fixture.database, run_id);
+    let run_id = fixture.insert_run("running").await;
     let item_id = fixture.queue_message(run_id).await;
     timeout(WAIT, fixture.queue.lifecycle.reconcile(fixture.session_id))
         .await
@@ -207,18 +222,7 @@ async fn a_restart_that_ends_down_leaves_the_next_send_to_resume_the_session() {
     driver.expect_resume_session().returning(move |params| {
         resuming.fetch_add(1, Ordering::SeqCst);
         let runs = answer_every_run_gone(&params.live_runs);
-        async move {
-            Ok(DriverResumeResult::Resumed {
-                binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string())
-                    .expect("a UUID is a binding id"),
-                session_position: SafeInt::new(1).expect("a position"),
-                resume_handle: NonEmptyText::new("conversation-1".to_owned())
-                    .expect("a resume handle"),
-                spawned_version: spawned_build("1.0.1", "/opt/provider/bin"),
-                runs,
-            })
-        }
-        .boxed()
+        async move { Ok(resumed_on_conversation(runs)) }.boxed()
     });
     let fixture = fixture(driver).await;
     timeout(WAIT, fixture.send())
@@ -262,7 +266,7 @@ async fn a_restart_that_ends_down_leaves_the_next_send_to_resume_the_session() {
 async fn a_run_a_limit_interrupted_rests_until_a_send() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run("interrupted");
+    let run_id = fixture.insert_run("interrupted").await;
     fixture.insert_interrupted_end(run_id, Some("stepLimit"));
     let waited = fixture.queue_message(run_id).await;
 
@@ -291,7 +295,7 @@ async fn a_failed_start_leaves_its_opening_not_delivered_and_the_rest_to_a_next_
     let calls = Arc::new(DriverCalls::default());
     calls.start_failures_left.store(1, Ordering::SeqCst);
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run("queued");
+    let run_id = fixture.insert_run("queued").await;
     let opening = fixture.queue_message(run_id).await;
     let rest = fixture.queue_message(run_id).await;
 
@@ -327,7 +331,7 @@ async fn stop_waits_for_the_work_a_runs_end_starts_during_the_stop() {
     let start = calls.start_pause.arm();
     let steer = calls.steer_pause.arm();
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run("completed");
+    let run_id = fixture.insert_run("completed").await;
     let opening = fixture.queue_message(run_id).await;
     let rest = fixture.queue_message(run_id).await;
 
@@ -385,7 +389,7 @@ async fn stop_waits_for_the_work_a_runs_end_starts_during_the_stop() {
 async fn a_running_lead_in_an_unopened_session_is_handed_nothing() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run("waitingForApproval");
+    let run_id = fixture.insert_run("waitingForApproval").await;
     fixture.set_run_state(run_id, "running");
     bind_run_to_first_provider(&fixture.database, run_id);
     let item_id = fixture.queue_message(run_id).await;
@@ -432,7 +436,7 @@ async fn a_lead_whose_continue_the_provider_failed_waits_again(
         async { Err(DriverError::Internal("the test's resume fails".into())) }.boxed()
     });
     let fixture = fixture(driver).await;
-    let run_id = fixture.insert_run("waitingForApproval");
+    let run_id = fixture.insert_run("waitingForApproval").await;
     fixture.set_run_state(run_id, "running");
     let words = match failure {
         ProviderContinueFailure::NoConversation => {
@@ -509,7 +513,7 @@ async fn a_lead_whose_continue_the_provider_failed_waits_again(
 async fn a_lead_whose_hand_failed_after_its_continue_stays_running() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run("waitingForApproval");
+    let run_id = fixture.insert_run("waitingForApproval").await;
     fixture.set_run_state(run_id, "running");
     let binding_id = bind_run_to_first_provider(&fixture.database, run_id);
     let reader = fixture.database.reader();
@@ -567,21 +571,10 @@ async fn a_carried_continue_whose_settle_failed_leaves_the_lead_running() {
                 answer.turn = ProviderTurnAnswer::StillRunning;
             }
         }
-        async move {
-            Ok(DriverResumeResult::Resumed {
-                binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string())
-                    .expect("a UUID is a binding id"),
-                session_position: SafeInt::new(1).expect("a position"),
-                resume_handle: NonEmptyText::new("conversation-1".to_owned())
-                    .expect("a resume handle"),
-                spawned_version: spawned_build("1.0.1", "/opt/provider/bin"),
-                runs,
-            })
-        }
-        .boxed()
+        async move { Ok(resumed_on_conversation(runs)) }.boxed()
     });
     let fixture = fixture(driver).await;
-    let run_id = fixture.insert_run("waitingForApproval");
+    let run_id = fixture.insert_run("waitingForApproval").await;
     fixture.set_run_state(run_id, "running");
     let binding_id = bind_run_to_first_provider(&fixture.database, run_id);
     fixture
@@ -644,8 +637,8 @@ async fn a_carried_continue_whose_settle_failed_leaves_the_lead_running() {
 
 impl Fixture {
     // Makes a helper's run beneath `lead` that waits on an ask the person has not answered.
-    fn insert_waiting_helper(&self, lead: RunId) -> RunId {
-        let helper = self.insert_run("waitingForApproval");
+    async fn insert_waiting_helper(&self, lead: RunId) -> RunId {
+        let helper = self.insert_run("waitingForApproval").await;
         self.database
             .reader()
             .execute(
@@ -701,9 +694,8 @@ impl Fixture {
 async fn only_a_leads_own_open_ask_withholds_its_messages(#[case] has_own_ask: bool) {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
-    let lead = fixture.insert_run("running");
-    bind_run_to_first_provider(&fixture.database, lead);
-    fixture.insert_waiting_helper(lead);
+    let lead = fixture.insert_run("running").await;
+    fixture.insert_waiting_helper(lead).await;
     fixture.orphaned_approvals.set_open_ask(lead, has_own_ask);
     let item_id = fixture.queue_message(lead).await;
 
@@ -734,8 +726,7 @@ async fn only_a_leads_own_open_ask_withholds_its_messages(#[case] has_own_ask: b
 async fn a_message_withheld_on_a_leads_own_ask_is_handed_when_it_runs_again() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
-    let lead = fixture.insert_run("running");
-    bind_run_to_first_provider(&fixture.database, lead);
+    let lead = fixture.insert_run("running").await;
     fixture.orphaned_approvals.set_open_ask(lead, true);
     let item_id = fixture.queue_message(lead).await;
     fixture.reconcile().await;

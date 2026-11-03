@@ -85,22 +85,31 @@ pub fn binding_input(
     }
 }
 
-/// Records in `bindings` a binding of `run_id` on `provider_name`, on the test's account, holding
-/// the conversation a resume brings back, and answers its id.
+/// A binding of `run_id` on `provider_name`, on the test's account, holding the conversation a
+/// resume brings back.
+pub fn resumable_binding_input(
+    run_id: RunId,
+    provider_name: ProviderId,
+) -> CreateRuntimeBindingInput {
+    CreateRuntimeBindingInput {
+        run_id,
+        provider_name,
+        ..binding_input(
+            spawn_config_on(test_provider_account_id()),
+            spawned_build("1.0.0", "/opt/provider/bin"),
+        )
+    }
+}
+
+/// Records in `bindings` the [`resumable_binding_input`] of `run_id` on `provider_name`, and
+/// answers its id.
 pub async fn bind_resumable(
     bindings: &RuntimeBindingStore,
     run_id: RunId,
     provider_name: ProviderId,
 ) -> RuntimeBindingId {
     bindings
-        .create(CreateRuntimeBindingInput {
-            run_id,
-            provider_name,
-            ..binding_input(
-                spawn_config_on(test_provider_account_id()),
-                spawned_build("1.0.0", "/opt/provider/bin"),
-            )
-        })
+        .create(resumable_binding_input(run_id, provider_name))
         .await
         .expect("the run's binding is recorded")
         .id
