@@ -50,8 +50,9 @@
               Windows' volume GUID path read of an open file or folder \
               (`GetFinalPathNameByHandleW`), macOS's volume reads (`statfs`'s mount point and \
               `getattrlist`'s volume UUID) and access list removal (`filesec_init`, \
-              `filesec_set_property`, `fchmodx_np`, `filesec_free`), the Windows user folder's make with its security \
-              descriptor (`CreateDirectoryW`) and its hidden mark (`SetFileInformationByHandle`), \
+              `filesec_set_property`, `fchmodx_np`, `filesec_free`), the Windows user folder's \
+              make with its security descriptor (`CreateDirectoryW`) and its hidden mark \
+              (`SetFileInformationByHandle`), \
               a Windows child's output read at its exit (`CancelIoEx`, `PeekNamedPipe`), the \
               daemon's process containment (Windows' kill-on-close job through `CreateJobObjectW`, \
               `SetInformationJobObject` and `AssignProcessToJobObject`, and Linux's `poll` of its \
