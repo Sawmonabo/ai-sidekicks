@@ -69,7 +69,7 @@ impl From<ApprovalListReadError> for HandlerError {
 
 /// Registers `approval.resolve`, `approval.list`, `approval.rule.list`, `approval.rule.revoke` and
 /// `approval.denial.override` over `sources`. An answer with no calling device is a fault in the
-/// daemon, answered as an internal error; a kept answer is answered once it is recorded, its
+/// daemon, answered as an internal error; an orphaned answer is answered once it is recorded, its
 /// lead's continue run after on the queue's own task. Fails the start when one is already
 /// registered.
 pub(crate) fn register_approval_methods(
@@ -82,7 +82,7 @@ pub(crate) fn register_approval_methods(
         async move {
             let device_id = context.calling_device(ApprovalResolve::DESCRIPTOR.method)?;
             let resolved = sources.permission_asks.resolve(&request, device_id).await?;
-            if let Some((session_id, run_id)) = resolved.kept {
+            if let Some((session_id, run_id)) = resolved.orphaned {
                 sources.queue.continue_after_answer(
                     session_id,
                     run_id,

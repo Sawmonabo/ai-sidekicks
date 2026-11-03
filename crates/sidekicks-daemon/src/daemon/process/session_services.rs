@@ -441,8 +441,8 @@ pub(crate) fn build_session_services(
         process_follower: Arc::clone(&idle_sleep) as Arc<dyn SessionProcessFollower>,
         execution_postures: Arc::clone(&execution_postures),
         resumed_runs: Arc::clone(&resumed_runs),
-        kept_approvals: Arc::clone(&approvals.service) as Arc<_>,
-        kept_questions: Arc::clone(&questions) as Arc<_>,
+        orphaned_approvals: Arc::clone(&approvals.service) as Arc<_>,
+        orphaned_questions: Arc::clone(&questions) as Arc<_>,
     }));
     execution_postures
         .set_stored_postures(Arc::downgrade(&provider_sessions) as Weak<_>)

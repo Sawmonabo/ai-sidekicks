@@ -228,8 +228,8 @@ const DELETES_THROUGH_SESSION_ROW: [&str; 36] = [
        (SELECT id FROM approval_requests WHERE session_id = @sessionId)",
     "DELETE FROM approval_requests WHERE session_id = @sessionId",
     "DELETE FROM approval_correction_uses WHERE session_id = @sessionId",
-    "DELETE FROM approval_kept_answers WHERE session_id = @sessionId",
-    "DELETE FROM question_kept_answers WHERE session_id = @sessionId",
+    "DELETE FROM approval_orphaned_answers WHERE session_id = @sessionId",
+    "DELETE FROM question_orphaned_answers WHERE session_id = @sessionId",
     "DELETE FROM reviewer_denials WHERE session_id = @sessionId",
     "DELETE FROM plans WHERE session_id = @sessionId",
     "DELETE FROM artifact_payload_refs WHERE manifest_id IN
