@@ -10,7 +10,6 @@ use sidekicks_contracts::workflow::definition::document::WorkflowNode;
 use sidekicks_contracts::workflow::definition::item::{
     WorkflowItem, WorkflowPairedItem, WorkflowPairedItems, WorkflowPinnedItem,
 };
-use sidekicks_contracts::workflow::definition::refusals::WorkflowNodeHandles;
 use sidekicks_contracts::workflow::kind::{WorkflowNodeKindSpec, WorkflowOutputHandleSpec};
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 
@@ -48,32 +47,10 @@ pub(crate) fn main_input_lengths(
     main_inputs(spec, inputs).map(Vec::len).collect()
 }
 
-/// A list of output handles: a kind's own, or a node's, which adds its error output last.
-pub(crate) trait OutputHandles {
-    /// The output handles in order, tool outputs included.
-    fn output_handles(&self) -> &[WorkflowOutputHandleSpec];
-}
-
-impl OutputHandles for WorkflowNodeKindSpec {
-    fn output_handles(&self) -> &[WorkflowOutputHandleSpec] {
-        self.outputs.as_slice()
-    }
-}
-
-impl OutputHandles for WorkflowNodeHandles {
-    fn output_handles(&self) -> &[WorkflowOutputHandleSpec] {
-        &self.outputs
-    }
-}
-
-/// How many main outputs `handles` lists: its outputs whose `is_tool()` is false. A kind's spec
-/// lists only what its executor gives; a node's handles also count the error output it adds.
-pub(crate) fn main_output_count(handles: &impl OutputHandles) -> usize {
-    handles
-        .output_handles()
-        .iter()
-        .filter(|output| !output.is_tool())
-        .count()
+/// How many main outputs `outputs` lists: those whose `is_tool()` is false. A kind's spec lists
+/// only what its executor gives; a node's handles also count the error output it adds.
+pub(crate) fn main_output_count(outputs: &[WorkflowOutputHandleSpec]) -> usize {
+    outputs.iter().filter(|output| !output.is_tool()).count()
 }
 
 /// The outputs a pinned node gives in place of running, honored only in a manual run: its pinned
@@ -427,7 +404,7 @@ mod tests {
         #[case] is_added: bool,
     ) {
         let spec = main_tool_main_spec();
-        assert_eq!(main_output_count(&spec), 2);
+        assert_eq!(main_output_count(spec.outputs.as_slice()), 2);
         let main_input_lengths = main_input_lengths(&spec, &[items(2), Vec::new(), items(1)]);
         assert_eq!(main_input_lengths, [2, 1]);
         let mut outputs = vec![items(output_count), items(1)];

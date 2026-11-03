@@ -111,7 +111,7 @@ pub(crate) fn passed_on_outputs(
     failure: &StepFailure,
     inputs: &[Vec<WorkflowItem>],
 ) -> Option<Vec<Vec<WorkflowItem>>> {
-    let main_output_count = main_output_count(spec);
+    let main_output_count = main_output_count(spec.outputs.as_slice());
     match node.on_error {
         None | Some(WorkflowNodeOnError::Stop) => None,
         Some(WorkflowNodeOnError::Continue) => Some(place_on_first_output(

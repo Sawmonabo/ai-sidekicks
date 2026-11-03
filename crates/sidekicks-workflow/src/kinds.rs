@@ -355,7 +355,7 @@ impl NodeKindTable {
         let spec = &kind.spec;
         let mut outputs = spec.outputs.as_slice().to_vec();
         if node.on_error == Some(WorkflowNodeOnError::ContinueErrorOutput) {
-            let main_count = main_output_count(spec);
+            let main_count = main_output_count(spec.outputs.as_slice());
             outputs.push(WorkflowOutputHandleSpec::Main {
                 id: OutputMainHandleId::new(main_count as u64)
                     .expect("a kind's output count is far below the largest handle index"),
