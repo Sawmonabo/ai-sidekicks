@@ -91,7 +91,7 @@ macro_rules! step_error_arm {
             #[schemars(with = "WorkflowNodeId")]
             pub node_id: Option<WorkflowNodeId>,
             /// The zero-based index of the input item the step failed on, the `$itemIndex` an
-            /// expression reads.
+            /// expression reads. It names an item of the node's first main input.
             #[serde(
                 default,
                 skip_serializing_if = "Option::is_none",
