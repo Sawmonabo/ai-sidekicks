@@ -1,26 +1,31 @@
 //! The turns a restart kept, ended on the Codex service that runs them: each answer Codex gives
 //! read, a stopping run's refused turn followed once, each turn bounded, the session's slot held
-//! for the work, and no service started where none runs.
+//! for the work, and the service a former daemon kept joined, draining or not, with none started.
 
+use std::path::Path;
 use std::pin::pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
+use interprocess::local_socket::traits::tokio::Listener as _;
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_platforms::short_socket_folder;
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::super::kept_turns::{KeptTurnInterrupt, end_kept_turn};
 use super::{driver_holding, driver_on_codex_folder};
 use crate::driver::child_records::UnrecordedChildren;
+use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::registry::{CodexServiceRegistry, OneHome};
 use crate::driver::codex::service::supervisor::test_service::{
-    UnheardEvents, start_scripted_codex_service, test_codex_service_dependencies,
+    StandInReplies, UnheardEvents, answer_as_codex_service, bind_test_listener,
+    keep_draining_service, start_scripted_codex_service, test_codex_service_dependencies,
 };
 use crate::driver::codex::service::supervisor::{
     CodexProgramResolver, CodexService, CodexServiceSocket,
@@ -53,6 +58,11 @@ const KEPT_TURN: &str = "turn-kept";
 /// The turn Codex continued the kept one under.
 const CONTINUED_TURN: &str = "turn-continued";
 
+// The bound of one kept turn's end, from now.
+fn kept_turn_deadline() -> tokio::time::Instant {
+    tokio::time::Instant::now() + CODEX_DETACHED_INTERRUPT_DEADLINE
+}
+
 // A connection whose service the test scripts.
 fn scripted_connection() -> (CodexAppServerConnection, ScriptedService) {
     let (events, _frames) = CodexDetachedFrames::new();
@@ -75,6 +85,15 @@ fn reply(script: &ScriptedService, sent: &Value, answer: Value) {
 // Codex's `-32600` refusal in `message`.
 fn refusal(message: &str) -> Value {
     json!({ "error": { "code": -32600, "message": message } })
+}
+
+// Codex's `-32600` refusal from a service draining toward its exit.
+fn draining_refusal() -> Value {
+    json!({ "error": {
+        "code": -32600,
+        "message": "the server is shutting down",
+        "data": { "reason": "serverShuttingDown" },
+    } })
 }
 
 // The newest turn listed as `turn_id` in `status`.
@@ -106,7 +125,8 @@ struct Follow {
 // nothing more sent. Killed by the newest turn not read or read and not interrupted, by the
 // `found` turn dropped or tried before the listing (the continued case names another), by a
 // follow followed again, by an ended answer read as a failure, by a follow for a run not
-// stopping, and by an empty `turnId` sent.
+// stopping, by a draining service's refusal followed (the listing is sent), and by an empty
+// `turnId` sent.
 #[rstest]
 #[case::stopped(json!({ "result": {} }), true, None, KeptTurnInterrupt::Stopped)]
 #[case::already_ended(
@@ -121,6 +141,7 @@ struct Follow {
     None,
     KeptTurnInterrupt::ThreadGone
 )]
+#[case::service_draining(draining_refusal(), true, None, KeptTurnInterrupt::ServiceDraining)]
 #[case::continued_under_another_id(
     refusal("expected active turn id turn-kept but found turn-other"),
     true,
@@ -178,7 +199,14 @@ async fn a_kept_turn_is_ended_by_codexs_answer_and_followed_once_for_a_stop(
 ) {
     let (connection, mut script) = scripted_connection();
     let ending = tokio::spawn(async move {
-        let ended = end_kept_turn(&connection, THREAD, KEPT_TURN, is_for_stop).await;
+        let ended = end_kept_turn(
+            &connection,
+            THREAD,
+            KEPT_TURN,
+            is_for_stop,
+            kept_turn_deadline(),
+        )
+        .await;
         (connection, ended)
     });
 
@@ -211,7 +239,7 @@ async fn a_kept_turn_is_ended_by_codexs_answer_and_followed_once_for_a_stop(
 async fn an_unanswered_interrupt_fails_at_its_bound() {
     let (connection, mut script) = scripted_connection();
     let ending = tokio::spawn(async move {
-        let ended = end_kept_turn(&connection, THREAD, KEPT_TURN, true).await;
+        let ended = end_kept_turn(&connection, THREAD, KEPT_TURN, true, kept_turn_deadline()).await;
         (connection, ended)
     });
 
@@ -307,24 +335,24 @@ impl CodexProgramResolver for CountedStarts {
     }
 }
 
-// Where no service listens on the conversation's home, its turns ended with the old one: nothing
-// is sent and no service is started. Killed by the probe dropped (the start asks for Codex's
-// command, a fresh service launched for turns that ended).
-#[tokio::test]
-async fn no_service_is_started_where_none_kept_the_turns() {
-    let folder = short_socket_folder().expect("a scratch folder is made");
-    let starts = Arc::new(CountedStarts::default());
+// A driver whose registry holds an unstarted account service on `folder`, its home made, whose
+// starts `starts` counts; the home's own socket is `codex.sock` there.
+fn driver_with_unstarted_service(
+    folder: &Path,
+    starts: &Arc<CountedStarts>,
+) -> (CodexDriver, Arc<CodexService>) {
     let dependencies = test_codex_service_dependencies(
-        folder.path(),
-        Arc::clone(&starts) as _,
+        folder,
+        Arc::clone(starts) as _,
         Arc::new(UnheardEvents),
         Arc::new(UnrecordedChildren),
     );
     let home = CodexServiceHome {
-        codex_home: folder.path().join("home"),
+        codex_home: folder.join("home"),
         kind: CodexHomeKind::Account(test_provider_account_id()),
     };
-    let socket = folder.path().join("codex.sock");
+    std::fs::create_dir_all(&home.codex_home).expect("the home is made");
+    let socket = folder.join("codex.sock");
     let service = CodexService::new(
         home.clone(),
         CodexServiceSocket {
@@ -335,9 +363,20 @@ async fn no_service_is_started_where_none_kept_the_turns() {
         Arc::clone(&dependencies),
         Vec::new(),
     );
-    let (mut driver, _services) = driver_on_codex_folder(folder.path());
+    let (mut driver, _services) = driver_on_codex_folder(folder);
     driver.registry =
         CodexServiceRegistry::holding_service_on(&service, dependencies, Arc::new(OneHome(home)));
+    (driver, service)
+}
+
+// Where no service listens on the conversation's home, its turns ended with the old one: nothing
+// is sent and no service is started. Killed by a start in place of the join (the start asks for
+// Codex's command, a fresh service launched for turns that ended).
+#[tokio::test]
+async fn no_service_is_started_where_none_kept_the_turns() {
+    let folder = short_socket_folder().expect("a scratch folder is made");
+    let starts = Arc::new(CountedStarts::default());
+    let (driver, service) = driver_with_unstarted_service(folder.path(), &starts);
 
     driver
         .end_kept_turns(kept_lead_turn(CancellationToken::new()))
@@ -345,6 +384,57 @@ async fn no_service_is_started_where_none_kept_the_turns() {
     driver.tasks.close();
     driver.tasks.wait().await;
 
+    assert_eq!(starts.0.load(Ordering::SeqCst), 0);
+    assert!(service.connection().is_err());
+}
+
+// A kept service draining toward its exit still runs the turn the restart kept, on a socket of
+// its own while nothing listens on the home's: the turn is interrupted there and no service is
+// started. Killed by the draining record answered `None` or the home's socket probed in its place
+// (no interrupt reaches the kept service), and by a start in place of the join (the start asks
+// for Codex's command).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_draining_kept_service_is_joined_and_never_started() {
+    let folder = short_socket_folder().expect("a scratch folder is made");
+    let kept_socket = folder.path().join("kept.sock");
+    let Some(listener) = bind_test_listener(&kept_socket) else {
+        return;
+    };
+    let (requests, mut received) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        while let Ok(stream) = listener.accept().await {
+            let requests = requests.clone();
+            tokio::spawn(answer_as_codex_service(
+                stream,
+                StandInReplies::default(),
+                move |request| {
+                    let _unread = requests.send(request.clone());
+                },
+            ));
+        }
+    });
+    let starts = Arc::new(CountedStarts::default());
+    let (driver, service) = driver_with_unstarted_service(folder.path(), &starts);
+    let kept = keep_draining_service(&service, folder.path(), &kept_socket).await;
+
+    driver
+        .end_kept_turns(kept_lead_turn(CancellationToken::new()))
+        .await;
+    driver.tasks.close();
+    driver.tasks.wait().await;
+    // The stand-in outlives the test otherwise, so it ends before any assertion can fail.
+    kept.kill().expect("the kept service is ended");
+
+    let mut sent = Vec::new();
+    while let Ok(request) = received.try_recv() {
+        sent.push(request);
+    }
+    assert!(
+        sent.iter()
+            .any(|request| request["method"] == "turn/interrupt"
+                && request["params"] == json!({ "threadId": THREAD, "turnId": KEPT_TURN })),
+        "the kept turn was not interrupted on the kept service: {sent:?}"
+    );
     assert_eq!(starts.0.load(Ordering::SeqCst), 0);
     assert!(service.connection().is_err());
 }
