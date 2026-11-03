@@ -9,6 +9,7 @@
 //! An item the store refuses to delete leaves the data folder whole, so the erase can run again.
 //! An account that does not sign out stops nothing. One erase runs at a time: a second sent while
 //! it runs is refused and starts nothing.
+
 use std::error::Error;
 use std::fs;
 use std::io;
