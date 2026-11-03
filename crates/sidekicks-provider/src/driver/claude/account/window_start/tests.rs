@@ -17,7 +17,7 @@ use crate::driver::claude::account::test_account_legs;
 use crate::driver::claude::mcp::organization::has_readable_managed_mcp_file;
 use crate::driver::claude::spawn::arguments::CLAUDE_NO_MCP_SERVERS;
 use crate::driver::contract::account::{
-    ProviderObservation, ProviderWindowTurnLegs, WindowTurnAnswer,
+    ProviderObservation, ProviderTokenLimitsLegs, ProviderWindowTurnLegs, WindowTurnAnswer,
 };
 use crate::driver::test_registry::{TestProviderAccounts, test_driver_services};
 use crate::driver::{CurrentProviderAccount, ProviderAccountFolders, ProviderAccountReader};

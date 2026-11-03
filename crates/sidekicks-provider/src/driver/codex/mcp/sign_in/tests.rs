@@ -106,14 +106,15 @@ enum StandInLogin {
     ClosesAfterItsAddress,
 }
 
-// Answers each throwaway service as Codex would on its home: a login saves a sign-in in
-// `codex_home`'s own credentials file and reports itself done, or closes, as `login` says.
-struct SignInStandIn {
+// The program each throwaway service resolves to, answering its logins as Codex would on its
+// home: a login saves a sign-in in the home's own credentials file and reports itself done, or
+// closes, as `login` says.
+struct LoginAnsweringProgram {
     program: PathBuf,
     login: StandInLogin,
 }
 
-impl CodexProgramResolver for SignInStandIn {
+impl CodexProgramResolver for LoginAnsweringProgram {
     fn resolve<'call>(
         &'call self,
         home: &'call CodexServiceHome,
@@ -221,7 +222,7 @@ fn codex_sign_in_fixture(login: StandInLogin) -> CodexSignInFixture {
     .expect("the stand-in is written");
     let dependencies = test_codex_service_dependencies(
         folder.path(),
-        Arc::new(SignInStandIn { program, login }),
+        Arc::new(LoginAnsweringProgram { program, login }),
         Arc::new(UnheardEvents),
         Arc::new(UnrecordedChildren),
     );

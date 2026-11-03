@@ -58,8 +58,8 @@ ts_constants! {
 /// The text rules a pasted token is held to: not blank, no NUL, within its cap.
 type NonInteractiveTokenText = FreeFormText<PROVIDER_NON_INTERACTIVE_TOKEN_MAX_LEN>;
 
-/// What a pasted token's `Debug` prints in place of its text.
-const NON_INTERACTIVE_TOKEN_MARKER: &str = "[REDACTED]";
+/// What `Debug` prints in place of a pasted token's or a sign-in code's text.
+const REDACTED_TEXT_MARKER: &str = "[REDACTED]";
 
 /// A pasted token or API key: the one credential-accepting input on this wire, write-only. It is
 /// on no reply and never logged, shown, echoed or put in an argument vector; it is sealed in the
@@ -78,7 +78,7 @@ impl NonInteractiveToken {
 
 impl fmt::Debug for NonInteractiveToken {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(NON_INTERACTIVE_TOKEN_MARKER)
+        formatter.write_str(REDACTED_TEXT_MARKER)
     }
 }
 
@@ -288,6 +288,17 @@ pub struct ProviderAccountCredentialSealRefusedDetails {
     pub cause: KeychainRefusalCause,
 }
 
+/// The sign-in a `provider.account.signInInFlight` refusal names: the open attempt and the account
+/// it signs in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderAccountSignInInFlightDetails {
+    /// The account the open attempt signs in.
+    pub account_id: ProviderAccountId,
+    /// The open attempt, which `provider.account.signInAttempt.cancel` cancels.
+    pub attempt_id: FreeFormText<PROVIDER_SIGN_IN_ATTEMPT_ID_MAX_LEN>,
+}
+
 /// Rebuilds an account's credential home from empty so the person can sign in again. It raises
 /// the credential generation; the identity and stored quota readings survive, and the stored
 /// health is dropped, so the reply carries the new one.
@@ -312,6 +323,19 @@ pub struct ProviderAccountCredentialHomeResetResponse {
     pub health_state: ProviderAccountHealthState,
 }
 
+/// Which of a provider's sign-in flows runs: the one that calls back to a browser on this machine,
+/// or the device-code flow a browser on any device finishes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderSignInArm {
+    /// The provider's browser flow, finished by a browser on this machine that reaches its
+    /// callback.
+    Browser,
+    /// The provider's device-code flow: an address and a code the person enters from a browser on
+    /// any device, taken when they pick it or no browser here reaches them.
+    DeviceCode,
+}
+
 /// Signs in an account already registered, into its own home.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -319,6 +343,15 @@ pub struct ProviderAccountCredentialHomeResetResponse {
 pub struct RegisteredAccountSignIn {
     /// The account.
     pub account_id: ProviderAccountId,
+    /// The arm to run. Absent, it is the browser arm at this machine and device code from another
+    /// device, where `browser` is refused.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ProviderSignInArm")]
+    pub arm: Option<ProviderSignInArm>,
 }
 
 /// Adds an account through its provider's sign-in: the daemon mints the id and the home, and
@@ -329,6 +362,15 @@ pub struct RegisteredAccountSignIn {
 pub struct NewAccountSignIn {
     /// The provider.
     pub provider: ProviderId,
+    /// The arm to run. Absent, it is the browser arm at this machine and device code from another
+    /// device, where `browser` is refused.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ProviderSignInArm")]
+    pub arm: Option<ProviderSignInArm>,
 }
 
 /// Starts the provider's own interactive sign-in, for a registered account or a new one.
@@ -370,6 +412,9 @@ pub struct ProviderAccountSignInResponse {
     #[schemars(with = "WireInstant")]
     #[garde(dive)]
     pub expires_at: Option<WireInstant>,
+    /// Whether the provider opened the address in a browser itself: the client then opens
+    /// nothing, and still draws `Open the sign-in page` with the address.
+    pub is_browser_opened_by_provider: bool,
 }
 
 /// Cancels one sign-in attempt by the id its `provider.account.signIn` reply returned.
@@ -390,7 +435,7 @@ pub struct ProviderAccountSignInAttemptCancelRequest {
 pub enum ProviderSignInCancelStatus {
     /// The provider's sign-in was ended.
     Canceled,
-    /// No such attempt was open.
+    /// No such attempt was open, or it had already ended.
     NotFound,
 }
 
@@ -406,8 +451,9 @@ pub struct ProviderAccountSignInAttemptCancelResponse {
 }
 
 /// Sends the code a Claude Code sign-in page shows to the sign-in waiting for it, after
-/// `signInCodeRequested`. The code goes to that sign-in's input and nowhere else.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+/// `signInCodeRequested`. The code goes to that sign-in's input and nowhere else; `Debug` prints
+/// only a marker in its place.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct ProviderAccountSignInCodeSubmitRequest {
@@ -415,6 +461,16 @@ pub struct ProviderAccountSignInCodeSubmitRequest {
     pub attempt_id: FreeFormText<PROVIDER_SIGN_IN_ATTEMPT_ID_MAX_LEN>,
     /// The code, as the person pasted it.
     pub code: FreeFormText<PROVIDER_SIGN_IN_CODE_MAX_LEN>,
+}
+
+impl fmt::Debug for ProviderAccountSignInCodeSubmitRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderAccountSignInCodeSubmitRequest")
+            .field("attempt_id", &self.attempt_id)
+            .field("code", &format_args!("{REDACTED_TEXT_MARKER}"))
+            .finish()
+    }
 }
 
 /// How a code submit ended. `notFound` covers an attempt that is not waiting for a code; it is
@@ -453,8 +509,10 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ProviderAccountCredentialSealRefusedDetails>().checked(),
         Definition::read::<ProviderAccountCredentialHomeResetRequest>().checked(),
         Definition::read::<ProviderAccountCredentialHomeResetResponse>().checked(),
+        Definition::read::<ProviderSignInArm>(),
         Definition::read::<ProviderAccountSignInRequest>().checked(),
         Definition::read::<ProviderAccountSignInResponse>().checked(),
+        Definition::read::<ProviderAccountSignInInFlightDetails>().checked(),
         Definition::read::<ProviderAccountSignInAttemptCancelRequest>().checked(),
         Definition::read::<ProviderSignInCancelStatus>(),
         Definition::read::<ProviderAccountSignInAttemptCancelResponse>().checked(),
@@ -474,8 +532,9 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::{
-        NON_INTERACTIVE_TOKEN_MARKER, PROVIDER_ACCOUNT_REDACTED_WIRE_MEMBERS,
-        PROVIDER_NON_INTERACTIVE_TOKEN_MAX_LEN, ProviderAccountRegisterRequest, TokenRegistration,
+        PROVIDER_ACCOUNT_REDACTED_WIRE_MEMBERS, PROVIDER_NON_INTERACTIVE_TOKEN_MAX_LEN,
+        ProviderAccountRegisterRequest, ProviderAccountSignInCodeSubmitRequest,
+        REDACTED_TEXT_MARKER, TokenRegistration,
     };
     use crate::jsonrpc::issue::reader_issue_path;
     use crate::schema::closed_schema_for;
@@ -531,11 +590,11 @@ mod tests {
         };
         assert_eq!(
             format!("{:?}", registration.non_interactive_token),
-            NON_INTERACTIVE_TOKEN_MARKER
+            REDACTED_TEXT_MARKER
         );
         for printed in [format!("{request:?}"), format!("{request:#?}")] {
             assert!(!printed.contains(TOKEN), "{printed}");
-            assert!(printed.contains(NON_INTERACTIVE_TOKEN_MARKER), "{printed}");
+            assert!(printed.contains(REDACTED_TEXT_MARKER), "{printed}");
         }
 
         // The send writes the token; the record a request log keeps does not.
@@ -559,6 +618,24 @@ mod tests {
         let printed = printed_chain(&refusal);
         assert!(printed.contains("longer than"), "{printed}");
         assert!(!printed.contains(TOKEN), "{printed}");
+    }
+
+    #[test]
+    fn sign_in_code_prints_only_its_marker() {
+        const CODE: &str = "code-do-not-print-4b1e";
+        let request = parse_received::<ProviderAccountSignInCodeSubmitRequest>(
+            json!({ "attemptId": "attempt-1", "code": CODE })
+                .to_string()
+                .as_bytes(),
+            Vec::new(),
+        )
+        .expect("a code submit reads");
+
+        for printed in [format!("{request:?}"), format!("{request:#?}")] {
+            assert!(!printed.contains(CODE), "{printed}");
+            assert!(printed.contains(REDACTED_TEXT_MARKER), "{printed}");
+            assert!(printed.contains("attempt-1"), "{printed}");
+        }
     }
 
     #[rstest]

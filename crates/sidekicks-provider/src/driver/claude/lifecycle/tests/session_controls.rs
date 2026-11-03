@@ -224,7 +224,7 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_the_fork_l
         .usage
         .metered()
         .into_iter()
-        .filter(|metered| matches!(metered.owner, MeteredUsageOwner::SideQuestion))
+        .filter(|metered| matches!(metered.owner, MeteredUsageOwner::SessionCopy))
         .map(|metered| {
             (
                 metered.session_id,

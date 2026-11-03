@@ -2,24 +2,27 @@
 //! on the folders the caller names, and where its memory import reads and lands.
 
 pub(super) mod credentials;
+pub(super) mod helper_mode;
 mod limits;
-mod read_folder;
+mod sign_in;
 mod sign_in_move;
 mod sign_out;
 mod switch;
+mod token_resupply;
 mod token_status;
 mod window_start;
 
 mod memory;
 
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock, Weak};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use secrecy::SecretString;
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
+use sidekicks_contracts::provider::account::sign_in::ProviderSignInArm;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_platforms::{PathRules, Spawner};
@@ -37,8 +40,9 @@ use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
 use crate::driver::claude::spawn::launch::installed_build::resolve_claude_build;
 use crate::driver::contract::account::{
     MemoryImportStore, ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObserveLegs,
-    ProviderSignInLegs, ProviderSwitchLegs, ProviderTokenStatusLegs, ProviderWindowTurnLegs,
-    SessionAccountMove, SessionToMove,
+    ProviderSignInHandle, ProviderSignInLegs, ProviderSignInObservation, ProviderSwitchLegs,
+    ProviderTokenLimitsLegs, ProviderTokenStatusLegs, ProviderWindowTurnLegs, SessionAccountMove,
+    SessionToMove,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
@@ -99,39 +103,61 @@ impl ClaudeAccountLegs {
         drop(self.sessions.set(sessions));
     }
 
-    // The environment a process on `home` starts with, and the build it names. Fails as the
-    // environment cannot be composed or the build resolved.
+    // The environment a process on `home` starts with, `deny_env_vars` removed, and the build it
+    // names. Fails as the environment cannot be composed or the build resolved.
     async fn resolve_build_on(
         &self,
         home: ClaudeProcessHome<'_>,
+        deny_env_vars: &[&str],
     ) -> Result<ResolvedProviderExecutable, DriverError> {
-        let environment = self.compose_environment_on(home)?;
+        let environment = self.compose_environment_on(home, deny_env_vars)?;
         resolve_claude_build(&self.command_search, &self.home_folder, environment).await
     }
 
-    // The environment a process on `home` starts with. Fails as it cannot be composed.
+    // The environment a process on `home` starts with, `deny_env_vars` removed. Fails as it cannot
+    // be composed.
     fn compose_environment_on(
         &self,
         home: ClaudeProcessHome<'_>,
+        deny_env_vars: &[&str],
     ) -> Result<Vec<(String, String)>, DriverError> {
-        let data_folder = self.data_folder.to_string_lossy();
-        compose_claude_process_environment(
-            ClaudeProcessEnvironmentRequest {
-                session: SessionEnvironment {
-                    base: &self.base_environment,
-                    every_project_rows: &[],
-                    project_rows: &[],
-                    reserved_names: &self.reserved_names,
-                    rules: PathRules::NATIVE,
-                },
-                deny_env_vars: &[],
-                home,
-                data_folder: &data_folder,
-            },
-            &[],
+        compose_account_environment(
+            &self.data_folder,
+            &self.base_environment,
+            &self.reserved_names,
+            home,
+            deny_env_vars,
         )
-        .map_err(|error| DriverError::Internal(Box::new(error)))
     }
+}
+
+// The environment a Claude Code process on `home` starts with over `base_environment`, with no
+// environment row, `deny_env_vars` removed: the one composition the legs and the helper mode's
+// names share. Fails as it cannot be composed.
+fn compose_account_environment(
+    data_folder: &Path,
+    base_environment: &[(String, String)],
+    reserved_names: &ReservedEnvironmentNames,
+    home: ClaudeProcessHome<'_>,
+    deny_env_vars: &[&str],
+) -> Result<Vec<(String, String)>, DriverError> {
+    let data_folder = data_folder.to_string_lossy();
+    compose_claude_process_environment(
+        ClaudeProcessEnvironmentRequest {
+            session: SessionEnvironment {
+                base: base_environment,
+                every_project_rows: &[],
+                project_rows: &[],
+                reserved_names,
+                rules: PathRules::NATIVE,
+            },
+            deny_env_vars,
+            home,
+            data_folder: &data_folder,
+        },
+        &[],
+    )
+    .map_err(|error| DriverError::Internal(Box::new(error)))
 }
 
 impl ProviderAccountLegs for ClaudeAccountLegs {
@@ -171,8 +197,12 @@ impl ProviderAccountLegs for ClaudeAccountLegs {
         Some(self)
     }
 
+    fn token_limits_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderTokenLimitsLegs>> {
+        Some(self)
+    }
+
     fn sign_in_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderSignInLegs>> {
-        None
+        Some(self)
     }
 
     fn token_status_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderTokenStatusLegs>> {
@@ -186,6 +216,25 @@ impl ProviderMemoryImportLegs for ClaudeAccountLegs {
     }
 }
 
+impl ProviderSignInLegs for ClaudeAccountLegs {
+    fn start_sign_in(
+        &self,
+        _provider_account_id: ProviderAccountId,
+        home: CredentialHome,
+        arm: ProviderSignInArm,
+    ) -> BoxFuture<'_, Result<ProviderSignInHandle, DriverError>> {
+        sign_in::start_claude_sign_in(self, home, arm).boxed()
+    }
+
+    fn observe_sign_in(
+        &self,
+        _provider_account_id: ProviderAccountId,
+        home: CredentialHome,
+    ) -> BoxFuture<'_, Result<ProviderSignInObservation, DriverError>> {
+        sign_in::observe_claude_sign_in(self, home).boxed()
+    }
+}
+
 impl ProviderTokenStatusLegs for ClaudeAccountLegs {
     fn read_token_status<'call>(
         &'call self,
@@ -194,6 +243,17 @@ impl ProviderTokenStatusLegs for ClaudeAccountLegs {
         token: &'call SecretString,
     ) -> BoxFuture<'call, Result<Option<ProviderAuthMode>, DriverError>> {
         token_status::read_claude_token_status(self, provider_account_id, folders, token).boxed()
+    }
+
+    // The new token is read from where it is sealed at each start, so it is never handed here.
+    fn hand_resupplied_token<'call>(
+        &'call self,
+        provider_account_id: &'call ProviderAccountId,
+        _folders: &'call ProviderAccountFolders,
+        _token: &'call SecretString,
+    ) -> BoxFuture<'call, Result<(), DriverError>> {
+        let relaunched = token_resupply::relaunch_on_resupplied_token(self, provider_account_id);
+        async move { relaunched }.boxed()
     }
 }
 

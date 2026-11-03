@@ -10,6 +10,7 @@ use tokio::io::AsyncReadExt;
 use tokio::process::ChildStdout;
 
 use crate::driver::codex::service::process::CodexProcessLaunch;
+use crate::driver::codex::service::registry::home_exec_switches;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::start::compose_codex_native_launch;
 use crate::driver::codex::session::errors::CodexError;
@@ -115,8 +116,9 @@ pub(crate) async fn run_codex_command(
 }
 
 /// The model catalog of `service`'s home as `codex debug models` prints it, run by the Codex
-/// command resolved now for that home. Fails with the resolve's driver error, as the launch's
-/// composition fails, and with `CodexError::Transport` carrying the command's failure.
+/// command resolved now for that home with that home's own switches. Fails with the resolve's
+/// driver error, as the launch's composition fails, and with `CodexError::Transport` carrying the
+/// command's failure.
 pub(crate) async fn read_codex_model_catalog_dump(
     service: &CodexService,
 ) -> Result<String, CodexError> {
@@ -126,12 +128,10 @@ pub(crate) async fn read_codex_model_catalog_dump(
         .resolve(service.home())
         .await
         .map_err(CodexError::Driver)?;
-    let launch = compose_codex_native_launch(
-        &dependencies.data_folder,
-        &executable,
-        vec!["debug".to_owned(), "models".to_owned()],
-    )
-    .await?;
+    let mut arguments = home_exec_switches(&service.home().kind);
+    arguments.extend(["debug".to_owned(), "models".to_owned()]);
+    let launch =
+        compose_codex_native_launch(&dependencies.data_folder, &executable, arguments).await?;
     run_codex_command(&dependencies.spawner, launch, CODEX_CATALOG_READ_DEADLINE)
         .await
         .map_err(|error| CodexError::Transport {

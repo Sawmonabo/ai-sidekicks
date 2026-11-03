@@ -396,7 +396,6 @@ mod tests {
         switching_home_folder: None,
         account_home_credential_store_folder: &[],
         shell_prefix_command: None,
-        token_limits_read_by_turn: false,
     };
 
     /// A second registered provider, whose credential home no row may set either, and whose

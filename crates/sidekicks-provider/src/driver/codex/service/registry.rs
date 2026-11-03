@@ -26,7 +26,9 @@ use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 
 use crate::driver::codex::DESCRIPTOR;
-use crate::driver::codex::account::CODEX_EPHEMERAL_CREDENTIAL_STORE;
+use crate::driver::codex::account::{
+    CODEX_EPHEMERAL_CREDENTIAL_STORE, CODEX_FILE_CREDENTIAL_STORE,
+};
 use crate::driver::codex::service::home::{
     CodexConversationHome, CodexHomeKind, CodexServiceHome, CodexServiceKind,
 };
@@ -63,9 +65,10 @@ const CODEX_MCP_SIGN_IN_FOLDER: &str = "codex-sign-in";
 
 /// Resolves which Codex home a session's account runs in, and the one home terminal reach runs on.
 pub(crate) trait CodexHomeResolver: Send + Sync {
-    /// The home of `provider_account_id`'s account, never a folder outside the account's home.
-    /// Fails with `provider.account.notFound` or `provider.account.credentialHome.unavailable`,
-    /// and as the accounts' read fails.
+    /// The home of `provider_account_id`'s account, never a folder outside the account's home, of
+    /// the API-key kind where the account signs in with a pasted key. Fails with
+    /// `provider.account.notFound` or `provider.account.credentialHome.unavailable`, and as the
+    /// accounts' read fails.
     fn codex_home_for<'call>(
         &'call self,
         provider_account_id: &'call ProviderAccountId,
@@ -158,13 +161,7 @@ impl CodexServiceRegistry {
     // own folder, the daemon's own lasting one on an account's home or the switching home.
     fn service_on_home(&self, home: CodexServiceHome) -> Arc<CodexService> {
         let home_socket = home_socket_path(&home.codex_home);
-        let kind = match home.kind {
-            CodexHomeKind::PersonalFolder => CodexServiceKind::Terminal,
-            CodexHomeKind::Account(_)
-            | CodexHomeKind::Switching
-            | CodexHomeKind::CapabilityRead
-            | CodexHomeKind::McpSignIn => CodexServiceKind::Account,
-        };
+        let kind = own_service_kind(&home.kind);
         let config_overrides = home_config_overrides(&home.kind);
         let mut services = self.lock();
         // Another caller may have made it while the home resolved.
@@ -218,15 +215,23 @@ impl CodexServiceRegistry {
         self.service_on_own_folder(codex_home, CodexHomeKind::McpSignIn)
     }
 
+    /// A service of its own for one status read of a pasted API key, on `codex_home`, a folder of
+    /// the daemon's own the caller made, keeping the key it is handed in memory alone and never
+    /// one the registry holds; made but not started. The caller stops it and removes the folder.
+    pub(crate) fn token_status_service(&self, codex_home: PathBuf) -> Arc<CodexService> {
+        self.service_on_own_folder(codex_home, CodexHomeKind::TokenStatusRead)
+    }
+
     /// The folder under the data folder each MCP sign-in's own folder is made in.
     pub(crate) fn mcp_sign_in_folder(&self) -> PathBuf {
         self.dependencies.data_folder.join(CODEX_MCP_SIGN_IN_FOLDER)
     }
 
     // A service of the daemon's own kind on `codex_home`, one of the daemon's own folders of
-    // `kind`, listening on that folder's own socket.
+    // `kind`, listening on that folder's own socket with the switches of that kind.
     fn service_on_own_folder(&self, codex_home: PathBuf, kind: CodexHomeKind) -> Arc<CodexService> {
         let home_socket = home_socket_path(&codex_home);
+        let config_overrides = home_config_overrides(&kind);
         CodexService::new(
             CodexServiceHome { codex_home, kind },
             CodexServiceSocket {
@@ -235,7 +240,7 @@ impl CodexServiceRegistry {
             },
             CodexServiceKind::Account,
             Arc::clone(&self.dependencies),
-            Vec::new(),
+            config_overrides,
         )
     }
     /// Whether terminal reach is on, read from the service: the person's own folder's service is
@@ -299,6 +304,37 @@ impl CodexServiceRegistry {
         }
         self.leave_home(&home.codex_home)
             .map(|service| self.retire_once_free(service))
+    }
+
+    /// Takes the service on `provider_account_id`'s own home off it and stops it on the driver's
+    /// tracked tasks, for an account that was removed, so nothing runs on its home afterward.
+    /// Answers the stop's task; `None` where no service of the driver is on that home.
+    pub(crate) fn stop_account_service(
+        &self,
+        provider_account_id: &ProviderAccountId,
+    ) -> Option<JoinHandle<()>> {
+        let codex_home = self
+            .lock()
+            .by_home
+            .iter()
+            .find(|(_, service)| match &service.home().kind {
+                CodexHomeKind::Account(owner) | CodexHomeKind::ApiKeyAccount(owner) => {
+                    owner == provider_account_id
+                }
+                CodexHomeKind::PersonalFolder
+                | CodexHomeKind::Switching
+                | CodexHomeKind::CapabilityRead
+                | CodexHomeKind::McpSignIn
+                | CodexHomeKind::TokenStatusRead => false,
+            })
+            .map(|(codex_home, _)| codex_home.clone())?;
+        let service = self.leave_home(&codex_home)?;
+        let services = Arc::clone(&self.services);
+        Some(
+            self.dependencies
+                .tasks
+                .spawn(async move { retire_service(&services, &service).await }),
+        )
     }
 
     // Takes the service off `codex_home`, kept among the replaced while it ends.
@@ -408,7 +444,7 @@ impl CodexServiceRegistry {
                 path: path.clone(),
                 home_socket: home_socket.clone(),
             },
-            CodexServiceKind::Terminal,
+            own_service_kind(&home.kind),
             Arc::clone(&self.dependencies),
             home_config_overrides(&home.kind),
         );
@@ -561,11 +597,15 @@ impl CodexServiceRegistry {
         homes: Arc<dyn CodexHomeResolver>,
     ) -> Arc<Self> {
         let registry = Arc::new(Self::new(homes, dependencies));
+        registry.hold(service);
         registry
-            .lock()
+    }
+
+    /// Holds `service` as its home's, beside the services the registry holds.
+    pub(crate) fn hold(&self, service: &Arc<CodexService>) {
+        self.lock()
             .by_home
             .insert(service.home().codex_home.clone(), Arc::clone(service));
-        registry
     }
 }
 
@@ -617,21 +657,48 @@ async fn retire_service(services: &Mutex<RegisteredServices>, service: &Arc<Code
         .retain(|replaced| !Arc::ptr_eq(replaced, service));
 }
 
+// The kind of the daemon's own service on a home of `kind`: the terminal service on the person's
+// own folder, a lasting account service on every other home.
+fn own_service_kind(kind: &CodexHomeKind) -> CodexServiceKind {
+    match kind {
+        CodexHomeKind::PersonalFolder => CodexServiceKind::Terminal,
+        CodexHomeKind::Account(_)
+        | CodexHomeKind::ApiKeyAccount(_)
+        | CodexHomeKind::Switching
+        | CodexHomeKind::CapabilityRead
+        | CodexHomeKind::McpSignIn
+        | CodexHomeKind::TokenStatusRead => CodexServiceKind::Account,
+    }
+}
+
 // Whether `home` is the person's own folder, which only the terminal service runs on.
 fn is_terminal_reach_home(home: &CodexServiceHome) -> bool {
     home.kind == CodexHomeKind::PersonalFolder
 }
 
-// The `-c` switches a service on a home of `kind` carries of its own: the switching service keeps
-// the sign-in it is handed in its memory alone, and every other takes none.
-fn home_config_overrides(kind: &CodexHomeKind) -> Vec<String> {
+/// The `-c` switches every Codex process on a home of `kind` carries of its own: an account home
+/// keeps its sign-in in its own `auth.json`, the API-key home, the switching home and a pasted
+/// key's status read keep the sign-in they are handed in the process's memory alone, and every
+/// other home takes none.
+pub(crate) fn home_config_overrides(kind: &CodexHomeKind) -> Vec<String> {
     match kind {
-        CodexHomeKind::Switching => vec![CODEX_EPHEMERAL_CREDENTIAL_STORE.to_owned()],
-        CodexHomeKind::Account(_)
-        | CodexHomeKind::PersonalFolder
+        CodexHomeKind::Account(_) => vec![CODEX_FILE_CREDENTIAL_STORE.to_owned()],
+        CodexHomeKind::ApiKeyAccount(_)
+        | CodexHomeKind::Switching
+        | CodexHomeKind::TokenStatusRead => vec![CODEX_EPHEMERAL_CREDENTIAL_STORE.to_owned()],
+        CodexHomeKind::PersonalFolder
         | CodexHomeKind::CapabilityRead
         | CodexHomeKind::McpSignIn => Vec::new(),
     }
+}
+
+/// The switches of [`home_config_overrides`] as the `-c` pairs a `codex exec` or another short
+/// command on a home of `kind` starts with, before its own arguments.
+pub(crate) fn home_exec_switches(kind: &CodexHomeKind) -> Vec<String> {
+    home_config_overrides(kind)
+        .into_iter()
+        .flat_map(|config_override| ["-c".to_owned(), config_override])
+        .collect()
 }
 
 /// The switching service's home: its folder under the daemon's `data_folder`.

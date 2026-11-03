@@ -15,13 +15,13 @@ use sidekicks_contracts::provider::account::sign_in::{
     ProviderAccountSignInRequest,
 };
 use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
-use sidekicks_provider::driver::contract::account::SignInOrigin;
+use sidekicks_provider::account::sign_in::SignInOrigin;
 
 use super::ProviderAccountMethodSources;
 
-/// Registers the three verbs: `signIn` starts on this machine's arm when this machine's own device
-/// calls and on another device's arm otherwise, refused as the broker refuses; a code or a cancel
-/// for an attempt not waiting answers `notFound`, no refusal. Fails the start when a verb is
+/// Registers the three verbs: `signIn` tells the broker whether this machine's own device or
+/// another one called, which bounds the arm, and is refused as the broker refuses; a code or a
+/// cancel for an attempt not waiting answers `notFound`, no refusal. Fails the start when a verb is
 /// already registered.
 pub(super) fn register_provider_account_sign_in(
     registry: &mut MethodRegistryBuilder,

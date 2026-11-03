@@ -25,18 +25,18 @@ use super::test_fixture::{Fixture, ScriptedLegs, claude, figures, new_clock, rea
 use super::window_store::read_usage_windows;
 use super::{AccountReadAnswer, AccountTurnObserver as _, ProviderAccountObserver, ReadAsker};
 use crate::account::registry::{HealthObservation, HealthObserver};
-use crate::account::sign_in::ProviderSignInBroker;
 use crate::account::sign_in::tests::{
     RecordingWatcher, ScriptedLegs as ScriptedSignIns, Status as SignInStatus,
 };
+use crate::account::sign_in::{ProviderSignInBroker, SignInOrigin};
 use crate::driver::contract::account::{
     ObservedAccountIdentity, ProviderAccountFigures, ProviderObservation, ProviderSignInEnd,
-    ProviderSignInLegs, SignInOrigin,
+    ProviderSignInLegs,
 };
 use crate::driver::schema::schema_parts;
 
 fn generation(value: u64) -> CredentialGeneration {
-    serde_json::from_value(value.into()).expect("a test generation")
+    CredentialGeneration::new(value).expect("a test generation")
 }
 
 // What the account's stored health is after the reads.
@@ -280,6 +280,7 @@ async fn a_probe_during_a_sign_in_writes_nothing_and_the_sign_in_saves() {
                 },
                 flows: flow_sender,
                 homes: Mutex::default(),
+                holds_machine_slot: false,
             }) as Arc<dyn ProviderSignInLegs>,
         )]),
         Arc::clone(&fixture.notifications) as _,
@@ -291,6 +292,7 @@ async fn a_probe_during_a_sign_in_writes_nothing_and_the_sign_in_saves() {
         .start(
             ProviderAccountSignInRequest::Registered(RegisteredAccountSignIn {
                 account_id: account_id.clone(),
+                arm: None,
             }),
             SignInOrigin::ThisMachine,
         )
@@ -570,7 +572,7 @@ async fn a_read_s_figures_record_the_whole_set_and_each_reported_identity_column
     }
 
     assert_eq!(
-        fixture.usage.sets(),
+        fixture.usage.whole_sets(),
         [
             (account.account_id.clone(), figures().windows),
             (account.account_id.clone(), figures().windows),

@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::place::Place;
 use sidekicks_platforms::{PathRules, real_path, relative_path};
+use sidekicks_std::file::tree_copy::{TreeCopyPolicy, copy_tree};
 use tokio::task::JoinError;
 
 use super::{PutBackBranch, PutBackFailure, PutBackStepError, PutBackTools, at};
@@ -16,7 +17,6 @@ use crate::git::GIT_ENTRY_NAME;
 use crate::git::process::{
     CONFIG_UNSET_EXIT_CODE, GitCall, GitError, GitRunner, background_read, in_folder,
 };
-use crate::git::worktree::copy::{TreeCopyPolicy, copy_tree};
 use crate::git::worktree::kept_copy::KEPT_RECORD_ENTRY;
 use crate::git::worktree::kept_copy::saved_state::{
     RefStorePayload, read_rebase_folder, write_back_ref_store,

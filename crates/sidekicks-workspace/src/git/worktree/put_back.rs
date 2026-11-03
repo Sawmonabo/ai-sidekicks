@@ -30,6 +30,7 @@ use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_contracts::worktree::copy_progress::WorktreeCopy;
 use sidekicks_platforms::CAN_RENAME_REPLACE_EMPTY_FOLDER;
 use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::file::tree_copy::TreeCopyError;
 use sidekicks_std::missing_entry::MissingEntry;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use tokio::task::JoinError;
@@ -44,7 +45,6 @@ use self::undo::{PutBackUndoError, undo_put_back};
 use crate::git::GIT_ENTRY_NAME;
 use crate::git::process::{GitCall, GitError, GitRunner, background_read, in_folder};
 use crate::git::worktree::claims::{KeptCopyClaims, KeptCopyClaimsReadError};
-use crate::git::worktree::copy::TreeCopyError;
 use crate::git::worktree::kept_copy::folder_move::{
     FolderMoveError, FolderPlacement, rename_or_copy_folder,
 };

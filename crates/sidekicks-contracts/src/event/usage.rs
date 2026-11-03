@@ -24,17 +24,12 @@ use crate::run::id::RunId;
 use crate::run::subagent::SubagentId;
 use crate::session::cost::UsdMicros;
 use crate::session::id::SessionId;
-use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{SafeInt, SafeSignedInt};
 use crate::wire::list::BoundedVec;
 use crate::wire::number::Number;
 use crate::wire::text::{BoundedText, FreeFormText};
-
-ts_constants! {
-    /// The limit a quota snapshot without a `limitId` names.
-    pub const DEFAULT_RATE_LIMIT_ID: &str = "default";
-}
 
 /// The `limitId` of an account limit scoped to one model: the limit's kind, a colon, then the
 /// model's display name, as in `weekly_scoped:Opus`, so every reader of one window keys it alike.
@@ -414,13 +409,12 @@ fn window_dependent_required() -> Value {
     dependent_required
 }
 
-/// One window of an account's whole set of quota readings: its limit, absent naming
-/// [`DEFAULT_RATE_LIMIT_ID`], and its length in minutes.
+/// One window of an account's whole set of quota readings: its limit, absent naming the default
+/// limit, and its length in minutes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UsageRateLimitWindowKey {
-    /// Which of the account's limits the window belongs to; absent names
-    /// [`DEFAULT_RATE_LIMIT_ID`].
+    /// Which of the account's limits the window belongs to; absent names the default limit.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -447,7 +441,7 @@ pub struct UsageRateLimitUpdatedPayload {
     /// The account's credential generation when the reading was taken, so a reading from before a
     /// sign-in again reads as stale.
     pub credential_generation: CredentialGeneration,
-    /// Which of the account's limits this is; absent names [`DEFAULT_RATE_LIMIT_ID`].
+    /// Which of the account's limits this is; absent names the default limit.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -755,6 +749,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ModelRerouteCause>(),
         Definition::read::<AgentTurnReroutedPayload>().checked(),
     ],
-    constants: TS_CONSTANTS,
+    constants: &[],
     method_tables: &[],
 };

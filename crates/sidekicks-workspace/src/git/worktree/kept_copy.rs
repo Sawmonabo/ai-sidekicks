@@ -34,11 +34,11 @@ use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_contracts::worktree::copy_progress::WorktreeCopy;
 use sidekicks_contracts::worktree::lifecycle::RemovedWorktreeId;
 use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::file::tree_copy::{TreeCopyError, TreeCopyPolicy, copy_tree};
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use tokio::task::JoinError;
 
 use crate::git::process::{GitError, GitRunner};
-use crate::git::worktree::copy::{TreeCopyError, TreeCopyPolicy, copy_tree};
 use crate::git::worktree::kept_copy::folder_move::{
     FileSizeWalkError, FolderMoveError, FolderMoveTools, HardLinkCount, move_folder, rename_folder,
     rename_or_copy_folder, sum_file_sizes,

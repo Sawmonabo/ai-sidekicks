@@ -33,7 +33,7 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_workspace::execution_root::{ExecutionRootService, ExecutionRootServiceDeps};
 use sidekicks_workspace::folder::usage::RepoFolderUsage;
 use sidekicks_workspace::git::process::GitRunner;
-use sidekicks_workspace::git::worktree::copy::progress::WorktreeCopiesUnderWay;
+use sidekicks_workspace::git::worktree::copy_progress::WorktreeCopiesUnderWay;
 use sidekicks_workspace::git::worktree::creation::WorktreeCreator;
 use sidekicks_workspace::git::worktree::path_holds::PathHolds;
 use sidekicks_workspace::git::worktree::removal::{
@@ -63,7 +63,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::process::repo_services::RepoServices;
-use crate::daemon::process::stop::{DaemonStopFailure, TaskStopFailure};
+use crate::daemon::process::stop::{DaemonStopFailure, TaskStopFailure, end_start_tasks};
 
 // The cleanup job's name in the service log.
 const WORKTREE_CLEANUP_JOB_NAME: &str = "worktree cleanup";
@@ -528,17 +528,7 @@ impl WorkspaceWork {
             .into_iter()
             .map(Into::into)
             .collect();
-        let deadline = tokio::time::Instant::now() + bound;
-        for (task, mut handle) in self.start_tasks.drain(..) {
-            match tokio::time::timeout_at(deadline, &mut handle).await {
-                Ok(Ok(())) => {}
-                Ok(Err(error)) => failures.push(TaskStopFailure { task, error }.into()),
-                Err(_elapsed) => {
-                    handle.abort();
-                    failures.push(DaemonStopFailure::StartTaskRunning(task));
-                }
-            }
-        }
+        failures.extend(end_start_tasks(self.start_tasks.drain(..), bound).await);
         failures
     }
 

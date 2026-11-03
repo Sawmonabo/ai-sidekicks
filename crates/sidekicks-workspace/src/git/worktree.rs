@@ -13,7 +13,7 @@
 pub mod branch_list;
 pub mod carry;
 pub(crate) mod claims;
-pub mod copy;
+pub mod copy_progress;
 pub mod creation;
 pub mod errors;
 pub mod event_emitter;
