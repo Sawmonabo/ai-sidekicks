@@ -25,7 +25,9 @@ use crate::driver::claude::session::scripted::held_calls::{
 use crate::driver::claude::session::scripted::{binding_id, hand_scripted_frame, settle};
 use crate::driver::claude::spawn::environment::claude_config_folder;
 use crate::driver::daemon_stop::DaemonStopIntent;
-use crate::driver::session_control::{CloseSessionParams, MoveSessionToForkParams};
+use crate::driver::session_control::{
+    CloseSessionParams, MoveSessionToForkParams, SessionCloseCause,
+};
 use crate::driver::test_registry::{new_run_id, new_session_id};
 
 /// The conversation a resting session's stored leg names.
@@ -224,7 +226,10 @@ async fn a_closed_session_at_rest_settles_its_held_calls_by_what_claude_code_kep
     );
 
     driver
-        .close_session(CloseSessionParams { session_id })
+        .close_session(CloseSessionParams {
+            session_id,
+            cause: SessionCloseCause::Person,
+        })
         .await
         .expect("the session closes");
     settle().await;
@@ -287,7 +292,10 @@ async fn a_persons_close_ends_the_record_only_call_after_the_exit_settle() {
 
     fixture
         .driver
-        .close_session(CloseSessionParams { session_id })
+        .close_session(CloseSessionParams {
+            session_id,
+            cause: SessionCloseCause::Person,
+        })
         .await
         .expect("the session closes");
     settle().await;

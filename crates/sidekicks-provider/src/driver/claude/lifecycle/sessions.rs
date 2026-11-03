@@ -38,7 +38,7 @@ use crate::driver::run_control::{FindTakenMessagesParams, TakenMessages};
 use crate::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult, MoveSessionToForkParams,
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderSessionHandle,
-    PurgeSessionParams, ResumeSessionParams,
+    PurgeSessionParams, ResumeSessionParams, SessionCloseCause,
 };
 use crate::runtime_binding::store::RuntimeBinding;
 
@@ -238,13 +238,12 @@ impl ClaudeDriver {
         };
         parts.restarts.stop();
         parts.establishment.task_services.inboxes.release_all();
-        let closes = join_all(
-            parts
-                .slots()
-                .session_ids()
-                .into_iter()
-                .map(|session_id| self.close_session(CloseSessionParams { session_id })),
-        );
+        let closes = join_all(parts.slots().session_ids().into_iter().map(|session_id| {
+            self.close_session(CloseSessionParams {
+                session_id,
+                cause: SessionCloseCause::DaemonStop,
+            })
+        }));
         let (closed, ()) = futures::join!(closes, self.starts.stop_every_process());
         settle_all(closed, "closing the Claude Code sessions at the stop")
             .map(drop)

@@ -30,7 +30,7 @@ use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_provider::driver::session_control::CloseSessionParams;
+use sidekicks_provider::driver::session_control::{CloseSessionParams, SessionCloseCause};
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::text_cut::cut_to_code_points;
 use sidekicks_store::database::connection::read_pool::{
@@ -347,7 +347,10 @@ impl SessionChanges {
             .collect::<Result<Vec<_>, DomainError>>()?;
         for driver in drivers {
             driver
-                .close_session(CloseSessionParams { session_id })
+                .close_session(CloseSessionParams {
+                    session_id,
+                    cause: SessionCloseCause::Person,
+                })
                 .await?;
         }
         self.change(session_id, None, |current| {

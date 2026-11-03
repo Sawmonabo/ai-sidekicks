@@ -33,7 +33,9 @@ use sidekicks_provider::driver::contract::params_and_results::{
     SessionProcessState, SpawnedVersionBindingCarriers,
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_provider::driver::session_control::{CloseSessionParams, CreateSessionParams};
+use sidekicks_provider::driver::session_control::{
+    CloseSessionParams, CreateSessionParams, SessionCloseCause,
+};
 use sidekicks_provider::port::session_level_follower::SessionLevelFollower;
 use sidekicks_provider::run::posture::{
     ExecutionPostureRejection, ExecutionPostureService, StoredSessionPosture,
@@ -159,7 +161,10 @@ async fn close_unrecorded(
     recorded: ProviderSessionError,
 ) -> ProviderSessionError {
     match driver
-        .close_session(CloseSessionParams { session_id })
+        .close_session(CloseSessionParams {
+            session_id,
+            cause: SessionCloseCause::UnrecordedOpening,
+        })
         .await
     {
         Ok(()) => recorded,

@@ -37,7 +37,7 @@ use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::{
     AskSideQuestionParams, CloseSessionParams, CreateSessionParams, MoveSessionToForkParams,
-    ResumeSessionParams,
+    ResumeSessionParams, SessionCloseCause,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::port::run_host::test_host::EngineCall;
@@ -365,7 +365,10 @@ async fn a_close_ends_the_run_in_flight_through_the_engines_close() {
         .expect("the run starts");
 
     driver
-        .close_session(CloseSessionParams { session_id })
+        .close_session(CloseSessionParams {
+            session_id,
+            cause: SessionCloseCause::Person,
+        })
         .await
         .expect("the session closes");
     settle().await;
@@ -406,7 +409,10 @@ async fn the_frames_read_before_the_close_ended_the_process_end_their_run_as_int
         let driver = Arc::clone(&driver);
         async move {
             driver
-                .close_session(CloseSessionParams { session_id })
+                .close_session(CloseSessionParams {
+                    session_id,
+                    cause: SessionCloseCause::Person,
+                })
                 .await
         }
     });
@@ -494,7 +500,10 @@ async fn a_turn_claude_code_started_while_the_close_drained_ends_as_intended() {
         let driver = Arc::clone(&driver);
         async move {
             driver
-                .close_session(CloseSessionParams { session_id })
+                .close_session(CloseSessionParams {
+                    session_id,
+                    cause: SessionCloseCause::Person,
+                })
                 .await
         }
     });

@@ -36,6 +36,7 @@ use crate::driver::contract::params_and_results::LeadBindingCheckParams;
 use crate::driver::error_causes::ProviderAxis;
 use crate::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult, ResumeSessionParams,
+    SessionCloseCause,
 };
 use crate::driver::test_registry::new_session_id;
 use crate::run::posture::compose_execution_posture;
@@ -100,7 +101,10 @@ async fn a_failed_bring_up_frees_its_claim_and_a_close_waits_for_one_in_flight()
     let driver = Arc::clone(&fixture.driver);
     let close = tokio::spawn(async move {
         driver
-            .close_session(CloseSessionParams { session_id })
+            .close_session(CloseSessionParams {
+                session_id,
+                cause: SessionCloseCause::Person,
+            })
             .await
     });
     settle().await;
@@ -328,7 +332,10 @@ async fn a_resumed_conversation_reads_no_handshake_until_its_new_process_declare
     assert!(handshakes.held_handshake_for(session_id, &handle).is_some());
     fixture
         .driver
-        .close_session(CloseSessionParams { session_id })
+        .close_session(CloseSessionParams {
+            session_id,
+            cause: SessionCloseCause::Person,
+        })
         .await
         .expect("the close succeeds");
     settle().await;

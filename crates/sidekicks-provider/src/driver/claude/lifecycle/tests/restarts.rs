@@ -35,7 +35,7 @@ use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult, ProviderBuildChange,
-    ResumeSessionParams, UpdateSessionModeParams,
+    ResumeSessionParams, SessionCloseCause, UpdateSessionModeParams,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::runtime_binding::test_store::test_provider_account_id;
@@ -535,7 +535,10 @@ async fn a_resume_after_the_persons_restart_answers_the_restarted_process() {
     fixture.next_start().await;
     fixture
         .driver
-        .close_session(CloseSessionParams { session_id })
+        .close_session(CloseSessionParams {
+            session_id,
+            cause: SessionCloseCause::Person,
+        })
         .await
         .expect("the close succeeds");
     let restarted = Arc::new(ScriptedChannel::default());
@@ -605,7 +608,10 @@ async fn a_later_start_keeps_the_advisor_claude_code_resolved_at_the_first_start
     let relaunched = fixture.next_start().await;
     fixture
         .driver
-        .close_session(CloseSessionParams { session_id })
+        .close_session(CloseSessionParams {
+            session_id,
+            cause: SessionCloseCause::Person,
+        })
         .await
         .expect("the close succeeds");
     fixture
@@ -677,16 +683,20 @@ async fn a_process_end_lets_go_the_held_presses_of_every_binding_it_served(
         ProcessEnd::ExitWhileIdle => ScriptedDriver::exit(&first),
         ProcessEnd::Close => fixture
             .driver
-            .close_session(CloseSessionParams { session_id })
+            .close_session(CloseSessionParams {
+                session_id,
+                cause: SessionCloseCause::Person,
+            })
             .await
             .expect("the close succeeds"),
         ProcessEnd::CloseOfQuarantined => {
             let held = channel.hold_next_close();
             let abandoned = tokio::time::timeout(
                 Duration::from_millis(50),
-                fixture
-                    .driver
-                    .close_session(CloseSessionParams { session_id }),
+                fixture.driver.close_session(CloseSessionParams {
+                    session_id,
+                    cause: SessionCloseCause::Person,
+                }),
             )
             .await;
             assert!(abandoned.is_err(), "the held close is abandoned");
@@ -695,7 +705,10 @@ async fn a_process_end_lets_go_the_held_presses_of_every_binding_it_served(
             assert!(!fixture.ports.calls().contains(&released));
             fixture
                 .driver
-                .close_session(CloseSessionParams { session_id })
+                .close_session(CloseSessionParams {
+                    session_id,
+                    cause: SessionCloseCause::Person,
+                })
                 .await
                 .expect("the quarantined process's close succeeds");
         }

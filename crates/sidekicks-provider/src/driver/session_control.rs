@@ -234,11 +234,27 @@ pub fn answer_every_run_gone(live_runs: &[LiveRunResume]) -> Vec<ResumedRunAnswe
         .collect()
 }
 
+/// Who or what began a session's close, which decides what the close does besides ending the
+/// session's process.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionCloseCause {
+    /// The person closed the session, so it never runs again: the provider's background work
+    /// still running for it is stopped first.
+    Person,
+    /// The daemon closes the process it opened for the session but could not record, so none
+    /// runs under a binding with no row.
+    UnrecordedOpening,
+    /// The daemon stops, and closes every session as it goes.
+    DaemonStop,
+}
+
 /// Asks a driver to close one session.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CloseSessionParams {
     /// The session.
     pub session_id: SessionId,
+    /// Who or what began the close.
+    pub cause: SessionCloseCause,
 }
 
 /// Params of `name_session`: the session, where it runs, and its first exchange, the reply cut

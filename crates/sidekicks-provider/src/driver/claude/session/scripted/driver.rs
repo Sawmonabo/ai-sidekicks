@@ -53,7 +53,7 @@ use crate::driver::ports::SessionRelaunchListener;
 use crate::driver::schema::schema_parts;
 use crate::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult, ResumeSessionParams,
-    SessionAccountPin,
+    SessionAccountPin, SessionCloseCause,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
 use crate::driver::{
@@ -541,7 +541,10 @@ impl ScriptedDriver {
         let session_id = self.create(&Arc::new(ScriptedChannel::default())).await;
         self.next_start().await;
         self.driver
-            .close_session(CloseSessionParams { session_id })
+            .close_session(CloseSessionParams {
+                session_id,
+                cause: SessionCloseCause::Person,
+            })
             .await
             .expect("the close succeeds");
         self.starts
