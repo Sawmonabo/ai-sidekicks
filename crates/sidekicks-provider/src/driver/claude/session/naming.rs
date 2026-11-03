@@ -206,6 +206,7 @@ async fn compose_naming_legs(
             command_channel: None,
             context,
             continues_interrupted_turn: false,
+            resume_prompt: None,
         },
         &ClaudeSpawnLegServices::of(sources),
     )

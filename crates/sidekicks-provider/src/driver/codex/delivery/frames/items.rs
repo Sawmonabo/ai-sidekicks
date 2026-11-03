@@ -8,6 +8,7 @@ mod async_questions;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Map, Value};
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 
 use crate::driver::codex::DESCRIPTOR;
@@ -127,6 +128,17 @@ impl CodexFrameDelivery {
             && let Some((client_message_id, turn_id)) =
                 read_non_empty_string(&item, "clientId").zip(turn_id.as_deref())
         {
+            // The answers' steer reached its held continuation, whose end is now its run's own.
+            if record
+                .answer_steer_by_turn_id
+                .get(turn_id)
+                .is_some_and(|message_id| {
+                    QueueItemId::new(client_message_id).is_ok_and(|echoed| echoed == *message_id)
+                })
+            {
+                record.answer_steer_by_turn_id.remove(turn_id);
+                record.held_continuation_turn_ids.remove(turn_id);
+            }
             dispatch.taken_messages.push(CodexTakenMessage {
                 client_message_id: client_message_id.to_owned(),
                 turn_id: turn_id.to_owned(),

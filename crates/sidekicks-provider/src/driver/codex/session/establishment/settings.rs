@@ -8,6 +8,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
 
+use crate::driver::SessionSpawnContext;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::exec_relay::compose_codex_command_channel_folder;
 use crate::driver::codex::permission_level::CodexProfileFolders;
@@ -45,6 +46,25 @@ pub(super) struct CodexComposedSettings {
 }
 
 impl CodexSessionEstablishment {
+    /// Where `session_id` runs on `provider_account_id`, its step bound among it, read through the
+    /// registered spawn contexts. Fails while the port is unregistered and as the resolve fails.
+    pub(super) async fn resolve_spawn_context(
+        &self,
+        session_id: SessionId,
+        provider_account_id: &ProviderAccountId,
+    ) -> Result<SessionSpawnContext, CodexError> {
+        let spawn_contexts = &self.dependencies.spawn_contexts;
+        spawn_contexts
+            .require_port()
+            .map_err(|error| CodexError::Driver(DriverError::Internal(Box::new(error))))?
+            .resolve_spawn_context(session_id, provider_account_id.clone())
+            .await
+            .map_err(|cause| CodexError::PortFailed {
+                port: spawn_contexts.port_name(),
+                cause,
+            })
+    }
+
     /// The settings a session's conversation runs with and its step bound, resolved afresh at
     /// every start and resume, with its helpers' role files written again. Fails with
     /// `CodexError::DriverConfig` with no posture, since every conversation runs at a level, and as
@@ -55,16 +75,9 @@ impl CodexSessionEstablishment {
     ) -> Result<CodexComposedSettings, CodexError> {
         let posture = require_execution_posture(request.execution_posture)?;
         let dependencies = &self.dependencies;
-        let spawn_contexts = &dependencies.spawn_contexts;
-        let context = spawn_contexts
-            .require_port()
-            .map_err(|error| CodexError::Driver(DriverError::Internal(Box::new(error))))?
-            .resolve_spawn_context(request.session_id, request.provider_account_id.clone())
-            .await
-            .map_err(|cause| CodexError::PortFailed {
-                port: spawn_contexts.port_name(),
-                cause,
-            })?;
+        let context = self
+            .resolve_spawn_context(request.session_id, request.provider_account_id)
+            .await?;
         let credential_policy = dependencies
             .execution_postures
             .resolve_credential_policy(posture.credential_policy_ref().as_str())

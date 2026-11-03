@@ -32,7 +32,7 @@ use super::test_fixture::{TestPermissionCheck, test_permission_check};
 use super::{PermissionCheck, PermissionCheckError, ProviderAskVerdict, ToolCallVerdict};
 use crate::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
 use crate::rules::ApprovalRules;
-use crate::service::tests::{ApprovalFixture, from_json};
+use crate::service::tests::{ApprovalFixture, from_json, held_by_a_live_call};
 
 /// The approval fixture with the permission check and the rules over it.
 pub(crate) struct CheckFixture {
@@ -60,7 +60,15 @@ impl CheckFixture {
 
     /// The fixture deciding workflow starts by `authorizer`, the built-in rules where `None`.
     pub(crate) async fn deciding_by(authorizer: Option<Authorizer>) -> Self {
-        let approvals = ApprovalFixture::without_holds().await;
+        Self::over(ApprovalFixture::without_holds().await, authorizer)
+    }
+
+    /// The fixture, its run's holds moving its run.
+    pub(crate) async fn moving_its_run() -> Self {
+        Self::over(ApprovalFixture::new().await, None)
+    }
+
+    fn over(approvals: ApprovalFixture, authorizer: Option<Authorizer>) -> Self {
         let home = tempfile::tempdir().expect("a home folder");
         let TestPermissionCheck {
             rules,
@@ -158,7 +166,7 @@ impl CheckFixture {
         let resolved = self
             .approvals
             .service
-            .resolve(&request, from_json(json!("device-1")))
+            .resolve(&request, from_json(json!("device-1")), held_by_a_live_call)
             .await
             .expect("the rule's card is answered");
         let made = ProviderAnswerRule {
@@ -191,7 +199,7 @@ impl CheckFixture {
         }));
         self.approvals
             .service
-            .resolve(&request, from_json(json!("device-1")))
+            .resolve(&request, from_json(json!("device-1")), held_by_a_live_call)
             .await
             .expect("the correction is approved");
         card.approval_request_id

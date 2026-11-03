@@ -7,7 +7,7 @@
 //! With nothing joined, a drain on the home's own socket is launched beside where the home's path
 //! is a link, and waited for where it is the socket itself. An account home's start joins the one
 //! service its record keeps running. A daemon stop that ends work in flight stops every service a
-//! record still keeps.
+//! record still keeps. Ending the turns a restart kept only reads where a kept service listens.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -176,6 +176,45 @@ pub(super) async fn take_kept_service(
     }
     retire_kept_record(locked, control_socket).await?;
     Ok(None)
+}
+
+/// A service the record of a home keeps running: the daemon's own, or one a former daemon kept.
+pub(crate) struct RunningKeptService {
+    /// Its process's id.
+    pub(crate) process_id: u32,
+    /// Where its record says its socket really is.
+    pub(crate) physical_socket: PathBuf,
+}
+
+/// The service the record of `service`'s home keeps, read from that record and touching nothing:
+/// draining or not, while its process still runs; `None` where no record is kept, its process
+/// ended, or it never answered on a socket. Fails as the record's name, lock or read, or the
+/// process table's read, does.
+pub(crate) async fn read_running_kept_service(
+    service: &CodexService,
+) -> Result<Option<RunningKeptService>, CodexError> {
+    let read = async {
+        let record_file = LastingServiceRecordFile::of_socket(
+            &service.dependencies().data_folder,
+            &service.home().codex_home,
+            service.socket_path(),
+        )
+        .map_err(|error| start_failed("The Codex service's record could not be named.", error))?;
+        let locked = lock_record(record_file).await?;
+        let Some(record) = read_record(&locked).await? else {
+            return Ok(None);
+        };
+        let Some(physical_socket) = record.physical_socket else {
+            return Ok(None);
+        };
+        let process_id = record.process.id();
+        let running = repin(record.process).await?;
+        Ok::<_, StartFailure>(running.map(|_running| RunningKeptService {
+            process_id,
+            physical_socket,
+        }))
+    };
+    read.await.map_err(|failure| failure.error)
 }
 
 /// Stops every lasting service a record under `data_folder` still keeps, for a daemon stop that

@@ -7,9 +7,11 @@
 //! providers keep them, and a resolution's remembered scope is written with the record of the rule
 //! its answer made. The correction uses table records, once, that an approved card's corrected
 //! command or path was carried out, so a restart or a rebuild never lets it run twice; the log
-//! holds no event for that use, and no rebuild touches the table. The reviewer blocks table keeps
-//! each provider's own record of a block whole, which the event's body may hold only cut short, so
-//! an `Allow once` can hand it back.
+//! holds no event for that use, and no rebuild touches the table. The orphaned answers table marks
+//! an answer given while no live call held its card, written in the answer's own write, and when it
+//! was handed to the call made again and to the run's continue, each once; no rebuild touches it.
+//! The reviewer blocks table keeps each provider's own record of a block whole, which the event's
+//! body may hold only cut short, so an `Allow once` can hand it back.
 
 use sidekicks_contracts::approval::{
     ApprovalCategory, ApprovalDecision, ApprovalState, RememberedScopeKind,
@@ -125,6 +127,25 @@ CREATE TABLE approval_correction_uses (
 ) STRICT;
 
 CREATE INDEX idx_approval_correction_uses_session ON approval_correction_uses(session_id);
+
+-- ---------------------------------------------------------------------------
+-- approval_orphaned_answers: an answer given while no live call held its card, one row each,
+-- written in the answer's own write; each hand claims its time before it goes out, so it goes out
+-- once.
+-- ---------------------------------------------------------------------------
+-- No REFERENCES: the requests are rebuilt from the log, and this row outlives a rebuild.
+CREATE TABLE approval_orphaned_answers (
+  approval_request_id  TEXT PRIMARY KEY,
+  session_id           TEXT NOT NULL,
+  run_id               TEXT NOT NULL,
+  recorded_at          TEXT NOT NULL,
+  -- When the call made again took the answer; NULL until then.
+  call_handed_at       TEXT,
+  -- When the run's continue took the answer; NULL until then, and again after a continue failed.
+  continue_handed_at   TEXT
+) STRICT;
+
+CREATE INDEX idx_approval_orphaned_answers_session ON approval_orphaned_answers(session_id);
 
 -- ---------------------------------------------------------------------------
 -- reviewer_denials: the provider's own record of each block its reviewer made, written in the

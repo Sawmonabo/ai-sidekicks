@@ -98,6 +98,9 @@ fn restart_failure(error: ProviderSessionError, session_id: SessionId) -> Handle
         | ProviderSessionError::UnrecordedNotClosed { .. }
         | ProviderSessionError::ProviderMissingNotPosted { .. }
         | ProviderSessionError::ResumedRuns { .. }
+        | ProviderSessionError::OrphanedAnswers { .. }
+        | ProviderSessionError::ContinueNotReleased { .. }
+        | ProviderSessionError::AfterCarriedContinue { .. }
         | ProviderSessionError::Port(_)
         | ProviderSessionError::Store(_)
         | ProviderSessionError::PostureRefused { .. }

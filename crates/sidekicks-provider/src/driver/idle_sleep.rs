@@ -32,7 +32,30 @@ pub enum KeptSchedule {
         cron: String,
         /// When it fires next, where the provider said.
         next_fire_at: Option<Timestamp>,
+        /// When the provider deletes it, a lifetime after it was made, however often the session's
+        /// processes stop and resume.
+        expires_at: Timestamp,
     },
+}
+
+impl KeptSchedule {
+    /// When the provider said it fires: a single fire's time, or a recurring job's next run where
+    /// the provider named one; `None` for a job it named no time for.
+    pub fn stated_fire_at(&self) -> Option<Timestamp> {
+        match self {
+            Self::Once { fires_at } => Some(*fires_at),
+            Self::Recurring { next_fire_at, .. } => *next_fire_at,
+        }
+    }
+
+    /// Whether the provider still keeps the schedule for a fire at `fire`: a single fire always,
+    /// a recurring job only before it expires, since the provider deletes it then.
+    pub fn is_kept_at(&self, fire: Timestamp) -> bool {
+        match self {
+            Self::Once { .. } => true,
+            Self::Recurring { expires_at, .. } => fire < *expires_at,
+        }
+    }
 }
 
 /// Where a sleep or a wake left a session: its provider's process up, or stopped with its

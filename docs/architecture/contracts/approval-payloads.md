@@ -245,6 +245,9 @@ interface ApprovalResolveRequest {
   // answered elsewhere.
   clientResolutionId: string;
 }
+// An answer to a card no live call holds (its provider's process ended at a restart, or the call of
+// the app's own tools stopped waiting) is recorded and kept, not refused: the same call made again
+// takes it once, and the run's continue carries it to the agent.
 interface ApprovalResolveResponse {
   approvalRequestId: ApprovalRequestId;
   state: ApprovalState;

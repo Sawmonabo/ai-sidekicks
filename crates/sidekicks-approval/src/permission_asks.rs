@@ -18,7 +18,10 @@
 //!   restart; a call made again with other input raises its own card.
 //! - A card's answer is recorded, kept with the held ask, then handed to the provider that holds
 //!   the call, decision first, with the rule it made, which is recorded once the provider kept it.
-//!   A hand that failed before the provider took it is handed again when the client sends the
+//! - An answer to a pending card whose ask is no longer held, as after a restart, is recorded and
+//!   kept as an orphaned answer, not refused. The first call made again with the card's action and
+//!   input digest takes it once, as the card's own ask would, and any later one raises its own
+//!   card. A hand that failed before the provider took it is handed again when the client sends the
 //!   answer again; one the provider took, or may have taken, is never handed blind a second time.
 //! - A card the daemon raised itself names no provider ask: its answer goes to whoever raised it,
 //!   and the session rule it made is recorded at once, kept and honored by the daemon alone; the
@@ -31,8 +34,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use futures::future::BoxFuture;
 use sidekicks_contracts::approval::{
     ApprovalDecision, ApprovalRequestId, ApprovalResolveRequest, ApprovalResolveResponse,
-    ApprovalState, RememberedScope, RememberedScopeKind,
+    RememberedScope, RememberedScopeKind,
 };
+use sidekicks_contracts::release_manifest::Sha256Hex;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -61,9 +65,9 @@ use tokio_util::sync::CancellationToken;
 use crate::permission_check::{
     PermissionCheck, PermissionCheckError, ProviderAskVerdict, card_input_digest, card_tool_call_id,
 };
-use crate::refusals::{approval_request_canceled, approval_rule_not_kept};
+use crate::refusals::approval_rule_not_kept;
 use crate::rules::{ApprovalRuleError, ApprovalRules};
-use crate::service::{ApprovalService, ApprovalServiceError, ResolveAnswer, ResolvedAnswer};
+use crate::service::{ApprovalService, ApprovalServiceError, ResolvedAnswer};
 use crate::store::{StoredApprovalRequest, StoredApprovalResolution};
 
 /// What the agent reads when its call was refused because the check itself failed.
@@ -161,6 +165,17 @@ struct HeldAsk {
 /// The held asks by run and the provider's request id.
 type HeldAsks = HashMap<(RunId, String), HeldAsk>;
 
+/// One answer as [`PermissionAsks::resolve`] recorded it: what the client is answered and, for an
+/// orphaned answer, kept because no live call held its card, the session and run whose continue
+/// owes it.
+#[derive(Clone, Debug)]
+pub struct ResolvedCard {
+    /// What the client is answered.
+    pub response: ApprovalResolveResponse,
+    /// The card's session and run where this answer is orphaned.
+    pub orphaned: Option<(SessionId, RunId)>,
+}
+
 /// What the intake raises cards through and answers providers with.
 pub struct PermissionAsksDeps {
     /// Where the run's provider is read.
@@ -192,11 +207,12 @@ impl PermissionAsks {
 
     /// Answers the ask itself where the check has an answer, else raises its card under an ask id
     /// the daemon mints; a second delivery of an ask still waiting raises nothing, one already
-    /// answered gets that answer again, and one with no hold whose pending card stands, found by
-    /// its tool call or else by its input, is held again under that card. Fails, once the call is
-    /// refused at its provider, as the check or the read of its pending card fails or as
-    /// withdrawing the card of another ask held under its request id fails; and as handing an
-    /// answer fails.
+    /// answered gets that answer again, one with no hold whose pending card stands, found by its
+    /// tool call or else by its input, is held again under that card, and one with no hold whose
+    /// card's answer was kept, found by its input, takes that answer once. Fails, once the call is
+    /// refused at its provider, as the check, the read of its card or the claim of an orphaned
+    /// answer fails or as withdrawing the card of another ask held under its request id fails; and
+    /// as handing an answer fails.
     pub(crate) async fn take_ask(
         &self,
         ask: ProviderPermissionAsk,
@@ -204,9 +220,18 @@ impl PermissionAsks {
         let key = (ask.run_id, ask.request_id.clone());
         let is_held = self.lock_held().contains_key(&key);
         if !is_held {
-            match self.hold_pending_card(&ask, &key).await {
+            let input_digest = card_input_digest(&ask);
+            match self
+                .hold_pending_card(&ask, &key, input_digest.clone())
+                .await
+            {
                 Ok(true) => return Ok(()),
                 Ok(false) => {}
+                Err(failure) => return Err(self.refuse_unchecked(&ask, failure).await),
+            }
+            match self.claim_orphaned_card(&ask, &key, input_digest).await {
+                Ok(Some((card, ask_id))) => return self.hand_card_answer(&card, &ask_id).await,
+                Ok(None) => {}
                 Err(failure) => return Err(self.refuse_unchecked(&ask, failure).await),
             }
         }
@@ -323,9 +348,9 @@ impl PermissionAsks {
         &self,
         ask: &ProviderPermissionAsk,
         key: &(RunId, String),
+        input_digest: Option<Sha256Hex>,
     ) -> Result<bool, PermissionAskError> {
         let tool_call_id = card_tool_call_id(ask);
-        let input_digest = card_input_digest(ask);
         if tool_call_id.is_none() && input_digest.is_none() {
             return Ok(false);
         }
@@ -359,6 +384,53 @@ impl PermissionAsks {
         Ok(true)
     }
 
+    // Claims, for `ask` with no hold, the orphaned answer of the oldest answered card of its run
+    // with its action and `input_digest` whose answer no call made again took, and holds the ask
+    // under that card's ask id; answers that card and its ask id, or `None` where none is left to
+    // claim or a delivery was held under `key` meanwhile. A claim another caller won goes on to the
+    // next.
+    async fn claim_orphaned_card(
+        &self,
+        ask: &ProviderPermissionAsk,
+        key: &(RunId, String),
+        input_digest: Option<Sha256Hex>,
+    ) -> Result<Option<(StoredApprovalRequest, NonEmptyText)>, PermissionAskError> {
+        let Some(input_digest) = input_digest else {
+            return Ok(None);
+        };
+        let orphaned_answers = self.deps.approvals.orphaned_answers();
+        for card in orphaned_answers
+            .read_call_requests(ask.run_id, input_digest)
+            .await?
+        {
+            let Some(ask_id) = card.ask_id.clone() else {
+                continue;
+            };
+            if card.resource_descriptor.action.as_ref() != Some(&ask.action) {
+                continue;
+            }
+            let is_delivered = self.lock_held().contains_key(key);
+            if is_delivered {
+                return Ok(None);
+            }
+            if !orphaned_answers
+                .claim_call(card.approval_request_id)
+                .await?
+            {
+                continue;
+            }
+            self.lock_held().entry(key.clone()).or_insert(HeldAsk {
+                session_id: ask.session_id,
+                ask_id: ask_id.clone(),
+                action: ask.action.clone(),
+                withdrawal: CancellationToken::new(),
+                state: HeldAskState::Waiting,
+            });
+            return Ok(Some((card, ask_id)));
+        }
+        Ok(None)
+    }
+
     /// Settles the card of an ask its provider took back, canceled; an answered one keeps its
     /// answer. Fails as the read of its card or the cancel fails.
     pub(crate) async fn withdraw_ask(
@@ -386,40 +458,34 @@ impl PermissionAsks {
     /// records its rule at once. What is handed is the stored answer, its correction, its decline's
     /// words and its rule, never a resend's. The same answer sent again hands it again only where
     /// no earlier hand reached, or may have reached, the provider, and records a daemon card's rule
-    /// whose record failed. Fails with the approval service's refusals; `approval.requestCanceled`,
-    /// the answer not recorded and the card withdrawn, for a provider's pending card whose ask is
-    /// no longer held; `approval.rule.notKept` when the call was answered but its provider could
-    /// not keep the rule, which is then not recorded; [`PermissionAskError::RuleWithoutAction`] for
-    /// a daemon card that names no action for its rule; and as reaching the provider or recording
-    /// the rule fails, the answer kept.
+    /// whose record failed. An answer to a pending card no live call holds, a provider ask no
+    /// longer held or a daemon card no one waits on, is kept as an orphaned answer, not refused,
+    /// and answered with the card's session and run; a provider ask held under the card since is
+    /// handed it once its call hand is claimed. Fails with the approval service's refusals;
+    /// `approval.rule.notKept` when the call was answered but its provider could not keep the rule,
+    /// which is then not recorded; [`PermissionAskError::RuleWithoutAction`] for a daemon card that
+    /// names no action for its rule; and as claiming the orphaned answer's hand, reaching the
+    /// provider or recording the rule fails, the answer kept.
     pub async fn resolve(
         &self,
         request: &ApprovalResolveRequest,
         device_id: DeviceId,
-    ) -> Result<ApprovalResolveResponse, PermissionAskError> {
-        let answer = ResolveAnswer::of(request);
-        // A provider's card whose ask is no longer held, its withdrawal or its replacement not
-        // kept, has no call left to answer, so the card is withdrawn and the answer refused before
-        // it is recorded.
-        if let Some(stored) = self
-            .deps
-            .approvals
-            .read_request(answer.approval_request_id)
-            .await?
-            && stored.state == ApprovalState::Pending
-            && let Some(ask_id) = &stored.ask_id
-            && self.find_held(stored.run_id, ask_id).is_none()
-        {
-            self.deps
-                .approvals
-                .withdraw(stored.approval_request_id)
-                .await?;
-            return Err(approval_request_canceled(stored.approval_request_id).into());
-        }
+    ) -> Result<ResolvedCard, PermissionAskError> {
         let ResolvedAnswer {
             response,
             request: stored,
-        } = self.deps.approvals.resolve(request, device_id).await?;
+            is_orphaned,
+        } = self
+            .deps
+            .approvals
+            .resolve(request, device_id, |run_id, ask_id| {
+                self.find_held(run_id, ask_id).is_some()
+            })
+            .await?;
+        let resolved = ResolvedCard {
+            response,
+            orphaned: is_orphaned.then_some((stored.session_id, stored.run_id)),
+        };
         let Some(ask_id) = stored.ask_id.clone() else {
             // A card's rule is the one its stored answer asked for, recorded once: the answer sent
             // again records the rule whose record failed the first time, and nothing once it was
@@ -427,20 +493,47 @@ impl PermissionAsks {
             if let Some(scope) = stored.asked_scope() {
                 self.record_daemon_rule(&stored, scope).await?;
             }
-            return Ok(response);
+            return Ok(resolved);
         };
-        let Some((request_id, answer, made_rule)) = self.claim_hand(&stored, &ask_id).await? else {
-            return Ok(response);
+        // An orphaned answer goes only to an ask held under its card since, the call made again,
+        // once its call hand is claimed, so a call made again that claims it first is not handed
+        // twice.
+        if is_orphaned
+            && (self.find_held(stored.run_id, &ask_id).is_none()
+                || !self
+                    .deps
+                    .approvals
+                    .orphaned_answers()
+                    .claim_call(stored.approval_request_id)
+                    .await?)
+        {
+            return Ok(resolved);
+        }
+        self.hand_card_answer(&stored, &ask_id).await?;
+        Ok(resolved)
+    }
+
+    // Hands the stored answer of `card` to the ask held under its `ask_id` where one is and no hand
+    // of it is under way or reached its provider, then records the rule it made once the provider
+    // kept it. Fails with `approval.rule.notKept` when the provider could not keep the rule, and as
+    // reaching the provider or recording the rule fails.
+    async fn hand_card_answer(
+        &self,
+        card: &StoredApprovalRequest,
+        ask_id: &NonEmptyText,
+    ) -> Result<(), PermissionAskError> {
+        let Some((request_id, answer, made_rule)) = self.claim_hand(card, ask_id).await? else {
+            return Ok(());
         };
-        match self.hand_answer(&(stored.run_id, request_id), answer).await {
+        match self.hand_answer(&(card.run_id, request_id), answer).await {
             Ok(()) => {
                 if let Some(made_rule) = made_rule {
-                    self.deps.rules.record(&stored, &made_rule).await?;
+                    self.deps.rules.record(card, &made_rule).await?;
                 }
-                Ok(response)
+                Ok(())
             }
             Err(PermissionAskError::Driver(DriverError::RuleNotKept(not_kept))) => {
-                Err(approval_rule_not_kept(stored.approval_request_id, not_kept).into())
+                Err(approval_rule_not_kept(card.approval_request_id, not_kept).into())
             }
             Err(failure) => Err(failure),
         }
@@ -459,7 +552,9 @@ impl PermissionAsks {
 
     // Keeps the stored answer with the held ask and claims its hand: the answer to hand, its
     // request id and the rule the stored answer asked for, or `None` where no ask is held for it,
-    // or a hand of it is under way or reached its provider.
+    // or a hand of it is under way or reached its provider. This in-memory state serves the hands
+    // to a live call; the orphaned answer's row serves the call made again after its ask was let
+    // go.
     async fn claim_hand(
         &self,
         stored: &StoredApprovalRequest,

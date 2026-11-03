@@ -10,6 +10,9 @@
 //! - Whoever raised a card waits on a wait armed before the card's write and settled in process by
 //!   the write that settles the card, so a decline's words reach them as the card settles.
 //! - Each write that changes a run's open asks has the run's hold reconciled once it commits.
+//! - An answer to a card no live call holds, no provider ask held for it and no waiter on the
+//!   daemon's own card, is kept as an orphaned answer in the answer's own write for the call made
+//!   again and the run's continue, and its run's hold is reconciled before the answer returns.
 //! - An approval marks the session's working folder stale once it commits, since work the person
 //!   has not seen may land there; a decline and a cancel mark nothing.
 //! - An approval that corrected the command or path records the corrected words with the answer,
@@ -56,6 +59,7 @@ use sidekicks_store::events::session::pending::PendingSessions;
 use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 
 use crate::events::resolved_event;
+use crate::orphaned_answers::{OrphanedAnswers, insert_orphaned_answer_statement};
 use crate::refusals::{
     approval_already_resolved, approval_late_create, approval_not_found,
     approval_persistence_unavailable, approval_request_canceled, approval_resolution_invalid,
@@ -116,14 +120,16 @@ pub(crate) struct RaisedCard {
     pub(crate) settled: ArmedWait<RaisedCardKey, RaisedRequestSettlement>,
 }
 
-/// One answer as [`ApprovalService::resolve`] settled it: what the caller is answered, and the ask
-/// as the answer settled it, with the stored answer.
+/// One answer as [`ApprovalService::resolve`] settled it: what the caller is answered, the ask as
+/// the answer settled it, with the stored answer, and whether this answer is orphaned.
 #[derive(Clone, Debug)]
 pub(crate) struct ResolvedAnswer {
     /// What the caller is answered.
     pub(crate) response: ApprovalResolveResponse,
     /// The ask the answer settled.
     pub(crate) request: StoredApprovalRequest,
+    /// Whether this answer is orphaned, no live call holding its card when it was recorded.
+    pub(crate) is_orphaned: bool,
 }
 
 /// The members of one `approval.resolve` answer, read out of whichever decision it carries.
@@ -233,6 +239,8 @@ pub struct ApprovalService {
     working_folders: Arc<WorkingFolderWatcher>,
     /// Reconciles a run's hold once its open asks change.
     run_holds: Arc<ApprovalRunHolds>,
+    /// The answers kept while no live call held their card.
+    orphaned_answers: OrphanedAnswers,
     /// Whoever waits on a raised card, until it settles.
     raised_cards: KeyedWaits<RaisedCardKey, RaisedRequestSettlement>,
     /// Closed sessions whose pending asks the sweep has yet to cancel.
@@ -251,6 +259,7 @@ impl ApprovalService {
         run_holds: Arc<ApprovalRunHolds>,
     ) -> Self {
         Self {
+            orphaned_answers: OrphanedAnswers::new(Arc::clone(&reads), Arc::clone(&writer)),
             reads,
             events,
             writer,
@@ -347,7 +356,9 @@ impl ApprovalService {
 
     /// Records one answer to an ask, stamped with `device_id`, the device whose connection carried
     /// it; the scope defaults to the ask's own. The rule the answer asks for is stored with it but
-    /// not recorded here: its record follows once its keeper kept it. Refuses `approval.notFound`,
+    /// not recorded here: its record follows once its keeper kept it. A pending provider card whose
+    /// ask `is_ask_held` does not hold, or a daemon card with no waiter, has its answer kept in the
+    /// same write and its run's hold reconciled before this returns. Refuses `approval.notFound`,
     /// `approval.requestCanceled` for an ask canceled or whose run has ended,
     /// `approval.alreadyResolved` for an ask another answer settled (the same answer sent again
     /// under its client resolution id is answered with what was saved),
@@ -358,6 +369,7 @@ impl ApprovalService {
         &self,
         request: &ApprovalResolveRequest,
         device_id: DeviceId,
+        is_ask_held: impl FnOnce(RunId, &NonEmptyText) -> bool + Send,
     ) -> Result<ResolvedAnswer, ApprovalServiceError> {
         let answer = ResolveAnswer::of(request);
         let approval_request_id = answer.approval_request_id;
@@ -369,6 +381,7 @@ impl ApprovalService {
             return Ok(ResolvedAnswer {
                 response: answer_settled(&stored, &answer)?,
                 request: stored,
+                is_orphaned: false,
             });
         }
         let effective_scope = answer
@@ -402,14 +415,26 @@ impl ApprovalService {
             resolved_at: resolved_at.clone(),
         };
         let settlement = ApprovalSettlement::Decided(answer.decision);
+        let raised_key = RaisedCardKey {
+            run_id: stored.run_id,
+            approval_request_id,
+        };
+        let is_orphaned = match &stored.ask_id {
+            Some(ask_id) => !is_ask_held(stored.run_id, ask_id),
+            None => !self.raised_cards.is_armed(&raised_key),
+        };
+        let mut transactional_prelude = vec![
+            settle_pending_statement(&approval_request_id, settlement, &resolved_at),
+            run_live_statement(&stored.session_id, &stored.run_id),
+            insert_resolution_statement(&resolution),
+        ];
+        if is_orphaned {
+            transactional_prelude.push(insert_orphaned_answer_statement(&stored, &resolved_at));
+        }
         let draft = SessionEventDraft::new(payload, resolved_event(answer.decision))?;
         let linkage = SessionEventLinkage {
             occurred_at: Some(resolved_at.clone()),
-            transactional_prelude: vec![
-                settle_pending_statement(&approval_request_id, settlement, &resolved_at),
-                run_live_statement(&stored.session_id, &stored.run_id),
-                insert_resolution_statement(&resolution),
-            ],
+            transactional_prelude,
             ..SessionEventLinkage::default()
         };
         if let Err(failure) = self.events.append(draft, linkage).await {
@@ -424,6 +449,7 @@ impl ApprovalService {
                     Ok(ResolvedAnswer {
                         response: answer_settled(&settled, &answer)?,
                         request: settled,
+                        is_orphaned: false,
                     })
                 }
                 // The run ended before its end canceled the ask, which that cancel is about to do.
@@ -433,11 +459,16 @@ impl ApprovalService {
                 Some(_) | None => Err(refusal_of_failed_write(failure).into()),
             };
         }
+        // A call of the app's tools made again since the keep was decided waits on the card, and
+        // the settlement below reaches it, so the orphaned answer's call hand is its.
+        let call_claim =
+            if is_orphaned && stored.ask_id.is_none() && self.raised_cards.is_armed(&raised_key) {
+                Some(self.orphaned_answers.claim_call(approval_request_id).await)
+            } else {
+                None
+            };
         self.raised_cards.settle_all(
-            &RaisedCardKey {
-                run_id: stored.run_id,
-                approval_request_id,
-            },
+            &raised_key,
             match answer.decision {
                 ApprovalDecision::Approved => RaisedRequestSettlement::Approved,
                 ApprovalDecision::Rejected => RaisedRequestSettlement::Rejected {
@@ -446,9 +477,22 @@ impl ApprovalService {
                 },
             },
         );
-        self.run_holds.spawn_reconcile(stored.run_id);
+        if is_orphaned {
+            self.run_holds.reconcile_or_log(stored.run_id).await;
+        } else {
+            self.run_holds.spawn_reconcile(stored.run_id);
+        }
         if answer.decision == ApprovalDecision::Approved {
             self.mark_working_folder_stale(stored.session_id).await;
+        }
+        // The answer is committed and handed to its waiter, so a claim that failed is logged:
+        // its mark left open, the call made again may take the answer once more.
+        if let Some(Err(failure)) = call_claim {
+            tracing::warn!(
+                approval_request_id = %approval_request_id,
+                error = &failure as &(dyn Error + 'static),
+                "the call hand of an orphaned answer could not be claimed"
+            );
         }
         Ok(ResolvedAnswer {
             response: ApprovalResolveResponse {
@@ -474,6 +518,7 @@ impl ApprovalService {
                 }),
                 ..stored
             },
+            is_orphaned,
         })
     }
 
@@ -526,6 +571,33 @@ impl ApprovalService {
             Err(refused) if refused.refused_statement_index().is_some() => Ok(false),
             Err(failure) => Err(approval_persistence_unavailable(failure).into()),
         }
+    }
+
+    /// The answers kept while no live call held their card.
+    pub fn orphaned_answers(&self) -> &OrphanedAnswers {
+        &self.orphaned_answers
+    }
+
+    /// Whether `run_id` holds an ask the person has not answered yet. Fails as the read fails.
+    pub async fn has_pending_ask(&self, run_id: RunId) -> Result<bool, ApprovalServiceError> {
+        let pending = self
+            .read(move |reader| reader.list_pending_for_run(&run_id))
+            .await?;
+        Ok(!pending.is_empty())
+    }
+
+    /// Arms a wait on how the run's standing card `approval_request_id` settles, for a call made
+    /// again that returns to it, only while no one waits on it, so two calls never take one card;
+    /// `None` where a wait is armed already. A settlement before the arm finds no waiter.
+    pub(crate) fn arm_unawaited_card(
+        &self,
+        run_id: RunId,
+        approval_request_id: ApprovalRequestId,
+    ) -> Option<ArmedWait<RaisedCardKey, RaisedRequestSettlement>> {
+        self.raised_cards.arm_unless_armed(RaisedCardKey {
+            run_id,
+            approval_request_id,
+        })
     }
 
     /// The ask under `approval_request_id`, or `None` when the daemon holds none. Fails as the

@@ -137,7 +137,10 @@ impl CodexServiceRecovery {
         service.restart_planned().await?;
         self.dependencies.release.forget_service(service.id());
         for (claim, inbound) in held {
-            let Some(outcome) = self.resume_claimed(service, &inbound, never_left()).await else {
+            let Some(outcome) = self
+                .resume_claimed(service, &inbound, never_left(), None)
+                .await
+            else {
                 continue;
             };
             let result = self.settle_resumed(service, &inbound, claim, outcome).await;
@@ -244,7 +247,7 @@ impl CodexServiceRecovery {
             let thread_id = thread_id.clone();
             async move { leaving.await_unloaded(&thread_id, deadline).await }.boxed()
         });
-        self.resume_claimed(to, inbound, writer_left).await
+        self.resume_claimed(to, inbound, writer_left, None).await
     }
 
     // Tells a session it moved to `change`'s build once its conversation resumed there.

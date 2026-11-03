@@ -18,6 +18,8 @@ use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession,
 use crate::driver::contract::error::DriverError;
 use crate::driver::test_registry::{new_message_id, new_run_id};
 
+mod owed_continuation;
+
 /// How long a test waits before it counts a hold on the session's task as a deadlock.
 const DEADLOCK_BOUND: Duration = Duration::from_secs(10);
 

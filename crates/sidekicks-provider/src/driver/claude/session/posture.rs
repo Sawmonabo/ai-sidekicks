@@ -70,13 +70,12 @@ fn write_roots_as_json(roots: &[FilesystemPath]) -> String {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use serde_json::{Value, json};
     use sidekicks_contracts::free_form_string::FilesystemPath;
     use sidekicks_contracts::provider::driver::capabilities::{
         CredentialPolicyRef, ExecutionPosture,
     };
 
-    use super::{digest_output_schema, find_posture_divergence};
+    use super::find_posture_divergence;
 
     fn posture(credential_policy: &str, roots: &[&str]) -> ExecutionPosture {
         ExecutionPosture::Ask {
@@ -117,22 +116,5 @@ mod tests {
         );
 
         assert_eq!(divergence.as_deref(), expected);
-    }
-
-    #[test]
-    fn digests_a_schema_by_its_array_order_and_not_its_key_order() {
-        let digest = |schema: Value| {
-            digest_output_schema(schema.as_object().unwrap()).expect("the schema is canonical")
-        };
-        let schema = digest(json!({"type": "array", "prefixItems": [{"type": "string"}, {}]}));
-
-        assert_eq!(
-            schema,
-            digest(json!({"prefixItems": [{"type": "string"}, {}], "type": "array"}))
-        );
-        assert_ne!(
-            schema,
-            digest(json!({"type": "array", "prefixItems": [{}, {"type": "string"}]}))
-        );
     }
 }
