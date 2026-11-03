@@ -297,7 +297,8 @@ fn sent_settings(sent: &Value) -> Vec<String> {
         .expect("a resume sends params")
         .iter()
         .filter(|(name, value)| {
-            !value.is_null() && name.as_str() != "threadId" && name.as_str() != "excludeTurns"
+            !value.is_null()
+                && !["threadId", "excludeTurns", "initialTurnsPage"].contains(&name.as_str())
         })
         .map(|(name, _)| name.clone())
         .collect()
@@ -368,12 +369,13 @@ async fn a_resume_and_a_restart_with_no_report_keep_the_fixed_start() {
 }
 
 // A conversation the service holds loaded, with a turn running, an approval waiting and a helper
-// running, is joined in place: the resume sends `thread/resume` with no setting and no
-// `thread/fork`, both runs answer still running, the waiting approval reaches the permission
-// pipeline under Codex's own request id on the lead's run, and the next words of the turn and of
-// the helper land on the lead's run and the helper's child run. Killed by the fork kept for a
-// loaded conversation (the answer refuses `thread/fork`), by settings sent on the join, and by the
-// helper's record left unrestored (its words land on no run).
+// running, is joined in place: the resume sends `thread/resume` with no setting for the lead's
+// conversation and then the helper's, and no `thread/fork`, both runs answer still running, the
+// waiting approval reaches the permission pipeline under Codex's own request id on the lead's
+// run, and the next words of the turn and of the helper land on the lead's run and the helper's
+// child run. Killed by the fork kept for a loaded conversation (the answer refuses
+// `thread/fork`), by settings sent on the join, and by the helper's record left unrestored (its
+// words land on no run).
 #[tokio::test]
 async fn a_loaded_conversation_is_joined_as_it_runs() {
     let mut harness = ResumeHarness::start(Map::new()).await;
@@ -412,6 +414,16 @@ async fn a_loaded_conversation_is_joined_as_it_runs() {
                 sent,
                 &json!({"data": [TEST_THREAD, HELPER_THREAD], "nextCursor": null}),
             ),
+            Some("thread/resume") if sent["params"]["threadId"] == HELPER_THREAD => {
+                resumes.push(sent.clone());
+                // The helper's reopen reads its newest turn, still running, from the reply.
+                let mut reply = resumed_thread(sent, &json!({"type": "active", "activeFlags": []}));
+                reply["initialTurnsPage"] = json!({
+                    "data": [{"id": "helper-turn", "items": [], "status": "inProgress"}],
+                    "nextCursor": null,
+                });
+                script.answer(sent, &reply);
+            }
             Some("thread/resume") => {
                 resumes.push(sent.clone());
                 script.answer(
@@ -446,11 +458,13 @@ async fn a_loaded_conversation_is_joined_as_it_runs() {
         })
         .await;
 
-    let [resume] = resumes.as_slice() else {
-        panic!("one resume is sent: {resumes:?}");
+    let [resume, helper_resume] = resumes.as_slice() else {
+        panic!("the lead's and the helper's resumes are sent: {resumes:?}");
     };
     assert_eq!(resume["params"]["threadId"], TEST_THREAD);
     assert_eq!(sent_settings(resume), Vec::<String>::new());
+    assert_eq!(helper_resume["params"]["threadId"], HELPER_THREAD);
+    assert_eq!(sent_settings(helper_resume), Vec::<String>::new());
     let DriverResumeResult::Resumed { runs, .. } = resumed else {
         panic!("the conversation is joined: {resumed:?}");
     };

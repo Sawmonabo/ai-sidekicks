@@ -596,8 +596,10 @@ mod tests {
             None
         );
         assert_eq!(
-            CodexRoutedMethod::UserInputRequest
-                .compose_answer_result(&raw(&json!({"questions": [{"id": "q"}]})), &answers),
+            CodexRoutedMethod::UserInputRequest.compose_answer_result(
+                &raw(&json!({"questions": [{"id": "q", "question": "Go on?"}]})),
+                &answers
+            ),
             Some(json!({"answers": {"q": {"answers": ["yes"]}}}))
         );
     }

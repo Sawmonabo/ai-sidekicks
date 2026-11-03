@@ -1,4 +1,4 @@
-//! A revoked project rule, taken out beside the rules of the account home its session ran on.
+//! A revoked project rule, taken out of the rules of the account home its session ran on too.
 
 use std::sync::Arc;
 
@@ -8,7 +8,6 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::super::CodexDriver;
 use crate::driver::codex::session::test_fixture::OneFolder;
-use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
 use crate::driver::session_control::RevokeRuleParams;
 use crate::driver::test_registry::{new_session_id, test_driver_services};
@@ -18,17 +17,21 @@ use crate::runtime_binding::test_store::{record_session_leg, test_provider_accou
 /// The rule both the session's account home and the project's own file keep.
 const KEPT_RULE_LINE: &str = "prefix_rule(pattern=[\"cargo\", \"build\"], decision=\"allow\")\n";
 
-// A resting session's revoke reads the rules of the account home its stored leg ran on: a rule
-// that home keeps stays in force, so the project's own file is left as it was. Killed by reading
-// any other home, where nothing keeps the rule and the project's line is taken out.
+/// Another rule the session's account home keeps, which the revoke leaves.
+const OTHER_RULE_LINE: &str = "prefix_rule(pattern=[\"git\", \"status\"])\n";
+
+// A resting session's revoke reads the rules of the account home its stored leg ran on: the rule
+// is taken out of that home's file as well as the project's own, every other rule kept. Killed by
+// reading any other home, where nothing keeps the rule and the home's line stays in force.
 #[tokio::test]
 async fn a_revoke_reads_the_rules_of_the_sessions_own_account_home() {
     let folder = tempfile::tempdir().expect("a test folder");
     let working_folder = folder.path().join("work");
     let account_home = folder.path().join("codex-home");
     std::fs::create_dir_all(account_home.join("rules")).expect("the home's rules folder");
-    std::fs::write(account_home.join("rules/default.rules"), KEPT_RULE_LINE)
-        .expect("the home's rule is written");
+    let home_file = account_home.join("rules/default.rules");
+    std::fs::write(&home_file, format!("{KEPT_RULE_LINE}{OTHER_RULE_LINE}"))
+        .expect("the home's rules are written");
     let project_folder = folder.path().join("project");
     let own_file = project_folder.join(".codex/rules/sidekicks.rules");
     std::fs::create_dir_all(project_folder.join(".codex/rules")).expect("the project's rules");
@@ -75,12 +78,13 @@ async fn a_revoke_reads_the_rules_of_the_sessions_own_account_home() {
         })
         .await;
 
-    assert!(
-        matches!(revoked, Err(DriverError::Internal(_))),
-        "the home's rule keeps the revoke from taking effect: {revoked:?}"
-    );
+    assert!(revoked.is_ok(), "{revoked:?}");
     assert_eq!(
-        std::fs::read_to_string(&own_file).expect("the project's file is kept"),
-        KEPT_RULE_LINE
+        std::fs::read_to_string(&home_file).expect("the home's file is kept"),
+        OTHER_RULE_LINE
+    );
+    assert!(
+        !own_file.exists(),
+        "the project's own file, its one line taken out, is removed"
     );
 }

@@ -37,6 +37,8 @@ const ANSWER_LINE: &str = "You asked to approve Bash: npm publish. The person ap
 #[tokio::test(start_paused = true)]
 async fn a_persons_restart_carries_the_held_leads_answers_in_place() {
     let mut session = TestCodexSession::start().await;
+    // A resume keeps the version the service reported on its binding.
+    session.scripted.report_version("codex-cli 0.163.0");
     let run_id = new_run_id();
     let card = ApprovalRequestId::try_from(mint_uuid_v7()).expect("a minted UUID is an ask's id");
     let held_lead_continue = CodexHeldLeadContinue {

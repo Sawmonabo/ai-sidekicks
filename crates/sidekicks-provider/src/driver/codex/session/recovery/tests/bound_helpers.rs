@@ -65,6 +65,8 @@ async fn start_helper(session: &mut TestCodexSession, thread_id: &str) -> RunId 
 #[tokio::test(start_paused = true)]
 async fn a_reconnect_reopens_bound_helpers_and_ends_the_finished_one() {
     let mut session = TestCodexSession::start().await;
+    // A resume keeps the version the service reported on its binding.
+    session.scripted.report_version("codex-cli 0.163.0");
     let running_run = start_helper(&mut session, "thread-helper-running").await;
     let finished_run = start_helper(&mut session, "thread-helper-finished").await;
     let folder = tempfile::tempdir().expect("the test makes a folder");

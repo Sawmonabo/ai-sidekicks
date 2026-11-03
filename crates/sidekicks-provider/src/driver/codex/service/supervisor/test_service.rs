@@ -780,6 +780,8 @@ pub(crate) async fn keep_former_service(
     )
     .await
     .expect("the kept service starts");
+    // A former daemon's service ran on the home, so the home is there.
+    std::fs::create_dir_all(&service.home().codex_home).expect("the home is made");
     LastingServiceRecordFile::of_socket(
         &service.dependencies().data_folder,
         &service.home().codex_home,

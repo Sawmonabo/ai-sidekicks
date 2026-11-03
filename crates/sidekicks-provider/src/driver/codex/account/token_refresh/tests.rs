@@ -57,8 +57,12 @@ const QUIET_WAIT: Duration = Duration::from_millis(200);
 /// The largest message a detached test connection takes, far above any a test sends.
 const DETACHED_MESSAGE_LIMIT: usize = 1 << 20;
 
-/// What may appear in the log while a refresh is answered: a refusal's line, never a token.
-const ALLOWED_LOG_MESSAGES: [&str; 1] = ["a Codex token refresh was refused"];
+/// What may appear in the log while a refresh is answered: a refusal's line, or the pinned
+/// service's `-32601` line naming the method alone, never a token.
+const ALLOWED_LOG_MESSAGES: [&str; 2] = [
+    "a Codex token refresh was refused",
+    "a request from the Codex service that nothing handles was refused",
+];
 
 /// Codex's wait for a refresh's answer.
 const CODEX_REFRESH_WAIT: Duration = Duration::from_secs(10);
