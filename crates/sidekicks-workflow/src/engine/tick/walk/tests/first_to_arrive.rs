@@ -114,10 +114,11 @@ fn looping_first_to_arrive_walk() -> (RunWalk, WalkTurn) {
 /// comes back round to that branch, and its round takes only its own pass's late feed: that
 /// pass's straggler closes it, and the next pass's feed opens the next round and wins it, naming
 /// the next pass's loser. A loser readied earlier in the turn of its win is taken back from the
-/// turn's ready steps and canceled, and one decided later in that turn, run or skipped, is
-/// canceled before it can feed the winner a second round. Mutations: follow a loop's back edge to
-/// the losers, so none loses; let a won round take any feed; let it take none; leave a same-turn
-/// loser ready; ready or skip a loser decided after the win.
+/// turn's ready steps and canceled, and one decided later in that turn, run, skipped or won as a
+/// first-to-arrive node itself, is canceled before it can feed the winner a second round.
+/// Mutations: follow a loop's back edge to the losers, so none loses; let a won round take any
+/// feed; let it take none; leave a same-turn loser ready; ready or skip a loser decided after the
+/// win; let a first-to-arrive loser decided after the win win its own round.
 #[test]
 fn a_won_round_takes_only_its_own_pass_and_a_same_turn_loser_never_runs() {
     let (mut walk, start_turn) = looping_first_to_arrive_walk();
@@ -183,12 +184,16 @@ fn a_won_round_takes_only_its_own_pass_and_a_same_turn_loser_never_runs() {
     );
     assert_eq!(walk.live.keys().copied().collect::<Vec<_>>(), [2]);
 
-    for is_disabled in [false, true] {
+    for (b_kind, is_disabled) in [
+        ("test.step", false),
+        ("test.step", true),
+        ("test.first", false),
+    ] {
         let (mut walk, start_turn) = start(
             vec![
                 node("trigger", "test.trigger", 0, false),
                 node("M", "test.first", 1, false),
-                node("B", "test.step", 2, is_disabled),
+                node("B", b_kind, 2, is_disabled),
             ],
             &[
                 edge("trigger", 0, "M", 0),
