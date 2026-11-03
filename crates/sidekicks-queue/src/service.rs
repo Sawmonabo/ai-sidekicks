@@ -8,6 +8,7 @@
 //! first, and one the provider does not give back reads not delivered and leaves the change. A send
 //! into a paused or pausing run resumes it once the lock is let go.
 
+mod answer_continue;
 mod interrupt;
 #[cfg(test)]
 mod tests;
@@ -146,6 +147,8 @@ pub struct RunQueue {
     this: Weak<RunQueue>,
     // The releases settling once the session's hold is free.
     releases: TaskTracker,
+    // The continues the person's answers owe the leads a restart held.
+    continues: TaskTracker,
     _following: FollowerAttachment,
 }
 
@@ -244,6 +247,7 @@ impl RunQueue {
                 session_lock,
                 this: this.clone(),
                 releases: TaskTracker::new(),
+                continues: TaskTracker::new(),
                 _following: following,
             }
         })
@@ -611,37 +615,26 @@ impl RunQueue {
         Ok(failures)
     }
 
-    /// Continues `session_id`'s lead with the answers the person gave while the daemon's restart
-    /// held it, once none is still owed it, then hands it the messages that waited while no
-    /// process held its session. Fails as the continue's resume fails, its answers then owed to
-    /// the next resume, or as the hand's read fails.
-    pub async fn continue_after_answer(&self, session_id: SessionId) -> Result<(), QueueError> {
-        self.provider_sessions
-            .resume_after_answer(session_id)
-            .await?;
-        match self.lifecycle.reconcile(session_id).await {
-            Ok(reconciled) => reconciled,
-            Err(_dropped) => Err(QueueError::DrainEnded),
-        }
-    }
-
-    /// Waits until no start, drain, release or hand of the queue runs, so a hand in flight
-    /// finishes or fails before it answers. Work keeps being taken meanwhile: each kind of work is
-    /// waited for in turn, again until all four are idle at once, since a drain may start a run, a
-    /// run's end a release and either a hand.
+    /// Waits until no continue, start, drain, release or hand of the queue runs, so a hand in
+    /// flight finishes or fails before it answers. Work keeps being taken meanwhile: each kind of
+    /// work is waited for in turn, again until all five are idle at once, since a continue may
+    /// drain, a drain may start a run, a run's end a release and either a hand.
     pub async fn stop(&self) {
+        self.continues.close();
         self.lifecycle.close();
         self.admission.close();
         self.releases.close();
         self.delivery.close();
-        // A drain may start a run, a run's end a release, and either a hand: each tracker is
-        // waited in that order until none holds work.
+        // A continue may drain, a drain may start a run, a run's end a release, and either a hand:
+        // each tracker is waited in that order until none holds work.
         loop {
+            self.continues.wait().await;
             self.lifecycle.wait().await;
             self.admission.wait().await;
             self.releases.wait().await;
             self.delivery.wait().await;
-            if self.lifecycle.is_idle()
+            if self.continues.is_empty()
+                && self.lifecycle.is_idle()
                 && self.admission.is_idle()
                 && self.releases.is_empty()
                 && self.delivery.is_idle()
