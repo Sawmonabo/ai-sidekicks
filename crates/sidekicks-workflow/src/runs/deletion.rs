@@ -1,5 +1,5 @@
-//! Deleting runs and keeping them: one run's delete, `Delete runs older than…` with the preview its
-//! confirm reads, and the Keep mark that bulk delete leaves. Neither delete touches a run still
+//! Deleting runs and keeping them: one run's delete, `Delete runs older than…` with the preview
+//! its confirm reads, and the Keep mark that bulk delete leaves. Neither delete touches a run still
 //! going or parked on its failed step, which a person can still cancel. A run's delete removes its
 //! steps, its form drafts, its gate answers and its execution context with the run, in the write
 //! that appends the run's `workflow.run.deleted`: the session log keeps the run's earlier events,

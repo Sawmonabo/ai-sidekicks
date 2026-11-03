@@ -122,7 +122,8 @@ pub fn check<S: AccountStore>(
 
     let [endpoint_group, identity] = key;
     store.execute(
-        "INSERT INTO counted_requests (endpoint_group, identity, expires_at_ms) VALUES (?1, ?2, ?3)",
+        "INSERT INTO counted_requests (endpoint_group, identity, expires_at_ms) \
+         VALUES (?1, ?2, ?3)",
         &[endpoint_group, identity, SqlValue::Integer(expires_at)],
     )?;
     Ok(RateLimitCheckResponse {

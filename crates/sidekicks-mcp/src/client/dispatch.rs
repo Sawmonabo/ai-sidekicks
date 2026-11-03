@@ -332,7 +332,9 @@ async fn race_call(
                 // canceled; a task is canceled first, its follow still held, unless the server
                 // refused the caller's cancel already, which leaves its end unknown.
                 return match sink.held_handle() {
-                    None => CallRace::Settled(Ok(McpToolCallEnd::Canceled), CommandOutcome::Unknown),
+                    None => {
+                        CallRace::Settled(Ok(McpToolCallEnd::Canceled), CommandOutcome::Unknown)
+                    }
                     Some(_) if is_cancel_refused => CallRace::Settled(
                         Ok(McpToolCallEnd::ConnectionClosed),
                         CommandOutcome::Unknown,

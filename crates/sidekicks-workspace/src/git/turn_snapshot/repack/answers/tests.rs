@@ -29,7 +29,10 @@ fn point(base: Option<&str>) -> SnapshotPoint {
     b"count: 0\nsize: 0\nin-pack: 3\npacks: 11\nsize-pack: 1\n".as_slice(),
     Some(ObjectCounts { loose: 0, packs: 11 })
 )]
-#[case::loose_objects(b"count: 4\npacks: 0\n".as_slice(), Some(ObjectCounts { loose: 4, packs: 0 }))]
+#[case::loose_objects(
+    b"count: 4\npacks: 0\n".as_slice(),
+    Some(ObjectCounts { loose: 4, packs: 0 })
+)]
 #[case::packs_missing(b"count: 0\nsize: 0\n".as_slice(), None)]
 #[case::count_missing(b"packs: 2\n".as_slice(), None)]
 #[case::packs_repeated(b"count: 0\npacks: 1\npacks: 2\n".as_slice(), None)]
@@ -46,7 +49,10 @@ fn object_counts_read_only_from_one_decimal_count_and_pack_line(
 // or skip a capture's base. Fails when a two-parent, empty-tree or non-id line reads as a point,
 // or when a capture with no base is refused rather than read with none.
 #[rstest]
-#[case::one_parent(format!("refs/sidekicks/runs/a {COMMIT} {TREE} {BASE}"), Some(point(Some(BASE))))]
+#[case::one_parent(
+    format!("refs/sidekicks/runs/a {COMMIT} {TREE} {BASE}"),
+    Some(point(Some(BASE)))
+)]
 #[case::no_parent(format!("refs/sidekicks/runs/a {COMMIT} {TREE} "), Some(point(None)))]
 #[case::two_parents(
     format!("refs/sidekicks/runs/a {COMMIT} {TREE} {BASE} {SECOND_PARENT}"),

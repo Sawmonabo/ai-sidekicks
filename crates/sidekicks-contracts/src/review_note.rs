@@ -234,8 +234,8 @@ pub struct SessionReviewNoteUpdateRequest {
     pub body: NonEmptyText,
 }
 
-/// `session.reviewNote.delete`: discards held notes in one act; the notes chip's `×` discards every
-/// note behind one question, and a steer clears every note it carried.
+/// `session.reviewNote.delete`: discards held notes in one act; the notes chip's `×` discards
+/// every note behind one question, and a steer clears every note it carried.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

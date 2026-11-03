@@ -62,8 +62,8 @@ pub fn nullable_text_binding(name: &'static str, text: Option<&str>) -> (Cow<'st
     )
 }
 
-/// A `place` column's value: the place as its wire JSON (`"windows"` or `{"distro":…}`), `NULL` on
-/// macOS and Linux, so a stored place compares as text.
+/// A `place` column's value: the place as its wire JSON (`"windows"` or `{"distro":…}`), `NULL`
+/// on macOS and Linux, so a stored place compares as text.
 pub fn place_value(place: Option<&Place>) -> Value {
     Value::from(place.map(|place| {
         serde_json::to_string(place).expect("a place is a string or a one-member object")

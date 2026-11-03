@@ -649,9 +649,9 @@ mod tests {
 
     // Killed by `frame` keeping a listener the loopback connect does not reach, its filter deleted
     // or swapped for `IpAddr::is_loopback` (the `127.0.0.2` port would read listening), by a filter
-    // that refuses `[::1]` or `0.0.0.0` (the `[::1]` or `0.0.0.0` port would read nothing), by a sink
-    // that takes a stopped follow's readings (the late reading would reach the next reader), and by
-    // a new follow that keeps the last one's readings (its first list would read listening).
+    // that refuses `[::1]` or `0.0.0.0` (the `[::1]` or `0.0.0.0` port would read nothing), by a
+    // sink that takes a stopped follow's readings (the late reading would reach the next reader),
+    // and by a new follow that keeps the last one's readings (its first list would read listening).
     #[tokio::test]
     async fn only_a_listener_the_loopback_connect_reaches_reads_listening() {
         let database = TestDatabase::new(schema_parts());

@@ -20,7 +20,8 @@ use crate::driver::codex::rules::RULE_EVALUATION_TIME_LIMIT;
 
 /// A call written across lines with a comment inside and odd spacing, which a rendering would not
 /// give back as written.
-pub(crate) const COMMENTED_CALL: &str = "prefix_rule(\n    # the person's own note\n    pattern = [\"git\",   \
+pub(crate) const COMMENTED_CALL: &str = "prefix_rule(\n    # the person's \
+                              own note\n    pattern = [\"git\",   \
                               \"status\"],\n    decision = \"prompt\",\n)";
 /// An allow of `ls`.
 pub(crate) const LS_CALL: &str = "prefix_rule(pattern = [\"ls\"])";

@@ -1,8 +1,8 @@
 //! Codex's own interactive `ChatGPT` sign-in on one account's home: `account/login/start` sent on a
 //! connection of its own to the service of that home on the arm the broker gives, `chatgpt` for the
 //! browser arm and `chatgptDeviceCode` for the device-code arm, run to the completion Codex sends
-//! for this login; and the status read that names who signed in once it ended. The broker keeps one browser
-//! sign-in per machine, since Codex's callback listens on one port the machine shares.
+//! for this login; and the status read that names who signed in once it ended. The broker keeps one
+//! browser sign-in per machine, since Codex's callback listens on one port the machine shares.
 
 use std::error::Error;
 use std::sync::Arc;

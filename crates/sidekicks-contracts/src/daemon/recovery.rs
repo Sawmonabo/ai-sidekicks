@@ -222,8 +222,8 @@ pub enum DaemonRepairingLinePart {
     Count(u64),
 }
 
-/// The repair's line in parts, `<line> · <done> of <total>`, or the line ending in `…` when there
-/// is no count.
+/// The repair's line in parts, `<line> · <done> of <total>`, or the line ending in `…` when
+/// there is no count.
 pub fn describe_daemon_repairing_line(
     progress: Option<DaemonRepairProgress>,
 ) -> Vec<DaemonRepairingLinePart> {

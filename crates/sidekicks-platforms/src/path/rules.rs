@@ -124,7 +124,8 @@ impl PathRules {
 
     /// `path` in the POSIX spelling a tool that matches paths in that form reads: on macOS and
     /// Linux the path as written, and on Windows each `\` written `/` with a drive (`C:\x`)
-    /// written as a folder named for its lower-cased letter (`/c/x`). `path` is read by these rules.
+    /// written as a folder named for its lower-cased letter (`/c/x`). `path` is read by these
+    /// rules.
     pub fn posix_form(self, path: &Path) -> String {
         let text = path.to_string_lossy();
         match self {

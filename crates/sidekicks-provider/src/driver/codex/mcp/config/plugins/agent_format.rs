@@ -250,7 +250,8 @@ impl PluginFolders {
             )
     }
 
-    // A working folder `./…`, `${PLUGIN_ROOT}[/…]` or `${PLUGIN_DATA}[/…]`, kept inside its folder.
+    // A working folder `./…`, `${PLUGIN_ROOT}[/…]` or `${PLUGIN_DATA}[/…]`, kept inside its
+    // folder.
     fn resolve_working_folder(&self, cwd: &str) -> Result<String, String> {
         if let Some(relative) = cwd.strip_prefix(RELATIVE_PREFIX) {
             return Self::contain(&self.root, relative);

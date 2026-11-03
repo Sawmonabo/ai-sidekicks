@@ -41,7 +41,8 @@ pub fn daemon_run_folder() -> io::Result<DaemonRunFolder> {
 }
 
 /// Makes the run folder at `folder` and every missing folder above it; the run folder's check
-/// refuses a reparse point, so a link is refused there. Fails with the system's error from the make.
+/// refuses a reparse point, so a link is refused there. Fails with the system's error from the
+/// make.
 pub fn create_private_run_folder(folder: &Path) -> io::Result<()> {
     create_private_folder(folder)
 }

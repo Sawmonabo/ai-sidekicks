@@ -513,8 +513,8 @@ mod tests {
         payload
     }
 
-    /// A deadline rides a wait on a person and is refused on any other wait. Mutations: refuse it on a
-    /// person's wait; keep it on an account or chain wait.
+    /// A deadline rides a wait on a person and is refused on any other wait. Mutations: refuse it
+    /// on a person's wait; keep it on an account or chain wait.
     #[rstest]
     #[case::approval(json!({"waitCause": "approval", "waitId": WAIT}), true)]
     #[case::form(json!({"waitCause": "form", "waitId": WAIT}), true)]

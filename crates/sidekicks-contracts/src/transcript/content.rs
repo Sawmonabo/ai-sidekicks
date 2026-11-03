@@ -223,20 +223,12 @@ pub fn stored_body_content_of(
     Ok(TranscriptBodyReadResponse::Available {
         body: StoredBodyText::new(text[start..end].to_owned())
             .expect("a part fits one page, so its code points do"),
-        offset: byte_offset(window.start + start),
-        next_offset: (next < window.body_length).then(|| byte_offset(next)),
+        offset: SafeInt::from_usize(window.start + start),
+        next_offset: (next < window.body_length).then(|| SafeInt::from_usize(next)),
         content_length: echoed_content_length_of(payload),
         block_starts,
         block_cut_failure,
     })
-}
-
-/// A byte offset into a body, which the memory holding it keeps far below 2^53.
-fn byte_offset(offset: usize) -> SafeInt<0> {
-    u64::try_from(offset)
-        .ok()
-        .and_then(SafeInt::new)
-        .expect("a body's byte offsets lie far below 2^53")
 }
 
 /// Where the part of `body` that starts at `offset` ends: the furthest character boundary for

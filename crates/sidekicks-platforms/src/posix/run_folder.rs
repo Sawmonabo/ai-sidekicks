@@ -51,7 +51,8 @@ pub fn daemon_run_folder() -> io::Result<DaemonRunFolder> {
 
 /// Makes the run folder at `folder`, and every missing folder above it, readable by its owner
 /// alone. Fails with `InvalidInput` when `folder` is a link, before anything is made or changed, so
-/// no mode lands on the link's target, and with the system's error from the make or the mode change.
+/// no mode lands on the link's target, and with the system's error from the make or the mode
+/// change.
 pub fn create_private_run_folder(folder: &Path) -> io::Result<()> {
     match fs::symlink_metadata(folder) {
         Ok(metadata) if metadata.file_type().is_symlink() => {

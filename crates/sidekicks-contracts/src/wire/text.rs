@@ -569,7 +569,10 @@ mod tests {
     #[case::at_the_cap("abcd", Ok(()))]
     #[case::past_the_cap("abcde", Err(TextError::OverCap { cap: 4 }))]
     #[case::astral_characters_count_once("😀😀😀😀", Ok(()))]
-    #[case::astral_character_past_the_cap("😀😀😀😀😀", Err(TextError::OverCap { cap: 4 }))]
+    #[case::astral_character_past_the_cap(
+        "😀😀😀😀😀",
+        Err(TextError::OverCap { cap: 4 })
+    )]
     #[case::byte_order_mark_is_blank("\u{feff} ", Err(TextError::Blank))]
     #[case::next_line_is_not_blank("\u{85}", Ok(()))]
     #[case::nul("a\0", Err(TextError::HoldsNul))]

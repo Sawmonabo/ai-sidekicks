@@ -296,11 +296,11 @@ impl OptionKind {
 
 /// Takes a wrapper's own words off the front of `pending`: its options, an option's value and its
 /// leading operand. `env -S` puts the words its value splits into in their place, whether the value
-/// is the next word or attached, as in `-S'…'`, `-vS'…'` or `--split-string=…`, and reads them
-/// again as its own arguments, assignments among them. Each word taken off is pushed on `taken`.
-/// A word only the run decides where an option that may take a value is read, or where a split
-/// string's word is, leaves the wrapper the program, as does a split string env refuses or only
-/// the run decides.
+/// is the next word or attached, as in `-S'…'`, `-vS'…'` or `--split-string=…`, and reads
+/// them again as its own arguments, assignments among them. Each word taken off is pushed on
+/// `taken`. A word only the run decides where an option that may take a value is read, or where a
+/// split string's word is, leaves the wrapper the program, as does a split string env refuses or
+/// only the run decides.
 pub(super) fn take_wrapper_words(
     builder: &mut WordBuilder<'_>,
     wrapper: CommandWrapper,

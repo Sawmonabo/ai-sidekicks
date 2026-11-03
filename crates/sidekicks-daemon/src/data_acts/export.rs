@@ -327,17 +327,17 @@ async fn write_export(
     stop: &CancellationToken,
 ) -> Result<SafeInt<0>, ExportError> {
     let session_ids = deps.reads.read(ReadLength::Long, read_session_ids).await?;
-    let total = session_count(session_ids.len());
+    let total = SafeInt::from_usize(session_ids.len());
     let sessions_folder = destination.join(SESSIONS_FOLDER_NAME);
     let files_folder = destination.join(FILES_FOLDER_NAME);
     fs::create_dir_all(&sessions_folder)?;
     fs::create_dir_all(&files_folder)?;
     for (exported, session_id) in session_ids.into_iter().enumerate() {
         if stop.is_cancelled() {
-            return Ok(session_count(exported));
+            return Ok(SafeInt::from_usize(exported));
         }
         progress.send_replace(Some(DataExportProgress::Running {
-            sessions_exported: session_count(exported),
+            sessions_exported: SafeInt::from_usize(exported),
             sessions_total: total,
         }));
         let sessions_folder = sessions_folder.clone();
@@ -367,13 +367,6 @@ async fn write_export(
         README_LINES.join("\n\n") + "\n",
     )?;
     Ok(total)
-}
-
-fn session_count(count: usize) -> SafeInt<0> {
-    u64::try_from(count)
-        .ok()
-        .and_then(SafeInt::new)
-        .expect("a count of sessions is a safe integer")
 }
 
 fn read_session_ids(connection: &Connection) -> Result<Vec<SessionId>, ExportError> {

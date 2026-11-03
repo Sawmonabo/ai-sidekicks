@@ -55,17 +55,33 @@ mod tests {
     use super::{CodexTurnLimit, read_codex_turn_limit};
 
     /// A trace line in the form Codex's app-server writes with `LOG_FORMAT=json`.
-    const TRACE_LINE: &str = r#"{"timestamp":"2026-10-21T07:58:12.418305Z","level":"TRACE","fields":{"message":"post sampling token usage","turn_id":"019a-turn","total_usage_tokens":9312,"auto_compact_scope_tokens":9312,"auto_compact_scope_limit":"Some(244800)","auto_compact_limit_scope":"Some(Total)","auto_compact_window_prefill_tokens":"None","full_context_window_limit":"Some(258400)","full_context_window_limit_reached":false,"token_limit_reached":false,"model_needs_follow_up":false,"has_pending_input":false,"needs_follow_up":false},"target":"codex_core::session::turn","span":{"name":"run_turn"}}"#;
+    const TRACE_LINE: &str = concat!(
+        r#"{"timestamp":"2026-10-21T07:58:12.418305Z","level":"TRACE","#,
+        r#""fields":{"message":"post sampling token usage","turn_id":"019a-turn","#,
+        r#""total_usage_tokens":9312,"auto_compact_scope_tokens":9312,"#,
+        r#""auto_compact_scope_limit":"Some(244800)","auto_compact_limit_scope":"Some(Total)","#,
+        r#""auto_compact_window_prefill_tokens":"None","#,
+        r#""full_context_window_limit":"Some(258400)","full_context_window_limit_reached":false,"#,
+        r#""token_limit_reached":false,"model_needs_follow_up":false,"has_pending_input":false,"#,
+        r#""needs_follow_up":false},"target":"codex_core::session::turn","#,
+        r#""span":{"name":"run_turn"}}"#,
+    );
 
     // The line's turn and limit are read; an unset limit and a line of another message read none.
     #[rstest]
     #[case::limit(TRACE_LINE, Some(("019a-turn", 244_800)))]
     #[case::unset(
-        r#"{"fields":{"message":"post sampling token usage","turn_id":"t","auto_compact_scope_limit":"None"}}"#,
+        concat!(
+            r#"{"fields":{"message":"post sampling token usage","turn_id":"t","#,
+            r#""auto_compact_scope_limit":"None"}}"#,
+        ),
         None
     )]
     #[case::other_message(
-        r#"{"fields":{"message":"post sampling token estimate","turn_id":"t","auto_compact_scope_limit":"Some(5)"}}"#,
+        concat!(
+            r#"{"fields":{"message":"post sampling token estimate","turn_id":"t","#,
+            r#""auto_compact_scope_limit":"Some(5)"}}"#,
+        ),
         None
     )]
     fn reads_the_turn_and_its_limit(#[case] line: &str, #[case] limit: Option<(&str, u64)>) {

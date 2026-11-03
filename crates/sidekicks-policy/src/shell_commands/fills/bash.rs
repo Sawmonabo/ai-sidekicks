@@ -348,9 +348,9 @@ impl<'s> PlaceWalk<'s> {
         self.place.get_or_insert(place);
     }
 
-    /// A fill in a `${…}`: bash 5.3's command forms refuse it; an offset or a length is arithmetic;
-    /// a pattern word is a context of its own, taking the bare form; a default's word lets the
-    /// quoting around the expansion decide.
+    /// A fill in a `${…}`: bash 5.3's command forms refuse it; an offset or a length is
+    /// arithmetic; a pattern word is a context of its own, taking the bare form; a default's word
+    /// lets the quoting around the expansion decide.
     fn pass_expansion(
         &mut self,
         expansion: Node<'s>,

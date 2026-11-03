@@ -178,7 +178,8 @@ mod tests {
         (integer.to_owned(), fraction.to_owned())
     }
 
-    // `significand × 10^-scale` as plain decimal text, `trailing_zeros` zeros after its last digit.
+    // `significand × 10^-scale` as plain decimal text, `trailing_zeros` zeros after its last
+    // digit.
     fn plain_text(significand: u128, scale: u8, trailing_zeros: usize) -> String {
         let (integer, fraction) = split_digits(significand, scale);
         if fraction.is_empty() && trailing_zeros == 0 {

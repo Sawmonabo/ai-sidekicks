@@ -4,10 +4,10 @@
 //! Text is UTF-16 code units throughout, as JavaScript indexes it, so the matched indices index the
 //! renderer's own string, and case and letters are judged per unit by JavaScript's rules. The best
 //! embedding is found by dynamic programming over `f64` scores: a greedy left-to-right walk gets
-//! `cs` → `Copy SHA` wrong, committing to the `c` of `Copy` and leaving the `S` of `SHA` reachable
-//! only mid-word. The gap penalty is linear, which admits a running maximum in the inner loop, so
-//! time and memory stay O(candidate × query) behind an O(candidate) subsequence check. Ties go to
-//! the earliest end, so rows do not flicker between keystrokes.
+//! `cs` → `Copy SHA` wrong, committing to the `c` of `Copy` and leaving the `S` of `SHA`
+//! reachable only mid-word. The gap penalty is linear, which admits a running maximum in the inner
+//! loop, so time and memory stay O(candidate × query) behind an O(candidate) subsequence check.
+//! Ties go to the earliest end, so rows do not flicker between keystrokes.
 
 /// Paid for every matched unit; constant within one search, it keeps a good match positive.
 const BASE_CHARACTER_SCORE: f64 = 16.0;
@@ -488,7 +488,8 @@ mod tests {
     fn matched_indices_point_at_the_original_candidates_utf16_units() {
         // The emoji takes two UTF-16 units and four UTF-8 bytes, so `É` sits at unit 3, character
         // 2 and byte 5; `ét` matches it folded to lower case.
-        let found = score_subsequence(&utf16("😀 Été"), &utf16("ét")).expect("the query matches");
+        let candidate = utf16("😀 Été");
+        let found = score_subsequence(&candidate, &utf16("ét")).expect("the query matches");
         assert_eq!(found.matched_indices, vec![3, 4]);
     }
 }

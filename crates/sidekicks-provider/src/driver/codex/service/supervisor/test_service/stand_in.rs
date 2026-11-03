@@ -166,11 +166,11 @@ fn own_process_record() -> ProcessRecord {
 /// Serves as a Codex service where a stand-in's script started this program: on a real socket of
 /// its own, with the path its `--listen` names made a link to it, its launch recorded first,
 /// answering each connection as a start needs, a config read with the reply its test program
-/// gives and a resume with the turn it gives, and recording each request in the script's record, and whole in the test program's own
-/// record where one is named, until the test program that wrote the script ends; or, started as
-/// Codex's executor on its standard input and output, as that executor. Returns at once where no
-/// script started it or its test program has already ended. Panics where its launch cannot be
-/// recorded, its socket cannot listen or its link cannot be made.
+/// gives and a resume with the turn it gives, and recording each request in the script's record,
+/// and whole in the test program's own record where one is named, until the test program that wrote
+/// the script ends; or, started as Codex's executor on its standard input and output, as that
+/// executor. Returns at once where no script started it or its test program has already ended.
+/// Panics where its launch cannot be recorded, its socket cannot listen or its link cannot be made.
 pub async fn serve_as_codex_service_stand_in() {
     let Ok(address) = std::env::var(LISTEN_ADDRESS_NAME) else {
         return;

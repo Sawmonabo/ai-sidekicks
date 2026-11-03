@@ -214,7 +214,8 @@ async fn a_held_account_refuses_its_removal_and_keeps_everything(#[case] holder:
         Holder::ParkedStep => {
             fixture
                 .run(
-                    "INSERT INTO workflow_steps (workflow_run_id, wait_account_id, status, wait_cause)
+                    "INSERT INTO workflow_steps \
+                     (workflow_run_id, wait_account_id, status, wait_cause)
                      VALUES ('0190a3b4-0000-7000-8000-000000000001', @account_id, 'waiting',
                              'account')",
                 )

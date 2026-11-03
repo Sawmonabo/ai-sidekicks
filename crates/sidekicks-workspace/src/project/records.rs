@@ -698,7 +698,7 @@ fn read_listed(
                     name: text_column(row, 1, ProjectName::new)?,
                     folder_path: text_column(row, 2, FilesystemPath::new)?,
                     state: text_column(row, 3, closed_word)?,
-                    session_count: count_of(activities.len()),
+                    session_count: SafeInt::from_usize(activities.len()),
                     running_session_id: running_sessions.get(&project_id).copied(),
                     session_tally: tally_of(activities),
                     setup: text_column(row, 4, stored_json)?,
@@ -760,17 +760,10 @@ fn tally_of(activities: &[SessionActivity]) -> ProjectSessionTally {
         }
     }
     ProjectSessionTally {
-        running: count_of(running),
-        waiting: count_of(waiting),
-        done: count_of(done),
+        running: SafeInt::from_usize(running),
+        waiting: SafeInt::from_usize(waiting),
+        done: SafeInt::from_usize(done),
     }
-}
-
-fn count_of(count: usize) -> SafeInt<0> {
-    u64::try_from(count)
-        .ok()
-        .and_then(SafeInt::new)
-        .expect("a count of rows read is a safe integer")
 }
 
 // A stored JSON column, its fault kept without the stored text.

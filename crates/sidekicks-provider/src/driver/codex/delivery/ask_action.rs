@@ -4,9 +4,9 @@
 //! to one file takes the session's alone, since Codex keeps no project rule on a file; input to a
 //! running command takes none; a tool server's call takes the session's where Codex says it keeps
 //! one and the tool is known, since Codex keeps that allow for the one tool and never the whole
-//! server. A command is read as the whole line it runs, the one its `<shell> -lc '…'` wrapper hands
-//! the shell, read once on the ask's own shell-line reader for every check, and a tool server's
-//! call is named as Codex's pre-tool hook names it.
+//! server. A command is read as the whole line it runs, the one its `<shell> -lc '…'` wrapper
+//! hands the shell, read once on the ask's own shell-line reader for every check, and a tool
+//! server's call is named as Codex's pre-tool hook names it.
 
 use std::path::PathBuf;
 
@@ -304,7 +304,10 @@ mod tests {
     )]
     #[case::a_servers_own_question_naming_its_tool(
         "mcpServer/elicitation/request",
-        json!({"serverName": "docs", "_meta": {"persist": ["session", "always"], "tool_name": "search"}}),
+        json!({
+            "serverName": "docs",
+            "_meta": {"persist": ["session", "always"], "tool_name": "search"}
+        }),
         &[],
         None,
         ProviderAskAction::Tool { tool_name: "mcp__docs__search".to_owned() },
@@ -313,7 +316,10 @@ mod tests {
     )]
     #[case::codexs_tool_call_ask_and_the_call_in_flight(
         "mcpServer/elicitation/request",
-        json!({"serverName": "docs", "_meta": {"codex_approval_kind": "mcp_tool_call", "persist": "session"}}),
+        json!({
+            "serverName": "docs",
+            "_meta": {"codex_approval_kind": "mcp_tool_call", "persist": "session"}
+        }),
         &[],
         Some("search"),
         ProviderAskAction::Tool { tool_name: "mcp__docs__search".to_owned() },
@@ -322,7 +328,10 @@ mod tests {
     )]
     #[case::a_tool_call_ask_whose_tool_is_unknown(
         "mcpServer/elicitation/request",
-        json!({"serverName": "docs", "_meta": {"codex_approval_kind": "mcp_tool_call", "persist": "session"}}),
+        json!({
+            "serverName": "docs",
+            "_meta": {"codex_approval_kind": "mcp_tool_call", "persist": "session"}
+        }),
         &[],
         None,
         ProviderAskAction::Tool { tool_name: "docs".to_owned() },

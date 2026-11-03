@@ -46,7 +46,11 @@ const SERVER_ADDRESS: &str = "https://docs.example.test/mcp";
 const EXPIRY_MILLISECONDS: u64 = 1_767_225_600_000;
 
 /// The person's own saved sign-ins, planted in their default Claude Code folder.
-const PERSON_SIGN_INS: &str = r#"{"mcpOAuth":{"docs|person":{"serverName":"docs","serverUrl":"https://docs.example.test/mcp","accessToken":"access-of-the-person","expiresAt":1}}}"#;
+const PERSON_SIGN_INS: &str = concat!(
+    r#"{"mcpOAuth":{"docs|person":{"serverName":"docs","#,
+    r#""serverUrl":"https://docs.example.test/mcp","accessToken":"access-of-the-person","#,
+    r#""expiresAt":1}}}"#,
+);
 
 /// The person's own Claude Code config, declaring the server.
 const PERSON_CONFIG: &str =
@@ -359,7 +363,12 @@ async fn a_plugin_binding_signs_in_with_its_entry_and_a_connector_reads_the_no_e
         "url": SERVER_ADDRESS,
         "headers": {
             "X-Plugin": format!("{}/key", plugin_root.display()),
-            "X-Data": plugins.join("plugins").join("data").join("tools-market").display().to_string(),
+            "X-Data": plugins
+                .join("plugins")
+                .join("data")
+                .join("tools-market")
+                .display()
+                .to_string(),
         },
         "oauth": {"clientId": "client-one"},
     });

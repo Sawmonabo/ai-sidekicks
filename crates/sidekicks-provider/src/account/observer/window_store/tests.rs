@@ -192,14 +192,26 @@ fn row(
 #[rstest]
 #[case::a_whole_read_replaces_the_set(
     vec![
-        push(1, vec![window("session", FIVE_HOURS, 10.0, None), window("weekly_all", WEEK, 5.0, None)]),
+        push(
+            1,
+            vec![
+                window("session", FIVE_HOURS, 10.0, None),
+                window("weekly_all", WEEK, 5.0, None),
+            ],
+        ),
         whole(2, vec![window("session", FIVE_HOURS, 20.0, None)]),
     ],
     vec![row("session", FIVE_HOURS, 20.0, None, 2, "probe")]
 )]
 #[case::a_push_merges_into_the_set(
     vec![
-        whole(1, vec![window("session", FIVE_HOURS, 10.0, None), window("weekly_all", WEEK, 5.0, None)]),
+        whole(
+            1,
+            vec![
+                window("session", FIVE_HOURS, 10.0, None),
+                window("weekly_all", WEEK, 5.0, None),
+            ],
+        ),
         push(2, vec![window("weekly_all", WEEK, 6.0, None)]),
     ],
     vec![

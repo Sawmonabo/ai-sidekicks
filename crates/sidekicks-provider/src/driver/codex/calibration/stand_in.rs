@@ -23,10 +23,14 @@ const FINISHED_REPLY: &str = concat!(
     r#"data: {"type":"response.created","response":{"id":"resp_calibration"}}"#,
     "\n\n",
     "event: response.output_item.done\n",
-    r#"data: {"type":"response.output_item.done","output_index":0,"item":{"type":"message","role":"assistant","id":"msg_calibration","content":[{"type":"output_text","text":"ok","annotations":[]}]}}"#,
+    r#"data: {"type":"response.output_item.done","output_index":0,"item":{"type":"message","#,
+    r#""role":"assistant","id":"msg_calibration","content":[{"type":"output_text","text":"ok","#,
+    r#""annotations":[]}]}}"#,
     "\n\n",
     "event: response.completed\n",
-    r#"data: {"type":"response.completed","response":{"id":"resp_calibration","usage":{"input_tokens":1,"input_tokens_details":{"cached_tokens":0},"output_tokens":1,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":2}}}"#,
+    r#"data: {"type":"response.completed","response":{"id":"resp_calibration","#,
+    r#""usage":{"input_tokens":1,"input_tokens_details":{"cached_tokens":0},"output_tokens":1,"#,
+    r#""output_tokens_details":{"reasoning_tokens":0},"total_tokens":2}}}"#,
     "\n\n",
 );
 

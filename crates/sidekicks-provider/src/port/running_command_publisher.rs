@@ -71,7 +71,8 @@ pub(crate) enum ReseedScope {
         not(test),
         expect(
             dead_code,
-            reason = "the Codex attach that seeds the running commands from the provider's full list"
+            reason = "the Codex attach that seeds the running commands from the provider's \
+                      full list"
         )
     )]
     EveryCommand,

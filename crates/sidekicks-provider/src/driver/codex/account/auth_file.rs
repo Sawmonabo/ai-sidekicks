@@ -27,8 +27,9 @@ pub(crate) struct CodexAuthFile {
     pub(crate) access_token_expiry: Option<Timestamp>,
 }
 
-/// A `ChatGPT` sign-in's tokens as a Codex home's `auth.json` holds them, what `account/login/start`
-/// hands a service as `chatgptAuthTokens` and a token refresh is answered with.
+/// A `ChatGPT` sign-in's tokens as a Codex home's `auth.json` holds them, what
+/// `account/login/start` hands a service as `chatgptAuthTokens` and a token refresh is answered
+/// with.
 #[derive(Clone)]
 pub(crate) struct CodexAuthTokens {
     /// `tokens.access_token`.
@@ -184,8 +185,8 @@ pub(crate) async fn read_codex_auth_file(
     }))
 }
 
-/// Reads the `ChatGPT` sign-in's tokens from `home`'s `auth.json`: `None` when the home has no file,
-/// or a file with no tokens or no account id, as an API-key sign-in writes. Fails as
+/// Reads the `ChatGPT` sign-in's tokens from `home`'s `auth.json`: `None` when the home has no
+/// file, or a file with no tokens or no account id, as an API-key sign-in writes. Fails as
 /// [`read_codex_auth_file`] does, and when the identity token's claims do not parse.
 pub(crate) async fn read_codex_auth_tokens(
     home: &Path,

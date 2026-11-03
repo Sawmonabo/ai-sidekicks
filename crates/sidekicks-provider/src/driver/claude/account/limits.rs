@@ -360,7 +360,8 @@ while read -r line; do
       printf '{{"type":"control_response","response":%s}}\n' \
         "$(sed "s/REQUEST_ID/$id/" '{answer}')" ;;
     *)
-      printf '{{"type":"control_response","response":{{"subtype":"success","request_id":"%s","response":{{}}}}}}\n' "$id" ;;
+      printf '{{"type":"control_response","response":{{"subtype":"success",'\
+'"request_id":"%s","response":{{}}}}}}\n' "$id" ;;
   esac
 done
 "#,

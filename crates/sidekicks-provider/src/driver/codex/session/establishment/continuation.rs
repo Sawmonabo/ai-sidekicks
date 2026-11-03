@@ -52,7 +52,8 @@ use crate::driver::session_control::{
 use crate::run::turn_end::TurnOutcome;
 
 /// Codex's own words for the turn that continues work its server's restart interrupted.
-pub(crate) const CODEX_CONTINUATION_TEXT: &str = "The server restarted and interrupted the previous turn. Continue the unfinished work from \
+pub(crate) const CODEX_CONTINUATION_TEXT: &str = "The server restarted and \
+     interrupted the previous turn. Continue the unfinished work from \
      the saved conversation. Check the current state before repeating actions that may already \
      have completed.";
 

@@ -51,7 +51,11 @@ const EXPIRY_MILLISECONDS: u64 = 1_767_225_600_000;
 const SIGNED_IN_ACCESS: &str = "access-of-the-sign-in";
 
 /// The person's own saved sign-ins, planted outside the daemon's folders.
-const PERSON_SIGN_INS: &str = r#"{"docs|person":{"server_name":"docs","server_url":"https://docs.example.test/mcp","client_id":"person-client","access_token":"access-of-the-person","expires_at":1,"scopes":[]}}"#;
+const PERSON_SIGN_INS: &str = concat!(
+    r#"{"docs|person":{"server_name":"docs","server_url":"https://docs.example.test/mcp","#,
+    r#""client_id":"person-client","access_token":"access-of-the-person","expires_at":1,"#,
+    r#""scopes":[]}}"#,
+);
 
 fn name() -> McpServerName {
     McpServerName::new(SERVER_NAME.to_owned()).expect("a test server name is a name")

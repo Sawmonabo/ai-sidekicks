@@ -179,9 +179,9 @@ pub enum McpBindingScope {
 /// Declares a union tagged on `scope` whose arms are the binding scopes, each arm holding the
 /// binding's identity and the members the caller adds. `in writable scopes` keeps the three scopes
 /// a person writes; `in every scope` adds `plugin`, `connector` and `managed`, whose declarations
-/// the daemon never writes. An `in every scope` union may end with `on connector and managed { … }
-/// elsewhere { … }`: members only the two read-only arms take, and their form on the other four
-/// arms.
+/// the daemon never writes. An `in every scope` union may end with
+/// `on connector and managed { … } elsewhere { … }`: members only the two read-only arms take,
+/// and their form on the other four arms.
 macro_rules! binding_addressed {
     (
         $(#[$meta:meta])+

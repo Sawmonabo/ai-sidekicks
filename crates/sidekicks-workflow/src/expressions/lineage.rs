@@ -319,8 +319,9 @@ mod tests {
         step_outputs
     }
 
-    /// `start` → `first` (three items) → `second`, whose item 0 came from `first`'s item 2 through
-    /// a one-entry list → `third`, one item per item → the current step, reading its input item 0.
+    /// `start` → `first` (three items) → `second`, whose item 0 came from `first`'s item 2
+    /// through a one-entry list → `third`, one item per item → the current step, reading its
+    /// input item 0.
     #[test]
     fn a_one_to_one_chain_walks_back_to_the_labeled_node() {
         let steps = run(vec![
