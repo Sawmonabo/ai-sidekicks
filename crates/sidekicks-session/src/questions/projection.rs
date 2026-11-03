@@ -11,7 +11,6 @@ use rusqlite::types::Value;
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::question::QuestionSettledState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
 use sidekicks_store::events::projection::{
@@ -19,6 +18,7 @@ use sidekicks_store::events::projection::{
 };
 use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
 
+use crate::questions::QuestionSettledState;
 use crate::questions::store::{
     insert_question_statement, open_waiting_question_statement, queued_answer_statements,
     settle_question_statement,

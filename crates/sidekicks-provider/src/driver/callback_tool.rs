@@ -10,6 +10,7 @@ use sidekicks_contracts::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::links::SessionLinkKind;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 /// One callback-tool call the provider made, built by the `sidekicks` tool route from arguments it
@@ -29,14 +30,29 @@ pub struct CallbackToolInvocation {
     pub run_id: RunId,
 }
 
-/// The daemon's answer to a callback-tool call: only a completed call carries output, and only a
-/// denied or failed one an error.
+/// One link between two sessions that a completed call made, for the daemon to record in the
+/// call's activity row's own write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CallbackToolSessionLink {
+    /// The session that acted: for a copy, the new session, so a link need not start at the
+    /// caller.
+    pub source_session_id: SessionId,
+    /// The session it acted on.
+    pub target_session_id: SessionId,
+    /// What it did: any kind but `related`, which only the link service adds.
+    pub kind: SessionLinkKind,
+}
+
+/// The daemon's answer to a callback-tool call: only a completed call carries output and the
+/// session links it made, and only a denied or failed one an error.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CallbackToolResult {
     /// The tool ran.
     Completed {
         /// What it returned.
         output: Option<Value>,
+        /// The links between sessions the call made; empty when it acted on no other session.
+        session_links: Vec<CallbackToolSessionLink>,
     },
     /// The approval pipeline refused the call.
     Denied {
@@ -52,5 +68,5 @@ pub enum CallbackToolResult {
 
 /// The token-bound dispatcher for one spawn: the `sidekicks` tool route calls it for each
 /// callback-tool call and answers the provider with what it returns.
-pub(crate) type CallbackToolDispatcher =
+pub type CallbackToolDispatcher =
     Arc<dyn Fn(CallbackToolInvocation) -> BoxFuture<'static, CallbackToolResult> + Send + Sync>;

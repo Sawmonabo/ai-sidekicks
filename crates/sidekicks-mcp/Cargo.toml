@@ -13,6 +13,7 @@ doctest = false
 [dependencies]
 async-trait.workspace = true
 axum = { workspace = true, features = ["query"] }
+base16ct.workspace = true
 base64.workspace = true
 blake3.workspace = true
 bytes.workspace = true

@@ -24,6 +24,7 @@ use tokio::time::Instant;
 use crate::driver::claude::delivery::patches::{
     is_claude_file_changing_tool, read_claude_patch_file,
 };
+use crate::driver::claude::delivery::peer_arrival::{ClaudeMessageOrigin, read_boxed_origin};
 use crate::driver::claude::delivery::system::read_provider_words;
 use crate::driver::reorder_buffer::ReorderPairingRole;
 use crate::lenient_json::{
@@ -56,6 +57,9 @@ pub(crate) struct ClaudeMessageFrame {
     // Only whether it is set, and not `null`, is read.
     #[serde(default)]
     parent_tool_use_id: Option<IgnoredAny>,
+    // Boxed, so a frame that is no peer message stays small.
+    #[serde(default, deserialize_with = "read_boxed_origin")]
+    origin: Option<Box<ClaudeMessageOrigin>>,
 }
 
 #[derive(Deserialize)]
@@ -267,6 +271,11 @@ impl ClaudeMessageFrame {
                 block.is_error == Some(true),
             ))
         })
+    }
+
+    /// Where a `user` frame's message came from, where Claude Code says.
+    pub(crate) fn origin(&self) -> Option<&ClaudeMessageOrigin> {
+        self.origin.as_deref()
     }
 
     /// The error an `assistant` frame names, where Claude Code set one.

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::project::{PROJECT_NAME_MAX_LEN, ProjectName};
 use crate::provider::driver::tools::SessionCallbackTool;
-use crate::schema::closed_schema_for;
+use crate::schema::listed_schema_for;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::text::NonEmptyText;
 
@@ -42,16 +42,19 @@ pub struct WorkflowRunToolInput {
     pub project: Option<ProjectName>,
 }
 
-/// The `workflow_run` tool: its name, what it does for the model, and its input's schema.
+/// The `workflow_run` tool: its name, what it does for the model, and its input's schema as a
+/// tool listing shows it.
 pub fn workflow_run_tool() -> SessionCallbackTool {
     SessionCallbackTool {
         name: "workflow_run".to_owned(),
         description: "Start a workflow run in this session by the workflow's name. The run works \
                       in this session's folder, or in the repository of the project it names."
             .to_owned(),
-        input_schema: closed_schema_for::<WorkflowRunToolInput>()
-            .and_then(serde_json::from_value)
-            .expect("a struct's schema is a JSON object"),
+        input_schema: serde_json::from_value(
+            listed_schema_for::<WorkflowRunToolInput>()
+                .expect("the input's schema serializes and refers to nothing recursively"),
+        )
+        .expect("a struct's schema is a JSON object"),
     }
 }
 

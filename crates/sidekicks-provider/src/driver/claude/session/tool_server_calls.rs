@@ -131,10 +131,6 @@ async fn call_server(
 
 // A server's own messages, sent to Claude Code as outbound `mcp_message` requests.
 struct ClaudeToolServerOutbound {
-    #[expect(
-        dead_code,
-        reason = "the tool-server front sends each server's own messages through it"
-    )]
     channel: Arc<dyn ClaudeProcessChannel>,
 }
 

@@ -99,7 +99,8 @@ fn contains(bytes: &[u8], text: &str) -> bool {
 // `secure_delete` off or the truncation skipped (the marker stays in the file or its log), a
 // receipt outside the delete's write or naming another range, a count of live runs that only run
 // state changes move (the purged run stays counted), and a purge that skips a run's snapshot refs
-// (the run's ref stays in its repository).
+// (the run's ref stays in its repository), and any of the messaging deletes left out (its row on
+// the session, at either end of a pair, stays, and the reminder's note keeps the marker).
 #[tokio::test]
 async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log() {
     let fixture = purge_fixture().await;
@@ -181,6 +182,40 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
             ],
         )
         .expect("the test records a key a `Send now` spent");
+    let (session_text, survivor_text) = (session_id.text(), survivor.text());
+    let (session, other) = (session_text.as_str(), survivor_text.as_str());
+    let (lower, higher) = if session < other {
+        (session, other)
+    } else {
+        (other, session)
+    };
+    let at = "2026-10-02T00:00:30.000Z";
+    for (sql, row) in [
+        (
+            "INSERT INTO session_exchanges (session_id, peer_session_id, messages_since_user_wrote,
+               started_at, updated_at) VALUES (?1, ?2, 1, ?3, ?3)",
+            [lower, higher, at],
+        ),
+        (
+            "INSERT INTO session_paused_message_queue (target_session_id, arrival_sequence,
+               source_session_id, source_event_id, arrived_at) VALUES (?1, 1, ?2, 'e-1', ?3)",
+            [other, session, at],
+        ),
+        (
+            "INSERT INTO session_waits (session_id, tool_call_id, awaited_session_id, form,
+               created_at) VALUES (?1, 'call-1', ?2, 'held', ?3)",
+            [other, session, at],
+        ),
+        (
+            "INSERT INTO session_reminders (id, session_id, note, set_at, due_at)
+               VALUES ('r-1', ?1, ?2, ?3, ?3)",
+            [session, MARKER, at],
+        ),
+    ] {
+        reader
+            .execute(sql, row)
+            .expect("the test stores a messaging row");
+    }
     assert_eq!(
         *fixture.live_runs.borrow(),
         1,
@@ -228,6 +263,16 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
             lead_run,
         ),
         ("send_now_requests WHERE target_run_id = ?1", lead_run),
+        (
+            "session_exchanges WHERE session_id = ?1 OR peer_session_id = ?1",
+            session,
+        ),
+        (
+            "session_paused_message_queue WHERE source_session_id = ?1",
+            session,
+        ),
+        ("session_waits WHERE awaited_session_id = ?1", session),
+        ("session_reminders WHERE session_id = ?1", session),
     ] {
         let left: i64 = reader
             .query_row(&format!("SELECT COUNT(*) FROM {rows}"), [id], |row| {

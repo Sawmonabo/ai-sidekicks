@@ -164,11 +164,11 @@ fn own_unique_id() -> io::Result<u64> {
     Ok(*OWN_UNIQUE_ID.get_or_init(|| identifiers.unique_id))
 }
 
-/// The path of the program `process` runs, as the system names it, taken only once `process` is
-/// read still running after it, since a reused id would name another process's program; `None`
-/// once `process` has ended. Fails with the system's error, `ENOENT` when the program's file is
-/// gone, so a start whose responsible process runs a deleted program fails.
-pub(crate) fn read_program_path(process: &PinnedProcess) -> io::Result<Option<PathBuf>> {
+/// The path of the program `process` runs, as the system names it with every link resolved, taken
+/// only once `process` is read still running after it, since a reused id would name another
+/// process's program; `None` once `process` has ended. Fails with the system's error, on macOS
+/// `ENOENT` when the program's file is gone.
+pub fn read_program_path(process: &PinnedProcess) -> io::Result<Option<PathBuf>> {
     let Ok(pid) = system_process_id(process.id) else {
         return Ok(None);
     };

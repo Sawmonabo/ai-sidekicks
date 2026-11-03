@@ -4,7 +4,8 @@
 use sidekicks_store::database::schema::SchemaParts;
 
 /// The daemon's whole schema: the approvals', the workflows', the plans', the attention, the
-/// sessions' limits, the agents' and the agent tree's lists, then the shared-ports table.
+/// sessions' limits, the agents' and the agent tree's lists, the sessions' messaging, then the
+/// shared-ports table.
 pub fn schema_parts() -> SchemaParts {
     sidekicks_approval::schema::schema_parts()
         .with_parts(sidekicks_workflow::schema::schema_parts())
@@ -13,6 +14,7 @@ pub fn schema_parts() -> SchemaParts {
         .with_parts(sidekicks_session::budget::schema::schema_parts())
         .with_parts(sidekicks_session::agents::schema::schema_parts())
         .with_parts(sidekicks_session::agent_tree::schema::schema_parts())
+        .with_parts(sidekicks_session::messaging::schema::schema_parts())
         .with_part(crate::remote::shared_ports::schema::schema_part())
 }
 

@@ -46,6 +46,9 @@ use crate::port::permission_ask::{
 };
 use crate::port::repository_reader::{RepositoryReader, RepositoryReading};
 use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
+use crate::port::session_message_reading_publisher::{
+    SessionMessageReading, SessionMessageReadingPublisher,
+};
 use crate::port::usage_sink::{
     MeteredUsage, PricedRequest, ProviderQuotaWindow, RecordedUsage, UsageSink,
 };
@@ -68,11 +71,13 @@ pub(crate) enum PortCall {
     ProcessGone(SessionId),
 }
 
-/// Approval ports and the queue's intake of taken messages, each recording what reaches it.
+/// Approval ports, the queue's intake of taken messages and the session message readings, each
+/// recording what reaches it.
 #[derive(Default)]
 pub(crate) struct RecordingPorts {
     calls: Mutex<Vec<PortCall>>,
     taken: Mutex<Vec<(String, RunId)>>,
+    message_readings: Mutex<Vec<SessionMessageReading>>,
 }
 
 impl RecordingPorts {
@@ -84,6 +89,11 @@ impl RecordingPorts {
     /// The messages reported taken so far, with the run each was reported under.
     pub(crate) fn taken(&self) -> Vec<(String, RunId)> {
         lock(&self.taken).clone()
+    }
+
+    /// The session message readings published so far, in order.
+    pub(crate) fn message_readings(&self) -> Vec<SessionMessageReading> {
+        lock(&self.message_readings).clone()
     }
 
     fn record(&self, call: PortCall) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
@@ -133,8 +143,15 @@ impl MessageTakenListener for RecordingPorts {
     }
 }
 
-/// Registers what a scripted driver composes over: `recording` as the approval ports and the
-/// queue's intake, every daemon turn on one binding, and a machine with no repositories.
+impl SessionMessageReadingPublisher for RecordingPorts {
+    fn publish(&self, reading: SessionMessageReading) {
+        lock(&self.message_readings).push(reading);
+    }
+}
+
+/// Registers what a scripted driver composes over: `recording` as the approval ports, the queue's
+/// intake and the session message readings, every daemon turn on one binding, and a machine with
+/// no repositories.
 pub(super) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<RecordingPorts>) {
     ports
         .daemon_turn_bindings
@@ -156,6 +173,10 @@ pub(super) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<Recor
         .message_taken
         .register(recording.clone())
         .expect("the intake registers once");
+    ports
+        .session_message_readings
+        .register(recording.clone())
+        .expect("the message readings register once");
 }
 
 /// A usage record that keeps each metered delta and each set of quota windows, and answers one set
@@ -356,7 +377,13 @@ impl CallbackToolExecutor for NoCallbackTools {
         &self,
         _invocation: CallbackToolInvocation,
     ) -> BoxFuture<'_, Result<CallbackToolResult, CallbackToolPortError>> {
-        async { Ok(CallbackToolResult::Completed { output: None }) }.boxed()
+        async {
+            Ok(CallbackToolResult::Completed {
+                output: None,
+                session_links: Vec::new(),
+            })
+        }
+        .boxed()
     }
 }
 

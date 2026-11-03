@@ -5,9 +5,10 @@ use std::time::Duration;
 
 const LONGEST_RETRY_WAIT: Duration = Duration::from_secs(32);
 
-/// The waits before each retry: seven tries over 63 s. A step that must end gives up after the
-/// last wait.
-pub(crate) const RETRY_WAITS: [Duration; 6] = [
+/// The waits before each retry: seven tries over 63 s. A step that must end, such as the hook
+/// program's redial of a daemon that is away, reads this bounded schedule and gives up after the
+/// try that follows the last wait.
+pub const RETRY_WAITS: [Duration; 6] = [
     Duration::from_secs(1),
     Duration::from_secs(2),
     Duration::from_secs(4),

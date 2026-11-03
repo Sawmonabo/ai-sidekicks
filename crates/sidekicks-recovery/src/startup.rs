@@ -6,7 +6,8 @@
 //! every other session is not opened, a session whose live runs are all paused among them. The runs
 //! no resume took are then settled: failed as no provider session came back, or with the
 //! provider's own words where it refused the resume, each of those then listed for the person until
-//! the session's next run starts, and a lead the person paused kept paused. No write is taken until
+//! the session's next run starts, and a lead the person paused kept paused; the questions the
+//! tool-server client asked, whose requests the restart ended, are withdrawn. No write is taken until
 //! the pass has listed the sessions it rebuilds and those whose runs it ends; from then each listed
 //! session alone refuses the calls that name it until it is rebuilt and settled, so every other
 //! session takes its writes while the pass goes on. A session whose rebuild fails is healed: the
@@ -53,6 +54,7 @@ use sidekicks_queue::provider_session::ProviderSessions;
 use sidekicks_queue::provider_session::errors::ProviderSessionError;
 use sidekicks_session::interventions::store::read_pending_retries;
 use sidekicks_session::interventions::unresolved::read_ended_runs_with_unresolved;
+use sidekicks_session::questions::service::{QuestionError, QuestionsService};
 use sidekicks_session::run::provider_choice::run_end::read_ended_runs_with_open_choices;
 use sidekicks_session::run::read::RunStateReader;
 use sidekicks_session::run::restart::read_has_own_stop;
@@ -141,6 +143,8 @@ pub struct StartupRecoveryDeps {
     pub restart_settle: Arc<RestartSettle>,
     /// The resume of each session's conversation that had work in progress.
     pub provider_sessions: Arc<ProviderSessions>,
+    /// The questions a tool server asked through the client, withdrawn at the start.
+    pub questions: Arc<QuestionsService>,
     /// The recovery state the pass moves.
     pub status: Arc<RecoveryStatusTracker>,
     /// Told of the failure that ends the pass, so a damaged file is repaired.
@@ -200,6 +204,8 @@ enum PassFailure {
     DamagedHistory(#[from] DamagedHistoryError),
     #[error("what the restart left in a session was not settled")]
     Settle(#[from] RestartSettleError),
+    #[error("the questions the tool-server client asked before the restart were not withdrawn")]
+    ToolServerQuestions(#[from] QuestionError),
     #[error("the copies aside of the store's files could not be read")]
     AsideRead(#[source] std::io::Error),
     #[error("the store's files were not copied aside")]
@@ -462,6 +468,12 @@ impl StartupRecovery {
         self.deps
             .restart_settle
             .settle_ended(session_id, Some(stop))
+            .await?;
+        // The client's open questions came on requests the restart ended, so they are withdrawn
+        // before the session takes calls.
+        self.deps
+            .questions
+            .withdraw_tool_server_questions(session_id)
             .await?;
         status.mark_session_healthy(&session_id);
         Ok(())
