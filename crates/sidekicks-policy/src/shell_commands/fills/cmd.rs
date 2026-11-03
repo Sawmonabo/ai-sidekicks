@@ -1,13 +1,13 @@
-//! cmd.exe's own reading of a filled line: the `^` it reads as an escape before a fill, the
-//! modifier text of a `%NAME:…%` reference, which its first phase reads as text, and the text its
-//! delayed expansion would change, which the launch escapes so the command gets the text as
-//! written. cmd.exe's first phase sets each defined `%…%` reference's value in its place; the
-//! second then removes each `^` outside double quotes, keeping the character after it as text,
-//! and reads a value's characters as the line's own; delayed expansion then reads again each
+//! cmd.exe's own reading of a filled line: the `^` it reads as an escape before a fill, a
+//! `%NAME:…%` reference's substring or substitution form, whose text its first phase reads as text,
+//! and the text its delayed expansion would change, which the launch escapes so the command gets
+//! the text as written. cmd.exe's first phase sets each defined `%…%` reference's value in its
+//! place; the second then removes each `^` outside double quotes, keeping the character after it as
+//! text, and reads a value's characters as the line's own; delayed expansion then reads again each
 //! piece of a command holding a `!`, the command name, the arguments as one piece and each
-//! redirection's target, quotes or not, removing each `^` and pairing each `!`. Of an `if` it
-//! reads only each compared value and of a `for` only its set, and the command an `if` or a `for`
-//! runs is a command of its own.
+//! redirection's target, quotes or not, removing each `^` and pairing each `!`. Of an `if` it reads
+//! only each compared value and of a `for` only its set, and the command an `if` or a `for` runs is
+//! a command of its own.
 
 use std::ops::Range;
 
@@ -31,19 +31,22 @@ pub(super) fn follows_a_cmd_escape(text: &str, at: usize) -> bool {
 }
 
 /// Whether the fill at `placeholder` in `line` sits in the modifier text of a `%NAME:…%`
-/// reference, the text after the name's `:` where a `~` substring or `=` substitution form
-/// stands: cmd.exe's first phase reads it as the form's own text, so the value never reaches the
-/// command. Any `%` may open such a reference, since only the launch knows which names are
-/// defined.
+/// reference that writes a `~` substring or `=` substitution form: cmd.exe's first phase reads it
+/// as the form's own text, so the value never reaches the command. Any `%` may open such a
+/// reference, since only the launch knows which names are defined; a name holding `=` is no
+/// variable, and modifier text writing neither form stays as written.
 pub(super) fn is_in_reference_modifier(line: &str, placeholder: &Range<usize>) -> bool {
     line[..placeholder.start]
         .match_indices('%')
         .any(|(start, _)| {
             reference_at(line, start).is_some_and(|reference| {
-                !reference.name.is_empty()
-                    && reference
-                        .modifier
-                        .is_some_and(|modifier| modifier.contains(&placeholder.start))
+                let name = &line[reference.name];
+                !name.is_empty()
+                    && !name.contains('=')
+                    && reference.modifier.is_some_and(|modifier| {
+                        modifier.contains(&placeholder.start)
+                            && modifier_form(&line[modifier]).is_some()
+                    })
             })
         })
 }
@@ -565,20 +568,53 @@ fn is_same_ignoring_case(left: &str, right: &str) -> bool {
         .eq(right.chars().flat_map(char::to_uppercase))
 }
 
+/// A form cmd.exe's first phase expands in a `%NAME:…%` reference's modifier text.
+enum ModifierForm<'text> {
+    /// A substring `~[offset][,[length]]`, with the text after its `~`.
+    Substring { bounds: &'text str },
+    /// A substitution `[*]search=[replace]` whose search is not empty; with `is_through_first`,
+    /// written with the leading `*`.
+    Substitution {
+        search: &'text str,
+        replace: &'text str,
+        is_through_first: bool,
+    },
+}
+
+/// The form `text`, the text between a reference's name's `:` and the next `%`, writes: a
+/// substring after a leading `~`, else a substitution where an `=` follows a search that is not
+/// empty, after an optional leading `*`. `None` for text writing neither, which the first phase
+/// leaves as written.
+fn modifier_form(text: &str) -> Option<ModifierForm<'_>> {
+    if let Some(bounds) = text.strip_prefix('~') {
+        return Some(ModifierForm::Substring { bounds });
+    }
+    let (is_through_first, text) = match text.strip_prefix('*') {
+        Some(text) => (true, text),
+        None => (false, text),
+    };
+    let (search, replace) = text
+        .split_once('=')
+        .filter(|(search, _)| !search.is_empty())?;
+    Some(ModifierForm::Substitution {
+        search,
+        replace,
+        is_through_first,
+    })
+}
+
 /// The text cmd.exe's first phase sets in for a defined variable holding `value`, given `form`,
-/// the text between the name's `:` and the next `%`: a substring `~[offset][,[length]]`, counted
-/// in UTF-16 units as Windows counts them, or a substitution `[*]search=[replace]` whose search
-/// is not empty, compared ignoring case. `None` for a form the first phase does not expand.
+/// the text between the name's `:` and the next `%`: a substring, counted in UTF-16 units as
+/// Windows counts them, or a substitution, its search compared ignoring case. `None` for text
+/// the first phase does not expand, a substring whose bounds are not integers among it.
 fn form_value(value: &str, form: &str) -> Option<String> {
-    let Some(bounds) = form.strip_prefix('~') else {
-        let (is_through_first, form) = match form.strip_prefix('*') {
-            Some(form) => (true, form),
-            None => (false, form),
-        };
-        let (search, replace) = form
-            .split_once('=')
-            .filter(|(search, _)| !search.is_empty())?;
-        return Some(substituted(value, search, replace, is_through_first));
+    let bounds = match modifier_form(form)? {
+        ModifierForm::Substring { bounds } => bounds,
+        ModifierForm::Substitution {
+            search,
+            replace,
+            is_through_first,
+        } => return Some(substituted(value, search, replace, is_through_first)),
     };
     let (offset, length) = match bounds.split_once(',') {
         Some((offset, length)) => (offset, Some(length)),
