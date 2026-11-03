@@ -570,6 +570,7 @@ pub struct DriverServices {
 
 /// What a provider's helper-mode account legs read, which the daemon program's helper modes build
 /// with no daemon serving and no database pool: only what those legs read, never a driver's.
+#[derive(Clone)]
 pub struct HelperModeServices {
     /// The one thread the legs' short-lived provider processes are spawned from.
     pub spawner: Spawner,

@@ -180,7 +180,7 @@ pub(super) async fn start_claude_sign_in(
     arm: ProviderSignInArm,
 ) -> Result<ProviderSignInHandle, DriverError> {
     let folders = claude_home_folders(&home);
-    let scope = SignInScope::read(&legs.sources.base_environment);
+    let scope = SignInScope::read(&legs.sources.0.base_environment);
     let executable = legs
         .sources
         .resolve_build_on(
@@ -189,7 +189,7 @@ pub(super) async fn start_claude_sign_in(
         )
         .await?;
     let working_folder = compose_claude_scratch_folder(
-        &legs.sources.data_folder.to_string_lossy(),
+        &legs.sources.0.data_folder.to_string_lossy(),
         Path::new(&folders.config_folder),
     );
     Ok(start_flow(legs, executable, working_folder, arm, &scope.hosts).await?)
@@ -203,7 +203,7 @@ pub(super) async fn observe_claude_sign_in(
     home: CredentialHome,
 ) -> Result<ProviderSignInObservation, DriverError> {
     let folders = claude_home_folders(&home);
-    let scope = SignInScope::read(&legs.sources.base_environment);
+    let scope = SignInScope::read(&legs.sources.0.base_environment);
     let executable = legs
         .sources
         .resolve_build_on(
@@ -263,6 +263,7 @@ async fn start_flow(
     let daemon_pid = std::process::id();
     let mut child = legs
         .sources
+        .0
         .spawner
         .run(move || wrap_child_command(command, daemon_pid).spawn())
         .await
