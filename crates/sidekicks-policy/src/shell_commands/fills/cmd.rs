@@ -98,7 +98,8 @@ const IF_OPERATORS: &[&str] = &["equ", "neq", "lss", "leq", "gtr", "geq"];
 
 /// `line` with the author's `^` and `!` written so cmd.exe's delayed expansion hands the command
 /// the text the first reading leaves, in each piece of a command that holds a `!` and so is read
-/// again; a piece without one is left as written, since delayed expansion skips it. The ranges in
+/// again, counting the `!` a defined variable's value puts in; a piece without one is left as
+/// written, since delayed expansion skips it. The ranges in
 /// `references`, the fills' `!V!` references in line order, stay as they are. In a piece read
 /// again an author's `%…%` reference to a variable `environment` defines, its `~` substring and
 /// `=` substitution forms included, is written in its delayed form `!…!`, so delayed expansion
@@ -129,12 +130,16 @@ pub(super) fn keep_through_delayed_expansion(
         let is_reference = references.iter().any(|reference| reference.contains(&at));
         let after_operator = std::mem::take(&mut is_operator_end);
         while variables_ahead
-            .next_if(|variable| variable.end <= at)
+            .next_if(|variable| variable.range.end <= at)
             .is_some()
         {}
-        let is_in_variable = variables_ahead
+        let variable = variables_ahead
             .peek()
-            .is_some_and(|variable| variable.contains(&at));
+            .filter(|variable| variable.range.contains(&at));
+        let is_in_variable = variable.is_some();
+        // The first reading puts a value's `!` into the piece before delayed expansion reads it.
+        let puts_in_a_mark =
+            variable.is_some_and(|variable| variable.range.start == at && variable.is_value_marked);
         let reading = if is_reference {
             CharacterReading::Reference
         } else if is_in_variable {
@@ -292,7 +297,7 @@ pub(super) fn keep_through_delayed_expansion(
             | CommandPlace::ForDo => None,
         };
         if let Some(piece) = piece
-            && character == '!'
+            && (character == '!' || puts_in_a_mark)
         {
             pieces[piece] = true;
         }
@@ -309,14 +314,14 @@ pub(super) fn keep_through_delayed_expansion(
         // The first reading sets a reference's value in as text, whose `^` and `!` delayed
         // expansion would then remove; the delayed form sets it in after that scan.
         if let CharacterReading::Variable { is_quoted } = reading
-            && let Some(variable) = variables.next_if(|variable| variable.start == at)
+            && let Some(variable) = variables.next_if(|variable| variable.range.start == at)
         {
-            let written = &line[variable.clone()];
+            let written = &line[variable.range.clone()];
             match delayed_form(written, is_quoted) {
                 Some(delayed) if is_read_again => kept.push_str(&delayed),
                 Some(_) | None => kept.push_str(written),
             }
-            kept_to = variable.end;
+            kept_to = variable.range.end;
             continue;
         }
         if is_read_again {
@@ -347,7 +352,7 @@ pub(super) fn keep_through_delayed_expansion(
 /// a name `environment` defines, then `%`, or `:` and a `~` substring or `=` substitution form. An
 /// undefined name or a form that does not expand stays as written, and the scan goes on from the
 /// character after its first `%`.
-fn defined_variables(line: &str, environment: &[(&str, &str)]) -> Vec<Range<usize>> {
+fn defined_variables(line: &str, environment: &[(&str, &str)]) -> Vec<DefinedVariable> {
     let mut variables = Vec::new();
     let mut from = 0;
     while let Some(offset) = line[from..].find('%') {
@@ -356,9 +361,9 @@ fn defined_variables(line: &str, environment: &[(&str, &str)]) -> Vec<Range<usiz
         let Some(name_end) = line[from..].find(['%', ':']).map(|end| from + end) else {
             continue;
         };
-        if variable_value(environment, &line[from..name_end]).is_none() {
+        let Some(value) = variable_value(environment, &line[from..name_end]) else {
             continue;
-        }
+        };
         let end = if line[name_end..].starts_with('%') {
             name_end + 1
         } else {
@@ -371,10 +376,21 @@ fn defined_variables(line: &str, environment: &[(&str, &str)]) -> Vec<Range<usiz
             }
             form_end + 1
         };
-        variables.push(start..end);
+        variables.push(DefinedVariable {
+            range: start..end,
+            is_value_marked: value.contains('!'),
+        });
         from = end;
     }
     variables
+}
+
+/// An author's `%…%` reference that cmd.exe's first reading expands.
+struct DefinedVariable {
+    /// Where it stands in the line, its `%`s included.
+    range: Range<usize>,
+    /// Whether the variable's value holds a `!`, which the expansion puts into the piece.
+    is_value_marked: bool,
 }
 
 /// The value `environment` holds for `name`, names compared as Windows compares them, ignoring
