@@ -289,7 +289,7 @@ impl<'s> PlaceWalk<'s> {
                 if let Some(child) = child
                     && is_in_an_open_subscript(child, self.text, self.placeholder.start)
                 {
-                    return Err(FillRefusal::Arithmetic);
+                    return Err(FillRefusal::ArraySubscript);
                 }
             }
             "compound_statement" if current.child(0).is_some_and(|open| open.kind() == "((") => {
@@ -528,9 +528,9 @@ fn without_folder(builder: &mut WordBuilder<'_>, word: Word) -> Word {
 }
 
 /// Whether the placeholder at `at` sits in an array element's `[…]` left open before it, which
-/// bash evaluates as arithmetic: the element runs from the first of the parts joined to `part`
-/// with no blank between, `part` the array's child holding the placeholder, and its `[` and `]`
-/// are counted outside quotes.
+/// bash evaluates as arithmetic or reads as an associative array's key: the element runs from the
+/// first of the parts joined to `part` with no blank between, `part` the array's child holding the
+/// placeholder, and its `[` and `]` are counted outside quotes.
 fn is_in_an_open_subscript(part: Node<'_>, text: &str, at: usize) -> bool {
     let mut first = part;
     while let Some(previous) = first.prev_sibling()

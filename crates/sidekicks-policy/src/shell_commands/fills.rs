@@ -85,6 +85,13 @@ pub enum FillRefusal {
     /// Shell arithmetic, which evaluates the value as an expression.
     #[error("sits in shell arithmetic, which would evaluate the value as an expression")]
     Arithmetic,
+    /// An array element's `[…]` subscript, which bash evaluates as arithmetic, or as a key for an
+    /// associative array.
+    #[error(
+        "sits in an array element's `[…]` subscript, which bash evaluates as arithmetic or reads \
+         as a key"
+    )]
+    ArraySubscript,
     /// A word a builtin reads as a variable name, whose subscript the shell evaluates.
     #[error(
         "sits in a word a builtin reads as a variable name, whose subscript the shell evaluates"
@@ -507,10 +514,10 @@ mod tests {
     #[case::declare_n_quoted("declare -n r=\"{{ x }}\"", FillRefusal::NameWord)]
     #[case::declare_array("declare -a \"a=({{ x }})\"", FillRefusal::NameWord)]
     #[case::declare_array_value("declare -a a=\"({{ x }})\"", FillRefusal::NameWord)]
-    #[case::an_array_index("a=([{{ x }}]=v)", FillRefusal::Arithmetic)]
-    #[case::an_array_index_quoted("a=([\"{{ x }}\"]=v)", FillRefusal::Arithmetic)]
-    #[case::an_appended_array_index("a+=([{{ x }}]=v)", FillRefusal::Arithmetic)]
-    #[case::a_declared_array_index("declare -a a=([{{ x }}]=v)", FillRefusal::Arithmetic)]
+    #[case::an_array_index("a=([{{ x }}]=v)", FillRefusal::ArraySubscript)]
+    #[case::an_array_index_quoted("a=([\"{{ x }}\"]=v)", FillRefusal::ArraySubscript)]
+    #[case::an_appended_array_index("a+=([{{ x }}]=v)", FillRefusal::ArraySubscript)]
+    #[case::a_declared_array_index("declare -a a=([{{ x }}]=v)", FillRefusal::ArraySubscript)]
     #[case::a_declared_array_index_in_a_quoted_value(
         "declare -a a=\"([{{ x }}]=v)\"",
         FillRefusal::NameWord
