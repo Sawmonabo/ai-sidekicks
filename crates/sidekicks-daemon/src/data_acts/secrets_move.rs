@@ -14,38 +14,21 @@
 //!
 //! Each installs no log and answers one JSON object on its standard output.
 
-use std::error::Error;
-use std::path::Path;
 use std::process::ExitCode;
-use std::sync::Arc;
 
 use sidekicks_contracts::daemon::mode_outcome::DaemonModeOutcome;
 use sidekicks_contracts::daemon::secrets_place::SecretsMoveDestination;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
-use sidekicks_platforms::{
-    KeychainItemRefusal, KeychainSignIn, SignInMoveError, Spawner, sign_in_move,
-};
-use sidekicks_provider::account::homes::{AccountHome, query_account_homes};
-use sidekicks_provider::command_search::ProviderCommandSearch;
-use sidekicks_provider::driver::{
-    HelperModeServices, PROVIDER_REGISTRATIONS, PROVIDERS, ProviderDescriptor,
-};
-use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
+use sidekicks_platforms::{KeychainItemRefusal, KeychainSignIn, SignInMoveError, sign_in_move};
+use sidekicks_provider::driver::{PROVIDER_REGISTRATIONS, ProviderDescriptor};
 use sidekicks_std::error_description::describe_error;
 use sidekicks_store::credential_store::os::KEYCHAIN_CALL_TIMEOUT;
-use sidekicks_store::database::connection::setup::open_database_reader;
-use sidekicks_store::database::connection::writer_open::DAEMON_DATABASE_FILE_NAME;
-use tokio::runtime::Handle;
-use tokio_util::sync::CancellationToken;
 
-use crate::daemon::login_shell_environment::capture_provider_base_environment;
 use crate::data_acts::mode_outcome::{
     ModeFolders, hold_data_folder, keychain_unavailable, login_session_secret_items, not_started,
     run_data_folder_mode, store_unavailable, write_mode_outcome,
 };
-
-// The one statement the read of the account homes prepares.
-const ACCOUNT_HOMES_STATEMENTS: usize = 1;
+use crate::data_acts::provider_accounts::{helper_mode_services, read_account_homes};
 
 /// Runs `secrets move <destination>`. Exits 0 once every provider sign-in and every item is in
 /// the place `destination` names; exits 1 with `daemon.dataFolder.held` while the data folder is
@@ -114,13 +97,15 @@ async fn move_sign_ins(
     let Some(sign_in_move) = sign_in_move() else {
         return Ok(());
     };
-    let homes = read_account_homes(&folders.data_folder).await?;
+    let homes = read_account_homes(&folders.data_folder)
+        .await
+        .map_err(|failure| DaemonModeOutcome::failed(describe_error(&failure)))?;
     if homes.is_empty() {
         return Ok(());
     }
-    let spawner = Spawner::new(Handle::current())
-        .map_err(|failure| not_started("the sign-ins' spawner did not start", &failure))?;
-    let services = helper_mode_services(&spawner, folders).await?;
+    let services = helper_mode_services(folders)
+        .await
+        .map_err(|failure| DaemonModeOutcome::failed(describe_error(&failure)))?;
     for registration in PROVIDER_REGISTRATIONS {
         let legs = (registration.helper_mode_account_legs)(&services);
         let mut sign_ins: Vec<KeychainSignIn> = Vec::new();
@@ -142,65 +127,18 @@ async fn move_sign_ins(
         let moved = match destination {
             SecretsMoveDestination::LoggedOutServiceFile => {
                 sign_in_move
-                    .move_into_files(&spawner, &sign_ins, KEYCHAIN_CALL_TIMEOUT)
+                    .move_into_files(&services.spawner, &sign_ins, KEYCHAIN_CALL_TIMEOUT)
                     .await
             }
             SecretsMoveDestination::OperatingSystem => {
                 sign_in_move
-                    .move_into_keychain(&spawner, &sign_ins, KEYCHAIN_CALL_TIMEOUT)
+                    .move_into_keychain(&services.spawner, &sign_ins, KEYCHAIN_CALL_TIMEOUT)
                     .await
             }
         };
         moved.map_err(|refusal| sign_ins_refused(registration.descriptor, &refusal))?;
     }
     Ok(())
-}
-
-// Every account home the accounts table lists, read on a connection of the mode's own; none when
-// the daemon never made its database.
-async fn read_account_homes(data_folder: &Path) -> Result<Vec<AccountHome>, DaemonModeOutcome<()>> {
-    let database_path = data_folder.join(DAEMON_DATABASE_FILE_NAME);
-    let read = tokio::task::spawn_blocking(
-        move || -> Result<Vec<AccountHome>, Box<dyn Error + Send + Sync>> {
-            if !database_path.try_exists()? {
-                return Ok(Vec::new());
-            }
-            let connection = open_database_reader(&database_path, ACCOUNT_HOMES_STATEMENTS)?;
-            Ok(query_account_homes(&connection)?)
-        },
-    )
-    .await;
-    match read {
-        Ok(Ok(homes)) => Ok(homes),
-        Ok(Err(failure)) => Err(not_started(
-            "the provider accounts could not be read",
-            failure.as_ref(),
-        )),
-        Err(ended) => Err(not_started("the provider accounts were not read", &ended)),
-    }
-}
-
-// What the providers' helper-mode legs read: the data folder, the base environment every provider
-// process starts from, captured from the login shell as a start captures it, and the names every
-// provider sets, so each sign-in is named as a session's process on that home names it.
-async fn helper_mode_services(
-    spawner: &Spawner,
-    folders: &ModeFolders,
-) -> Result<HelperModeServices, DaemonModeOutcome<()>> {
-    let base_environment =
-        capture_provider_base_environment(spawner, &folders.home_folder, &CancellationToken::new())
-            .await
-            .map_err(|failure| {
-                not_started("the providers' environment could not be read", &failure)
-            })?;
-    Ok(HelperModeServices {
-        spawner: spawner.clone(),
-        data_folder: folders.data_folder.clone(),
-        home_folder: folders.home_folder.clone(),
-        command_search: Arc::new(ProviderCommandSearch::new(spawner.clone())),
-        base_environment: Arc::from(base_environment),
-        reserved_names: Arc::new(ReservedEnvironmentNames::of_providers(PROVIDERS)),
-    })
 }
 
 // `daemon.data.storeUnavailable` naming the provider whose sign-ins did not move and why; the

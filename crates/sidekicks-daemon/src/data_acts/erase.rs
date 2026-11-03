@@ -9,8 +9,8 @@
 //! An item the store refuses to delete leaves the data folder whole, so the erase can run again.
 //! An account that does not sign out stops nothing. One erase runs at a time: a second sent while
 //! it runs is refused and starts nothing. The program's `data erase` mode, run with the service
-//! stopped, shares the end of each provider's recorded services and the last steps, the secrets'
-//! delete and then the data folder's.
+//! stopped, shares the bound on each account's sign-out, the end of each provider's recorded
+//! services and the last steps, the secrets' delete and then the data folder's.
 
 use std::error::Error;
 use std::fs;
