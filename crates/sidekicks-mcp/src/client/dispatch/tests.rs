@@ -777,7 +777,8 @@ async fn a_task_cut_by_the_clients_stop_leaves_its_receipt_in_flight() {
     );
 }
 
-/// Tells the client its tools changed; the paused sleep ends once the runtime idles, mark set.
+/// Tells the client its tools changed. The paused sleep ends only once the runtime idles, which is
+/// after the client has set its tools-changed mark.
 async fn mark_tools_changed(server: &TestServer) {
     server
         .unasked
