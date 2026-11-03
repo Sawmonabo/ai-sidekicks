@@ -24,8 +24,7 @@ fn reason_name(reason: LateEventAbsorbReason) -> &'static str {
 fn reason_sentence(reason: LateEventAbsorbReason) -> &'static str {
     match reason {
         LateEventAbsorbReason::BeforeCut => {
-            "the delivery belongs to the execution before an undo's cut, so it is absorbed at the \
-             epoch check and nothing is written"
+            "the delivery comes from a turn an undo cut, so it is absorbed and nothing is written"
         }
         LateEventAbsorbReason::RunEnded => {
             "the delivery's run had already ended, so its write was refused and nothing is written"
