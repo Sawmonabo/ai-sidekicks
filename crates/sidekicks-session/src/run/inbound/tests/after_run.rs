@@ -5,12 +5,10 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_provider::driver::registry::test_provider;
 use sidekicks_provider::run::delivery::{InboundDelivery, InboundOutcome, LateAppendableRow};
-use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
 
 use super::Harness;
-use crate::run::epochs::{ConfirmedCut, EpochBinding};
+use crate::run::epochs::ConfirmedCut;
 
 // What the row's run's cursor holds when its row lands.
 #[derive(Clone, Copy)]
@@ -48,13 +46,8 @@ async fn inbound_appends_an_after_run_row_as_it_is_whatever_its_cursor_holds(
                 .fence_cut(ConfirmedCut::ForkRestart {
                     binding_id: harness.binding_id.clone(),
                     point: SourcePosition(SafeInt::new(1).expect("a small turn")),
-                    new_binding: EpochBinding {
-                        id: RuntimeBindingId::new(mint_uuid_v7().to_string())
-                            .expect("a UUID is a binding id"),
-                        run_id: harness.run_id,
-                        provider_name: test_provider(),
-                        provider_account_id: test_provider_account_id(),
-                    },
+                    new_binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string())
+                        .expect("a UUID is a binding id"),
                 })
                 .expect("the cursor is open and not frozen"),
             CursorState::Dropped => epochs.close_binding(&harness.binding_id),
