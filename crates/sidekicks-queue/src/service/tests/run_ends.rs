@@ -4,7 +4,7 @@
 //! queue's stop waiting for a start a run's end made meanwhile and the hand that start's drain made
 //! after it; a lead running before its session's process opened, which is handed nothing; a lead's
 //! messages withheld only while it waits on an ask of its own, and handed when it runs again; and
-//! a lead whose continue after a kept answer failed, moved back to its wait.
+//! a lead whose continue after an orphaned answer failed, moved back to its wait.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -395,8 +395,8 @@ async fn a_running_lead_in_an_unopened_session_is_handed_nothing() {
     assert!(calls.starts().is_empty(), "the message was started");
 }
 
-// A lead the kept answer moved to `running` whose continue fails on the daemon's side, here for a
-// session with no conversation to resume, is moved back to the wait the answer ended and halted
+// A lead the orphaned answer moved to `running` whose continue fails on the daemon's side, here for
+// a session with no conversation to resume, is moved back to the wait the answer ended and halted
 // in the recovery status once the queue's stop has waited for the continue's task. Killed by the
 // failure leaving the lead `running`, and by the halt dropped (no run reads halted).
 #[tokio::test]
@@ -441,7 +441,7 @@ impl Fixture {
                 params![lead.text().as_str(), helper.text().as_str()],
             )
             .expect("the test makes the run a helper");
-        self.kept_approvals.set_open_ask(helper, true);
+        self.orphaned_approvals.set_open_ask(helper, true);
         helper
     }
 
@@ -492,7 +492,7 @@ async fn only_a_leads_own_open_ask_withholds_its_messages(#[case] has_own_ask: b
     let lead = fixture.insert_run("running");
     bind_run_to_first_provider(&fixture.database, lead);
     fixture.insert_waiting_helper(lead);
-    fixture.kept_approvals.set_open_ask(lead, has_own_ask);
+    fixture.orphaned_approvals.set_open_ask(lead, has_own_ask);
     let item_id = fixture.queue_message(lead).await;
 
     fixture.observe_running(lead);
@@ -522,12 +522,12 @@ async fn a_message_withheld_on_a_leads_own_ask_is_handed_when_it_runs_again() {
     let fixture = fixture(recording_driver(&calls)).await;
     let lead = fixture.insert_run("running");
     bind_run_to_first_provider(&fixture.database, lead);
-    fixture.kept_approvals.set_open_ask(lead, true);
+    fixture.orphaned_approvals.set_open_ask(lead, true);
     let item_id = fixture.queue_message(lead).await;
     fixture.reconcile().await;
     let steered_while_asking = calls.steers();
 
-    fixture.kept_approvals.set_open_ask(lead, false);
+    fixture.orphaned_approvals.set_open_ask(lead, false);
     fixture.observe_running(lead);
     timeout(WAIT, async {
         while calls.steers().is_empty() {

@@ -84,7 +84,7 @@ use crate::changes::QueueChangeSignals;
 use crate::error::QueueError;
 use crate::memory_gate::{MemoryGate, MemoryGateFigures};
 use crate::provider_session::test_opening::{
-    KeptAnswersStandIn, RecordedProcessFollowing, RecordedResumedRuns,
+    OrphanedAnswersStandIn, RecordedProcessFollowing, RecordedResumedRuns,
     record_first_provider_capabilities, test_execution_postures, test_git_folder_reader,
     test_opening_composer,
 };
@@ -263,8 +263,8 @@ struct Fixture {
     home: TempDir,
     process: Arc<ProcessStandIn>,
     halted_runs: Arc<HaltedRunsStandIn>,
-    // The cards' kept answers and open asks the queue reads.
-    kept_approvals: Arc<KeptAnswersStandIn<ApprovalRequestId>>,
+    // The cards' orphaned answers and open asks the queue reads.
+    orphaned_approvals: Arc<OrphanedAnswersStandIn<ApprovalRequestId>>,
 }
 
 /// The runs the queue halted in the recovery status, each beside its session, in order.
@@ -286,7 +286,7 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
     insert_lead(&database, session_id, PROVIDERS[0].id);
     let process = Arc::new(ProcessStandIn::default());
     let halted_runs = Arc::new(HaltedRunsStandIn::default());
-    let kept_approvals = Arc::new(KeptAnswersStandIn::default());
+    let orphaned_approvals = Arc::new(OrphanedAnswersStandIn::default());
     let queue = queue_over(
         &database,
         &log,
@@ -295,7 +295,7 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         Arc::clone(&process) as _,
         CurrentProviderAccount::Current(test_provider_account_id()),
         Arc::clone(&halted_runs) as _,
-        &kept_approvals,
+        &orphaned_approvals,
     );
     Fixture {
         database,
@@ -305,14 +305,14 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         home,
         process,
         halted_runs,
-        kept_approvals,
+        orphaned_approvals,
     }
 }
 
 /// A run queue over `database` and its `log`, built as the daemon's start builds it, its lead's
 /// provider answered by `driver`, its process read from `processes`, its account by `account`,
-/// the runs it halts recorded in `halted_runs`, and its cards' kept answers and open asks read
-/// from `kept_approvals`.
+/// the runs it halts recorded in `halted_runs`, and its cards' orphaned answers and open asks read
+/// from `orphaned_approvals`.
 #[expect(
     clippy::too_many_arguments,
     reason = "the record, the home, the driver and each stand-in a test swaps in"
@@ -325,7 +325,7 @@ fn queue_over(
     processes: Arc<dyn ProviderProcessIds>,
     account: CurrentProviderAccount,
     halted_runs: Arc<dyn HaltedRunRecord>,
-    kept_approvals: &Arc<KeptAnswersStandIn<ApprovalRequestId>>,
+    orphaned_approvals: &Arc<OrphanedAnswersStandIn<ApprovalRequestId>>,
 ) -> Arc<RunQueue> {
     let pool = Arc::new(DatabaseReadPool::new(
         database.path(),
@@ -358,8 +358,8 @@ fn queue_over(
         process_follower: Arc::new(RecordedProcessFollowing::default()),
         execution_postures: test_execution_postures(),
         resumed_runs: Arc::new(RecordedResumedRuns::default()).registered(),
-        kept_approvals: Arc::clone(kept_approvals) as Arc<_>,
-        kept_questions: Arc::new(KeptAnswersStandIn::<QuestionId>::default()),
+        orphaned_approvals: Arc::clone(orphaned_approvals) as Arc<_>,
+        orphaned_questions: Arc::new(OrphanedAnswersStandIn::<QuestionId>::default()),
     }));
     let memory_gate = Arc::new(MemoryGate::new(
         MemoryGateFigures {

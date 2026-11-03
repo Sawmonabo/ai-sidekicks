@@ -129,7 +129,7 @@ pub struct RunQueueDeps {
     pub provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     /// Reads the token limit a new lead run is admitted with.
     pub token_limits: Arc<PortRegistration<Arc<dyn RunTokenLimitReader>>>,
-    /// Marks a run whose continue after a kept answer failed on the daemon's side as halted.
+    /// Marks a run whose continue after an orphaned answer failed on the daemon's side as halted.
     pub halted_runs: Arc<dyn HaltedRunRecord>,
 }
 

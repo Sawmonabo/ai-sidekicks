@@ -492,7 +492,7 @@ async fn a_send_repeated_after_its_account_was_removed_answers_the_saved_one() {
         Arc::clone(&fixture.process) as _,
         CurrentProviderAccount::NoneRegistered,
         Arc::clone(&fixture.halted_runs) as _,
-        &fixture.kept_approvals,
+        &fixture.orphaned_approvals,
     );
 
     let answer = queue

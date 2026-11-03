@@ -51,7 +51,7 @@ impl RunQueue {
                 session_id = %session_id,
                 run_id = %run_id,
                 error = &failure as &(dyn Error + 'static),
-                "the continue after a kept answer failed; the answer is owed to the next resume"
+                "the continue after an orphaned answer failed; it is owed to the next resume"
             );
             let is_provider_refusal = matches!(
                 &failure,

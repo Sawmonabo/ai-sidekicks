@@ -61,7 +61,7 @@ use sidekicks_store::database::schema::session_directory::read_session_state_thr
 use sidekicks_store::events::session::appender::SessionEventAppender;
 
 use crate::provider_session::errors::ProviderSessionError;
-use crate::provider_session::held_run_continue::{HandedContinue, KeptAnswerSource};
+use crate::provider_session::held_run_continue::{HandedContinue, OrphanedAnswerSource};
 use crate::provider_session::resumed_runs::ResumedRunsIngress;
 
 mod continue_refusal;
@@ -160,10 +160,10 @@ pub struct ProviderSessionsDeps {
     pub resumed_runs: Arc<PortRegistration<Arc<dyn ResumedRunsIngress>>>,
     /// The answers to approval cards kept while no process held their session, which a held
     /// lead's continue carries.
-    pub kept_approvals: Arc<dyn KeptAnswerSource<ApprovalRequestId>>,
+    pub orphaned_approvals: Arc<dyn OrphanedAnswerSource<ApprovalRequestId>>,
     /// The answers to questions kept while no process held their session, which a held lead's
     /// continue carries.
-    pub kept_questions: Arc<dyn KeptAnswerSource<QuestionId>>,
+    pub orphaned_questions: Arc<dyn OrphanedAnswerSource<QuestionId>>,
 }
 
 // Closes the process `driver` opened for `session_id` whose binding was not recorded, so none runs
@@ -657,7 +657,7 @@ impl StoredSessionPosture for ProviderSessions {
                 | ProviderSessionError::NoConversation { .. }
                 | ProviderSessionError::Cursor(_)
                 | ProviderSessionError::ResumedRuns { .. }
-                | ProviderSessionError::KeptAnswers { .. }
+                | ProviderSessionError::OrphanedAnswers { .. }
                 | ProviderSessionError::ContinueNotReleased { .. }
                 | ProviderSessionError::Port(_)
                 | ProviderSessionError::UnrecordedNotClosed { .. }

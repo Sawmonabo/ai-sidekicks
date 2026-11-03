@@ -349,7 +349,7 @@ impl ProviderSessions {
                 // The continue reached no process, so the next relaunch carries it.
                 self.release_marks(self.take_handed_continue(session_id))
                     .await
-                    .map_err(|cause| ProviderSessionError::KeptAnswers { session_id, cause })?;
+                    .map_err(|cause| ProviderSessionError::OrphanedAnswers { session_id, cause })?;
                 let named_run_ids = runs.iter().map(|run| run.run_id).collect();
                 // No process was started, so an untaken run has none to close.
                 self.take_resumed_runs(session_id, runs).await?;
@@ -377,7 +377,7 @@ impl ProviderSessions {
                 .release_marks(self.take_handed_continue(session_id))
                 .await
         {
-            let unreleased = ProviderSessionError::KeptAnswers { session_id, cause };
+            let unreleased = ProviderSessionError::OrphanedAnswers { session_id, cause };
             self.deps.binding_cursors.forget_binding(&minted_id);
             // A process this relaunch brought up is closed, as one whose runs were not taken is.
             return Err(if binding_id == minted_id {

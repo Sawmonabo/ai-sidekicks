@@ -31,8 +31,8 @@ use tokio_util::task::TaskTracker;
 use crate::provider_session::ProviderSessions;
 use crate::provider_session::errors::ProviderSessionError;
 
-/// What a kept answers' read or write answers, or the error it failed with.
-pub type KeptAnswerFuture<'a, T> = BoxFuture<'a, Result<T, Box<dyn Error + Send + Sync>>>;
+/// What an orphaned answers' read or write answers, or the error it failed with.
+pub type OrphanedAnswerFuture<'a, T> = BoxFuture<'a, Result<T, Box<dyn Error + Send + Sync>>>;
 
 /// An answer kept while no process held the session, which the held lead's continue owes the run
 /// that asked.
@@ -48,30 +48,33 @@ pub struct OwedAnswer<Id> {
 
 /// Where the answers of one kind kept for a session's continue are read and their continue marks
 /// claimed: the approval cards' or the questions'.
-pub trait KeptAnswerSource<Id>: Send + Sync {
+pub trait OrphanedAnswerSource<Id>: Send + Sync {
     /// The session's answers no continue and no call made again took yet, oldest first. Fails as
     /// the read fails.
-    fn owed_continues(&self, session_id: SessionId) -> KeptAnswerFuture<'_, Vec<OwedAnswer<Id>>>;
-
-    /// Claims `id`'s continue mark: true for the one caller that takes it, false once another
-    /// took it. Fails as the claim's write fails.
-    fn claim_continue(&self, id: Id) -> KeptAnswerFuture<'_, bool>;
-
-    /// Gives `id`'s continue mark back, so the next continue takes it. Fails as the write fails.
-    fn release_continue(&self, id: Id) -> KeptAnswerFuture<'_, ()>;
-
-    /// Whether `run_id` holds an ask of this kind the person has not answered yet. Fails as the
-    /// read fails.
-    fn has_open_ask(&self, run_id: RunId) -> KeptAnswerFuture<'_, bool>;
-}
-
-impl KeptAnswerSource<ApprovalRequestId> for ApprovalService {
     fn owed_continues(
         &self,
         session_id: SessionId,
-    ) -> KeptAnswerFuture<'_, Vec<OwedAnswer<ApprovalRequestId>>> {
+    ) -> OrphanedAnswerFuture<'_, Vec<OwedAnswer<Id>>>;
+
+    /// Claims `id`'s continue mark: true for the one caller that takes it, false once another
+    /// took it. Fails as the claim's write fails.
+    fn claim_continue(&self, id: Id) -> OrphanedAnswerFuture<'_, bool>;
+
+    /// Gives `id`'s continue mark back, so the next continue takes it. Fails as the write fails.
+    fn release_continue(&self, id: Id) -> OrphanedAnswerFuture<'_, ()>;
+
+    /// Whether `run_id` holds an ask of this kind the person has not answered yet. Fails as the
+    /// read fails.
+    fn has_open_ask(&self, run_id: RunId) -> OrphanedAnswerFuture<'_, bool>;
+}
+
+impl OrphanedAnswerSource<ApprovalRequestId> for ApprovalService {
+    fn owed_continues(
+        &self,
+        session_id: SessionId,
+    ) -> OrphanedAnswerFuture<'_, Vec<OwedAnswer<ApprovalRequestId>>> {
         async move {
-            let owed = self.kept_answers().owed_continues(session_id).await?;
+            let owed = self.orphaned_answers().owed_continues(session_id).await?;
             Ok(owed
                 .into_iter()
                 .map(|card| OwedAnswer {
@@ -95,24 +98,24 @@ impl KeptAnswerSource<ApprovalRequestId> for ApprovalService {
         .boxed()
     }
 
-    fn claim_continue(&self, id: ApprovalRequestId) -> KeptAnswerFuture<'_, bool> {
-        async move { Ok(self.kept_answers().claim_continue(id).await?) }.boxed()
+    fn claim_continue(&self, id: ApprovalRequestId) -> OrphanedAnswerFuture<'_, bool> {
+        async move { Ok(self.orphaned_answers().claim_continue(id).await?) }.boxed()
     }
 
-    fn release_continue(&self, id: ApprovalRequestId) -> KeptAnswerFuture<'_, ()> {
-        async move { Ok(self.kept_answers().release_continue(id).await?) }.boxed()
+    fn release_continue(&self, id: ApprovalRequestId) -> OrphanedAnswerFuture<'_, ()> {
+        async move { Ok(self.orphaned_answers().release_continue(id).await?) }.boxed()
     }
 
-    fn has_open_ask(&self, run_id: RunId) -> KeptAnswerFuture<'_, bool> {
+    fn has_open_ask(&self, run_id: RunId) -> OrphanedAnswerFuture<'_, bool> {
         async move { Ok(self.has_pending_ask(run_id).await?) }.boxed()
     }
 }
 
-impl KeptAnswerSource<QuestionId> for QuestionsService {
+impl OrphanedAnswerSource<QuestionId> for QuestionsService {
     fn owed_continues(
         &self,
         session_id: SessionId,
-    ) -> KeptAnswerFuture<'_, Vec<OwedAnswer<QuestionId>>> {
+    ) -> OrphanedAnswerFuture<'_, Vec<OwedAnswer<QuestionId>>> {
         async move {
             let owed = QuestionsService::owed_continues(self, session_id).await?;
             Ok(owed
@@ -131,15 +134,15 @@ impl KeptAnswerSource<QuestionId> for QuestionsService {
         .boxed()
     }
 
-    fn claim_continue(&self, id: QuestionId) -> KeptAnswerFuture<'_, bool> {
+    fn claim_continue(&self, id: QuestionId) -> OrphanedAnswerFuture<'_, bool> {
         async move { Ok(QuestionsService::claim_continue(self, id).await?) }.boxed()
     }
 
-    fn release_continue(&self, id: QuestionId) -> KeptAnswerFuture<'_, ()> {
+    fn release_continue(&self, id: QuestionId) -> OrphanedAnswerFuture<'_, ()> {
         async move { Ok(QuestionsService::release_continue(self, id).await?) }.boxed()
     }
 
-    fn has_open_ask(&self, run_id: RunId) -> KeptAnswerFuture<'_, bool> {
+    fn has_open_ask(&self, run_id: RunId) -> OrphanedAnswerFuture<'_, bool> {
         async move { Ok(self.has_open_question(run_id).await?) }.boxed()
     }
 }
@@ -277,19 +280,19 @@ impl ProviderSessions {
         if !live_runs.iter().any(may_continue) {
             return Ok(ClaimedContinue::default());
         }
-        let kept_answers = |cause| ProviderSessionError::KeptAnswers { session_id, cause };
+        let orphaned_answers = |cause| ProviderSessionError::OrphanedAnswers { session_id, cause };
         let approvals = self
             .deps
-            .kept_approvals
+            .orphaned_approvals
             .owed_continues(session_id)
             .await
-            .map_err(kept_answers)?;
+            .map_err(orphaned_answers)?;
         let questions = self
             .deps
-            .kept_questions
+            .orphaned_questions
             .owed_continues(session_id)
             .await
-            .map_err(kept_answers)?;
+            .map_err(orphaned_answers)?;
         let owed_run_ids: HashSet<RunId> = approvals
             .iter()
             .map(|owed| owed.run_id)
@@ -347,7 +350,7 @@ impl ProviderSessions {
                 Ok(true) => {}
                 Ok(false) => continue,
                 Err(cause) => {
-                    let failed = ProviderSessionError::KeptAnswers { session_id, cause };
+                    let failed = ProviderSessionError::OrphanedAnswers { session_id, cause };
                     return Err(self.release_marks_after(session_id, claims, failed).await);
                 }
             }
@@ -398,19 +401,19 @@ impl ProviderSessions {
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<bool, ProviderSessionError> {
-        let kept_answers = |cause| ProviderSessionError::KeptAnswers { session_id, cause };
+        let orphaned_answers = |cause| ProviderSessionError::OrphanedAnswers { session_id, cause };
         Ok(self
             .deps
-            .kept_approvals
+            .orphaned_approvals
             .has_open_ask(run_id)
             .await
-            .map_err(kept_answers)?
+            .map_err(orphaned_answers)?
             || self
                 .deps
-                .kept_questions
+                .orphaned_questions
                 .has_open_ask(run_id)
                 .await
-                .map_err(kept_answers)?)
+                .map_err(orphaned_answers)?)
     }
 
     // Gives back every mark of `claims` after `failed` ended its relaunch, answering `failed`, or
@@ -439,8 +442,12 @@ impl ProviderSessions {
         let mut unreleased = Vec::new();
         for mark in claims {
             let released = match mark {
-                ClaimedMark::Approval(id) => self.deps.kept_approvals.release_continue(id).await,
-                ClaimedMark::Question(id) => self.deps.kept_questions.release_continue(id).await,
+                ClaimedMark::Approval(id) => {
+                    self.deps.orphaned_approvals.release_continue(id).await
+                }
+                ClaimedMark::Question(id) => {
+                    self.deps.orphaned_questions.release_continue(id).await
+                }
             };
             if let Err(error) = released {
                 unreleased.push((mark, error));
@@ -455,8 +462,8 @@ impl ProviderSessions {
 
     async fn claim_mark(&self, mark: ClaimedMark) -> Result<bool, Box<dyn Error + Send + Sync>> {
         match mark {
-            ClaimedMark::Approval(id) => self.deps.kept_approvals.claim_continue(id).await,
-            ClaimedMark::Question(id) => self.deps.kept_questions.claim_continue(id).await,
+            ClaimedMark::Approval(id) => self.deps.orphaned_approvals.claim_continue(id).await,
+            ClaimedMark::Question(id) => self.deps.orphaned_questions.claim_continue(id).await,
         }
     }
 }

@@ -115,7 +115,7 @@ pub enum ProviderSessionError {
     /// The answers kept for the session's held lead could not be read, or a continue mark of one
     /// could not be claimed.
     #[error("the answers kept for session {session_id}'s continue could not be read or claimed")]
-    KeptAnswers {
+    OrphanedAnswers {
         /// The session.
         session_id: SessionId,
         /// Why.
@@ -288,7 +288,7 @@ impl From<ProviderSessionError> for HandlerError {
             | ProviderSessionError::NoConversation { .. }
             | ProviderSessionError::Cursor(_)
             | ProviderSessionError::ResumedRuns { .. }
-            | ProviderSessionError::KeptAnswers { .. }
+            | ProviderSessionError::OrphanedAnswers { .. }
             | ProviderSessionError::ContinueNotReleased { .. }
             | ProviderSessionError::Port(_)
             | ProviderSessionError::UnrecordedNotClosed { .. }

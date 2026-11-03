@@ -53,7 +53,7 @@ async fn held_lead() -> (
         decline_reason: None,
         edited_action: None,
     };
-    opening.kept_approvals.owe(OwedAnswer {
+    opening.orphaned_approvals.owe(OwedAnswer {
         id: approval_request_id,
         run_id: opening.earlier_run_id,
         answer: answer.clone(),
@@ -93,11 +93,11 @@ async fn resume_after_answer(opening: &Opening) -> Result<(), ProviderSessionErr
 // answered (no resume), by the claim skipped (the second continue or the restart carries the
 // answer again), and by a continue run with no member (a resume carrying `None`).
 #[tokio::test]
-async fn a_kept_answer_continues_the_lead_once() {
+async fn an_orphaned_answer_continues_the_lead_once() {
     let (opening, carried, entry) = held_lead().await;
     set_run_state(&opening, opening.earlier_run_id, "waitingForApproval");
     opening
-        .kept_approvals
+        .orphaned_approvals
         .set_open_ask(opening.earlier_run_id, true);
 
     resume_after_answer(&opening)
@@ -106,7 +106,7 @@ async fn a_kept_answer_continues_the_lead_once() {
     assert!(lock(&carried).is_empty(), "a held lead was resumed");
 
     opening
-        .kept_approvals
+        .orphaned_approvals
         .set_open_ask(opening.earlier_run_id, false);
     resume_after_answer(&opening)
         .await

@@ -71,7 +71,7 @@ use sidekicks_store::events::session::followers::SessionEventFollowers;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use super::test_opening::{
-    KeptAnswersStandIn, RecordedProcessFollowing, RecordedResumedRuns, first_provider,
+    OrphanedAnswersStandIn, RecordedProcessFollowing, RecordedResumedRuns, first_provider,
     record_first_provider_capabilities, test_execution_postures, test_opening_composer,
 };
 use super::{
@@ -109,7 +109,7 @@ type ClosedAppendHook = Box<dyn Fn() + Send + Sync>;
 // installed. A resume carrying a continue answers its lead still running, but once a test sets
 // `is_continue_dropped`, gone. The session runs in `TEST_PLACE`. The resumed runs' stand-in records
 // each resume's runs, and whether the binding last handed out had a row as they reached it; the
-// kept answers' stand-ins owe what a test gives them.
+// orphaned answers' stand-ins owe what a test gives them.
 struct Opening {
     database: TestDatabase,
     session_id: SessionId,
@@ -133,7 +133,7 @@ struct Opening {
     following: Arc<RecordedProcessFollowing>,
     resumed_runs: Arc<RecordedResumedRuns>,
     handed_rows_at_take: Arc<Mutex<Vec<bool>>>,
-    kept_approvals: Arc<KeptAnswersStandIn<ApprovalRequestId>>,
+    orphaned_approvals: Arc<OrphanedAnswersStandIn<ApprovalRequestId>>,
 }
 
 impl Opening {
@@ -351,7 +351,7 @@ impl Opening {
                 lock(&handed_rows_at_take).push(has_row);
             }
         })));
-        let kept_approvals = Arc::new(KeptAnswersStandIn::default());
+        let orphaned_approvals = Arc::new(OrphanedAnswersStandIn::default());
         let sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
             pool,
             appender: Arc::new(SessionEventAppender::new(
@@ -366,8 +366,8 @@ impl Opening {
             process_follower: Arc::clone(&following) as Arc<dyn SessionProcessFollower>,
             execution_postures: Arc::clone(&execution_postures),
             resumed_runs: resumed_runs.registered(),
-            kept_approvals: Arc::clone(&kept_approvals) as Arc<_>,
-            kept_questions: Arc::new(KeptAnswersStandIn::<QuestionId>::default()),
+            orphaned_approvals: Arc::clone(&orphaned_approvals) as Arc<_>,
+            orphaned_questions: Arc::new(OrphanedAnswersStandIn::<QuestionId>::default()),
         }));
         execution_postures
             .set_stored_postures(Arc::downgrade(&sessions) as Weak<_>)
@@ -395,7 +395,7 @@ impl Opening {
             following,
             resumed_runs,
             handed_rows_at_take,
-            kept_approvals,
+            orphaned_approvals,
         }
     }
 

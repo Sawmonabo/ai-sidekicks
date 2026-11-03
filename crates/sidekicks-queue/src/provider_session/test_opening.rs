@@ -1,6 +1,6 @@
 //! The opening tests open a session's provider session with: the table's first provider at a
 //! read-only posture over the root, an idle sleep standing in that records each opening, a resumed
-//! runs' ingress standing in that records each resume's runs, and kept answers standing in that
+//! runs' ingress standing in that records each resume's runs, and orphaned answers standing in that
 //! owe what a test gives them; the queue's own tests also record that provider's contract version.
 
 use std::collections::HashSet;
@@ -38,7 +38,9 @@ use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 
-use crate::provider_session::held_run_continue::{KeptAnswerFuture, KeptAnswerSource, OwedAnswer};
+use crate::provider_session::held_run_continue::{
+    OrphanedAnswerFuture, OrphanedAnswerSource, OwedAnswer,
+};
 use crate::provider_session::resumed_runs::{ResumedRuns, ResumedRunsIngress};
 use crate::provider_session::{
     OpenedSession, ProviderSessionGitFolderReader, ProviderSessionOpening,
@@ -283,16 +285,16 @@ pub(crate) fn record_first_provider_capabilities(providers: &ProviderRegistry, i
         .expect("the first provider is registered");
 }
 
-/// Kept answers standing in for the provider sessions' tests: they owe each answer a test gives
+/// Orphaned answers standing in for the provider sessions' tests: they owe each answer a test gives
 /// them until a continue claims it, and owe it again once that continue gives it back; a run holds
 /// an open ask while a test says so.
-pub struct KeptAnswersStandIn<Id> {
+pub struct OrphanedAnswersStandIn<Id> {
     owed: Mutex<Vec<OwedAnswer<Id>>>,
     claimed: Mutex<Vec<Id>>,
     open_asks: Mutex<HashSet<RunId>>,
 }
 
-impl<Id> KeptAnswersStandIn<Id> {
+impl<Id> OrphanedAnswersStandIn<Id> {
     /// Owes `answer` after every answer owed before it.
     pub fn owe(&self, answer: OwedAnswer<Id>) {
         lock(&self.owed).push(answer);
@@ -309,7 +311,7 @@ impl<Id> KeptAnswersStandIn<Id> {
     }
 }
 
-impl<Id> Default for KeptAnswersStandIn<Id> {
+impl<Id> Default for OrphanedAnswersStandIn<Id> {
     fn default() -> Self {
         Self {
             owed: Mutex::new(Vec::new()),
@@ -319,8 +321,11 @@ impl<Id> Default for KeptAnswersStandIn<Id> {
     }
 }
 
-impl<Id: Clone + PartialEq + Send + Sync> KeptAnswerSource<Id> for KeptAnswersStandIn<Id> {
-    fn owed_continues(&self, _session_id: SessionId) -> KeptAnswerFuture<'_, Vec<OwedAnswer<Id>>> {
+impl<Id: Clone + PartialEq + Send + Sync> OrphanedAnswerSource<Id> for OrphanedAnswersStandIn<Id> {
+    fn owed_continues(
+        &self,
+        _session_id: SessionId,
+    ) -> OrphanedAnswerFuture<'_, Vec<OwedAnswer<Id>>> {
         let claimed = lock(&self.claimed).clone();
         let owed = lock(&self.owed)
             .iter()
@@ -330,7 +335,7 @@ impl<Id: Clone + PartialEq + Send + Sync> KeptAnswerSource<Id> for KeptAnswersSt
         async { Ok(owed) }.boxed()
     }
 
-    fn claim_continue(&self, id: Id) -> KeptAnswerFuture<'_, bool> {
+    fn claim_continue(&self, id: Id) -> OrphanedAnswerFuture<'_, bool> {
         let mut claimed = lock(&self.claimed);
         let is_claimed = !claimed.contains(&id);
         if is_claimed {
@@ -339,12 +344,12 @@ impl<Id: Clone + PartialEq + Send + Sync> KeptAnswerSource<Id> for KeptAnswersSt
         async move { Ok(is_claimed) }.boxed()
     }
 
-    fn release_continue(&self, id: Id) -> KeptAnswerFuture<'_, ()> {
+    fn release_continue(&self, id: Id) -> OrphanedAnswerFuture<'_, ()> {
         lock(&self.claimed).retain(|claimed| *claimed != id);
         async { Ok(()) }.boxed()
     }
 
-    fn has_open_ask(&self, run_id: RunId) -> KeptAnswerFuture<'_, bool> {
+    fn has_open_ask(&self, run_id: RunId) -> OrphanedAnswerFuture<'_, bool> {
         let is_open = lock(&self.open_asks).contains(&run_id);
         async move { Ok(is_open) }.boxed()
     }
