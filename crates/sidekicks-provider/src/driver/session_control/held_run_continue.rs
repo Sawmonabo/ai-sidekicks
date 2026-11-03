@@ -145,21 +145,25 @@ pub fn compose_continuation_text(
                         |reason| format!("declined it: {}", one_line(reason)),
                     ),
                 };
-                format!("{asker} asked to approve {asked}. The person {answered}.")
+                format!(
+                    "{asker} asked to approve {} The person {}",
+                    sentence(&asked),
+                    sentence(&answered)
+                )
             }
             ContinueAnswer::Question {
                 question, answer, ..
             } => format!(
-                "{asker} asked: {}. The person answered: {}.",
-                one_line(question),
-                one_line(answer)
+                "{asker} asked: {} The person answered: {}",
+                sentence(question),
+                sentence(answer)
             ),
             ContinueAnswer::HelperContinued { words } => words.as_ref().map_or_else(
                 || format!("{asker} was paused, and the person continued it."),
                 |words| {
                     format!(
-                        "{asker} was paused, and the person continued it with: {}.",
-                        one_line(words)
+                        "{asker} was paused, and the person continued it with: {}",
+                        sentence(words)
                     )
                 },
             ),
@@ -192,6 +196,16 @@ fn one_line(text: &str) -> String {
         .join("; ")
 }
 
+// `text` on one line closed as a sentence: a period added unless it already ends in one, a
+// question mark or an exclamation mark.
+fn sentence(text: &str) -> String {
+    let mut sentence = one_line(text);
+    if !sentence.ends_with(['.', '?', '!']) {
+        sentence.push('.');
+    }
+    sentence
+}
+
 #[cfg(test)]
 mod tests {
     use jiff::{SignedDuration, Timestamp};
@@ -206,9 +220,10 @@ mod tests {
     use crate::driver::test_registry::new_run_id;
 
     // The text names each answer and each fire whose stated time passed, and no fire still ahead,
-    // with no stated time, or due at or past its job's expiry. Killed by the past test flipped
-    // (the future fire named, the past ones not), by a fire with no stated time counted missed,
-    // and by the expiry not read (the expired job's fire named).
+    // with no stated time, or due at or past its job's expiry; words that end a sentence take no
+    // second period. Killed by the past test flipped (the future fire named, the past ones not),
+    // by a fire with no stated time counted missed, by the expiry not read (the expired job's fire
+    // named), and by the period added always (`Which branch?.`).
     #[test]
     fn the_text_names_the_answers_and_only_the_fires_already_past() {
         let now = Timestamp::from_second(1_800_000_000).expect("a time in range");
@@ -272,7 +287,7 @@ mod tests {
             text,
             format!(
                 "While the app restarted, the person answered what you were waiting on:\n\
-                 You asked: Which branch?. The person answered: main.\n\
+                 You asked: Which branch? The person answered: main.\n\
                  Your helper helper-1 asked to approve Bash: rm -rf build. The person declined \
                  it: keep it. Message helper-1.\n\
                  A scheduled run due at {past} did not run while you waited.\n\
