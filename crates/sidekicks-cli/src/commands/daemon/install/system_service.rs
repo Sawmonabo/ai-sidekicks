@@ -468,8 +468,8 @@ impl Takeover {
         )
         .await;
         if let Err(refusal) = moved {
-            // A refused move puts back every sign-in it moved before it answers, so only the
-            // stopped agent is started again.
+            // A refused move puts back every sign-in and item it moved, and the place record,
+            // before it answers, so only the stopped agent is started again.
             return Err(join_put_back(
                 refusal,
                 self.restore_agent(is_service_left_stopped).await,
