@@ -336,11 +336,13 @@ impl RunWalk {
 
     /// Puts one feed of `count` items from `source`, overtaken by the wins `overtaken_by`, into
     /// `target`'s slot and answers the run index of the round it entered, or `None` for a feed
-    /// dropped: an empty one while the node has an open round, or one a win of the node overtook
-    /// that no round of that win takes. Items enter the lowest open round admitting the feed whose
-    /// slot is unfilled or settled empty; an empty feed the lowest admitting one whose slot is
-    /// unfilled; with no such round the feed opens one. A won round admits only the feeds its win
-    /// overtook, so the winner never runs again on its own pass.
+    /// dropped: an empty one while the node has an open round, one a win of the node overtook
+    /// that no round of that win takes, or one into a loop node that precedes the node of a win
+    /// that overtook it, so a step that win overtook never starts the loop's next pass. Items
+    /// enter the lowest open round admitting the feed whose slot is unfilled or settled empty; an
+    /// empty feed the lowest admitting one whose slot is unfilled; with no such round the feed
+    /// opens one. A won round admits only the feeds its win overtook, so the winner never runs
+    /// again on its own pass.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn fill(
         &mut self,
@@ -349,6 +351,14 @@ impl RunWalk {
         count: usize,
         overtaken_by: &BTreeSet<usize>,
     ) -> Option<u64> {
+        let graph = &self.graph;
+        if graph.node(target.node).is_loop
+            && overtaken_by
+                .iter()
+                .any(|&win| graph.is_ancestor(target.node, self.wins[win].place))
+        {
+            return None;
+        }
         let is_claimed = overtaken_by
             .iter()
             .any(|&win| self.wins[win].place == target.node);
@@ -636,7 +646,7 @@ impl RunWalk {
 
     /// Readies `step` of the node at `place`, overtaken by the wins `overtaken_by`, making it
     /// live. A loop node's step starts a new pass of what it leads to, so it drops the wins of the
-    /// nodes it precedes, whose rounds of that pass are new.
+    /// nodes it precedes that its round was pending at, whose rounds of that pass are new.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn ready(
         &mut self,

@@ -219,10 +219,13 @@ fn a_won_round_takes_only_its_own_pass_and_a_same_turn_loser_never_runs() {
 /// A loser readied in a later turn than its win, from a step the win overtook, is canceled, and
 /// that step's other descendants never feed the winner a second round: the trigger feeds A, Y and
 /// P; A and Z feed M's first main slot, Y feeds Z and B's first slot, P feeds B's second, and B
-/// feeds M's second. A loop node the win's node follows starts a new pass, whose feeds win again.
-/// Mutations: leave a step or round the win overtook unread at its decision (B readied by the
-/// flush); let a feed the win overtook open another round (M readied again from Z); keep the
-/// overtaken wins across a loop's next pass (M never runs on pass 1).
+/// feeds M's second. Inside a loop, a step the win overtook feeds the loop node before M nothing,
+/// so it never starts a new pass, while a feed the win did not overtake, decided in the win's
+/// visit after it, starts one, whose feeds win again. Mutations: leave a step or round the win
+/// overtook unread at its decision (B readied by the flush); let a feed the win overtook open
+/// another round (M readied again from Z); admit the loop's new pass from a step the win overtook
+/// (L readied from Y); keep the win across the pass a feed it did not overtake starts (M never
+/// runs on pass 1).
 #[test]
 fn a_loser_readied_in_a_later_turn_never_runs_and_the_winner_runs_once_a_pass() {
     let (mut walk, start_turn) = start(
@@ -300,17 +303,48 @@ fn a_loser_readied_in_a_later_turn_never_runs_and_the_winner_runs_once_a_pass() 
         ]
     );
     let y_turn = walk.settle(&readied(&l_turn, "Y"), &[1]);
-    assert_eq!(
-        describe(&y_turn),
-        ["ready L run 1 exec 5 from Y:0@3", "canceled B exec 6"]
-    );
+    assert_eq!(describe(&y_turn), ["canceled B exec 5"]);
     walk.settle(&readied(&a_turn, "M"), &[1]);
-    let next_l_turn = walk.settle(&readied(&y_turn, "L"), &[0, 1]);
+    assert_eq!(describe(&walk.flush()), Vec::<String>::new());
+    assert_eq!(every_open_round(&walk), Vec::<String>::new());
+
+    let (mut walk, start_turn) = start(
+        vec![
+            node("trigger", "test.trigger", 0, false),
+            node("M", "test.first", 1, false),
+            node("L", "test.loop", 2, false),
+            node("S", "test.step", 3, false),
+            node("B", "test.step", 4, false),
+        ],
+        &[
+            edge("trigger", 0, "L", 0),
+            edge("L", 1, "S", 0),
+            edge("L", 1, "B", 0),
+            edge("S", 0, "M", 0),
+            edge("B", 0, "M", 1),
+            edge("S", 0, "L", 0),
+        ],
+    );
+    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
+    let l_turn = walk.settle(&readied(&trigger_turn, "L"), &[0, 1]);
+    let s_turn = walk.settle(&readied(&l_turn, "S"), &[1]);
     assert_eq!(
-        describe(&walk.settle(&readied(&next_l_turn, "A"), &[1])),
+        describe(&s_turn),
         [
-            "ready M run 1 exec 9 from A:0@7 - -",
-            "win M exec 9 losers []"
+            "ready M run 0 exec 4 from S:0@2 - -",
+            "ready L run 1 exec 5 from S:0@2",
+            "win M exec 4 losers [B@3]"
+        ]
+    );
+    walk.drop_step(&readied(&l_turn, "B"));
+    walk.settle(&readied(&s_turn, "M"), &[1]);
+    let next_l_turn = walk.settle(&readied(&s_turn, "L"), &[0, 1]);
+    assert_eq!(
+        describe(&walk.settle(&readied(&next_l_turn, "S"), &[1])),
+        [
+            "ready M run 1 exec 8 from S:0@6 - -",
+            "ready L run 2 exec 9 from S:0@6",
+            "win M exec 8 losers [B@7]"
         ]
     );
 }
