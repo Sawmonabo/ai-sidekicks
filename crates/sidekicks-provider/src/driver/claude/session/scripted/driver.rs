@@ -38,6 +38,7 @@ use super::daemon_services::{
     RecordingPorts, RecordingUsage, ScriptedAttachments, TakenBindingWrites,
     register_scripted_ports, test_callback_tool_host,
 };
+use super::held_calls::init;
 use super::starts::{ScriptedStartRecord, ScriptedStarts};
 use super::{
     SCRIPTED_PROVIDER_SESSION_ID, binding_id, exit_scripted_process, hand_scripted_frame,
@@ -610,11 +611,7 @@ pub(crate) fn end_turn_of(
 ) {
     let routes = &driver.composed_parts().expect("composed").run_start.routes;
     for frame in [
-        json!({
-            "type": "system",
-            "subtype": "init",
-            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        }),
+        init(),
         json!({
             "type": "result",
             "subtype": "success",
