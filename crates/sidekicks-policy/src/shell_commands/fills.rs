@@ -194,8 +194,8 @@ impl CommandLineFills {
     }
 
     /// Each fill's verdict at save, in line order: accepted only where the bash reading, its
-    /// cmd.exe form, the PowerShell reading and the csh scan all place it, else refused with the first refusal
-    /// among them. Runs inside one read of the reading bound.
+    /// cmd.exe form, the PowerShell reading and the csh scan all place it, else refused with the
+    /// first refusal among them. Runs inside one read of the reading bound.
     pub fn check_for_save(&self, reader: &mut ShellLineReader) -> Vec<Result<(), FillRefusal>> {
         let bash = bash::place_fills(reader, self);
         let cmd = self.refuse_after_cmd_escapes(bash.clone());

@@ -13,16 +13,22 @@ use crate::shell_commands::words::node_text;
 
 /// Each fill's place under PowerShell's grammar, in line order; every fill is refused on a line
 /// past the reader's limit or one the parser cannot read whole.
-pub(super) fn place_fills(reader: &ShellLineReader, fills: &CommandLineFills) -> Vec<FillPlacing> {
+pub(super) fn place_fills(
+    reader: &mut ShellLineReader,
+    fills: &CommandLineFills,
+) -> Vec<FillPlacing> {
     let line = fills.line();
     if line.len() > reader.limit {
         return fills.refuse_all(&FillRefusal::NotWhole);
     }
     let text = with_plain_quotes(line);
-    let mut parser = Parser::new();
-    parser
-        .set_language(&tree_sitter_powershell::LANGUAGE.into())
-        .expect("the PowerShell grammar's ABI, fixed at build, is one this tree-sitter reads");
+    let parser = reader.powershell_parser.get_or_insert_with(|| {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_powershell::LANGUAGE.into())
+            .expect("the PowerShell grammar's ABI, fixed at build, is one this tree-sitter reads");
+        parser
+    });
     let tree = parser
         .parse(text.as_ref(), None)
         .expect("a parser with its language set and no cancellation always returns a tree");

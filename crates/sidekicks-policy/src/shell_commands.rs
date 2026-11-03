@@ -249,6 +249,8 @@ impl<'r> ShellCommand<'r> {
 /// `ShellLineReadingBound`.
 pub struct ShellLineReader {
     parser: Parser,
+    // The PowerShell grammar's parser, built on the reader's first PowerShell reading.
+    powershell_parser: Option<Parser>,
     limit: usize,
     bytes_left: usize,
     // Every reading made, by its line's length; each keeps its own line.
@@ -266,6 +268,7 @@ impl ShellLineReader {
             .expect("the bash grammar's ABI, fixed at build, is one this tree-sitter reads");
         Self {
             parser,
+            powershell_parser: None,
             limit,
             bytes_left: limit.saturating_mul(2),
             readings: HashMap::new(),
