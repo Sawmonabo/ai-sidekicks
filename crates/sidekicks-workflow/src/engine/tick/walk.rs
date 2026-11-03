@@ -348,7 +348,7 @@ impl RunWalk {
                 execution_index,
             };
             for &target in targets {
-                if let Some(run_index) = self.fill(target, &source, count, lineage) {
+                if let Some(run_index) = self.fill(place, target, &source, count, lineage) {
                     fed.insert((target.node, run_index));
                 }
             }
@@ -356,28 +356,33 @@ impl RunWalk {
         fed
     }
 
-    /// Puts one feed of `count` items from `source`, of `lineage`, into `target`'s slot and answers
-    /// the run index of the round it entered, or `None` for a feed dropped: an empty one while the
-    /// node has an open round, one a win of the node overtook that no round of that win takes, or
-    /// one into a loop node whose body holds the node of a win that overtook it, so a step that win
-    /// overtook never starts the next pass of the loop the win runs inside. Items enter the lowest
-    /// open round of the feed's loop passes admitting it whose slot is unfilled or settled empty;
-    /// an empty feed the lowest admitting one whose slot is unfilled; with no such round the feed
-    /// opens one. A won round admits only the feeds its win overtook, so the winner never runs
-    /// again on its own pass.
+    /// Puts one feed of `count` items from `source`, the step at `source_place`, of `lineage`, into
+    /// `target`'s slot and answers the run index of the round it entered, or `None` for a feed
+    /// dropped: an empty one while the node has an open round, one a win of the node overtook that
+    /// no round of that win takes, or one from a place in the body of a loop node whose body holds
+    /// the node of a win that overtook it, so an overtaken step never restarts its own loop. A step
+    /// outside that body keeps its feed into the loop node, even when the win reached it through
+    /// its direct edge into the won node: its feed into that node enters the won round, and its
+    /// feed into the loop node starts the next pass. Items enter the lowest open round of the
+    /// feed's loop passes admitting it whose slot is unfilled or settled empty; an empty feed the
+    /// lowest admitting one whose slot is unfilled; with no such round the feed opens one. A won
+    /// round admits only the feeds its win overtook, so the winner never runs again on its own
+    /// pass.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn fill(
         &mut self,
+        source_place: usize,
         target: SlotTarget,
         source: &WorkflowStepSource,
         count: usize,
         lineage: &StepLineage,
     ) -> Option<u64> {
         let graph = &self.graph;
-        if lineage
-            .overtaken_by
-            .iter()
-            .any(|&win| graph.is_in_loop_body(self.wins[win].place, target.node))
+        if graph.is_in_loop_body(source_place, target.node)
+            && lineage
+                .overtaken_by
+                .iter()
+                .any(|&win| graph.is_in_loop_body(self.wins[win].place, target.node))
         {
             return None;
         }
@@ -728,9 +733,8 @@ impl RunWalk {
 
     /// Readies `step` of the node at `place`, of `lineage`, making it live. A loop node's step
     /// belongs to the passes around its loop, not its own; it starts a new pass of what it leads
-    /// to, so it closes the rounds of earlier passes nothing can fill. No win at a node its body
-    /// holds reaches a step readied here: such a win marks the loop node only on a losing branch,
-    /// where its round is canceled, and its feeds that carry one are dropped.
+    /// to, so it closes the rounds of earlier passes nothing can fill, and no win at a node its
+    /// body holds reaches it: such a win's pass is over, and the new pass's feeds open new rounds.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn ready(
         &mut self,
@@ -743,6 +747,10 @@ impl RunWalk {
     ) {
         if self.graph.node(place).loop_output.is_some() {
             lineage.passes.leave(place);
+            let (graph, wins) = (&self.graph, &self.wins);
+            lineage
+                .overtaken_by
+                .retain(|&win| !graph.is_in_loop_body(wins[win].place, place));
             self.close_passed_rounds(place, turn);
         }
         self.live.insert(
