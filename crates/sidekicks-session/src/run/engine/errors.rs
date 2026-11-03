@@ -26,8 +26,8 @@ pub enum RunEngineError {
     /// The run is unknown, has ended, or may not make the move asked of it.
     #[error(transparent)]
     Refused(RunRefusal),
-    /// A run state change was not written for a reason other than a refusal of the run.
-    #[error("the run state change was not written")]
+    /// The run write failed for a reason other than a refusal of the run.
+    #[error("the run write failed")]
     Change(#[source] RunWriteError),
     /// A terminal hook failed after the run ended; the end is kept.
     #[error(transparent)]
