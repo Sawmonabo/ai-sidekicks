@@ -254,6 +254,7 @@ mod tests {
     #[tokio::test]
     async fn a_launch_refusal_fails_the_step(#[case] params: Value, #[case] expected: Value) {
         let database = TestDatabase::new(schema_parts());
+        drop(database.opener()().expect("the test creates its database"));
 
         let (_scope, launched) = launch(&database, greet_node(&params), vec![Vec::new()]).await;
 
