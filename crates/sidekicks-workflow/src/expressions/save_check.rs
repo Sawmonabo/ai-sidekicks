@@ -26,10 +26,10 @@ use crate::expressions::syntax_tree::find_in_syntax_tree;
 
 /// The expression findings of `trigger` and then `nodes`, in that order, at most one per node and
 /// rule: a template that does not parse or calls a reader as a method, with why its first such
-/// expression fails, a label no node is named,
-/// a pattern the evaluator cannot build, and, on a node whose kind holds its shell line in the
-/// param `shell_line_param` answers, a fill that would not reach the command as one value. Each
-/// command line is read inside `bound`; fails only when that read panics.
+/// expression fails, a label no node is named, a pattern the evaluator cannot build, and, on a node
+/// whose kind holds its shell line in the param `shell_line_param` answers, a fill that would not
+/// reach the command as one value. Each command line is read inside `bound`; fails only when that
+/// read panics.
 pub(crate) async fn check_expressions(
     trigger: &WorkflowNode,
     nodes: &[WorkflowNode],
@@ -225,7 +225,8 @@ mod tests {
     }
 
     // The findings of a document whose trigger is `Start` and whose nodes are `Fetch`, a file read
-    // whose id is `fetch`, and `step`; the command step `developer.shell` holds its line in `command`.
+    // whose id is `fetch`, and `step`; the command step `developer.shell` holds its line in
+    // `command`.
     async fn findings_beside_fetch(step: WorkflowNode) -> Vec<WorkflowDefinitionFinding> {
         let trigger = node("trigger", "trigger.manual", "Start", &json!({}));
         let nodes = [
@@ -252,16 +253,22 @@ mod tests {
         vec![WorkflowNodeId::new("step".to_owned()).expect("the id is well formed")]
     }
 
-    /// An expression that does not parse marks the step whose param holds it, nested params included,
-    /// with why its first such expression fails: a template left open, a part the parser refuses with
-    /// the parser's words, and a reader called as a method with the spellings that read a node.
-    /// Mutations: drop any one check; read only top-level params; keep a later reason over the first;
-    /// leave the method-call reason without `$all('<label>')`.
+    /// An expression that does not parse marks the step whose param holds it, nested params
+    /// included, with why its first such expression fails: a template left open, a part the parser
+    /// refuses with the parser's words, and a reader called as a method with the spellings that
+    /// read a node. Mutations: drop any one check; read only top-level params; keep a later reason
+    /// over the first; leave the method-call reason without `$all('<label>')`.
     #[rstest]
     #[case::an_open_template(json!("={{ a"), "A template opens {{ and never closes it.")]
     #[case::a_part_that_does_not_parse(json!("={{ $json. }}"), "An expression does not parse: ")]
-    #[case::a_method_on_the_input(json!("={{ $input.all() }}"), "A node is read as $all('<label>')")]
-    #[case::a_method_on_a_label(json!("={{ $('Fetch').first() }}"), "A node is read as $all('<label>')")]
+    #[case::a_method_on_the_input(
+        json!("={{ $input.all() }}"),
+        "A node is read as $all('<label>')"
+    )]
+    #[case::a_method_on_a_label(
+        json!("={{ $('Fetch').first() }}"),
+        "A node is read as $all('<label>')"
+    )]
     #[case::a_nested_param(json!({ "rows": ["={{ a"] }), "A template opens {{")]
     #[case::the_first_reason(
         json!({ "rows": ["={{ $input.all() }}", "={{ a"] }),
@@ -285,16 +292,28 @@ mod tests {
     }
 
     /// Each other expression rule marks the step whose param breaks it: a label no node is named (a
-    /// node's id is no label) and a pattern the evaluator cannot build; a label a node is named passes.
-    /// Mutations: drop either check; compare labels with node ids; check patterns with a builder other
-    /// than the evaluator's.
+    /// node's id is no label) and a pattern the evaluator cannot build; a label a node is named
+    /// passes. Mutations: drop either check; compare labels with node ids; check patterns with a
+    /// builder other than the evaluator's.
     #[rstest]
-    #[case::an_unknown_label(json!("={{ $all('Nope') }}"), vec![WorkflowDefinitionFinding::ExpressionUnknownNode { node_ids: step_ids() }])]
-    #[case::a_node_id_as_label(json!("={{ $first('fetch') }}"), vec![WorkflowDefinitionFinding::ExpressionUnknownNode { node_ids: step_ids() }])]
+    #[case::an_unknown_label(
+        json!("={{ $all('Nope') }}"),
+        vec![WorkflowDefinitionFinding::ExpressionUnknownNode { node_ids: step_ids() }]
+    )]
+    #[case::a_node_id_as_label(
+        json!("={{ $first('fetch') }}"),
+        vec![WorkflowDefinitionFinding::ExpressionUnknownNode { node_ids: step_ids() }]
+    )]
     #[case::a_known_label(json!("={{ $all('Fetch') }}"), Vec::new())]
     #[case::the_trigger_label(json!("={{ $params('Start') }}"), Vec::new())]
-    #[case::a_backreference(json!("={{ $match($json.x, /(a)\\1/) }}"), vec![WorkflowDefinitionFinding::ExpressionRegexUnsupported { node_ids: step_ids() }])]
-    #[case::a_look_ahead(json!("={{ $match($json.x, /(?=a)/) }}"), vec![WorkflowDefinitionFinding::ExpressionRegexUnsupported { node_ids: step_ids() }])]
+    #[case::a_backreference(
+        json!("={{ $match($json.x, /(a)\\1/) }}"),
+        vec![WorkflowDefinitionFinding::ExpressionRegexUnsupported { node_ids: step_ids() }]
+    )]
+    #[case::a_look_ahead(
+        json!("={{ $match($json.x, /(?=a)/) }}"),
+        vec![WorkflowDefinitionFinding::ExpressionRegexUnsupported { node_ids: step_ids() }]
+    )]
     #[tokio::test]
     async fn an_expression_breaking_a_rule_marks_its_step(
         #[case] value: Value,
@@ -305,9 +324,9 @@ mod tests {
         assert_eq!(findings_beside_fetch(step).await, expected);
     }
 
-    /// A fill that would not expand on a command step's line is no finding in its other params or in
-    /// another kind's `command`; the store's save tests prove the line's own refusal. Mutations: read
-    /// the fills of every param; read every kind's `command`.
+    /// A fill that would not expand on a command step's line is no finding in its other params or
+    /// in another kind's `command`; the store's save tests prove the line's own refusal. Mutations:
+    /// read the fills of every param; read every kind's `command`.
     #[rstest]
     #[case::another_param("developer.shell", "notes")]
     #[case::another_kinds_command("files.write", "command")]

@@ -489,8 +489,8 @@ mod tests {
 
     #[test]
     fn a_short_secret_or_line_registers_no_derived_form() {
-        // `p/w+d` is under 8 characters, though its URI form `p%2Fw%2Bd` is not; the braces are lines
-        // of a longer secret, each under 8 characters.
+        // `p/w+d` is under 8 characters, though its URI form `p%2Fw%2Bd` is not; the braces are
+        // lines of a longer secret, each under 8 characters.
         let redaction = redaction_of(&["p/w+d", "{\nlong-secret-line-value\n}"]);
 
         assert_eq!(
@@ -517,9 +517,9 @@ mod tests {
         );
     }
 
-    /// A long run of one short secret is written as it arrives, as one mask, the carry never holding
-    /// more than the longest form less one byte. Mutation: hold a range reaching the cut whole in the
-    /// carry, which grows it with the run.
+    /// A long run of one short secret is written as it arrives, as one mask, the carry never
+    /// holding more than the longest form less one byte. Mutation: hold a range reaching the cut
+    /// whole in the carry, which grows it with the run.
     #[test]
     fn a_run_of_matches_is_written_as_it_arrives_as_one_mask() {
         let redaction = redaction_of(&["aaaa"]);
@@ -540,8 +540,8 @@ mod tests {
     }
 
     /// A secret's tail held in the carry after its mask was written is never written plain, whether
-    /// the next push carries the secret again or other text. Mutation: drop the carry's masked start,
-    /// so its leading bytes match no form and are written.
+    /// the next push carries the secret again or other text. Mutation: drop the carry's masked
+    /// start, so its leading bytes match no form and are written.
     #[test]
     fn a_masked_tail_in_the_carry_is_never_written_plain() {
         let redaction = redaction_of(&["abcd"]);

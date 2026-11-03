@@ -234,7 +234,8 @@ pub(crate) fn walk_paired_item<'steps>(
         if upstream.node_id == *target {
             return Ok(item);
         }
-        // A step nothing feeds, the trigger, starts every way back, so the label is not on this one.
+        // A step nothing feeds, the trigger, starts every way back, so the label is not on this
+        // one.
         if upstream_step.sources.is_empty() {
             return Err(LineageError::NotUpstream {
                 label: to_label.to_owned(),
@@ -295,8 +296,8 @@ mod tests {
             .expect("a source")
     }
 
-    /// One step of a fixture run: its node's id, which is also its label, its sources and the items of
-    /// its output 0.
+    /// One step of a fixture run: its node's id, which is also its label, its sources and the items
+    /// of its output 0.
     type FixtureStep<'id> = (&'id str, Vec<Option<WorkflowStepSource>>, Vec<WorkflowItem>);
 
     /// A run of `steps`, each the first execution of its node.
@@ -318,8 +319,8 @@ mod tests {
         step_outputs
     }
 
-    /// `start` → `first` (three items) → `second`, whose item 0 came from `first`'s item 2 through a
-    /// one-entry list → `third`, one item per item → the current step, reading its input item 0.
+    /// `start` → `first` (three items) → `second`, whose item 0 came from `first`'s item 2 through
+    /// a one-entry list → `third`, one item per item → the current step, reading its input item 0.
     #[test]
     fn a_one_to_one_chain_walks_back_to_the_labeled_node() {
         let steps = run(vec![
@@ -353,10 +354,10 @@ mod tests {
         assert_eq!(found.json.0, json!({ "third": 0 }));
     }
 
-    /// An item made from several answers `Ambiguous` naming the node that made it and the fixes, one
-    /// with no `pairedItem` answers `LineageMissing`, a label the item's way back never passes answers
-    /// `NotUpstream` rather than blaming the trigger, and a label no node has answers `UnknownLabel`.
-    /// Mutations: answer the trigger's missing lineage for a label off the path.
+    /// An item made from several answers `Ambiguous` naming the node that made it and the fixes,
+    /// one with no `pairedItem` answers `LineageMissing`, a label the item's way back never passes
+    /// answers `NotUpstream` rather than blaming the trigger, and a label no node has answers
+    /// `UnknownLabel`. Mutations: answer the trigger's missing lineage for a label off the path.
     #[test]
     fn a_collapse_a_missing_lineage_and_an_unknown_label_are_typed_errors() {
         let steps = run(vec![
@@ -420,8 +421,8 @@ mod tests {
         );
     }
 
-    /// A merge's item that arrived on input 1 walks back through the node feeding that slot, not the
-    /// node feeding slot 0.
+    /// A merge's item that arrived on input 1 walks back through the node feeding that slot, not
+    /// the node feeding slot 0.
     #[test]
     fn a_paired_items_input_picks_the_upstream_of_a_fan_in() {
         let steps = run(vec![
@@ -454,8 +455,8 @@ mod tests {
         assert_eq!(found.json.0, json!({ "right": 1 }));
     }
 
-    /// Records that feed two executions from each other end the walk with `LineageMissing` instead of
-    /// spinning the expression thread. Mutations: drop the bound on the walk.
+    /// Records that feed two executions from each other end the walk with `LineageMissing` instead
+    /// of spinning the expression thread. Mutations: drop the bound on the walk.
     #[test]
     fn a_cycle_in_the_records_ends_the_walk() {
         let steps = run(vec![

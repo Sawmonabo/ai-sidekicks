@@ -495,9 +495,10 @@ mod tests {
         }
     }
 
-    /// On a real clock, since the evaluation runs on its own thread outside tokio's: a step canceled
-    /// while its evaluation runs ends `Canceled` within a second of the cancel, a bound loose enough
-    /// for a debug build on a busy machine, every later evaluation of it too, and a sibling step on the same thread evaluates as if nothing happened.
+    /// On a real clock, since the evaluation runs on its own thread outside tokio's: a step
+    /// canceled while its evaluation runs ends `Canceled` within a second of the cancel, a bound
+    /// loose enough for a debug build on a busy machine, every later evaluation of it too, and a
+    /// sibling step on the same thread evaluates as if nothing happened.
     #[tokio::test]
     async fn a_canceled_step_ends_alone() {
         let evaluator = ExpressionEvaluator::start().expect("the thread starts");
@@ -539,8 +540,8 @@ mod tests {
         );
     }
 
-    /// `$all`, `$first` and `$last` by label read the labeled node's latest run and its first output
-    /// only.
+    /// `$all`, `$first` and `$last` by label read the labeled node's latest run and its first
+    /// output only.
     #[tokio::test]
     async fn a_label_reads_the_first_output_of_the_latest_run() {
         let mut steps = no_steps();
@@ -578,9 +579,9 @@ mod tests {
         );
     }
 
-    /// With the thread held and 256 jobs waiting, one more waits for room rather than being refused,
-    /// and all of them, the one that waited too, run once the thread is free. Mutations: refuse the
-    /// next job at once; drop a job while it waits for room.
+    /// With the thread held and 256 jobs waiting, one more waits for room rather than being
+    /// refused, and all of them, the one that waited too, run once the thread is free. Mutations:
+    /// refuse the next job at once; drop a job while it waits for room.
     #[tokio::test]
     async fn a_full_channel_holds_the_next_job_until_there_is_room() {
         let evaluator = ExpressionEvaluator::start().expect("the thread starts");
@@ -617,8 +618,8 @@ mod tests {
         }
     }
 
-    /// `$now(picture, offset)` formats the run's instant, not the clock's, at the offset, through the
-    /// call the step parsed once, for every item.
+    /// `$now(picture, offset)` formats the run's instant, not the clock's, at the offset, through
+    /// the call the step parsed once, for every item.
     #[tokio::test]
     async fn now_formats_the_runs_instant() {
         let evaluator = ExpressionEvaluator::start().expect("the thread starts");
@@ -650,8 +651,8 @@ mod tests {
     }
 
     /// On a real clock: a step canceled 50 ms into a `$distinct` over fifty thousand distinct
-    /// numbers, over a billion comparisons uncanceled, ends `Canceled` within a second of the cancel,
-    /// since the cancel is read at every element and not only once the call returns.
+    /// numbers, over a billion comparisons uncanceled, ends `Canceled` within a second of the
+    /// cancel, since the cancel is read at every element and not only once the call returns.
     #[tokio::test]
     async fn a_canceled_distinct_ends_within_its_bound() {
         let evaluator = ExpressionEvaluator::start().expect("the thread starts");
@@ -675,9 +676,9 @@ mod tests {
         assert!(canceled_at.elapsed() < Duration::from_secs(1));
     }
 
-    /// Object keys read in JavaScript's own-key order, the array-index keys first in ascending number
-    /// and every other key in its written order, both in an object an expression builds and in an
-    /// item's `json`, nested ones too.
+    /// Object keys read in JavaScript's own-key order, the array-index keys first in ascending
+    /// number and every other key in its written order, both in an object an expression builds and
+    /// in an item's `json`, nested ones too.
     #[tokio::test]
     async fn object_keys_read_in_javascript_order() {
         assert_eq!(

@@ -654,9 +654,9 @@ mod tests {
         serde_json::from_value(json).expect("the fixture reads")
     }
 
-    /// The step `current`, fed by `source`'s two items, in loop run 2 of a run whose instant is 15:00
-    /// UTC on 4 March 2025, which is already 5 March on Kiritimati. `empty` ran with no items; the
-    /// project holds a plain row and a credential-shaped one.
+    /// The step `current`, fed by `source`'s two items, in loop run 2 of a run whose instant is
+    /// 15:00 UTC on 4 March 2025, which is already 5 March on Kiritimati. `empty` ran with no
+    /// items; the project holds a plain row and a credential-shaped one.
     fn bindings() -> ExpressionBindings {
         let source_items: Vec<WorkflowItem> = vec![
             from_json(json!({ "json": { "name": "Bob" }, "pairedItem": { "item": 0 } })),
@@ -784,8 +784,8 @@ mod tests {
         );
     }
 
-    /// A read of `$env` by a credential's name is refused before evaluating, and a credential-shaped
-    /// row's value is never bound, so no spelling the refusal misses reaches it.
+    /// A read of `$env` by a credential's name is refused before evaluating, and a
+    /// credential-shaped row's value is never bound, so no spelling the refusal misses reaches it.
     #[test]
     fn env_never_answers_a_credentials_name() {
         assert!(matches!(
@@ -806,13 +806,15 @@ mod tests {
     /// A label no node has is a typed error naming it, read back from the evaluation.
     #[test]
     fn an_unknown_label_is_a_typed_error() {
-        assert!(matches!(
-            evaluated("$item('nowhere')"),
-            Err(ExpressionError::Lineage(LineageError::UnknownLabel { label })) if label == "nowhere"
-        ));
-        assert!(matches!(
-            evaluated("$first('nowhere')"),
-            Err(ExpressionError::Lineage(LineageError::UnknownLabel { label })) if label == "nowhere"
-        ));
+        for expression in ["$item('nowhere')", "$first('nowhere')"] {
+            assert!(
+                matches!(
+                    evaluated(expression),
+                    Err(ExpressionError::Lineage(LineageError::UnknownLabel { label }))
+                        if label == "nowhere"
+                ),
+                "{expression}"
+            );
+        }
     }
 }

@@ -1,5 +1,5 @@
-//! What a cancel does to a run's rows: the statements the engine's cancel writes in one unit of work
-//! with the run's canceled event, and a projection rebuild applies from that event alone.
+//! What a cancel does to a run's rows: the statements the engine's cancel writes in one unit of
+//! work with the run's canceled event, and a projection rebuild applies from that event alone.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;

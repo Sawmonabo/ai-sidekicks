@@ -390,8 +390,8 @@ mod tests {
     const FIRST_PROJECT_VALUE: &str = "project-hunter2-do-not-print";
     const REMOVING_VALUE: &str = "removing-hunter2-do-not-print";
 
-    /// The keychain holding the shared, first project and removing records' values, or refusing every
-    /// read; the unsealed record's keychain entry is missing.
+    /// The keychain holding the shared, first project and removing records' values, or refusing
+    /// every read; the unsealed record's keychain entry is missing.
     fn scripted_keychain(is_refusing: bool) -> Arc<ScriptedKeychain> {
         ScriptedKeychain::holding(
             &[
@@ -490,11 +490,12 @@ mod tests {
         .expect("the test kind's spec reads")
     }
 
-    /// A reference in a nested sensitive leaf resolves under its path, while the same reference in a
-    /// plain leaf and in the collection's plain field resolves to nothing and a sensitive leaf holding
-    /// plain text stays a plain value; a node with no sensitive string resolves to nothing and asks the
-    /// keychain nothing. Mutations: walk only the top level, so the nested secret never resolves;
-    /// resolve a reference whose leaf is not sensitive; refuse a sensitive leaf's plain text.
+    /// A reference in a nested sensitive leaf resolves under its path, while the same reference in
+    /// a plain leaf and in the collection's plain field resolves to nothing and a sensitive leaf
+    /// holding plain text stays a plain value; a node with no sensitive string resolves to nothing
+    /// and asks the keychain nothing. Mutations: walk only the top level, so the nested secret
+    /// never resolves; resolve a reference whose leaf is not sensitive; refuse a sensitive leaf's
+    /// plain text.
     #[tokio::test]
     async fn a_nested_sensitive_leaf_resolves_under_its_path() {
         let database = TestDatabase::new(schema_parts());
@@ -546,7 +547,8 @@ mod tests {
     /// project it is not found, in the first project it is that project's value, and in another
     /// project it is not found though the name is held elsewhere, while a `shared` reference of the
     /// same name reads the shared value. Mutations: a project reference read under the shared place
-    /// when the run has none; drop the `scope_ref` compare, so the second project reads the first's.
+    /// when the run has none; drop the `scope_ref` compare, so the second project reads the
+    /// first's.
     #[tokio::test]
     async fn a_reference_resolves_only_in_its_own_place() {
         let database = TestDatabase::new(schema_parts());
@@ -611,9 +613,9 @@ mod tests {
         );
     }
 
-    /// A keychain that refuses fails the step as `workflow.secret.storeUnavailable`, and neither the
-    /// refusal nor the answer it becomes names the value. Mutations: a refusing keychain read as no
-    /// value; the value written into the refusal.
+    /// A keychain that refuses fails the step as `workflow.secret.storeUnavailable`, and neither
+    /// the refusal nor the answer it becomes names the value. Mutations: a refusing keychain read
+    /// as no value; the value written into the refusal.
     #[tokio::test]
     async fn a_refusing_keychain_is_store_unavailable_without_naming_the_value() {
         let database = TestDatabase::new(schema_parts());
