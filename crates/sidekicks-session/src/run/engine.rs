@@ -678,9 +678,10 @@ impl RunEngine {
     }
 
     /// Whether `run_id`'s latest tool call `tool_call_id` in `session_id`'s log opened in a turn
-    /// an undo superseded, its late row arriving on the binding `binding_id`. A call that opened
-    /// in a kept turn or has no opening in the log is kept, and so is one whose binding has no
-    /// row, which only a purged session leaves. Fails as the reads do.
+    /// an undo superseded, its late row arriving on the binding `binding_id`. A call of a run no
+    /// undo cut, one that opened in a kept turn and one with no opening in the log are kept, and
+    /// so is one whose binding has no row, which only a purged session leaves. Fails as the reads
+    /// do.
     pub(crate) async fn read_tool_call_opening_turn(
         &self,
         session_id: SessionId,
@@ -698,7 +699,12 @@ impl RunEngine {
                     &run_id,
                 )
                 .map_err(TurnAttributionError::from)?;
+                // A run no undo cut supersedes nothing, so its row is kept without the opening's
+                // read; the guard still refuses it once a cut lands before its append.
                 let kept = ToolCallOpeningTurn::Kept { no_newer_rollback };
+                if turns.cuts.is_empty() {
+                    return Ok(kept);
+                }
                 let log_end = session_read_bound(&*read_damaged_from_sequence, &session_id, None);
                 let Some(opening) = RunTurnReads::new(reader, &*read_damaged_from_sequence)
                     .read_tool_call_opening_before(&session_id, &run_id, &tool_call_id, log_end)?
