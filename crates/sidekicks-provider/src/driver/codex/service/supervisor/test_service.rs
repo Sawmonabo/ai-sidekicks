@@ -642,7 +642,11 @@ fn resumed_thread(params: &Value, replies: &StandInReplies) -> Value {
         _ => "idle",
     };
     json!({
-        "thread": {"id": params["threadId"], "sessionId": "codex-session", "status": {"type": status}},
+        "thread": {
+            "id": params["threadId"],
+            "sessionId": "codex-session",
+            "status": {"type": status},
+        },
         "activePermissionProfile": {"id": params["permissions"]},
     })
 }
