@@ -35,8 +35,8 @@ pub struct StoredRollbackMismatchError {
 /// Why a run's superseded turns could not be read.
 #[derive(Debug, thiserror::Error)]
 pub enum SupersededTurnsReadError {
-    /// SQLite refused the read, or a payload column is not JSON.
-    #[error("the read of a run's rollbacks failed")]
+    /// SQLite refused a read, or a payload column is not JSON.
+    #[error("a database read for the run failed")]
     Database(#[from] rusqlite::Error),
     /// A stored rollback does not match its contract.
     #[error(transparent)]
