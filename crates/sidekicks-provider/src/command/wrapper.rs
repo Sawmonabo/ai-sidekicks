@@ -396,7 +396,7 @@ fn run_line_command(
     line: &OsStr,
     command: String,
 ) -> ExitCode {
-    let (records, requests) = join_channel(process_arguments);
+    let (records, mut requests) = join_channel(process_arguments);
     let state = Arc::new(Mutex::new(CommandState::NotStarted));
     pass_signals_to_group(&state, &records);
     let stdout_path = read_descriptor_path(io::stdout()).ok();
@@ -408,7 +408,6 @@ fn run_line_command(
             process: None,
         },
     );
-    let mut requests = requests;
     if let Some(requests) = requests.as_mut() {
         match wait_for_go(requests, &records) {
             GoWait::Go { is_covered } => {
