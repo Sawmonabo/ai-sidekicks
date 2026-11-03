@@ -4,6 +4,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
+use fixedbitset::FixedBitSet;
 use petgraph::algo::tarjan_scc;
 use petgraph::graph::{DiGraph, NodeIndex};
 use sidekicks_contracts::wire::text::NonEmptyText;
@@ -17,9 +18,6 @@ use sidekicks_contracts::workflow::definition::refusals::WorkflowNodeHandles;
 
 use crate::engine::tick::node_settings::main_output_count;
 use crate::kinds::NodeKindTable;
-
-/// How many places one word of a node's ancestor bits holds.
-const WORD_BITS: usize = 64;
 
 /// Why a run's graph could not be built from its pinned version.
 #[derive(Debug, thiserror::Error)]
@@ -93,11 +91,9 @@ pub(crate) struct RunGraph {
     trigger: usize,
     /// Each node's feeders along forward main edges, by place, each once.
     forward_feeders: Vec<Vec<usize>>,
-    /// Each node's ancestors along forward main edges as one bit per place, `words_per_node` words
-    /// a node, node after node, so a graph of n nodes keeps n² bits.
-    ancestor_bits: Vec<u64>,
-    /// How many 64-bit words one node's ancestor bits take.
-    words_per_node: usize,
+    /// Each node's ancestors along forward main edges as one bit per place, so a graph of n nodes
+    /// keeps n² bits.
+    ancestors: Vec<FixedBitSet>,
 }
 
 impl RunGraph {
@@ -207,15 +203,13 @@ impl RunGraph {
             .get(trigger)
             .expect("a run's trigger is a node of its pinned version");
         let forward_feeders = forward_feeders(&graph_nodes, &is_loop);
-        let words_per_node = graph_nodes.len().div_ceil(WORD_BITS);
-        let ancestor_bits = forward_ancestor_bits(&forward_feeders, words_per_node);
+        let ancestors = forward_ancestors(&forward_feeders);
         Ok(Self {
             nodes: graph_nodes,
             places,
             trigger,
             forward_feeders,
-            ancestor_bits,
-            words_per_node,
+            ancestors,
         })
     }
 
@@ -250,12 +244,7 @@ impl RunGraph {
     /// first; two nodes of one loop are never each other's ancestors.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn ancestors(&self, place: usize) -> impl Iterator<Item = usize> + '_ {
-        let words = &self.ancestor_bits[place * self.words_per_node..][..self.words_per_node];
-        words.iter().enumerate().flat_map(|(word_index, &word)| {
-            (0..WORD_BITS)
-                .filter(move |bit| word & (1 << bit) != 0)
-                .map(move |bit| word_index * WORD_BITS + bit)
-        })
+        self.ancestors[place].ones()
     }
 
     /// The places of the nodes that feed the node at `place` along forward main edges, each once;
@@ -335,23 +324,23 @@ fn forward_feeders(nodes: &[RunGraphNode], is_loop: &[bool]) -> Vec<Vec<usize>> 
     feeders
 }
 
-/// Each node's ancestors along `forward_feeders` as `words_per_node` words of one bit per place,
-/// node after node.
+/// Each node's ancestors along `forward_feeders`, one bit per place.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-fn forward_ancestor_bits(forward_feeders: &[Vec<usize>], words_per_node: usize) -> Vec<u64> {
-    let mut bits = vec![0; forward_feeders.len() * words_per_node];
-    for (place, feeders) in forward_feeders.iter().enumerate() {
-        let words = &mut bits[place * words_per_node..][..words_per_node];
-        let mut pending = feeders.clone();
-        while let Some(feeder) = pending.pop() {
-            let (word, bit) = (feeder / WORD_BITS, 1 << (feeder % WORD_BITS));
-            if words[word] & bit == 0 {
-                words[word] |= bit;
-                pending.extend(&forward_feeders[feeder]);
+fn forward_ancestors(forward_feeders: &[Vec<usize>]) -> Vec<FixedBitSet> {
+    let node_count = forward_feeders.len();
+    forward_feeders
+        .iter()
+        .map(|feeders| {
+            let mut ancestors = FixedBitSet::with_capacity(node_count);
+            let mut pending = feeders.clone();
+            while let Some(feeder) = pending.pop() {
+                if !ancestors.put(feeder) {
+                    pending.extend(&forward_feeders[feeder]);
+                }
             }
-        }
-    }
-    bits
+            ancestors
+        })
+        .collect()
 }
 
 /// The refusal of an edge naming `handle` on `node_id`, whose kind declares no such main handle.

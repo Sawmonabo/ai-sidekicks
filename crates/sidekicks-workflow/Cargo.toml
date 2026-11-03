@@ -34,6 +34,7 @@ blake3.workspace = true
 croner.workspace = true
 csv.workspace = true
 dugong.workspace = true
+fixedbitset.workspace = true
 flate2.workspace = true
 form_urlencoded.workspace = true
 futures.workspace = true

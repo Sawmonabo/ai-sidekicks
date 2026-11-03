@@ -243,6 +243,7 @@ file-format.features = [
   "reader-sqlite3",
   "reader-xml"
 ]
+fixedbitset = "0.5.7"
 # A GIF's header read with its metadata bounded: `image`'s GIF decoder passes no memory limit.
 gif = "0.14.2"
 icu_casemap = "2.3.0"
