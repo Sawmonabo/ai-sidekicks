@@ -1,40 +1,17 @@
-use serde_json::{Value, json};
+use serde_json::json;
 
-use super::{helper_started, init, result};
+use super::result;
 use crate::driver::claude::session::scripted::daemon_services::PortCall;
+use crate::driver::claude::session::scripted::held_calls::{
+    export_calls, helper_started, init, stand_in,
+};
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
 };
 use crate::run::delivery::LateAppendableRow;
 
-// The lead's call `call_id` of a tool server's tool that runs in the background.
-fn export_call(call_id: &str) -> Value {
-    json!({
-        "type": "assistant",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "message": {
-            "id": "message-1",
-            "role": "assistant",
-            "content": [
-                {"type": "tool_use", "id": call_id, "name": "mcp__files__export", "input": {}},
-            ],
-        },
-    })
-}
-
-// The stand-in result Claude Code answers a background call with at once.
-fn stand_in(call_id: &str) -> Value {
-    json!({
-        "type": "user",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "message": {
-            "role": "user",
-            "content": [
-                {"type": "tool_result", "tool_use_id": call_id, "content": "Running in the background"},
-            ],
-        },
-    })
-}
+// The words of Claude Code's stand-in result for a call it moved to the background.
+const RUNNING: &str = "Running in the background";
 
 // Fails when a held call's move to the background, read once its opening run ended and a newer
 // binding holds the turn, or its close lands anywhere but after the run that opened the call, on
@@ -52,12 +29,12 @@ async fn a_held_call_ending_after_its_turn_lands_after_its_run_on_its_own_bindin
     let run_a = session.hold_lead_turn("binding-a");
 
     session.frame(&init());
-    session.frame(&export_call("call-1"));
+    session.frame(&export_calls(&["call-1"]));
     // Run B's message, written mid-turn, holds the turn as the call's task starts and parks it.
     session.start.routes.unbind_run(run_a);
     session.hold_lead_turn("binding-b");
     session.frame(&helper_started("task-1", "mcp_task", "call-1"));
-    session.frame(&stand_in("call-1"));
+    session.frame(&stand_in("call-1", RUNNING));
     session.frame(&json!({
         "type": "system",
         "subtype": "task_progress",
@@ -170,28 +147,9 @@ async fn a_tool_servers_background_call_closes_on_its_task_notification() {
     };
 
     session.frame(&init());
-    session.frame(&json!({
-        "type": "assistant",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "message": {
-            "id": "message-1",
-            "role": "assistant",
-            "content": [
-                {"type": "tool_use", "id": "call-1", "name": "mcp__files__export", "input": {}},
-            ],
-        },
-    }));
+    session.frame(&export_calls(&["call-1"]));
     session.frame(&helper_started("task-1", "mcp_task", "call-1"));
-    session.frame(&json!({
-        "type": "user",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "message": {
-            "role": "user",
-            "content": [
-                {"type": "tool_result", "tool_use_id": "call-1", "content": "Running in the background"},
-            ],
-        },
-    }));
+    session.frame(&stand_in("call-1", RUNNING));
     session.frame(&json!({
         "type": "system",
         "subtype": "background_tasks_changed",

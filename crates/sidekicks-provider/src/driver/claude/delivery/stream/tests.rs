@@ -10,6 +10,7 @@ use sidekicks_std::mutex_lock::lock;
 
 use super::daemon_ends::ClaudeDaemonEndSettlement;
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::session::scripted::held_calls::{helper_started, init};
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
 };
@@ -27,15 +28,6 @@ use crate::runtime_binding::test_store::test_provider_account_id;
 mod exit;
 mod held_calls;
 mod resume;
-
-fn init() -> Value {
-    json!({
-        "type": "system",
-        "subtype": "init",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "model": "opus",
-    })
-}
 
 fn result(members: &Value) -> Value {
     let mut frame = json!({
@@ -552,17 +544,6 @@ fn usage_message(message_id: &str, agent_id: Option<&str>, input: u64, output: u
         frame.insert("agent_id".to_owned(), Value::from(agent_id));
     }
     frame
-}
-
-fn helper_started(task_id: &str, task_type: &str, tool_use_id: &str) -> Value {
-    json!({
-        "type": "system",
-        "subtype": "task_started",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "task_id": task_id,
-        "task_type": task_type,
-        "tool_use_id": tool_use_id,
-    })
 }
 
 // Fails when a helper's spend is recorded as the lead's, when a message read twice counts twice,

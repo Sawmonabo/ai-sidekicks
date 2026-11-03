@@ -6,6 +6,7 @@
 pub(crate) mod channel;
 pub(crate) mod daemon_services;
 pub(crate) mod driver;
+pub(crate) mod held_calls;
 pub(crate) mod starts;
 
 use std::io;

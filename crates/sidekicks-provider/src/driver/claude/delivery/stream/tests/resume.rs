@@ -1,150 +1,18 @@
-use std::error::Error;
-use std::path::Path;
-use std::sync::Arc;
-
-use futures::FutureExt;
-use futures::future::BoxFuture;
 use jiff::{SignedDuration, Timestamp};
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::event::declared_variants::ToolCallEndCause;
-use sidekicks_contracts::event::envelope::EventOccurredAt;
-use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::provider::tool_call::ToolCallId;
-use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_std::port_registration::PortRegistration;
 
 use super::{helper_started, init, result};
 use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeKeptCallsSource;
 use crate::driver::claude::session::scripted::driver::{ScriptedDriver, resume_params};
+use crate::driver::claude::session::scripted::held_calls::{
+    Ending, closes, held_call, logged_held_calls, record, registered, write_kept_files,
+};
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
 };
 use crate::driver::test_registry::new_run_id;
-use crate::port::held_tool_calls::{HeldToolCall, HeldToolCallReads};
-use crate::port::run_host::test_host::RecordedDelivery;
-use crate::run::delivery::LateAppendableRow;
-
-// A session log's held calls, answered as given.
-struct LoggedHeldCalls(Vec<HeldToolCall>);
-
-impl HeldToolCallReads for LoggedHeldCalls {
-    fn read_held_tool_calls(
-        &self,
-        _session_id: SessionId,
-    ) -> BoxFuture<'_, Result<Vec<HeldToolCall>, Box<dyn Error + Send + Sync>>> {
-        std::future::ready(Ok(self.0.clone())).boxed()
-    }
-}
-
-// The log's held call `call_id` of the task `task_id`, on `run_id` and `binding`, opened at
-// `invoked_at` and settled for `end_cause`.
-fn held_call(
-    call_id: &str,
-    task_id: &str,
-    (run_id, binding): (RunId, &str),
-    invoked_at: Option<Timestamp>,
-    end_cause: Option<ToolCallEndCause>,
-) -> HeldToolCall {
-    HeldToolCall {
-        run_id,
-        binding_id: binding_id(binding),
-        tool_call_id: ToolCallId::new(call_id.to_owned()).expect("a call id fits"),
-        tool_name: FreeFormText::new("mcp__files__export".to_owned()).expect("a tool name fits"),
-        task_id: FreeFormText::new(task_id.to_owned()).expect("a task id fits"),
-        survives_restart: true,
-        invoked_at: invoked_at.and_then(EventOccurredAt::from_timestamp),
-        end_cause,
-    }
-}
-
-// Writes the conversation `conversation`'s file under `config_folder` and, beside it, the kept
-// files `files`.
-fn write_kept_files(config_folder: &Path, conversation: &str, files: &[(&str, Value)]) {
-    let project = config_folder.join("projects").join("p");
-    let kept = project.join(conversation).join("mcp-tasks");
-    std::fs::create_dir_all(&kept).expect("the kept folder is made");
-    std::fs::write(project.join(format!("{conversation}.jsonl")), "")
-        .expect("the conversation file is written");
-    for (name, contents) in files {
-        std::fs::write(kept.join(name), contents.to_string()).expect("a kept file is written");
-    }
-}
-
-// A call's record, which says it still runs.
-fn record(call_id: &str) -> Value {
-    json!({"toolUseId": call_id, "serverName": "files", "toolName": "export"})
-}
-
-// How a call closed: completed, or failed with why where it ended with no result.
-#[derive(Debug, PartialEq)]
-enum Ending {
-    Completed,
-    Failed(Option<ToolCallEndCause>),
-}
-
-// One close of a tool call.
-#[derive(Debug, PartialEq)]
-struct Close {
-    tool_call_id: String,
-    kind: &'static str,
-    binding_id: Option<RuntimeBindingId>,
-    run_id: RunId,
-    ending: Ending,
-    content: Option<String>,
-    duration_ms: Option<u64>,
-}
-
-// Each close of a tool call delivered so far, sorted by the call's id.
-fn closes(deliveries: Vec<RecordedDelivery>) -> Vec<Close> {
-    let mut closes: Vec<_> = deliveries
-        .into_iter()
-        .filter_map(|delivery| {
-            let row = delivery.row?;
-            let (tool_call_id, run_id, duration_ms, ending) =
-                if let LateAppendableRow::AgentToolCallCompleted(activity) = row {
-                    (
-                        activity.tool_call_id?,
-                        activity.run_id,
-                        activity.duration_ms,
-                        Ending::Completed,
-                    )
-                } else if let LateAppendableRow::AgentToolCallFailed(failed) = row {
-                    (
-                        failed.tool_call_id?,
-                        failed.run_id,
-                        failed.duration_ms,
-                        Ending::Failed(failed.end_cause),
-                    )
-                } else {
-                    return None;
-                };
-            Some(Close {
-                tool_call_id: tool_call_id.as_str().to_owned(),
-                kind: delivery.kind,
-                binding_id: delivery.binding_id,
-                run_id,
-                ending,
-                content: delivery.content,
-                duration_ms: duration_ms.map(SafeInt::get),
-            })
-        })
-        .collect();
-    closes.sort_by(|left, right| left.tool_call_id.cmp(&right.tool_call_id));
-    closes
-}
-
-// The held calls of `calls`, read through a registered read.
-fn registered(calls: Vec<HeldToolCall>) -> PortRegistration<Arc<dyn HeldToolCallReads>> {
-    let held_calls = PortRegistration::new("held tool calls");
-    held_calls
-        .register(Arc::new(LoggedHeldCalls(calls)) as _)
-        .expect("the read registers once");
-    held_calls
-}
 
 // Fails when a resume leaves the log's held calls unrebuilt, ignores a saved ending, or times a
 // rebuilt opening from the rebuild rather than its stored time. Mutations: the hook in
@@ -161,18 +29,21 @@ async fn a_resume_rebuilds_the_held_calls_from_the_log_and_the_kept_files() {
         .services
         .ports
         .held_tool_calls
-        .register(Arc::new(LoggedHeldCalls(vec![
-            held_call(
-                "call-5",
-                "task-5",
-                run,
-                None,
-                Some(ToolCallEndCause::DaemonRestart),
-            ),
-            held_call("call-3", "task-3", run, None, None),
-            held_call("call-2", "task-2", run, None, None),
-            held_call("call-1", "task-1", run, Some(invoked_at), None),
-        ])) as _)
+        .register(logged_held_calls(
+            vec![
+                held_call(
+                    "call-5",
+                    "task-5",
+                    run,
+                    None,
+                    Some(ToolCallEndCause::DaemonRestart),
+                ),
+                held_call("call-3", "task-3", run, None, None),
+                held_call("call-2", "task-2", run, None, None),
+                held_call("call-1", "task-1", run, Some(invoked_at), None),
+            ],
+            &fixture.engine,
+        ))
         .expect("the read registers once");
     write_kept_files(
         &fixture.home.join(".claude"),
@@ -258,16 +129,19 @@ async fn a_restored_call_and_a_daemon_settled_one_land_their_endings() {
         &[("mcp-task-task-3.meta.json", record("call-3"))],
     );
     let run = (new_run_id(), "binding-a");
-    let held_calls = registered(vec![
-        held_call(
-            "call-5",
-            "task-5",
-            run,
-            None,
-            Some(ToolCallEndCause::DaemonRestart),
-        ),
-        held_call("call-3", "task-3", run, None, None),
-    ]);
+    let held_calls = registered(
+        vec![
+            held_call(
+                "call-5",
+                "task-5",
+                run,
+                None,
+                Some(ToolCallEndCause::DaemonRestart),
+            ),
+            held_call("call-3", "task-3", run, None, None),
+        ],
+        &session.engine,
+    );
     session
         .parts
         .establishment
@@ -366,7 +240,10 @@ async fn a_restored_call_waits_until_the_first_list_or_reply(
         .delivery
         .rebuild_held_calls(
             &session.stream,
-            &registered(vec![held_call("call-4", "task-4", run, None, None)]),
+            &registered(
+                vec![held_call("call-4", "task-4", run, None, None)],
+                &session.engine,
+            ),
             &ClaudeKeptCallsSource::new(
                 Some(config_folder.path().to_owned()),
                 conversation.to_owned(),
