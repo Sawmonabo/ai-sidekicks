@@ -5,7 +5,9 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_provider::run::delivery::{InboundDelivery, InboundOutcome, LateAppendableRow};
+use sidekicks_provider::run::delivery::{
+    InboundDelivery, InboundOutcome, LateAppendableRow, LateEventAbsorbReason,
+};
 
 use super::Harness;
 use crate::run::epochs::ConfirmedCut;
@@ -15,21 +17,21 @@ use crate::run::epochs::ConfirmedCut;
 enum CursorState {
     // Open as the run's start left it.
     Open,
-    // Frozen by a fork and restart onto a new binding.
+    // Frozen by a fork and restart onto a new binding, so its row is from a turn the cut took.
     FrozenByAForkRestart,
     // Dropped with its binding.
     Dropped,
 }
 
-// Killed by the arm attributing on its binding's cursor: a dropped cursor fails `NotOpen`, a frozen
-// one stamps the frozen pair (`AppendedStamped`) or absorbs the row as from before the cut; and by
+// Killed by the arm not gated on a cut's freeze, which appends the frozen cursor's row; by a dropped
+// cursor failing `NotOpen` or an open one absorbing the row; by a stamp on an appended row; and by
 // a body dropped, or one written for a row that has none.
 #[rstest]
 #[case::open(CursorState::Open, Some("Exported 3 files"))]
 #[case::frozen_by_a_fork_restart(CursorState::FrozenByAForkRestart, None)]
 #[case::dropped(CursorState::Dropped, None)]
 #[tokio::test]
-async fn inbound_appends_an_after_run_row_as_it_is_whatever_its_cursor_holds(
+async fn inbound_appends_an_after_run_row_as_it_is_unless_a_cut_froze_its_binding(
     #[case] cursor: CursorState,
     #[case] body: Option<&'static str>,
 ) {
@@ -71,6 +73,8 @@ async fn inbound_appends_an_after_run_row_as_it_is_whatever_its_cursor_holds(
         )
     };
 
+    let stored_before = harness.stored_event_count();
+
     let outcome = harness
         .dispatched(InboundDelivery::AfterRunRow {
             binding_id: harness.binding_id.clone(),
@@ -79,6 +83,16 @@ async fn inbound_appends_an_after_run_row_as_it_is_whatever_its_cursor_holds(
         })
         .await;
 
+    if let CursorState::FrozenByAForkRestart = cursor {
+        assert_eq!(
+            outcome,
+            InboundOutcome::Absorbed {
+                reason: LateEventAbsorbReason::BeforeCut,
+            }
+        );
+        assert_eq!(harness.stored_event_count(), stored_before);
+        return;
+    }
     let InboundOutcome::Appended { event_id } = outcome else {
         panic!("the row is appended as it is: {outcome:?}");
     };

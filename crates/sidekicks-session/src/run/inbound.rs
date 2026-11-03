@@ -6,8 +6,8 @@
 //! piece of a reply or of reasoning once no turn of its ended run is open; any other row is
 //! appended, stamped with its source pair when it is late, a reasoning update among them with its
 //! body. A session notice or session row belongs to no execution and is appended as it is, and so
-//! is a run's row that lands after its run: unstamped, on that run's own binding, whatever its
-//! cursor holds.
+//! is a run's row that lands after its run, unstamped, on that run's own binding, unless a cut
+//! froze that binding: then it belongs to the turns the cut took and is absorbed.
 
 mod absorb;
 #[cfg(test)]
@@ -290,8 +290,9 @@ impl RunInboundDispatch {
     }
 
     // Attributes `delivery` and settles what needs no write: a turn boundary, a delivery from
-    // before a cut, a permission ask and a live state. A session notice, a row about the session or
-    // the machine and a run's row that lands after its run are appended without attributing.
+    // before a cut, a permission ask and a live state. A session notice and a row about the session
+    // or the machine are appended without attributing, and so is a run's row that lands after its
+    // run unless its binding froze at a cut.
     fn attribute(&self, delivery: InboundDelivery<'_>) -> Result<Attributed, EpochCursorError> {
         let (binding, absorbable) = match delivery {
             InboundDelivery::SessionNotice { session_id, notice } => {
@@ -323,7 +324,14 @@ impl RunInboundDispatch {
                     None,
                 ));
             }
-            InboundDelivery::AfterRunRow { row, content, .. } => {
+            InboundDelivery::AfterRunRow {
+                binding_id,
+                row,
+                content,
+            } => {
+                if let Some(absorbed) = self.absorb_after_cut(&binding_id)? {
+                    return Ok(Attributed::Settled(absorbed));
+                }
                 let (session_id, event, source) = row.into_event(None);
                 return Ok(appended(
                     session_id,
@@ -493,6 +501,34 @@ impl RunInboundDispatch {
         let mut epochs = self.lock_epochs();
         let attribution = epochs.attribute(&binding.binding_id, binding.operation)?;
         Ok((attribution, epochs.binding(&binding.binding_id)?.clone()))
+    }
+
+    // Absorbs a run's row that lands after its run on `binding_id` once a cut froze that binding,
+    // as the turns the cut took ended with it; `None` for a binding not frozen, and for one whose
+    // cursor is gone, since its run ended with no cut left to fence.
+    fn absorb_after_cut(
+        &self,
+        binding_id: &RuntimeBindingId,
+    ) -> Result<Option<InboundOutcome>, EpochCursorError> {
+        let mut epochs = self.lock_epochs();
+        let attribution = match epochs.attribute(binding_id, None) {
+            Ok(attribution) => attribution,
+            Err(EpochCursorError::NotOpen { .. }) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let DeliveryAttribution::BeforeCut { .. } = attribution else {
+            return Ok(None);
+        };
+        Ok(Some(absorb(
+            epochs.binding(binding_id)?,
+            &AbsorbedDelivery {
+                kind: "afterRunRow",
+                run_id: None,
+                new_state: None,
+            },
+            LateEventAbsorbReason::BeforeCut,
+            attribution,
+        )))
     }
 
     // Counts a turn boundary; one from before a cut is absorbed.
