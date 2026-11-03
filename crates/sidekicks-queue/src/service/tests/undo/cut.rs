@@ -10,10 +10,12 @@ use std::sync::atomic::Ordering;
 use rstest::rstest;
 use rusqlite::Connection;
 use rusqlite::types::Value as SqlValue;
-use sidekicks_contracts::event::envelope::SourcePosition;
+use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::run::control::{AgentRunRecoveryResolvedPayload, RunRecoveryChoice};
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::restore::SessionRestoreTarget;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::rewind::RewindConversationResult;
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
@@ -240,8 +242,10 @@ async fn an_applied_cut_lands_with_its_companions() {
 }
 
 // A checkpoint a cut already cut away is left out of the session's list, and a second cut to it
-// refuses before the provider is asked. Killed by the list keeping a superseded checkpoint, and by
-// the checkpoint's read not refusing one.
+// refuses before the provider is asked, while the checkpoint of the turn the run opens again at
+// the same position, in the epoch the cut opened, is listed. Killed by the list keeping a
+// superseded checkpoint, by the list's filter reading the position without the epoch, and by the
+// checkpoint's read not refusing one.
 #[tokio::test]
 async fn a_checkpoint_a_cut_cut_away_is_unlisted_and_refused() {
     let scene = scene(applied_in_place()).await;
@@ -255,6 +259,14 @@ async fn a_checkpoint_a_cut_cut_away_is_unlisted_and_refused() {
         .cut_conversation(&hold, &scene.target, RollbackCompanions::default())
         .await
         .expect("the cut applies");
+    let message_sequence = fixture.insert_sent_message(scene.run_id);
+    let reopened = fixture
+        .insert_checkpoint(
+            scene.run_id,
+            message_sequence,
+            SourceEpoch(SafeInt::new(1).expect("a small epoch")),
+        )
+        .await;
 
     let listed = list_checkpoints(&fixture.database.reader(), |_| None, fixture.session_id)
         .expect("the session's checkpoints read");
@@ -263,7 +275,13 @@ async fn a_checkpoint_a_cut_cut_away_is_unlisted_and_refused() {
         .cut_conversation(&hold, &scene.target, RollbackCompanions::default())
         .await;
 
-    assert!(listed.is_empty(), "{listed:?}");
+    let listed: Vec<SessionRestoreTarget> = listed
+        .into_iter()
+        .map(|stored| SessionRestoreTarget::Snapshot {
+            snapshot_id: stored.checkpoint.checkpoint_id,
+        })
+        .collect();
+    assert_eq!(listed, [reopened]);
     assert!(
         matches!(again, Err(ConversationCutError::Superseded)),
         "{again:?}"
