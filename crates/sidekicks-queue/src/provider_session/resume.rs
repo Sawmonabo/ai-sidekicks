@@ -352,30 +352,37 @@ impl ProviderSessions {
         };
         // A continue reached its lead only where the provider runs the lead's turn on; one it did
         // not take up is given back, so the next relaunch of that lead carries it.
-        if let Some(lead_run_id) = continued_lead_id
-            && !runs.iter().any(|run| {
+        let claims = if continued_lead_id.is_some_and(|lead_run_id| {
+            !runs.iter().any(|run| {
                 run.run_id == lead_run_id && run.turn == ProviderTurnAnswer::StillRunning
             })
-            && let Err(cause) = self.release_marks(claims).await
-        {
-            let unreleased = ProviderSessionError::KeptAnswers { session_id, cause };
-            self.deps.binding_cursors.forget_binding(&minted_id);
-            // A process this relaunch brought up is closed, as one whose runs were not taken is.
-            return Err(if binding_id == minted_id {
-                close_unrecorded(driver.as_ref(), session_id, unreleased).await
-            } else {
-                unreleased
-            });
-        }
+        }) {
+            if let Err(cause) = self.release_marks(claims).await {
+                let unreleased = ProviderSessionError::KeptAnswers { session_id, cause };
+                self.deps.binding_cursors.forget_binding(&minted_id);
+                // A process this relaunch brought up is closed, as one whose runs were not taken
+                // is.
+                return Err(if binding_id == minted_id {
+                    close_unrecorded(driver.as_ref(), session_id, unreleased).await
+                } else {
+                    unreleased
+                });
+            }
+            Vec::new()
+        } else {
+            claims
+        };
         let named_run_ids = runs.iter().map(|run| run.run_id).collect();
         // Each run the resume named is settled before the binding is recorded, so none goes live
-        // on the resumed process ahead of its settlement.
+        // on the resumed process ahead of its settlement. A failure from here on gives the
+        // continue back, so the next relaunch carries it.
         let taken = self.take_resumed_runs(session_id, runs).await;
         let is_binding_recorded = binding_id == minted_id;
         if is_binding_recorded {
             if let Err(untaken) = taken {
                 self.deps.binding_cursors.forget_binding(&minted_id);
-                return Err(close_unrecorded(driver.as_ref(), session_id, untaken).await);
+                let untaken = close_unrecorded(driver.as_ref(), session_id, untaken).await;
+                return Err(self.release_marks_after(session_id, claims, untaken).await);
             }
             // A provider that continued the conversation in a new one left the old one behind.
             let left_conversations = leg
@@ -401,13 +408,19 @@ impl ProviderSessions {
                 })
                 .await;
             if let Err(unrecorded) = recorded {
-                return Err(close_unrecorded(driver.as_ref(), session_id, unrecorded.into()).await);
+                let unrecorded =
+                    close_unrecorded(driver.as_ref(), session_id, unrecorded.into()).await;
+                return Err(self
+                    .release_marks_after(session_id, claims, unrecorded)
+                    .await);
             }
         } else {
             // A process already up answered on the binding that brought it up, which has its
             // cursor and its row.
             self.deps.binding_cursors.forget_binding(&minted_id);
-            taken?;
+            if let Err(untaken) = taken {
+                return Err(self.release_marks_after(session_id, claims, untaken).await);
+            }
         }
         Ok((
             Some(OpenedSession {

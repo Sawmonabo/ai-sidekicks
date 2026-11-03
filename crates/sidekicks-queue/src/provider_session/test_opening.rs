@@ -5,6 +5,7 @@
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
@@ -180,10 +181,12 @@ pub fn test_execution_postures() -> Arc<ExecutionPostureService> {
 pub type ResumedRunsHook = Box<dyn Fn(&ResumedRuns) + Send + Sync>;
 
 /// A resumed runs' ingress standing in for the provider sessions' tests, settling nothing and
-/// recording each resume's runs it was handed, after running its hook on them.
+/// recording each resume's runs it was handed, after running its hook on them; while refused, it
+/// fails each take instead.
 pub struct RecordedResumedRuns {
     taken: Mutex<Vec<ResumedRuns>>,
     on_take: ResumedRunsHook,
+    is_refused: AtomicBool,
 }
 
 impl RecordedResumedRuns {
@@ -192,7 +195,13 @@ impl RecordedResumedRuns {
         Self {
             taken: Mutex::new(Vec::new()),
             on_take,
+            is_refused: AtomicBool::new(false),
         }
+    }
+
+    /// Fails every take from now on while `is_refused`, as a settle whose write fails.
+    pub fn set_refused(&self, is_refused: bool) {
+        self.is_refused.store(is_refused, Ordering::SeqCst);
     }
 
     /// Each resume's runs it was handed, in order.
@@ -220,6 +229,9 @@ impl ResumedRunsIngress for RecordedResumedRuns {
         &self,
         resumed: ResumedRuns,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        if self.is_refused.load(Ordering::SeqCst) {
+            return async { Err("the resumed runs' settle failed".into()) }.boxed();
+        }
         (self.on_take)(&resumed);
         lock(&self.taken).push(resumed);
         async { Ok(()) }.boxed()

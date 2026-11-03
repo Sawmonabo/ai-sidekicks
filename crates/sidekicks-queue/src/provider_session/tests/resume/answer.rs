@@ -1,10 +1,12 @@
 //! A held lead continued once the person answered: the resume carries the answers owed it only
 //! while the lead runs, each answer once, and owes it again to the next resume when the provider
-//! refused the one that carried it or resumed without continuing the lead.
+//! refused the one that carried it or resumed without continuing the lead, or when the resume's
+//! runs could not be settled or its binding recorded.
 
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
+use rstest::rstest;
 use rusqlite::params;
 use sidekicks_contracts::approval::{ApprovalDecision, ApprovalRequestId};
 use sidekicks_contracts::run::id::RunId;
@@ -151,6 +153,49 @@ async fn a_continue_the_lead_never_took_owes_its_answer_to_the_next() {
         .await
         .expect("the resume answers without the lead");
     opening.is_continue_dropped.store(false, Ordering::SeqCst);
+    resume_after_answer(&opening)
+        .await
+        .expect("the next continue resumes the lead");
+
+    let entries: Vec<_> = lock(&carried)
+        .iter()
+        .map(|carried| carried.as_ref().map(|carried| carried.entries.clone()))
+        .collect();
+    assert_eq!(entries, [Some(vec![entry.clone()]), Some(vec![entry])]);
+}
+
+// Where a resume the provider accepted fails on the daemon's side.
+#[derive(Clone, Copy, Debug)]
+enum AcceptedResumeFailure {
+    // Settling the runs the resume named fails.
+    RunsUnsettled,
+    // Recording the binding the resume ran under fails.
+    BindingUnrecorded,
+}
+
+// A continue whose resume the provider accepted, but whose runs could not be settled or whose
+// binding could not be recorded, gives its answer back, so the next continue carries it again.
+// Killed by the give-back on that path dropped (the second continue resumes nothing).
+#[rstest]
+#[case::runs_unsettled(AcceptedResumeFailure::RunsUnsettled)]
+#[case::binding_unrecorded(AcceptedResumeFailure::BindingUnrecorded)]
+#[tokio::test]
+async fn a_continue_failed_after_its_resume_owes_its_answer_to_the_next(
+    #[case] failure: AcceptedResumeFailure,
+) {
+    let (opening, carried, entry) = held_lead().await;
+    let fail = |is_failing: bool| match failure {
+        AcceptedResumeFailure::RunsUnsettled => opening.resumed_runs.set_refused(is_failing),
+        AcceptedResumeFailure::BindingUnrecorded => {
+            opening.is_row_taken.store(is_failing, Ordering::SeqCst);
+        }
+    };
+    fail(true);
+
+    resume_after_answer(&opening)
+        .await
+        .expect_err("the continue fails after its resume");
+    fail(false);
     resume_after_answer(&opening)
         .await
         .expect("the next continue resumes the lead");
