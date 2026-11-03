@@ -484,8 +484,10 @@ pub fn read_checkpoint(
 }
 
 /// `session_id`'s checkpoints, oldest prompt first, but those a later undo cut away, read from the
-/// log as far as `read_damaged_from_sequence` lets it read. Fails as SQLite does, or when a stored
-/// column or rollback does not read.
+/// log as far as `read_damaged_from_sequence` lets it read. Fails with the rollbacks' read error,
+/// which also carries this list's own: [`SupersededTurnsReadError::Database`] when SQLite refuses
+/// the checkpoints' read or a run's rollbacks' read, or a stored column does not read, and
+/// [`SupersededTurnsReadError::Rollback`] when a stored rollback does not.
 pub fn list_checkpoints(
     connection: &Connection,
     read_damaged_from_sequence: impl Fn(&SessionId) -> Option<i64>,

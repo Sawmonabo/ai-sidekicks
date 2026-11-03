@@ -260,9 +260,9 @@ pub(crate) type RunEventDraft =
 /// appended just before the write's own. A statement refusing refuses the whole write.
 #[derive(Clone, Default)]
 pub struct RunWriteCompanions {
-    /// Statements run after the swap.
+    /// Statements run after the run write moves the run's row.
     pub statements: Vec<WriteStatement>,
-    /// Events appended just before the change's own.
+    /// Events appended just before the run write's own.
     pub preceding_events: Vec<SessionEventDraft>,
     /// An event drafted again at each attempt from the run it read, appended before every other
     /// preceding event.
@@ -293,7 +293,7 @@ pub enum RunWriteError {
         #[source]
         source: Box<SessionEventAppendError>,
     },
-    /// The change's event or a preceding one breaks a check of its type.
+    /// The run write's event or a preceding one breaks a check of its type.
     #[error("the run write's event could not be drafted")]
     Draft(#[from] SessionEventDraftError),
     /// A rollback refused because a run it cuts holds a turn with no end, which must end before

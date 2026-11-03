@@ -359,8 +359,9 @@ async fn a_volume_folder_is_kept_once_per_session() {
     );
 }
 
-// Kills a second outcome under a key overwriting the first, and the read by key alone, which hands
-// one session the outcome another session's undo saved.
+// Kills a second outcome under a key overwriting the first, the read by key alone, which hands
+// one session the outcome another session's undo saved, and the table keyed on the key alone, which
+// refuses another session's outcome under the same key.
 #[tokio::test]
 async fn an_undo_outcome_is_saved_once_under_its_key() {
     let fixture = Fixture::new().await;
@@ -405,12 +406,27 @@ async fn an_undo_outcome_is_saved_once_under_its_key() {
         Some(ffi::SQLITE_CONSTRAINT_PRIMARYKEY)
     );
     let reader = fixture.database.reader();
+    let other_session = test_session_id();
+    assert_eq!(
+        read_restore(&reader, fixture.session_id, &key).expect("the outcome reads"),
+        Some(first.clone())
+    );
+    assert_eq!(
+        read_restore(&reader, other_session, &key).expect("the outcome reads"),
+        None
+    );
+
+    fixture
+        .writer
+        .write(vec![insert_restore_statement(&key, other_session, &second)])
+        .await
+        .expect("another session's outcome under the same key is saved");
+    assert_eq!(
+        read_restore(&reader, other_session, &key).expect("the outcome reads"),
+        Some(second)
+    );
     assert_eq!(
         read_restore(&reader, fixture.session_id, &key).expect("the outcome reads"),
         Some(first)
-    );
-    assert_eq!(
-        read_restore(&reader, test_session_id(), &key).expect("the outcome reads"),
-        None
     );
 }

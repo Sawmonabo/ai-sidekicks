@@ -3,6 +3,8 @@
 //! riding the run change it ends with or on its own, and the steps of a turn counted against its
 //! step bound.
 
+pub(crate) mod guards;
+
 use std::error::Error;
 use std::sync::{Arc, LazyLock};
 
@@ -768,6 +770,5 @@ fn cut_outcome(
     }
 }
 
-pub(crate) mod guards;
 #[cfg(test)]
 mod tests;

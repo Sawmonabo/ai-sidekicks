@@ -735,13 +735,23 @@ fn a_large_file_beside_its_owner_is_cloned_into_the_capture_folder() {
     }
 }
 
-// Kills a removal that takes whatever path a shadow row holds: a clone path outside the session's
-// capture folder and its volume folders is refused and its file left, and one inside is removed.
+// Kills a removal that takes whatever path a shadow row holds, and one that knows only the capture
+// folder: a clone path outside the session's capture folder and its volume folders is refused and
+// its file left, and one inside the capture folder or a volume folder is removed.
 #[test]
 fn a_clone_is_removed_only_from_the_session_s_own_folders() {
     let scratch = tempfile::tempdir().expect("a scratch folder");
-    let places = ShadowPlaces::open(&scratch.path().join("owner"), session_id(), Vec::new())
-        .expect("the capture folder is made");
+    let volume_folder = scratch.path().join("volume").join(SESSION);
+    fs::create_dir_all(&volume_folder).expect("the session's volume folder is made");
+    let places = ShadowPlaces::open(
+        &scratch.path().join("owner"),
+        session_id(),
+        vec![VolumeFolder {
+            volume_id: volume_id(),
+            folder: recorded(&volume_folder),
+        }],
+    )
+    .expect("the capture folder is made");
     let shadow_at = |clone: &Path| Shadow {
         shadow_id: ShadowId::mint(),
         session_id: session_id(),
@@ -758,11 +768,16 @@ fn a_clone_is_removed_only_from_the_session_s_own_folders() {
     fs::write(&outside, b"the person's file").expect("the file is written");
     let inside = places.capture_folder.join("clone");
     fs::write(&inside, b"a clone").expect("the clone is written");
+    let on_volume = volume_folder.join("clone");
+    fs::write(&on_volume, b"a clone").expect("the clone on the volume is written");
 
     let refused = places.remove_shadow_clone(&shadow_at(&outside));
     places
         .remove_shadow_clone(&shadow_at(&inside))
         .expect("a clone in the capture folder is removed");
+    places
+        .remove_shadow_clone(&shadow_at(&on_volume))
+        .expect("a clone in the session's volume folder is removed");
 
     assert_eq!(
         refused.map_err(|error| error.kind()),
@@ -773,4 +788,5 @@ fn a_clone_is_removed_only_from_the_session_s_own_folders() {
         "a file outside the session's folders was removed"
     );
     assert!(!inside.exists(), "the clone stayed");
+    assert!(!on_volume.exists(), "the clone on the volume stayed");
 }

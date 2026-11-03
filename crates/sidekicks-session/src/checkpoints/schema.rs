@@ -210,15 +210,15 @@ CREATE TABLE checkpoint_versions (
 CREATE INDEX idx_checkpoint_versions_path ON checkpoint_versions(checkpoint_id, path, sequence);
 CREATE INDEX idx_checkpoint_versions_shadow ON checkpoint_versions(shadow_id);
 
--- One row per undo request: a second request with the same key reads the first's outcome.
+-- One row per undo request: a second request in the session with the same key reads the first's
+-- outcome, and another session's key never collides with it.
 CREATE TABLE session_restores (
-  client_idempotency_key  TEXT PRIMARY KEY,
   session_id              TEXT NOT NULL,
+  client_idempotency_key  TEXT NOT NULL,
   outcome                 TEXT NOT NULL,        -- JSON: the undo's result as the wire carries it
-  created_at              TEXT NOT NULL
+  created_at              TEXT NOT NULL,
+  PRIMARY KEY (session_id, client_idempotency_key)
 ) STRICT;
-
-CREATE INDEX idx_session_restores_session ON session_restores(session_id);
 "
     )
 }
