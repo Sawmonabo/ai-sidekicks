@@ -1,9 +1,10 @@
 //! The macOS sign-in move: each named keychain item into its file at mode `0600`, or each file back
 //! into its keychain item, every one written, read back and only then deleted from its source. The
 //! item is reached only through Apple's `security` tool, as the provider reaches it, so it keeps
-//! the access list the tool's writes give it and no prompt appears for either. Each step is held to
-//! the caller's bound, and a step past it stops the move there, so nothing moves on after the
-//! caller has stopped waiting.
+//! the access list the tool's writes give it and no prompt appears for either. A move refused once
+//! its copy is written deletes the copy where the source still holds the same sign-in, so no
+//! sign-in is left in a file the person never chose. Each step is held to the caller's bound, and
+//! a step past it stops the move there, so nothing moves on after the caller has stopped waiting.
 
 mod keychain_item;
 #[cfg(test)]
@@ -110,7 +111,8 @@ trait SignInPlace {
 
 // Moves the sign-in at `source` to `destination`: written, read back and compared in constant
 // time, and only then deleted from `source`, the steps `SIGN_IN_MOVE_STEPS` counts, so a stop at
-// any step leaves it whole in one place or both.
+// any step leaves it whole in one place or both, and a refusal once the copy is written takes the
+// copy back as `take_copy_back` does.
 async fn move_sign_in(
     source: &impl SignInPlace,
     destination: &impl SignInPlace,
@@ -119,16 +121,56 @@ async fn move_sign_in(
         return Ok(());
     };
     destination.write(&sign_in).await?;
-    let is_same = destination
-        .read()
-        .await?
-        .is_some_and(|copy| bool::from(copy.as_slice().ct_eq(sign_in.as_slice())));
-    if !is_same {
+    let Err(refusal) = check_copy_then_delete_source(source, destination, &sign_in).await else {
+        return Ok(());
+    };
+    Err(take_copy_back(refusal, source, destination, &sign_in).await)
+}
+
+// Reads `sign_in`'s copy back from `destination` and, once it is the same, deletes `source`'s.
+// Fails with `CopyDiffers` when the copy is not the same, and as a step fails.
+async fn check_copy_then_delete_source(
+    source: &impl SignInPlace,
+    destination: &impl SignInPlace,
+    sign_in: &[u8],
+) -> Result<(), SignInMoveError> {
+    let copy = destination.read().await?;
+    if !is_held(copy.as_ref().map(|copy| copy.as_slice()), sign_in) {
         return Err(SignInMoveError::CopyDiffers {
             destination: destination.describe(),
         });
     }
     source.delete().await
+}
+
+// `refusal`, a refusal once `sign_in`'s copy was written at `destination`, after the copy is
+// deleted where `source` still reads the same sign-in; else `CopyLeft` over `refusal`, the copy
+// kept since it may be the only one left. A step past its bound stops the move, so it keeps the
+// copy with no further step.
+async fn take_copy_back(
+    refusal: SignInMoveError,
+    source: &impl SignInPlace,
+    destination: &impl SignInPlace,
+    sign_in: &[u8],
+) -> SignInMoveError {
+    if !matches!(refusal, SignInMoveError::Overran) {
+        let is_source_whole = matches!(
+            source.read().await,
+            Ok(Some(held)) if is_held(Some(held.as_slice()), sign_in)
+        );
+        if is_source_whole && destination.delete().await.is_ok() {
+            return refusal;
+        }
+    }
+    SignInMoveError::CopyLeft {
+        destination: destination.describe(),
+        refusal: Box::new(refusal),
+    }
+}
+
+// Whether `held` is `sign_in`, compared in constant time.
+fn is_held(held: Option<&[u8]>, sign_in: &[u8]) -> bool {
+    held.is_some_and(|held| bool::from(held.ct_eq(sign_in)))
 }
 
 // A sign-in's file, each call run on a blocking thread.

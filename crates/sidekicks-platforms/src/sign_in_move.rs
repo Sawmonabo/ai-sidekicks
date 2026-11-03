@@ -12,9 +12,10 @@ use std::path::PathBuf;
 use std::process::ExitStatus;
 
 /// The steps one sign-in's move runs, each held to the caller's step bound: read from its source,
-/// written at its destination, read back and deleted from its source. A move ends within this many
+/// written at its destination, read back and deleted from its source, and after a refusal that
+/// follows the write, its source read again and its copy deleted. A move ends within this many
 /// bounds for each sign-in, plus the moment a step past its bound takes to end its child.
-pub const SIGN_IN_MOVE_STEPS: u32 = 4;
+pub const SIGN_IN_MOVE_STEPS: u32 = 6;
 
 /// One sign-in to move: its keychain item, by service and account, and the file it moves to.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,7 +29,8 @@ pub struct KeychainSignIn {
 }
 
 /// Why a sign-in move stopped; every sign-in before it is moved, and it and every one after it
-/// are where they were or in both places. It never carries a sign-in's bytes, the keychain tool's
+/// are where they were, the one it stopped at in both places only where
+/// [`SignInMoveError::CopyLeft`] says so. It never carries a sign-in's bytes, the keychain tool's
 /// output, nor its file's path, which names the account's home.
 #[derive(Debug, thiserror::Error)]
 pub enum SignInMoveError {
@@ -61,6 +63,17 @@ pub enum SignInMoveError {
     /// child ended.
     #[error("a step of the sign-in move outlasted its bound, so the move stopped")]
     Overran,
+    /// The move was refused after the sign-in's copy was written, and the copy stays at its
+    /// destination: the source no longer read the same sign-in or could not be read, the copy
+    /// could not be deleted, or a step outlasted its bound.
+    #[error("the sign-in copied to {destination} stays there after the move was refused")]
+    CopyLeft {
+        /// The destination in words, as [`SignInMoveError::CopyDiffers`] names it.
+        destination: String,
+        /// Why the move was refused.
+        #[source]
+        refusal: Box<SignInMoveError>,
+    },
 }
 
 /// Why the keychain refused a call on a sign-in's item, as the keychain tool's exit answers it.

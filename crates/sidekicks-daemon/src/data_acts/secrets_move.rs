@@ -216,25 +216,31 @@ fn sign_ins_refused(
     provider: &ProviderDescriptor,
     refusal: &SignInMoveError,
 ) -> DaemonModeOutcome<()> {
-    let cause = match refusal {
-        SignInMoveError::Keychain {
-            refusal: KeychainItemRefusal::Locked,
-            ..
-        } => KeychainRefusalCause::Locked,
-        SignInMoveError::Keychain { .. }
-        | SignInMoveError::File(_)
-        | SignInMoveError::Write(_)
-        | SignInMoveError::CopyDiffers { .. }
-        | SignInMoveError::Overran => KeychainRefusalCause::Unavailable,
-    };
     keychain_unavailable(
-        cause,
+        sign_in_refusal_cause(refusal),
         format!(
             "the {} sign-ins could not be moved: {}",
             provider.name(),
             describe_error(refusal)
         ),
     )
+}
+
+// `locked` for a move a locked keychain refused, a copy left behind by one included, else
+// `unavailable`.
+fn sign_in_refusal_cause(refusal: &SignInMoveError) -> KeychainRefusalCause {
+    match refusal {
+        SignInMoveError::Keychain {
+            refusal: KeychainItemRefusal::Locked,
+            ..
+        } => KeychainRefusalCause::Locked,
+        SignInMoveError::CopyLeft { refusal, .. } => sign_in_refusal_cause(refusal),
+        SignInMoveError::Keychain { .. }
+        | SignInMoveError::File(_)
+        | SignInMoveError::Write(_)
+        | SignInMoveError::CopyDiffers { .. }
+        | SignInMoveError::Overran => KeychainRefusalCause::Unavailable,
+    }
 }
 
 #[cfg(test)]

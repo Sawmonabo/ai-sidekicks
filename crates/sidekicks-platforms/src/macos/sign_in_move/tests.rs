@@ -27,6 +27,7 @@ const STEP_BOUND: Duration = Duration::from_secs(60);
 
 // The variable naming the stand-in's keychain folder on its first line and a switch on each line
 // after: `locked-once:<account>` answers the first call on that account as a locked keychain,
+// `delete-locked:<account>` answers every delete of that account's item as a locked keychain,
 // `keep-changed` keeps every added value with its last byte dropped, and `sleep` sleeps before
 // answering, its process id written to the folder's `pid` file.
 const STAND_IN_VARIABLE: &str = "SIDEKICKS_SECURITY_STAND_IN";
@@ -231,8 +232,8 @@ async fn a_stopped_sign_in_move_finishes_on_the_next_call() {
 }
 
 /// A copy that reads back differently keeps its source, so no sign-in is lost to a keychain that
-/// accepts a write but keeps something else. Mutation: delete the source before the copy is read
-/// back.
+/// accepts a write but keeps something else, and the bad copy is deleted. Mutations: delete the
+/// source before the copy is read back; leave the copy.
 #[tokio::test]
 async fn a_sign_in_move_keeps_the_source_when_its_copy_reads_back_differently() {
     let keychain = StandInKeychain::new(&["keep-changed"]);
@@ -254,9 +255,38 @@ async fn a_sign_in_move_keeps_the_source_when_its_copy_reads_back_differently() 
         Some(sign_in_text(&sign_in)),
         "the source file stays"
     );
+    assert_eq!(keychain.item(&sign_in), None, "the bad copy is deleted");
     let refusal = refused.expect_err("the move is refused");
     let shown = format!("{refusal} {refusal:?}");
     assert!(!shown.contains("secret-of-"), "{shown}");
+}
+
+/// A move into the files whose delete of the keychain item is refused, after its file was written,
+/// deletes that file, since the item still holds the sign-in, so none is left in a plain file the
+/// person never chose. Killed by the copy left in its file.
+#[tokio::test]
+async fn a_sign_in_move_refused_after_its_copy_deletes_the_copy() {
+    let keychain = StandInKeychain::new(&["delete-locked:first"]);
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    let [sign_in, _] = two_sign_ins(folder.path());
+    keychain.put_item(&sign_in, &sign_in_text(&sign_in));
+
+    let refused = keychain
+        .sign_in_move()
+        .move_into_files(&spawner(), std::slice::from_ref(&sign_in), STEP_BOUND)
+        .await;
+
+    assert!(
+        matches!(
+            refused,
+            Err(SignInMoveError::Keychain {
+                refusal: KeychainItemRefusal::Locked,
+                ..
+            })
+        ),
+        "{refused:?}"
+    );
+    assert_each_held_once(&keychain, std::slice::from_ref(&sign_in), false);
 }
 
 /// A keychain read that has not answered by its bound stops the move: no file is written, the
@@ -521,6 +551,13 @@ fn answer_as_security(folder: &Path, switches: &[&str], arguments: &[String]) ->
             }
             fs::write(&item, value).expect("the item is written");
             0
+        }
+        "delete-generic-password"
+            if switches
+                .iter()
+                .any(|switch| switch.strip_prefix("delete-locked:") == Some(account.as_str())) =>
+        {
+            KEYCHAIN_LOCKED
         }
         "delete-generic-password" => match fs::remove_file(&item) {
             Ok(()) => 0,
