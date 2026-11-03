@@ -13,15 +13,20 @@
 //! During a move it also names the move's direction. A move first writes each item at its
 //! destination and reads it back, then records the direction, then deletes each item from its
 //! source, then records the destination alone. Each step can run again with the same result, so a
-//! move stopped partway, by a crash or a refused call, finishes in the same direction, and an item
-//! is deleted only once its copy read back.
+//! move a crash stopped partway finishes in the same direction, and an item is deleted only once
+//! its copy read back. A move begun from a settled record that a call refuses is put back instead:
+//! each item it deleted is written back at its source, each copy is deleted from the destination,
+//! and the record names the source alone again, so nothing is left to finish.
 
 use std::path::{Path, PathBuf};
+
+use secrecy::SecretString;
 
 use sidekicks_contracts::daemon::secrets_place::{
     PlaceRecord, SECRETS_PLACE_RECORD_FILE_NAME, SecretsPlace, read_place_record,
 };
 use sidekicks_contracts::keychain::KeychainRefusalCause;
+use sidekicks_std::error_description::describe_error;
 use sidekicks_std::file::atomic_write::write_file_atomically;
 use sidekicks_std::missing_entry::MissingEntry;
 
@@ -66,9 +71,10 @@ pub(crate) async fn remove_record(path: &Path) -> Result<(), KeychainRefusal> {
 }
 
 /// A move stopped by a refused call, and the record as it left it: the record it started from when
-/// it stopped before recording its direction, else the record naming the move.
+/// it stopped before recording its direction or was put back whole, else the record naming the
+/// move.
 pub(crate) struct MoveStopped {
-    /// The refused call's refusal.
+    /// The refused call's refusal, naming beside it each step of a put-back that failed.
     pub(crate) refusal: KeychainRefusal,
     /// The record at the path once the move stopped.
     pub(crate) record: PlaceRecord,
@@ -78,10 +84,23 @@ pub(crate) struct MoveStopped {
 pub(crate) type PlaceKeychain<'place> =
     dyn Fn(KeychainService) -> Result<Box<dyn SecretKeychain>, KeychainRefusal> + Sync + 'place;
 
+// One item a move copied: its service, its account and its value.
+type CopiedItem = (KeychainService, String, SecretString);
+
+// How far a move got: the items copied to the destination, whether the record names the move,
+// and how many of the copied items were deleted from the source, in the order they were copied.
+#[derive(Default)]
+struct MoveProgress {
+    copied: Vec<CopiedItem>,
+    is_recorded: bool,
+    deleted: usize,
+}
+
 /// Moves every item from the keychains `from` gives to those `to` gives, as the module doc says,
 /// recording at `path` the move from `record`'s place to `destination`. Fails with
-/// [`MoveStopped`] at the first call refused: before any item is deleted the record is left as it
-/// was, and after, it names the move, which the next try finishes.
+/// [`MoveStopped`] at the first call refused. A move from a settled `record` is then put back, the
+/// record at `record` again unless an item could not be written back, when it names the move; a
+/// recorded move the call finishes is left recorded, which the next try finishes.
 pub(crate) async fn move_items(
     path: &Path,
     record: PlaceRecord,
@@ -89,46 +108,125 @@ pub(crate) async fn move_items(
     from: &PlaceKeychain<'_>,
     to: &PlaceKeychain<'_>,
 ) -> Result<(), MoveStopped> {
-    let mut copied = Vec::new();
+    let mut progress = MoveProgress::default();
+    let Err(refusal) = copy_and_delete(path, record, destination, from, to, &mut progress).await
+    else {
+        return Ok(());
+    };
+    let moving = PlaceRecord::moving(record.place(), destination);
+    let stopped_record = if progress.is_recorded { moving } else { record };
+    if record.moving_to().is_some() {
+        return Err(MoveStopped {
+            refusal,
+            record: stopped_record,
+        });
+    }
+    let (record, failures) = put_back(path, record, from, to, &progress).await;
+    Err(MoveStopped {
+        refusal: name_put_back_failures(refusal, &failures),
+        record: record.unwrap_or(stopped_record),
+    })
+}
+
+// Copies every item to its destination, records the move, deletes each from its source and
+// records the destination alone, noting in `progress` how far it got. Fails at the first call
+// refused.
+async fn copy_and_delete(
+    path: &Path,
+    record: PlaceRecord,
+    destination: SecretsPlace,
+    from: &PlaceKeychain<'_>,
+    to: &PlaceKeychain<'_>,
+    progress: &mut MoveProgress,
+) -> Result<(), KeychainRefusal> {
     for service in KeychainService::ALL
         .into_iter()
         .filter(|service| service.is_moved())
     {
-        let source = from(service).map_err(stopped_at(record))?;
-        let target = to(service).map_err(stopped_at(record))?;
-        for account in source.accounts().await.map_err(stopped_at(record))? {
+        let source = from(service)?;
+        let target = to(service)?;
+        for account in source.accounts().await? {
             // A listed account with no value holds nothing to move.
-            let Some(value) = source.read(&account).await.map_err(stopped_at(record))? else {
+            let Some(value) = source.read(&account).await? else {
                 continue;
             };
-            target
-                .write_verified(&account, &value)
-                .await
-                .map_err(stopped_at(record))?;
-            copied.push((service, account));
+            target.write_verified(&account, &value).await?;
+            progress.copied.push((service, account, value));
         }
     }
-    let moving = PlaceRecord::moving(record.place(), destination);
     if record.moving_to().is_none() {
-        write_record(path, &moving)
-            .await
-            .map_err(stopped_at(record))?;
+        write_record(path, &PlaceRecord::moving(record.place(), destination)).await?;
     }
-    for (service, account) in copied {
-        from(service)
-            .map_err(stopped_at(moving))?
-            .remove(&account)
-            .await
-            .map_err(stopped_at(moving))?;
+    progress.is_recorded = true;
+    for (service, account, _value) in &progress.copied {
+        from(*service)?.remove(account).await?;
+        progress.deleted += 1;
     }
-    write_record(path, &PlaceRecord::settled(destination))
-        .await
-        .map_err(stopped_at(moving))
+    write_record(path, &PlaceRecord::settled(destination)).await
 }
 
-// The stop of a move that left `record` at the record's path.
-fn stopped_at(record: PlaceRecord) -> impl FnOnce(KeychainRefusal) -> MoveStopped {
-    move |refusal| MoveStopped { refusal, record }
+// Puts a move from the settled `record` that `progress` describes back: each item deleted is
+// written back at its source, each copy whose item is whole at its source is deleted from the
+// destination, and once every item is whole at its source a recorded move's record is written
+// back to `record`. Answers the record written, if any, and each step that failed.
+async fn put_back(
+    path: &Path,
+    record: PlaceRecord,
+    from: &PlaceKeychain<'_>,
+    to: &PlaceKeychain<'_>,
+    progress: &MoveProgress,
+) -> (Option<PlaceRecord>, Vec<KeychainRefusal>) {
+    let mut failures = Vec::new();
+    let mut is_whole_at_source = true;
+    for (index, (service, account, value)) in progress.copied.iter().enumerate() {
+        if index < progress.deleted {
+            let written_back = match from(*service) {
+                Ok(source) => source.write_verified(account, value).await,
+                Err(refusal) => Err(refusal),
+            };
+            if let Err(refusal) = written_back {
+                is_whole_at_source = false;
+                failures.push(refusal);
+                continue;
+            }
+        }
+        let copy_deleted = match to(*service) {
+            Ok(target) => target.remove(account).await.map(drop),
+            Err(refusal) => Err(refusal),
+        };
+        failures.extend(copy_deleted.err());
+    }
+    if !progress.is_recorded || !is_whole_at_source {
+        return (None, failures);
+    }
+    match write_record(path, &record).await {
+        Ok(()) => (Some(record), failures),
+        Err(refusal) => {
+            failures.push(refusal);
+            (None, failures)
+        }
+    }
+}
+
+// `refusal` with each of `failures`, the put-back's failed steps, named beside its reason.
+fn name_put_back_failures(
+    mut refusal: KeychainRefusal,
+    failures: &[KeychainRefusal],
+) -> KeychainRefusal {
+    if failures.is_empty() {
+        return refusal;
+    }
+    let named: Vec<String> = failures
+        .iter()
+        .map(|failure| describe_error(failure))
+        .collect();
+    refusal.reason = format!(
+        "{}; the move could not be put back whole: {}",
+        refusal.reason,
+        named.join("; ")
+    )
+    .into();
+    refusal
 }
 
 // The refusal for a record that cannot be read, naming the file.
@@ -157,3 +255,6 @@ fn record_failure(
     )
     .with_failure(failure)
 }
+
+#[cfg(test)]
+mod tests;

@@ -6,9 +6,9 @@
 //!   keychain the same way, one at a time, into its sign-in file going to the files and back into
 //!   its keychain item going to the keychain. It then moves every item into the place it names,
 //!   each written, read back and then deleted from its source, the place record naming the move
-//!   until the last delete. When either step is refused, it puts every sign-in it moved back where
-//!   it was before it answers, naming beside the refusal any it could not put back; items the
-//!   secrets' own move left partway finish in the same direction at the next start.
+//!   until the last delete. When either step is refused, it puts every sign-in and every item it
+//!   moved back where it was and the place record back at the move's start before it answers,
+//!   naming beside the refusal anything it could not put back, so a later start finishes nothing.
 //! - **`secrets check keychain`** takes no lock and changes nothing the service keeps: it writes,
 //!   reads back and deletes one value under an account of its own, so it runs while the service
 //!   that runs while the person is logged out holds the folder.
@@ -243,18 +243,25 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Mutex;
 
+    use rstest::rstest;
     use sidekicks_contracts::daemon::mode_outcome::DaemonModeOutcome;
     use sidekicks_contracts::daemon::secrets_place::SecretsMoveDestination;
+    use sidekicks_contracts::keychain::KeychainRefusalCause;
     use sidekicks_platforms::{KeychainItemRefusal, KeychainSignIn, SignInMoveError};
     use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
 
     use super::{ProviderSignIn, move_sign_ins_then};
+    use crate::data_acts::mode_outcome::keychain_unavailable;
 
-    // Two accounts' sign-ins move toward the files and the second's keychain read is refused as a
-    // locked keychain: the first, already in its file, is back in its item, and the refusal names
-    // the locked keychain with no put-back failure beside it. Killed by the put-back skipped.
+    // Two accounts' sign-ins move toward the files and either the second's keychain read or the
+    // secrets' own move after both is refused as a locked keychain: every sign-in already in its
+    // file is back in its item, and the refusal names the locked keychain with no put-back failure
+    // beside it. Killed by the put-back skipped.
+    #[rstest]
+    #[case::second_sign_in_refused("second")]
+    #[case::secrets_move_refused("none")]
     #[tokio::test]
-    async fn a_refused_sign_in_puts_every_sign_in_moved_before_it_back() {
+    async fn a_refused_move_puts_every_sign_in_moved_before_it_back(#[case] refused_account: &str) {
         let provider = PROVIDER_REGISTRATIONS[0].descriptor;
         let sign_ins = ["first", "second"].map(|account| ProviderSignIn {
             provider,
@@ -273,7 +280,7 @@ mod tests {
             let places = &places;
             async move {
                 if toward == SecretsMoveDestination::LoggedOutServiceFile
-                    && sign_in.account == "second"
+                    && sign_in.account == refused_account
                 {
                     return Err(SignInMoveError::Keychain {
                         service: sign_in.service,
@@ -293,17 +300,23 @@ mod tests {
             &sign_ins,
             SecretsMoveDestination::LoggedOutServiceFile,
             move_one,
-            async { DaemonModeOutcome::Result(()) },
+            async {
+                keychain_unavailable(
+                    KeychainRefusalCause::Locked,
+                    "the login keychain is locked".to_owned(),
+                )
+            },
         )
         .await;
 
         let places = places.into_inner().expect("the places are readable");
-        assert_eq!(
-            places["first"],
-            SecretsMoveDestination::OperatingSystem,
-            "the first sign-in was left in its file"
-        );
-        assert_eq!(places["second"], SecretsMoveDestination::OperatingSystem);
+        for account in ["first", "second"] {
+            assert_eq!(
+                places[account],
+                SecretsMoveDestination::OperatingSystem,
+                "the {account} sign-in was left in its file"
+            );
+        }
         let DaemonModeOutcome::Error(refusal) = outcome else {
             panic!("a refused sign-in answered a moved one");
         };
