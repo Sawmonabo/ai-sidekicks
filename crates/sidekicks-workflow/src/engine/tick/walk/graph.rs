@@ -13,6 +13,7 @@ use sidekicks_contracts::workflow::definition::handle::{
 };
 use sidekicks_contracts::workflow::definition::refusals::WorkflowNodeHandles;
 
+use crate::engine::tick::node_settings::main_output_count;
 use crate::kinds::NodeKindTable;
 
 /// How many places one word of a node's ancestor bits holds.
@@ -138,12 +139,6 @@ impl RunGraph {
                 })
                 .collect();
             main_inputs.sort_unstable();
-            let main_output_count = rules
-                .handles
-                .outputs
-                .iter()
-                .filter(|output| !output.is_tool())
-                .count();
             let is_disabled = node.disabled == Some(true);
             graph_nodes.push(RunGraphNode {
                 id: node.id.clone(),
@@ -160,7 +155,7 @@ impl RunGraph {
                         feeders: Vec::new(),
                     })
                     .collect(),
-                outputs: vec![Vec::new(); main_output_count],
+                outputs: vec![Vec::new(); main_output_count(&rules.handles)],
             });
             node_handles.push(rules.handles);
         }
@@ -178,15 +173,11 @@ impl RunGraph {
             };
             let source = place_of(&edge.source);
             let target = place_of(&edge.target);
-            let source_outputs = &node_handles[source].outputs;
             let output = node_handles[source]
-                .declared_position(edge.source_handle.as_str(), WorkflowHandleMode::Outputs)
-                .map(|position| {
-                    source_outputs[..position]
-                        .iter()
-                        .filter(|output| !output.is_tool())
-                        .count()
-                })
+                .outputs
+                .iter()
+                .filter(|output| !output.is_tool())
+                .position(|output| output.id_text() == edge.source_handle.as_str())
                 .ok_or_else(|| undeclared_handle(&edge.source, &edge.source_handle))?;
             let slot = node_handles[target]
                 .declared_position(edge.target_handle.as_str(), WorkflowHandleMode::Inputs)
