@@ -165,26 +165,27 @@ async fn a_start_goes_on_while_the_sign_outs_of_new_accounts_homes_hang() {
 }
 
 // The plane takes every act the drivers' account legs offer: over the real drivers, each
-// provider's window turns, Claude Code's pasted-token status read alone, and no sign-in, which no
-// driver offers. Killed by the window-turn arm or the token-status arm dropped from the collection.
+// provider's window turns, sign-in and pasted-token status read. Killed by the window-turn, the
+// sign-in or the token-status arm dropped from the collection.
 #[tokio::test]
 async fn the_plane_collects_each_act_the_real_drivers_offer() {
     let providers =
         ProviderRegistry::register_from(PROVIDER_REGISTRATIONS, &test_driver_services());
     let claude = ProviderId::new("claude".to_owned()).expect("a provider id");
     let codex = ProviderId::new("codex".to_owned()).expect("a provider id");
+    let both = HashSet::from([claude, codex]);
 
     let legs = collect_provider_account_legs(&providers);
 
     assert_eq!(
         legs.window_turn.keys().cloned().collect::<HashSet<_>>(),
-        HashSet::from([claude.clone(), codex])
+        both
     );
+    assert_eq!(legs.sign_in.keys().cloned().collect::<HashSet<_>>(), both);
     assert_eq!(
-        legs.token_status.keys().cloned().collect::<Vec<_>>(),
-        [claude]
+        legs.token_status.keys().cloned().collect::<HashSet<_>>(),
+        both
     );
-    assert!(legs.sign_in.is_empty());
 }
 
 // Each notification published, in order.
