@@ -481,8 +481,9 @@ impl SecretItems {
 
     // Finishes the move `record` names into `destination`, checked first. On success the
     // destination serves, checked, and a file left behind is deleted. Fails with the refusal,
-    // leaving `state` as it was when the move stopped before recording its direction, and otherwise
-    // the recorded move, which the next call finishes.
+    // leaving `state` as it was when the move stopped before recording its direction or a move
+    // from a settled record was put back whole, and otherwise the recorded move, which the next
+    // call finishes.
     async fn finish_move(
         &self,
         state: &mut PlaceState,

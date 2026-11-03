@@ -1,9 +1,10 @@
 //! The move of the daemon's own secrets between the login keychain and the items file of a Mac's
 //! service running while the person is logged out, and the check that a place takes a value now.
 //!
-//! The place record names where the secrets are and, during a move, where they go, so a move
-//! stopped partway finishes in the same direction at the next start. A move begins only here; a
-//! start finishes one the record names and never begins one.
+//! The place record names where the secrets are and, during a move, where they go, so a move a
+//! crash stopped partway finishes in the same direction at the next start. A move begun here that a
+//! call refuses is put back, its record at its start again, so a start finds nothing to finish. A
+//! move begins only here; a start finishes one the record names and never begins one.
 
 use sidekicks_contracts::daemon::secrets_place::{
     PlaceRecord, SecretsMoveDestination, SecretsPlace,
@@ -19,7 +20,9 @@ impl SecretItems {
     /// finished first, then the items move from the other place of the pair, each written, read
     /// back, then deleted from its source. No record moves nothing, since the first start picks the
     /// place itself. Fails with [`KeychainRefusal`] when the record cannot be read, names a place
-    /// outside the pair, or a call is refused; the record then names any move under way.
+    /// outside the pair, or a call is refused. The move it begins is then put back, its record at
+    /// its start, unless an item cannot be written back, when the record names the move; a recorded
+    /// move it finishes stays recorded. The refusal names each step of a put-back that failed.
     pub async fn move_to(
         &self,
         destination: SecretsMoveDestination,

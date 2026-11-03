@@ -15,7 +15,7 @@ mod window_start;
 mod memory;
 
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, Weak};
 
 use futures::FutureExt;
@@ -46,25 +46,85 @@ use crate::driver::contract::account::{
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
-use crate::driver::{DriverServices, ProviderAccountFolders};
+use crate::driver::{
+    DriverServices, HelperModeServices, ProviderAccountFolders, helper_mode_services_over,
+};
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::spawn_environment::{ReservedEnvironmentNames, SessionEnvironment};
 use crate::spawned_version::ResolvedProviderExecutable;
 
-/// What Claude Code's account legs start their processes from: the installed build, found as a
-/// session's is, the environment every Claude Code process is composed over, and the driver's
-/// launcher, which every Claude Code process the driver keeps starts through; the driver's
-/// models each account's limits read names, which its sessions' events read their windows by;
-/// and what a switch moves: the driver's sessions, their bindings, the stored bindings it reads
-/// and the accounts they read.
-pub(crate) struct ClaudeAccountLegs {
+/// What every Claude Code process on an account's home starts from, which the running daemon's
+/// account legs and a helper mode's both hold: the spawner, the installed build, found as a
+/// session's is, and what the process's environment is composed over.
+struct ClaudeAccountProcessSources {
     spawner: Spawner,
-    launcher: Arc<ClaudeProcessLauncher>,
     command_search: Arc<ProviderCommandSearch>,
     home_folder: PathBuf,
     data_folder: PathBuf,
     base_environment: Arc<[(String, String)]>,
     reserved_names: Arc<ReservedEnvironmentNames>,
+}
+
+impl ClaudeAccountProcessSources {
+    // The sources over a helper mode's bundle, which a driver's services also build; they hold
+    // handles and do no I/O.
+    fn new(services: &HelperModeServices) -> Self {
+        Self {
+            spawner: services.spawner.clone(),
+            command_search: Arc::clone(&services.command_search),
+            home_folder: services.home_folder.clone(),
+            data_folder: services.data_folder.clone(),
+            base_environment: Arc::clone(&services.base_environment),
+            reserved_names: Arc::clone(&services.reserved_names),
+        }
+    }
+
+    // The environment a process on `home` starts with, `deny_env_vars` removed, and the build it
+    // names. Fails as the environment cannot be composed or the build resolved.
+    async fn resolve_build_on(
+        &self,
+        home: ClaudeProcessHome<'_>,
+        deny_env_vars: &[&str],
+    ) -> Result<ResolvedProviderExecutable, DriverError> {
+        let environment = self.compose_environment_on(home, deny_env_vars)?;
+        resolve_claude_build(&self.command_search, &self.home_folder, environment).await
+    }
+
+    // The environment a process on `home` starts with over the base environment, with no
+    // environment row, `deny_env_vars` removed. Fails as it cannot be composed.
+    fn compose_environment_on(
+        &self,
+        home: ClaudeProcessHome<'_>,
+        deny_env_vars: &[&str],
+    ) -> Result<Vec<(String, String)>, DriverError> {
+        let data_folder = self.data_folder.to_string_lossy();
+        compose_claude_process_environment(
+            ClaudeProcessEnvironmentRequest {
+                session: SessionEnvironment {
+                    base: &self.base_environment,
+                    every_project_rows: &[],
+                    project_rows: &[],
+                    reserved_names: &self.reserved_names,
+                    rules: PathRules::NATIVE,
+                },
+                deny_env_vars,
+                home,
+                data_folder: &data_folder,
+            },
+            &[],
+        )
+        .map_err(|error| DriverError::Internal(Box::new(error)))
+    }
+}
+
+/// What Claude Code's account legs start their processes from: the sources every Claude Code
+/// process on an account's home starts from, and the driver's launcher, which every Claude Code
+/// process the driver keeps starts through; the driver's models each account's limits read
+/// names, which its sessions' events read their windows by; and what a switch moves: the
+/// driver's sessions, their bindings, the stored bindings it reads and the accounts they read.
+pub(crate) struct ClaudeAccountLegs {
+    sources: ClaudeAccountProcessSources,
+    launcher: Arc<ClaudeProcessLauncher>,
     usage_probe_models: Arc<ClaudeUsageProbeModels>,
     sessions: OnceLock<Weak<ClaudeSessionEstablishment>>,
     bindings: Arc<dyn RuntimeBindingWriter>,
@@ -82,13 +142,8 @@ impl ClaudeAccountLegs {
         usage_probe_models: Arc<ClaudeUsageProbeModels>,
     ) -> Self {
         Self {
-            spawner: services.spawner.clone(),
+            sources: ClaudeAccountProcessSources::new(&helper_mode_services_over(services)),
             launcher,
-            command_search: Arc::clone(&services.command_search),
-            home_folder: services.home_folder.clone(),
-            data_folder: services.data_folder.clone(),
-            base_environment: Arc::clone(&services.base_environment),
-            reserved_names: Arc::clone(&services.reserved_names),
             usage_probe_models,
             sessions: OnceLock::new(),
             bindings: Arc::clone(&services.runtime_bindings),
@@ -102,62 +157,6 @@ impl ClaudeAccountLegs {
     pub(crate) fn attach_sessions(&self, sessions: Weak<ClaudeSessionEstablishment>) {
         drop(self.sessions.set(sessions));
     }
-
-    // The environment a process on `home` starts with, `deny_env_vars` removed, and the build it
-    // names. Fails as the environment cannot be composed or the build resolved.
-    async fn resolve_build_on(
-        &self,
-        home: ClaudeProcessHome<'_>,
-        deny_env_vars: &[&str],
-    ) -> Result<ResolvedProviderExecutable, DriverError> {
-        let environment = self.compose_environment_on(home, deny_env_vars)?;
-        resolve_claude_build(&self.command_search, &self.home_folder, environment).await
-    }
-
-    // The environment a process on `home` starts with, `deny_env_vars` removed. Fails as it cannot
-    // be composed.
-    fn compose_environment_on(
-        &self,
-        home: ClaudeProcessHome<'_>,
-        deny_env_vars: &[&str],
-    ) -> Result<Vec<(String, String)>, DriverError> {
-        compose_account_environment(
-            &self.data_folder,
-            &self.base_environment,
-            &self.reserved_names,
-            home,
-            deny_env_vars,
-        )
-    }
-}
-
-// The environment a Claude Code process on `home` starts with over `base_environment`, with no
-// environment row, `deny_env_vars` removed: the one composition the legs, the sign-out and the
-// helper mode's names share. Fails as it cannot be composed.
-fn compose_account_environment(
-    data_folder: &Path,
-    base_environment: &[(String, String)],
-    reserved_names: &ReservedEnvironmentNames,
-    home: ClaudeProcessHome<'_>,
-    deny_env_vars: &[&str],
-) -> Result<Vec<(String, String)>, DriverError> {
-    let data_folder = data_folder.to_string_lossy();
-    compose_claude_process_environment(
-        ClaudeProcessEnvironmentRequest {
-            session: SessionEnvironment {
-                base: base_environment,
-                every_project_rows: &[],
-                project_rows: &[],
-                reserved_names,
-                rules: PathRules::NATIVE,
-            },
-            deny_env_vars,
-            home,
-            data_folder: &data_folder,
-        },
-        &[],
-    )
-    .map_err(|error| DriverError::Internal(Box::new(error)))
 }
 
 impl ProviderAccountLegs for ClaudeAccountLegs {
@@ -166,15 +165,7 @@ impl ProviderAccountLegs for ClaudeAccountLegs {
         _provider_account_id: ProviderAccountId,
         folders: ProviderAccountFolders,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
-        let sources = sign_out::ClaudeSignOutSources {
-            spawner: &self.spawner,
-            command_search: &self.command_search,
-            home_folder: &self.home_folder,
-            data_folder: &self.data_folder,
-            base_environment: &self.base_environment,
-            reserved_names: &self.reserved_names,
-        };
-        sign_out::sign_out_claude_home(sources, folders).boxed()
+        sign_out::sign_out_claude_home(&self.sources, folders).boxed()
     }
 
     fn remove_sign_in_move_leftovers<'call>(

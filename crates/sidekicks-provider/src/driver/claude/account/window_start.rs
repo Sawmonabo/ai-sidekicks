@@ -182,11 +182,12 @@ async fn run_claude_smallest_turn(
     token: Option<SecretString>,
 ) -> Result<SmallestTurn, DriverError> {
     run_in_read_folder(
-        &legs.data_folder,
+        &legs.sources.data_folder,
         &CLAUDE_WINDOW_TURN_FOLDER,
         async |folder| {
             let folders = ClaudeAccountFolders::from(folders);
             let mut executable = legs
+                .sources
                 .resolve_build_on(
                     ClaudeProcessHome::AccountStore {
                         folder,

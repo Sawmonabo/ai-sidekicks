@@ -22,7 +22,8 @@
               the user-namespace check's and the scratch volume's `unshare` and map writes, the \
               scratch volume's `mount`, the boot id's `sysctl`, the \
               Windows host-name, free-room, volume-root (`GetVolumePathNameW`, `GetDriveTypeW`) \
-              and file-information calls, the Windows replacing rename's `MoveFileExW`, the opening of an address (macOS's \
+              and file-information calls, the Windows replacing rename's `MoveFileExW`, the \
+              opening of an address (macOS's \
               `LSOpenCFURLRef`, Windows' `CoInitializeEx`, `ShellExecuteExW` and \
               `CoUninitialize`), the caller \
               reads (Linux's peer process descriptor and `pidfd_open`, macOS's audit token, \

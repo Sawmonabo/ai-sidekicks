@@ -3,42 +3,22 @@
 //! legs and a helper mode's, run with no daemon serving, both sign a home out through it.
 
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Stdio;
 
 use sidekicks_platforms::{Spawner, read_child_exit, wrap_child_command};
 use tokio::process::Command;
 
-use crate::command_search::ProviderCommandSearch;
 use crate::driver::ProviderAccountFolders;
-use crate::driver::claude::account::compose_account_environment;
+use crate::driver::claude::account::ClaudeAccountProcessSources;
 use crate::driver::claude::spawn::environment::{
     ClaudeAccountFolders, ClaudeProcessHome, compose_claude_scratch_folder,
 };
-use crate::driver::claude::spawn::launch::installed_build::resolve_claude_build;
 use crate::driver::contract::error::DriverError;
-use crate::spawn_environment::ReservedEnvironmentNames;
 use crate::spawned_version::ResolvedProviderExecutable;
 
 /// The arguments after the Claude Code command that sign its home out.
 const CLAUDE_SIGN_OUT_ARGUMENTS: [&str; 2] = ["auth", "logout"];
-
-/// What the sign-out's process starts from: the spawner it starts on, the installed build found
-/// as a session's is, and what every Claude Code process's environment is composed over.
-pub(super) struct ClaudeSignOutSources<'legs> {
-    /// The thread the process is spawned from.
-    pub(super) spawner: &'legs Spawner,
-    /// The search the command falls back to once the environment's `PATH` holds none.
-    pub(super) command_search: &'legs ProviderCommandSearch,
-    /// The person's home folder.
-    pub(super) home_folder: &'legs Path,
-    /// The daemon's data folder.
-    pub(super) data_folder: &'legs Path,
-    /// The login shell's environment.
-    pub(super) base_environment: &'legs [(String, String)],
-    /// The names every provider sets on its processes.
-    pub(super) reserved_names: &'legs ReservedEnvironmentNames,
-}
 
 /// Why Claude Code's sign-out did not finish.
 #[derive(Debug, thiserror::Error)]
@@ -66,31 +46,28 @@ enum ClaudeSignOutError {
     },
 }
 
-/// Runs `claude auth logout` on an account's `folders`, the build resolved in that home's
-/// environment, in the home's scratch folder, and answers once it exited cleanly. Its
+/// Runs `claude auth logout` on an account's `folders` from `sources`, the build resolved in that
+/// home's environment, in the home's scratch folder, and answers once it exited cleanly. Its
 /// output is never read, since it may name the account. Fails with the resolve's error, as the
 /// environment cannot be composed, and with `DriverError::Internal` when the command cannot start
 /// or exits with a failure.
 pub(super) async fn sign_out_claude_home(
-    sources: ClaudeSignOutSources<'_>,
+    sources: &ClaudeAccountProcessSources,
     folders: ProviderAccountFolders,
 ) -> Result<(), DriverError> {
-    let environment = compose_account_environment(
-        sources.data_folder,
-        sources.base_environment,
-        sources.reserved_names,
-        ClaudeProcessHome::Account {
-            folders: &ClaudeAccountFolders::from(&folders),
-        },
-        &[],
-    )?;
-    let executable =
-        resolve_claude_build(sources.command_search, sources.home_folder, environment).await?;
+    let executable = sources
+        .resolve_build_on(
+            ClaudeProcessHome::Account {
+                folders: &ClaudeAccountFolders::from(&folders),
+            },
+            &[],
+        )
+        .await?;
     let working_folder = compose_claude_scratch_folder(
         &sources.data_folder.to_string_lossy(),
         &folders.configuration_folder,
     );
-    run_sign_out(sources.spawner, executable, working_folder)
+    run_sign_out(&sources.spawner, executable, working_folder)
         .await
         .map_err(|error| DriverError::Internal(Box::new(error)))
 }
@@ -144,7 +121,8 @@ mod tests {
     use crate::driver::claude::account::helper_mode::ClaudeHelperModeLegs;
     use crate::driver::claude::account::test_account_legs;
     use crate::driver::contract::account::{HelperModeAccountLegs, ProviderAccountLegs};
-    use crate::driver::test_registry::{helper_mode_services_over, test_driver_services};
+    use crate::driver::helper_mode_services_over;
+    use crate::driver::test_registry::test_driver_services;
     use crate::driver::{DriverServices, ProviderAccountFolders};
     use crate::runtime_binding::test_store::test_provider_account_id;
 

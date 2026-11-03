@@ -26,11 +26,12 @@ pub(super) async fn read_claude_token_status(
     token: &SecretString,
 ) -> Result<Option<ProviderAuthMode>, DriverError> {
     run_in_read_folder(
-        &legs.data_folder,
+        &legs.sources.data_folder,
         &CLAUDE_TOKEN_STATUS_FOLDER,
         async |folder| {
             let folders = ClaudeAccountFolders::from(folders);
             let executable = legs
+                .sources
                 .resolve_build_on(
                     ClaudeProcessHome::AccountStore {
                         folder,
