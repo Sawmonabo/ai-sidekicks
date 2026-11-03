@@ -270,6 +270,12 @@ impl EngineRecorder {
     pub(crate) fn end_run(&self, run_id: WorkflowRunId) {
         lock(&self.sequences).remove(&run_id);
     }
+
+    /// Whether the life still keeps a sequence for `run_id`, which a run's end forgets.
+    #[cfg(test)]
+    pub(crate) fn has_sequence(&self, run_id: WorkflowRunId) -> bool {
+        lock(&self.sequences).contains_key(&run_id)
+    }
 }
 
 /// One run's record within one daemon life.

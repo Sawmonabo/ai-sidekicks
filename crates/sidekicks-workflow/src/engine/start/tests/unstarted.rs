@@ -1,9 +1,7 @@
 //! Starts that make no run: refused before anything is made, or held on their chain, and what a
 //! held start does when it cannot clean up.
 
-use std::io;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -18,10 +16,8 @@ use super::{
     Fixture, ROOT_RUN_ID, TestSession, UNKNOWN_VERSION_ID, body, item, joins_root, refusal,
     runs_folders, start, test_provider,
 };
-use crate::engine::event_record::EngineFault;
 use crate::engine::ports::REFUSED_PORT_CALL;
 use crate::engine::start::{WorkflowStartArrival, WorkflowStartOutcome};
-use crate::secrets::redaction::RunRedaction;
 
 /// How a start that writes nothing ends.
 #[derive(Clone, Copy, Debug)]
@@ -174,15 +170,5 @@ async fn a_held_start_that_cannot_clean_up_is_still_held() {
     let held_run_id: WorkflowRunId =
         serde_json::from_value(fixture.records.lines()[0]["workflowRunId"].clone())
             .expect("the fault names the held start's run");
-    fixture
-        .starter
-        .recorder
-        .for_run(held_run_id, Arc::new(RunRedaction::new(&[])))
-        .fault(
-            None,
-            EngineFault::HeldStartLeftBehind,
-            &io::Error::other("a later line"),
-        )
-        .await;
-    assert_eq!(fixture.records.lines()[1]["sequence"], json!(1));
+    assert!(!fixture.starter.recorder.has_sequence(held_run_id));
 }
