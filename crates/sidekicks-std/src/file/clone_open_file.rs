@@ -7,6 +7,7 @@ use std::path::Path;
 
 use sidekicks_platforms::{CloneRefusal, read_clone_refusal};
 
+use crate::cleanup_failures::CleanupFailures;
 use crate::file::temporary_removal::remove_temporary_after;
 
 /// Why an open file was not cloned.
@@ -30,21 +31,27 @@ const CLONING: &str = "cloning the file";
 /// nothing at the path. Fails with [`CloneOpenFileError::Refused`] when the copy's place is on
 /// another volume or the volume makes no clones, else with [`CloneOpenFileError::Failed`] holding
 /// the clone's error, of its own kind, wrapping the removal's failure too when the clone was made
-/// (as before setting its permissions failed) and could not be removed.
+/// (as before setting its permissions failed) and could not be removed, a refused clone among them.
 pub fn clone_open_file(source: &File, destination: &Path) -> Result<(), CloneOpenFileError> {
-    reflink_copy::reflink_file_to_path(source, destination).map_err(
-        |error| match read_clone_refusal(source, destination, error) {
+    reflink_copy::reflink_file_to_path(source, destination).map_err(|error| {
+        // The entry already there is another's, so it stays.
+        if error.kind() == io::ErrorKind::AlreadyExists {
+            return CloneOpenFileError::Failed(error);
+        }
+        // The clone's permissions are set once its file is made, so a failure there, refusal or
+        // not, leaves it.
+        let (error, removal_failures, operation) =
+            remove_temporary_after(error, destination, CLONING).into_parts();
+        if !removal_failures.is_empty() {
+            return CloneOpenFileError::Failed(
+                CleanupFailures::new(error, removal_failures, operation).into_io_error(),
+            );
+        }
+        match read_clone_refusal(source, destination, error) {
             Ok(refusal) => CloneOpenFileError::Refused(refusal),
-            // The entry already there is another's, so it stays.
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                CloneOpenFileError::Failed(error)
-            }
-            // The clone's permissions are set once its file is made, so a failure there leaves it.
-            Err(error) => CloneOpenFileError::Failed(
-                remove_temporary_after(error, destination, CLONING).into_io_error(),
-            ),
-        },
-    )
+            Err(error) => CloneOpenFileError::Failed(error),
+        }
+    })
 }
 
 #[cfg(test)]
