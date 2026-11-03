@@ -413,3 +413,58 @@ fn a_loops_next_pass_closes_the_rounds_its_last_pass_left_open() {
         ]
     );
 }
+
+/// A win reaches only the steps of its own loop pass: the loop node L feeds A and Y, A feeds M's
+/// first main slot, Y feeds B, which feeds M's second, and wires back into L. Y settles before A,
+/// so L's next pass starts and readies A again before pass 0's win; that win cancels pass 0's B
+/// alone, and pass 1's A then wins M on its own pass. Mutation: mark every live step with the win
+/// whatever its pass, so pass 1's A is overtaken, its feed into M is dropped, and M never runs on
+/// pass 1.
+#[test]
+fn a_win_reaches_only_its_own_loop_pass() {
+    let (mut walk, start_turn) = start(
+        vec![
+            node("trigger", "test.trigger", 0, false),
+            node("L", "test.loop", 1, false),
+            node("A", "test.step", 2, false),
+            node("Y", "test.step", 3, false),
+            node("M", "test.first", 4, false),
+            node("B", "test.step", 5, false),
+        ],
+        &[
+            edge("trigger", 0, "L", 0),
+            edge("L", 1, "A", 0),
+            edge("L", 1, "Y", 0),
+            edge("A", 0, "M", 0),
+            edge("Y", 0, "B", 0),
+            edge("B", 0, "M", 1),
+            edge("Y", 0, "L", 0),
+        ],
+    );
+    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
+    let l_turn = walk.settle(&readied(&trigger_turn, "L"), &[0, 1]);
+    let y_turn = walk.settle(&readied(&l_turn, "Y"), &[1]);
+    assert_eq!(
+        describe(&y_turn),
+        [
+            "ready L run 1 exec 4 from Y:0@3",
+            "ready B run 0 exec 5 from Y:0@3"
+        ]
+    );
+    let next_l_turn = walk.settle(&readied(&y_turn, "L"), &[0, 1]);
+    assert_eq!(
+        describe(&walk.settle(&readied(&l_turn, "A"), &[1])),
+        [
+            "ready M run 0 exec 8 from A:0@2 - -",
+            "win M exec 8 losers [B@5]"
+        ]
+    );
+    walk.drop_step(&readied(&y_turn, "B"));
+    assert_eq!(
+        describe(&walk.settle(&readied(&next_l_turn, "A"), &[1])),
+        [
+            "ready M run 1 exec 9 from A:0@6 - -",
+            "win M exec 9 losers []"
+        ]
+    );
+}

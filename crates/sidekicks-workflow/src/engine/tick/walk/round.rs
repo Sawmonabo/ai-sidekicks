@@ -5,6 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepSource;
 
+use super::lineage::StepLineage;
+
 /// One main input slot of an open round.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(super) enum RoundSlot {
@@ -29,8 +31,9 @@ pub(super) struct Round {
     /// overtook, until no slot can still be fed, and a feed it did not overtake, a loop's next pass
     /// among them, goes to a later round.
     pub(super) won: Option<usize>,
-    /// The wins, by index, this round was pending at or descends from a step pending at.
-    pub(super) overtaken_by: BTreeSet<usize>,
+    /// The wins, by index, this round was pending at or descends from a step pending at, and the
+    /// loop passes its feeds belong to.
+    pub(super) lineage: StepLineage,
 }
 
 impl Round {
@@ -40,15 +43,16 @@ impl Round {
         self.won.is_some()
     }
 
-    /// Whether a feed overtaken by the wins `overtaken_by` may enter the round: a won round only
-    /// one its win overtook, and any other only one no win of this node overtook, which
-    /// `is_claimed` tells.
+    /// Whether a feed of `lineage` may enter the round: only one on the round's pass of each loop,
+    /// and of those, into a won round only one its win overtook, and into any other only one no
+    /// win of this node overtook, which `is_claimed` tells.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-    pub(super) fn admits(&self, overtaken_by: &BTreeSet<usize>, is_claimed: bool) -> bool {
-        match self.won {
-            Some(win) => overtaken_by.contains(&win),
-            None => !is_claimed,
-        }
+    pub(super) fn admits(&self, lineage: &StepLineage, is_claimed: bool) -> bool {
+        self.lineage.passes.is_same_as(&lineage.passes)
+            && match self.won {
+                Some(win) => lineage.overtaken_by.contains(&win),
+                None => !is_claimed,
+            }
     }
 
     /// The lowest slot whose feed carries items, `None` when no slot's does.
