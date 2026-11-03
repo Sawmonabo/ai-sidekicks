@@ -8,12 +8,16 @@ use std::sync::{Arc, Mutex};
 
 use rstest::rstest;
 use rusqlite::params;
+use serde_json::json;
 use sidekicks_contracts::approval::{ApprovalDecision, ApprovalRequestId};
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::controls::events::{ProviderWarningSource, SessionNotice};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::session_control::held_run_continue::{
     ContinueAnswer, ContinueEntry, HeldRunContinue,
 };
@@ -21,6 +25,7 @@ use sidekicks_std::mutex_lock::lock;
 use tokio::time::timeout;
 
 use super::super::{Opening, WAIT};
+use super::{SUBAGENT_ID, insert_run_event};
 use crate::provider_session::errors::ProviderSessionError;
 use crate::provider_session::held_run_continue::OwedAnswer;
 use crate::provider_session::test_opening::read_notices;
@@ -167,17 +172,91 @@ async fn a_refused_continue_owes_its_answer_to_the_next() {
     assert_eq!(entries, [Some(vec![entry.clone()]), Some(vec![entry])]);
 }
 
+// A helper beneath the lead that waits on an answered ask is continued with the lead: the continue
+// carries the helper's answer under its helper id beside the lead's, and moves the helper on from
+// its wait. Killed by a helper's answer left out of the continue and by the helper's wait kept.
+#[tokio::test]
+async fn a_helper_owed_an_answer_is_continued_with_its_lead() {
+    let (opening, carried, lead_entry) = held_lead().await;
+    let (lead, helper) = (opening.earlier_run_id, opening.run_id);
+    opening
+        .database
+        .reader()
+        .execute(
+            "UPDATE runs SET parent_run_id = ?1, reached_by = 'providerSubagent',
+               state = 'waitingForApproval'
+             WHERE run_id = ?2",
+            params![lead.text().as_str(), helper.text().as_str()],
+        )
+        .expect("the test makes the run the lead's helper");
+    insert_run_event(
+        &opening.database,
+        opening.session_id,
+        100,
+        (SessionEventType::AgentSubagentStarted, lead, None),
+        &json!({
+            "sessionId": opening.session_id.text().as_str(),
+            "runId": lead.text().as_str(),
+            "provider": PROVIDERS[0].id,
+            "subagentId": SUBAGENT_ID,
+            "childRunId": helper.text().as_str(),
+        }),
+    );
+    let approval_request_id =
+        ApprovalRequestId::try_from(mint_uuid_v7()).expect("a minted UUID is an ask's id");
+    let answer = ContinueAnswer::Approval {
+        approval_request_id,
+        subject: "cargo publish".to_owned(),
+        tool_name: Some("Bash".to_owned()),
+        decision: ApprovalDecision::Approved,
+        decline_reason: None,
+        edited_action: None,
+    };
+    opening.orphaned_approvals.owe(OwedAnswer {
+        id: approval_request_id,
+        run_id: helper,
+        answer: answer.clone(),
+    });
+
+    resume_after_answer(&opening)
+        .await
+        .expect("the lead's continue resumes it");
+
+    let continued = lock(&carried).clone();
+    let [Some(held_run_continue)] = continued.as_slice() else {
+        panic!("one resume carries the continue: {continued:?}");
+    };
+    assert_eq!(
+        held_run_continue.entries,
+        [
+            lead_entry,
+            ContinueEntry {
+                run_id: helper,
+                subagent_id: Some(SubagentId::new(SUBAGENT_ID.to_owned()).expect("a helper id")),
+                answer,
+            }
+        ]
+    );
+    assert_eq!(
+        opening.resumed_runs.continued(),
+        [(helper, RunState::WaitingForApproval)]
+    );
+}
+
 // A resume the provider answered without running the lead on gives its answer back, so the next
-// continue carries it again. Killed by the give-back on that arm dropped (the second continue
-// resumes nothing).
+// continue carries it again, and leaves the waiting lead it answered in its wait until a continue
+// is carried. Killed by the give-back on that arm dropped (the second continue resumes nothing) and
+// by the answered lead moved on though the provider did not run it.
 #[tokio::test]
 async fn a_continue_the_lead_never_took_owes_its_answer_to_the_next() {
     let (opening, carried, entry) = held_lead().await;
+    set_run_state(&opening, opening.earlier_run_id, "waitingForApproval");
     opening.is_continue_dropped.store(true, Ordering::SeqCst);
 
     resume_after_answer(&opening)
         .await
         .expect("the resume answers without the lead");
+    assert_eq!(opening.resumed_runs.continued(), []);
     opening.is_continue_dropped.store(false, Ordering::SeqCst);
     resume_after_answer(&opening)
         .await
@@ -188,6 +267,10 @@ async fn a_continue_the_lead_never_took_owes_its_answer_to_the_next() {
         .map(|carried| carried.as_ref().map(|carried| carried.entries.clone()))
         .collect();
     assert_eq!(entries, [Some(vec![entry.clone()]), Some(vec![entry])]);
+    assert_eq!(
+        opening.resumed_runs.continued(),
+        [(opening.earlier_run_id, RunState::WaitingForApproval)]
+    );
 }
 
 // Where a resume the provider accepted fails on the daemon's side.
