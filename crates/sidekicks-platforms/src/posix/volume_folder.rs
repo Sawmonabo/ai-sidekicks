@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use nix::errno::Errno;
 use nix::fcntl::{OFlag, openat};
 use nix::sys::stat::{Mode, mkdirat};
-use nix::unistd::getuid;
+use nix::unistd::{ROOT, getuid};
 
 use crate::posix::error_codes::is_link_loop;
 use crate::posix::private_folder::PRIVATE_FOLDER_MODE;
@@ -21,9 +21,6 @@ const GROUP_OR_OTHER_WRITE_BITS: u32 = 0o022;
 
 // The sticky bit, which keeps others from renaming or removing an entry they do not own.
 const STICKY_BIT: u32 = 0o1000;
-
-// The root account's id, which may rename any entry whatever a place's mode says.
-const ROOT_USER_ID: u32 = 0;
 
 /// Makes or finds this user's folder `.ai-sidekicks-<uid>` in `place`, readable by its owner alone,
 /// with no access list entry it inherited, and answers its path; a folder the user made earlier
@@ -97,7 +94,7 @@ pub(crate) fn create_user_folder_in(place: &Path) -> io::Result<Option<PathBuf>>
 fn is_held_by_user(place_facts: &Metadata, user: u32) -> bool {
     let owner = place_facts.uid();
     let mode = place_facts.mode();
-    (owner == user || owner == ROOT_USER_ID)
+    (owner == user || owner == ROOT.as_raw())
         && (mode & GROUP_OR_OTHER_WRITE_BITS == 0 || mode & STICKY_BIT != 0)
 }
 

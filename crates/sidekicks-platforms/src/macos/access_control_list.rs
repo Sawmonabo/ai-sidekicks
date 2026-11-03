@@ -7,6 +7,8 @@ use std::fs::File;
 use std::io;
 use std::os::fd::AsRawFd;
 
+use nix::unistd::ROOT;
+
 // `FILESEC_ACL` of the SDK's `filesec_property_t`: the access list a file security description
 // carries.
 const FILESEC_ACL: libc::c_int = 5;
@@ -30,9 +32,6 @@ const ACL_DELETE_CHILD: u64 = 1 << 6;
 // `ACL_ENTRY_ONLY_INHERIT` of the SDK's `acl_flag_t`: an entry only passed down, which grants
 // nothing on the folder itself.
 const ACL_ENTRY_ONLY_INHERIT: libc::c_int = 1 << 8;
-
-// The root account's id, whose access no access list can narrow.
-const ROOT_USER_ID: libc::uid_t = 0;
 
 unsafe extern "C" {
     // `filesec_t filesec_init(void)`, declared in the SDK's `sys/fcntl.h`: a new, empty file
@@ -114,7 +113,7 @@ pub(crate) fn grants_others_delete_child(folder: &File, user: libc::uid_t) -> io
         };
     }
     let acl = AclObject(acl);
-    let trusted = [account_uuid(user)?, account_uuid(ROOT_USER_ID)?];
+    let trusted = [account_uuid(user)?, account_uuid(ROOT.as_raw())?];
     let mut entry_id = ACL_FIRST_ENTRY;
     let mut entry: *mut c_void = std::ptr::null_mut();
     // SAFETY: `acl` is a live list, and `entry` a live slot the call writes an entry of it into.
