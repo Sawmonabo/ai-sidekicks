@@ -40,7 +40,7 @@ pub struct WorkflowParamIssue {
     pub message: String,
     /// The finding the save raises for the value: a secret outside a sensitive parameter or
     /// inside an expression; absent for a reference that does not read as one.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "WorkflowDefinitionRule")]
     pub rule: Option<WorkflowDefinitionRule>,
 }
