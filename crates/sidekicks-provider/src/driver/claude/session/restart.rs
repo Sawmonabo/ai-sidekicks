@@ -564,6 +564,11 @@ impl ClaudeSessionRestarts {
                     provider_failure_detail.as_str().into(),
                 ))
             }
+            // The move's relaunch names no live run, so it never defers.
+            DriverResumeResult::Deferred { .. } => {
+                self.report_gone(session_id);
+                Err(session_process_unavailable(session_id).into())
+            }
         };
         self.record_relaunch(session_id, answer).await?;
         if relaunched.is_ok()
@@ -677,25 +682,6 @@ impl ClaudeSessionRestarts {
     /// its input closes, so Claude Code finishes writing it, and it settles once it exited.
     pub(crate) async fn finish_sleep(&self, close: ClaudeSlotClose, live: &LiveClaudeSession) {
         self.retire_keeping_conversation(close, live).await;
-    }
-
-    /// Wakes a sleeping session through `resume`, under a binding the session directory opens
-    /// first, and hands the directory the result, so it records the binding. Fails with the
-    /// resume's failure, which the directory records too, and as the record fails.
-    pub(crate) async fn wake(&self, resume: ResumeSessionParams) -> Result<(), DriverError> {
-        let session_id = resume.session_id;
-        let answer = self.resume(Some(resume), true).await;
-        let failure = match &answer.result {
-            DriverResumeResult::Resumed { .. } => None,
-            DriverResumeResult::Failed {
-                provider_failure_detail,
-                ..
-            } => Some(DriverError::Internal(
-                provider_failure_detail.as_str().into(),
-            )),
-        };
-        self.record_relaunch(session_id, answer).await?;
-        failure.map_or(Ok(()), Err)
     }
 
     // Ends `live`'s process the way a close does and resumes its conversation, under a binding the

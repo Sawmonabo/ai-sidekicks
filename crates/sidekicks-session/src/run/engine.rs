@@ -38,6 +38,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::run::delivery::{RunMarker, RunSetupRefusal};
@@ -82,9 +83,10 @@ use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStat
 /// (`UNSETTLED_HELD_OF_RUN_SQL`), its plans still holding a request (its plan holds' read) and its
 /// open choices (the newest request of each dialog and whether it was settled since), a driver's
 /// read of a session's stored leg (the session's runs and their bindings), whether a run ended at
-/// its setup, and a restart's re-arm of a live run (its newest open turn with its steps, and the
-/// session's step bound).
-pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 25 + RUN_AGENT_STATEMENT_CAPACITY;
+/// its setup, a restart's re-arm of a live run (its newest open turn with its steps, and the
+/// session's step bound), a provider subagent's node by its provider's id, and the run a
+/// provider's helper was dispatched beneath.
+pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 27 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.
 const LIVE_APPEND_ATTEMPTS: usize = 3;
@@ -142,12 +144,13 @@ enum RoutedInterrupt {
     Settling(Arc<StartingRun>),
 }
 
-// A row a live append writes, with the events before it and the statements that go in its write
-// after the version guard.
+// A row a live append writes, with the events before it, the statements that go in its write
+// after the version guard, and the instant it records where its statements carry that instant too.
 struct LiveAppend {
     draft: SessionEventDraft,
     preceding_events: Vec<SessionEventDraft>,
     statements: Vec<WriteStatement>,
+    occurred_at: Option<WireInstant>,
 }
 
 /// Owns every run state change, the setup gates a run passes before its provider starts it, a
@@ -530,6 +533,7 @@ impl RunEngine {
                     )?,
                     preceding_events: Vec::new(),
                     statements: Vec::new(),
+                    occurred_at: None,
                 })
             })
             .await?;
@@ -600,13 +604,17 @@ impl RunEngine {
                 draft,
                 preceding_events,
                 statements,
+                occurred_at,
             } = build(&run)?;
             let mut transactional_prelude = vec![run_at_version_statement(&run_id, run.version)];
             transactional_prelude.extend(statements);
-            match self
-                .append(draft, transactional_prelude, preceding_events, None)
-                .await
-            {
+            let linkage = SessionEventLinkage {
+                occurred_at,
+                transactional_prelude,
+                preceding_events,
+                ..SessionEventLinkage::default()
+            };
+            match self.appender.append(draft, linkage).await {
                 Ok(receipt) => return Ok(Some((run, receipt))),
                 Err(error)
                     if attempt < LIVE_APPEND_ATTEMPTS

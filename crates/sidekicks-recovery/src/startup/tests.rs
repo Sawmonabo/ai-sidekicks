@@ -15,6 +15,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::port::plan::{ProviderPlan, mint_plan_id};
+use sidekicks_provider::port::question::mint_tool_server_request_id;
 use sidekicks_session::run::engine::test_fixture::{insert_running_run, stored_run_state};
 use sidekicks_store::database::writer::test_file::test_run_id;
 use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
@@ -23,7 +24,7 @@ use tokio_util::sync::CancellationToken;
 use crate::restart_settle::RESTART_FAILURE_DETAIL;
 use crate::session_write_refusal::{refuse_call_naming_session, refuse_session_event};
 use crate::status::RecoveryStatusTracker;
-use crate::test_pass::PassFixture;
+use crate::test_pass::{PassFixture, insert_runs};
 
 // The folders the store's files were copied aside into.
 fn aside_copies(data_folder: &Path) -> Vec<PathBuf> {
@@ -388,4 +389,52 @@ async fn the_store_is_copied_aside_once_for_one_damage() {
     assert_eq!(aside_copies(fixture.data_folder.path()), copies);
     assert!(next_start.read_session_write_refusal(&first).is_some());
     assert!(next_start.read_session_write_refusal(&second).is_some());
+}
+
+// The pass withdraws a settled session's questions the tool-server client asked, waiting for a
+// paused run, and leaves a driver's question and the paused run as they were. Killed by the call
+// left out of `settle_session`, and by a withdrawal that needs a held request (the pass's
+// questions service holds none).
+#[tokio::test]
+async fn a_pass_withdraws_the_tool_server_questions_a_restart_left() {
+    let fixture = PassFixture::new().await;
+    let session_id = fixture.new_session();
+    let paused_run = test_run_id();
+    insert_runs(
+        &fixture.store.database,
+        session_id,
+        &[(paused_run, "paused")],
+    );
+    let tool_server_question = fixture.record_question_waiting_for_run(
+        session_id,
+        paused_run,
+        &mint_tool_server_request_id(),
+    );
+    let driver_question = fixture.record_question_waiting_for_run(
+        session_id,
+        paused_run,
+        "toolu_01A09q90qw90lq917835lq9",
+    );
+
+    fixture
+        .pass(Arc::clone(&fixture.status))
+        .run(&CancellationToken::new())
+        .await;
+
+    assert_eq!(
+        fixture.state("questions", &tool_server_question),
+        "canceled"
+    );
+    let canceled = fixture.payloads(&session_id, SessionEventType::QuestionCanceled);
+    assert_eq!(canceled.len(), 1);
+    assert_eq!(canceled[0]["questionId"], json!(tool_server_question));
+    assert_eq!(canceled[0]["reason"], json!("withdrawn"));
+    assert_eq!(
+        fixture.state("questions", &driver_question),
+        "waitingForRun"
+    );
+    assert_eq!(
+        stored_run_state(&fixture.store.database, &paused_run).0,
+        "paused"
+    );
 }

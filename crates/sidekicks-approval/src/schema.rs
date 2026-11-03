@@ -54,6 +54,10 @@ CREATE TABLE approval_requests (
   -- The provider's id of the tool call the ask holds, from approval.requested; NULL where the
   -- provider sent none and on a card the daemon raised itself.
   tool_call_id          TEXT,
+  -- The SHA-256 of the asked call's tool name and input as canonical JSON, from
+  -- approval.requested, by which a call made again under a new tool call id after a restart finds
+  -- this card; NULL where the input has no canonical form or the card holds no call.
+  input_digest          TEXT,
   -- No expired state and no deadline column: a request waits until it is answered, or is
   -- canceled with its run, its session or its provider process.
   state                 TEXT NOT NULL DEFAULT '{pending}' CHECK(state IN ({states})),
@@ -67,7 +71,7 @@ CREATE INDEX idx_approval_requests_session ON approval_requests(session_id);
 CREATE INDEX idx_approval_requests_state ON approval_requests(state) WHERE state = '{pending}';
 -- One request per ask id. The id is minted once for each provider ask the intake takes; a
 -- provider's resent ask is matched to the one it holds in memory, or, with none held, to its
--- pending card by its tool call id, never by this index.
+-- pending card by its tool call id, else by its input digest, never by this index.
 CREATE UNIQUE INDEX idx_approval_requests_ask ON approval_requests(run_id, ask_id)
   WHERE ask_id IS NOT NULL;
 

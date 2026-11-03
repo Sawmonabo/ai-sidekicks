@@ -299,6 +299,9 @@ async fn a_resume_starts_at_its_conversations_turn_count_and_fails_on_an_unreada
             assert!(is_unreadable, "a conversation with no file yet resumes");
             assert!(fixture.starts.take_started().is_empty());
         }
+        DriverResumeResult::Deferred { .. } => {
+            panic!("a resume with no live run always spawns");
+        }
     }
 }
 

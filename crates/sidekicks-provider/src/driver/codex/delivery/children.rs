@@ -6,6 +6,7 @@
 use serde_json::value::RawValue;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
+use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::{SubagentId, SubagentLifecyclePayload};
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -15,13 +16,16 @@ use crate::driver::codex::delivery::frames::CodexFrameDelivery;
 use crate::driver::codex::delivery::memory::{CodexBoundChildRun, CodexChildRun, CodexSpawnCall};
 use crate::driver::codex::delivery::reviewer::end_codex_review_turn;
 use crate::driver::codex::delivery::rows::CodexRowRun;
+use crate::driver::codex::service::supervisor::routing::CodexHelperNames;
+use crate::driver::codex::session::establishment::helpers::bind_codex_helper_run;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::turn_evidence::{CodexTurnStatus, compose_codex_child_terminal};
 use crate::driver::run_control::HelperStopReason;
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::DeliveryOperation;
 use crate::run::delivery::LateAppendableRow;
-use crate::run::delivery::{DeliveryBinding, InboundDelivery, InboundOutcome};
+use crate::run::delivery::{ChildRunSubagent, DeliveryBinding, InboundDelivery, InboundOutcome};
+use crate::run::state_entry::RunStateEntry;
 
 /// What a thread is to the session's helpers.
 pub(crate) enum ChildRunLookup {
@@ -90,14 +94,17 @@ impl CodexSessionRecord {
 impl CodexFrameDelivery {
     /// Starts the child run of a helper Codex announced on `child_thread_id`: beneath the run
     /// whose oldest unclaimed spawn call on the parent thread started it, else the parent helper's
-    /// own child run, else the session's one live run. A helper whose parent run cannot be told,
-    /// or beneath a helper that never started, is left unstarted, since no run can own it.
+    /// own child run, else the session's one live run, under the `names` Codex gave it, and routes
+    /// its run to its conversation, which an interrupt of the run reaches. A helper whose parent
+    /// run cannot be told, or beneath a helper that never started, is left unstarted, since no run
+    /// can own it.
     pub(crate) async fn start_child(
         &self,
         record: &mut CodexSessionRecord,
         child_thread_id: &str,
         parent_thread_id: &str,
         subagent_id: &str,
+        names: CodexHelperNames,
     ) {
         // A helper id the transcript cannot hold names no helper a row could show.
         let Ok(subagent_id) = SubagentId::new(subagent_id.to_owned()) else {
@@ -117,6 +124,11 @@ impl CodexFrameDelivery {
             .child_run_by_thread_id
             .get(parent_thread_id)
             .cloned();
+        // The helper running on the parent thread is this helper's parent, whichever run it is
+        // started beneath.
+        let parent_subagent_id = parent_child
+            .as_ref()
+            .map(|parent| parent.subagent_id.clone());
         let (agent_id, binding_id, parent_run_id) = if let Some(spawn_call) = &spawn_call {
             (
                 spawn_call.run.agent_id,
@@ -143,27 +155,40 @@ impl CodexFrameDelivery {
         };
         if let Some(parent_run_id) = parent_run_id {
             child.bound = self
-                .deliver_child_start(record, child_thread_id, &child, parent_run_id)
+                .deliver_child_start(
+                    record,
+                    child_thread_id,
+                    &child,
+                    parent_run_id,
+                    parent_subagent_id,
+                    names,
+                )
                 .await;
         }
-        record
-            .delivery
-            .child_run_by_thread_id
-            .insert(child_thread_id.to_owned(), child);
+        bind_codex_helper_run(
+            record,
+            &self.dependencies.run_routes,
+            child_thread_id.to_owned(),
+            child,
+        );
     }
 
     /// Ends the child run of a helper whose last turn ended, with the `subagent.completed` row,
     /// after the asks that turn still held and the pieces it still had waiting; `turn_params` is
-    /// that turn's `turn/completed` params.
+    /// that turn's `turn/completed` params and `turn_members` the same params read as an object. A
+    /// helper stopped at its token limit ends stopped for it unless its turn failed, and an end
+    /// after the daemon's interrupt of the helper's run says it is that interrupt's; the run's
+    /// helper route goes with it.
     pub(crate) async fn complete_child(
         &self,
         record: &mut CodexSessionRecord,
         child_thread_id: &str,
         turn_params: &RawValue,
+        turn_members: &serde_json::Map<String, serde_json::Value>,
     ) {
-        let members: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_str(turn_params.get()).unwrap_or_default();
-        let turn = members.get("turn").and_then(serde_json::Value::as_object);
+        let turn = turn_members
+            .get("turn")
+            .and_then(serde_json::Value::as_object);
         let turn_id = turn.and_then(|turn| read_non_empty_string(turn, "id"));
         if let Some(turn_id) = turn_id {
             self.withdraw_ended_turn_asks(record, child_thread_id, turn_id);
@@ -206,10 +231,14 @@ impl CodexFrameDelivery {
         let Some(bound) = child.bound.clone() else {
             return;
         };
-        record
-            .delivery
-            .child_thread_id_by_run_id
-            .remove(&bound.child_run_id);
+        let helper_route = self
+            .dependencies
+            .run_routes
+            .retire_helper_run(bound.child_run_id);
+        let is_stopped_at_token_limit = self
+            .dependencies
+            .stopped_helpers
+            .is_stopped_at_token_limit(child_thread_id);
         let completed = LateAppendableRow::AgentSubagentCompleted(subagent_row(
             record,
             &child,
@@ -225,11 +254,24 @@ impl CodexFrameDelivery {
             content: None,
         };
         self.send(record, row, "turn/completed").await;
-        let change = compose_codex_child_terminal(
+        let mut change = compose_codex_child_terminal(
             bound.child_run_id,
             turn_params.get(),
             &mut self.lock_diagnostics(),
         );
+        // The limit's stop interrupts the helper's turn, which may still finish first; a failure
+        // keeps its own words.
+        if is_stopped_at_token_limit
+            && matches!(
+                change.entry,
+                RunStateEntry::Completed { .. } | RunStateEntry::Interrupted { .. }
+            )
+        {
+            change.entry = RunStateEntry::Stopped {
+                intended_close: None,
+                trigger: Some(StopTrigger::TokenLimit),
+            };
+        }
         let end = InboundDelivery::RunLifecycle {
             binding: DeliveryBinding {
                 binding_id: child.binding_id,
@@ -240,22 +282,26 @@ impl CodexFrameDelivery {
             },
             change,
             turn_end: None,
-            is_daemon_interrupt_end: false,
+            is_daemon_interrupt_end: helper_route
+                .is_some_and(|route| route.is_interrupted_by_daemon),
         };
         self.send(record, end, "turn/completed").await;
     }
 
-    // The child run and its `subagent.started` row, which names the child run the engine started
-    // first; the child's start once the run engine started or refused it, `None` when it absorbed
-    // it. A refused helper keeps its ended run, which absorbs its rows, and its running turn is
-    // interrupted, as each turn it starts after is, and its tool calls are denied with the
-    // refusal's sentence.
+    // The child run, naming the helper as Codex `names` it and its parent helper
+    // `parent_subagent_id`, and its `subagent.started` row, which names the child run the engine
+    // started first; the child's start once the run engine started or refused it, `None` when it
+    // absorbed it. A refused helper keeps its ended run, which absorbs its rows, and its
+    // running turn is interrupted, as each turn it starts after is, and its tool calls are denied
+    // with the refusal's sentence.
     async fn deliver_child_start(
         &self,
         record: &mut CodexSessionRecord,
         child_thread_id: &str,
         child: &CodexChildRun,
         parent_run_id: RunId,
+        parent_subagent_id: Option<SubagentId>,
+        names: CodexHelperNames,
     ) -> Option<CodexBoundChildRun> {
         let start = InboundDelivery::ChildRun {
             binding: DeliveryBinding {
@@ -266,6 +312,15 @@ impl CodexFrameDelivery {
                 }),
             },
             parent_run_id,
+            // Codex names no start call: the spawn call stays the `subagent.started` row's.
+            subagent: ChildRunSubagent {
+                subagent_id: child.subagent_id.clone(),
+                parent_subagent_id,
+                name: names.name,
+                role: names.role,
+                provider_path: names.provider_path,
+                start_call_id: None,
+            },
         };
         let child_run_id = match self.send(record, start, "thread/started").await {
             Some(InboundOutcome::ChildRunStarted { run_id }) => Some(run_id),
@@ -305,13 +360,8 @@ impl CodexFrameDelivery {
             .send(record, started_row, "thread/started")
             .await
             .and_then(|outcome| outcome.event_id().cloned());
-        let child_run_id = child_run_id?;
-        record
-            .delivery
-            .child_thread_id_by_run_id
-            .insert(child_run_id, child_thread_id.to_owned());
         Some(CodexBoundChildRun {
-            child_run_id,
+            child_run_id: child_run_id?,
             parent_run_id,
             start_row_event_id,
         })

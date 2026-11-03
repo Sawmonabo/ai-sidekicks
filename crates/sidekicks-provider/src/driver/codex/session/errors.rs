@@ -16,6 +16,7 @@ use sidekicks_ipc::domain_error::DomainError;
 
 use crate::driver::capabilities::DriverCapabilityFlag;
 use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::config_read::CodexConfigFileError;
 use crate::driver::contract::error::{
     DriverError, PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE, bound_failure_detail,
 };
@@ -38,7 +39,8 @@ const FIELD_LEVEL_REFUSAL_PHRASES: &[&str] = &["missing field", "unknown field"]
 /// never reached it, and the connection stays.
 const CODEX_OVERLOADED_CODE: i64 = -32001;
 
-/// JSON-RPC's invalid-request code, which the service's draining answer carries.
+/// JSON-RPC's invalid-request code, which the service's draining answer carries, and its refusal of
+/// an interrupt of no running turn, of a turn not the one running or of a conversation not loaded.
 pub(crate) const CODEX_INVALID_REQUEST_CODE: i64 = -32600;
 
 /// The `data.reason` of the service's answer while it drains toward its exit.
@@ -52,6 +54,10 @@ const CODEX_CLOSING_MESSAGE: &str = "is closing; retry thread/resume";
 
 /// The words of Codex's refusal of a catalog read that asks for the service to restart first.
 const CODEX_RESTART_REQUESTED_MESSAGE: &str = "Restart Codex";
+
+/// The words of Codex's refusal of a request on a conversation it does not hold loaded and cannot
+/// find.
+const CODEX_THREAD_NOT_FOUND_MESSAGE: &str = "thread not found";
 
 /// The `data.reason` a turn refused while another of the session's turns is in flight carries.
 const SESSION_TURN_IN_FLIGHT_REASON: &str = "sessionTurnInFlight";
@@ -206,6 +212,10 @@ pub(crate) enum CodexError {
         /// Where the policy failed to read, and why.
         detail: String,
     },
+    /// A `config.toml` of the person's Codex cannot be read as Codex reads it, so Codex would not
+    /// start on it.
+    #[error(transparent)]
+    ConfigUnreadable(CodexConfigFileError),
     /// The driver's configuration lacks the shape the driver needs: a wiring defect.
     #[error("the Codex driver's {field} configuration is unusable: {detail}")]
     DriverConfig {
@@ -275,6 +285,12 @@ impl CodexError {
     /// before it answers.
     pub(crate) fn asks_for_restart(&self) -> bool {
         self.is_invalid_request_saying(CODEX_RESTART_REQUESTED_MESSAGE)
+    }
+
+    /// Whether this is Codex's refusal of a request on a conversation it does not hold, `thread
+    /// not found: <id>`.
+    pub(crate) fn is_thread_not_found(&self) -> bool {
+        self.is_invalid_request_saying(CODEX_THREAD_NOT_FOUND_MESSAGE)
     }
 
     // A `-32600` answer whose message holds `words`.
@@ -366,6 +382,12 @@ impl From<CodexError> for DriverError {
             CodexError::MachinePolicyUnreadable { .. } => Self::from(provider_failure_refusal(
                 &DESCRIPTOR.provider_id(),
                 "Codex's machine policy cannot be read, so Codex would not start",
+                RefusalCode::ProviderUnavailable,
+                error,
+            )),
+            CodexError::ConfigUnreadable(_) => Self::from(provider_failure_refusal(
+                &DESCRIPTOR.provider_id(),
+                "Codex's configuration cannot be read, so Codex would not start",
                 RefusalCode::ProviderUnavailable,
                 error,
             )),

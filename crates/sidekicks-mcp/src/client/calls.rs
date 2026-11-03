@@ -8,13 +8,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_provider::port::question::mint_tool_server_request_id;
 use sidekicks_std::mutex_lock::lock;
 use tokio_util::sync::CancellationToken;
 
 use crate::client::connection::McpConnectionScope;
-use crate::client::tasks::{
-    AwaitedQuestion, ElicitationAnswer, McpToolCall, QuestionOutcome, QuestionTake, TaskWatches,
-    compose_question,
+use crate::client::tasks::McpToolCall;
+use crate::client::tasks::watches::answers::ElicitationAnswer;
+use crate::client::tasks::watches::{
+    AwaitedQuestion, QuestionOutcome, QuestionTake, TaskWatches, compose_question,
 };
 
 /// The calls in flight on one connection: one entry per call until it ends or is dropped, each
@@ -34,8 +36,8 @@ struct CallInFlight {
     open_questions: Vec<String>,
 }
 
-/// One call while it is in flight; finished or dropped, it forgets the call and withdraws its
-/// questions still open.
+/// One call while it is in flight; dropped, it forgets the call and withdraws its questions still
+/// open in a task of their own.
 pub(super) struct TrackedCall<'calls> {
     calls: &'calls CallsInFlight,
     scope: &'calls McpConnectionScope,
@@ -43,7 +45,7 @@ pub(super) struct TrackedCall<'calls> {
 }
 
 impl CallsInFlight {
-    /// Tracks `call` on `scope`'s connection until the returned value is finished or dropped.
+    /// Tracks `call` on `scope`'s connection until the returned value is dropped.
     pub(super) fn track<'calls>(
         &'calls self,
         call: &McpToolCall,
@@ -82,11 +84,18 @@ impl CallsInFlight {
         let Some((run_id, ended)) = self.run_of(number) else {
             return QuestionOutcome::Withdrawn;
         };
-        let request_id = watches.mint_request_id(scope, &format!("call-{number}"));
+        let request_id = mint_tool_server_request_id();
         let question = compose_question(scope, run_id, request_id.clone(), &params);
         let (answer, answered) = ElicitationAnswer::open(params);
         if !watches
-            .take_question(scope, question, answer, QuestionTake::InRunTurn, &ended)
+            .take_question(
+                scope,
+                question,
+                answer,
+                QuestionTake::InRunTurn,
+                &ended,
+                None,
+            )
             .await
         {
             return QuestionOutcome::Withdrawn;
@@ -101,7 +110,7 @@ impl CallsInFlight {
             watches.withdraw_questions_later(scope.session_id, vec![request_id]);
             return QuestionOutcome::Withdrawn;
         }
-        let outcome = AwaitedQuestion::hold(watches, scope.session_id, request_id.clone())
+        let outcome = AwaitedQuestion::hold(watches, scope.session_id, request_id.clone(), None)
             .answer(answered)
             .await;
         // Settled, it is no longer open, so the call's end has nothing to withdraw for it.
@@ -129,35 +138,21 @@ impl TrackedCall<'_> {
     pub(super) async fn ask(&self, scope: &McpConnectionScope, params: Value) -> QuestionOutcome {
         self.calls.ask(scope, self.number, params).await
     }
-
-    /// Stops tracking the call, withdrawing each of its questions still open on the card.
-    pub(super) async fn finish(self) {
-        let open_questions = self.forget();
-        if !open_questions.is_empty() {
-            self.scope
-                .task_watches
-                .withdraw_questions(self.scope.session_id, open_questions)
-                .await;
-        }
-    }
-
-    fn forget(&self) -> Vec<String> {
-        let mut calls = lock(&self.calls.calls);
-        let Some(place) = calls.iter().position(|call| call.number == self.number) else {
-            return Vec::new();
-        };
-        let call = calls.remove(place);
-        call.ended.cancel();
-        call.open_questions
-    }
 }
 
 impl Drop for TrackedCall<'_> {
     fn drop(&mut self) {
-        let open_questions = self.forget();
-        self.scope
-            .task_watches
-            .withdraw_questions_later(self.scope.session_id, open_questions);
+        let removed = {
+            let mut calls = lock(&self.calls.calls);
+            let place = calls.iter().position(|call| call.number == self.number);
+            place.map(|place| calls.remove(place))
+        };
+        if let Some(call) = removed {
+            call.ended.cancel();
+            self.scope
+                .task_watches
+                .withdraw_questions_later(self.scope.session_id, call.open_questions);
+        }
     }
 }
 
@@ -165,12 +160,14 @@ impl Drop for TrackedCall<'_> {
 mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
+    use sidekicks_provider::port::question::is_tool_server_request_id;
     use tokio::time::{Duration, timeout};
 
     use crate::client::tasks::McpToolCallEnd;
     use crate::client::test_server::{
         CountingSink, Reply, Responder, TestServer, board_accepted, board_answer, board_form,
-        contact, method_not_found, open_test_server, test_client, text_result, track_call,
+        call_tool_as_dispatched, contact, method_not_found, open_test_server, test_client,
+        text_result, track_call,
     };
 
     /// A 2025-11-25 server with no tasks whose `tools/call` asks for the board first.
@@ -233,8 +230,9 @@ mod tests {
     }
 
     // Mutations: in `connection.rs`'s `create_elicitation`, answer `cancel` instead of asking
-    // `ask_newest_call`; in `CallsInFlight::track`, record another run; or in `v2::call_tool`,
-    // fail an `InputRequired` round instead of answering it.
+    // `ask_newest_call`; in `CallsInFlight::track`, record another run; or in
+    // `revision_2026_07_28::call_tool`, fail an `InputRequired` round instead of answering it; or in
+    // `CallsInFlight::ask`, mint the question's id anywhere but `mint_tool_server_request_id`.
     #[rstest]
     #[case::a_2025_11_25_request(eliciting_v1_server(), v1_answer)]
     #[case::a_2026_07_28_input_round(eliciting_v2_server(), v2_answer)]
@@ -252,7 +250,7 @@ mod tests {
 
         let (end, question) = timeout(Duration::from_secs(60), async {
             tokio::join!(
-                connection.call_tool(call, &sink, &contact),
+                call_tool_as_dispatched(&connection, call, &sink, &contact),
                 card.answer_open(board_answer()),
             )
         })
@@ -266,6 +264,10 @@ mod tests {
         assert_eq!(
             (question.session_id, question.run_id),
             (server.session_id, run_id)
+        );
+        assert!(
+            is_tool_server_request_id(&question.request_id),
+            "the question's id is minted for the start's withdrawal to find"
         );
         assert_eq!(server_answer(&server), board_accepted());
         assert!(sink.recorded().is_empty(), "a plain call records no task");
@@ -284,13 +286,13 @@ mod tests {
         let first_call = track_call();
         let mut second_call = track_call();
         second_call.run_id = first_call.run_id;
-        let first = connection.call_tool(first_call, &sink, &contact);
+        let first = call_tool_as_dispatched(&connection, first_call, &sink, &contact);
         tokio::pin!(first);
         tokio::select! {
             _ = &mut first => panic!("the first call ended before its question was taken"),
             () = card.wait_until_taken(1) => {}
         }
-        let second = connection.call_tool(second_call, &sink, &contact);
+        let second = call_tool_as_dispatched(&connection, second_call, &sink, &contact);
         tokio::pin!(second);
         tokio::select! {
             _ = &mut first => panic!("the first call ended before its question was answered"),
@@ -344,13 +346,18 @@ mod tests {
         let first_call = track_call();
         let mut second_call = track_call();
         second_call.run_id = first_call.run_id;
-        let first = connection.call_tool(first_call, &sink, &contact);
+        let first = call_tool_as_dispatched(&connection, first_call, &sink, &contact);
         tokio::pin!(first);
         tokio::select! {
             _ = &mut first => panic!("the first call ended before its question was taken"),
             () = card.wait_until_taken(1) => {}
         }
-        let mut second = Box::pin(connection.call_tool(second_call, &sink, &contact));
+        let mut second = Box::pin(call_tool_as_dispatched(
+            &connection,
+            second_call,
+            &sink,
+            &contact,
+        ));
         tokio::select! {
             _ = &mut first => panic!("the first call ended before its question was answered"),
             _ = &mut second => panic!("the second call ended before its question was asked"),
@@ -380,7 +387,7 @@ mod tests {
         let (connection, server) = open_test_server(&client, eliciting_v1_server()).await;
         let sink = CountingSink::new(&server);
         let contact = contact();
-        let call = connection.call_tool(track_call(), &sink, &contact);
+        let call = call_tool_as_dispatched(&connection, track_call(), &sink, &contact);
         tokio::pin!(call);
 
         tokio::select! {
@@ -421,7 +428,7 @@ mod tests {
         let (connection, server) = open_test_server(&client, eliciting_v1_server()).await;
         let sink = CountingSink::new(&server);
         let contact = contact();
-        let call = connection.call_tool(track_call(), &sink, &contact);
+        let call = call_tool_as_dispatched(&connection, track_call(), &sink, &contact);
         tokio::pin!(call);
         tokio::select! {
             _ = &mut call => panic!("the call ended before its question was taken"),

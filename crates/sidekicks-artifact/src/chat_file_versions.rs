@@ -614,12 +614,7 @@ impl ChatFileVersions {
         &self,
         folder: ChatFolder,
     ) -> Result<SessionId, ChatFileVersionError> {
-        match self
-            .folder_usage
-            .read_usage(&folder.repo_mount_id)
-            .await?
-            .origin
-        {
+        match self.folder_usage.read_origin(&folder.repo_mount_id).await? {
             RepoMountOrigin::Managed { session_id, .. } => Ok(session_id),
             RepoMountOrigin::Attached { .. } | RepoMountOrigin::Worktree { .. } => {
                 unreachable!("a mount a chat folder's name finds is a managed mount")

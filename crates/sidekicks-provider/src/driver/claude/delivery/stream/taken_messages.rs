@@ -1,10 +1,11 @@
 //! How Claude Code says it took or dropped a message the daemon wrote: `command_lifecycle`'s
-//! `started` reports it taken under the run it was written for, and a terminal drop settles it with
-//! no report.
+//! `started` reports it taken under the run it was written for, a terminal drop settles it with no
+//! report, and a peer message the receiver's policy refused is published as refused.
 
 use serde_json::{Map, Value};
 
 use super::{ClaudeDeliveryStream, ClaudeSessionStream};
+use crate::port::session_message_reading_publisher::SessionMessageReading;
 use crate::record_readers::read_non_empty_string;
 
 impl ClaudeDeliveryStream {
@@ -31,6 +32,16 @@ impl ClaudeDeliveryStream {
                 session
                     .lock_prompts()
                     .record_dropped(session.session_id, uuid);
+                // `refused` also names a peer message the receiver's policy declined.
+                if state == "refused"
+                    && let Some(publisher) = self.dependencies.session_message_readings.port()
+                {
+                    publisher.publish(SessionMessageReading::Refused {
+                        message_id: uuid.to_owned(),
+                        reason: None,
+                        drop_reason: None,
+                    });
+                }
             }
             _ => {}
         }

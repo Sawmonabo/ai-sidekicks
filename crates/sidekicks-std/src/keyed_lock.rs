@@ -74,6 +74,25 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
         hold
     }
 
+    /// Holds every key of `requested_keys`, each once, taking them one after another in sorted
+    /// order, so two callers that each hold several of the same keys never wait on each other.
+    pub async fn acquire_all(
+        &self,
+        requested_keys: impl IntoIterator<Item = Key>,
+    ) -> Vec<KeyHold<'_, Key>>
+    where
+        Key: Ord,
+    {
+        let mut keys: Vec<Key> = requested_keys.into_iter().map(self.canonical_key).collect();
+        keys.sort();
+        keys.dedup();
+        let mut holds = Vec::with_capacity(keys.len());
+        for key in keys {
+            holds.push(self.acquire(key).await);
+        }
+        holds
+    }
+
     /// Takes `requested_key`'s place in line at once, with no await: the hold when no one holds or
     /// waits on the key, else a wait that keeps this place behind every caller that asked first,
     /// which awaiting carries on from and dropping gives up.

@@ -3,18 +3,21 @@
 //! it. Each session goes on its own, under its transition lock, so a refused one stops no other.
 //!
 //! - The session is marked `purgeRequested` first, from the states its caller purges, with no
-//!   event, which locks its row against every other change.
+//!   event, which locks its row against every other change. The mark is refused while a plan the
+//!   session made is being handed to a fresh session whose seed has no queue item yet, so the
+//!   seed's transcript and manifest are always written from a live planning session.
 //! - Then the files only this session names go: its shells end and stay refused until the rows
 //!   are gone, then the provider's copy of each conversation, a chat's managed workspace folder,
 //!   the session's own storage folder, each run's snapshot refs, and the project rules the
 //!   session wrote into its project's files. A failure there leaves the mark and every row, so
 //!   purging the session again finishes it.
-//! - Then one write, under the session's append lock, deletes every row naming the session and
-//!   appends its `session.event.compacted` receipt on the daemon's sentinel session, led by two
-//!   guards: the session is still marked, and no event of it lies past the receipt's range. An
-//!   append the lock let go before its commit can land after the range is read; the range is
-//!   then read again once, since the hold keeps any new append out. The writer's connection runs
-//!   with `secure_delete` on, so a freed page is overwritten.
+//! - Then one write, under the session's append lock, deletes every row naming the session, its
+//!   plans and the hand-off that made it among them, and appends its `session.event.compacted`
+//!   receipt on the daemon's sentinel session, led by two guards: the session is still marked,
+//!   and no event of it lies past the receipt's range. An append the lock let go before its
+//!   commit can land after the range is read; the range is then read again once, since the hold
+//!   keeps any new append out. The writer's connection runs with `secure_delete` on, so a freed
+//!   page is overwritten.
 //! - After the commit the recovery state forgets the session's damage, the session reads let go of
 //!   its block cuts, the runs' postures forget its level moves, the project's other sessions are
 //!   handed their rules again, the live list loses the session, the project list counts it no
@@ -84,9 +87,9 @@ use sidekicks_workspace::managed::service::{ManagedWorkspaceError, ManagedWorksp
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
 
 use crate::data_acts::purge::rows::{
-    MARKED_GUARD_INDEX, PurgeCaller, PurgeReadError, UPPER_BOUND_GUARD_INDEX, gone_worktree_ids,
-    mark_statement, read_gone_worktree_candidates, read_purge_targets, read_range_and_links,
-    session_deletion_statements,
+    HAND_OFF_GUARD_INDEX, MARK_INDEX, MARKED_GUARD_INDEX, PurgeCaller, PurgeReadError,
+    UPPER_BOUND_GUARD_INDEX, gone_worktree_ids, mark_statements, read_gone_worktree_candidates,
+    read_purge_targets, read_range_and_links, session_deletion_statements,
 };
 use crate::hand_over::remove_session_storage_folder;
 
@@ -100,6 +103,10 @@ pub(crate) enum SessionPurgeError {
         /// The state it is in.
         state: Option<SessionState>,
     },
+    /// The session's plan is still being handed to a fresh session whose first message is not
+    /// queued.
+    #[error("the session's plan is still being handed to a fresh session")]
+    HandOffUnfinished,
     /// The mark was taken off before the rows were deleted.
     #[error("the session's purge mark was taken off before its rows were deleted")]
     MarkLost,
@@ -366,7 +373,7 @@ impl SessionPurge {
         })
     }
 
-    // Marks the session, or answers the state that refused the mark.
+    // Marks the session, or answers the unfinished hand-off or the state that refused the mark.
     async fn mark(
         &self,
         session_id: SessionId,
@@ -375,11 +382,14 @@ impl SessionPurge {
         match self
             .deps
             .writer
-            .write(vec![mark_statement(session_id, caller)])
+            .write(mark_statements(session_id, caller))
             .await
         {
             Ok(_) => Ok(()),
-            Err(error) if error.refused_statement_index() == Some(0) => {
+            Err(error) if error.refused_statement_index() == Some(HAND_OFF_GUARD_INDEX) => {
+                Err(SessionPurgeError::HandOffUnfinished)
+            }
+            Err(error) if error.refused_statement_index() == Some(MARK_INDEX) => {
                 let state = self
                     .deps
                     .reads

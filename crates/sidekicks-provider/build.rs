@@ -63,6 +63,7 @@ const CODEX_SENT_TYPES: [&str; 35] = [
     "LoginAccountParams",
     "CancelLoginAccountParams",
     "McpServerOauthLoginParams",
+    "ThreadListParams",
 ];
 
 /// The sent types generated code cannot carry, each written by hand where its path names: those

@@ -23,6 +23,7 @@ use crate::driver::codex::session::slots::CODEX_LET_GO_TIMEOUT;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::prior_usage::read_prior_emitted;
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{FindTakenMessagesParams, TakenMessages};
 use crate::driver::session_control::{
@@ -53,7 +54,10 @@ impl CodexDriver {
             .into());
         }
         let (handle, established) = parts.establishment.create(&params).await?;
-        let opened = parts.establishment.open(established, None).await;
+        let opened = parts
+            .establishment
+            .open(established, UsageAxisCounts::default())
+            .await;
         claim.install(opened.record.inbound.clone());
         self.spawn_session_task(parts, opened);
         Ok(handle)

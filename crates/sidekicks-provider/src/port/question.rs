@@ -1,7 +1,7 @@
 //! Where a driver hands the structured questions a provider asks the person, so the questions card
 //! asks them and the answer goes back through the driver's `respond_to_request`; and where the
 //! daemon's tool-server client hands the questions a tool server's task asks, whose answer goes
-//! back through the client.
+//! back through the client, each under a request id minted here in one shape both sides check.
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_card;
@@ -15,12 +15,36 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::question::{QuestionAnswer, QuestionAskedState, QuestionPrompt};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::{UuidTextForm, mint_uuid_v7};
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::keyed_lock::{KeyHold, KeyWait, KeyedLock};
 
 // Each run's line of questions taken in its turn, which every driver's question and each tool
 // server's question taken in its run's turn joins, so they open in the order they came.
 static RUN_QUESTION_LINE: LazyLock<KeyedLock<RunId>> = LazyLock::new(KeyedLock::new);
+
+// What begins every request id the tool-server client asks a question under.
+const TOOL_SERVER_REQUEST_ID_PREFIX: &str = "mcp:";
+
+/// A new request id for a question the tool-server client asks: `mcp:` and a version 7 UUID in
+/// its lowercase text form.
+pub fn mint_tool_server_request_id() -> String {
+    format!(
+        "{TOOL_SERVER_REQUEST_ID_PREFIX}{}",
+        UuidTextForm::from(mint_uuid_v7()).text().as_str()
+    )
+}
+
+/// Whether `request_id` has exactly the shape [`mint_tool_server_request_id`] writes. A driver's
+/// own request id is never one, even one that begins `mcp:`.
+pub fn is_tool_server_request_id(request_id: &str) -> bool {
+    request_id
+        .strip_prefix(TOOL_SERVER_REQUEST_ID_PREFIX)
+        .is_some_and(|rest| {
+            UuidTextForm::new(rest)
+                .is_ok_and(|form| form.version() == 7 && rest == form.text().as_str())
+        })
+}
 
 /// The questions one provider request asks, in its order, with the provider's own request id the
 /// answer goes back under, and whether the agent waits for the answer.
@@ -48,15 +72,25 @@ pub struct ProviderQuestionWithdrawal {
     pub request_id: String,
 }
 
+/// Where a tool server's answer went: to the request that waits on it, or kept for the server's
+/// next ask.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToolServerAnswerDelivery {
+    /// Sent to the request that waits on it.
+    Delivered,
+    /// No request waits; the answer is kept for the server's next ask of the same form.
+    Kept,
+}
+
 /// Where the person's answers to a tool server task's question go: the tool-server client, which
 /// sends them to the server that asked.
 pub trait ToolServerQuestionAnswer: Send + Sync {
-    /// Sends `answers`, one per question in the question's order. An error when the server could
-    /// not be sent them.
+    /// Sends `answers`, one per question in the question's order, or keeps them for the server's
+    /// next ask, and answers which. An error when the server could not be sent them.
     fn answer(
         &self,
         answers: Vec<QuestionAnswer>,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+    ) -> BoxFuture<'_, Result<ToolServerAnswerDelivery, Box<dyn Error + Send + Sync>>>;
 }
 
 /// What an attempt to open a question that waits for its run came to.
@@ -168,6 +202,16 @@ pub trait QuestionPort: Send + Sync {
     fn withdraw_question(
         &self,
         withdrawal: ProviderQuestionWithdrawal,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+
+    /// Settles answered the open question of `session_id` asked under `request_id`, whose answer
+    /// was kept, once the server's next ask has taken it: the person's turn, the settle and the
+    /// run's move back to `running` in one write. A question settled meanwhile is left as it is;
+    /// an error when the write fails, or when no answer was kept.
+    fn settle_kept_answer(
+        &self,
+        session_id: SessionId,
+        request_id: String,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
 }
 

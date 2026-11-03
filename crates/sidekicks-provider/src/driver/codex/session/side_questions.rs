@@ -555,6 +555,8 @@ pub(crate) async fn start_turn(
                 collaboration_mode: None,
                 model: None,
                 client_user_message_id: None,
+                turn_trigger: None,
+                root_turn_id: None,
                 output_schema: None,
                 effort: None,
                 service_tier: None,

@@ -1,9 +1,15 @@
-//! Readers for the sites that keep an untrusted JSON value from a provider, a stored row or the
-//! wire as a `Value` rather than reading it into a typed struct.
+//! Readers for untrusted values from a provider, a stored row or the wire: the sites that keep a
+//! JSON value as a `Value` rather than reading it into a typed struct, and the text members a
+//! tolerant read leaves optional.
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::wire::integer::MAX_SAFE_INTEGER;
 use sidekicks_contracts::wire::text::NonEmptyText;
+
+/// `text` when it has at least one character; `None` for an absent or empty one.
+pub(crate) fn filter_non_empty<Text: AsRef<str>>(text: Option<Text>) -> Option<Text> {
+    text.filter(|text| !text.as_ref().is_empty())
+}
 
 /// The string at `key` in `source` when it has at least one character; `None` for anything else.
 pub fn read_non_empty_string<'source>(

@@ -23,7 +23,6 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::{HeaderValue, header};
 
-use super::bearer_token::RelayBearerToken;
 use super::command_acts::write_input;
 use super::endpoint::RelayEndpoint;
 use super::executor::CodexExecutor;
@@ -31,6 +30,7 @@ use super::start_rewrite::{WrappedStart, wrap_start};
 use super::{
     CodexExecRelay, CodexExecRelayDependencies, CodexThreadSessions, RelayedCommand, RelayedThread,
 };
+use crate::bearer_token::BearerToken;
 use crate::command::channel::PartyRecord;
 use crate::command::channel::test_support::{
     end_party, new_party_keys, party_command, ready_parties, sent_requests, write_party_record,
@@ -178,7 +178,7 @@ async fn passes_an_exchange_and_admits_only_the_token() {
     let relay = relay_for(session_id, folder.path());
     let (executor, mut fake) = initialized_executor().await;
     relay.take_executor(executor);
-    let token = RelayBearerToken::mint().expect("a token mints");
+    let token = BearerToken::mint().expect("a token mints");
     let presented = format!("Bearer {}", token.text());
     let endpoint = RelayEndpoint::listen(Arc::downgrade(&relay), token)
         .await

@@ -30,7 +30,8 @@ use crate::driver::claude::session::transport::declarations;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::port::usage_sink::{UsageSink, read_prior_emitted};
+use crate::driver::prior_usage::read_prior_emitted;
+use crate::port::usage_sink::UsageSink;
 use crate::thread_frame_router::{
     ChildRegistrationResult, ChildSpendAttribution, SubagentLifecycleEmission,
     SubagentLifecycleEventType, ThreadFrameRoute,

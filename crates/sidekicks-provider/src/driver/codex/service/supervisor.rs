@@ -118,6 +118,8 @@ pub(crate) struct CodexServiceDependencies {
     pub(crate) data_folder: PathBuf,
     /// The daemon's logs folder, where each lasting service writes its log.
     pub(crate) logs_folder: PathBuf,
+    /// The person's own Codex folder, whose privacy choices each account service's start reads.
+    pub(crate) personal_home: PathBuf,
     /// More `key=value` switches every service the daemon starts runs with.
     pub(crate) additional_config_overrides: Vec<String>,
     /// How long a start or redial has to dial and complete its handshake.

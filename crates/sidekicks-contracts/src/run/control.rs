@@ -550,6 +550,7 @@ methods! {
                 AgentQueueItemChangeRefused,
                 AgentQueueItemRunChanged,
                 SkillPathRefused,
+                SessionMessageResetRefused,
                 SessionMessageTooLarge,
             ],
         },

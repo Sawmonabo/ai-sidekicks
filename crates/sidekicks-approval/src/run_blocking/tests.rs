@@ -32,6 +32,7 @@ impl ApprovalFixture {
             })),
             ask_id: None,
             tool_call_id: None,
+            input_digest: None,
             created_at: WireInstant::now(),
         };
         self.writer

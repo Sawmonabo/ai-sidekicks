@@ -218,18 +218,22 @@ pub(crate) fn withdraw_codex_steer(
 
 /// Takes the steer `client_message_id` Codex echoed on the turn `turn_id` out of the steers the
 /// turn has yet to echo, on the session's task, answering the message's id the first time only,
-/// so its message is taken once; an echo of anything else answers `None`.
+/// so its message is taken once; an echo of anything else answers `None`. A held continuation a
+/// steer reached is held no longer, so its end is its run's own.
 pub(crate) fn take_echoed_codex_steer(
     record: &mut CodexSessionRecord,
     turn_id: &str,
     client_message_id: &str,
 ) -> Option<QueueItemId> {
     let echoed = QueueItemId::new(client_message_id).ok()?;
-    record
+    let is_taken = record
         .unechoed_steers_by_turn_id
         .get_mut(turn_id)?
-        .take_echoed(echoed)
-        .then_some(echoed)
+        .take_echoed(echoed);
+    if is_taken {
+        record.held_continuation_turn_ids.remove(turn_id);
+    }
+    is_taken.then_some(echoed)
 }
 
 /// Remembers, on the session's task, one run of the person's own `userPromptSubmit` hook on a

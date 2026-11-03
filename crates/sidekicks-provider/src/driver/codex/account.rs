@@ -370,6 +370,7 @@ fn compose_short_lived_dependencies(
         program: Arc::clone(&shared.program),
         data_folder: shared.data_folder.clone(),
         logs_folder: shared.logs_folder.clone(),
+        personal_home: shared.personal_home.clone(),
         additional_config_overrides: shared.additional_config_overrides.clone(),
         startup_timeout: shared.startup_timeout,
         dispatches_hook_mode: shared.dispatches_hook_mode,

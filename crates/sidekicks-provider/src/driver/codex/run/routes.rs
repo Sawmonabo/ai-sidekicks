@@ -1,6 +1,7 @@
 //! The run routes of the Codex driver: which session each run's live turns are on, the runtime
-//! binding, agent and step bound each run's deliveries are attributed with, and the level a run
-//! alone was asked to run at, until the run ends.
+//! binding, agent and step bound each run's deliveries are attributed with, the level a run
+//! alone was asked to run at, until the run ends, and the conversation each helper's child run
+//! runs on, until the helper ends.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
@@ -28,6 +29,18 @@ pub(crate) struct CodexRunBinding {
     pub(crate) step_bound: Option<SafeInt<1>>,
 }
 
+/// The conversation a helper's child run runs on, and whether the daemon interrupted it, so the
+/// helper's end can say it is that interrupt's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CodexHelperRoute {
+    /// The session the helper runs in.
+    pub(crate) session_id: SessionId,
+    /// The helper's own conversation, which its turns run on.
+    pub(crate) thread_id: String,
+    /// Whether the daemon's interrupt is stopping the helper's turn.
+    pub(crate) is_interrupted_by_daemon: bool,
+}
+
 /// The run routes of one Codex driver, shared by its sessions.
 #[derive(Default)]
 pub(crate) struct CodexRunRoutes {
@@ -40,6 +53,7 @@ struct Routes {
     sessions: HashMap<RunId, SessionId>,
     bindings: HashMap<RunId, CodexRunBinding>,
     output_speeds_for_turn: HashMap<RunId, String>,
+    helpers: HashMap<RunId, CodexHelperRoute>,
 }
 
 impl CodexRunRoutes {
@@ -95,16 +109,59 @@ impl CodexRunRoutes {
         }
     }
 
-    /// Drops every run route and binding of a session, scanning by value: the record that could
-    /// enumerate them is gone or replaced by the time a sweep is owed.
+    /// Routes a helper's child run to the helper's own conversation `thread_id`, until the helper
+    /// ends.
+    pub(crate) fn bind_helper_run(&self, run_id: RunId, session_id: SessionId, thread_id: &str) {
+        self.lock().helpers.insert(
+            run_id,
+            CodexHelperRoute {
+                session_id,
+                thread_id: thread_id.to_owned(),
+                is_interrupted_by_daemon: false,
+            },
+        );
+    }
+
+    /// Marks a helper's child run interrupted by the daemon and answers its route, in one step so
+    /// the helper's end cannot be read ahead of the mark; `None` for a run with no helper route.
+    pub(crate) fn begin_helper_interrupt(&self, run_id: RunId) -> Option<CodexHelperRoute> {
+        let mut routes = self.lock();
+        let route = routes.helpers.get_mut(&run_id)?;
+        route.is_interrupted_by_daemon = true;
+        Some(route.clone())
+    }
+
+    /// Clears the daemon's interrupt mark of a helper's child run whose interrupt failed, so its
+    /// own end reads as its own; the route stays.
+    pub(crate) fn end_helper_interrupt(&self, run_id: RunId) {
+        if let Some(route) = self.lock().helpers.get_mut(&run_id) {
+            route.is_interrupted_by_daemon = false;
+        }
+    }
+
+    /// Whether a helper's child run is routed to its conversation, as an adoption that reopened
+    /// the helper routes it.
+    pub(crate) fn has_helper_route(&self, run_id: RunId) -> bool {
+        self.lock().helpers.contains_key(&run_id)
+    }
+
+    /// Removes and answers the route of a helper's child run that ended.
+    pub(crate) fn retire_helper_run(&self, run_id: RunId) -> Option<CodexHelperRoute> {
+        self.lock().helpers.remove(&run_id)
+    }
+
+    /// Drops every run route, helper route and binding of a session, scanning by value: the
+    /// record that could enumerate them is gone or replaced by the time a sweep is owed.
     pub(crate) fn forget_run_routes(&self, session_id: SessionId) {
         let mut routes = self.lock();
         let Routes {
             sessions,
             bindings,
             output_speeds_for_turn,
+            helpers,
         } = &mut *routes;
         sessions.retain(|_, bound_session_id| *bound_session_id != session_id);
+        helpers.retain(|_, helper| helper.session_id != session_id);
         bindings.retain(|run_id, binding| {
             let is_kept = binding.session_id != session_id;
             if !is_kept {

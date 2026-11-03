@@ -1,25 +1,24 @@
-//! Where a provider's metered usage and its account's quota windows go, a turn's push and an
-//! account read's whole set alike, and the sums the daemon already reported for a thread a resumed
-//! session meters on from. The usage service registers it once it runs; until then a reading
-//! meters against a zero base and its delta goes nowhere.
+//! Where a provider's metered usage, the price of each request it metered, and its account's quota
+//! windows go, a turn's push and an account read's whole set alike, and the sums the daemon already
+//! reported for a thread a resumed session meters on from. Recording a reading answers the event it
+//! became, so a priced request can name its rows. The usage service registers it once it runs;
+//! until then a reading meters against a zero base and its delta goes nowhere.
 
 use std::error::Error;
-use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use jiff::Timestamp;
-use serde_json::{Map, Value};
+use sidekicks_contracts::event::usage::UsageCostSource;
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentId;
+use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_std::error_description::describe_error;
-use sidekicks_std::port_registration::PortRegistration;
+use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::driver::diagnostics::{
-    DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
-};
 use crate::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts};
 
 /// One quota window a provider reported for an account: the provider's own name for the limit, the
@@ -64,14 +63,61 @@ pub struct MeteredUsage {
     pub delta: MeteredUsageDelta,
 }
 
+/// A token row the record wrote, and the run, account and helper it charged it to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordedUsage {
+    /// The row's `usage.tokenCount.recorded` event.
+    pub event_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    /// The run the row was counted toward, `None` for a copy of the session's conversation's.
+    pub run_id: Option<RunId>,
+    /// The account the row was charged to.
+    pub provider_account_id: ProviderAccountId,
+    /// The helper the row was attributed to, where one was.
+    pub subagent_id: Option<SubagentId>,
+}
+
+/// One request priced on a session: its model, where its figure came from, and each of its token
+/// rows with that row's share.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PricedRequest {
+    /// The session.
+    pub session_id: SessionId,
+    /// The model the request was priced at.
+    pub model_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    /// Where the figure came from.
+    pub cost_source: UsageCostSource,
+    /// The request's token rows, each with its share of the price.
+    pub rows: Vec<PricedUsageRow>,
+}
+
+/// One token row of a priced request and its share of the price.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PricedUsageRow {
+    /// The row.
+    pub row: RecordedUsage,
+    /// Its share, in whole micro-dollars.
+    pub cost_usd_micros: UsdMicros,
+}
+
 /// The daemon's usage record as the drivers reach it, registered through a `PortRegistration`.
 pub trait UsageSink: Send + Sync {
     /// Records one metered per-turn delta, stamped with its account's credential generation as
-    /// the accounts store holds it at the write. Fails as the binding cannot be read or the row
-    /// cannot be written.
+    /// the accounts store holds it at the write, and answers the row's event and the run, account
+    /// and helper it was charged to; `None` where the dispatch wrote nothing. Fails as the binding
+    /// cannot be read or the row cannot be written.
     fn record_metered(
         &self,
         metered: MeteredUsage,
+    ) -> BoxFuture<'_, Result<Option<RecordedUsage>, Box<dyn Error + Send + Sync>>>;
+
+    /// Records one priced request: one `usage.cost.updated` per account its rows name, in the
+    /// order the accounts first appear, each naming that account's rows and their sum, on the
+    /// session with no binding, so a request priced after its run ended is still recorded. The
+    /// request's events are written together or not at all. A request with no rows records
+    /// nothing. Fails as a sum passes the wire's integer or the events cannot be written.
+    fn record_cost(
+        &self,
+        request: PricedRequest,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
 
     /// Records the quota windows `provider` reported for `provider_account_id`'s account. The set
@@ -103,42 +149,4 @@ pub trait UsageSink: Send + Sync {
         session_id: SessionId,
         thread_id: String,
     ) -> BoxFuture<'_, Result<UsageAxisCounts, Box<dyn Error + Send + Sync>>>;
-}
-
-/// The daemon's own emitted sum for `thread_id` on `session_id` of `provider` through `usage`, the
-/// base a resumed thread or a copy of its conversation meters from; an unregistered usage record or
-/// a failed read is recorded, the base then zero, so the first reading counts what came before
-/// again.
-pub(crate) async fn read_prior_emitted(
-    usage: &PortRegistration<Arc<dyn UsageSink>>,
-    provider: ProviderId,
-    session_id: SessionId,
-    thread_id: &str,
-) -> UsageAxisCounts {
-    let failure = match usage.require_port() {
-        Ok(sink) => match sink
-            .read_prior_emitted(session_id, thread_id.to_owned())
-            .await
-        {
-            Ok(counts) => return counts,
-            Err(error) => describe_error(error.as_ref()),
-        },
-        Err(error) => describe_error(&error),
-    };
-    emit_driver_diagnostic(&DriverDiagnosticRecord {
-        provider,
-        provider_account_id: None,
-        kind: DriverDiagnosticKind::UsageResumeBaseUnavailable,
-        raw_wire_type: None,
-        disposition_reason: "the daemon's own emitted usage sum could not be read, so the resumed \
-                             thread meters from zero and its first reading counts what came \
-                             before again"
-            .to_owned(),
-        details: Map::from_iter([
-            ("threadId".to_owned(), Value::from(thread_id)),
-            ("failure".to_owned(), Value::from(failure)),
-            ("sessionId".to_owned(), Value::from(session_id.to_string())),
-        ]),
-    });
-    UsageAxisCounts::default()
 }
