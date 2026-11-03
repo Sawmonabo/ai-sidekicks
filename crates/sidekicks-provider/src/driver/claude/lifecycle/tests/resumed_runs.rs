@@ -447,3 +447,65 @@ async fn a_held_lead_s_continue_carries_the_answers_to_its_process() {
         )
     );
 }
+
+// A resume the session's live process answers sends a held lead's continue to that process as the
+// lead's next message, never ending it, and answers the lead still running so its answers stay
+// taken. Killed by the send dropped (no message reaches the process and the lead answers gone).
+#[tokio::test(start_paused = true)]
+async fn a_live_process_is_sent_a_held_lead_s_answers_as_its_next_message() {
+    let fixture = ScriptedDriver::new();
+    let session_id = closed_session(&fixture).await;
+    let channel = Arc::new(ScriptedChannel::default());
+    fixture.starts.script_session(Arc::clone(&channel));
+    let params = resume_params(session_id);
+    fixture
+        .driver
+        .restart_session(params.clone())
+        .await
+        .expect("the restart answers");
+    fixture.next_start().await;
+    let lead = new_run_id();
+    let lead_answer = ContinueEntry {
+        run_id: lead,
+        subagent_id: None,
+        answer: ContinueAnswer::Question {
+            question: "Which branch?".to_owned(),
+            answer: "main".to_owned(),
+        },
+    };
+
+    let resumed = fixture
+        .driver
+        .resume_session(ResumeSessionParams {
+            live_runs: vec![lead_run(lead, vec![open_turn(2)])],
+            held_run_continue: Some(HeldRunContinue {
+                lead_run_id: lead,
+                entries: vec![lead_answer],
+                missed_fires: Vec::new(),
+            }),
+            ..params
+        })
+        .await
+        .expect("the resume answers");
+
+    let DriverResumeResult::Resumed { runs, .. } = resumed else {
+        unreachable!("the live process answers the resume: {resumed:?}")
+    };
+    assert_eq!(runs, [answer(lead, ProviderTurnAnswer::StillRunning)]);
+    assert!(
+        fixture.starts.take_started().is_empty(),
+        "no process starts"
+    );
+    let contents: Vec<_> = channel
+        .user_frames()
+        .into_iter()
+        .map(|frame| frame["message"]["content"].clone())
+        .collect();
+    assert_eq!(
+        contents,
+        [json!(
+            "While the app restarted, the person answered what you were waiting on:\n\
+             You asked: Which branch?. The person answered: main."
+        )]
+    );
+}

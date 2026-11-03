@@ -97,18 +97,19 @@ type ResumeHook = Box<dyn Fn(&ResumeSessionParams) + Send + Sync>;
 /// What runs as the close's `session.closed` is appended, before its write is queued.
 type ClosedAppendHook = Box<dyn Fn() + Send + Sync>;
 
-// A session an earlier daemon ran on its binding, its provider sessions and its changes sharing
-// the transition lock, over a driver that resumes the conversation on the binding the queue minted,
-// or on `came_up_on` once a test sets it, checking that binding's cursor is open as it runs, and
+// A session an earlier daemon ran on its binding, its provider sessions and its changes sharing the
+// transition lock, over a driver that resumes the conversation on the binding the queue minted, or
+// on `came_up_on` once a test sets it, checking that binding's cursor is open as it runs, and
 // closes at once, counting each close; each event changes the session's directory row, so a close
 // leaves the session reading closed. Once a test sets `is_row_taken`, a resume first records a row
 // under the binding it runs on, so the queue's own record of it fails; once it sets `is_deferred`,
 // a resume starts no process and answers every run waiting; once it sets `git_folder`, an opening
 // names that git folder, and once it sets `provider`, that provider; once it sets `is_refused`, a
 // resume fails; once it sets `is_provider_missing`, a resume or restart answers the provider not
-// installed. The session runs in `TEST_PLACE`. The resumed runs' stand-in records each resume's
-// runs, and whether the binding last handed out had a row as they reached it; the kept answers'
-// stand-ins owe what a test gives them.
+// installed. A resume carrying a continue answers its lead still running, but once a test sets
+// `is_continue_dropped`, gone. The session runs in `TEST_PLACE`. The resumed runs' stand-in records
+// each resume's runs, and whether the binding last handed out had a row as they reached it; the
+// kept answers' stand-ins owe what a test gives them.
 struct Opening {
     database: TestDatabase,
     session_id: SessionId,
@@ -121,6 +122,7 @@ struct Opening {
     is_row_taken: Arc<AtomicBool>,
     is_deferred: Arc<AtomicBool>,
     is_refused: Arc<AtomicBool>,
+    is_continue_dropped: Arc<AtomicBool>,
     git_folder: Arc<Mutex<Option<FilesystemPath>>>,
     provider: Arc<Mutex<Option<ProviderId>>>,
     is_provider_missing: Arc<AtomicBool>,
@@ -216,6 +218,7 @@ impl Opening {
         let is_row_taken = Arc::new(AtomicBool::new(false));
         let is_deferred = Arc::new(AtomicBool::new(false));
         let is_refused = Arc::new(AtomicBool::new(false));
+        let is_continue_dropped = Arc::new(AtomicBool::new(false));
         let closes = Arc::new(AtomicUsize::new(0));
         let git_folder = Arc::new(Mutex::new(None));
         let provider = Arc::new(Mutex::new(None));
@@ -232,6 +235,7 @@ impl Opening {
                 Arc::clone(&is_provider_missing),
             );
             let is_refused = Arc::clone(&is_refused);
+            let is_continue_dropped = Arc::clone(&is_continue_dropped);
             move |params: ResumeSessionParams| {
                 assert_eq!(params.resume_handle, "conversation-1");
                 assert!(
@@ -272,7 +276,16 @@ impl Opening {
                     .load(Ordering::SeqCst)
                     .then(|| params.binding_id.clone());
                 let store = Arc::clone(&store);
-                let runs = answer_every_run_gone(&params.live_runs);
+                let mut runs = answer_every_run_gone(&params.live_runs);
+                if let Some(held_run_continue) = &params.held_run_continue
+                    && !is_continue_dropped.load(Ordering::SeqCst)
+                {
+                    for answer in &mut runs {
+                        if answer.run_id == held_run_continue.lead_run_id {
+                            answer.turn = ProviderTurnAnswer::StillRunning;
+                        }
+                    }
+                }
                 async move {
                     if let Some(taken) = taken {
                         take_row(&store, taken, earlier_run_id).await;
@@ -371,6 +384,7 @@ impl Opening {
             is_row_taken,
             is_deferred,
             is_refused,
+            is_continue_dropped,
             git_folder,
             provider,
             is_provider_missing,

@@ -86,6 +86,7 @@ impl ClaudeSessionEstablishment {
             Err(error) => ClaudeResumeAnswer {
                 result: resume_failure(error.recovery_condition(), &error),
                 has_started_process: false,
+                live_turn_to_continue: None,
             },
         };
         // The timed fires stored for the session, which a fresh process does not keep, go to a
@@ -144,10 +145,21 @@ impl ClaudeSessionEstablishment {
                     .into());
                 }
                 ClaudeResumeSlot::CameUp(live) if runs_as_asked(&live, &params) => {
-                    let runs = answer_held_turns(&self.routes, session_id, &params.live_runs);
+                    let binding_id = live.resumed_binding_id.clone().unwrap_or(binding_id);
+                    let mut runs = answer_held_turns(&self.routes, session_id, &params.live_runs);
+                    // A held lead the live process is told to continue runs again on it.
+                    let live_turn_to_continue = find_held_lead_turn(&params, &binding_id);
+                    if let Some((turn, _)) = &live_turn_to_continue {
+                        for answer in &mut runs {
+                            if answer.run_id == turn.run.run_id {
+                                answer.turn = ProviderTurnAnswer::StillRunning;
+                            }
+                        }
+                    }
                     return Ok(ClaudeResumeAnswer {
                         result: answer_came_up(&live, binding_id, runs).await?,
                         has_started_process: false,
+                        live_turn_to_continue,
                     });
                 }
                 ClaudeResumeSlot::CameUp(live) => self.end_came_up(&live).await,
@@ -159,6 +171,7 @@ impl ClaudeSessionEstablishment {
             return Ok(ClaudeResumeAnswer {
                 result: DriverResumeResult::Deferred { runs },
                 has_started_process: false,
+                live_turn_to_continue: None,
             });
         }
         let resume_handle = params.resume_handle.clone();
@@ -249,6 +262,7 @@ impl ClaudeSessionEstablishment {
         Ok(ClaudeResumeAnswer {
             result: resumed(binding_id, session_position, resume_handle, started, runs),
             has_started_process: true,
+            live_turn_to_continue: None,
         })
     }
 
@@ -310,6 +324,34 @@ fn find_run_in_progress(live_runs: &[LiveRunResume]) -> Option<(&LiveRunResume, 
                 && !run.is_held(live_runs)
         })
         .find_map(|run| run.open_turns.last().map(|turn| (run, turn)))
+}
+
+// The newest open turn of the lead `params`' held continue names, on `binding_id`, with the
+// person's answers it continues with; `None` with no continue or no such turn.
+fn find_held_lead_turn(
+    params: &ResumeSessionParams,
+    binding_id: &RuntimeBindingId,
+) -> Option<(ClaudeContinuedTurn, String)> {
+    let held_run_continue = params.held_run_continue.as_ref()?;
+    let lead_run_id = held_run_continue.lead_run_id;
+    let turn = params
+        .live_runs
+        .iter()
+        .find(|run| run.run_id == lead_run_id)?
+        .open_turns
+        .last()?;
+    Some((
+        ClaudeContinuedTurn {
+            run: ClaudeBoundRun {
+                run_id: lead_run_id,
+                binding_id: binding_id.clone(),
+            },
+            turn_number: turn.turn_number,
+            provider_turn_id: turn.provider_turn_id.clone(),
+            prompt: None,
+        },
+        compose_continuation_text(held_run_continue, ask_helper_again),
+    ))
 }
 
 // The sentence asking the lead to continue its helper `subagent_id` itself: the lead's own call to
