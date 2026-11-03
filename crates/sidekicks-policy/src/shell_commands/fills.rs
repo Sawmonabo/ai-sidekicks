@@ -469,8 +469,8 @@ mod tests {
     }
 
     // Each place a save refuses, with the rule that refuses it: the first reading's, bash, its
-    // cmd.exe form, then PowerShell, then csh. Arithmetic and name words refuse through a substitution too, since the
-    // shell evaluates its output there.
+    // cmd.exe form, then PowerShell, then csh. Arithmetic and name words refuse through a
+    // substitution too, since the shell evaluates its output there.
     #[rstest]
     #[case::single_quotes("echo '{{ x }}'", FillRefusal::NotExpanding)]
     #[case::ansi_c_quotes("echo $'{{ x }}'", FillRefusal::NotExpanding)]
