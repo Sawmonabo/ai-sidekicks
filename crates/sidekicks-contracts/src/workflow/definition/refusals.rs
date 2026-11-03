@@ -32,9 +32,20 @@ ts_constants! {
 
 /// Declares the findings: each named rule, with the nodes it marks, then the three findings that
 /// also carry a text: a package, why an expression does not parse, and why a command's fill does
-/// not expand.
+/// not expand. The named rules alone also make `WorkflowDefinitionRule`.
 macro_rules! workflow_definition_findings {
     ($($(#[doc = $doc:literal])+ $rule:ident,)+) => {
+        /// A named rule of a finding that marks only nodes, by which the parameter check names the
+        /// finding a refused value raises at save.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+        #[serde(rename_all = "camelCase")]
+        pub enum WorkflowDefinitionRule {
+            $(
+                $(#[doc = $doc])+
+                $rule,
+            )+
+        }
+
         /// One finding: the rule a refused document breaks, with the nodes it marks. The validation
         /// strip lists every finding and the canvas marks each node.
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -130,6 +141,9 @@ workflow_definition_findings! {
     UnknownKey,
     /// A `secret://` reference in a parameter the kind does not mark sensitive.
     SecretOutsideSensitiveField,
+    /// A `secret://` reference inside an expression, the `=` form, in any parameter, a sensitive
+    /// one included, since no expression resolves a secret.
+    SecretInExpression,
 }
 
 /// The details of `workflow.definition.refused`: the whole list of findings.

@@ -19,6 +19,7 @@ use crate::workflow::definition::document::WorkflowToolBinding;
 use crate::workflow::definition::expression_template::{
     TemplateError, TemplatePart, TemplateText, read_template,
 };
+use crate::workflow::definition::refusals::WorkflowDefinitionRule;
 use crate::workflow::kind::{
     WorkflowCollectionParamSpec, WorkflowLeafParamSpec, WorkflowParamSpec, WorkflowParamType,
 };
@@ -28,8 +29,8 @@ use crate::workflow::secret::WorkflowSecretReference;
 const SECRET_SCHEME: &str = "secret://";
 
 /// One parameter value the check refused. `path` is the value's dotted place, its parameter's id
-/// first (`headers.0.token` inside a repeating collection), and `message` names the fault, such as
-/// a tool binding's `approvalMode`.
+/// first (`headers.0.token` inside a repeating collection), `message` names the fault, such as
+/// a tool binding's `approvalMode`, and `rule` the finding the save raises for it, where one does.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowParamIssue {
@@ -37,6 +38,11 @@ pub struct WorkflowParamIssue {
     pub path: String,
     /// The fault.
     pub message: String,
+    /// The finding the save raises for the value: a secret outside a sensitive parameter or
+    /// inside an expression; absent for a reference that does not read as one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "WorkflowDefinitionRule")]
+    pub rule: Option<WorkflowDefinitionRule>,
 }
 
 /// The parameter check's arguments as the builder sends them: one node's parameters and its
@@ -98,12 +104,14 @@ fn check_leaf(
 ) {
     let is_sensitive = spec.sensitive == Some(true);
     if spec.param_type == WorkflowParamType::Secret {
-        // The reference check below refuses a malformed reference and an expression, so only the
-        // sensitive rule is checked for a secret parameter here.
-        let is_reference = value
-            .as_str()
-            .is_some_and(|text| text.starts_with(SECRET_SCHEME));
-        if is_reference && !is_sensitive {
+        // The reference check below refuses a malformed reference and any other expression, so
+        // only the sensitive rule and an expression naming a secret are checked here.
+        let text = value.as_str().unwrap_or_default();
+        if text.starts_with('=') && text.contains(SECRET_SCHEME) {
+            issues.push(in_expression_issue(place));
+            return;
+        }
+        if text.starts_with(SECRET_SCHEME) && !is_sensitive {
             issues.push(outside_sensitive_issue(place));
         }
     } else {
@@ -174,6 +182,7 @@ fn check_reference<Reference: DeserializeOwned>(
     issues.push(WorkflowParamIssue {
         path: place.to_owned(),
         message,
+        rule: None,
     });
 }
 
@@ -186,6 +195,7 @@ fn check_tool_binding(value: &Value, place: &str, issues: &mut Vec<WorkflowParam
             issues.push(WorkflowParamIssue {
                 path: place.to_owned(),
                 message: error.to_string(),
+                rule: None,
             });
             return;
         }
@@ -200,14 +210,15 @@ fn check_tool_binding(value: &Value, place: &str, issues: &mut Vec<WorkflowParam
             issues.push(WorkflowParamIssue {
                 path,
                 message: error.message().to_owned(),
+                rule: None,
             });
         }
     }
 }
 
 // Walks every string a leaf value holds. A `secret://` literal outside a sensitive parameter is
-// refused; inside one it must be a whole reference. No template may name one in any part, and a
-// template whose part never closes may not name one anywhere.
+// refused; inside one it must be a whole reference. No `=` text may name one, a template in any
+// part, the text after an `=` that opens no part, or a template whose part never closes.
 fn check_secret_text(
     value: &Value,
     is_sensitive: bool,
@@ -217,6 +228,10 @@ fn check_secret_text(
     match value {
         Value::String(text) => {
             let names_secret = match read_template(text) {
+                // An `=` that opens no part still marks an expression, which resolves no secret.
+                Ok(TemplateText::Literal(literal)) if text.starts_with('=') => {
+                    literal.contains(SECRET_SCHEME)
+                }
                 Ok(TemplateText::Literal(literal)) => {
                     check_secret_literal(literal, is_sensitive, place, issues);
                     false
@@ -231,10 +246,7 @@ fn check_secret_text(
                 Err(TemplateError::Unclosed { .. }) => text.contains(SECRET_SCHEME),
             };
             if names_secret {
-                issues.push(WorkflowParamIssue {
-                    path: place.to_owned(),
-                    message: "No expression resolves a secret.".to_owned(),
-                });
+                issues.push(in_expression_issue(place));
             }
         }
         Value::Array(entries) => {
@@ -268,6 +280,7 @@ fn check_secret_literal(
         issues.push(WorkflowParamIssue {
             path: place.to_owned(),
             message: error.to_string(),
+            rule: None,
         });
     }
 }
@@ -277,6 +290,15 @@ fn outside_sensitive_issue(place: &str) -> WorkflowParamIssue {
         path: place.to_owned(),
         message: "A secret:// reference stands only in a parameter its kind marks sensitive."
             .to_owned(),
+        rule: Some(WorkflowDefinitionRule::SecretOutsideSensitiveField),
+    }
+}
+
+fn in_expression_issue(place: &str) -> WorkflowParamIssue {
+    WorkflowParamIssue {
+        path: place.to_owned(),
+        message: "No expression resolves a secret.".to_owned(),
+        rule: Some(WorkflowDefinitionRule::SecretInExpression),
     }
 }
 
@@ -318,7 +340,8 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
 
-    use super::check_workflow_node_params;
+    use super::{WorkflowParamIssue, check_workflow_node_params};
+    use crate::workflow::definition::refusals::WorkflowDefinitionRule;
     use crate::workflow::kind::WorkflowParamSpec;
 
     fn specs() -> Vec<WorkflowParamSpec> {
@@ -382,6 +405,34 @@ mod tests {
             assert_eq!(issue.path, *path, "{issue:?}");
             assert!(issue.message.contains(message), "{issue:?}");
         }
+    }
+
+    // An `=` text naming a secret is an expression, which resolves none, so even a sensitive
+    // parameter refuses it, under the rule of its own; read as a literal it would pass whole and
+    // reach the step as plain text. Mutation: the check reads an `=` that opens no part as a
+    // literal.
+    #[rstest]
+    #[case::a_sensitive_text_param(
+        json!({ "headers": [{ "value": "=secret://shared/x" }] }),
+        "headers.0.value"
+    )]
+    #[case::a_secret_param(
+        json!({ "headers": [{ "token": "=secret://shared/x" }] }),
+        "headers.0.token"
+    )]
+    fn an_equals_form_naming_a_secret_is_refused_in_a_sensitive_param(
+        #[case] params: Value,
+        #[case] path: &str,
+    ) {
+        let params = params.as_object().expect("the params are an object");
+        assert_eq!(
+            check_workflow_node_params(params, &specs()),
+            vec![WorkflowParamIssue {
+                path: path.to_owned(),
+                message: "No expression resolves a secret.".to_owned(),
+                rule: Some(WorkflowDefinitionRule::SecretInExpression),
+            }]
+        );
     }
 
     // A number pasted into a secret parameter is refused without quoting it, so the value reaches
