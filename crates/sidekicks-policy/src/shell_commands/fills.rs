@@ -624,8 +624,9 @@ mod tests {
     }
 
     // cmd.exe's delayed expansion reads again each piece of a command holding a `!`, the arguments
-    // as one piece, so a launch escapes the author's `^` and `!` there, inside quotes and out, and
-    // leaves a redirection's target and another command without a `!` as written.
+    // as one piece from the name's end, a `/` among them, so a launch escapes the author's `^` and
+    // `!` there, inside quotes and out, and leaves a redirection's target and another command
+    // without a `!` as written.
     #[rstest]
     #[case::a_caret_in_a_string("grep \"^{{ x }}\" file", "grep \"^^!SIDEKICKS_VALUE_1!\" file")]
     #[case::a_caret_before_text_in_a_string(
@@ -633,6 +634,10 @@ mod tests {
         "grep \"^^a !SIDEKICKS_VALUE_1!\" file"
     )]
     #[case::an_escaped_caret("echo ^^{{ x }}", "echo ^^^^\"!SIDEKICKS_VALUE_1!\"")]
+    #[case::an_escaped_caret_past_a_slash_ending_the_name(
+        "echo/^^ {{ x }}",
+        "echo/^^^^ \"!SIDEKICKS_VALUE_1!\""
+    )]
     #[case::an_exclamation_mark("echo \"a!\" {{ x }}", "echo \"a^!\" \"!SIDEKICKS_VALUE_1!\"")]
     #[case::a_redirections_target(
         "grep \"^a\" {{ x }} > \"^b\"",
