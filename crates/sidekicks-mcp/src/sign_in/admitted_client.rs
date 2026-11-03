@@ -233,6 +233,19 @@ mod tests {
         McpServerAddress::new(text).expect("a server address")
     }
 
+    async fn open_store(database: &TestDatabase) -> AdmittedClientStore {
+        let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+            .await
+            .expect("the writer opens its database");
+        AdmittedClientStore::new(
+            Arc::new(DatabaseReadPool::new(
+                database.path(),
+                MCP_ADMITTED_CLIENT_STATEMENT_CAPACITY,
+            )),
+            Arc::new(writer),
+        )
+    }
+
     /// Two providers whose bindings name one server differently, each spelling its address its
     /// own way, keep one row: the mark one provider's attempt left and the client the other's flow
     /// admitted land on it, and either spelling reads it. Killed by keying the row by the provider
@@ -240,16 +253,7 @@ mod tests {
     #[tokio::test]
     async fn two_providers_naming_one_address_differently_read_one_row() {
         let database = TestDatabase::new(schema_parts());
-        let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-            .await
-            .expect("the writer opens its database");
-        let store = AdmittedClientStore::new(
-            Arc::new(DatabaseReadPool::new(
-                database.path(),
-                MCP_ADMITTED_CLIENT_STATEMENT_CAPACITY,
-            )),
-            Arc::new(writer),
-        );
+        let store = open_store(&database).await;
         // provider-a's binding names the server `docs`, provider-b's `documentation`.
         let provider_a_address = address("https://docs.example.com/mcp");
         let provider_b_address = address("HTTPS://Docs.Example.com/mcp");
@@ -294,5 +298,43 @@ mod tests {
             )
             .expect("the test counts the rows");
         assert_eq!(rows, 1);
+    }
+
+    /// Clearing the mark keeps the provider a server admitted beside it, and forgets a server
+    /// that held only the mark. Killed by the delete's `admitted_oauth_client IS NULL` guard
+    /// dropped, which forgets the admitted provider.
+    #[tokio::test]
+    async fn clearing_the_mark_keeps_an_admitted_provider() {
+        let database = TestDatabase::new(schema_parts());
+        let store = open_store(&database).await;
+        let admitted = address("https://docs.example.com/mcp");
+        let marked_only = address("https://tracker.example.com/mcp");
+        let provider = ProviderId::new("provider-a".to_owned()).expect("a provider id");
+        store
+            .record_admitted_provider(&admitted, &provider)
+            .await
+            .expect("the admitted client is recorded");
+        for marked in [&admitted, &marked_only] {
+            store
+                .mark_own_client_unfinished(marked)
+                .await
+                .expect("the mark is recorded");
+            store
+                .clear_own_client_unfinished(marked)
+                .await
+                .expect("the mark is cleared");
+        }
+
+        assert_eq!(
+            store.read(&admitted).await.expect("the row is read"),
+            Some(AdmittedClient {
+                provider: Some(provider),
+                is_own_client_unfinished: false,
+            })
+        );
+        assert_eq!(
+            store.read(&marked_only).await.expect("the row is read"),
+            None
+        );
     }
 }
