@@ -9,7 +9,7 @@ use rusqlite::params;
 use sidekicks_contracts::approval::{ApprovalDecision, ApprovalRequestId};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_provider::driver::session_control::continuation::{
+use sidekicks_provider::driver::session_control::held_run_continue::{
     ContinueAnswer, ContinueEntry, HeldRunContinue,
 };
 use sidekicks_std::mutex_lock::lock;

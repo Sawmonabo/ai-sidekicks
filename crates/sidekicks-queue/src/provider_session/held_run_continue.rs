@@ -15,7 +15,7 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::driver::idle_sleep::KeptSchedule;
 use sidekicks_provider::driver::session_control::LiveRunResume;
-use sidekicks_provider::driver::session_control::continuation::{
+use sidekicks_provider::driver::session_control::held_run_continue::{
     ContinueAnswer, ContinueEntry, HeldRunContinue,
 };
 use sidekicks_session::questions::service::QuestionsService;
