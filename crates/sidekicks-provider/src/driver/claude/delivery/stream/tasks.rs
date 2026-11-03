@@ -11,10 +11,12 @@ mod resume;
 use std::collections::HashSet;
 
 use jiff::Timestamp;
+use sidekicks_contracts::event::envelope::EventOccurredAt;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::subagent::SubagentId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::tool_call_status::TOOL_CALL_STATUS_MAX_LEN;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::text_cut::cut_to_code_points;
@@ -22,7 +24,7 @@ use sidekicks_std::text_cut::cut_to_code_points;
 use super::{ClaudeDeliveryStream, ClaudeSessionStream, report_engine_failure};
 use crate::driver::claude::delivery::commands::ClaudeTaskFrame;
 use crate::driver::claude::delivery::mcp_tasks::ClaudeHeldCallEnd;
-use crate::driver::claude::delivery::messages::close_opened_call;
+use crate::driver::claude::delivery::messages::{ClaudeOpenToolCall, close_opened_call};
 use crate::driver::claude::delivery::run_readings::{ClaudeRow, ClaudeRowDelivery};
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::frame_routing::ClaudeMeteredReading;
@@ -31,6 +33,7 @@ use crate::driver::claude::session::conversation_home::ClaudeConversationHomeKee
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::reorder_buffer::{ReorderBufferedEvent, ReorderPairingRole};
+use crate::port::held_tool_calls::HeldToolCall;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 
@@ -266,10 +269,9 @@ impl ClaudeDeliveryStream {
             .or_else(|| routes.lead_run_on(session.session_id))
     }
 
-    /// Closes each held call in `ends`, read off a frame of `wire`, on the run its opening recorded
-    /// and that run's binding, with its task's body, and clears its status line. Each close is
-    /// appended after its run and unpaired, since its stand-in result already answered the call's
-    /// opening.
+    /// Closes each held call in `ends`, read off a frame of `wire`, through the reorder buffer.
+    /// Each close is appended after its run and unpaired, since its stand-in result already
+    /// answered the call's opening.
     pub(super) async fn close_held_calls(
         &self,
         session: &ClaudeSessionStream,
@@ -279,48 +281,72 @@ impl ClaudeDeliveryStream {
         if ends.is_empty() {
             return;
         }
-        let statuses = self.dependencies.tool_call_statuses.port();
-        let mut rows = Vec::with_capacity(ends.len());
-        for end in ends {
-            let ClaudeHeldCallEnd {
-                tool_use_id,
-                opened,
-                outcome,
-                text,
-            } = end;
-            if let (Some(statuses), Ok(tool_call_id)) =
-                (&statuses, ToolCallId::new(tool_use_id.clone()))
-            {
-                statuses.clear_tool_call_status(session.session_id, tool_call_id);
-            }
-            let binding_id = opened.run().binding_id.clone();
-            let Some(row) = close_opened_call(
-                opened,
-                &tool_use_id,
-                session.session_id,
-                outcome,
-                Timestamp::now(),
-            ) else {
-                tracing::warn!(
-                    session_id = %session.session_id,
-                    tool_use_id = %tool_use_id,
-                    "a Claude Code background call's id is not one a row can carry, so its close \
-                     is not recorded"
-                );
-                continue;
-            };
-            rows.push(ReorderBufferedEvent {
+        let rows = ends
+            .into_iter()
+            .filter_map(|end| self.held_call_close(session.session_id, end))
+            .map(|event| ReorderBufferedEvent {
                 tool_call_id: None,
                 pairing_role: ReorderPairingRole::Unpaired,
-                event: ClaudeRowDelivery {
-                    binding_id,
-                    operation: None,
-                    row: ClaudeRow::AfterRun(row),
-                    body: text,
-                    message_key: None,
-                },
-            });
-        }
+                event,
+            })
+            .collect();
         self.admit_rows(session, rows, wire).await;
     }
+
+    // The close of `session_id`'s held call `end`, on the run its opening recorded and that run's
+    // binding, with its task's body, its status line cleared; none, logged, for a call id no row
+    // can carry.
+    fn held_call_close(
+        &self,
+        session_id: SessionId,
+        end: ClaudeHeldCallEnd,
+    ) -> Option<ClaudeRowDelivery> {
+        let ClaudeHeldCallEnd {
+            tool_use_id,
+            opened,
+            outcome,
+            text,
+        } = end;
+        if let (Some(statuses), Ok(tool_call_id)) = (
+            self.dependencies.tool_call_statuses.port(),
+            ToolCallId::new(tool_use_id.clone()),
+        ) {
+            statuses.clear_tool_call_status(session_id, tool_call_id);
+        }
+        let binding_id = opened.run().binding_id.clone();
+        let Some(row) =
+            close_opened_call(opened, &tool_use_id, session_id, outcome, Timestamp::now())
+        else {
+            tracing::warn!(
+                %session_id,
+                tool_use_id = %tool_use_id,
+                "a Claude Code background call's id is not one a row can carry, so its close is \
+                 not recorded"
+            );
+            return None;
+        };
+        Some(ClaudeRowDelivery {
+            binding_id,
+            operation: None,
+            row: ClaudeRow::AfterRun(row),
+            body: text,
+            message_key: None,
+        })
+    }
+}
+
+// The opening of the session log's held call `call`, on its run and binding, timed from its
+// stored time, else from now.
+fn rebuilt_opening(call: &HeldToolCall) -> ClaudeOpenToolCall {
+    ClaudeOpenToolCall::new(
+        call.tool_name.clone(),
+        ClaudeBoundRun {
+            run_id: call.run_id,
+            binding_id: call.binding_id.clone(),
+        },
+        call.invoked_at
+            .as_ref()
+            .and_then(EventOccurredAt::timestamp)
+            .unwrap_or_else(Timestamp::now),
+    )
 }

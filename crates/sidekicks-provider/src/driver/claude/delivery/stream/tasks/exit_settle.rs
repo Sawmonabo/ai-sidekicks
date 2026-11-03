@@ -5,6 +5,7 @@
 
 use std::error::Error;
 
+use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeHeldCallSettle;
 use crate::driver::claude::delivery::mcp_tasks::{ClaudeHeldCall, ClaudeHeldCallEnd};
 use crate::driver::claude::delivery::stream::{ClaudeDeliveryStream, ClaudeSessionStream};
 
@@ -37,7 +38,9 @@ impl ClaudeDeliveryStream {
         let ends = held
             .into_iter()
             .filter_map(|(task_id, held)| {
-                let (outcome, text) = kept.call(&held.tool_use_id, &task_id).into_process_end()?;
+                let (outcome, text) = kept
+                    .call(&held.tool_use_id, &task_id)
+                    .into_end(ClaudeHeldCallSettle::ProcessExit)?;
                 Some(ClaudeHeldCallEnd {
                     tool_use_id: held.tool_use_id,
                     opened: held.opened,

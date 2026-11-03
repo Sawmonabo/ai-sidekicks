@@ -6,14 +6,14 @@
 use std::error::Error;
 use std::sync::Arc;
 
-use jiff::Timestamp;
 use sidekicks_std::port_registration::PortRegistration;
 
+use super::rebuilt_opening;
 use crate::driver::claude::delivery::mcp_tasks::ClaudeHeldCallEnd;
-use crate::driver::claude::delivery::mcp_tasks::restore::{ClaudeKeptCall, ClaudeKeptCallsSource};
-use crate::driver::claude::delivery::messages::ClaudeOpenToolCall;
+use crate::driver::claude::delivery::mcp_tasks::restore::{
+    ClaudeHeldCallSettle, ClaudeKeptCall, ClaudeKeptCallsSource,
+};
 use crate::driver::claude::delivery::stream::{ClaudeDeliveryStream, ClaudeSessionStream};
-use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::port::held_tool_calls::HeldToolCallReads;
 
 impl ClaudeDeliveryStream {
@@ -56,18 +56,9 @@ impl ClaudeDeliveryStream {
             // The read answers newest first; settled calls go in oldest first, so past the
             // settled memory's cap the newest stay.
             for call in calls.into_iter().rev() {
+                let opened = rebuilt_opening(&call);
                 let tool_use_id = call.tool_call_id.into_string();
                 let task_id = call.task_id.into_string();
-                let opened = ClaudeOpenToolCall::new(
-                    call.tool_name,
-                    ClaudeBoundRun {
-                        run_id: call.run_id,
-                        binding_id: call.binding_id,
-                    },
-                    call.invoked_at
-                        .and_then(|invoked_at| invoked_at.timestamp())
-                        .unwrap_or_else(Timestamp::now),
-                );
                 if call.end_cause.is_some() {
                     readings
                         .tool_server_tasks
@@ -77,7 +68,8 @@ impl ClaudeDeliveryStream {
                 let kept_call = kept.as_ref().map_or(ClaudeKeptCall::Recorded, |kept| {
                     kept.call(&tool_use_id, &task_id)
                 });
-                if let Some((outcome, text)) = kept_call.into_process_end() {
+                if let Some((outcome, text)) = kept_call.into_end(ClaudeHeldCallSettle::ProcessExit)
+                {
                     ends.push(ClaudeHeldCallEnd {
                         tool_use_id,
                         opened,

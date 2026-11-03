@@ -148,7 +148,7 @@ fn registered(calls: Vec<HeldToolCall>) -> PortRegistration<Arc<dyn HeldToolCall
 
 // Fails when a resume leaves the log's held calls unrebuilt, ignores a saved ending, or times a
 // rebuilt opening from the rebuild rather than its stored time. Mutations: the hook in
-// `bring_up_and` removed (no close at all); `into_process_end` reading `Ended` as still running
+// `bring_up_and` removed (no close at all); `into_end` reading `Ended` as still running
 // (no close for call-2); the opening timed from `Timestamp::now()` (call-1's duration near zero).
 #[tokio::test(start_paused = true)]
 async fn a_resume_rebuilds_the_held_calls_from_the_log_and_the_kept_files() {

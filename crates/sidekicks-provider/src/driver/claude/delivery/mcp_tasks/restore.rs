@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use sidekicks_contracts::event::declared_variants::ToolCallEndCause;
+use sidekicks_platforms::PathRules;
 use sidekicks_std::missing_entry::MissingEntry;
 use tokio::io::AsyncReadExt;
 
@@ -19,6 +20,8 @@ use super::{ClaudeHeldCall, ClaudeHeldCallEnd, ClaudeToolServerTasks};
 use crate::driver::claude::delivery::messages::{ClaudeOpenToolCall, ClaudeToolCallOutcome};
 use crate::driver::claude::session::conversation_file::find_claude_conversation_file;
 use crate::driver::claude::session::process::CLAUDE_OUTPUT_LINE_MAX_BYTES;
+use crate::driver::claude::session::restart::ended_process::ClaudeEndedConversation;
+use crate::driver::claude::spawn::environment::claude_config_folder;
 use crate::inbound_json::decode_inbound_json;
 use crate::lenient_json::{Lenient, lenient_object, read_lenient};
 
@@ -97,20 +100,38 @@ pub(crate) enum ClaudeKeptCall {
     Unkept,
 }
 
+/// Why the daemon settles a held call with no process to follow it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClaudeHeldCallSettle {
+    /// The process ended while the daemon runs on, at an exit or before a resume, so a call its
+    /// record keeps may still be restored.
+    ProcessExit,
+    /// The session closed, so no process restores a call again: one read as recorded, a kept
+    /// file not yet readable among them, ends with the process too.
+    SessionClose,
+}
+
 impl ClaudeKeptCall {
-    /// How the call ends once the process that held it is gone: as its saved ending says, or
-    /// failed as ended with the process, with no body, where nothing is kept; `None` for a call
-    /// with its record alone, which still runs.
-    pub(crate) fn into_process_end(self) -> Option<(ClaudeToolCallOutcome, Option<String>)> {
+    /// How the call ends once the process that held it is gone, settled for `settle`: as its saved
+    /// ending says, else failed as ended with the process, with no body; `None` when a process
+    /// ended for a call read as recorded, which a later process may restore.
+    pub(crate) fn into_end(
+        self,
+        settle: ClaudeHeldCallSettle,
+    ) -> Option<(ClaudeToolCallOutcome, Option<String>)> {
+        let ended_with_the_process = (
+            ClaudeToolCallOutcome::Failed {
+                end_cause: Some(ToolCallEndCause::ProcessExit),
+            },
+            None,
+        );
         match self {
             Self::Ended { outcome, text } => Some((outcome, text)),
-            Self::Recorded => None,
-            Self::Unkept => Some((
-                ClaudeToolCallOutcome::Failed {
-                    end_cause: Some(ToolCallEndCause::ProcessExit),
-                },
-                None,
-            )),
+            Self::Recorded => match settle {
+                ClaudeHeldCallSettle::ProcessExit => None,
+                ClaudeHeldCallSettle::SessionClose => Some(ended_with_the_process),
+            },
+            Self::Unkept => Some(ended_with_the_process),
         }
     }
 }
@@ -154,6 +175,14 @@ impl ClaudeKeptCallsSource {
             config_folder,
             provider_session_id,
         }
+    }
+
+    /// The calls `conversation` keeps, in the config folder its process's environment names.
+    pub(crate) fn of_conversation(conversation: &ClaudeEndedConversation) -> Self {
+        Self::new(
+            claude_config_folder(&conversation.spawn_environment, PathRules::NATIVE),
+            conversation.provider_session_id.clone(),
+        )
     }
 
     /// Reads what is kept now; nothing where no config folder is known. Fails as
