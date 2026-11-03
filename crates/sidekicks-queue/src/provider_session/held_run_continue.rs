@@ -34,8 +34,8 @@ use crate::provider_session::errors::ProviderSessionError;
 /// What an orphaned answers' read or write answers, or the error it failed with.
 pub type OrphanedAnswerFuture<'a, T> = BoxFuture<'a, Result<T, Box<dyn Error + Send + Sync>>>;
 
-/// An answer kept while no process held the session, which the held lead's continue owes the run
-/// that asked.
+/// An orphaned answer, given while no process held the session, which the held lead's continue
+/// owes the run that asked.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OwedAnswer<Id> {
     /// The card or question it answers, by which its continue mark is claimed.
@@ -46,8 +46,8 @@ pub struct OwedAnswer<Id> {
     pub answer: ContinueAnswer,
 }
 
-/// Where the answers of one kind kept for a session's continue are read and their continue marks
-/// claimed: the approval cards' or the questions'.
+/// Where a session's orphaned answers of one kind are read for its continue and their continue
+/// marks claimed: the approval cards' or the questions'.
 pub trait OrphanedAnswerSource<Id>: Send + Sync {
     /// The session's answers no continue and no call made again took yet, oldest first. Fails as
     /// the read fails.

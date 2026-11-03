@@ -209,8 +209,8 @@ const RUN_KEYED_DELETES: [&str; 4] = [
 // The session's own deletes after its run-keyed ones, up to its row, in foreign-key order: a
 // snapshot and a recovery checkpoint name the event they reflect, an ask goes after its answer and
 // after the gate answers found through it, a plan before the artifact that keeps its text, and an
-// artifact after the reference to its payload. The answers kept for a card or a question no
-// request held go beside the asks they answer, the person's words with them. The agent tree goes
+// artifact after the reference to its payload. The orphaned answers of a card or a question go
+// beside the asks they answer, the person's words with them. The agent tree goes
 // in one statement, each node with the children that name it. The attention rows go after the machine's attention count is raised,
 // so its readers drop the session's entries, and an entry's delivery before the entry it is found
 // through. The messaging rows go at either end of a pair, a message held from the session or a wait

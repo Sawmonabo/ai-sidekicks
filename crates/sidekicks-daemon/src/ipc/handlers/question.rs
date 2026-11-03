@@ -1,5 +1,5 @@
 //! `question.resolve`: the person's answers to every question of one record, from the calling
-//! device, an answer kept while no process held its session continuing its held lead.
+//! device, an orphaned answer continuing its held lead.
 
 use std::sync::Arc;
 

@@ -1,7 +1,6 @@
-//! The `approval.*` methods a client calls: a card's answer, from the calling device, an answer
-//! kept while no process held the card's session continuing its held lead; the session's asks;
-//! the rules in force on a session and the revoke of one; and `Allow once` on a block by the
-//! provider's own reviewer.
+//! The `approval.*` methods a client calls: a card's answer, from the calling device, an orphaned
+//! answer continuing its held lead; the session's asks; the rules in force on a session and the
+//! revoke of one; and `Allow once` on a block by the provider's own reviewer.
 
 use std::sync::Arc;
 
@@ -43,7 +42,7 @@ pub(crate) struct ApprovalMethodSources {
     pub(crate) rules: Arc<ApprovalRules>,
     /// Allows a reviewer's block once.
     pub(crate) reviewer_denials: Arc<ReviewerDenials>,
-    /// Continues a lead the restart held once its answers are kept.
+    /// Continues a lead the restart held once its orphaned answers are given.
     pub(crate) queue: Arc<RunQueue>,
 }
 
