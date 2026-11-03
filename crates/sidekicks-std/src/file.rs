@@ -9,5 +9,5 @@ pub mod clone_or_copy;
 pub mod hashing_copy;
 pub mod publish_without_replacing;
 pub mod real_location;
-pub mod temporary_removal;
+pub mod removal_after_failure;
 pub mod time_precision;
