@@ -38,9 +38,11 @@ use super::daemon_services::{
     RecordingPorts, RecordingUsage, ScriptedAttachments, TakenBindingWrites,
     register_scripted_ports, test_callback_tool_host,
 };
+use super::held_calls::init;
 use super::starts::{ScriptedStartRecord, ScriptedStarts};
 use super::{
-    SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, scripted_staged_changes,
+    SCRIPTED_PROVIDER_SESSION_ID, binding_id, exit_scripted_process, hand_scripted_frame,
+    scripted_staged_changes,
 };
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::lifecycle::ClaudeDriver;
@@ -49,7 +51,10 @@ use crate::driver::contract::params_and_results::DriverCliVersionReport;
 use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::ports::SessionRelaunchListener;
 use crate::driver::schema::schema_parts;
-use crate::driver::session_control::{CreateSessionParams, DriverResumeResult, SessionAccountPin};
+use crate::driver::session_control::{
+    CloseSessionParams, CreateSessionParams, DriverResumeResult, ResumeSessionParams,
+    SessionAccountPin, SessionCloseCause,
+};
 use crate::driver::test_registry::{
     new_agent_id, new_run_id, new_session_id, test_driver_services,
 };
@@ -64,7 +69,7 @@ use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::port::session_advisor_store::SessionAdvisorStore;
 use crate::run::posture::{ExecutionPostureService, compose_execution_posture};
 use crate::runtime_binding::resume::ResumeFunctionLegs;
-use crate::runtime_binding::store::RuntimeBinding;
+use crate::runtime_binding::store::{RuntimeBinding, mint_runtime_binding_id};
 use crate::runtime_binding::test_store::{spawn_config_on, test_provider_account_id};
 
 /// The statements the driver's read pool caches.
@@ -543,6 +548,23 @@ impl ScriptedDriver {
         session_id
     }
 
+    /// A session opened on a fresh process, which ran and was closed, with its next process
+    /// scripted, so a resume of it brings a fresh process up.
+    pub(crate) async fn closed_session(&self) -> SessionId {
+        let session_id = self.create(&Arc::new(ScriptedChannel::default())).await;
+        self.next_start().await;
+        self.driver
+            .close_session(CloseSessionParams {
+                session_id,
+                cause: SessionCloseCause::Person,
+            })
+            .await
+            .expect("the close succeeds");
+        self.starts
+            .script_session(Arc::new(ScriptedChannel::default()));
+        session_id
+    }
+
     /// Records the leg of a session that ran and now rests, as the run engine reads it back: a
     /// binding that names conversation `resume_handle` on `provider_account_id`'s account, holding
     /// the provider's recovery data `runtime_metadata`.
@@ -587,9 +609,7 @@ impl ScriptedDriver {
 
     /// Ends the process `start` brought up, as its reader would on an exit nothing asked for.
     pub(crate) fn exit(start: &ScriptedStartRecord) {
-        start
-            .listener
-            .take_exit(Err(Arc::new(io::Error::other("the process ended"))));
+        exit_scripted_process(&*start.listener);
     }
 
     /// Hands the lead `result` that ends the session's turn to the process `start` brought up.
@@ -607,11 +627,7 @@ pub(crate) fn end_turn_of(
 ) {
     let routes = &driver.composed_parts().expect("composed").run_start.routes;
     for frame in [
-        json!({
-            "type": "system",
-            "subtype": "init",
-            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        }),
+        init(),
         json!({
             "type": "result",
             "subtype": "success",
@@ -649,5 +665,32 @@ pub(crate) fn create_params(session_id: SessionId) -> CreateSessionParams {
         provider_account_id: test_provider_account_id(),
         account_pin: SessionAccountPin::Pinned,
         on_mcp_server_status: None,
+    }
+}
+
+/// A resume of `session_id`'s conversation `conversation` on a fresh binding, on `opus` in Build,
+/// with no run in progress and nothing else asked for.
+pub(crate) fn resume_params(session_id: SessionId) -> ResumeSessionParams {
+    ResumeSessionParams {
+        session_id,
+        binding_id: mint_runtime_binding_id(),
+        agent_id: new_agent_id(),
+        resume_handle: "conversation".to_owned(),
+        model: ProviderToken::new("opus".to_owned()).expect("the model fits"),
+        larger_window: None,
+        runtime_metadata: Map::new(),
+        mode: SessionMode::Build,
+        execution_posture: None,
+        output_speed: None,
+        options: Vec::new(),
+        row_values: Record::default(),
+        callback_tools: None,
+        subagent_policy: None,
+        tool_servers: None,
+        output_schema: None,
+        provider_account_id: test_provider_account_id(),
+        on_mcp_server_status: None,
+        kept_schedules: Vec::new(),
+        live_runs: Vec::new(),
     }
 }

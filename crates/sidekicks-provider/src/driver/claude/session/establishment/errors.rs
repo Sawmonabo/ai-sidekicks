@@ -36,6 +36,9 @@ pub(crate) enum ClaudeEstablishmentError {
     /// The session's standing rules could not be read.
     #[error("the session's standing rules could not be read")]
     SessionRules(#[source] Box<dyn Error + Send + Sync>),
+    /// The tool calls the session's log holds in the background could not be read.
+    #[error("the session's held tool calls could not be read")]
+    HeldToolCalls(#[source] Box<dyn Error + Send + Sync>),
     /// The advisor Claude Code resolved could not be kept as the session's own.
     #[error("the session's resolved advisor could not be kept")]
     AdvisorRecord(#[source] Box<dyn Error + Send + Sync>),
@@ -84,6 +87,7 @@ impl ClaudeEstablishmentError {
             | Self::Context(_)
             | Self::Legs(_)
             | Self::SessionRules(_)
+            | Self::HeldToolCalls(_)
             | Self::AdvisorRecord(_)
             | Self::OutputSchema(_)
             | Self::Port(_)
@@ -119,6 +123,7 @@ impl From<ClaudeEstablishmentError> for DriverError {
             error @ (ClaudeEstablishmentError::Context(_)
             | ClaudeEstablishmentError::Legs(_)
             | ClaudeEstablishmentError::SessionRules(_)
+            | ClaudeEstablishmentError::HeldToolCalls(_)
             | ClaudeEstablishmentError::AdvisorRecord(_)
             | ClaudeEstablishmentError::OutputSchema(_)
             | ClaudeEstablishmentError::Port(PortRegistrationError::AlreadyRegistered(

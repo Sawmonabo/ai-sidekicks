@@ -61,8 +61,10 @@ pub(crate) struct RecordedDelivery {
     pub(crate) parent_run_id: Option<RunId>,
     /// The helper a child run delivery is for.
     pub(crate) subagent: Option<crate::run::delivery::ChildRunSubagent>,
-    /// The row a session row delivery appends.
+    /// The row a session row or after-run row delivery appends.
     pub(crate) row: Option<LateAppendableRow>,
+    /// The prose a session row or after-run row delivery stores beside its row.
+    pub(crate) content: Option<String>,
     /// The session a notice names.
     pub(crate) session_id: Option<SessionId>,
     /// The payload of a notice, a row on no binding or a row that takes no stamp, as its event
@@ -278,6 +280,7 @@ impl InboundDispatch for RecordingRunEngine {
                 None,
             ),
             InboundDelivery::SessionRow { .. }
+            | InboundDelivery::AfterRunRow { .. }
             | InboundDelivery::UnstampedRow { .. }
             | InboundDelivery::ThinkingUpdate { .. }
             | InboundDelivery::RunMarker { .. }
@@ -445,6 +448,7 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
         parent_run_id: None,
         subagent: None,
         row: None,
+        content: None,
         session_id: None,
         payload: None,
     };
@@ -519,10 +523,25 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
             recorded.kind = "permissionAsk";
             recorded.binding_id = Some(binding.binding_id.clone());
         }
-        InboundDelivery::SessionRow { binding, row, .. } => {
+        InboundDelivery::SessionRow {
+            binding,
+            row,
+            content,
+        } => {
             recorded.kind = "sessionRow";
             recorded.binding_id = Some(binding.binding_id.clone());
             recorded.row = Some(row.clone());
+            recorded.content.clone_from(content);
+        }
+        InboundDelivery::AfterRunRow {
+            binding_id,
+            row,
+            content,
+        } => {
+            recorded.kind = "afterRunRow";
+            recorded.binding_id = Some(binding_id.clone());
+            recorded.row = Some(row.clone());
+            recorded.content.clone_from(content);
         }
         InboundDelivery::UnstampedRow { binding, row } => {
             recorded.kind = "unstampedRow";

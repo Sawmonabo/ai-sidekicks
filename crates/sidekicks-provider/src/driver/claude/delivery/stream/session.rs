@@ -2,6 +2,7 @@
 //! lock, and every live session's stream by session.
 
 use std::collections::HashMap;
+use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -15,6 +16,7 @@ use tokio::sync::oneshot;
 use tokio::time::Instant;
 
 use crate::driver::claude::delivery::commands::ClaudeHeldCommand;
+use crate::driver::claude::delivery::mcp_tasks::restore::{ClaudeKeptCall, ClaudeKeptCallsSource};
 use crate::driver::claude::delivery::run_readings::{ClaudeOpenTurn, ClaudeStreamSession};
 use crate::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
 use crate::driver::claude::goals::endings::ClaudeProcessGoal;
@@ -62,13 +64,20 @@ pub(crate) struct ClaudeSessionStream {
     unnumbered_turns: AtomicU64,
     // Where the next request's answer goes, once an account move asked to hear it.
     first_request: Mutex<Option<oneshot::Sender<ClaudeFirstRequest>>>,
+    // Where the process keeps its tool servers' background calls.
+    kept_calls: ClaudeKeptCallsSource,
 }
 
 impl ClaudeSessionStream {
     /// A stream for the process running on `provider_account_id`'s home, counting each turn's
-    /// steps against `step_bound`, queuing onto `arrivals` and taking the mode reports into
-    /// `permission_mode`, the process's record the live session shares, and reading the goal of
-    /// `goal`'s lead from its conversation file.
+    /// steps against `step_bound`, queuing onto `arrivals`, taking the mode reports into
+    /// `permission_mode`, the process's record the live session shares, reading the goal of
+    /// `goal`'s lead from its conversation file, and reading its background calls' kept files from
+    /// `kept_calls`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the account, the bound and each part of the process the stream reads and shares"
+    )]
     pub(crate) fn new(
         provider_account_id: ProviderAccountId,
         step_bound: Option<SafeInt<1>>,
@@ -77,6 +86,7 @@ impl ClaudeSessionStream {
         routes: Arc<ClaudeRunRoutes>,
         prompts: Arc<Mutex<ClaudeSentPrompts>>,
         permission_mode: Arc<ClaudePermissionModeRecord>,
+        kept_calls: ClaudeKeptCallsSource,
     ) -> Self {
         Self {
             session_id: arrivals.session_id(),
@@ -92,7 +102,13 @@ impl ClaudeSessionStream {
             unlisted_result_reports: Mutex::default(),
             unnumbered_turns: AtomicU64::new(0),
             first_request: Mutex::new(None),
+            kept_calls,
         }
+    }
+
+    /// Where the process keeps its tool servers' background calls.
+    pub(super) fn kept_calls(&self) -> &ClaudeKeptCallsSource {
+        &self.kept_calls
     }
 
     /// Opens the stream on `run`'s turn `turn_number` as it was before the process came up, which a
@@ -180,6 +196,27 @@ impl ClaudeSessionStream {
         self.lock().command_tasks.held_command(task_id)
     }
 
+    /// The tasks of the tool-server calls the session's process holds that Claude Code's record
+    /// says still run, which outlive the process; none, with nothing read, when no call is held.
+    /// Fails as the read of what Claude Code keeps fails.
+    pub(crate) async fn surviving_held_tasks(&self) -> io::Result<Vec<String>> {
+        let held: Vec<(String, String)> = self
+            .lock()
+            .tool_server_tasks
+            .held_tasks()
+            .map(|(task_id, call_id)| (task_id.to_owned(), call_id.to_owned()))
+            .collect();
+        if held.is_empty() {
+            return Ok(Vec::new());
+        }
+        let kept = self.kept_calls.read().await?;
+        Ok(held
+            .into_iter()
+            .filter(|(task_id, call_id)| kept.call(call_id, task_id) == ClaudeKeptCall::Recorded)
+            .map(|(task_id, _)| task_id)
+            .collect())
+    }
+
     /// The ids of the session's own running command tasks that belong to `run_id`.
     pub(crate) fn command_ids_of_run(&self, run_id: RunId) -> Vec<String> {
         self.lock().command_tasks.command_ids_of_run(run_id)
@@ -217,13 +254,19 @@ impl ClaudeSessionStream {
         true
     }
 
-    /// How many of the session's tasks other than its commands run in the background: the tool
-    /// servers' calls it holds open and the other tasks its latest background set listed, which a
-    /// stop of the process would kill.
+    /// How many of the session's tasks other than its commands run in the background, which a stop
+    /// of the process would kill: the tool servers' calls it holds open and the other tasks its
+    /// latest background set listed that it holds none for, so a held call's own listed task
+    /// counts once.
     pub(crate) fn background_work(&self) -> usize {
         let readings = self.lock();
-        readings.tool_server_tasks.held_call_ids().len()
-            + readings.command_tasks.listed_other_tasks()
+        let tool_server_tasks = &readings.tool_server_tasks;
+        tool_server_tasks.held_count()
+            + readings
+                .command_tasks
+                .listed_other_tasks()
+                .filter(|task_id| !tool_server_tasks.holds_task(task_id))
+                .count()
     }
 
     /// The session's turn now, which the reader stamps on each frame as it reads it.

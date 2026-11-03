@@ -125,20 +125,39 @@ static SELECT_FAILED_AT_SETUP_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+/// The recursive table `lineage(origin_run_id, run_id, depth)` for a `WITH RECURSIVE` clause:
+/// each run the query `origin_runs_sql` selects as `run_id`, at depth 0, then each parent whose
+/// provider process a provider subagent runs in, one step up per depth.
+pub(crate) fn provider_lineage_sql(origin_runs_sql: &str) -> String {
+    format!(
+        "lineage(origin_run_id, run_id, depth) AS (
+    SELECT origin.run_id, origin.run_id, 0 FROM ({origin_runs_sql}) AS origin
+    UNION ALL
+    SELECT lineage.origin_run_id, runs.parent_run_id, lineage.depth + 1
+      FROM runs JOIN lineage ON runs.run_id = lineage.run_id
+      WHERE runs.reached_by = '{provider_subagent}'
+  )",
+        provider_subagent = <&'static str>::from(ChildRunProvenance::ProviderSubagent),
+    )
+}
+
+/// The order that puts first, of the `binding` rows joined to `lineage`, the newest binding of the
+/// nearest run up the lineage that has one.
+pub(crate) const NEAREST_LINEAGE_BINDING_ORDER_SQL: &str =
+    "ORDER BY lineage.depth, binding.created_at DESC, binding.id DESC LIMIT 1";
+
 // Walks up from the run through each provider subagent to the parent whose process it runs in, and
 // takes the nearest run with a binding; a run's bindings all name the provider its first spawn
 // bound, so that run's newest one answers, with its id.
-const SELECT_RUN_PROVIDER_SQL: &str = "WITH RECURSIVE lineage(run_id, depth) AS (
-    SELECT @run_id, 0
-    UNION ALL
-    SELECT runs.parent_run_id, lineage.depth + 1
-      FROM runs JOIN lineage ON runs.run_id = lineage.run_id
-      WHERE runs.reached_by = 'providerSubagent'
-  )
-  SELECT runtime_bindings.id, runtime_bindings.provider_name
-  FROM lineage JOIN runtime_bindings ON runtime_bindings.run_id = lineage.run_id
-  ORDER BY lineage.depth, runtime_bindings.created_at DESC, runtime_bindings.id DESC
-  LIMIT 1";
+static SELECT_RUN_PROVIDER_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "WITH RECURSIVE {lineage}
+  SELECT binding.id, binding.provider_name
+  FROM lineage JOIN runtime_bindings AS binding ON binding.run_id = lineage.run_id
+  {NEAREST_LINEAGE_BINDING_ORDER_SQL}",
+        lineage = provider_lineage_sql("SELECT @run_id AS run_id"),
+    )
+});
 
 // Walks down `idx_runs_parent` through every provider subagent of the one run's tree, ended ones
 // included, since a run beneath an ended one still runs in the same process; it keeps those live
@@ -466,7 +485,7 @@ pub fn read_run_provider(
     run_id: &RunId,
 ) -> rusqlite::Result<Option<RunProvider>> {
     reader
-        .prepare_cached(SELECT_RUN_PROVIDER_SQL)?
+        .prepare_cached(&SELECT_RUN_PROVIDER_SQL)?
         .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
             Ok(RunProvider {
                 binding_id: text_column(row, 0, |text| {

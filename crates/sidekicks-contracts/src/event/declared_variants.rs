@@ -320,68 +320,160 @@ pub enum AgentOutputPayload {
 /// Both arms are declared with the content members.
 impl MachineContentDescriptor for AgentOutputPayload {}
 
-with_machine_content_descriptor! {
-    /// The payload of `agent.toolCall.invoked`, `agent.toolCall.completed` and
-    /// `agent.toolCall.failed`; the call's arguments, result or error body is kept apart from it.
-    /// It takes the epoch stamp.
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
-    #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    #[garde(allow_unvalidated)]
-    #[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
-    pub struct ToolActivityPayload {
-        /// The session.
-        pub session_id: SessionId,
-        /// The run the call belongs to.
-        pub run_id: RunId,
-        /// The tool's name; required, since a row with no name cannot be attributed and the append
-        /// path cannot add it.
-        pub tool_name: FreeFormText<EVENT_FIELD_MAX_LEN>,
+/// Why a tool call ended with no result.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ToolCallEndCause {
+    /// A restart of the background service ended the call.
+    DaemonRestart,
+    /// The provider's process ended while the service ran on.
+    ProcessExit,
+    /// No result came and no one asked: the task was stopped, a saved ending cancelled it, or the
+    /// provider's background list dropped it.
+    Stopped,
+}
+
+/// Declares a tool call row's payload: the struct as written, between the members every tool row
+/// shares, its session, run and tool name first and the epoch stamp last, with the stamp's rule and
+/// its schema twin, then the body members of `with_machine_content_descriptor!`.
+macro_rules! tool_call_payload {
+    ($(#[$meta:meta])* pub struct $name:ident { $($members:tt)* }) => {
+        $crate::event::declared_variants::with_machine_content_descriptor! {
+            $(#[$meta])*
+            #[derive(
+                Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
+            )]
+            #[serde(rename_all = "camelCase", deny_unknown_fields)]
+            #[garde(allow_unvalidated)]
+            #[garde(custom(|payload: &Self, (): &()| {
+                check_epoch_stamp(payload.source_epoch, payload.source_position, true)
+            }))]
+            #[schemars(extend("dependentRequired" = epoch_stamp_dependent_required()))]
+            pub struct $name {
+                /// The session.
+                pub session_id: SessionId,
+                /// The run the call belongs to.
+                pub run_id: RunId,
+                /// The tool's name; required, since a row with no name cannot be attributed and
+                /// the append path cannot add it.
+                pub tool_name: FreeFormText<EVENT_FIELD_MAX_LEN>,
+                $($members)*
+                /// The execution epoch a late row is attributed to; comes with `sourcePosition`.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "SourceEpoch")]
+                pub source_epoch: Option<SourceEpoch>,
+                /// The turn position the row occupies within its epoch; comes with `sourceEpoch`.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "SourcePosition")]
+                pub source_position: Option<SourcePosition>,
+            }
+        }
+    };
+}
+
+/// Declares a payload of a tool call's opening or close: `tool_call_payload!` with the call's id,
+/// its duration and the files its body names, each optional, before the struct's own members.
+macro_rules! tool_activity_payload {
+    ($(#[$meta:meta])* pub struct $name:ident { $($members:tt)* }) => {
+        tool_call_payload! {
+            $(#[$meta])*
+            pub struct $name {
+                /// The provider's id of the call.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "ToolCallId")]
+                pub tool_call_id: Option<ToolCallId>,
+                /// How long the call took, in milliseconds.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "SafeInt<0>")]
+                pub duration_ms: Option<SafeInt<0>>,
+                /// On a completion whose body holds its file patches, every file in the body's
+                /// order with its patch's UTF-8 size, so a row whose body is too large to travel
+                /// still names them; set by the producer. A body naming files is stored in bounded
+                /// parts of each file, which the patch read pages; an empty list names none, and
+                /// its body is stored as any other.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "BoundedVec<TranscriptOmittedPatch, 0, { usize::MAX }>")]
+                pub omitted_patches: Option<BoundedVec<TranscriptOmittedPatch, 0, { usize::MAX }>>,
+                $($members)*
+            }
+        }
+    };
+}
+
+tool_activity_payload! {
+    /// The payload of `agent.toolCall.invoked` and `agent.toolCall.completed`; the call's
+    /// arguments or result body is kept apart from it. It takes the epoch stamp.
+    pub struct ToolActivityPayload {}
+}
+
+tool_activity_payload! {
+    /// The payload of `agent.toolCall.failed`, whose error body is kept apart from it; `endCause`
+    /// is present only when the call ended with no result, and names why. A row with
+    /// `endCause: stopped` and no body reads `Stopped`; any body is the provider's own reason,
+    /// never the task's name.
+    pub struct ToolCallFailedPayload {
+        /// Why the call ended with no result; absent when the call failed with a result.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "ToolCallEndCause")]
+        pub end_cause: Option<ToolCallEndCause>,
+    }
+}
+
+tool_call_payload! {
+    /// The payload of `agent.toolCall.backgrounded`: the provider moved the call to the background
+    /// and answered the model with a stand-in naming its task, which is the row's body.
+    pub struct ToolCallBackgroundedPayload {
         /// The provider's id of the call.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "ToolCallId")]
-        pub tool_call_id: Option<ToolCallId>,
-        /// How long the call took, in milliseconds.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "SafeInt<0>")]
-        pub duration_ms: Option<SafeInt<0>>,
-        /// On a completion whose body holds its file patches, every file in the body's order with
-        /// its patch's UTF-8 size, so a row whose body is too large to travel still names them; set
-        /// by the producer. A body naming files is stored in bounded parts of each file, which the
-        /// patch read pages; an empty list names none, and its body is stored as any other.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "BoundedVec<TranscriptOmittedPatch, 0, { usize::MAX }>")]
-        pub omitted_patches: Option<BoundedVec<TranscriptOmittedPatch, 0, { usize::MAX }>>,
-        /// The execution epoch a late row is attributed to; comes with `sourcePosition`.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "SourceEpoch")]
-        #[garde(custom(|epoch: &Option<SourceEpoch>, (): &()| {
-            check_epoch_stamp(*epoch, self.source_position, true)
-        }))]
-        pub source_epoch: Option<SourceEpoch>,
-        /// The turn position the row occupies within its epoch; comes with `sourceEpoch`.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "crate::wire::present"
-        )]
-        #[schemars(with = "SourcePosition")]
-        pub source_position: Option<SourcePosition>,
+        pub tool_call_id: ToolCallId,
+        /// The provider's id of the background task the call became.
+        pub task_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+        /// Whether the task outlives a restart of the background service.
+        pub survives_restart: bool,
+    }
+}
+
+impl ToolActivityPayload {
+    /// The same call's `agent.toolCall.failed` payload, every member carried across, with why it
+    /// ended where it ended with no result.
+    pub fn into_failed(self, end_cause: Option<ToolCallEndCause>) -> ToolCallFailedPayload {
+        ToolCallFailedPayload {
+            session_id: self.session_id,
+            run_id: self.run_id,
+            tool_name: self.tool_name,
+            tool_call_id: self.tool_call_id,
+            duration_ms: self.duration_ms,
+            omitted_patches: self.omitted_patches,
+            end_cause,
+            source_epoch: self.source_epoch,
+            source_position: self.source_position,
+            content_length: self.content_length,
+            content_truncated: self.content_truncated,
+            content_encoding: self.content_encoding,
+        }
     }
 }
 
@@ -399,6 +491,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<VoiceAgentOutputPayload>(),
         Definition::read::<AgentOutputPayload>().checked(),
         Definition::read::<ToolActivityPayload>().checked(),
+        Definition::read::<ToolCallEndCause>(),
+        Definition::read::<ToolCallFailedPayload>().checked(),
+        Definition::read::<ToolCallBackgroundedPayload>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[],

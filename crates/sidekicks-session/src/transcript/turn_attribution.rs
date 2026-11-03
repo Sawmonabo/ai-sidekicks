@@ -23,6 +23,7 @@ use sidekicks_contracts::transcript::turn_attribution::{
 };
 use sidekicks_contracts::wire::id::IdError;
 use sidekicks_store::database::stored_column::json_object_column;
+use sidekicks_store::events::session::insert::TOOL_CALL_ID_PAYLOAD_KEY;
 use sidekicks_store::events::session::read::{readable_event_sql, session_read_bound};
 
 use crate::run::superseded::{
@@ -106,7 +107,7 @@ static SELECT_TOOL_CALL_OPENING_SQL: LazyLock<String> = LazyLock::new(|| {
         "SELECT sequence, payload FROM session_events AS event
   WHERE session_id = @session_id AND type = @type AND sequence < @before_sequence
     AND run_id = @run_id AND {}
-    AND json_extract(payload, '$.toolCallId') = @tool_call_id
+    AND json_extract(payload, '$.{TOOL_CALL_ID_PAYLOAD_KEY}') = @tool_call_id
   ORDER BY sequence DESC
   LIMIT 1",
         readable_event_sql("event")
@@ -339,9 +340,9 @@ impl SessionTurnAttribution {
         })
     }
 
-    // The turn a row of the run belongs to. A row of a tool call ends its held opening, since a
-    // call closes with its one result or error; a later row of that call reads the opening from the
-    // log.
+    // The turn a row of the run belongs to. A row of a tool call ends its held opening, whether it
+    // is the call's result, its error or the provider's move of it to the background; a later row
+    // of that call, a background call's close among them, reads the opening from the log.
     fn source_of<DamagedFrom>(
         &self,
         reads: &RunTurnReads<'_, DamagedFrom>,
@@ -390,6 +391,7 @@ impl SessionTurnAttribution {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use serde_json::json;
     use sidekicks_contracts::event::envelope::EventEnvelope;
     use sidekicks_contracts::event::registry::SessionEventType;
@@ -397,6 +399,8 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+    use sidekicks_store::events::session::read::{SessionEventFilter, SessionEventReads};
+    use sidekicks_store::events::test_log::SessionTestLog;
 
     use super::{RunTurnReads, SessionTurnAttribution};
     use crate::questions::schema::schema_parts;
@@ -446,5 +450,125 @@ mod tests {
             )
             .expect("a run's terminal event is attributed");
         assert!(!attribution.fold_by_run_id.contains_key(&run_id));
+    }
+
+    // Run A opens `call-1` in turn 2 and the provider moves it to the background; A stands at turn
+    // 5 when the case's rollback, if any, lands, and the call's unstamped close comes after. The
+    // close takes the turn the call opened in, read from the log, and is superseded with it.
+    // Killed by a close stamped where the run stands once the background row ended the held
+    // opening: turn 5 (`no_rollback`), turn 1 of the cut's epoch, not superseded (`cut_below`),
+    // and turn 3 of it (`cut_above`).
+    #[rstest]
+    #[case::no_rollback(None, None)]
+    #[case::cut_below(Some(1), Some(1))]
+    #[case::cut_above(Some(3), None)]
+    fn a_background_calls_close_sits_at_its_opening_and_is_superseded_with_it(
+        #[case] target_position: Option<u64>,
+        #[case] superseded_at: Option<u64>,
+    ) {
+        let log = SessionTestLog::new(schema_parts());
+        let session_id = log.session_id;
+        let run_id = log.run_id;
+        let turn_started = |turn_number: u64| {
+            log.write(
+                json!({
+                    "type": "agent.turn.started",
+                    "payload": {
+                        "sessionId": session_id,
+                        "runId": run_id,
+                        "runVersion": 1,
+                        "turnNumber": turn_number,
+                    },
+                }),
+                None,
+            );
+        };
+        let tool_row = |event_type: &str, body: &str| {
+            log.write(
+                json!({
+                    "type": event_type,
+                    "payload": {
+                        "sessionId": session_id,
+                        "runId": run_id,
+                        "toolName": "Bash",
+                        "toolCallId": "call-1",
+                    },
+                }),
+                Some(body),
+            );
+        };
+        turn_started(1);
+        turn_started(2);
+        tool_row("agent.toolCall.invoked", "sleep 600");
+        log.write(
+            json!({
+                "type": "agent.toolCall.backgrounded",
+                "payload": {
+                    "sessionId": session_id,
+                    "runId": run_id,
+                    "toolName": "Bash",
+                    "toolCallId": "call-1",
+                    "taskId": "task-1",
+                    "survivesRestart": false,
+                },
+            }),
+            Some("Moved to the background as task-1"),
+        );
+        for turn_number in 3..=5 {
+            turn_started(turn_number);
+        }
+        if let Some(target_position) = target_position {
+            log.write(
+                json!({
+                    "type": "agent.run.rolledBack",
+                    "payload": {
+                        "sessionId": session_id,
+                        "runId": run_id,
+                        "runVersion": 2,
+                        "targetPosition": target_position,
+                    },
+                }),
+                None,
+            );
+        }
+        tool_row("agent.toolCall.completed", "done");
+
+        let reader = log.database.reader();
+        let no_damage = |_: &SessionId| None;
+        let events = SessionEventReads::new(&reader, no_damage)
+            .read_after(
+                &session_id,
+                -1,
+                -1,
+                SessionEventFilter {
+                    event_types: None,
+                    before_sequence: None,
+                },
+            )
+            .expect("the run's events read");
+        let reads = RunTurnReads::new(&reader, no_damage);
+        let mut attribution = SessionTurnAttribution::new(session_id);
+        let stamps: Vec<_> = events
+            .iter()
+            .map(|event| {
+                attribution
+                    .attribute(&reads, event)
+                    .expect("each event is attributed")
+                    .expect("each event is the run's")
+                    .stamp
+            })
+            .collect();
+        let close = stamps.last().expect("the close is attributed");
+
+        assert_eq!(
+            (
+                close.epoch.0.get(),
+                close.position.0.get(),
+                close
+                    .superseded
+                    .map(|marker| marker.target_position.0.get()),
+            ),
+            (0, 2, superseded_at)
+        );
     }
 }

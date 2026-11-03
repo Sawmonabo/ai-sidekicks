@@ -4,6 +4,7 @@
 //! at a sequence that the log can always rebuild.
 
 use sidekicks_contracts::event::envelope::EventCategory;
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::transcript::run_facts::RunStateEventType;
 use sidekicks_contracts::transcript::turn_attribution::{
     TURN_END_EVENT_TYPES, TURN_STARTED_EVENT_TYPE,
@@ -18,6 +19,7 @@ use crate::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
 pub(super) fn event_log_schema_sql() -> String {
     let run_lifecycle = EventCategory::RunLifecycle.as_str();
     let skipped_type = DAMAGED_EVENTS_SKIPPED_TYPE.as_str();
+    let backgrounded_type = SessionEventType::AgentToolCallBackgrounded.as_str();
     // The event types that enter a terminal run state, the same rule the run engine reads.
     let terminal_types = sql_list_of(
         RunStateEventType::VARIANTS
@@ -88,6 +90,10 @@ CREATE INDEX idx_session_events_type ON {SESSION_EVENTS_TABLE}(session_id, type)
 -- probes the skipped ranges of those sessions alone.
 CREATE INDEX idx_session_events_skipped ON {SESSION_EVENTS_TABLE}(session_id)
   WHERE type = '{skipped_type}';
+-- Each tool call a provider moved to the background, few or none, so the start's read across
+-- sessions finds those still open without reading their sessions' other rows.
+CREATE INDEX idx_session_events_backgrounded ON {SESSION_EVENTS_TABLE}(session_id, sequence)
+  WHERE type = '{backgrounded_type}';
 -- One run's events of one type in log order, for the reads that seed a run's turns and that find
 -- a live run's agent and newest touch.
 CREATE INDEX idx_session_events_run ON {SESSION_EVENTS_TABLE}(session_id, type, run_id, sequence)

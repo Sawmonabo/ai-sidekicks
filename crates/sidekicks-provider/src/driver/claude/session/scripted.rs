@@ -6,8 +6,10 @@
 pub(crate) mod channel;
 pub(crate) mod daemon_services;
 pub(crate) mod driver;
+pub(crate) mod held_calls;
 pub(crate) mod starts;
 
+use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -281,6 +283,11 @@ impl ScriptedSession {
         hand_scripted_frame(&*self.listener, &self.start.routes, self.session_id, frame);
     }
 
+    /// Ends the session's process, as its reader would on an exit nothing asked for.
+    pub(crate) fn exit(&self) {
+        exit_scripted_process(&*self.listener);
+    }
+
     /// Hands over a `control_request` the process sent.
     pub(crate) fn request(&self, request_id: &str, request: &Value) {
         let event = self.read_request(request_id, request);
@@ -369,6 +376,11 @@ pub(crate) fn hand_scripted_frame(
         routes.settle_turn_holds(session_id);
     }
     listener.take_frame(frame);
+}
+
+/// Ends the process `listener` reads, as its reader would on an exit nothing asked for.
+pub(crate) fn exit_scripted_process(listener: &dyn ClaudeProcessListener) {
+    listener.take_exit(Err(Arc::new(io::Error::other("the process ended"))));
 }
 
 /// Lets every task run until all wait: on a paused clock the runtime advances time only once
