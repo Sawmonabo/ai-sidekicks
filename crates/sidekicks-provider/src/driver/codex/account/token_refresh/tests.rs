@@ -292,27 +292,36 @@ async fn a_refresh_after_the_home_was_renewed_answers_without_a_renewal() {
     );
 }
 
-// Killed by a renewal run in a home a sign-in's flow runs in: the home's service would see a
-// renewing read beside the flow, and the refresh would be answered with tokens.
+// A refresh asked while a sign-in's flow runs in the account's home waits for the flow to end,
+// then answers with the tokens the sign-in left there, running no renewal. Killed by a refresh
+// refused during the sign-in, by a renewing read run beside the flow, and by a wait the flow's end
+// never wakes.
 #[tokio::test]
-async fn a_refresh_while_a_sign_in_runs_in_the_home_is_refused_with_no_renewal() {
+async fn a_refresh_during_a_sign_in_answers_with_the_new_tokens_once_it_ends() {
     let mut fixture = Fixture::new().await;
     fixture.carry().await;
+    let signed_in = compose_access_token("t1");
     let signing_in = fixture
         .home_lock
         .mark_signing_in(fixture.account_id.clone());
 
     fixture.switching.script.send(&refresh_request("main"));
+    tokio::time::sleep(QUIET_WAIT).await;
+    assert!(
+        fixture.switching.script.sent.try_recv().is_err(),
+        "the refresh waits for the sign-in"
+    );
+    write_sign_in(&fixture.codex_home, WORKSPACE, &signed_in);
+    drop(signing_in);
 
     assert_eq!(
         fixture.switching.script.next_sent().await,
-        refusal_answer("main")
+        tokens_answer("main", &signed_in)
     );
     assert!(
         fixture.home.script.sent.try_recv().is_err(),
         "a renewing read ran beside the sign-in"
     );
-    drop(signing_in);
 }
 
 // Killed by no memory of a dead renewal (a second read for the retry), by a refresher on every

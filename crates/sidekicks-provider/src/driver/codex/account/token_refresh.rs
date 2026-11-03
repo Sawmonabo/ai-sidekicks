@@ -2,8 +2,9 @@
 //! sign-in in that account's own home, on the service serving there or a short-lived one on the
 //! `file` store, and the renewed tokens are read back from the home's `auth.json`, judged against
 //! the token Codex refused. One renewal per account at a time, under the home's hold, each asker
-//! meanwhile joining it, and none while a sign-in's flow runs in the home; and the refresh's
-//! answer, which carries the tokens.
+//! meanwhile joining it, and none while a sign-in's flow runs in the home: a refresh then waits
+//! for the flow to end and judges the sign-in it left; and the refresh's answer, which carries
+//! the tokens.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
@@ -28,8 +29,10 @@ use crate::runtime_binding::writer::RuntimeBindingWriter;
 /// retry after it run inside the read.
 const CODEX_RENEWING_READ_TIMEOUT: Duration = Duration::from_secs(15);
 
-/// The renewals of one account's sign-in, at most one in flight per account.
-pub(super) type CodexRenewalFlights = AccountHomeFlights<Result<CodexRenewal, CodexRenewalFailed>>;
+/// The renewals of one account's sign-in, at most one in flight per account; `None` where a
+/// sign-in marked the home before the renewal took it, so nothing was judged.
+pub(super) type CodexRenewalFlights =
+    AccountHomeFlights<Option<Result<CodexRenewal, CodexRenewalFailed>>>;
 
 /// What a renewal in an account's home found.
 #[derive(Clone)]
@@ -40,9 +43,9 @@ pub(crate) enum CodexRenewal {
     Dead,
 }
 
-/// A renewal that could not be judged: the home's lock was not registered, a sign-in's flow runs
-/// in the home, its `auth.json` could not be read or held no `ChatGPT` sign-in, or its service
-/// could not start or answer.
+/// A renewal that could not be judged: the home's lock was not registered, its `auth.json` could
+/// not be read or held no `ChatGPT` sign-in, as after a sign-in that ended with none, or its
+/// service could not start or answer.
 #[derive(Clone, Debug, thiserror::Error)]
 #[error("the sign-in in the Codex account's home could not be renewed")]
 pub(crate) struct CodexRenewalFailed(#[source] Arc<DriverError>);
@@ -79,9 +82,9 @@ impl CodexTokenRenewer {
 
     /// Judges `refused`, the access token Codex refused for `provider_account_id`, against that
     /// account's home `codex_home`, renewing the sign-in there when the home still holds it.
-    /// Joins a renewal in flight on the account, else waits for the home's hold, and skips a home
-    /// a sign-in's flow runs in. Fails as [`CodexRenewalFailed`] says, and once the legs are
-    /// gone.
+    /// Waits for a sign-in's flow running in the home to end, then joins a renewal in flight on
+    /// the account, else waits for the home's hold, so a sign-in's new tokens are the answer. The
+    /// caller bounds the wait. Fails as [`CodexRenewalFailed`] says, and once the legs are gone.
     pub(crate) async fn renew(
         &self,
         provider_account_id: ProviderAccountId,
@@ -100,30 +103,39 @@ impl CodexTokenRenewer {
         let flights = legs
             .token_renewals
             .get_or_init(|| AccountHomeFlights::new(Arc::clone(home_lock)));
-        let renewing = Arc::clone(&legs);
-        let marks = Arc::clone(home_lock);
-        let account = provider_account_id.clone();
-        flights
-            .run_when_free(provider_account_id, move || {
-                async move {
-                    // Read under the home's hold, which a sign-in's start takes to mark it.
-                    if marks.is_signing_in(&account) {
-                        return Err(CodexRenewalFailed::from(DriverError::Internal(
-                            "a sign-in runs in the account's home".into(),
-                        )));
+        loop {
+            home_lock.wait_out_sign_in(&provider_account_id).await;
+            let renewing = Arc::clone(&legs);
+            let marks = Arc::clone(home_lock);
+            let (account, codex_home, refused) = (
+                provider_account_id.clone(),
+                codex_home.clone(),
+                refused.clone(),
+            );
+            let judged = flights
+                .run_when_free(provider_account_id.clone(), move || {
+                    async move {
+                        // Read under the home's hold, which a sign-in's start takes to mark it.
+                        if marks.is_signing_in(&account) {
+                            return None;
+                        }
+                        Some(renewing.judge_renewal(account, codex_home, refused).await)
                     }
-                    renewing.judge_renewal(account, codex_home, refused).await
-                }
-                .boxed()
-            })
-            .await
-            .map_err(|ended| DriverError::Internal(Box::new(ended)))?
-            // Only joining an act that runs only on a free home answers none; no renewal is one.
-            .ok_or_else(|| {
-                CodexRenewalFailed::from(DriverError::Internal(
-                    "the account's home was held by an act that runs only when it is free".into(),
-                ))
-            })?
+                    .boxed()
+                })
+                .await
+                .map_err(|ended| DriverError::Internal(Box::new(ended)))?
+                // Only joining an act that runs only on a free home answers none; no renewal is.
+                .ok_or_else(|| {
+                    CodexRenewalFailed::from(DriverError::Internal(
+                        "the account's home was held by an act that runs only when it is free"
+                            .into(),
+                    ))
+                })?;
+            if let Some(judged) = judged {
+                return judged;
+            }
+        }
     }
 }
 
