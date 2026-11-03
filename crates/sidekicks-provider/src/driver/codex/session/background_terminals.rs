@@ -65,7 +65,8 @@ pub(crate) async fn list_codex_running_commands(
         let page = read_codex_object::<TerminalsPage>(reply.get()).ok_or_else(|| {
             CodexError::Transport {
                 detail: format!(
-                    "The Codex service's \"{BACKGROUND_TERMINALS_LIST_METHOD}\" reply is not a page."
+                    "The Codex service's \"{BACKGROUND_TERMINALS_LIST_METHOD}\" reply is \
+                     not a page."
                 ),
                 cause: None,
             }

@@ -459,8 +459,9 @@ async fn a_withdrawn_ask_leaves_its_correction_unspent() {
 const STEP_ASKER: &str = "workflow-step";
 
 mod step_actions {
-    //! A workflow step's actions through the permission check: each level's gate, the card a command
-    //! or a program raises and the rule it offers, and the daemon's session rules over a step.
+    //! A workflow step's actions through the permission check: each level's gate, the card a
+    //! command or a program raises and the rule it offers, and the daemon's session rules over a
+    //! step.
 
     use std::path::{Path, PathBuf};
 
@@ -512,10 +513,10 @@ mod step_actions {
     ];
 
     // A step's file write follows the levels' own table: inside the checkout it asks only at
-    // Read-only, outside it asks at Read-only, Ask and Reviewed, is refused at Sandboxed and is free at
-    // YOLO, and Sandboxed refuses the repository's hooks and config inside the checkout too. Killed by
-    // an inside write at Ask raising a card, by an outside write at Sandboxed allowed, and by the hooks
-    // left open at Sandboxed.
+    // Read-only, outside it asks at Read-only, Ask and Reviewed, is refused at Sandboxed and is
+    // free at YOLO, and Sandboxed refuses the repository's hooks and config inside the checkout
+    // too. Killed by an inside write at Ask raising a card, by an outside write at Sandboxed
+    // allowed, and by the hooks left open at Sandboxed.
     #[rstest]
     #[case::inside("/work/checkout/src/main.rs", [CARD, FREE, FREE, FREE, FREE])]
     #[case::outside("/work/notes.md", [CARD, CARD, CARD, OUTSIDE, FREE])]
@@ -580,11 +581,11 @@ mod step_actions {
         }
     }
 
-    // An "Always allow" on a step's card keeps a session rule the daemon answers the same action with
-    // next time, with no card, while a same-named tool on another server still asks, as does a tool
-    // whose server and name join to the same words; the card is asked by the step that names itself.
-    // Killed by skipping the rule lookup, by a subject that drops the tool's server, by a rule keyed
-    // on the joined name alone, and by asking the card as the run's agent.
+    // An "Always allow" on a step's card keeps a session rule the daemon answers the same action
+    // with next time, with no card, while a same-named tool on another server still asks, as does a
+    // tool whose server and name join to the same words; the card is asked by the step that names
+    // itself. Killed by skipping the rule lookup, by a subject that drops the tool's server, by a
+    // rule keyed on the joined name alone, and by asking the card as the run's agent.
     #[tokio::test]
     async fn a_session_rule_answers_a_steps_second_identical_action() {
         let fixture = AsksFixture::new().await;
@@ -667,9 +668,9 @@ mod step_actions {
     const BARE_CARD: &str = "card offering a rule: false";
 
     // A command step and a program step ask at Read-only, Ask and Reviewed, since no provider's
-    // reviewer sees a step the daemon runs, and run free at Sandboxed and YOLO; a command's card offers
-    // the rule its line names, a program's none. Killed by any level's arm wrong, Reviewed's among
-    // them, and by a rule offered on a program's launch line.
+    // reviewer sees a step the daemon runs, and run free at Sandboxed and YOLO; a command's card
+    // offers the rule its line names, a program's none. Killed by any level's arm wrong, Reviewed's
+    // among them, and by a rule offered on a program's launch line.
     #[rstest]
     #[case::command(command_step("cargo test"), [CARD, CARD, CARD, FREE, FREE])]
     #[case::program(code_step("cargo test"), [BARE_CARD, BARE_CARD, BARE_CARD, FREE, FREE])]
@@ -686,21 +687,31 @@ mod step_actions {
         assert_eq!(verdicts, expected);
     }
 
-    // A command step's card offers a rule only over the one plain command its line names, in the words
-    // that command's rule names: never over a line of several commands, a wrapped command, one after
-    // an assignment or a force push, which is destructive git; a program's launch line offering none
-    // is proven at each level above. Killed by a compound or wrapped subject offered, by the command's
-    // subject dropped or replaced by the whole line, and by skipping the line's category.
+    // A command step's card offers a rule only over the one plain command its line names, in the
+    // words that command's rule names: never over a line of several commands, a wrapped command,
+    // one after an assignment or a force push, which is destructive git; a program's launch line
+    // offering none is proven at each level above. Killed by a compound or wrapped subject offered,
+    // by the command's subject dropped or replaced by the whole line, and by skipping the line's
+    // category.
     #[rstest]
     #[case::plain(command_step("cargo test"), ("toolExecution", "cargo test", true))]
-    #[case::with_options(command_step("cargo test --release"), ("toolExecution", "cargo test", true))]
+    #[case::with_options(
+        command_step("cargo test --release"),
+        ("toolExecution", "cargo test", true)
+    )]
     #[case::compound(
         command_step("pnpm test && pnpm lint"),
         ("toolExecution", "pnpm test && pnpm lint", false)
     )]
     #[case::wrapped(command_step("sudo cargo test"), ("toolExecution", "sudo cargo test", false))]
-    #[case::assignment(command_step("FOO=1 cargo test"), ("toolExecution", "FOO=1 cargo test", false))]
-    #[case::force_push(command_step("git push --force"), ("destructiveGit", "git push --force", false))]
+    #[case::assignment(
+        command_step("FOO=1 cargo test"),
+        ("toolExecution", "FOO=1 cargo test", false)
+    )]
+    #[case::force_push(
+        command_step("git push --force"),
+        ("destructiveGit", "git push --force", false)
+    )]
     #[tokio::test]
     async fn a_steps_card_offers_a_rule_only_over_one_plain_command(
         #[case] action: StepAction,
@@ -721,8 +732,8 @@ mod step_actions {
 
     // A command step whose line starts a provider's background work is refused at every level, a
     // level that runs commands free and a level that asks alike, before any card, in the provider's
-    // own words: by a subcommand, by a flag, and by a line a shell string hands on. Killed by skipping
-    // the refusal, by refusing only where the level asks, and by raising the card first.
+    // own words: by a subcommand, by a flag, and by a line a shell string hands on. Killed by
+    // skipping the refusal, by refusing only where the level asks, and by raising the card first.
     #[rstest]
     #[case::subcommand("claude agents")]
     #[case::flag("claude --bg x")]
@@ -742,11 +753,11 @@ mod step_actions {
         assert_eq!(verdicts, vec![refusal; LEVELS.len()]);
     }
 
-    // A command step's card shows its filled, masked line, while its category and the rule it offers
-    // are read from the line of value references, so a filled value holding a quote, which the shell
-    // only ever reads as one word, cannot change the rule. Killed by the card showing the reference
-    // line, by its stored action carrying it, and by reading the filled line for the rule, which reads
-    // three commands and offers none.
+    // A command step's card shows its filled, masked line, while its category and the rule it
+    // offers are read from the line of value references, so a filled value holding a quote, which
+    // the shell only ever reads as one word, cannot change the rule. Killed by the card showing the
+    // reference line, by its stored action carrying it, and by reading the filled line for the
+    // rule, which reads three commands and offers none.
     #[tokio::test]
     async fn a_command_steps_card_shows_its_filled_line_and_reads_the_rule_from_references() {
         let fixture = CheckFixture::new().await;
@@ -782,10 +793,10 @@ mod step_actions {
         assert_eq!((scope.as_str(), command.as_str()), (shown_line, shown_line));
     }
 
-    // A session rule the daemon keeps over a command's words answers the step whose line names them:
-    // an allow runs it with no card, a block refuses it, and a revoked allow is no longer in force, so
-    // the card is raised again. Killed by skipping the rule lookup for a command, by a block answered
-    // as an allow, and by a revoked rule read as in force.
+    // A session rule the daemon keeps over a command's words answers the step whose line names
+    // them: an allow runs it with no card, a block refuses it, and a revoked allow is no longer in
+    // force, so the card is raised again. Killed by skipping the rule lookup for a command, by a
+    // block answered as an allow, and by a revoked rule read as in force.
     #[tokio::test]
     async fn a_rule_in_force_answers_a_command_step_until_revoked() {
         let fixture = AsksFixture::new().await;

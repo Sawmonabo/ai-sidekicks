@@ -199,9 +199,9 @@ impl OpenedSubscription {
 }
 
 /// One subscription's values in order, then its end: `None` once the daemon completed it or it
-/// was canceled, `Some(Err(…))` then `None` when the daemon refused it (`ClientError::Remote`), the
-/// link went down (`ClientError::link_down`), or a value failed its contract (`ClientError::Reply`,
-/// after which the client cancels it).
+/// was canceled, `Some(Err(…))` then `None` when the daemon refused it (`ClientError::Remote`),
+/// the link went down (`ClientError::link_down`), or a value failed its contract
+/// (`ClientError::Reply`, after which the client cancels it).
 pub struct Subscription<T> {
     handle: SubscriptionHandle,
     read: fn(QueuedValue) -> Result<T, ReplyError>,

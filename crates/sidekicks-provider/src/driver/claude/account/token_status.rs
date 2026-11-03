@@ -93,7 +93,8 @@ else
 fi
 read -r line
 id=$(printf '%s' "$line" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
-printf '{{"type":"control_response","response":{{"subtype":"success","request_id":"%s","response":{{"account":%s}}}}}}\n' "$id" "$account"
+printf '{{"type":"control_response","response":{{"subtype":"success",'\
+'"request_id":"%s","response":{{"account":%s}}}}}}\n' "$id" "$account"
 cat > /dev/null
 "#,
             record = record.display()

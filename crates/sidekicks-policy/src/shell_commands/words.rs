@@ -49,7 +49,8 @@ enum PieceKind {
     QuotedExpansion,
     /// Text an escape or an ANSI-C string decoded, in the decoded buffer.
     Decoded,
-    /// A `${…}` that `env -S` expands inside decoded text, kept as that text in the decoded buffer.
+    /// A `${…}` that `env -S` expands inside decoded text, kept as that text in the decoded
+    /// buffer.
     DecodedExpansion,
     /// Text of the line in a word the shell expands into alternatives, a brace expansion's.
     Alternatives,
@@ -275,8 +276,8 @@ impl<'r> ShellWord<'r> {
 
     /// Whether part of the word is an expansion, a substitution or a pattern outside double
     /// quotes, which the shell can split or expand into several words, an ANSI-C string the
-    /// shells decode apart, or a `${…}` that `env -S` expands, however the line spelled it; a word
-    /// whose only undecided parts are double-quoted stays one word.
+    /// shells decode apart, or a `${…}` that `env -S` expands, however the line spelled it; a
+    /// word whose only undecided parts are double-quoted stays one word.
     pub(crate) fn holds_unquoted_expansion(self) -> bool {
         self.pieces.iter().any(|piece| {
             matches!(
@@ -287,8 +288,8 @@ impl<'r> ShellWord<'r> {
     }
 
     /// Whether the word stands for words its text spells beside its own: a brace expansion's
-    /// alternatives, a `{…}` holding an unquoted comma or a sequence, or an ANSI-C string bash and
-    /// zsh decode apart. A parameter, a substitution, an arithmetic expansion, zsh's `=name`, a
+    /// alternatives, a `{…}` holding an unquoted comma or a sequence, or an ANSI-C string bash
+    /// and zsh decode apart. A parameter, a substitution, an arithmetic expansion, zsh's `=name`, a
     /// file-name pattern or a path `find` puts in place of `{}` spells none: only the run decides
     /// it.
     pub fn spells_alternatives(self) -> bool {
@@ -709,8 +710,8 @@ impl<'s> WordBuilder<'s> {
         push_piece(&mut self.pieces, start, end, PieceKind::Decoded);
     }
 
-    // An ANSI-C string, `$'…'` at `range` of the line: decoded where bash and zsh decode it alike,
-    // else kept as its source text, which only the shell running the line decides.
+    // An ANSI-C string, `$'…'` at `range` of the line: decoded where bash and zsh decode it
+    // alike, else kept as its source text, which only the shell running the line decides.
     fn push_ansi_c(&mut self, range: std::ops::Range<usize>) {
         let line = self.line;
         let body = &line[range.start + 2..range.end];
@@ -750,7 +751,8 @@ impl<'s> WordBuilder<'s> {
             }
             "ansi_c_string" => self.push_ansi_c(range),
             "string" => self.push_double_quoted(node),
-            // `$"…"` is a double-quoted string translated by the locale, which is not applied here.
+            // `$"…"` is a double-quoted string translated by the locale, which is not applied
+            // here.
             "translated_string" => match node.named_child(0) {
                 Some(string) => self.push_part(string),
                 None => self.push_line(range, PieceKind::Literal),

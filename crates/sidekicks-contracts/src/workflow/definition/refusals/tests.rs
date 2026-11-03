@@ -235,7 +235,11 @@ fn the_graph_check_finds_what_the_save_refuses(
 )]
 #[case::a_connection_past_the_limit_of_a_second_input(
     json!([node("a", "agent.run"), node("b", "agent.run"), node("n", "output.notify")]),
-    json!([main_edge("t", "a"), main_edge("t", "b"), edge("a", "outputs/main/0", "n", "inputs/main/1")]),
+    json!([
+        main_edge("t", "a"),
+        main_edge("t", "b"),
+        edge("a", "outputs/main/0", "n", "inputs/main/1")
+    ]),
     edge("b", "outputs/main/0", "n", "inputs/main/1"),
     json!([{ "rule": "inputConnectionsExceeded", "nodeIds": ["n", "b"] }]),
 )]

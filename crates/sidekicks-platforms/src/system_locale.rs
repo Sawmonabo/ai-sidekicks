@@ -25,9 +25,9 @@ pub struct HourField {
 }
 
 impl HourField {
-    /// `hour` (0–23) and `minute` as the person's clock writes them: `14:05` on the 24-hour clock,
-    /// `2:05 PM` on the 12-hour one and `0:05 PM` on its 0–11 form, the hour two digits when the
-    /// field is padded (`03:00`).
+    /// `hour` (0–23) and `minute` as the person's clock writes them: `14:05` on the 24-hour
+    /// clock, `2:05 PM` on the 12-hour one and `0:05 PM` on its 0–11 form, the hour two digits
+    /// when the field is padded (`03:00`).
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "the hour cycle is an open union; a cycle added to it reads as the 12-hour clock"

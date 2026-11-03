@@ -18,9 +18,9 @@ pub fn volume_free_bytes(folder: &Path) -> io::Result<u64> {
 
 /// Whether `path` sits on a network file system (NFS, SMB, 9p, a FUSE mount on Linux; NFS, SMB,
 /// AFP, FTP, web folders on macOS), where a change another computer makes raises no file event.
-/// Reads the volume's type with `statfs`, which waits on a hung network mount; a FUSE volume that is
-/// a virtual machine's shared folder (virtiofs), which tells its changes, is not one. Fails with the
-/// system's error.
+/// Reads the volume's type with `statfs`, which waits on a hung network mount; a FUSE volume that
+/// is a virtual machine's shared folder (virtiofs), which tells its changes, is not one. Fails with
+/// the system's error.
 #[cfg(target_os = "linux")]
 pub fn is_on_network_file_system(path: &Path) -> io::Result<bool> {
     use nix::sys::statfs::{FUSE_SUPER_MAGIC, FsType, NFS_SUPER_MAGIC, SMB_SUPER_MAGIC, statfs};

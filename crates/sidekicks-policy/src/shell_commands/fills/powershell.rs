@@ -136,8 +136,8 @@ fn is_after_a_call_operator(name: Node<'_>) -> bool {
 }
 
 /// The place of a fill at `placeholder` in a bare argument's `token`, which PowerShell reads with
-/// its own quotes: inside `"…"` the in-string form, inside `'…'` none, and outside both the bare
-/// form. A fill that starts a token going on past it opens a string holding the rest, since
+/// its own quotes: inside `"…"` the in-string form, inside `'…'` none, and outside both the
+/// bare form. A fill that starts a token going on past it opens a string holding the rest, since
 /// PowerShell reads a quoted start followed by text as a member access or two arguments; a rest
 /// holding a quote, a backquote or a `$`, which a string reads otherwise, is refused.
 fn place_in_token(token: &str, placeholder: Range<usize>) -> FillPlacing {

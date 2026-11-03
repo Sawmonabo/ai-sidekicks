@@ -191,7 +191,14 @@ mod tests {
     // owned folder, a make's error is answered as no place, or every folder's volume is read.
     #[rstest]
     #[case::checkout_is_the_top(
-        Reads { top: "/v", checkout: "/v", on_volume: &[], owned: &["/"], refused: &[], failing: None },
+        Reads {
+            top: "/v",
+            checkout: "/v",
+            on_volume: &[],
+            owned: &["/"],
+            refused: &[],
+            failing: None,
+        },
         Ok(None),
         Calls { made: &[], volume_reads: &[], ownership_reads: &[] }
     )]

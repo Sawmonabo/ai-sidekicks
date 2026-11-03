@@ -1,6 +1,6 @@
 //! The user a Windows process runs as, read from its token: this process's or another's by its id,
-//! compared with another user's id, written as SDDL text (`S-1-5-21-…`), and made into the security
-//! descriptor that lets this user alone open what it guards.
+//! compared with another user's id, written as SDDL text (`S-1-5-21-…`), and made into the
+//! security descriptor that lets this user alone open what it guards.
 
 use std::ffi::{OsStr, c_void};
 use std::io::{self, ErrorKind};

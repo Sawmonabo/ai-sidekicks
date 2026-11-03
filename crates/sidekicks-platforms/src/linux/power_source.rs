@@ -1,9 +1,9 @@
-//! Whether this machine runs on AC power on Linux: `UPower`'s `OnBattery` property on the system bus,
-//! read once as the watch starts and then followed through `UPower`'s `PropertiesChanged` signal,
-//! never polled; a `UPower` that is installed but not running is started by the first read, as the
-//! bus does for any activatable name. When `UPower` leaves the bus the machine reads as not on AC
-//! power until it is back, and then the property is read afresh. A system bus or `UPower` that
-//! cannot be reached reads as not on AC power.
+//! Whether this machine runs on AC power on Linux: `UPower`'s `OnBattery` property on the system
+//! bus, read once as the watch starts and then followed through `UPower`'s `PropertiesChanged`
+//! signal, never polled; a `UPower` that is installed but not running is started by the first read,
+//! as the bus does for any activatable name. When `UPower` leaves the bus the machine reads as not
+//! on AC power until it is back, and then the property is read afresh. A system bus or `UPower`
+//! that cannot be reached reads as not on AC power.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -181,14 +181,26 @@ mod tests {
     // the failure or owner-gone arm publishing `true`, and by the owner-back arm publishing instead
     // of returning.
     #[rstest]
-    #[case::on_battery_then_on_ac(vec![Ok(OnBattery(true)), Ok(OnBattery(false))], true, ReadingsEnd::Closed)]
-    #[case::on_ac_then_on_battery(vec![Ok(OnBattery(false)), Ok(OnBattery(true))], false, ReadingsEnd::Closed)]
+    #[case::on_battery_then_on_ac(
+        vec![Ok(OnBattery(true)), Ok(OnBattery(false))],
+        true,
+        ReadingsEnd::Closed
+    )]
+    #[case::on_ac_then_on_battery(
+        vec![Ok(OnBattery(false)), Ok(OnBattery(true))],
+        false,
+        ReadingsEnd::Closed
+    )]
     #[case::on_ac_then_a_failed_reading(
         vec![Ok(OnBattery(false)), Err(io::Error::other("no reply"))],
         false,
         ReadingsEnd::Closed
     )]
-    #[case::on_ac_then_upower_gone(vec![Ok(OnBattery(false)), Ok(OwnerGone)], false, ReadingsEnd::Closed)]
+    #[case::on_ac_then_upower_gone(
+        vec![Ok(OnBattery(false)), Ok(OwnerGone)],
+        false,
+        ReadingsEnd::Closed
+    )]
     #[case::upower_back_ends_the_stream(
         vec![Ok(OnBattery(false)), Ok(OwnerBack), Ok(OnBattery(true))],
         true,

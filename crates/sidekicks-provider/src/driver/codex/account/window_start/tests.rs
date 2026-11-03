@@ -43,7 +43,8 @@ done
 {{ printf 'run\n%s\n%s\n' "$CODEX_HOME" "$PWD"; printf '%s\n' "$@"; }} >> '{record}'
 printf '%s\n' '{{"type":"thread.started","thread_id":"t"}}'
 printf '%s\n' '{{"type":"turn.started"}}'
-printf '%s\n' '{{"type":"turn.completed","usage":{{"input_tokens":1200,"cached_input_tokens":1000,"output_tokens":20,"reasoning_output_tokens":8}}}}'
+printf '%s\n' '{{"type":"turn.completed","usage":{{"input_tokens":1200,"cached_input_tokens":1000,'\
+'"output_tokens":20,"reasoning_output_tokens":8}}}}'
 "#,
         record = record.display()
     )

@@ -1,10 +1,10 @@
 //! cmd.exe's own reading of a filled line: the `^` it reads as an escape before a fill, a
-//! `%NAME:…%` reference's substring or substitution form, whose text its first phase reads as text,
-//! and the text its delayed expansion would change, which the launch escapes so the command gets
-//! the text as written. cmd.exe's first phase sets each defined `%…%` reference's value in its
-//! place; the second then removes each `^` outside double quotes, keeping the character after it as
-//! text, and reads a value's characters as the line's own; delayed expansion then reads again each
-//! piece of a command holding a `!`, the command name, the arguments as one piece and each
+//! `%NAME:…%` reference's substring or substitution form, whose text its first phase reads as
+//! text, and the text its delayed expansion would change, which the launch escapes so the command
+//! gets the text as written. cmd.exe's first phase sets each defined `%…%` reference's value in
+//! its place; the second then removes each `^` outside double quotes, keeping the character after
+//! it as text, and reads a value's characters as the line's own; delayed expansion then reads again
+//! each piece of a command holding a `!`, the command name, the arguments as one piece and each
 //! redirection's target, quotes or not, removing each `^` and pairing each `!`. Of an `if` it reads
 //! only each compared value and of a `for` only its set, and the command an `if` or a `for` runs is
 //! a command of its own.

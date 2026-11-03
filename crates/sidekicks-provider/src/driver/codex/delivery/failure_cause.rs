@@ -126,6 +126,7 @@ fn read_turn_message_id(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::error::Error;
     use std::sync::Arc;
 
     use futures::FutureExt as _;
@@ -168,16 +169,14 @@ mod tests {
         fn current_account(
             &self,
             _provider_id: ProviderId,
-        ) -> BoxFuture<'_, Result<CurrentProviderAccount, Box<dyn std::error::Error + Send + Sync>>>
-        {
+        ) -> BoxFuture<'_, Result<CurrentProviderAccount, Box<dyn Error + Send + Sync>>> {
             async { Ok(CurrentProviderAccount::NoneCurrent) }.boxed()
         }
 
         fn read_credential_generation(
             &self,
             provider_account_id: ProviderAccountId,
-        ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn std::error::Error + Send + Sync>>>
-        {
+        ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>> {
             let generation = self.0.get(&provider_account_id).copied();
             async move { generation.ok_or_else(|| "no such account".into()) }.boxed()
         }
@@ -186,16 +185,14 @@ mod tests {
             &self,
 
             _provider_account_id: ProviderAccountId,
-        ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn std::error::Error + Send + Sync>>>
-        {
+        ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>> {
             async { Ok(None) }.boxed()
         }
 
         fn read_sealed_token(
             &self,
             _provider_account_id: ProviderAccountId,
-        ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn std::error::Error + Send + Sync>>>
-        {
+        ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn Error + Send + Sync>>> {
             async { Ok(None) }.boxed()
         }
     }
@@ -261,8 +258,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_usage_limit_push_from_the_last_turn_read_after_a_switch_is_never_filed_under_the_new_account()
-     {
+    async fn a_last_turns_usage_limit_push_read_after_a_switch_is_never_filed_to_the_new_account() {
         // The service now carries `account-1`; the conversation whose turn met the limit ran on
         // `account-a`, and the push saying so is read only now.
         let mut session = TestCodexSession::start_on(start_scripted_codex_service()).await;

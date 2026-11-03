@@ -406,7 +406,8 @@ fn diff_tree_raw_records_read_as_changes() {
     DiffTreeReadError::MalformedObjectId
 )]
 #[case::short_ids(
-    ":100644 100644 111111111111111111111111111111111111111 222222222222222222222222222222222222222 M\0a\0",
+    ":100644 100644 111111111111111111111111111111111111111 \
+     222222222222222222222222222222222222222 M\0a\0",
     DiffTreeReadError::MalformedObjectId
 )]
 #[case::mixed_id_lengths(

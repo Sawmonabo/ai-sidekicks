@@ -527,7 +527,10 @@ mod tests {
         &["input_cost_per_token"]
     )]
     #[case::suffixes_read_in_order(
-        r#"{"m": {"cache_creation_input_token_cost_above_12hr_above_272k_tokens_priority": 1e-05}}"#,
+        concat!(
+            r#"{"m": {"cache_creation_input_token_cost_above_12hr_above_272k_tokens_priority": "#,
+            r#"1e-05}}"#
+        ),
         (RateBase::CacheWrite, Some(12), Some(272), Some("priority")),
         (1, 5),
         &[

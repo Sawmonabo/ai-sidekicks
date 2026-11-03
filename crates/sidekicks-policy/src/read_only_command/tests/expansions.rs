@@ -38,8 +38,8 @@ use super::reads_only;
 // Only the listed parts make a reading `${…}`; an array is none of them.
 #[case::unlisted_expansion_part("echo ${x:-(a b)}", false)]
 #[case::reading_expansions("echo ${HOME:0:2} ${HOME:-a} ${HOME##*/} ${HOME/a/b} ${#HOME}", true)]
-// zsh evaluates `[…]` right after `$name` as a subscript, in a word or a string, and `$#name[…]`
-// as the length of a subscripted name.
+// zsh evaluates `[…]` right after `$name` as a subscript, in a word or a string, and
+// `$#name[…]` as the length of a subscripted name.
 #[case::zsh_subscript_assignment("echo $a[PATH=0]; ls", false)]
 #[case::zsh_subscript_substitution("echo $a['$(touch f)']", false)]
 #[case::zsh_subscript_in_a_string("echo \"$a[PATH=0]\"; ls", false)]

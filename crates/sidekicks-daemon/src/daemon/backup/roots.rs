@@ -1,8 +1,8 @@
 //! The places the mirror keeps, listed afresh at each run: the machine's settings file, the chats'
 //! managed workspaces, the agent memory folder, the artifact store, whose payloads the restored
 //! database names, and each conversation folder its provider's descriptor names in every account
-//! home the app manages and in each provider's switching home. No root is wider than what it keeps, since a restore removes from a
-//! place whatever its copy lacks.
+//! home the app manages and in each provider's switching home. No root is wider than what it keeps,
+//! since a restore removes from a place whatever its copy lacks.
 
 use std::io;
 use std::path::{Path, PathBuf};

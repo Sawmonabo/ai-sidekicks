@@ -1,6 +1,6 @@
 //! Everything the service keeps for the person: the data folder it lives in, and the two acts on
-//! it, export and erase, which Settings › Runtime sends as these verbs. The command line sends the
-//! same export, and erases through a mode of the daemon's own program while the service is
+//! it, export and erase, which Settings › Runtime sends as these verbs. The command line sends
+//! the same export, and erases through a mode of the daemon's own program while the service is
 //! stopped.
 
 use std::fmt;

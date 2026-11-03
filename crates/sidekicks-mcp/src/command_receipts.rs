@@ -456,7 +456,8 @@ mod tests {
     }
 
     // The background move holds the inline end off a backgrounded call, whose end only its
-    // hand-off, which also marks it delivered, or its session's close writes; each write lands once.
+    // hand-off, which also marks it delivered, or its session's close writes; each write lands
+    // once.
     #[tokio::test]
     async fn a_backgrounded_call_ends_only_by_its_hand_off_or_its_sessions_close() {
         let (database, writer, store) = receipt_store().await;

@@ -17,8 +17,10 @@ use sidekicks_recovery::projection_rebuild::PROJECTION_REBUILD_STATEMENT_CAPACIT
 use sidekicks_recovery::restart_settle::RESTART_SETTLE_STATEMENT_CAPACITY;
 use sidekicks_recovery::startup::STARTUP_RECOVERY_STATEMENT_CAPACITY;
 use sidekicks_recovery::status::RECOVERY_STATUS_STATEMENT_CAPACITY;
-use sidekicks_session::attention::delivery::web_address::sender::WEB_ADDRESS_SENDER_STATEMENT_CAPACITY;
-use sidekicks_session::attention::service::ATTENTION_SERVICE_STATEMENT_CAPACITY;
+use sidekicks_session::attention::{
+    delivery::web_address::sender::WEB_ADDRESS_SENDER_STATEMENT_CAPACITY,
+    service::ATTENTION_SERVICE_STATEMENT_CAPACITY,
+};
 use sidekicks_session::auto_title::SESSION_AUTO_TITLE_STATEMENT_CAPACITY;
 use sidekicks_session::changes::SESSION_CHANGES_STATEMENT_CAPACITY;
 use sidekicks_session::conversation_purge::CONVERSATION_PURGE_STATEMENT_CAPACITY;
@@ -75,8 +77,10 @@ use sidekicks_workspace::project::records::PROJECT_RECORDS_STATEMENT_CAPACITY;
 use sidekicks_workspace::repo::mount::health::REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY;
 use sidekicks_workspace::repo::mount::reattach::REPO_MOUNT_REATTACH_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_workspace::repo::mount::service::REPO_MOUNT_SERVICE_STATEMENT_CAPACITY;
-use sidekicks_workspace::run_setup_gates::execution_root::EXECUTION_ROOT_SETUP_GATE_STATEMENT_CAPACITY;
-use sidekicks_workspace::service::WORKSPACE_SERVICE_STATEMENT_CAPACITY;
+use sidekicks_workspace::{
+    run_setup_gates::execution_root::EXECUTION_ROOT_SETUP_GATE_STATEMENT_CAPACITY,
+    service::WORKSPACE_SERVICE_STATEMENT_CAPACITY,
+};
 
 use crate::daemon::backup::run::BACKUP_STATEMENT_CAPACITY;
 use crate::daemon::configuration::DAEMON_CONFIGURATION_STATEMENT_CAPACITY;

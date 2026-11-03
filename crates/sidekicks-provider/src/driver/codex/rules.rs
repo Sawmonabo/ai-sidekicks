@@ -342,9 +342,9 @@ pub(crate) enum CodexProjectRuleWrite {
 /// Writes `rule` into the project's own rule file, replacing a rule of the other sense over the
 /// same subject; a file the daemon creates is first listed in the exclude list of
 /// `common_git_folder`, the repository the project folder belongs to, where it is one, under
-/// `_hold`, the file's edit lock. Refuses, with nothing written, a kind Codex keeps no project rule on, a
-/// command with no word, a host Codex would refuse and a project whose `.codex` is the Codex home.
-/// Answers what it changed, for a take-back.
+/// `_hold`, the file's edit lock. Refuses, with nothing written, a kind Codex keeps no project rule
+/// on, a command with no word, a host Codex would refuse and a project whose `.codex` is the Codex
+/// home. Answers what it changed, for a take-back.
 pub(crate) async fn write_codex_project_rule(
     sources: &CodexRuleSources<'_>,
     common_git_folder: Option<&Path>,

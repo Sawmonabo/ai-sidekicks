@@ -332,8 +332,8 @@ fn refusal_of(error: ProviderSignInError) -> (RefusalCode, Option<serde_json::Va
 // status read reported. No published notification carries the prompt or the code, and no session
 // event is appended. Killed by a row inserted at the start, by a raw line forwarded as the failure
 // text, by the provider's own reason for a failed flow dropped or passing a code or an address
-// through, by a code written before the prompt or twice, by a failed new account keeping its home, by
-// the home held across the flow or after it, by a written row not published, and by the reported
+// through, by a code written before the prompt or twice, by a failed new account keeping its home,
+// by the home held across the flow or after it, by a written row not published, and by the reported
 // kind not written or an earlier kind kept over it, a registered account's included.
 #[rstest]
 #[case::new_named(false, Status::Read { is_account_named: true }, ProviderSignInEnd::Finished,

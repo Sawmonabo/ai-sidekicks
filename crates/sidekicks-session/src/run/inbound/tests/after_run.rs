@@ -262,7 +262,8 @@ async fn inbound_absorbs_an_after_run_row_only_from_a_cut_turn(
         .database
         .reader()
         .query_row(
-            "SELECT json_extract(payload, '$.sourceEpoch'), json_extract(payload, '$.sourcePosition'),
+            "SELECT json_extract(payload, '$.sourceEpoch'), \
+                     json_extract(payload, '$.sourcePosition'),
                     content_payload
              FROM session_events WHERE id = ?1",
             [event_id.as_str()],

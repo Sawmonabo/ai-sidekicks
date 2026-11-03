@@ -480,7 +480,9 @@ mod tests {
     #[rstest]
     #[case::no_method_named(json!({}), None, Some("Basic Y2xpZW50LTRiMWQ6dG9wJTNBc2VjcmV0"))]
     #[case::basic_and_post_named(
-        json!({ "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"] }),
+        json!({
+            "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"]
+        }),
         None,
         Some("Basic Y2xpZW50LTRiMWQ6dG9wJTNBc2VjcmV0")
     )]

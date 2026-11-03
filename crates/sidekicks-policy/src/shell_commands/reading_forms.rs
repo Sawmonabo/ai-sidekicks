@@ -134,7 +134,8 @@ impl ReadingForms {
             "heredoc_redirect" => {
                 self.takes_its_arguments(node) && self.note_here_document(node, builder)
             }
-            // `(( … ))` is arithmetic, which can set a variable and run a `$(…)` in a subscript.
+            // `(( … ))` is arithmetic, which can set a variable and run a `$(…)` in a
+            // subscript.
             "compound_statement" => node.child(0).is_none_or(|open| open.kind() != "(("),
             // A single-bracket test runs the program `[`, which the command list judges.
             "test_command" => {
@@ -478,8 +479,8 @@ fn is_test_operator(operator: Node<'_>, line: &str) -> bool {
 }
 
 // A substitution whose command the walk reads: backquotes holding no backslash, since inside them
-// `` \` ``, `\$` and `\\` open what the parser reads as text, and a `$(…)` holding only a redirect
-// that reads, as `$(<file)` does; any other redirect alone runs zsh's `$NULLCMD`.
+// `` \` ``, `\$` and `\\` open what the parser reads as text, and a `$(…)` holding only a
+// redirect that reads, as `$(<file)` does; any other redirect alone runs zsh's `$NULLCMD`.
 fn is_reading_substitution(substitution: Node<'_>, line: &str) -> bool {
     let is_backquoted = substitution
         .child(0)
@@ -497,11 +498,11 @@ fn is_reading_substitution(substitution: Node<'_>, line: &str) -> bool {
         })
 }
 
-// Whether `next`, the node right after `previous`, makes it a zsh subscript: zsh reads `[…]` right
-// after `$name` as its subscript, and `$#name[…]` as the length of a subscripted name, which the
-// parser reads as `$#` and then a separate name; inside double quotes it reads `$+name[…]` and its
-// flag siblings as one too, which the parser reads as a lone `$` and then the string's text. A
-// subscript is arithmetic.
+// Whether `next`, the node right after `previous`, makes it a zsh subscript: zsh reads `[…]`
+// right after `$name` as its subscript, and `$#name[…]` as the length of a subscripted name,
+// which the parser reads as `$#` and then a separate name; inside double quotes it reads
+// `$+name[…]` and its flag siblings as one too, which the parser reads as a lone `$` and then the
+// string's text. A subscript is arithmetic.
 fn is_zsh_subscript(previous: Node<'_>, next: Node<'_>, line: &str) -> bool {
     if next.start_byte() != previous.end_byte() {
         return false;
@@ -524,8 +525,8 @@ fn is_zsh_subscript(previous: Node<'_>, next: Node<'_>, line: &str) -> bool {
 pub(super) const ARITHMETIC_TEST_OPERATORS: &[&str] =
     &["-eq", "-ne", "-lt", "-le", "-gt", "-ge", "-v"];
 
-// Whether a `[[ … ]]` test holds an operator whose operands bash evaluates as arithmetic. The walk
-// stays inside the test's own expressions.
+// Whether a `[[ … ]]` test holds an operator whose operands bash evaluates as arithmetic. The
+// walk stays inside the test's own expressions.
 fn is_arithmetic_test(test: Node<'_>, line: &str) -> bool {
     let mut cursor = test.walk();
     if !cursor.goto_first_child() {
@@ -612,8 +613,8 @@ const READING_EXPANSION_OPERATORS: &[&str] = &[
     ",,", ":",
 ];
 
-// The nodes a reading `${…}` holds beside its operators: its braces, its name, and an operand whose
-// own commands and expansions the walk reads.
+// The nodes a reading `${…}` holds beside its operators: its braces, its name, and an operand
+// whose own commands and expansions the walk reads.
 const READING_EXPANSION_PARTS: &[&str] = &[
     "${",
     "}",
@@ -630,10 +631,10 @@ const READING_EXPANSION_PARTS: &[&str] = &[
     "regex",
 ];
 
-// Whether a `${…}` expansion only reads its variable: a name right after `${`, since bash 5.3 runs
-// `${ command; }` and `${|command; }` in the shell; its operators listed, each `:` offset or length
-// digits alone, its other parts listed, and no `$`, backquote or `(` in a pattern or word token,
-// which holds an expansion or a process substitution the tree does not show.
+// Whether a `${…}` expansion only reads its variable: a name right after `${`, since bash 5.3
+// runs `${ command; }` and `${|command; }` in the shell; its operators listed, each `:` offset or
+// length digits alone, its other parts listed, and no `$`, backquote or `(` in a pattern or word
+// token, which holds an expansion or a process substitution the tree does not show.
 fn is_reading_expansion(expansion: Node<'_>, line: &str) -> bool {
     let opens_a_command = node_text(expansion, line)
         .strip_prefix("${")

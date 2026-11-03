@@ -4,8 +4,9 @@
 use icu_casemap::CaseMapper;
 
 /// A name folded the one way names are compared: Unicode's full case folding, the same on every
-/// machine whatever its language, so `Straße`, `STRASSE` and `STRAẞE` are one name and the Turkish
-/// dotless `ı` stays apart from `i`. A store writes this fold beside the name it keeps once.
+/// machine whatever its language, so `Straße`, `STRASSE` and `STRAẞE` are one name and the
+/// Turkish dotless `ı` stays apart from `i`. A store writes this fold beside the name it keeps
+/// once.
 pub fn fold_name(name: &str) -> String {
     CaseMapper::new().fold_string(name).into_owned()
 }

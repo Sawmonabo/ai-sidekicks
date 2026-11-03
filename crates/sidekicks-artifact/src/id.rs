@@ -1,5 +1,5 @@
-//! The one minter of artifact ids: a manifest's id is the daemon-wide UUID version 7, so ids sort by the
-//! time their manifest was written.
+//! The one minter of artifact ids: a manifest's id is the daemon-wide UUID version 7, so ids sort
+//! by the time their manifest was written.
 
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;

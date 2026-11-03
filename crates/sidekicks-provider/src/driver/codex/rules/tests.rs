@@ -455,7 +455,8 @@ async fn the_rules_a_file_computes_are_read_as_codex_evaluates_them() {
          prefix_rule(pattern = [\"git\", \"status\"], match = [\"/usr/bin/git status\"])\n\
          network_rule(host = \"Example.COM:443\", protocol = \"https\", decision = \"deny\")\n\
          TOOL = \"cargo\"\n\
-         for verb in [\"test\", \"check\"]:\n    prefix_rule(pattern = [TOOL, verb], decision = \"forbidden\")\n\
+         for verb in [\"test\", \"check\"]:\n    prefix_rule(pattern = [TOOL, verb], \
+         decision = \"forbidden\")\n\
          def allow(*words):\n    prefix_rule(pattern = list(words))\n\
          allow(\"ls\", \"-la\")\n",
     );
@@ -540,7 +541,10 @@ async fn an_examples_program_path_is_held_to_the_host_executables_of_earlier_fil
         assert_eq!(rules, [allow_command("git status")]);
     } else {
         assert!(
-            matches!(&outcome, Err(CodexRulesError::Unloadable { path, .. }) if *path == project_file),
+            matches!(
+                &outcome,
+                Err(CodexRulesError::Unloadable { path, .. }) if *path == project_file
+            ),
             "{outcome:?}"
         );
     }
@@ -614,8 +618,7 @@ async fn a_file_that_runs_past_the_time_limit_drops_every_rule() {
 }
 
 #[tokio::test]
-async fn a_broken_system_or_persons_file_drops_the_projects_rules_and_an_untrusted_project_has_none()
- {
+async fn a_broken_system_or_persons_file_drops_project_rules_and_an_untrusted_project_has_none() {
     let places = Places::new();
     places.write(
         "project/.codex/rules/a.rules",

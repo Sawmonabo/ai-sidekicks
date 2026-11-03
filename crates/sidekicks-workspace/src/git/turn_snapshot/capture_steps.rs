@@ -763,8 +763,8 @@ mod tests {
     use crate::git::turn_snapshot::capture::TURN_SNAPSHOT_SUBJECT;
 
     // Fails when the trailers' bytes change for a path outside the Basic Multilingual Plane, one in
-    // U+E000–U+FFFF or one that is not UTF-8: the order, the escapes or the decoding, each an input
-    // to every snapshot's id; and when the left-out paths' trailer is dropped or misordered.
+    // U+E000–U+FFFF or one that is not UTF-8: the order, the escapes or the decoding, each an
+    // input to every snapshot's id; and when the left-out paths' trailer is dropped or misordered.
     #[test]
     fn the_trailers_keep_the_bytes_every_snapshot_id_hashes() {
         let astral = "vendor/\u{1F600}".as_bytes();

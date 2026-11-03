@@ -128,8 +128,8 @@ pub(crate) fn add_truncation_length_rule(schema: &mut schemars::Schema) {
 }
 
 /// Declares a body-bearing payload: the struct as written, followed by the three members the append
-/// path owns, `contentLength`, `contentTruncated` and `contentEncoding`, each optional because a row
-/// may have no body, the cut mark only beside a length, and a small body stored as it is. The
+/// path owns, `contentLength`, `contentTruncated` and `contentEncoding`, each optional because a
+/// row may have no body, the cut mark only beside a length, and a small body stored as it is. The
 /// struct's attributes come with it and include `#[garde(allow_unvalidated)]`.
 macro_rules! with_machine_content_descriptor {
     ($(#[$meta:meta])* pub struct $name:ident { $($members:tt)* }) => {

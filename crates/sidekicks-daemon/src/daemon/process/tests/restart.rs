@@ -204,7 +204,8 @@ fn seed_rows(
         .expect("the workspace is stored");
     connection
         .execute(
-            "INSERT INTO runs (run_id, session_id, state, run_version) VALUES (?1, ?2, 'running', 1)",
+            "INSERT INTO runs (run_id, session_id, state, run_version) \
+             VALUES (?1, ?2, 'running', 1)",
             params![run_id.text().as_str(), session_id.text().as_str()],
         )
         .expect("the run is stored");

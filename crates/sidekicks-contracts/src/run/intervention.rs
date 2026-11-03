@@ -478,7 +478,10 @@ mod tests {
     // refuses the turn its stop cut leaves every stored limit row unreadable.
     #[rstest]
     #[case(json!({"limit": "stepLimit"}), RecordRead::Limit(RunLimit::StepLimit))]
-    #[case(json!({"limit": "spendLimit", "turnNumber": 2}), RecordRead::Limit(RunLimit::SpendLimit))]
+    #[case(
+        json!({"limit": "spendLimit", "turnNumber": 2}),
+        RecordRead::Limit(RunLimit::SpendLimit)
+    )]
     #[case(json!({"limit": "tokenLimit"}), RecordRead::Limit(RunLimit::TokenLimit))]
     #[case(json!({"pending": "nextTurn", "reason": "stepLimit"}), RecordRead::NoLimit)]
     #[case(json!({"pending": "returnToDraft"}), RecordRead::NoLimit)]

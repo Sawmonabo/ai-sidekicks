@@ -230,8 +230,7 @@ fn binding_of(provider: &ProviderId, scope: &str, scope_ref: &str, server_name: 
 // refused as not found. Killed by an empty or false fill, by a default answered entry, and by a
 // connector's `disabledIn` taken from the driver alone.
 #[tokio::test]
-async fn with_the_store_failing_the_list_leaves_out_what_the_store_holds_and_an_unknown_binding_is_not_found()
- {
+async fn a_failing_store_leaves_its_rows_out_of_the_list_and_an_unknown_binding_is_not_found() {
     let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     // The bindings' table gone, every read of the store fails; the tables that reference it hold

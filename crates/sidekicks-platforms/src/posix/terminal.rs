@@ -290,8 +290,8 @@ impl TerminalWatch {
             return Err((error, Box::new(pty)));
         }
         // SAFETY: the program is unreaped until the watch reaps it, and the watch takes the event
-        // off the poller before that reap: in `take_child_exit`, in `release`, on its drop and on the
-        // failure below.
+        // off the poller before that reap: in `take_child_exit`, in `release`, on its drop and on
+        // the failure below.
         let registered = unsafe { ExitEvent::register(&waker.poller, pty.process_id(), CHILD_KEY) };
         let exit_event = match registered {
             Ok(exit_event) => exit_event,

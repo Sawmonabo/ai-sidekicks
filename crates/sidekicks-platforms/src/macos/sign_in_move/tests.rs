@@ -499,7 +499,8 @@ fn a_stopped_moves_leftover_is_swept() {
 #[ignore = "run only as the keychain tool's stand-in, through the script a move test writes"]
 #[expect(
     clippy::exit,
-    reason = "the tool's exit code is what the move reads, where the harness would exit with its own"
+    reason = "the tool's exit code is what the move reads, where the harness would exit with \
+              its own"
 )]
 fn the_keychain_tool_stand_in() {
     let Some(variable) = std::env::var_os(STAND_IN_VARIABLE) else {

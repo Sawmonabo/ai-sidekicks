@@ -97,7 +97,8 @@ impl ClaudeProcessListener for NoSession {
 const STAND_IN: &str = r#"#!/bin/sh
 handed=$(cat <&"$CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR")
 printf '%s' "$handed" > "$RECORD/handed"
-sh -c 'env > "$RECORD/command-environment"; cat <&"$CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR" > "$RECORD/command-descriptor" 2>&1'
+sh -c 'env > "$RECORD/command-environment"; '\
+'cat <&"$CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR" > "$RECORD/command-descriptor" 2>&1'
 "#;
 
 // Starts the stand-in through a launcher whose accounts answer every sign-in as `mode`, for a

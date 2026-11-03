@@ -55,8 +55,12 @@ if [ "$kept" = yes ]; then
   printf '{{}}\n' > "$CLAUDE_SECURESTORAGE_CONFIG_DIR/projects/session.jsonl"
 fi
 printf '%s\n' '{{"type":"system","subtype":"init","model":"{RESOLVED_MODEL}","session_id":"s"}}'
-printf '%s\n' '{{"type":"rate_limit_event","rate_limit_info":{{"unifiedWindows":{{"five_hour":{{"utilization":0.25,"resetsAt":1790125200}},"seven_day":{{"utilization":0.5,"resetsAt":1790524800}}}}}},"session_id":"s"}}'
-printf '%s\n' '{{"type":"result","subtype":"success","is_error":{is_error},"result":"ok","usage":{{"input_tokens":395,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":51}},"session_id":"s"}}'
+printf '%s\n' '{{"type":"rate_limit_event","rate_limit_info":{{"unifiedWindows":{{'\
+'"five_hour":{{"utilization":0.25,"resetsAt":1790125200}},'\
+'"seven_day":{{"utilization":0.5,"resetsAt":1790524800}}}}}},"session_id":"s"}}'
+printf '%s\n' '{{"type":"result","subtype":"success","is_error":{is_error},"result":"ok",'\
+'"usage":{{"input_tokens":395,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,'\
+'"output_tokens":51}},"session_id":"s"}}'
 "#,
         record = record.display()
     )

@@ -190,7 +190,10 @@ impl WindowStartWakes {
             match helper.cancel(before).await {
                 Ok(WakeReply::Canceled | WakeReply::Refused(WakeRefusal::NotBooked)) => {}
                 Ok(reply) => {
-                    tracing::warn!(reply = %reply, "the wake helper did not cancel a window's wake");
+                    tracing::warn!(
+                        reply = %reply,
+                        "the wake helper did not cancel a window's wake"
+                    );
                 }
                 Err(error) => tracing::warn!(
                     error = &error as &(dyn std::error::Error + 'static),

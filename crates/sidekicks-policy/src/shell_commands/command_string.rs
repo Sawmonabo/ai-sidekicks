@@ -21,8 +21,8 @@ const PROVIDER_SHELL_FOLDERS: [&str; 2] = ["/bin/", "/usr/bin/"];
 /// The command line `line` runs when it is a provider's argv joined by `shlex`: one of
 /// `PROVIDER_LINE_SHELLS`, named alone or from `/bin` or `/usr/bin`, or one of `provider_shells`,
 /// the exact paths the provider may start a line's shell at, handed its whole line with `-c`,
-/// `-lc`, `-cl` or `-l -c`, as a provider wraps a command in `/bin/zsh -lc '…'`. Any other line is
-/// returned as it is: one with an operator outside the quotes, one with words after the string,
+/// `-lc`, `-cl` or `-l -c`, as a provider wraps a command in `/bin/zsh -lc '…'`. Any other line
+/// is returned as it is: one with an operator outside the quotes, one with words after the string,
 /// one whose shell another folder names, and one whose shell takes any other option, which can run
 /// or write a file first. No tree is built for the outer line, so no cap applies to it.
 pub fn unwrap_shell_command_line<'l>(
@@ -244,8 +244,9 @@ pub(super) enum ShellLineProgram {
     Source,
 }
 
-/// A listed shell's grammar: how its words name the line it runs, and the shell a workflow's command
-/// step runs under, whose grammar decides how a value filled into the step's line is referenced.
+/// A listed shell's grammar: how its words name the line it runs, and the shell a workflow's
+/// command step runs under, whose grammar decides how a value filled into the step's line is
+/// referenced.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShellGrammar {
     /// `-c` among its short options runs the first word after them; each `o` or `O` of a short

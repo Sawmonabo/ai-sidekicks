@@ -688,9 +688,9 @@ pub(crate) fn card_input_digest(ask: &ProviderPermissionAsk) -> Option<Sha256Hex
     digest_call_input(&ask.tool_name, ask.input.clone())
 }
 
-// The SHA-256 of `{"input": …, "toolName": …}` as canonical JSON. The tool name is folded in since
-// a card keeps it only for a tool action. An input with no canonical form, one nested too deep,
-// gives no digest, so its card is found by its tool call id alone.
+// The SHA-256 of `{"input": …, "toolName": …}` as canonical JSON. The tool name is folded in
+// since a card keeps it only for a tool action. An input with no canonical form, one nested too
+// deep, gives no digest, so its card is found by its tool call id alone.
 fn digest_call_input(tool_name: &str, input: Value) -> Option<Sha256Hex> {
     let call = Map::from_iter([
         ("input".to_owned(), input),

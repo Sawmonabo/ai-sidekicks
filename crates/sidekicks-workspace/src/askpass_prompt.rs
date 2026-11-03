@@ -1,7 +1,7 @@
 //! The one rule for whether an askpass prompt's answer is typed out of sight, which the clone
 //! service's askpass and a command's askpass both read: every answer is masked but git's
-//! `Username for '…': ` and ssh's host-key question, `Are you sure you want to continue connecting
-//! (yes/no/[fingerprint])? `, since a question no rule knows may ask for a secret.
+//! `Username for '…': ` and ssh's host-key question, `Are you sure you want to continue
+//! connecting (yes/no/[fingerprint])? `, since a question no rule knows may ask for a secret.
 
 use std::sync::LazyLock;
 
