@@ -1,12 +1,15 @@
-use std::path::PathBuf;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rstest::rstest;
 use rusqlite::{Connection, params};
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::retention::WorkflowRunPurgePreviewResponse;
 use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
+use sidekicks_store::data_folder::workflow_run_folder;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
@@ -17,8 +20,9 @@ use sidekicks_store::events::session::followers::SessionEventFollowers;
 use sidekicks_workspace::git::worktree::test_rows::{RunContextRow, insert_worktree_rows};
 
 use super::{
-    DeletedWorkflowRun, RUNS_PER_DELETE_WRITE, RunGuard, WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY,
-    WorkflowRunDeletion, WorkflowRunDeletionError, WorkflowRunNotDeletable, read_removable_runs,
+    DeletedWorkflowRun, RUNS_PER_DELETE_WRITE, RunDeletionFailures, RunGuard,
+    WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY, WorkflowRunDeletion, WorkflowRunDeletionError,
+    WorkflowRunNotDeletable, read_removable_runs,
 };
 use crate::test_rows::{TestStep, insert_run, insert_step, insert_workflow_version};
 
@@ -32,8 +36,8 @@ const ENDED: &str = "2026-10-02T00:00:00.000Z";
 const CUTOFF: &str = "2026-10-10T00:00:00.000Z";
 
 /// The deletion over a test database holding the event, workflow and run context tables and the
-/// rows a run's context points at, foreign keys on, and a connection the test writes and reads
-/// rows through.
+/// rows a run's context points at, foreign keys on, its data folder the database's own folder, and
+/// a connection the test writes and reads rows through.
 async fn open_deletion(database: &TestDatabase) -> (WorkflowRunDeletion, Connection) {
     let writer = Arc::new(
         DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
@@ -55,7 +59,38 @@ async fn open_deletion(database: &TestDatabase) -> (WorkflowRunDeletion, Connect
     let rows = database.reader();
     insert_worktree_rows(&rows);
     insert_workflow_version(&rows, DEFINITION_ID, VERSION_ID, "Nightly");
-    (WorkflowRunDeletion::new(pool, writer, event_log), rows)
+    let data_folder = data_folder(database);
+    (
+        WorkflowRunDeletion::new(pool, writer, event_log, data_folder),
+        rows,
+    )
+}
+
+/// The data folder the test's deletion removes runs' folders from.
+fn data_folder(database: &TestDatabase) -> PathBuf {
+    database
+        .path()
+        .parent()
+        .expect("the database file sits in its folder")
+        .to_path_buf()
+}
+
+/// Makes run `number`'s own folder, holding a file, as a start makes it for a session with no
+/// folder, and answers it.
+fn make_run_folder(database: &TestDatabase, number: u16) -> PathBuf {
+    let definition_id = WorkflowDefinitionId::new(DEFINITION_ID).expect("the test's workflow id");
+    let folder = workflow_run_folder(
+        &data_folder(database),
+        &definition_id,
+        &workflow_run_id(number),
+    );
+    std::fs::create_dir_all(&folder).expect("the test makes the run's folder");
+    std::fs::write(folder.join("notes.txt"), "kept").expect("the test writes into the folder");
+    folder
+}
+
+fn is_there(folder: &Path) -> bool {
+    folder.try_exists().expect("the test reads the folder")
 }
 
 fn run_id(number: u16) -> String {
@@ -100,10 +135,12 @@ fn deleted_event_runs(rows: &Connection) -> Vec<String> {
         .expect("the log reads")
 }
 
-/// A run still going is refused with nothing written; an ended run goes with its step and its
-/// execution context, children before the run as the foreign keys hold them, and its deleted event
-/// is appended. Mutations: drop the going-status guard; delete the run before its steps; drop the
-/// event's append, the steps' delete or the execution context's delete from the run's write.
+/// A run still going is refused with nothing written and its folder kept; an ended run goes with
+/// its step and its execution context, children before the run as the foreign keys hold them, its
+/// deleted event is appended, and its own folder goes with the workflow's runs folder it leaves
+/// empty. Mutations: drop the going-status guard; delete the run before its steps; drop the
+/// event's append, the steps' delete or the execution context's delete from the run's write; leave
+/// the run's folder or the emptied runs folder; remove the folder of a refused run.
 #[tokio::test]
 async fn a_delete_refuses_a_going_run_and_removes_an_ended_one_with_its_event() {
     let database = TestDatabase::new(crate::schema::schema_parts());
@@ -146,6 +183,7 @@ async fn a_delete_refuses_a_going_run_and_removes_an_ended_one_with_its_event() 
     }
     .insert(&rows)
     .expect("the test stores the run's context");
+    let going_folder = make_run_folder(&database, 1);
 
     let refused = deletion
         .delete(workflow_run_id(1))
@@ -160,6 +198,9 @@ async fn a_delete_refuses_a_going_run_and_removes_an_ended_one_with_its_event() 
     ));
     assert_eq!(run_row_count(&rows, &going), 2);
     assert_eq!(deleted_event_runs(&rows), Vec::<String>::new());
+    assert!(is_there(&going_folder));
+    std::fs::remove_dir_all(&going_folder).expect("the test clears the going run's folder");
+    let ended_folder = make_run_folder(&database, 2);
 
     let deleted = deletion
         .delete(workflow_run_id(2))
@@ -174,12 +215,17 @@ async fn a_delete_refuses_a_going_run_and_removes_an_ended_one_with_its_event() 
     );
     assert_eq!(run_row_count(&rows, &ended), 0);
     assert_eq!(deleted_event_runs(&rows), vec![ended]);
+    let runs_folder = ended_folder.parent().expect("the runs folder");
+    assert!(!is_there(&ended_folder));
+    assert!(!is_there(runs_folder));
 }
 
 /// The preview counts exactly the runs the bulk delete then removes, across two sessions, and what
 /// it leaves: a kept run, a waiting run and a failed run parked on its step, a chain's first run
-/// while a later run of the chain runs, and a run newer than the bound. Mutations: drop the chain
-/// condition or the Keep mark from what bulk delete removes.
+/// while a later run of the chain runs, and a run newer than the bound. A deleted run's own folder
+/// goes and a left run's stays, with the runs folder that still holds it. Mutations: drop the chain
+/// condition or the Keep mark from what bulk delete removes; leave a deleted run's folder; remove
+/// the runs folder while a left run's folder is in it.
 #[tokio::test]
 async fn a_bulk_delete_removes_what_its_preview_counted() {
     let database = TestDatabase::new(crate::schema::schema_parts());
@@ -239,6 +285,8 @@ async fn a_bulk_delete_removes_what_its_preview_counted() {
     )
     .expect("the test chains a later run onto a first run");
     ended(8, NEW);
+    let deleted_folder = make_run_folder(&database, 1);
+    let kept_folder = make_run_folder(&database, 3);
 
     let preview = deletion
         .preview_delete_older_than(&instant(CUTOFF))
@@ -272,6 +320,8 @@ async fn a_bulk_delete_removes_what_its_preview_counted() {
     let mut event_runs = deleted_event_runs(&rows);
     event_runs.sort();
     assert_eq!(event_runs, vec![run_id(1), run_id(2)]);
+    assert!(!is_there(&deleted_folder));
+    assert!(is_there(&kept_folder.join("notes.txt")));
 
     let after = deletion
         .preview_delete_older_than(&instant(CUTOFF))
@@ -420,4 +470,23 @@ async fn a_bulk_delete_reads_its_second_page_after_the_first_pages_last_run() {
         .query_row("SELECT COUNT(*) FROM workflow_runs", [], |row| row.get(0))
         .expect("the test counts the runs");
     assert_eq!(left, 0);
+}
+
+/// A delete keeps its first failures whole and only counts the rest, so a bulk delete over a
+/// folder it cannot write keeps a bounded message. Mutation: keep every failure.
+#[test]
+fn a_deletes_failures_keep_the_first_few_and_count_the_rest() {
+    let mut failures = RunDeletionFailures::default();
+    for index in 0..5 {
+        failures.push(WorkflowRunDeletionError::FolderLeft {
+            folder: PathBuf::from(format!("run-{index}")),
+            removal: io::Error::other("read-only"),
+        });
+    }
+
+    assert_eq!(
+        failures.to_string(),
+        "5 failures, the first 3: the folder at run-0 was left behind; the folder at run-1 was \
+         left behind; the folder at run-2 was left behind"
+    );
 }

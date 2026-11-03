@@ -230,6 +230,7 @@ CREATE TABLE workflow_steps (
   wait_account_id   TEXT,                        -- a step waiting on 'account': the spent provider account, which workflow.run.attention.list groups by, so every run waiting on one account presents as one entry
   wait_deadline_at  TEXT,                        -- the instant a step waiting on a person gives up, set only where its Timeout is
   wait_started_at   TEXT,                        -- when the step started waiting, set exactly while status = 'waiting'; the attention list's waiting-since and its oldest-first order read it
+  wait_id           TEXT,                        -- the waitId a person's answer names, from the step's workflow.phase.suspended, set exactly while a wait on 'approval', 'form' or 'reply' holds the step and unique where set, so an answer finds its run and step after a restart
   started_at        TEXT NOT NULL,
   finished_at       TEXT,                          -- NULL until the step settles
   -- The payload refs a step panel reads, each stored as the JSON WorkflowPayloadRef shape so a
@@ -260,6 +261,7 @@ CREATE TABLE workflow_steps (
   CHECK(status = 'waiting' OR (resume_at IS NULL AND wait_account_id IS NULL AND wait_deadline_at IS NULL)),
   CHECK(wait_cause = 'account' OR (resume_at IS NULL AND wait_account_id IS NULL)),
   CHECK(wait_deadline_at IS NULL OR wait_cause IN ('approval', 'form', 'reply')),
+  CHECK((wait_id IS NOT NULL) = (status = 'waiting' AND wait_cause IN ('approval', 'form', 'reply'))),
   CHECK(decline_reason IS NULL OR status = 'failed')
 ) STRICT;
 
@@ -269,6 +271,8 @@ CREATE INDEX idx_workflow_steps_wait_deadline ON workflow_steps(wait_deadline_at
   WHERE wait_deadline_at IS NOT NULL;            -- re-arming the deadline timers at start
 CREATE INDEX idx_workflow_steps_wait_account ON workflow_steps(wait_account_id)
   WHERE wait_account_id IS NOT NULL;             -- one attention entry per spent account
+CREATE UNIQUE INDEX idx_workflow_steps_wait_id ON workflow_steps(wait_id)
+  WHERE wait_id IS NOT NULL;                     -- an answer finds its waiting step by its waitId
 
 -- ========================================================================
 -- 7. workflow_triggers — one row per armed trigger (MUTABLE TRUTH)

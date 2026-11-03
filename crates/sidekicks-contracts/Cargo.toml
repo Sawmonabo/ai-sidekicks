@@ -27,6 +27,7 @@ icu_casemap.workspace = true
 jiff.workspace = true
 jsonschema.workspace = true
 p256.workspace = true
+petgraph.workspace = true
 regex.workspace = true
 ryu-js.workspace = true
 schemars.workspace = true

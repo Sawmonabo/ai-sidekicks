@@ -77,6 +77,17 @@ pub(crate) fn parse_stored_workflow_body(
     })
 }
 
+/// Parses a workflow's stored pinned data, the test items by node id; fails with
+/// [`StoredDocumentError::PinData`], which keeps only where the parser stopped.
+pub(crate) fn parse_stored_pin_data(
+    pin_data_json: &str,
+) -> Result<Record<String, Vec<WorkflowPinnedItem>>, StoredDocumentError> {
+    serde_json::from_str(pin_data_json).map_err(|error| StoredDocumentError::PinData {
+        line: error.line(),
+        column: error.column(),
+    })
+}
+
 /// Rebuilds the document a save stored: a member with nothing stored stays out of it, and an empty
 /// tag list reads as no tags. Fails when a column does not read as its contract type.
 pub(crate) fn read_stored_workflow_document(
@@ -96,12 +107,8 @@ pub(crate) fn read_stored_workflow_document(
         })?;
     let pin_data = columns
         .pin_data_json
-        .map(serde_json::from_str::<Record<String, Vec<WorkflowPinnedItem>>>)
-        .transpose()
-        .map_err(|error| StoredDocumentError::PinData {
-            line: error.line(),
-            column: error.column(),
-        })?;
+        .map(parse_stored_pin_data)
+        .transpose()?;
     let tags = columns
         .tags_json
         .map(serde_json::from_str::<TagList>)

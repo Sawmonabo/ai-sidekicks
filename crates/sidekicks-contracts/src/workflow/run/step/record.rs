@@ -20,7 +20,7 @@ use crate::wire::Never;
 use crate::wire::id::UuidTextForm;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
-use crate::wire::text::{ComposedText, FreeFormText};
+use crate::wire::text::{ComposedText, FreeFormText, NonEmptyText};
 use crate::workflow::definition::document::WorkflowNodeId;
 use crate::workflow::definition::item::{WorkflowItem, WorkflowStepError};
 use crate::workflow::run::id::WorkflowRunId;
@@ -146,16 +146,37 @@ pub enum WorkflowStepResolutionKind {
 }
 
 /// The record of how a person answered a step and when, kept on the step so the receipt it earns,
-/// `Approved at 2:14 PM`, reads the same after a reload.
+/// `Approved at 2:14 PM` or `Declined at 2:14 PM · use the test database`, reads the same after a
+/// reload.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
+#[schemars(extend("allOf" = [{
+    "if": { "type": "object", "required": ["declineReason"] },
+    "then": { "type": "object", "properties": { "kind": { "const": "declined" } } },
+}]))]
 pub struct WorkflowStepResolution {
     /// How the person answered.
     pub kind: WorkflowStepResolutionKind,
     /// When.
     #[garde(dive)]
     pub at: WireInstant,
+    /// The words the person typed on the `Decline`'s `why not` line; present only on a `declined`
+    /// resolution whose Decline carried words.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "NonEmptyText")]
+    #[garde(custom(|reason: &Option<NonEmptyText>, (): &()| {
+        if reason.is_none() || self.kind == WorkflowStepResolutionKind::Declined {
+            Ok(())
+        } else {
+            Err(garde::Error::new("a decline reason rides only a declined resolution"))
+        }
+    }))]
+    pub decline_reason: Option<NonEmptyText>,
 }
 
 /// The snapshot an approval pause took, which Review opens on: pinned to an execution of the run
@@ -349,6 +370,9 @@ macro_rules! workflow_step {
                 )]
                 #[schemars(with = "WorkflowRunId")]
                 pub child_workflow_run_id: Option<WorkflowRunId>,
+                /// The milliseconds the memory gate held the step before it started, summed over
+                /// every hold; `0` where it was never held.
+                pub total_pool_wait_ms: SafeInt<0>,
                 $($own)*
             }
         }
@@ -751,3 +775,32 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: TS_CONSTANTS,
     method_tables: &[],
 };
+
+#[cfg(test)]
+mod tests {
+    use garde::Validate;
+    use serde_json::json;
+
+    use super::WorkflowStepResolution;
+    use crate::schema::closed_schema_for;
+
+    /// A decline reason is kept on a declined resolution and refused on any other, by the garde
+    /// check and the schema alike. Mutations: drop the check or the schema's `if`; refuse the
+    /// reason on a declined resolution too.
+    #[test]
+    fn a_decline_reason_rides_only_a_declined_resolution() {
+        let schema = closed_schema_for::<WorkflowStepResolution>().expect("the schema writes");
+        let check = jsonschema::validator_for(&schema).expect("the schema builds a check");
+        for (kind, is_taken) in [("declined", true), ("approved", false)] {
+            let json = json!({
+                "kind": kind,
+                "at": "2020-01-01T09:05:00.000Z",
+                "declineReason": "use the test database",
+            });
+            let resolution: WorkflowStepResolution =
+                serde_json::from_value(json.clone()).expect("the resolution reads");
+            assert_eq!(resolution.validate().is_ok(), is_taken, "garde: {kind}");
+            assert_eq!(check.is_valid(&json), is_taken, "schema: {kind}");
+        }
+    }
+}

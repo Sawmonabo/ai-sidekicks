@@ -1,0 +1,233 @@
+//! The store of the workflow secrets' values, held in a keychain under each secret's id.
+//!
+//! The store takes a [`SecretKeychain`] and holds no keychain code, so its rules run in tests
+//! without touching a real keychain.
+//!
+//! Call order is the caller's contract. Seal the value before writing the record, so a refusing
+//! keychain leaves no record naming a missing value. To delete, mark the record's removal, remove
+//! the value, then remove the record, so a crash in between is finished at the next start instead
+//! of leaving a value with no record.
+
+#[cfg(test)]
+use std::collections::HashMap;
+use std::sync::Arc;
+#[cfg(test)]
+use std::sync::Mutex;
+
+#[cfg(test)]
+use futures::future::BoxFuture;
+use secrecy::SecretString;
+use sidekicks_contracts::workflow::secret::{WorkflowSecretId, WorkflowSecretValue};
+#[cfg(test)]
+use sidekicks_std::keyed_lock::HeldWorkEnd;
+use sidekicks_store::credential_store::{KeychainRefusal, SecretKeychain};
+
+/// Seals, resolves and removes workflow secrets' values in the keychain.
+pub struct WorkflowSecretStore {
+    /// The keychain the values are kept in.
+    keychain: Arc<dyn SecretKeychain>,
+}
+
+impl WorkflowSecretStore {
+    /// A store over `keychain`.
+    pub fn new(keychain: Arc<dyn SecretKeychain>) -> Self {
+        Self { keychain }
+    }
+
+    /// Seals a secret's value, the first or a replacement, and confirms the keychain kept it.
+    /// Fails with [`KeychainRefusal`] when the keychain is locked, missing, or did not keep the
+    /// value.
+    pub async fn seal(
+        &self,
+        secret_id: WorkflowSecretId,
+        value: &WorkflowSecretValue,
+    ) -> Result<(), KeychainRefusal> {
+        let sealed = SecretString::from(value.as_str());
+        self.keychain
+            .write_verified(secret_id.text().as_str(), &sealed)
+            .await
+    }
+
+    /// The secret's value, or `None` when the keychain holds none, which the step that asked
+    /// reports as `workflow.secret.notFound`. Fails when the keychain cannot be used.
+    pub async fn resolve(
+        &self,
+        secret_id: WorkflowSecretId,
+    ) -> Result<Option<SecretString>, KeychainRefusal> {
+        self.keychain.read(secret_id.text().as_str()).await
+    }
+
+    /// Removes a secret's value; removing one that is already gone succeeds. Fails when the
+    /// keychain cannot be used.
+    pub async fn remove(&self, secret_id: WorkflowSecretId) -> Result<(), KeychainRefusal> {
+        self.keychain
+            .remove(secret_id.text().as_str())
+            .await
+            .map(|_was_held| ())
+    }
+}
+
+/// A test keychain holding fixed values by account, recording each account read, or refusing every
+/// read; it refuses every write, remove and listing.
+#[cfg(test)]
+pub(crate) struct ScriptedKeychain {
+    /// The values it holds, by account.
+    values: HashMap<String, String>,
+    /// Whether every read is refused.
+    is_refusing: bool,
+    /// The accounts read, in order.
+    reads: Mutex<Vec<String>>,
+}
+
+#[cfg(test)]
+impl ScriptedKeychain {
+    /// The keychain holding `values`, each an account and its value, or refusing every read when
+    /// `is_refusing`.
+    pub(crate) fn holding(values: &[(&str, &str)], is_refusing: bool) -> Arc<Self> {
+        Arc::new(Self {
+            values: values
+                .iter()
+                .map(|(account, value)| ((*account).to_owned(), (*value).to_owned()))
+                .collect(),
+            is_refusing,
+            reads: Mutex::default(),
+        })
+    }
+
+    /// The accounts read so far, in order.
+    pub(crate) fn reads(&self) -> Vec<String> {
+        self.reads
+            .lock()
+            .expect("no test thread panics holding it")
+            .clone()
+    }
+}
+
+#[cfg(test)]
+impl SecretKeychain for ScriptedKeychain {
+    fn write<'call>(
+        &'call self,
+        _account: &'call str,
+        _value: &'call SecretString,
+    ) -> BoxFuture<'call, Result<(), KeychainRefusal>> {
+        Box::pin(async { Err(KeychainRefusal::from(HeldWorkEnd::Unanswered)) })
+    }
+
+    fn read<'call>(
+        &'call self,
+        account: &'call str,
+    ) -> BoxFuture<'call, Result<Option<SecretString>, KeychainRefusal>> {
+        self.reads
+            .lock()
+            .expect("no test thread panics holding it")
+            .push(account.to_owned());
+        let answer = if self.is_refusing {
+            Err(KeychainRefusal::from(HeldWorkEnd::Unanswered))
+        } else {
+            Ok(self.values.get(account).cloned().map(SecretString::from))
+        };
+        Box::pin(async move { answer })
+    }
+
+    fn remove<'call>(
+        &'call self,
+        _account: &'call str,
+    ) -> BoxFuture<'call, Result<bool, KeychainRefusal>> {
+        Box::pin(async { Err(KeychainRefusal::from(HeldWorkEnd::Unanswered)) })
+    }
+
+    fn accounts(&self) -> BoxFuture<'_, Result<Vec<String>, KeychainRefusal>> {
+        Box::pin(async { Err(KeychainRefusal::from(HeldWorkEnd::Unanswered)) })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use futures::future::BoxFuture;
+    use secrecy::{ExposeSecret, SecretString};
+    use serde_json::json;
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::keychain::KeychainRefusalCause;
+    use sidekicks_contracts::workflow::secret::{
+        WorkflowSecretId, WorkflowSecretStoreUnavailableDetails, WorkflowSecretValue,
+    };
+    use sidekicks_ipc::domain_error::DomainError;
+    use sidekicks_store::credential_store::{KeychainRefusal, SecretKeychain};
+
+    use super::WorkflowSecretStore;
+
+    /// The value the seal writes.
+    const SECRET: &str = "hunter2-do-not-print";
+
+    /// A keychain that accepts every write but keeps the value without its last character.
+    #[derive(Default)]
+    struct KeychainKeepingAShorterValue {
+        kept: Mutex<Option<String>>,
+    }
+
+    impl SecretKeychain for KeychainKeepingAShorterValue {
+        fn write<'call>(
+            &'call self,
+            _account: &'call str,
+            value: &'call SecretString,
+        ) -> BoxFuture<'call, Result<(), KeychainRefusal>> {
+            let mut shorter = value.expose_secret().to_owned();
+            shorter.pop();
+            *self.kept.lock().expect("no test thread panics holding it") = Some(shorter);
+            Box::pin(async { Ok(()) })
+        }
+
+        fn read<'call>(
+            &'call self,
+            _account: &'call str,
+        ) -> BoxFuture<'call, Result<Option<SecretString>, KeychainRefusal>> {
+            let kept = self
+                .kept
+                .lock()
+                .expect("no test thread panics holding it")
+                .clone()
+                .map(SecretString::from);
+            Box::pin(async move { Ok(kept) })
+        }
+
+        fn remove<'call>(
+            &'call self,
+            _account: &'call str,
+        ) -> BoxFuture<'call, Result<bool, KeychainRefusal>> {
+            Box::pin(async { Ok(false) })
+        }
+
+        fn accounts(&self) -> BoxFuture<'_, Result<Vec<String>, KeychainRefusal>> {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+    }
+
+    /// A keychain that drops a write without an error must refuse the seal as `unavailable`, and
+    /// the refusal names neither the value written nor the one kept. Mutation: `write_verified`
+    /// skips the read-back.
+    #[tokio::test]
+    async fn a_keychain_keeping_another_value_refuses_the_seal_without_naming_either() {
+        let store = WorkflowSecretStore::new(Arc::new(KeychainKeepingAShorterValue::default()));
+        let secret_id =
+            WorkflowSecretId::new("0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c7d8e").expect("the id reads");
+        let value: WorkflowSecretValue = serde_json::from_value(json!(SECRET)).expect("it reads");
+
+        let refusal = store
+            .seal(secret_id, &value)
+            .await
+            .expect_err("a value the keychain did not keep is refused");
+
+        assert_eq!(refusal.cause(), KeychainRefusalCause::Unavailable);
+        let refused = DomainError::keychain_refused(
+            refusal,
+            RefusalCode::WorkflowSecretStoreUnavailable,
+            |cause| WorkflowSecretStoreUnavailableDetails { cause },
+        );
+        assert_eq!(refused.code, RefusalCode::WorkflowSecretStoreUnavailable);
+        for written in [refused.to_string(), format!("{refused:?}")] {
+            assert!(!written.contains("hunter2"), "{written}");
+        }
+    }
+}

@@ -410,6 +410,8 @@ pub use posix::shell_start::{
 pub use posix::shell_start::{
     LOGIN_SHELL_ARGUMENTS, POSIX_SHELL, default_shell, prepare_shell_start, start_program,
 };
+#[cfg(unix)]
+pub use posix::shell_start_confirmation::{ShellLaunchWriter, ShellStartConfirmation};
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::terminal::inner::CAN_START_AN_INNER_TERMINAL;
 #[cfg(unix)]
@@ -419,8 +421,6 @@ pub use posix::terminal::pty::run_terminal_taking_stand_in;
 #[cfg(unix)]
 pub use posix::terminal::pty::{Pty, start_terminal};
 // The daemon's own socket on macOS and Linux is AF_UNIX too, so one dial serves both.
-#[cfg(unix)]
-pub use posix::shell_start_confirmation::{ShellLaunchWriter, ShellStartConfirmation};
 #[cfg(unix)]
 pub use posix::socket::connection::{
     UnixDomainStream, connect_unix_domain_socket, connect_unix_domain_socket as connect_socket,
@@ -438,7 +438,7 @@ pub use posix::socket::path::{check_socket_path, read_socket_path_entry};
 #[cfg(unix)]
 pub use posix::stop_request::StopRequest;
 #[cfg(unix)]
-pub use posix::system_locale::{system_hour_cycle, system_locale};
+pub use posix::system_locale::{system_hour_field, system_locale};
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::terminal::DOES_TERMINAL_OUTLIVE_ITS_LEADER;
 #[cfg(all(unix, any(test, feature = "test-support")))]
@@ -510,7 +510,9 @@ pub use system_folder::{
     LinuxSystemFolder, MacosSystemFolder, PerSystem, SystemFolder, SystemFolders,
     WindowsSystemFolder,
 };
-pub use system_locale::LocaleCategory;
+// The hour cycle an `HourField` names.
+pub use icu_locale_core::preferences::extensions::unicode::keywords::HourCycle;
+pub use system_locale::{HourField, LocaleCategory};
 #[cfg(any(test, feature = "test-support"))]
 pub use terminal::{AbnormalExit, TestProgram};
 pub use terminal::{
@@ -678,7 +680,7 @@ pub use windows::socket::unix_domain::{UnixDomainStream, connect_unix_domain_soc
 #[cfg(target_os = "windows")]
 pub use windows::stop_request::StopRequest;
 #[cfg(target_os = "windows")]
-pub use windows::system_locale::{system_hour_cycle, system_locale};
+pub use windows::system_locale::{system_hour_field, system_locale};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::terminal::DOES_TERMINAL_OUTLIVE_ITS_LEADER;
 #[cfg(target_os = "windows")]

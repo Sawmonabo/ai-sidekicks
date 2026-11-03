@@ -595,32 +595,12 @@ fn an_answer_that_does_not_fit_names_the_first_check_it_breaks(
     );
 }
 
-// Whoever raised a card hears a decline's words, and a run's end settles every wait on the run's
-// cards, one whose row a rebuild dropped among them. Killed by dropping `decline_reason` and by
-// settling a run's waits by the rows it read.
+// A run's end settles every wait on the run's cards, one whose row a rebuild dropped among them;
+// how a decline reaches its waiter is proven through a step's card. Killed by settling a run's
+// waits by the rows it read.
 #[tokio::test]
-async fn a_raised_card_hears_how_it_settled() {
+async fn a_runs_end_settles_a_card_whose_row_was_dropped() {
     let fixture = ApprovalFixture::without_holds().await;
-    let declined = fixture.raise("git push").await.expect("the card is raised");
-    let decline = answer(
-        &declined,
-        ApprovalDecision::Rejected,
-        &client_id(),
-        json!({ "declineReason": "not on main" }),
-    );
-    fixture
-        .service
-        .resolve(&decline, device(), held_by_a_live_call)
-        .await
-        .expect("the decline is recorded");
-    assert_eq!(
-        tokio::time::timeout(SETTLE_WAIT, declined.settled.settled())
-            .await
-            .expect("the decline settles its waiter"),
-        RaisedRequestSettlement::Rejected {
-            decline_reason: Some(from_json(json!("not on main"))),
-        }
-    );
     let dropped = fixture
         .raise("cargo publish")
         .await

@@ -46,14 +46,30 @@ pub fn insert_workflow_version(
     let body = serde_json::json!({
         "name": name,
         "trigger": {
-            "id": "start", "kind": "trigger.manual", "kindVersion": 1, "name": "Start", "order": 0
+            "id": "start", "kind": "trigger.manual", "kindVersion": 1, "name": "Start", "order": 0,
+            "params": {}
         },
-        "nodes": [
-            { "id": TEST_NODE_ID, "kind": "human.approval", "kindVersion": 1, "name": "Approve" }
-        ],
+        "nodes": [{
+            "id": TEST_NODE_ID, "kind": "human.approval", "kindVersion": 1, "name": "Approve",
+            "order": 0, "params": {}
+        }],
         "edges": [],
-    })
-    .to_string();
+    });
+    insert_workflow_version_body(connection, definition_id, version_id, &body);
+}
+
+/// Stores the workflow `definition_id` with its version 1, `version_id`, whose body is `body`, a
+/// canonical body holding the workflow's `name`.
+pub(crate) fn insert_workflow_version_body(
+    connection: &Connection,
+    definition_id: &str,
+    version_id: &str,
+    body: &serde_json::Value,
+) {
+    let name = body["name"]
+        .as_str()
+        .expect("the test's body names its workflow");
+    let body = body.to_string();
     let content_hash = format!("b3:{}", "0".repeat(64));
     connection
         .execute(
@@ -133,15 +149,19 @@ pub struct TestStep<'step> {
 }
 
 /// Stores `step` in run `run_id`, running the test node; a waiting step started waiting when it
-/// started.
+/// started, and a wait on a person holds a wait id made from its execution index.
 pub fn insert_step(connection: &Connection, run_id: &str, step: &TestStep<'_>) {
     let is_waiting = step.status == WorkflowStepStatus::Waiting;
+    let is_person_wait = matches!(
+        step.wait_cause,
+        Some(WorkflowWaitCause::Approval | WorkflowWaitCause::Form | WorkflowWaitCause::Reply)
+    );
     connection
         .execute(
             "INSERT INTO workflow_steps (workflow_run_id, node_id, attempt, execution_index, \
-             status, wait_cause, wait_account_id, resume_at, wait_started_at, started_at, \
-             input_ref, output_ref, log_ref) \
-             VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?10)",
+             status, wait_cause, wait_account_id, resume_at, wait_started_at, wait_id, \
+             started_at, input_ref, output_ref, log_ref) \
+             VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?11)",
             params![
                 run_id,
                 TEST_NODE_ID,
@@ -151,6 +171,8 @@ pub fn insert_step(connection: &Connection, run_id: &str, step: &TestStep<'_>) {
                 step.wait_account_id,
                 step.resume_at,
                 is_waiting.then_some(STEP_STARTED_AT),
+                is_person_wait
+                    .then(|| format!("00000000-0000-7000-8000-{:012x}", step.execution_index)),
                 STEP_STARTED_AT,
                 EMPTY_PAYLOAD_REF
             ],

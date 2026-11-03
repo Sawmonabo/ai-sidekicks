@@ -101,6 +101,11 @@ ts_constants! {
     WORKFLOW_STEP_THREAD_FAILED_CODE = RefusalCode::WorkflowStepThreadFailed;
     /// Every reason a quick step's engine fails.
     WORKFLOW_STEP_THREAD_FAILED_REASONS = WorkflowStepThreadFailedReason::VARIANTS;
+    /// A `Run a command` step whose shell is none the engine writes a filled value's reference for.
+    WORKFLOW_STEP_SHELL_UNKNOWN_CODE = RefusalCode::WorkflowStepShellUnknown;
+    /// A `Run a command` step whose filled value or environment passes the system's or the shell's
+    /// bound.
+    WORKFLOW_STEP_VALUE_TOO_LARGE_CODE = RefusalCode::WorkflowStepValueTooLarge;
     /// A full-tier Code step or a sandboxed shell step whose provider sandbox did not start; the
     /// step never runs unprotected instead.
     WORKFLOW_SANDBOX_UNAVAILABLE_CODE = RefusalCode::WorkflowSandboxUnavailable;

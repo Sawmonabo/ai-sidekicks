@@ -9,8 +9,10 @@ use crate::typescript::{Definition, TypeScriptModule};
 use crate::workflow::definition::document::{WorkflowNodeId, WorkflowVersionId};
 use crate::workflow::run::control::{WorkflowCancelReason, names_whole_repin};
 use crate::workflow::run::id::WorkflowRunId;
-use crate::workflow::run::step::record::workflow_step_key;
-use crate::workflow::run::trigger::{WorkflowRunMode, WorkflowStartedBy};
+use crate::workflow::run::step::record::{WorkflowPayloadRef, workflow_step_key};
+use crate::workflow::run::trigger::{
+    WorkflowRunChainPlace, WorkflowRunMode, WorkflowRunTrigger, WorkflowStartedBy,
+};
 
 /// Declares a run event's payload struct: the run it names (its session, its id, and the
 /// definition and version it pins), then the payload's own members.
@@ -34,15 +36,24 @@ macro_rules! workflow_run_event {
 pub(crate) use workflow_run_event;
 
 workflow_run_event! {
-    /// `workflow.run.started`: how the run was started and by whom, so the run row rebuilds from
-    /// events.
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+    /// `workflow.run.started`: how the run was started and by whom, the trigger node that started
+    /// it, its place in its chain and the input its trigger step starts on, so the run row
+    /// rebuilds from events.
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    #[garde(allow_unvalidated)]
     pub struct WorkflowRunStartedPayload {
         /// How it was started.
         pub mode: WorkflowRunMode,
         /// Who or what started it.
         pub started_by: WorkflowStartedBy,
+        /// The trigger node that started it.
+        pub trigger: WorkflowRunTrigger,
+        /// Its place in its chain.
+        pub chain: WorkflowRunChainPlace,
+        /// The input its trigger step starts on.
+        #[garde(dive)]
+        pub input_ref: WorkflowPayloadRef,
     }
 }
 

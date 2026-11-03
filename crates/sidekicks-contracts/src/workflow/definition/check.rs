@@ -1,8 +1,8 @@
 //! The workflow checks as WebAssembly exports for the builder, which runs them in the page while a
-//! connection is dragged and before a save. The daemon's save runs the same graph check; the
-//! parameter check joins the save once the save's kind lookup gives each kind's parameter list.
-//! Each takes its arguments as one JSON text, each node's handles among them as data, and answers
-//! JSON text; a text that does not read throws.
+//! connection is dragged and before a save. The daemon's save runs the same graph and parameter
+//! checks, the latter with each node's kind's parameter list. Each takes its arguments as one JSON
+//! text, each node's handles among them as data, and answers JSON text; a text that does not read
+//! throws.
 
 use std::collections::HashMap;
 
@@ -50,7 +50,8 @@ pub fn check_workflow_connection_json(input: &str) -> Result<String, JsError> {
 }
 
 /// Runs the parameter check over `{params, specs}` and answers the refused values as a JSON array
-/// of `{path, message}`, empty when every value is accepted; throws when the input does not read.
+/// of `{path, message, rule?}`, empty when every value is accepted; throws when the input does not
+/// read.
 #[wasm_bindgen(js_name = checkWorkflowNodeParams)]
 pub fn check_workflow_node_params_json(input: &str) -> Result<String, JsError> {
     let input: WorkflowNodeParamsCheckInput = serde_json::from_str(input)?;
@@ -127,8 +128,9 @@ mod tests {
             "specs": [{ "id": "prompt", "label": "Prompt", "type": "text" }],
         }),
         json!([{
-            "path": "prompt",
+            "path": ["prompt"],
             "message": "A secret:// reference stands only in a parameter its kind marks sensitive.",
+            "rule": "secretOutsideSensitiveField",
         }]),
     )]
     fn each_export_answers_its_checks_findings_as_json(

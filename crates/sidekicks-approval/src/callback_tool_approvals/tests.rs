@@ -7,12 +7,15 @@ use std::future::Future;
 use std::sync::Arc;
 
 use serde_json::{Map, json};
-use sidekicks_contracts::approval::ApprovalResolveRequest;
+use sidekicks_contracts::approval::{ApprovalResolveRequest, ApprovalResolveResponse};
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
+use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_provider::callback_tools::host::test_host::TestCallbackToolHost;
@@ -30,16 +33,22 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::registry_of_first_providers;
 use sidekicks_provider::port::permission_ask::ProviderAskAction;
 use sidekicks_provider::run::posture::CURATED_CREDENTIAL_POLICY_REF;
+use sidekicks_std::keyed_wait::KeyedWaits;
+use sidekicks_workflow::runs::step_action::{
+    StepAction, StepActionApproval, StepActionCheck, StepActionVerdict,
+};
 use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate};
 use tokio::task::JoinHandle;
 
 use super::{
-    CallbackToolApprovalError, CallbackToolApprovals, CallbackToolGate, UNGATED_TOOL_REFUSAL,
+    CANCELED_STEP_REFUSAL, CallbackToolApprovalError, CallbackToolApprovals, CallbackToolGate,
+    UNGATED_TOOL_REFUSAL, answer_of,
 };
 use crate::permission_asks::tests::{AsksFixture, device};
 use crate::permission_check::{NO_LEVEL_REFUSAL, WORKFLOW_START_REFUSAL};
 use crate::service::test_fixture::SETTLE_WAIT;
 use crate::service::tests::from_json;
+use crate::service::{RaisedCard, RaisedCardKey, RaisedRequestSettlement};
 
 // A tool that only reads, one that acts, and one that starts a workflow.
 const READ_TOOL: &str = "session_list";
@@ -203,8 +212,9 @@ impl SeamFixture {
         (call, card)
     }
 
-    /// Answers `card` as a client does, with the members `answer` adds.
-    async fn answer(&self, card: &str, answer: serde_json::Value) {
+    /// Answers `card` as a client does, with the members `answer` adds, and what the answer was
+    /// told.
+    async fn answer(&self, card: &str, answer: serde_json::Value) -> ApprovalResolveResponse {
         let mut request = json!({
             "approvalRequestId": card,
             "clientResolutionId": mint_uuid_v7().to_string(),
@@ -219,7 +229,22 @@ impl SeamFixture {
             .asks
             .resolve(&request, device())
             .await
-            .expect("the card is answered");
+            .expect("the card is answered")
+            .response
+    }
+
+    /// The check of a command step at Ask on the fixture's run.
+    fn step_check(&self) -> StepActionCheck {
+        StepActionCheck {
+            session_id: self.asks.check.approvals.session_id,
+            run_id: self.asks.check.approvals.run_id,
+            requested_by: NonEmptyText::new("workflow-step".to_owned()).expect("a step's name"),
+            level: PermissionLevel::Ask,
+            action: StepAction::Command {
+                line: "cargo test".to_owned(),
+                shown_line: "cargo test".to_owned(),
+            },
+        }
     }
 
     fn set_level(&self, level: &str) {
@@ -506,4 +531,78 @@ async fn the_host_decides_a_workflow_start_by_the_posture_its_session_moved_to()
         CallbackToolResult::Completed { .. }
     ));
     assert_eq!(host.executed_count(), 1);
+}
+
+// A step's card settles the step as the person answered it: a decline, with words or with none,
+// reaches the step as a decline carrying the words typed and the instant the decline was
+// recorded, apart from a refusal, and a card that ended unanswered refuses the step in a step's
+// words. A decline settled with a fixed past instant reaches the step with that instant, so a
+// second clock read where the step reads its card differs from it. Killed by a decline mapped to a
+// refusal, by dropping its words, here or where the service settles the card's waiter, or its
+// instant, by the step reading the clock for its instant, and by a cancel read as a decline or
+// worded for an agent.
+#[tokio::test]
+async fn a_steps_card_settles_a_decline_apart_from_a_refusal() {
+    let fixture = SeamFixture::new().await;
+    let raise = || {
+        let seam = Arc::clone(&fixture.seam);
+        let check = fixture.step_check();
+        fixture.raise_by(async move { seam.check_step_action(check).await })
+    };
+    for (answer, words) in [
+        (
+            json!({ "decision": "rejected", "declineReason": "not on main" }),
+            Some("not on main"),
+        ),
+        (json!({ "decision": "rejected" }), None),
+    ] {
+        let (declined, card) = raise().await;
+        let response = fixture.answer(&card, answer).await;
+        assert_eq!(
+            settled(declined).await.expect("the step's check decides"),
+            StepActionVerdict::Declined {
+                words: words.map(|words| from_json(json!(words))),
+                at: response.resolved_at,
+            }
+        );
+    }
+
+    let (canceled, _card) = raise().await;
+    let approvals = &fixture.asks.check.approvals;
+    approvals
+        .service
+        .cancel_pending_for_run(approvals.run_id, None)
+        .await
+        .expect("the run's cards are canceled");
+    assert_eq!(
+        settled(canceled).await.expect("the step's check decides"),
+        StepActionVerdict::Refused {
+            reason: CANCELED_STEP_REFUSAL.to_owned(),
+        }
+    );
+
+    let past: WireInstant = from_json(json!("2020-01-01T09:05:00.000Z"));
+    let waits = KeyedWaits::default();
+    let key = RaisedCardKey {
+        run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+        approval_request_id: from_json(json!(mint_uuid_v7())),
+    };
+    let card = RaisedCard {
+        approval_request_id: key.approval_request_id,
+        settled: waits.arm(key),
+    };
+    waits.settle_all(
+        &key,
+        RaisedRequestSettlement::Rejected {
+            decline_reason: None,
+            resolved_at: past.clone(),
+        },
+    );
+    assert_eq!(
+        answer_of(card).await.expect("a declined card answers"),
+        StepActionVerdict::Declined {
+            words: None,
+            at: past,
+        }
+    );
 }

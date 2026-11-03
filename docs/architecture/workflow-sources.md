@@ -79,6 +79,7 @@ The external primary sources behind [Spec-015: Workflow Authoring And Execution]
 - [React Flow — layered layout example](https://reactflow.dev/examples/layout/dagre) (read 2026-09-09)
 - [React Flow](https://reactflow.dev/) (read 2026-06-03 and 2026-09-09) — the library scan that chose it over the runner-up, whose round-trip finding Spec-015 keeps: a canvas is a projection over the stored model and never a competing source of truth
 - [JSONata](https://jsonata.org) (read 2026-09-09)
+- [jsonata-js `src/parser.js`](https://github.com/jsonata-js/jsonata/blob/v2.2.2/src/parser.js) — jsonata-js 2.2.2 compiles a regex literal with JavaScript's own `RegExp`, with the pattern's `i` and `m` flags and `g` but never `u`, so its classes take JavaScript's meaning without the `u` flag; the expression engine's regular expressions take that meaning on `jsonata-core`'s `regex` engine ([Spec-015 §Expressions](../specs/015-workflow-authoring-and-execution.md#expressions))
 
 Two crates carry no documentation page in any source read for Spec-015: `rquickjs` 0.14.0 behind the Code node and `croner` 4.0.1 behind the schedule trigger. Their pins and licenses are recorded in [Workflow Implementation Notes](workflow-implementation-notes.md).
 
@@ -92,7 +93,6 @@ Two crates carry no documentation page in any source read for Spec-015: `rquickj
 - [uv — Running scripts, §Locking dependencies](https://docs.astral.sh/uv/guides/scripts/#locking-dependencies) — inline script metadata and `uv lock --script`, which writes the lock beside the script.
 - [Bun — `bun install`](https://bun.com/docs/cli/install) — `--lockfile-only` writes the lock without installing, and `--frozen-lockfile` installs the locked versions and exits with an error where the manifest disagrees with the lock.
 - [Claude Code — Sandboxing](https://docs.claude.com/en/docs/claude-code/sandboxing) and [Codex — Agent approvals and security](https://developers.openai.com/codex/agent-approvals-security) — Claude Code's and Codex's own sandbox documentation, whose settings the full tier and `developer.shell` are run under.
-- [RE2JS](https://github.com/le0pard/re2js) — a JavaScript port of RE2, MIT, matching in time linear in its input; the expression engine's regular expressions take its meaning of each class, on `jsonata-core`'s `regex` engine ([Spec-015 §Expressions](../specs/015-workflow-authoring-and-execution.md#expressions)).
 
 **Chat-command interception and authorization precedents (SA-35, SA-36, C-18):**
 

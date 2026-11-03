@@ -503,7 +503,7 @@ session_events! {
     TerminalControlChanged(#[garde(dive)] TerminalControlChangedPayload)
         = "terminal.control.changed",
     /// Emitted when a workflow run starts.
-    WorkflowRunStarted(WorkflowRunStartedPayload) = "workflow.run.started",
+    WorkflowRunStarted(#[garde(dive)] WorkflowRunStartedPayload) = "workflow.run.started",
     /// Emitted when a workflow run resumes.
     WorkflowRunResumed(#[garde(dive)] WorkflowRunResumedPayload) = "workflow.run.resumed",
     /// Emitted when a workflow run is canceled.

@@ -79,7 +79,7 @@ pub(super) struct Piece {
 }
 
 /// A word: a run of the reading's pieces.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) struct Word {
     first_piece: u32,
     end_piece: u32,

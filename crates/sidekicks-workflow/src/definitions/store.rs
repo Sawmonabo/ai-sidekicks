@@ -3,6 +3,7 @@
 //! level, background browser), which mint none. Each change is one write, so a refused write leaves
 //! nothing behind.
 
+mod params;
 mod settings;
 #[cfg(test)]
 mod tests;
@@ -15,7 +16,9 @@ use std::sync::Arc;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension as _, named_params};
 use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::jsonrpc::issue::{ISSUES_MAX, IssuePathSegment};
 use sidekicks_contracts::name_fold::fold_name;
+use sidekicks_contracts::schema::ReceivedCheckError;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::id::UuidText;
@@ -34,9 +37,10 @@ use sidekicks_contracts::workflow::definition::methods::{
     WorkflowDefinitionUpdateResponse,
 };
 use sidekicks_contracts::workflow::definition::refusals::{
-    WorkflowDefinitionFinding, WorkflowNodeHandles, check_workflow_graph,
+    WorkflowDefinitionFinding, check_workflow_graph,
 };
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -46,12 +50,16 @@ use sidekicks_store::database::statement::{
 use sidekicks_store::database::stored_column::safe_int_column;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
+use tokio::task::JoinError;
 
 use crate::definitions::content_hash::{WorkflowDocumentHash, hash_workflow_body};
 use crate::definitions::drafts::clear_workflow_draft_statement;
 use crate::definitions::errors::DefinitionRefusal;
 use crate::definitions::kept_values::clear_kept_values_statement;
 use crate::definitions::library::{WorkflowLibrary, name_holder_statement};
+use crate::definitions::store::params::check_node_params;
+use crate::expressions::save_check::check_expressions;
+use crate::kinds::NodeKindTable;
 use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
 
 /// The statements the store's reads run on a read connection beyond the library's: the latest
@@ -149,11 +157,6 @@ const DUPLICATE_NAME_READS: usize = 2;
 // The position of the pinned runs' count among a delete's statements.
 const PINNED_RUN_COUNT_INDEX: usize = 4;
 
-/// What a save is checked against: each node's category and handles from the kinds table, or
-/// `None` for a kind the table does not list.
-pub(crate) type WorkflowNodeHandlesResolver =
-    dyn Fn(&WorkflowNode) -> Option<WorkflowNodeHandles> + Send + Sync;
-
 /// Who saved a version: the device the save came from, and the agent that saved it, if one did.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorkflowSaveAuthor {
@@ -187,6 +190,12 @@ pub(crate) enum WorkflowDefinitionStoreError {
     /// finish.
     #[error(transparent)]
     Pool(#[from] DatabaseReadError),
+    /// The reading of a command step's line did not finish.
+    #[error("the reading of a command step's line did not finish")]
+    ShellLineReading(#[from] JoinError),
+    /// The contract check a tool binding is read through could not be built.
+    #[error("the check of a tool binding could not be built")]
+    BindingCheck(#[from] ReceivedCheckError),
 }
 
 impl From<WorkflowDefinitionStoreError> for HandlerError {
@@ -199,14 +208,18 @@ impl From<WorkflowDefinitionStoreError> for HandlerError {
             fault @ (WorkflowDefinitionStoreError::Canonicalization(_)
             | WorkflowDefinitionStoreError::Write(_)
             | WorkflowDefinitionStoreError::Database(_)
-            | WorkflowDefinitionStoreError::Pool(_)) => Self::Internal(Box::new(fault)),
+            | WorkflowDefinitionStoreError::Pool(_)
+            | WorkflowDefinitionStoreError::ShellLineReading(_)
+            | WorkflowDefinitionStoreError::BindingCheck(_)) => Self::Internal(Box::new(fault)),
         }
     }
 }
 
 /// Writes the workflow library, reading through the daemon's read pool and writing through its
-/// writer. A save is checked in the daemon before anything is written: every graph finding and a
-/// name another workflow holds, compared by case fold, refuse it whole.
+/// writer. A save is checked in the daemon before anything is written: every graph finding, every
+/// expression finding (a template that does not parse, a label no node is named, a pattern the
+/// evaluator cannot build, a command fill that does not expand) and a name another workflow holds,
+/// compared by case fold, refuse it whole.
 #[cfg_attr(
     not(test),
     expect(
@@ -218,12 +231,14 @@ impl From<WorkflowDefinitionStoreError> for HandlerError {
 pub(crate) struct WorkflowDefinitionStore {
     pool: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
-    resolve_node_handles: Box<WorkflowNodeHandlesResolver>,
+    node_kinds: Arc<NodeKindTable>,
+    shell_line_bound: Arc<ShellLineReadingBound>,
 }
 
 impl WorkflowDefinitionStore {
-    /// The store reading through `pool`, writing through `writer`, and checking each save's graph
-    /// against the handles `resolve_node_handles` gives each node.
+    /// The store reading through `pool`, writing through `writer`, checking each save against the
+    /// rules `node_kinds` gives each node's kind, and reading command lines inside
+    /// `shell_line_bound`, the daemon's one bound on shell-line reads.
     #[cfg_attr(
         not(test),
         expect(
@@ -234,12 +249,14 @@ impl WorkflowDefinitionStore {
     pub(crate) fn new(
         pool: Arc<DatabaseReadPool>,
         writer: Arc<DatabaseWriter>,
-        resolve_node_handles: Box<WorkflowNodeHandlesResolver>,
+        node_kinds: Arc<NodeKindTable>,
+        shell_line_bound: Arc<ShellLineReadingBound>,
     ) -> Self {
         Self {
             pool,
             writer,
-            resolve_node_handles,
+            node_kinds,
+            shell_line_bound,
         }
     }
 
@@ -277,7 +294,7 @@ impl WorkflowDefinitionStore {
                 .ok_or_else(|| name_taken().into());
         };
         // The free copy name read stands for the name check before the write.
-        refuse_unless_empty(self.graph_findings(document))?;
+        refuse_unless_empty(self.document_findings(document).await?)?;
         let mut hashed_body = pick_workflow_document_hashed_body(document);
         let sent_content_hash = hash_workflow_body(&hashed_body)?.content_hash;
         for _ in 0..DUPLICATE_NAME_READS {
@@ -631,14 +648,14 @@ impl WorkflowDefinitionStore {
         }))
     }
 
-    // Every graph finding and a held name are refused together, so the author sees them all at
-    // once.
+    // Every graph, param and expression finding and a held name are refused together, so the
+    // author sees them all at once.
     async fn refuse_findings(
         &self,
         document: &WorkflowDocument,
         saved_definition_id: Option<WorkflowDefinitionId>,
     ) -> Result<(), WorkflowDefinitionStoreError> {
-        let mut findings = self.graph_findings(document);
+        let mut findings = self.document_findings(document).await?;
         let name = document.name.as_str().to_owned();
         let is_name_held = self
             .pool
@@ -655,21 +672,64 @@ impl WorkflowDefinitionStore {
     }
 
     // The graph check over the document's trigger, nodes and edges, each node's handles resolved
-    // from its kind.
-    fn graph_findings(&self, document: &WorkflowDocument) -> Vec<WorkflowDefinitionFinding> {
+    // once from its kind, then the check of each node's params against its kind's param list, then
+    // the check of every expression, each command line read inside the bound. A tool binding that
+    // does not read as one refuses the save first, as the request's own read would.
+    async fn document_findings(
+        &self,
+        document: &WorkflowDocument,
+    ) -> Result<Vec<WorkflowDefinitionFinding>, WorkflowDefinitionStoreError> {
         let trigger = WorkflowNode::from(&document.trigger);
-        let node_handles: HashMap<_, _> = iter::once(&trigger)
-            .chain(&document.nodes)
-            .filter_map(|node| {
-                (self.resolve_node_handles)(node).map(|handles| (node.id.clone(), handles))
-            })
-            .collect();
-        check_workflow_graph(
+        let mut node_handles = HashMap::new();
+        let mut shell_line_params = HashMap::new();
+        let mut param_findings = Vec::new();
+        let mut unreadable = Vec::new();
+        let document_place = || IssuePathSegment::Member("document".to_owned());
+        let node_places = iter::once(vec![
+            document_place(),
+            IssuePathSegment::Member("trigger".to_owned()),
+        ])
+        .chain((0..document.nodes.len()).map(|index| {
+            vec![
+                document_place(),
+                IssuePathSegment::Member("nodes".to_owned()),
+                IssuePathSegment::index(index),
+            ]
+        }));
+        for (node, node_place) in iter::once(&trigger).chain(&document.nodes).zip(node_places) {
+            if let Some(rules) = self.node_kinds.kind_rules(node) {
+                node_handles.insert(node.id.clone(), rules.handles);
+                if let Some(param) = rules.shell_line_param {
+                    shell_line_params.insert(node.id.clone(), param);
+                }
+            }
+            if let Some(kind) = self.node_kinds.kind_of(node) {
+                let faults = check_node_params(node, &node_place, &kind.spec.params)?;
+                param_findings.extend(faults.findings);
+                unreadable.extend(faults.unreadable);
+            }
+        }
+        if !unreadable.is_empty() {
+            unreadable.truncate(ISSUES_MAX);
+            return Err(DefinitionRefusal::Unreadable { issues: unreadable }.into());
+        }
+        let mut findings = check_workflow_graph(
             Some(&trigger),
             &document.nodes,
             &document.edges,
             &node_handles,
-        )
+        );
+        findings.extend(param_findings);
+        findings.extend(
+            check_expressions(
+                &trigger,
+                &document.nodes,
+                |node| shell_line_params.get(&node.id).copied(),
+                &self.shell_line_bound,
+            )
+            .await?,
+        );
+        Ok(findings)
     }
 
     // A save whose staleness check matched no row: the workflow is gone, or another save came

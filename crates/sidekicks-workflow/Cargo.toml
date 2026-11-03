@@ -3,7 +3,7 @@ name = "sidekicks-workflow"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Workflows: their definitions and versions, runs, secrets and the agent tools that write them."
+description = "Workflows: their definitions and versions, runs, secrets, the agent tools that write them, the node kinds and the engine's ports."
 license.workspace = true
 publish.workspace = true
 
@@ -15,8 +15,6 @@ ignored = [
   "csv",
   # Laying out a workflow an agent wrote with no layout of its own.
   "dugong",
-  # A workflow's expressions.
-  "jsonata-core",
   # The JavaScript engine of a workflow's quick code step and its file-watch trigger's path
   # patterns.
   "rquickjs",
@@ -30,15 +28,22 @@ ignored = [
 doctest = false
 
 [dependencies]
+aho-corasick.workspace = true
+base64.workspace = true
 blake3.workspace = true
 croner.workspace = true
 csv.workspace = true
 dugong.workspace = true
+fixedbitset.workspace = true
 flate2.workspace = true
+form_urlencoded.workspace = true
 futures.workspace = true
 garde.workspace = true
 jiff.workspace = true
 jsonata-core.workspace = true
+percent-encoding.workspace = true
+petgraph.workspace = true
+reqwest.workspace = true
 rquickjs.workspace = true
 rusqlite.workspace = true
 schemars.workspace = true
@@ -47,21 +52,29 @@ serde.workspace = true
 serde_json.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-ipc.workspace = true
+sidekicks-platforms.workspace = true
+sidekicks-policy.workspace = true
 sidekicks-std.workspace = true
 sidekicks-store.workspace = true
 sidekicks-workspace.workspace = true
 tar.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
 rstest.workspace = true
+# The wall clock the deadline tests set, and the instant an armed job holds.
+sidekicks-std = { workspace = true, features = ["test-support"] }
 # The test database the tests build on.
 sidekicks-store = { workspace = true, features = ["test-support"] }
 # The worktree rows the tests build on.
 sidekicks-workspace = { workspace = true, features = ["test-support"] }
-tokio.workspace = true
+# The paused clock the tick's tests drive.
+tokio = { workspace = true, features = ["test-util"] }
 uuid.workspace = true
 
 [features]

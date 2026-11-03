@@ -7,6 +7,8 @@ use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 use std::iter;
 
+use petgraph::algo::kosaraju_scc;
+use petgraph::graph::{DiGraph, NodeIndex};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -30,10 +32,22 @@ ts_constants! {
     WORKFLOW_DEFINITION_REFUSED_CODE = RefusalCode::WorkflowDefinitionRefused;
 }
 
-/// Declares the findings: each named rule, with the nodes it marks, then the one finding that also
-/// names a package.
+/// Declares the findings: each named rule, with the nodes it marks, then the three findings that
+/// also carry a text: a package, why an expression does not parse, and why a command's fill does
+/// not expand. The named rules alone also make `WorkflowDefinitionRule`.
 macro_rules! workflow_definition_findings {
     ($($(#[doc = $doc:literal])+ $rule:ident,)+) => {
+        /// A named rule of a finding that marks only nodes, by which the parameter check names the
+        /// finding a refused value raises at save.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+        #[serde(rename_all = "camelCase")]
+        pub enum WorkflowDefinitionRule {
+            $(
+                $(#[doc = $doc])+
+                $rule,
+            )+
+        }
+
         /// One finding: the rule a refused document breaks, with the nodes it marks. The validation
         /// strip lists every finding and the canvas marks each node.
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -59,6 +73,24 @@ macro_rules! workflow_definition_findings {
                 /// The package.
                 detail: NonEmptyText,
             },
+            /// An expression that does not parse, or calls a reader the way no workflow expression
+            /// does.
+            ExpressionUnparsable {
+                /// The nodes the finding marks.
+                node_ids: Vec<WorkflowNodeId>,
+                /// Why the node's first such expression does not parse; for a reader called as a
+                /// method, the spellings that read a node, `$all('<label>')` among them.
+                detail: NonEmptyText,
+            },
+            /// A `Run a command` fill in a place where no reference to it expands, so the value
+            /// would not reach the command as one value.
+            ExpressionNotExpanded {
+                /// The command steps.
+                node_ids: Vec<WorkflowNodeId>,
+                /// Why the first such fill of the step does not expand, naming the fill, and the
+                /// line for a here-document that does not end where bash ends it.
+                detail: NonEmptyText,
+            },
         }
     };
 }
@@ -79,14 +111,18 @@ workflow_definition_findings! {
     TriggerMissing,
     /// A trigger kind among the other nodes.
     TriggerDuplicate,
+    /// A node named as an earlier node is, which an expression naming it could not tell apart,
+    /// marking the later node.
+    NodeNameDuplicate,
     /// An edge into the trigger.
     EdgeIntoTrigger,
     /// An edge out of a node with no outputs.
     EdgeOutOfTerminal,
+    /// An edge joining the same two handles an earlier edge joins, which would hand its target
+    /// the same items twice.
+    EdgeDuplicate,
     /// A required parameter left empty.
     ParamMissing,
-    /// An expression that does not parse.
-    ExpressionUnparsable,
     /// An expression naming a node the document does not hold.
     ExpressionUnknownNode,
     /// An expression using a regular expression feature the engine does not run.
@@ -107,6 +143,9 @@ workflow_definition_findings! {
     UnknownKey,
     /// A `secret://` reference in a parameter the kind does not mark sensitive.
     SecretOutsideSensitiveField,
+    /// A `secret://` reference inside an expression, the `=` form, in any parameter, a sensitive
+    /// one included, since no expression resolves a secret.
+    SecretInExpression,
 }
 
 /// The details of `workflow.definition.refused`: the whole list of findings.
@@ -132,6 +171,23 @@ pub struct WorkflowNodeHandles {
     pub inputs: Vec<WorkflowInputHandleSpec>,
     /// The node's output handles.
     pub outputs: Vec<WorkflowOutputHandleSpec>,
+}
+
+impl WorkflowNodeHandles {
+    /// Where the handle an edge names `handle_id` sits among the node's handles on `mode`'s side,
+    /// tool handles included, or `None` when the node declares no such handle there.
+    pub fn declared_position(&self, handle_id: &str, mode: WorkflowHandleMode) -> Option<usize> {
+        match mode {
+            WorkflowHandleMode::Inputs => self
+                .inputs
+                .iter()
+                .position(|spec| spec.id_text() == handle_id),
+            WorkflowHandleMode::Outputs => self
+                .outputs
+                .iter()
+                .position(|spec| spec.id_text() == handle_id),
+        }
+    }
 }
 
 /// The graph check's arguments as the builder sends them: the document's trigger, its other nodes
@@ -171,12 +227,12 @@ pub struct WorkflowConnectionCheckInput {
 }
 
 /// The findings for the rules that need only a document's trigger, as a node, its nodes and edges
-/// and the kinds' handles: the trigger, an empty document, each edge's nodes and ends, the inputs
-/// over their connection limit, cycles, then orphans, each in document order. `node_handles` holds
-/// each node's handles by node id, built by the caller from the kinds table; a node missing from
-/// it is of a kind the catalog does not list, whose handles and category then go unchecked though
-/// its edges still count toward cycles and reach. An edge naming a node the document does not
-/// hold is `nodeMissing` and is checked no further at that end.
+/// and the kinds' handles: the trigger, an empty document, repeated node names, each edge's nodes,
+/// ends and repeats, the inputs over their connection limit, cycles, then orphans, each in
+/// document order. `node_handles` holds each node's handles by node id, built by the caller from
+/// the kinds table; a node missing from it is of a kind the catalog does not list, whose handles
+/// and category then go unchecked though its edges still count toward cycles and reach. An edge
+/// naming a node the document does not hold is `nodeMissing` and is checked no further at that end.
 pub fn check_workflow_graph<S: BuildHasher>(
     trigger: Option<&WorkflowNode>,
     document_nodes: &[WorkflowNode],
@@ -210,6 +266,11 @@ pub fn check_workflow_graph<S: BuildHasher>(
             node_ids: duplicate_trigger_ids,
         });
     }
+    findings.extend(graph.repeated_names().into_iter().map(|node_id| {
+        WorkflowDefinitionFinding::NodeNameDuplicate {
+            node_ids: vec![node_id],
+        }
+    }));
     let findings_by_edge = graph.findings_by_edge();
     let refused_edges = refused_edge_indices(&findings_by_edge);
     findings.extend(findings_by_edge.into_iter().flatten());
@@ -300,6 +361,7 @@ enum EdgeRule {
     NodeMissing,
     EdgeIntoTrigger,
     EdgeOutOfTerminal,
+    EdgeDuplicate,
     ToolEdgeWithoutToolInput,
     HandleTypeUnknown,
     HandleTypeMismatch,
@@ -312,6 +374,7 @@ impl EdgeRule {
             Self::NodeMissing => WorkflowDefinitionFinding::NodeMissing { node_ids },
             Self::EdgeIntoTrigger => WorkflowDefinitionFinding::EdgeIntoTrigger { node_ids },
             Self::EdgeOutOfTerminal => WorkflowDefinitionFinding::EdgeOutOfTerminal { node_ids },
+            Self::EdgeDuplicate => WorkflowDefinitionFinding::EdgeDuplicate { node_ids },
             Self::ToolEdgeWithoutToolInput => {
                 WorkflowDefinitionFinding::ToolEdgeWithoutToolInput { node_ids }
             }
@@ -391,16 +454,47 @@ impl<'a, S: BuildHasher> GraphFacts<'a, S> {
             .is_some_and(|handles| handles.category != WorkflowNodeKindCategory::Trigger)
     }
 
-    // Each edge's own findings, in document order.
+    // Each node after the first holding a name, in document order, the trigger first.
+    fn repeated_names(&self) -> Vec<WorkflowNodeId> {
+        let mut names = HashSet::new();
+        self.nodes
+            .iter()
+            .filter(|node| !names.insert(node.name.as_str()))
+            .map(|node| node.id.clone())
+            .collect()
+    }
+
+    // Each edge's own findings, in document order; an edge joining the handles an earlier one
+    // joins is a repeat.
     fn findings_by_edge(&self) -> Vec<Vec<WorkflowDefinitionFinding>> {
+        let mut joins = HashSet::new();
         self.edges
             .iter()
-            .map(|parsed_edge| self.edge_findings(parsed_edge))
+            .map(|parsed_edge| {
+                let WorkflowEdge {
+                    source,
+                    source_handle,
+                    target,
+                    target_handle,
+                    ..
+                } = parsed_edge.edge;
+                let is_repeat = !joins.insert((
+                    source,
+                    source_handle.as_str(),
+                    target,
+                    target_handle.as_str(),
+                ));
+                self.edge_findings(parsed_edge, is_repeat)
+            })
             .collect()
     }
 
     // The edge's findings, each marking the ends the document holds.
-    fn edge_findings(&self, parsed_edge: &ParsedEdge<'_>) -> Vec<WorkflowDefinitionFinding> {
+    fn edge_findings(
+        &self,
+        parsed_edge: &ParsedEdge<'_>,
+        is_repeat: bool,
+    ) -> Vec<WorkflowDefinitionFinding> {
         let WorkflowEdge { source, target, .. } = parsed_edge.edge;
         let mut held_end_ids: Vec<WorkflowNodeId> = [source, target]
             .into_iter()
@@ -408,7 +502,7 @@ impl<'a, S: BuildHasher> GraphFacts<'a, S> {
             .cloned()
             .collect();
         held_end_ids.dedup();
-        self.edge_rules(parsed_edge)
+        self.edge_rules(parsed_edge, is_repeat)
             .into_iter()
             .map(|rule| rule.finding(held_end_ids.clone()))
             .collect()
@@ -416,8 +510,9 @@ impl<'a, S: BuildHasher> GraphFacts<'a, S> {
 
     // One rule at most for each end the document holds; a rule that names the end's problem
     // outright stands in for the undeclared-handle finding it would also raise. Only when both
-    // ends name a handle their nodes declare is a join of two types a mismatch.
-    fn edge_rules(&self, parsed_edge: &ParsedEdge<'_>) -> Vec<EdgeRule> {
+    // ends name a handle their nodes declare is a join of two types a mismatch, and only an edge
+    // breaking no other rule is refused as a repeat.
+    fn edge_rules(&self, parsed_edge: &ParsedEdge<'_>, is_repeat: bool) -> Vec<EdgeRule> {
         let edge = parsed_edge.edge;
         let has_source = self.node_by_id.contains_key(&edge.source);
         let has_target = self.node_by_id.contains_key(&edge.target);
@@ -438,6 +533,9 @@ impl<'a, S: BuildHasher> GraphFacts<'a, S> {
         }
         if rules.is_empty() && parsed_edge.is_type_mismatch() {
             rules.push(EdgeRule::HandleTypeMismatch);
+        }
+        if rules.is_empty() && is_repeat {
+            rules.push(EdgeRule::EdgeDuplicate);
         }
         rules
     }
@@ -535,7 +633,16 @@ impl<'a, S: BuildHasher> GraphFacts<'a, S> {
     /// connected components of more than one node or with a self-edge. An edge into a loop node's
     /// input closes the loop body and is left out, unless it is the loop node's own self-edge.
     fn cycles(&self) -> Vec<Vec<WorkflowNodeId>> {
-        let mut successors: HashMap<&WorkflowNodeId, Vec<&WorkflowNodeId>> = HashMap::new();
+        let node_ids: Vec<&WorkflowNodeId> = self.nodes.iter().map(|node| &node.id).collect();
+        let mut graph: DiGraph<&WorkflowNodeId, ()> =
+            DiGraph::with_capacity(node_ids.len(), self.edges.len());
+        // A repeated id is one node of the graph, as it is one key of `node_by_id`.
+        let mut index_by_node_id: HashMap<&WorkflowNodeId, NodeIndex> = HashMap::new();
+        for &node_id in &node_ids {
+            index_by_node_id
+                .entry(node_id)
+                .or_insert_with(|| graph.add_node(node_id));
+        }
         let mut self_edge_node_ids = HashSet::new();
         for parsed_edge in &self.edges {
             let WorkflowEdge { source, target, .. } = parsed_edge.edge;
@@ -547,26 +654,26 @@ impl<'a, S: BuildHasher> GraphFacts<'a, S> {
             if !parsed_edge.is_main() || is_loop_closing {
                 continue;
             }
-            if self.node_by_id.contains_key(source) && self.node_by_id.contains_key(target) {
-                successors.entry(source).or_default().push(target);
+            if let (Some(&source_index), Some(&target_index)) =
+                (index_by_node_id.get(source), index_by_node_id.get(target))
+            {
+                graph.add_edge(source_index, target_index, ());
                 if source == target {
                     self_edge_node_ids.insert(source);
                 }
             }
         }
-        let node_ids: Vec<&WorkflowNodeId> = self.nodes.iter().map(|node| &node.id).collect();
+        // Kosaraju's search walks with its own stack, so a long chain cannot exhaust the call
+        // stack.
         let mut component_by_node_id = HashMap::new();
-        for (component_index, component) in strongly_connected_components(&node_ids, &successors)
-            .iter()
-            .enumerate()
-        {
+        for (component_index, component) in kosaraju_scc(&graph).iter().enumerate() {
             let is_cycle = component.len() > 1
                 || component
                     .iter()
-                    .any(|node_id| self_edge_node_ids.contains(node_id));
+                    .any(|&index| self_edge_node_ids.contains(graph[index]));
             if is_cycle {
-                for node_id in component {
-                    component_by_node_id.insert(*node_id, component_index);
+                for &index in component {
+                    component_by_node_id.insert(graph[index], component_index);
                 }
             }
         }
@@ -630,119 +737,9 @@ fn is_declared_handle(
     mode: WorkflowHandleMode,
     handles: Option<&WorkflowNodeHandles>,
 ) -> bool {
-    let is_listed = handles.is_none_or(|handles| match mode {
-        WorkflowHandleMode::Inputs => handles
-            .inputs
-            .iter()
-            .any(|spec| spec.id_text() == handle_id),
-        WorkflowHandleMode::Outputs => handles
-            .outputs
-            .iter()
-            .any(|spec| spec.id_text() == handle_id),
-    });
+    let is_listed =
+        handles.is_none_or(|handles| handles.declared_position(handle_id, mode).is_some());
     handle.is_type_known && handle.mode == mode && is_listed
-}
-
-/// One node's place in Tarjan's walk.
-#[derive(Clone, Copy)]
-struct Visit {
-    index: usize,
-    low_link: usize,
-}
-
-/// One node being walked: the node and how many of its successors the walk has taken.
-struct Frame<'a> {
-    node_id: &'a WorkflowNodeId,
-    next_index: usize,
-}
-
-/// Tarjan's bookkeeping: each entered node's visit, and the stack of nodes not yet in a component.
-#[derive(Default)]
-struct TarjanWalk<'a> {
-    visits: HashMap<&'a WorkflowNodeId, Visit>,
-    stack: Vec<&'a WorkflowNodeId>,
-    on_stack: HashSet<&'a WorkflowNodeId>,
-}
-
-impl<'a> TarjanWalk<'a> {
-    fn enter(&mut self, node_id: &'a WorkflowNodeId) -> Frame<'a> {
-        let index = self.visits.len();
-        self.visits.insert(
-            node_id,
-            Visit {
-                index,
-                low_link: index,
-            },
-        );
-        self.stack.push(node_id);
-        self.on_stack.insert(node_id);
-        Frame {
-            node_id,
-            next_index: 0,
-        }
-    }
-
-    fn lower_link(&mut self, node_id: &WorkflowNodeId, low_link: usize) {
-        let visit = self
-            .visits
-            .get_mut(node_id)
-            .expect("a walked node was entered");
-        visit.low_link = visit.low_link.min(low_link);
-    }
-}
-
-// Tarjan's algorithm, walked with an explicit stack so a long chain cannot exhaust the call stack:
-// each component is popped off the node stack once its root is finished.
-fn strongly_connected_components<'a>(
-    node_ids: &[&'a WorkflowNodeId],
-    successors: &HashMap<&'a WorkflowNodeId, Vec<&'a WorkflowNodeId>>,
-) -> Vec<Vec<&'a WorkflowNodeId>> {
-    let mut walk = TarjanWalk::default();
-    let mut components = Vec::new();
-    for &root_id in node_ids {
-        if walk.visits.contains_key(root_id) {
-            continue;
-        }
-        let mut frames = vec![walk.enter(root_id)];
-        while let Some(frame) = frames.last_mut() {
-            let node_id = frame.node_id;
-            let next_id = successors
-                .get(node_id)
-                .and_then(|next| next.get(frame.next_index))
-                .copied();
-            if let Some(next_id) = next_id {
-                frame.next_index += 1;
-                match walk.visits.get(next_id).map(|visit| visit.index) {
-                    None => {
-                        let next_frame = walk.enter(next_id);
-                        frames.push(next_frame);
-                    }
-                    Some(seen_index) if walk.on_stack.contains(next_id) => {
-                        walk.lower_link(node_id, seen_index);
-                    }
-                    Some(_) => {}
-                }
-                continue;
-            }
-            frames.pop();
-            let finished = *walk.visits.get(node_id).expect("a walked node was entered");
-            if let Some(parent) = frames.last() {
-                walk.lower_link(parent.node_id, finished.low_link);
-            }
-            if finished.low_link == finished.index {
-                let mut component = Vec::new();
-                while let Some(member) = walk.stack.pop() {
-                    walk.on_stack.remove(member);
-                    component.push(member);
-                    if member == node_id {
-                        break;
-                    }
-                }
-                components.push(component);
-            }
-        }
-    }
-    components
 }
 
 /// The TypeScript module of the definition refusal and the graph checks' arguments.

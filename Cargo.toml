@@ -227,6 +227,7 @@ x25519-dalek = "3.0.0"
 zeroize = "1.9.1"
 
 # Content, text and time.
+aho-corasick = "1.1.5"
 base16ct = { version = "1.0.0", features = ["alloc"] }
 # Strips the terminal escapes from the provider's reason line an approval card shows: CSI, 8-bit
 # CSI and OSC ending in BEL or ST, with none of its terminal code.
@@ -252,6 +253,7 @@ file-format.features = [
   "reader-sqlite3",
   "reader-xml"
 ]
+fixedbitset = "0.5.7"
 # A GIF's header read with its metadata bounded: `image`'s GIF decoder passes no memory limit.
 gif = "0.14.2"
 icu_casemap = "2.3.0"
@@ -265,7 +267,7 @@ image = { version = "0.25.10", default-features = false, features = ["gif", "jpe
 # A WebP's header read with its metadata bounded: `image`'s WebP decoder passes no memory limit.
 image-webp = "0.2.4"
 jiff = { version = "0.2.38", features = ["tzdb-bundle-always"] }
-jsonata-core = { version = "2.2.11", default-features = false }
+jsonata-core = { version = "2.2.13", default-features = false }
 jsonc-parser = { version = "0.34.0", features = ["cst"] }
 lettre.version = "0.11.23"
 lettre.default-features = false
@@ -284,6 +286,7 @@ lz4_flex.default-features = false
 lz4_flex.features = ["safe-decode", "safe-encode"]
 memchr = "2.8.3"
 pdfium-render = "0.9.4"
+petgraph = { version = "0.8.3", default-features = false, features = ["std"] }
 # A PNG's header read with its text and color-profile chunks skipped: `image`'s PNG decoder reads
 # both.
 png = "0.18.1"
@@ -302,6 +305,7 @@ toml = "1.1.8"
 toml_edit = { version = "0.25.17", features = ["serde"] }
 tree-sitter = "0.27.1"
 tree-sitter-bash = "0.25.1"
+tree-sitter-powershell = "0.26.6"
 unicode-normalization = "0.1.25"
 unicode-properties.version = "0.1.4"
 unicode-properties.default-features = false
@@ -410,6 +414,14 @@ ignored = [
 ]
 
 [patch.crates-io]
+# The expression engine is its 2.2.13 release with three fixes on the user's fork, each offered
+# upstream: regex classes read as JavaScript reads them
+# (https://github.com/txjmb/jsonata-core/pull/271), a cancel seen inside `$distinct` and `$keys`
+# (https://github.com/txjmb/jsonata-core/pull/272), and object keys in JavaScript's order
+# (https://github.com/txjmb/jsonata-core/pull/273). Each fix leaves the fork when a release carries
+# it, and the entry goes when a release carries all three.
+jsonata-core.git = "https://github.com/Sawmonabo/jsonata-core"
+jsonata-core.rev = "d8f551bc1df42d71f18cf4a5702bbb9708507076"
 # Sätteri's markdown parser is its 0.10.5 release with our indented-code-block fix, one commit on
 # the user's fork, which the markdown parser's WebAssembly build reads too.
 satteri-pulldown-cmark.git = "https://github.com/Sawmonabo/satteri"

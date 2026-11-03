@@ -43,10 +43,6 @@ const DELETE_KEPT_VALUES_SQL: &str =
     "DELETE FROM workflow_node_state WHERE definition_id = @definition_id AND node_id = ''";
 
 /// One value a workflow keeps: its name, the value, the run that kept it and when.
-#[expect(
-    dead_code,
-    reason = "the workflow engine reads kept values into a run's $vars"
-)]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct WorkflowKeptValue {
     /// The name later runs read it by.

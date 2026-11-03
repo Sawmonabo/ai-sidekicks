@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use sidekicks_contracts::daemon::data::DAEMON_DATA_FOLDER_NAME;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 
 pub mod lock;
 
@@ -22,6 +24,12 @@ const PROGRAM_LINK_FOLDER_NAME: &str = "bin";
 
 // The folder in the data folder that holds each session's own storage folder.
 const SESSION_STORAGE_FOLDER_NAME: &str = "sessions";
+
+// The folder in the data folder that holds each workflow's runs' own folders.
+const WORKFLOWS_FOLDER_NAME: &str = "workflows";
+
+// The folder in a workflow's folder that holds its runs' own folders.
+const WORKFLOW_RUNS_FOLDER_NAME: &str = "runs";
 
 /// The service's data folder under `home`, which holds its store, its logs and its lock.
 pub fn data_folder(home: &Path) -> PathBuf {
@@ -59,4 +67,18 @@ pub fn session_storage_folder(data_folder: &Path, session_id: &SessionId) -> Pat
     data_folder
         .join(SESSION_STORAGE_FOLDER_NAME)
         .join(session_id.text().as_str())
+}
+
+/// Workflow run `workflow_run_id`'s own folder in `data_folder`, under its workflow
+/// `definition_id`: where the run works when its session has no working folder.
+pub fn workflow_run_folder(
+    data_folder: &Path,
+    definition_id: &WorkflowDefinitionId,
+    workflow_run_id: &WorkflowRunId,
+) -> PathBuf {
+    data_folder
+        .join(WORKFLOWS_FOLDER_NAME)
+        .join(definition_id.text().as_str())
+        .join(WORKFLOW_RUNS_FOLDER_NAME)
+        .join(workflow_run_id.text().as_str())
 }
