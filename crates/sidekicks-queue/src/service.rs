@@ -85,13 +85,13 @@ use crate::session_lock::{QueueSessionLock, UnreleasedInterrupts};
 /// left their choice unsettled and the sessions holding one, the trigger of a run's newest
 /// interrupted end, the queue stream's reads of the changes after a cursor and of the waiting
 /// items from the first place and after a place, and an undo's reads: a checkpoint by its message
-/// and by its snapshot, its run's rollbacks and a session's lead runs after one. Its other reads (a session's queue, the
-/// messages waiting for a run, a run's row, its provider, its agent and account, a session's state,
-/// its lead and its step bound, a binding by its id, the events at a sequence, a session's live
-/// runs with their open turns and its ended runs holding an open turn) are in the idle sleep's, the
-/// run engine's, the run pause's, the binding store's, the snapshot list's, the provider sessions'
-/// and the restart settle's sets.
-pub const RUN_QUEUE_STATEMENT_CAPACITY: usize = 16;
+/// and by its snapshot, and a session's lead runs after one. Its other reads (a session's queue,
+/// the messages waiting for a run, a run's row, its provider, its agent and account, a session's
+/// state, its lead and its step bound, a binding by its id, the events at a sequence, a run's
+/// rollbacks, a session's live runs with their open turns and its ended runs holding an open
+/// turn) are in the idle sleep's, the run engine's, the run pause's, the binding store's, the
+/// snapshot list's, the session service's, the provider sessions' and the restart settle's sets.
+pub const RUN_QUEUE_STATEMENT_CAPACITY: usize = 15;
 
 // The detail of a queued run ended because every message it was queued for was removed.
 static EMPTIED_RUN_DETAIL: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
@@ -363,7 +363,8 @@ impl RunQueue {
                 }
             };
             // Read under the lock, which an undo's hold and release both take, so a resume owed
-            // here goes either now or at the release, once.
+            // here goes either now or at the release, once; a hold dropped off the runtime lets
+            // go without the lock and opens nothing, so its owed resume waits for the next send.
             (written, self.delivery.is_held_for_undo(session_id))
         };
         if let Some((run_id, run)) = written.resumes

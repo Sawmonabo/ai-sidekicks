@@ -1,8 +1,8 @@
 //! The undo's release: a send during the undo waits on every route and follows the edited message,
 //! the edit reserved as the opening of the run that reads its opening later whatever the order
 //! says meanwhile, a run that ends first never records it admitted, back-to-back undos open the run
-//! once with the newer edit first, a start or continue already under way waits out the undo, and a
-//! hold dropped unreleased still lets the session go.
+//! once with the newer edit first, a start or continue already under way waits out the undo, a
+//! hold dropped unreleased still lets the session go, and a retry under its key keeps its own.
 
 use std::sync::Arc;
 
@@ -20,7 +20,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord};
-use sidekicks_session::run::state_change::RunWriteCompanions;
+use sidekicks_session::run::engine::undo::RollbackCompanions;
 use tokio::time::{sleep, timeout};
 
 use super::super::{DriverCalls, HELD_WATCH, WAIT, client_key, fixture, recording_driver};
@@ -145,7 +145,7 @@ async fn a_send_during_an_undo_waits_and_follows_the_edit(#[case] route: HeldRou
     let is_starting_while_held = fixture.queue.admission.is_starting(held_run_id);
     fixture
         .queue
-        .cut_conversation(&hold, &scene.target, RunWriteCompanions::default())
+        .cut_conversation(&hold, &scene.target, RollbackCompanions::default())
         .await
         .expect("the cut applies");
     if matches!(route, HeldRoute::RefusedResend) {
@@ -439,7 +439,7 @@ async fn back_to_back_undos_resume_a_paused_run_once_with_the_newer_edit_first()
         .await;
     fixture
         .queue
-        .cut_conversation(&second_hold, &scene.target, RunWriteCompanions::default())
+        .cut_conversation(&second_hold, &scene.target, RollbackCompanions::default())
         .await
         .expect("the second cut applies");
     let queue = Arc::clone(&fixture.queue);
@@ -516,6 +516,52 @@ async fn a_dropped_hold_lets_the_session_go_and_hands_the_held_send() {
         .expect("the dropped hold's release settles");
     fixture.queue.delivery.settle(fixture.session_id).await;
 
+    assert!(!fixture.queue.delivery.is_held_for_undo(fixture.session_id));
+    let steers = scene.calls.steers();
+    assert!(
+        steers.iter().any(|(item_id, _)| *item_id == held_send),
+        "{steers:?}"
+    );
+}
+
+// An undo retried under the key of one that was canceled holds the session apart from it: the
+// canceled hold's release, which runs on the queue's task once the retry holds, leaves the retry's
+// hold in place, and the send made meanwhile is handed only at the retry's release. Killed by
+// holds kept by the undo's key, where that late release ends the retry's hold.
+#[tokio::test]
+async fn a_retry_under_a_canceled_undos_key_keeps_its_own_hold() {
+    let scene = scene(applied_in_place()).await;
+    let fixture = &scene.fixture;
+    let key = client_key();
+    let canceled = fixture
+        .queue
+        .hold_for_undo(fixture.session_id, key.clone())
+        .await;
+    let held_send = timeout(WAIT, fixture.send())
+        .await
+        .expect("a send during the undo answers")
+        .expect("a send during the undo is taken");
+
+    drop(canceled);
+    let retry = fixture
+        .queue
+        .hold_for_undo(fixture.session_id, key.clone())
+        .await;
+    let releases = &fixture.queue.releases;
+    releases.close();
+    timeout(WAIT, releases.wait())
+        .await
+        .expect("the canceled hold's release settles");
+    releases.reopen();
+    let is_held_after_late_release = fixture.queue.delivery.is_held_for_undo(fixture.session_id);
+    fixture
+        .queue
+        .release_undo_hold(retry, None, device())
+        .await
+        .expect("the retry lets the session go");
+    fixture.queue.delivery.settle(fixture.session_id).await;
+
+    assert!(is_held_after_late_release);
     assert!(!fixture.queue.delivery.is_held_for_undo(fixture.session_id));
     let steers = scene.calls.steers();
     assert!(

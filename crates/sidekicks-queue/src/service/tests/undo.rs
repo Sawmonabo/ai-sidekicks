@@ -75,7 +75,9 @@ async fn scene(answer: RewindAnswer) -> Scene {
     let fixture = fixture(driver).await;
     let run_id = fixture.insert_run("running");
     let message_sequence = fixture.insert_sent_message(run_id);
-    let target = fixture.insert_checkpoint(run_id, message_sequence).await;
+    let target = fixture
+        .insert_checkpoint(run_id, message_sequence, SourceEpoch(SafeInt::ZERO))
+        .await;
     let binding_id = bind_run_to_first_provider(&fixture.database, run_id);
     fixture.open_cursor(run_id, binding_id).await;
     Scene {
@@ -115,11 +117,12 @@ impl Fixture {
     }
 
     /// Writes the checkpoint before the message at `message_sequence`, which opened turn 2 of
-    /// `run_id`, and answers the undo's target naming it.
+    /// `run_id` in `epoch`, and answers the undo's target naming it.
     async fn insert_checkpoint(
         &self,
         run_id: RunId,
         message_sequence: u64,
+        epoch: SourceEpoch,
     ) -> SessionRestoreTarget {
         let snapshot_id = SnapshotId::new(mint_uuid_v7().to_string()).expect("a snapshot id");
         let checkpoint = Checkpoint {
@@ -128,7 +131,7 @@ impl Fixture {
             message_sequence: SafeInt::new(message_sequence).expect("a small sequence"),
             run_id,
             turn: EpochPosition {
-                epoch: SourceEpoch(SafeInt::ZERO),
+                epoch,
                 position: position(TARGET_TURN),
             },
         };

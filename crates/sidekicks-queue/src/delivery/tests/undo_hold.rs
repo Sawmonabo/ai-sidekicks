@@ -1,6 +1,6 @@
 //! The undo's hold: every way a message reaches the provider sends nothing of a held session until
 //! the release, a hand queued before the hold sends nothing, a hand inside its driver call is
-//! waited out, and each undo holds under its own key.
+//! waited out, and each undo holds under a hold of its own.
 
 use std::pin::pin;
 use std::sync::Arc;
@@ -9,7 +9,6 @@ use std::time::Duration;
 
 use rstest::rstest;
 use sidekicks_contracts::run::state::RunState;
-use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
 use sidekicks_session::driver_resolution::read_run_driver;
 use sidekicks_session::queue_store::{QueueItemRecord, RecordedQueueItemState};
@@ -21,7 +20,7 @@ use super::{
     driver_handing, fixture, hand, hold_chain, insert_item, release_chain, set_run_state, settle,
     stored_item,
 };
-use crate::delivery::DeliveryError;
+use crate::delivery::{DeliveryError, UndoHoldId};
 
 /// A way a waiting message reaches its provider.
 #[derive(Clone, Copy, Debug)]
@@ -38,17 +37,15 @@ enum Way {
     Continue,
 }
 
-/// A fresh undo's key, for a hold the delivery takes.
-fn undo_key() -> ClientUuid {
-    ClientUuid::new(mint_uuid_v7().to_string()).expect("a minted UUID is a client key")
-}
-
-/// Holds the fixture's session for the undo `key`, failing the test if the hold waits.
-async fn hold_for_undo(fixture: &Fixture, key: &ClientUuid) {
+/// Holds the fixture's session under a fresh undo hold and answers it, failing the test if the
+/// hold waits.
+async fn hold_for_undo(fixture: &Fixture) -> UndoHoldId {
+    let hold_id = fixture.delivery.mint_undo_hold_id();
     let hold = fixture.session_lock.hold_session(fixture.session_id).await;
-    timeout(WAIT, fixture.delivery.hold_for_undo(&hold, key.clone()))
+    timeout(WAIT, fixture.delivery.hold_for_undo(&hold, hold_id))
         .await
         .expect("no hand is inside its driver call");
+    hold_id
 }
 
 /// Sends `item` to its provider the way `way` does and answers whether it reached the provider:
@@ -136,11 +133,12 @@ async fn nothing_of_a_session_held_for_an_undo_reaches_its_provider_until_the_re
         Way::HandWaiting | Way::ToolBoundary | Way::HandFirst => {}
     }
     let item = insert_item(&fixture).await;
-    let key = undo_key();
-    hold_for_undo(&fixture, &key).await;
+    let hold_id = hold_for_undo(&fixture).await;
 
     let reached_while_held = reaches(&fixture, way, &item, &steers).await;
-    let is_released = fixture.delivery.release_undo_hold(fixture.session_id, &key);
+    let is_released = fixture
+        .delivery
+        .release_undo_hold(fixture.session_id, hold_id);
     let reached_after = reaches(&fixture, way, &item, &steers).await;
 
     assert!(!reached_while_held, "the held session's message stays");
@@ -182,9 +180,14 @@ async fn a_hand_queued_before_an_undos_hold_sends_nothing(#[case] handing: Messa
                     .expect("the boundary's steer is queued");
             }
         }
-        timeout(WAIT, fixture.delivery.hold_for_undo(&hold, undo_key()))
-            .await
-            .expect("the hold waits for no queued job");
+        timeout(
+            WAIT,
+            fixture
+                .delivery
+                .hold_for_undo(&hold, fixture.delivery.mint_undo_hold_id()),
+        )
+        .await
+        .expect("the hold waits for no queued job");
     }
 
     release_chain(release, holder).await;
@@ -211,7 +214,11 @@ async fn an_undos_hold_waits_out_a_hand_inside_its_driver_call() {
         .expect("the hand steers");
 
     let hold = fixture.session_lock.hold_session(fixture.session_id).await;
-    let mut holding = pin!(fixture.delivery.hold_for_undo(&hold, undo_key()));
+    let mut holding = pin!(
+        fixture
+            .delivery
+            .hold_for_undo(&hold, fixture.delivery.mint_undo_hold_id())
+    );
     let early = timeout(Duration::from_millis(100), &mut holding).await;
     release_steer
         .send(())
@@ -225,8 +232,8 @@ async fn an_undos_hold_waits_out_a_hand_inside_its_driver_call() {
     assert!(settled.is_ok(), "the hold answers once the steer returns");
 }
 
-// Two undos hold one session each under its own key: the first's release keeps the session held,
-// so a hand sends nothing, the second's lets it go, and a release again of the same key changes
+// Two undos hold one session each under its own hold: the first's release keeps the session held,
+// so a hand sends nothing, the second's lets it go, and a release again of the same hold changes
 // nothing. Killed by one hold per session, which the first release would end.
 #[tokio::test]
 async fn a_session_two_undos_hold_stays_held_until_both_let_go() {
@@ -234,22 +241,21 @@ async fn a_session_two_undos_hold_stays_held_until_both_let_go() {
     let steers: Arc<AtomicUsize> = count_steers(&mut driver);
     let fixture = fixture(driver).await;
     insert_item(&fixture).await;
-    let (first, second) = (undo_key(), undo_key());
-    hold_for_undo(&fixture, &first).await;
-    hold_for_undo(&fixture, &second).await;
+    let first = hold_for_undo(&fixture).await;
+    let second = hold_for_undo(&fixture).await;
 
     let first_released = fixture
         .delivery
-        .release_undo_hold(fixture.session_id, &first);
+        .release_undo_hold(fixture.session_id, first);
     hand(&fixture).await;
     settle(&fixture).await;
     let steers_while_held = steers.load(Ordering::SeqCst);
     let second_released = fixture
         .delivery
-        .release_undo_hold(fixture.session_id, &second);
+        .release_undo_hold(fixture.session_id, second);
     let released_again = fixture
         .delivery
-        .release_undo_hold(fixture.session_id, &second);
+        .release_undo_hold(fixture.session_id, second);
 
     assert!(!first_released);
     assert_eq!(steers_while_held, 0);

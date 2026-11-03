@@ -26,10 +26,12 @@ use sidekicks_provider::runtime_binding::store::read_binding;
 use sidekicks_session::checkpoints::store::{CheckpointReadError, read_checkpoint};
 use sidekicks_session::driver_resolution::read_run_driver;
 use sidekicks_session::queue_store::{QueueItemRecord, placement_statements};
-use sidekicks_session::run::engine::undo::{RunCut, RunRollback};
+use sidekicks_session::run::engine::undo::{
+    RollbackCheckError, RollbackCompanionCheck, RollbackCompanions, RunCut, RunRollback,
+    check_rollback,
+};
 use sidekicks_session::run::epochs::{ConfirmedCut, EpochCursorError};
-use sidekicks_session::run::read::{RunStateReader, read_run_through};
-use sidekicks_session::run::state_change::RunWriteCompanions;
+use sidekicks_session::run::read::read_run_through;
 use sidekicks_session::run::superseded::StoredRollbackMismatchError;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadError, ReadLength};
@@ -38,7 +40,7 @@ use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 use sidekicks_store::events::session::read::SessionEventReads;
 
 use super::RunQueue;
-use crate::delivery::reordered_of;
+use crate::delivery::{UndoHoldId, reordered_of};
 use crate::error::QueueError;
 
 // The session's lead runs made after `@run_id` that have left `queued`, oldest first: a run id is
@@ -56,22 +58,26 @@ static LATER_LEAD_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 /// One undo's hold on a session's lead, from [`RunQueue::hold_for_undo`]: the cut borrows it and
-/// [`RunQueue::release_undo_hold`] consumes it, so a hold is let go once. A hold dropped unreleased,
-/// its undo canceled or failed, is let go on a task of the queue's own, as a release with no edit.
+/// [`RunQueue::release_undo_hold`] consumes it, so a hold is let go once. A hold dropped
+/// unreleased, its undo canceled or failed, is let go on a task of the queue's own, as a release
+/// with no edit; dropped off the runtime, it is let go in place, without the session's lock, and
+/// opens nothing.
 #[must_use = "a session held for an undo is handed nothing until the hold is released"]
 #[derive(Debug)]
 pub struct UndoHold {
     session_id: SessionId,
     undo_key: ClientUuid,
+    // Its own among the session's holds, so a retry under the same key holds apart from it.
+    hold_id: UndoHoldId,
     // The queue the drop lets the hold go through; empty once a release took the hold.
     queue: Weak<RunQueue>,
 }
 
 impl UndoHold {
     // Takes the hold for a release, so its drop lets nothing go.
-    fn take(mut self) -> (SessionId, ClientUuid) {
+    fn take(mut self) -> (SessionId, ClientUuid, UndoHoldId) {
         self.queue = Weak::new();
-        (self.session_id, self.undo_key.clone())
+        (self.session_id, self.undo_key.clone(), self.hold_id)
     }
 }
 
@@ -80,15 +86,19 @@ impl Drop for UndoHold {
         let Some(queue) = self.queue.upgrade() else {
             return;
         };
-        let (session_id, undo_key) = (self.session_id, self.undo_key.clone());
+        let (session_id, undo_key, hold_id) =
+            (self.session_id, self.undo_key.clone(), self.hold_id);
         if tokio::runtime::Handle::try_current().is_err() {
             // Off the runtime nothing can open the lead's next turn, so the hold alone goes.
-            queue.delivery.release_undo_hold(session_id, &undo_key);
+            queue.delivery.release_undo_hold(session_id, hold_id);
             return;
         }
         let releases = queue.releases.clone();
         releases.spawn(async move {
-            if let Err(error) = queue.let_go_undo_hold(session_id, undo_key, None).await {
+            if let Err(error) = queue
+                .let_go_undo_hold(session_id, undo_key, hold_id, None)
+                .await
+            {
                 tracing::error!(
                     session_id = %session_id,
                     error = &error as &(dyn std::error::Error + 'static),
@@ -118,11 +128,13 @@ pub enum ConversationCut {
 }
 
 /// Why a conversation cut was not made or not recorded. Every refusal but [`Unrecorded`] and
-/// [`Fence`] is answered before the provider is asked, writing nothing and dropping the
-/// companions.
+/// [`Fence`] writes nothing and drops the companions, and each is answered before the provider is
+/// asked, the companions' check among them, except a [`Queue`] that carries the provider's own
+/// failure of the cut.
 ///
 /// [`Unrecorded`]: ConversationCutError::Unrecorded
 /// [`Fence`]: ConversationCutError::Fence
+/// [`Queue`]: ConversationCutError::Queue
 #[derive(Debug, thiserror::Error)]
 pub enum ConversationCutError {
     /// The target names no checkpoint of the session, or a message cursor naming no place in its
@@ -150,6 +162,12 @@ pub enum ConversationCutError {
         /// The run.
         run_id: RunId,
     },
+    /// A companion statement would refuse the rollback's write, as the companions' check read it.
+    #[error("companion statement {companion_index} of the rollback would refuse it")]
+    CompanionRefused {
+        /// The statement's position among the companions.
+        companion_index: usize,
+    },
     /// The session runs on no binding whose run the cut reaches, so the cut has nothing to fence.
     #[error("the session has no live provider binding the cut reaches")]
     NoLiveBinding,
@@ -157,8 +175,9 @@ pub enum ConversationCutError {
     /// binding's cursor moved on meanwhile.
     #[error("the conversation cut was recorded but not fenced")]
     Fence(#[source] EpochCursorError),
-    /// The provider cut the conversation but the rollback write was refused or failed, so the
-    /// store holds no rollback of turns the provider no longer has.
+    /// The provider cut the conversation but the store did not record the rollback: its write
+    /// failed, or a condition the check read before the cut moved before the write, so the store
+    /// holds no rollback of turns the provider no longer has.
     #[error("the provider cut the conversation, but the store recorded no rollback")]
     Unrecorded(#[source] QueueError),
     /// A read or the provider's cut failed, writing nothing.
@@ -191,14 +210,16 @@ impl RunQueue {
     /// call is waited out. A send meanwhile is recorded and waits.
     pub async fn hold_for_undo(&self, session_id: SessionId, undo_key: ClientUuid) -> UndoHold {
         let hold = self.session_lock.hold_session(session_id).await;
-        // Made before the key goes in, with no await between, so a hold canceled while it waits
-        // out a hand in flight still lets its key go.
+        // Made before the hold goes in, with no await between, so a hold canceled while it waits
+        // out a hand in flight still lets itself go.
+        let hold_id = self.delivery.mint_undo_hold_id();
         let undo_hold = UndoHold {
             session_id,
-            undo_key: undo_key.clone(),
+            undo_key,
+            hold_id,
             queue: self.this.clone(),
         };
-        self.delivery.hold_for_undo(&hold, undo_key).await;
+        self.delivery.hold_for_undo(&hold, hold_id).await;
         undo_hold
     }
 
@@ -207,14 +228,15 @@ impl RunQueue {
     /// write records an `agent.run.rolledBack` of the target's run at the turn before the target's
     /// and of each later lead run at its start, with `companions` committing in it, and the cut is
     /// fenced on the session's live binding; the hold stays. Refuses as [`ConversationCutError`]
-    /// says before the provider is asked, an open turn among the runs it reaches included; a
-    /// provider's fallback or failure writes nothing, and a write refused or failed once the
-    /// provider cut answers [`ConversationCutError::Unrecorded`].
+    /// says before the provider is asked, an open turn among the runs it reaches and a companion
+    /// its check refuses included; a provider's fallback or failure writes nothing, and a write
+    /// the store does not record once the provider cut answers
+    /// [`ConversationCutError::Unrecorded`].
     pub async fn cut_conversation(
         &self,
         hold: &UndoHold,
         target: &SessionRestoreTarget,
-        companions: RunWriteCompanions,
+        companions: RollbackCompanions,
     ) -> Result<ConversationCut, ConversationCutError> {
         let session_id = hold.session_id;
         let binding_id = self
@@ -222,7 +244,9 @@ impl RunQueue {
             .binding_cursors()
             .current_binding(&session_id)
             .ok_or(ConversationCutError::NoLiveBinding)?;
-        let reach = self.read_cut_reach(session_id, target, binding_id).await?;
+        let reach = self
+            .read_cut_reach(session_id, target, binding_id, &companions.check)
+            .await?;
         let driver =
             read_run_driver::<QueueError>(&self.pool, &self.providers, reach.cut.run_id).await?;
         let rewound = driver
@@ -246,7 +270,7 @@ impl RunQueue {
         let append_hold = SESSION_APPEND_LOCK.acquire(session_id).await;
         let rollbacks = match self
             .engine
-            .roll_back(reach.cut, reach.later_cuts, companions, &append_hold)
+            .roll_back(reach.cut, reach.later_cuts, companions.write, &append_hold)
             .await
         {
             Ok(rollbacks) => rollbacks,
@@ -299,7 +323,7 @@ impl RunQueue {
         resend: Option<SessionRestoreResend>,
         device_id: DeviceId,
     ) -> Result<(), QueueError> {
-        let (session_id, undo_key) = hold.take();
+        let (session_id, undo_key, hold_id) = hold.take();
         let queue = self
             .this
             .upgrade()
@@ -309,23 +333,26 @@ impl RunQueue {
                 .let_go_undo_hold(
                     session_id,
                     undo_key,
+                    hold_id,
                     resend.map(|resend| (resend, device_id)),
                 )
                 .await
         });
         match released.await {
             Ok(released) => released,
-            // The tracker never aborts its tasks, so only a panic ends one early.
+            // The tracker never aborts its tasks, and the runtime's shutdown drops this call with
+            // them, so only a panic ends one early.
             Err(error) => std::panic::resume_unwind(error.into_panic()),
         }
     }
 
-    // Lets go the hold `undo_key` took on `session_id` as `release_undo_hold` says, with `resend`
-    // sent from its device first.
+    // Lets go the hold `hold_id` the undo `undo_key` took on `session_id` as `release_undo_hold`
+    // says, with `resend` sent from its device first under that key.
     async fn let_go_undo_hold(
         &self,
         session_id: SessionId,
         undo_key: ClientUuid,
+        hold_id: UndoHoldId,
         resend: Option<(SessionRestoreResend, DeviceId)>,
     ) -> Result<(), QueueError> {
         let mut first_failure = None;
@@ -355,7 +382,7 @@ impl RunQueue {
                     Err(error) => first_failure = Some(error),
                 }
             }
-            if self.delivery.release_undo_hold(session_id, &undo_key) {
+            if self.delivery.release_undo_hold(session_id, hold_id) {
                 match self.open_after_undo(&queue_hold, resent).await {
                     Ok(resumes) => resumes,
                     Err(error) => {
@@ -380,14 +407,17 @@ impl RunQueue {
     }
 
     // Reads what the cut of the session's conversation before `target` reaches, `binding_id`
-    // being the binding the session runs on now; a refusal of the reads answers as the cut's.
+    // being the binding the session runs on now, and checks in the same read every condition the
+    // rollback refuses on, the companions' `check` among them; a refusal answers as the cut's.
     async fn read_cut_reach(
         &self,
         session_id: SessionId,
         target: &SessionRestoreTarget,
         binding_id: RuntimeBindingId,
+        check: &RollbackCompanionCheck,
     ) -> Result<CutReach, ConversationCutError> {
         let target = target.clone();
+        let check = Arc::clone(check);
         let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
         self.pool
             .read(ReadLength::Short, move |reader| {
@@ -458,30 +488,25 @@ impl RunQueue {
                         target_position: RUN_START_POSITION.position,
                     })
                     .collect();
-                let reached = |run_id: &RunId| {
-                    *run_id == cut.run_id || later_cuts.iter().any(|later| later.run_id == *run_id)
-                };
-                let runs = RunStateReader::new(reader);
-                let live_open = runs
-                    .list_live_run_resumes(&session_id)
-                    .map_err(QueueError::from)?
-                    .into_iter()
-                    .find(|run| reached(&run.run_id) && !run.open_turns.is_empty())
-                    .map(|run| run.run_id);
-                let ended_open = runs
-                    .list_ended_runs_with_open_turns(Some(&session_id))
-                    .map_err(QueueError::from)?
-                    .into_iter()
-                    .find(|run| reached(&run.run_id))
-                    .map(|run| run.run_id);
-                if let Some(run_id) = live_open.or(ended_open) {
-                    return Err(ConversationCutError::TurnOpen { run_id });
-                }
+                let cuts: Vec<RunCut> = std::iter::once(cut)
+                    .chain(later_cuts.iter().copied())
+                    .collect();
+                check_rollback(reader, &session_id, &cuts, &check).map_err(
+                    |error| match error {
+                        RollbackCheckError::TurnOpen { run_id } => {
+                            ConversationCutError::TurnOpen { run_id }
+                        }
+                        RollbackCheckError::CompanionRefused { companion_index } => {
+                            ConversationCutError::CompanionRefused { companion_index }
+                        }
+                        RollbackCheckError::Database(error) => QueueError::from(error).into(),
+                    },
+                )?;
                 let binding_run_id = read_binding(reader, &binding_id)
                     .map_err(QueueError::from)?
                     .map(|binding| binding.run_id);
-                let binding_point = std::iter::once(&cut)
-                    .chain(&later_cuts)
+                let binding_point = cuts
+                    .iter()
                     .find(|reached| Some(reached.run_id) == binding_run_id)
                     .map(|reached| reached.target_position)
                     .ok_or(ConversationCutError::NoLiveBinding)?;

@@ -57,6 +57,7 @@ use tokio_util::task::TaskTracker;
 use tracing::Instrument as _;
 
 pub(crate) use self::interrupt::InterruptHoldRelease;
+pub(crate) use self::state::UndoHoldId;
 use crate::delivery::chain::{ChainJob, SessionChain};
 use crate::delivery::state::{DeliveryState, HandRoute, is_kept_by_process};
 use crate::recorder::{QueueRecordError, QueueRecorder};
