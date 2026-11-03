@@ -86,9 +86,26 @@ impl DaemonChildRecords for OrphanGuard {
 }
 
 /// Sweeps what a previous run left in `data_folder`'s registry, empties it, logs what the sweep
-/// did and answers a guard over it. Fails when this boot cannot be read, the sweep's task ends
-/// early or the registry cannot be read or written.
+/// did and answers a guard over it. Fails as [`sweep_left_orphans`] does.
 pub async fn open_orphan_guard(data_folder: &Path) -> Result<OrphanGuard, OrphanGuardError> {
+    let (registry, boot_id, sweep) = sweep_registry(data_folder).await?;
+    sweep.log();
+    Ok(OrphanGuard { registry, boot_id })
+}
+
+/// Sweeps what a previous run left in `data_folder`'s registry and empties it, with no guard kept,
+/// for a run that starts no children; answers what the sweep did and could not do. Fails when this
+/// boot cannot be read, the sweep's task ends early or the registry cannot be read or written.
+pub async fn sweep_left_orphans(data_folder: &Path) -> Result<OrphanSweepResult, OrphanGuardError> {
+    let (_, _, sweep) = sweep_registry(data_folder).await?;
+    Ok(sweep)
+}
+
+// Sweeps and empties `data_folder`'s registry, answering it with this boot's id and the sweep's
+// result.
+async fn sweep_registry(
+    data_folder: &Path,
+) -> Result<(OrphanRegistry, String, OrphanSweepResult), OrphanGuardError> {
     let boot_id = process_identity(std::process::id())
         .map_err(OrphanGuardError::Process)?
         .ok_or_else(|| {
@@ -101,11 +118,9 @@ pub async fn open_orphan_guard(data_folder: &Path) -> Result<OrphanGuard, Orphan
         .as_str()
         .to_owned();
     let registry = OrphanRegistry::new(data_folder);
-    let sweep: OrphanSweepResult =
-        sweep_orphans(registry.read_leftover().await?, boot_id.clone()).await?;
+    let sweep = sweep_orphans(registry.read_leftover().await?, boot_id.clone()).await?;
     registry.forget().await?;
-    sweep.log();
-    Ok(OrphanGuard { registry, boot_id })
+    Ok((registry, boot_id, sweep))
 }
 
 #[cfg(test)]

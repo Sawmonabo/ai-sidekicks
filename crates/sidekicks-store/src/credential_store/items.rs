@@ -41,6 +41,7 @@
 //! it and is never overwritten by it.
 
 mod erase;
+mod place_move;
 mod sealed_file;
 mod state;
 mod status;
@@ -54,6 +55,7 @@ use std::time::Duration;
 
 use futures::future::BoxFuture;
 use secrecy::SecretString;
+use sidekicks_contracts::daemon::secrets_place::{PlaceRecord, SecretsPlace};
 use sidekicks_contracts::daemon::status::{DaemonSecretsFileUnopened, DaemonSecretsPlainReason};
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_platforms::SealFailure;
@@ -69,7 +71,7 @@ use crate::credential_store::os::{
     CredentialStoreAccess, OsCredentialStore, OsSecretKeychain, SEAL_CHECK_TIMEOUT_DIVISOR,
     SecretsOffer,
 };
-use crate::credential_store::place::{self, PlaceRecord, SecretsPlace};
+use crate::credential_store::place;
 use crate::credential_store::seal::SecretSeal;
 use crate::credential_store::service::KeychainService;
 use crate::credential_store::{KeychainRefusal, SecretKeychain, holds_value};
@@ -271,13 +273,10 @@ impl SecretItems {
             RecordState::Unread | RecordState::Unreadable(_) | RecordState::Absent => None,
         };
         let place = match record {
-            Some(
-                record @ PlaceRecord {
-                    moving_to: Some(destination),
-                    ..
-                },
-            ) => self.finish_move(state, record, destination).await?,
-            Some(record) => self.settle_recorded(state, record.place).await?,
+            Some(record) => match record.moving_to() {
+                Some(destination) => self.finish_move(state, record, destination).await?,
+                None => self.settle_recorded(state, record.place()).await?,
+            },
             None => self.settle_first(state).await?,
         };
         tracing::info!(
@@ -482,8 +481,9 @@ impl SecretItems {
 
     // Finishes the move `record` names into `destination`, checked first. On success the
     // destination serves, checked, and a file left behind is deleted. Fails with the refusal,
-    // leaving `state` as it was when the move stopped before recording its direction, and otherwise
-    // the recorded move, which the next call finishes.
+    // leaving `state` as it was when the move stopped before recording its direction or a move
+    // from a settled record was put back whole, and otherwise the recorded move, which the next
+    // call finishes.
     async fn finish_move(
         &self,
         state: &mut PlaceState,
@@ -495,7 +495,7 @@ impl SecretItems {
             Check::Mismatch => return Err(mismatch()),
             Check::Refused(refusal) => return Err(refusal),
         }
-        let from = |service| self.place_keychain(record.place, service);
+        let from = |service| self.place_keychain(record.place(), service);
         let to = |service| self.place_keychain(destination, service);
         if let Err(stopped) =
             place::move_items(&self.record_path, record, destination, &from, &to).await
@@ -505,7 +505,7 @@ impl SecretItems {
             }
             return Err(stopped.refusal);
         }
-        if matches!(record.place, SecretsPlace::LoggedOutServiceFile)
+        if matches!(record.place(), SecretsPlace::LoggedOutServiceFile)
             && let Err(refusal) = self.items_file.remove_all().await
         {
             tracing::warn!(

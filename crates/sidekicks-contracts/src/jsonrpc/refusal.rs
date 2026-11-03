@@ -281,6 +281,9 @@ refusal_codes! {
     ConnectionVersionFloorExceeded = "connection.version.floorExceeded" (FailedPrecondition);
     /// A mutating call on a connection whose handshake settled as incompatible.
     ConnectionVersionMismatch = "connection.version.mismatch" (FailedPrecondition);
+    /// The daemon program's restore mode found no backup whose manifest reads in the folder it was
+    /// named, so it changed nothing; it answers on its standard output, not the socket.
+    DaemonBackupNotFound = "daemon.backup.notFound" (NotFound, 404);
     /// `daemon.data.erase` refused before its answer, so nothing was erased: the keychain the erase
     /// must empty is locked or cannot be used. `data.fields.cause` is `locked` (drawn `Unlock the
     /// keychain, then try again.`) or `unavailable` (drawn `The keychain cannot be used right now.
@@ -303,6 +306,10 @@ refusal_codes! {
     /// `daemon.dataExport.subscribe` or `daemon.dataExport.cancel` named a job this service does
     /// not know: never started, or started before the service last restarted.
     DaemonDataExportNotFound = "daemon.dataExport.notFound" (NotFound, 404);
+    /// The daemon program's erase or restore mode found the data folder held, by a running service
+    /// among others, so it changed nothing; it answers on its standard output, not the socket.
+    /// `data.fields.processId` names the holder when the process id it recorded reads.
+    DaemonDataFolderHeld = "daemon.dataFolder.held" (FailedPrecondition, 409);
     /// A request would pass a daemon limit.
     DaemonLimitExceeded = "daemon.limitExceeded" (ResourceExhausted, 429);
     /// The answer to a `connection.initialize` carrying the start's session token while the service

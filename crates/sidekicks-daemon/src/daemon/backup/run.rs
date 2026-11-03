@@ -27,8 +27,8 @@ use futures::future::BoxFuture;
 use rusqlite::Connection;
 use sidekicks_contracts::daemon::backup::{
     BACKUP_DATABASE_FILE_NAME, BACKUP_DEFAULT_FOLDER_NAME, BACKUP_LABEL_MAX_LEN,
-    BACKUP_MANIFEST_FILE_NAME, BackupId, BackupLastRun, BackupManifest,
-    DaemonBackupCompletedPayload, DaemonBackupFailedPayload,
+    BACKUP_MANIFEST_FILE_NAME, BackupId, BackupLastRun, BackupManifest, BackupManifestError,
+    DaemonBackupCompletedPayload, DaemonBackupFailedPayload, read_backup_manifest,
 };
 use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
 use sidekicks_contracts::event::envelope::{DAEMON_SCOPE_SENTINEL_SESSION_ID, EventOccurredAt};
@@ -45,7 +45,6 @@ use sidekicks_platforms::{
     remove_tree, rename_replacing,
 };
 use sidekicks_recovery::database_file::check::SOUND_ROW;
-use sidekicks_recovery::database_file::newest_backup::{BackupManifestError, read_backup_manifest};
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::file::atomic_write::{AtomicWriteError, write_and_flush};
 use sidekicks_std::mutex_lock::lock;

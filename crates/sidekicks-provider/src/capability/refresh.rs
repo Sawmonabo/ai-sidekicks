@@ -336,6 +336,7 @@ mod tests {
         let services = test_driver_services();
         let table = [ProviderRegistration {
             build: gated_driver,
+            stop_recorded_services: None,
             ..PROVIDER_REGISTRATIONS[0]
         }];
         let database = TestDatabase::new(schema_parts());

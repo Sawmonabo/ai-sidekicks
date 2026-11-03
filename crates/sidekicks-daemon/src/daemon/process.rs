@@ -290,6 +290,7 @@ impl DaemonProcess {
             stop: _,
             base_environment,
             credential_store,
+            runs_while_logged_out,
             service_log_files,
             provider_registrations,
         } = options;
@@ -465,8 +466,7 @@ impl DaemonProcess {
         let authorizer = Arc::new(Authorizer::load_built_in()?);
         let secret_items = SecretItems::new(SecretItemsStart {
             data_folder: data_folder.clone(),
-            // The service starts only as the per-user agent or the app's child.
-            runs_while_logged_out: false,
+            runs_while_logged_out,
             access: credential_store,
             call_timeout: KEYCHAIN_CALL_TIMEOUT,
         })

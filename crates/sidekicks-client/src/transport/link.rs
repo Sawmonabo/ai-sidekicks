@@ -41,6 +41,11 @@ impl Link {
         Self { link, client }
     }
 
+    /// The connection this handle holds.
+    pub(crate) fn shared(&self) -> &Arc<LinkShared> {
+        &self.link
+    }
+
     /// When the last frame of any kind arrived from the daemon.
     pub fn last_frame_at(&self) -> Instant {
         self.link.lock().last_frame_at

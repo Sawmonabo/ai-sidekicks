@@ -23,8 +23,11 @@ use sidekicks_contracts::app_identity::APP_BUNDLE_IDENTIFIER;
 use super::WAKE_HELPER_SOCKET_PATH;
 use super::program::WAKE_HELPER_SOCKET_NAME;
 use crate::WakeHelperError;
-use crate::macos::administrator_prompt::run_behind_administrator_prompt;
+use crate::macos::administrator_prompt::{SHELL_PROGRAM, run_behind_administrator_prompt};
 use crate::macos::code_signature::{read_own_quotable_team, team_requirement};
+use crate::macos::service_registration::{
+    SYSTEM_LIST_FOLDER, launchd_list_text, not_loaded_status,
+};
 use crate::spawner::Spawner;
 
 /// Where the helper's program is installed, which the install copies it to and its property list
@@ -40,12 +43,6 @@ pub(crate) const WAKE_HELPER_LIST_FILE: &str = "the wake helper's property list"
 
 // Where launchd keeps the helper's standard error, which carries its failure lines.
 const WAKE_HELPER_LOG_PATH: &str = "/Library/Logs/sidekicks-wake-helper.log";
-
-// The folder launchd reads the system domain's property lists from.
-const SYSTEM_LIST_FOLDER: &str = "/Library/LaunchDaemons";
-
-// The shell each root step runs in, its values passed as the shell's own arguments.
-const SHELL_PROGRAM: &str = "/bin/sh";
 
 // The install's staging, its first part: a folder only its owner (root) can reach made in the
 // system's temporary folder and removed when the step ends, the program (`$2`) copied into it, its
@@ -130,7 +127,11 @@ pub(crate) async fn install(
     spawner: &Spawner,
     helper_program: &Path,
 ) -> Result<(), WakeHelperError> {
-    let list_contents = list_text(&wake_helper_list())?;
+    let list_contents =
+        launchd_list_text(&wake_helper_list()).map_err(|source| WakeHelperError::File {
+            file: WAKE_HELPER_LIST_FILE,
+            source,
+        })?;
     let signature_requirement =
         signature_requirement(read_own_quotable_team().map_err(WakeHelperError::Signature)?)?;
     let program =
@@ -162,9 +163,8 @@ pub(crate) async fn install(
         &program_hash,
         &signature_requirement,
     ];
-    run_behind_administrator_prompt(spawner, "install the wake helper", &command)
-        .await
-        .map(drop)
+    run_behind_administrator_prompt(spawner, "install the wake helper", &command).await?;
+    Ok(())
 }
 
 /// Unloads the helper and deletes its list, program and socket, as root behind the administrator
@@ -185,9 +185,8 @@ pub(crate) async fn uninstall(spawner: &Spawner) -> Result<(), WakeHelperError> 
         OsStr::new(WAKE_HELPER_PROGRAM_PATH),
         OsStr::new(WAKE_HELPER_SOCKET_PATH),
     ];
-    run_behind_administrator_prompt(spawner, "remove the wake helper", &command)
-        .await
-        .map(drop)
+    run_behind_administrator_prompt(spawner, "remove the wake helper", &command).await?;
+    Ok(())
 }
 
 // The requirement root checks the staged program's signature against: signed by `team`, the
@@ -220,26 +219,6 @@ fn service_target() -> OsString {
     OsString::from(format!("system/{}", wake_helper_label()))
 }
 
-// The exit status `launchctl bootout` answers for a service that is not loaded.
-fn not_loaded_status() -> OsString {
-    OsString::from(libc::ESRCH.to_string())
-}
-
-// The text of `list` as its property list file holds it.
-fn list_text(list: &WakeHelperList) -> Result<String, WakeHelperError> {
-    let mut contents = Vec::new();
-    plist::to_writer_xml(&mut contents, list).map_err(unwritable_list)?;
-    String::from_utf8(contents).map_err(unwritable_list)
-}
-
-// The list's file failure for `source`, why its text could not be made.
-fn unwritable_list(source: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> WakeHelperError {
-    WakeHelperError::File {
-        file: WAKE_HELPER_LIST_FILE,
-        source: std::io::Error::new(std::io::ErrorKind::InvalidInput, source),
-    }
-}
-
 // The SHA-256 of `bytes` in lowercase hex, as `shasum` writes it.
 fn sha256_hex(bytes: &[u8]) -> String {
     base16ct::lower::encode_string(&Sha256::digest(bytes))
@@ -250,9 +229,10 @@ mod tests {
     use std::path::Path;
     use std::process::{Command, Output};
 
-    use super::{list_text, sha256_hex, signature_requirement, wake_helper_list};
+    use super::{sha256_hex, signature_requirement, wake_helper_list};
     use crate::WakeHelperError;
     use crate::macos::code_signature::team_requirement;
+    use crate::macos::service_registration::launchd_list_text;
 
     // Runs the install's staging over `program` with `hash` as the hash the service took and
     // `requirement` as the signature's requirement text, then prints what it staged: the program,
@@ -365,7 +345,7 @@ mod tests {
     /// back in the list.
     #[test]
     fn the_list_starts_the_helper_on_its_socket_and_never_keeps_it_alive() {
-        let text = list_text(&wake_helper_list()).expect("the list writes");
+        let text = launchd_list_text(&wake_helper_list()).expect("the list writes");
         let list = plist::Value::from_reader_xml(text.as_bytes())
             .expect("the list reads")
             .into_dictionary()

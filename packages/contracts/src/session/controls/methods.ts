@@ -12,7 +12,7 @@
 // at load time.
 import { z } from "zod";
 
-import { wireUncappedFreeFormString } from "../../free-form-string.js";
+import { wireFreeFormString, wireUncappedFreeFormString } from "../../free-form-string.js";
 import { brandedUuidIdSchema } from "../../internal/branded.js";
 import { composedTextSchema, countSchema } from "../../internal/wire-scalars.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../../jsonrpc/streaming.js";
@@ -420,12 +420,24 @@ export interface TerminalProviderSession {
   state: "working" | "idle" | "unreachable";
 }
 
+/** The longest name or resume command a provider's descriptor carries. */
+const PROVIDER_DECLARATION_TEXT_MAX_LEN = 512;
+
+/** The words a person reads for one provider that has sessions typed in a terminal. */
+export interface TerminalSessionProvider {
+  provider: ProviderName;
+  name: string;
+  resumeCommand: string;
+}
+
 /**
  * The provider sessions typed in a terminal, read off the same directory entries the agents'
- * `session_list` names. Empty while `Reach Codex sessions started in a terminal` is off.
+ * `session_list` names, and each provider with at least one of them, in the provider table's
+ * order. Empty while the provider's switch that reaches sessions started in a terminal is off.
  */
 export interface SessionTerminalProviderSessionListResponse {
   sessions: TerminalProviderSession[];
+  providers: TerminalSessionProvider[];
 }
 /** Parses a {@link SessionTerminalProviderSessionListResponse}. */
 export const SessionTerminalProviderSessionListResponseSchema: z.ZodType<SessionTerminalProviderSessionListResponse> =
@@ -438,6 +450,18 @@ export const SessionTerminalProviderSessionListResponseSchema: z.ZodType<Session
             name: composedTextSchema,
             threadId: composedTextSchema,
             state: z.enum(["working", "idle", "unreachable"]),
+          })
+          .strict(),
+      ),
+      providers: z.array(
+        z
+          .object({
+            provider: ProviderNameSchema,
+            name: wireFreeFormString(PROVIDER_DECLARATION_TEXT_MAX_LEN, "provider name"),
+            resumeCommand: wireFreeFormString(
+              PROVIDER_DECLARATION_TEXT_MAX_LEN,
+              "provider resume command",
+            ),
           })
           .strict(),
       ),

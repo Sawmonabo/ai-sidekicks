@@ -3,15 +3,18 @@ use std::time::Duration;
 
 use interprocess::local_socket::traits::tokio::Listener as _;
 use sidekicks_platforms::{
-    CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, bind_socket_listener, read_socket_link,
-    replace_socket_link,
+    CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, ProcessRecord, bind_socket_listener,
+    pin_child_process, read_socket_link, replace_socket_link,
 };
 
 use super::stand_in::{
-    CRASH_WAIT, cut_short_planned_restart, home_record_file, is_running,
+    CRASH_WAIT, StandInServices, cut_short_planned_restart, home_record_file, is_running,
     mark_kept_records_draining, send_signal, stand_in_services, this_daemon,
     wait_for_end_and_record_removal, wait_until_gone,
 };
+use crate::driver::PROVIDER_REGISTRATIONS;
+use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::service::record::{LastingServiceRecord, LastingServiceRecordFile};
 use crate::driver::codex::service::registry::home_socket_path;
 use crate::driver::codex::service::supervisor::test_service::{
     HANG_UP_IGNORED_NAME, StandInReplies, answer_as_codex_service,
@@ -340,4 +343,93 @@ async fn a_daemon_stop_returns_without_waiting_on_a_drain_under_way() {
         is_first_running,
         "the drained service was ended rather than left to drain"
     );
+}
+
+// Fails when the erase leaves a draining service to a drain whose record it deletes, leaves a
+// record behind, only logs a failure, signals a recorded id a later process took, or when Codex's
+// entry in the table ends no recorded service.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_erase_ends_every_recorded_service_a_draining_one_too_and_answers_each_failure() {
+    if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let services = stand_in_services(|program| Arc::new(program));
+    let (first_process, second_process, _first_socket) = cut_short_planned_restart(&services).await;
+    let home_record = home_record_file(&services);
+    {
+        let locked = home_record.lock().expect("the records lock");
+        let mut record = locked
+            .read()
+            .expect("the record reads")
+            .expect("the first service is recorded");
+        record.is_draining = true;
+        locked
+            .write(&record)
+            .expect("the record is marked draining");
+    }
+    // A record naming this test's own process with another start mark, as a record whose id a
+    // later process took reads.
+    let own = pin_child_process(std::process::id())
+        .expect("this process pins")
+        .record()
+        .expect("the record reads")
+        .expect("this process runs");
+    let mut own = serde_json::to_value(own).expect("a process record writes as JSON");
+    own["start"] = (own["start"].as_u64().expect("the start mark is a number") + 1).into();
+    let reused: ProcessRecord = serde_json::from_value(own).expect("the changed record reads");
+    let reused_record = recorded_file_in(&services, "reused");
+    reused_record
+        .lock()
+        .expect("the records lock")
+        .write(&LastingServiceRecord::launched(
+            reused,
+            home_socket_path(&services.folder.path().join("reused")),
+        ))
+        .expect("the record is written");
+    let unreadable_record = recorded_file_in(&services, "unreadable");
+    drop(
+        unreadable_record
+            .lock()
+            .expect("the records' folder is made"),
+    );
+    std::fs::write(unreadable_record.path(), b"not a record").expect("the file is written");
+    let stop_recorded_services = PROVIDER_REGISTRATIONS
+        .iter()
+        .find(|registration| registration.descriptor.id == DESCRIPTOR.id)
+        .and_then(|registration| registration.stop_recorded_services)
+        .expect("Codex's entry ends its recorded services");
+
+    let stopped = stop_recorded_services(&services.dependencies.data_folder).await;
+    let is_first_gone = wait_until_gone(first_process).await;
+    let is_second_gone = wait_until_gone(second_process).await;
+    let home_locked = home_record.lock().expect("the records lock");
+    let home_left = home_locked.read().expect("the record reads");
+    let others_left = home_locked.others().expect("the other records list").len();
+    let reused_left = reused_record
+        .lock()
+        .and_then(|locked| locked.read())
+        .expect("the record reads");
+
+    assert_eq!(
+        stopped.map_err(|error| error.failures.len()).err(),
+        Some(1),
+        "the unreadable record's failure is the one answered"
+    );
+    assert!(is_first_gone, "the draining service was left running");
+    assert!(is_second_gone, "the recorded service was left running");
+    assert_eq!(home_left, None);
+    assert_eq!(others_left, 0);
+    assert_eq!(reused_left, None);
+}
+
+// The record file of a service on a new Codex folder `name` under the test's folder.
+fn recorded_file_in(services: &StandInServices, name: &str) -> LastingServiceRecordFile {
+    let codex_home = services.folder.path().join(name);
+    std::fs::create_dir_all(&codex_home).expect("the Codex folder is made");
+    LastingServiceRecordFile::of_socket(
+        &services.dependencies.data_folder,
+        &codex_home,
+        &home_socket_path(&codex_home),
+    )
+    .expect("the record file is named")
 }

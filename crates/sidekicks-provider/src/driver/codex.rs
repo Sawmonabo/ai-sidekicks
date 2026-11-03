@@ -21,6 +21,7 @@ use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::run::queue::QueuedSkillPick;
+use sidekicks_contracts::session::controls::methods::TerminalProviderSession;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::voice::VoiceKind;
 use sidekicks_platforms::{
@@ -35,6 +36,9 @@ use crate::driver::codex::permission_level::list_codex_modes;
 use crate::driver::codex::service::registry::CODEX_SWITCHING_HOME_FOLDER;
 #[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::registry::CodexServiceRegistry;
+use crate::driver::codex::service::supervisor::start::kept_records::{
+    KeptServicesStop, stop_kept_services,
+};
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::account::{HelperModeAccountLegs, ProviderAccountLegs};
 use crate::driver::contract::error::DriverError;
@@ -47,7 +51,7 @@ use crate::driver::contract::plan_verdict::{
     AnswerPlanParams, PlanVerdictAnswer, answer_plan_holding_no_request,
 };
 use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, RecordedServicesStopError};
 use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
@@ -279,6 +283,7 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     // `auth.json` sits in the home `CODEX_HOME` names.
     account_home_credential_store_folder: &[],
     shell_prefix_command: None,
+    terminal_resume_command: "codex resume",
 };
 
 /// Builds the Codex driver over the shared services; it stores handles and does no I/O.
@@ -286,11 +291,30 @@ pub(super) fn build(services: &DriverServices) -> Arc<dyn ProviderDriver> {
     Arc::new(CodexDriver::new(services))
 }
 
-/// Builds Codex's helper-mode account legs, which hold nothing of `_services`.
+/// Ends, with no daemon running, every lasting Codex service a record under `data_folder` still
+/// names, the terminal service's, each account home's and the switching home's, a draining one
+/// too, and removes each record. Fails with every failure met, every other record still settled.
+pub(super) fn stop_recorded_services(
+    data_folder: &Path,
+) -> BoxFuture<'static, Result<(), RecordedServicesStopError>> {
+    let data_folder = data_folder.to_owned();
+    async move {
+        let failures = stop_kept_services(data_folder, KeptServicesStop::Erase).await;
+        if failures.is_empty() {
+            return Ok(());
+        }
+        Err(RecordedServicesStopError {
+            failures: failures.into_iter().map(DriverError::from).collect(),
+        })
+    }
+    .boxed()
+}
+
+/// Builds Codex's helper-mode account legs over `services`; they hold handles and do no I/O.
 pub(super) fn helper_mode_account_legs(
-    _services: &HelperModeServices,
+    services: &HelperModeServices,
 ) -> Arc<dyn HelperModeAccountLegs> {
-    Arc::new(account::helper_mode::CodexHelperModeLegs)
+    Arc::new(account::helper_mode::CodexHelperModeLegs::new(services))
 }
 
 /// The service registry the next driver [`build_over_scripted_service`] builds holds.
@@ -773,6 +797,12 @@ impl ProviderDriver for CodexDriver {
 
     fn running_service_log_files(&self) -> io::Result<Vec<PathBuf>> {
         self.registry.running_service_log_files()
+    }
+
+    fn list_terminal_sessions(
+        &self,
+    ) -> BoxFuture<'_, Result<Vec<TerminalProviderSession>, DriverError>> {
+        async move { Ok(self.registry.list_terminal_sessions().await?) }.boxed()
     }
 
     fn sign_in_with_own_client(

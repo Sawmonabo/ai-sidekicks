@@ -16,6 +16,7 @@ use crate::mcp::server::{McpServerName, McpServerStatus};
 use crate::method::KeyedRequest;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
+use crate::provider::declaration::ProviderDeclarationText;
 use crate::provider::driver::commands::ProviderCommandEntry;
 use crate::provider::id::ProviderId;
 use crate::run::queue::AgentQueueItemCreateResponse;
@@ -496,6 +497,19 @@ pub struct TerminalProviderSession {
     pub state: TerminalProviderSessionState,
 }
 
+/// The words a person reads for one provider that has sessions typed in a terminal.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TerminalSessionProvider {
+    /// The provider.
+    pub provider: ProviderId,
+    /// The provider's name as a person reads it.
+    pub name: ProviderDeclarationText,
+    /// The command a person types in a terminal to pick up one of the provider's sessions typed
+    /// there again.
+    pub resume_command: ProviderDeclarationText,
+}
+
 /// The provider sessions typed in a terminal, read off the same directory entries the agents'
 /// `session_list` names. Empty while the provider's switch that reaches sessions started in a
 /// terminal is off.
@@ -505,6 +519,8 @@ pub struct TerminalProviderSession {
 pub struct ProviderTerminalSessionListResponse {
     /// The sessions.
     pub sessions: Vec<TerminalProviderSession>,
+    /// Each provider with at least one session in `sessions`, in the provider table's order.
+    pub providers: Vec<TerminalSessionProvider>,
 }
 
 methods! {
@@ -643,7 +659,7 @@ methods! {
             mutating: false,
             params: EmptyPayload,
             result: ProviderTerminalSessionListResponse,
-            refusals: [],
+            refusals: [ProviderUnavailable, ProviderTimeout],
         },
     ];
 }
@@ -685,6 +701,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionTokensPerRunUpdateRequest>().checked(),
         Definition::read::<TerminalProviderSessionState>(),
         Definition::read::<TerminalProviderSession>(),
+        Definition::read::<TerminalSessionProvider>(),
         Definition::read::<ProviderTerminalSessionListResponse>().checked(),
     ],
     constants: &[],

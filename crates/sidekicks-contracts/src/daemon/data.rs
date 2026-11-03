@@ -1,5 +1,9 @@
 //! Everything the service keeps for the person: the data folder it lives in, and the two acts on
-//! it, export and erase, which Settings › Runtime and the command line send as the same verbs.
+//! it, export and erase, which Settings › Runtime sends as these verbs. The command line sends the
+//! same export, and erases through a mode of the daemon's own program while the service is
+//! stopped.
+
+use std::fmt;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -21,6 +25,33 @@ ts_constants! {
     /// settings and every other file it keeps.
     pub const DAEMON_DATA_FOLDER_NAME: &str = ".ai-sidekicks";
 }
+
+/// The lock file in the data folder, which the service, or a mode of its program, holds for as long
+/// as it uses the folder.
+pub const DAEMON_LOCK_FILE_NAME: &str = "daemon.lock";
+
+/// The file beside the lock file its holder writes its process id to, since a locked file cannot
+/// be read on every system.
+pub const DAEMON_PROCESS_ID_FILE_NAME: &str = "daemon.pid";
+
+/// Writes the refusal a person reads when another daemon holds the data folder, naming the
+/// holder's `process_id` when it is known.
+pub fn write_data_folder_held(
+    formatter: &mut fmt::Formatter<'_>,
+    process_id: Option<u32>,
+) -> fmt::Result {
+    match process_id {
+        Some(process_id) => write!(
+            formatter,
+            "The background service is already running (process {process_id})."
+        ),
+        None => write!(formatter, "The background service is already running."),
+    }
+}
+
+/// The arguments the daemon's own program is started with to erase everything with the service
+/// stopped.
+pub const DATA_ERASE_MODE: [&str; 2] = ["data", "erase"];
 
 branded_uuid_id! {
     /// The id of one export job, minted by the service.
@@ -101,10 +132,12 @@ pub enum DataExportProgress {
         /// The sessions the export holds.
         sessions_total: SafeInt<0>,
     },
-    /// The export finished: the folder and its size.
+    /// The export finished: the folder, the sessions it holds and its size.
     Completed {
         /// The folder written.
         path: FilesystemPath,
+        /// The sessions exported.
+        sessions_exported: SafeInt<0>,
         /// Its size in bytes.
         total_bytes: SafeInt<0>,
     },

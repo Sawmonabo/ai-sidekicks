@@ -1,5 +1,7 @@
 //! The daemon's own methods: lifecycle, status, configuration, data, backup, retention,
-//! recovery and diagnostics, and the status file a failed start leaves.
+//! recovery and diagnostics, the status file a failed start leaves, the words of the modes that
+//! move the daemon's secrets, and the answer a mode of the daemon's program writes for the command
+//! line.
 
 use crate::typescript::TypeScriptModule;
 
@@ -8,8 +10,10 @@ pub mod backup;
 pub mod config;
 pub mod data;
 pub mod lifecycle;
+pub mod mode_outcome;
 pub mod recovery;
 pub mod retention;
+pub mod secrets_place;
 pub mod service_status;
 pub mod status;
 

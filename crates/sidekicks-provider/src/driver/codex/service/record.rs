@@ -1,11 +1,12 @@
 //! Where a daemon keeps the record of each lasting Codex service on a Codex folder, the person's
 //! own or an account's home, so a later daemon finds the same processes again: one JSON file per
-//! service, named for the socket it listens on, holding its process, where its socket really is
-//! and whether it was asked to drain, in a folder per Codex folder under the daemon's data folder,
-//! never in the Codex folder itself; each is replaced whole through a temporary file and read or
-//! written only under the one lock of its Codex folder's records, so two daemons never start two
-//! services on one socket. The lock's file is never removed: a lock follows the open file, so
-//! removing a file someone waits on would hand the next taker a lock on another file.
+//! service, named for the socket it listens on, holding its process, the home's own socket, where
+//! its socket really is and whether it was asked to drain, in a folder per Codex folder under the
+//! daemon's data folder, never in the Codex folder itself; each is replaced whole through a
+//! temporary file and read or written only under the one lock of its Codex folder's records, so two
+//! daemons never start two services on one socket. The lock's file is never removed: a lock follows
+//! the open file, so removing a file someone waits on would hand the next taker a lock on another
+//! file.
 
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -38,6 +39,9 @@ const RECORD_FILE_MODE: u32 = 0o600;
 pub(crate) struct LastingServiceRecord {
     /// What a later daemon re-pins the service's process from.
     pub(crate) process: ProcessRecord,
+    /// The home's own control socket, a link to the service's socket where it listens on one of
+    /// its own, which an end of the service takes off it.
+    pub(crate) home_socket: PathBuf,
     /// Where the service's socket really is, which the home's link names while the service holds
     /// it; `None` from the launch until the service answers on it.
     pub(crate) physical_socket: Option<PathBuf>,
@@ -47,10 +51,12 @@ pub(crate) struct LastingServiceRecord {
 }
 
 impl LastingServiceRecord {
-    /// The record of a service just launched as `process`, before it answers.
-    pub(crate) fn launched(process: ProcessRecord) -> Self {
+    /// The record of a service of the home whose own control socket is `home_socket`, just
+    /// launched as `process`, before it answers.
+    pub(crate) fn launched(process: ProcessRecord, home_socket: PathBuf) -> Self {
         Self {
             process,
+            home_socket,
             physical_socket: None,
             is_draining: false,
         }
@@ -85,6 +91,12 @@ impl LastingServiceRecordFile {
             socket_name.to_string_lossy()
         ));
         Ok(Self::at(record))
+    }
+
+    /// Where the record's file sits, for a test that writes one by hand.
+    #[cfg(test)]
+    pub(crate) fn path(&self) -> &Path {
+        &self.record
     }
 
     // The record at `record`, with its folder's lock beside it.
@@ -280,6 +292,7 @@ mod tests {
                 .record()
                 .expect("the record reads")
                 .expect("this process runs"),
+            home_socket: data_folder.path().join("app-server-control.sock"),
             physical_socket: Some(data_folder.path().join("real.sock")),
             is_draining: true,
         };

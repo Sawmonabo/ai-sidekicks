@@ -14,6 +14,8 @@ use std::io;
 use std::process::ExitStatus;
 
 use crate::code_signature::CodeSignatureError;
+#[cfg(target_os = "macos")]
+use crate::macos::administrator_prompt::AdministratorPromptError;
 
 /// Whether the wake helper is in place to wake the computer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,6 +99,34 @@ pub enum WakeHelperError {
         /// The status's number.
         value: isize,
     },
+}
+
+#[cfg(target_os = "macos")]
+impl From<AdministratorPromptError> for WakeHelperError {
+    fn from(failure: AdministratorPromptError) -> Self {
+        match failure {
+            AdministratorPromptError::Start { step, source } => Self::Start { step, source },
+            AdministratorPromptError::Refused {
+                step,
+                status,
+                message,
+            } => Self::Refused {
+                step,
+                status,
+                message,
+            },
+            AdministratorPromptError::Canceled => Self::Canceled,
+            AdministratorPromptError::AdministratorRefused {
+                step,
+                number,
+                message,
+            } => Self::AdministratorRefused {
+                step,
+                number,
+                message,
+            },
+        }
+    }
 }
 
 /// The wake helper on a system with none built: the type has no value, so no method is ever

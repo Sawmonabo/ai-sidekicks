@@ -1,18 +1,36 @@
-//! The exit codes the command line returns, BSD `sysexits.h` codes plus the status a shell reports
-//! for a program a closed pipe ended, how a run ends, and the one mapping from a run's failure to
-//! its ending.
+//! The exit codes the command line returns, BSD `sysexits.h` codes plus the code for a negative
+//! state a command read and the status a shell reports for a program a closed pipe ended, how a run
+//! ends, and the one mapping from a run's failure to its ending.
 
+use std::error::Error;
+use std::fmt;
 use std::io;
+use std::path::PathBuf;
+use std::process::ExitStatus;
+use std::time::Duration;
 
 use sidekicks_client::error::ClientError;
+use sidekicks_contracts::daemon::backup::BackupManifestError;
+use sidekicks_contracts::daemon::data::write_data_folder_held;
+use sidekicks_contracts::daemon::service_status::DaemonCannotStart;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
+use sidekicks_platforms::{ChildExit, ServiceRegistrationError, read_child_exit};
+use strum::VariantArray as _;
+
+use crate::commands::daemon::install::system_service::LoggedOutServiceRefusal;
+use crate::commands::daemon::registration::TURNED_OFF_IN_LOGIN_ITEMS;
+use crate::commands::daemon::status::describe_cannot_start;
+use crate::commands::daemon::uninstall::system_service::SystemServiceKeptCause;
 
 /// A process exit code the command line returns.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::VariantArray)]
 pub(crate) enum ExitCode {
     /// The command did what it was asked.
     Success,
+    /// The command read a negative state and reported it: the background service serves with a
+    /// fault. Not a `sysexits.h` code, since nothing failed.
+    Unhealthy,
     /// `EX_USAGE`: the command was invoked or called incorrectly.
     Usage,
     /// `EX_DATAERR`: the input data was malformed.
@@ -40,6 +58,7 @@ impl ExitCode {
     pub(crate) const fn code(self) -> u8 {
         match self {
             Self::Success => 0,
+            Self::Unhealthy => 1,
             Self::Usage => 64,
             Self::DataError => 65,
             Self::NoInput => 66,
@@ -51,6 +70,21 @@ impl ExitCode {
             Self::Configuration => 78,
             Self::BrokenPipe => 141,
         }
+    }
+
+    /// How a run of this program as another account ended, from its `status`: its own exit code,
+    /// [`ExitCode::Software`] for a number this program never exits with or another signal's end.
+    /// Fails with `ClientError::Canceled` for a run a Ctrl-C ended, so this run ends the same way.
+    pub(crate) fn of_program_run(status: ExitStatus) -> anyhow::Result<Self> {
+        let exit = read_child_exit(&status, None);
+        if exit.signal_name.as_deref() == Some("SIGINT") {
+            return Err(ClientError::Canceled.into());
+        }
+        Ok(Self::VARIANTS
+            .iter()
+            .copied()
+            .find(|code| exit.signal_name.is_none() && i64::from(code.code()) == exit.exit_code)
+            .unwrap_or(Self::Software))
     }
 }
 
@@ -78,16 +112,263 @@ pub(crate) struct UnmappedExitCodeError {
     pub(crate) code: i64,
 }
 
+/// A failure the command line finds itself, with no daemon number to carry it: each kind names its
+/// cause, and its text is the line `error:` prints.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum CommandFailure {
+    /// The command needs a yes, and neither a terminal to ask at nor `--yes` gives one.
+    #[error("no terminal is here to confirm the command: run it again with --yes")]
+    ConfirmationUnavailable,
+    /// No app on this computer is registered for `sidekicks://` addresses.
+    #[error(
+        "No app on this computer opens sidekicks:// addresses. Install the AI Sidekicks app, then \
+         try again."
+    )]
+    AddressHandlerMissing,
+    /// The background service answered, so a command that needs it stopped was refused before it
+    /// asked or changed anything.
+    #[error(
+        "Stop the background service first: sidekicks daemon stop. Then run sidekicks data \
+         {command} again."
+    )]
+    ServiceRunning {
+        /// The `data` command refused, as the person types it.
+        command: &'static str,
+    },
+    /// The folder named as a backup holds no manifest that reads.
+    #[error("{} holds no backup whose manifest reads", backup.display())]
+    BackupUnreadable {
+        /// The folder named.
+        backup: PathBuf,
+        /// Why its manifest did not read; none when it has no manifest.
+        #[source]
+        source: Option<BackupManifestError>,
+    },
+    /// The started daemon did not answer the handshake within the wait, so it was ended.
+    #[error(
+        "The background service did not answer within {} ms of its start, so it was stopped",
+        waited.as_millis()
+    )]
+    StartTimedOut {
+        /// How long the start waited.
+        waited: Duration,
+        /// The last handshake's failure.
+        #[source]
+        last_failure: ClientError,
+    },
+    /// The started daemon exited before it answered the handshake, and no other daemon answers.
+    #[error("{}", describe_daemon_exit(exit, cannot_start.as_ref()))]
+    DaemonExited {
+        /// How the daemon's process ended.
+        exit: ChildExit,
+        /// Why its start failed, where its status file says.
+        cannot_start: Option<DaemonCannotStart>,
+    },
+    /// The service registered to start at login did not answer the handshake within the wait; the
+    /// system's service manager keeps it, so it was not stopped.
+    #[error(
+        "Installed the background service, but it did not answer within {} ms of its start",
+        waited.as_millis()
+    )]
+    InstalledNotAnswering {
+        /// How long the install waited.
+        waited: Duration,
+        /// The last handshake's failure.
+        #[source]
+        last_failure: ClientError,
+    },
+    /// `$HOME` is not the account's home in the user database, so an install or uninstall, which
+    /// acts on the account's own login session, changed nothing.
+    #[error(
+        "HOME is not set to your home folder, so the background service was left as it is. Set \
+         HOME to your home folder and run the command again."
+    )]
+    NotAccountHome,
+    /// The app's own registration runs the service, so the command line has nothing of its own to
+    /// remove.
+    #[error(
+        "The app runs the background service on this computer. Turn it off in System Settings \
+         › General › Login Items & Extensions."
+    )]
+    AppOwnsService,
+    /// The system's service manager refused a step of the service's registration.
+    #[error("The system refused the background service's registration")]
+    RegistrationRefused(#[source] ServiceRegistrationError),
+    /// The person turned the command line's own login agent off in Login Items, so the start
+    /// leaves it off.
+    #[error("{}", TURNED_OFF_IN_LOGIN_ITEMS)]
+    TurnedOffInLoginItems,
+    /// The start was given `--daemon-path`, and the login agent that starts the service runs
+    /// another program, so nothing was started.
+    #[error(
+        "The background service starts at login with its own program, so --daemon-path is not \
+         used. Run the command again without --daemon-path."
+    )]
+    AgentRunsOtherProgram,
+    /// The person turned the app's login agent off, so the start leaves it off.
+    #[error(
+        "The app's background service is turned off. Turn it on in the app's Settings › Runtime."
+    )]
+    AppServiceTurnedOff,
+    /// The login agent's service did not answer the handshake within the wait after its start; the
+    /// system's service manager keeps it, so it was not stopped.
+    #[error(
+        "The background service did not answer within {} ms of its start",
+        waited.as_millis()
+    )]
+    RegisteredNotAnswering {
+        /// How long the start waited.
+        waited: Duration,
+        /// The last handshake's failure.
+        #[source]
+        last_failure: ClientError,
+    },
+    /// A service that neither the login agent nor this account's system service runs holds the
+    /// data folder, so the command changed nothing.
+    #[error("{}", fmt::from_fn(|formatter| write_data_folder_held(formatter, None)))]
+    DataFolderHeld,
+    /// The service that runs while the person is logged out was not installed, for `cause`; what
+    /// the command changed before was put back, and a failure doing that is the source.
+    #[error(
+        "This Mac cannot keep the background service running while you are logged out: {cause}."
+    )]
+    LoggedOutServiceRefused {
+        /// Why it was not installed.
+        cause: LoggedOutServiceRefusal,
+        /// Why putting back what the command changed failed, where it did.
+        #[source]
+        put_back_failure: Option<Box<dyn Error + Send + Sync>>,
+    },
+    /// The system service that runs while the person is logged out is installed for this account,
+    /// and the run has neither root's rights nor a session at the screen, where the administrator
+    /// password prompt is drawn, so nothing was changed.
+    #[error(
+        "The background service runs while you are logged out. Remove it with sudo sidekicks \
+         daemon uninstall."
+    )]
+    SystemServiceNeedsRoot,
+    /// Some sign-ins and secrets are in the files of the service that runs while the person is
+    /// logged out, and the login keychain cannot take them back now: it is locked, out of this
+    /// run's reach, or the run has root's rights.
+    #[error(
+        "The sign-ins and secrets cannot go back into the login keychain while it is locked. Log \
+         in at this Mac, then run sidekicks daemon uninstall again."
+    )]
+    SecretsKeychainLocked(
+        /// The keychain's refusal; none where the run's root rights alone refused it.
+        #[source]
+        Option<ClientError>,
+    ),
+    /// The system service that runs while the person is logged out was not removed, for the
+    /// cause, whose line this is.
+    #[error("{0}")]
+    SystemServiceKept(SystemServiceKeptCause),
+    /// A run under `sudo` cannot read the account's home folder, as on a network home, so the
+    /// command changed nothing.
+    #[error(
+        "sudo cannot read your home folder, as on a network home. Run the command again without \
+         sudo while logged in at this Mac."
+    )]
+    HomeUnreadable,
+    /// This account's system service runs the background service while the person is logged
+    /// out, and only root's rights can start it, so nothing was started or stopped.
+    #[error(
+        "The background service runs while you are logged out. Start it with sudo sidekicks \
+         daemon start."
+    )]
+    SystemServiceStartNeedsRoot,
+    /// This account's system service runs the background service while the person is logged
+    /// out, and only root's rights can start it again, so the restart asked and stopped nothing.
+    #[error(
+        "The background service runs while you are logged out. Restart it with sudo sidekicks \
+         daemon restart."
+    )]
+    SystemServiceRestartNeedsRoot,
+    /// A start under `sudo` was given `--daemon-path`, and this account's system service runs
+    /// another program, so nothing was started or stopped.
+    #[error(
+        "The background service runs while you are logged out with its own program. Run the \
+         command again without --daemon-path."
+    )]
+    SystemServiceRunsOtherProgram,
+    /// A start under `sudo` started this account's system service, and launchd did not run it
+    /// within the wait; root cannot reach the service, so nothing was stopped.
+    #[error(
+        "The background service did not start running within {} ms of its start",
+        waited.as_millis()
+    )]
+    SystemServiceNotRunning {
+        /// How long the start waited.
+        waited: Duration,
+    },
+}
+
+impl CommandFailure {
+    /// The exit code the failure ends the run with.
+    const fn exit_code(&self) -> ExitCode {
+        match self {
+            Self::StartTimedOut { .. }
+            | Self::DaemonExited { .. }
+            | Self::InstalledNotAnswering { .. }
+            | Self::RegisteredNotAnswering { .. }
+            | Self::SystemServiceNotRunning { .. }
+            | Self::SecretsKeychainLocked(_)
+            | Self::AddressHandlerMissing => ExitCode::Unavailable,
+            Self::ConfirmationUnavailable => ExitCode::Usage,
+            Self::AppOwnsService
+            | Self::TurnedOffInLoginItems
+            | Self::AppServiceTurnedOff
+            | Self::ServiceRunning { .. }
+            | Self::DataFolderHeld
+            | Self::NotAccountHome
+            | Self::AgentRunsOtherProgram
+            | Self::SystemServiceRunsOtherProgram
+            | Self::HomeUnreadable => ExitCode::Configuration,
+            Self::RegistrationRefused(_) => ExitCode::Software,
+            Self::BackupUnreadable { .. } => ExitCode::NoInput,
+            Self::LoggedOutServiceRefused { cause, .. } => cause.exit_code(),
+            Self::SystemServiceNeedsRoot
+            | Self::SystemServiceStartNeedsRoot
+            | Self::SystemServiceRestartNeedsRoot => ExitCode::NoPermission,
+            Self::SystemServiceKept(cause) => cause.exit_code(),
+        }
+    }
+}
+
+/// The started daemon's exit, then the status file's title and line under it where it has them.
+fn describe_daemon_exit(exit: &ChildExit, cannot_start: Option<&DaemonCannotStart>) -> String {
+    let line = format!(
+        "The background service ended as it started, {}",
+        describe_child_ending(exit)
+    );
+    match cannot_start {
+        Some(cannot_start) => format!("{line}\n{}", describe_cannot_start(cannot_start).trim_end()),
+        None => line,
+    }
+}
+
+/// How a child process ended, as a line names it: `on SIGINT`, or `with exit code 1`.
+pub(crate) fn describe_child_ending(exit: &ChildExit) -> String {
+    match &exit.signal_name {
+        Some(signal_name) => format!("on {signal_name}"),
+        None => format!("with exit code {}", exit.exit_code),
+    }
+}
+
 /// How a failed run ends, from the first cause in its chain that names an ending: an argument
-/// refusal, a daemon that is not answering, a closed output pipe, the daemon's error by its number
-/// (a domain refusal by its category), a call canceled after a Ctrl-C; any other failure is a
-/// software error. Fails with [`UnmappedExitCodeError`] for a daemon number with no exit code.
+/// refusal, a failure the command line found itself by its kind, a daemon that is not answering, a
+/// closed output pipe, the daemon's error by its number (a domain refusal by its category), a call
+/// canceled after a Ctrl-C; any other failure is a software error. Fails with
+/// [`UnmappedExitCodeError`] for a daemon number with no exit code.
 pub(crate) fn exit_code_for_failure(
     failure: &anyhow::Error,
 ) -> Result<ProcessEnding, UnmappedExitCodeError> {
     for cause in failure.chain() {
         if cause.is::<clap::Error>() {
             return Ok(ProcessEnding::Exit(ExitCode::Usage));
+        }
+        if let Some(command_failure) = cause.downcast_ref::<CommandFailure>() {
+            return Ok(ProcessEnding::Exit(command_failure.exit_code()));
         }
         if let Some(client_error) = cause.downcast_ref::<ClientError>() {
             return exit_code_for_client_error(client_error);
@@ -164,17 +445,22 @@ fn exit_code_for_category(category: &RefusalCategory) -> ProcessEnding {
 #[cfg(test)]
 mod tests {
     use std::io;
+    use std::time::Duration;
 
     use anyhow::anyhow;
     use clap::CommandFactory as _;
     use rstest::rstest;
+    use sidekicks_client::daemon_ending::DaemonEndingError;
     use sidekicks_client::error::{ClientError, LinkFault, RemoteError};
     use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
     use sidekicks_contracts::jsonrpc::message::{ConnectionUnavailableReason, JsonRpcErrorData};
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
+    use sidekicks_platforms::{ChildExit, ServiceRegistrationError};
 
-    use super::{ExitCode, ProcessEnding, exit_code_for_failure};
+    use super::{CommandFailure, ExitCode, ProcessEnding, exit_code_for_failure};
+    use crate::commands::daemon::install::system_service::LoggedOutServiceRefusal;
+    use crate::commands::daemon::uninstall::system_service::SystemServiceKeptCause;
     use crate::program::Cli;
 
     fn remote(code: JsonRpcErrorCode, category: Option<RefusalCategory>) -> anyhow::Error {
@@ -323,6 +609,14 @@ mod tests {
         Cli::command().try_get_matches_from(["sidekicks", "unknown"]).expect_err("refused").into(),
         ProcessEnding::Exit(ExitCode::Usage)
     )]
+    #[case::no_terminal_to_confirm(
+        CommandFailure::ConfirmationUnavailable.into(),
+        ProcessEnding::Exit(ExitCode::Usage)
+    )]
+    #[case::no_app_for_the_address(
+        CommandFailure::AddressHandlerMissing.into(),
+        ProcessEnding::Exit(ExitCode::Unavailable)
+    )]
     #[case::not_answering(
         ClientError::Unavailable {
             reason: ConnectionUnavailableReason::NotListening,
@@ -334,6 +628,13 @@ mod tests {
         ClientError::link_down(LinkFault::PeerClosed).into(),
         ProcessEnding::Exit(ExitCode::Unavailable)
     )]
+    #[case::ending_call_failed(
+        anyhow::Error::from(DaemonEndingError::Client(ClientError::link_down(
+            LinkFault::PeerClosed
+        )))
+        .context("could not stop the background service"),
+        ProcessEnding::Exit(ExitCode::Unavailable)
+    )]
     #[case::broken_pipe(
         anyhow::Error::from(io::Error::from(io::ErrorKind::BrokenPipe)).context("writing"),
         ProcessEnding::Exit(ExitCode::BrokenPipe)
@@ -342,6 +643,90 @@ mod tests {
     #[case::other_io(
         io::Error::from(io::ErrorKind::PermissionDenied).into(),
         ProcessEnding::Exit(ExitCode::Software)
+    )]
+    #[case::start_timed_out(
+        CommandFailure::StartTimedOut {
+            waited: Duration::from_millis(200),
+            last_failure: ClientError::link_down(LinkFault::PeerClosed),
+        }.into(),
+        ProcessEnding::Exit(ExitCode::Unavailable)
+    )]
+    #[case::daemon_exited(
+        anyhow::Error::from(CommandFailure::DaemonExited {
+            exit: ChildExit { exit_code: 1, signal_number: None, signal_name: None },
+            cannot_start: None,
+        }).context("could not read why the background service cannot start"),
+        ProcessEnding::Exit(ExitCode::Unavailable)
+    )]
+    #[case::installed_not_answering(
+        CommandFailure::InstalledNotAnswering {
+            waited: Duration::from_millis(200),
+            last_failure: ClientError::link_down(LinkFault::PeerClosed),
+        }.into(),
+        ProcessEnding::Exit(ExitCode::Unavailable)
+    )]
+    #[case::app_owns_the_service(
+        CommandFailure::AppOwnsService.into(),
+        ProcessEnding::Exit(ExitCode::Configuration)
+    )]
+    #[case::registration_refused(
+        CommandFailure::RegistrationRefused(ServiceRegistrationError::NoHomeFolder).into(),
+        ProcessEnding::Exit(ExitCode::Software)
+    )]
+    #[case::logged_out_service_needs_the_screen(
+        CommandFailure::LoggedOutServiceRefused {
+            cause: LoggedOutServiceRefusal::NoScreenSession,
+            put_back_failure: None,
+        }.into(),
+        ProcessEnding::Exit(ExitCode::Configuration)
+    )]
+    #[case::logged_out_service_password_not_given(
+        CommandFailure::LoggedOutServiceRefused {
+            cause: LoggedOutServiceRefusal::PasswordNotGiven,
+            put_back_failure: None,
+        }.into(),
+        ProcessEnding::Exit(ExitCode::NoPermission)
+    )]
+    #[case::logged_out_service_not_installed_nor_put_back(
+        CommandFailure::LoggedOutServiceRefused {
+            cause: LoggedOutServiceRefusal::NotInstalled { message: "refused".to_owned() },
+            put_back_failure: Some(Box::new(ClientError::link_down(LinkFault::PeerClosed))),
+        }.into(),
+        ProcessEnding::Exit(ExitCode::Software)
+    )]
+    #[case::system_service_needs_root(
+        CommandFailure::SystemServiceNeedsRoot.into(),
+        ProcessEnding::Exit(ExitCode::NoPermission)
+    )]
+    #[case::secrets_keychain_locked(
+        CommandFailure::SecretsKeychainLocked(None).into(),
+        ProcessEnding::Exit(ExitCode::Unavailable)
+    )]
+    #[case::system_service_kept_password_not_given(
+        CommandFailure::SystemServiceKept(SystemServiceKeptCause::PasswordNotGiven).into(),
+        ProcessEnding::Exit(ExitCode::NoPermission)
+    )]
+    #[case::system_service_kept_not_removed(
+        CommandFailure::SystemServiceKept(SystemServiceKeptCause::NotRemoved {
+            message: "refused".to_owned(),
+        }).into(),
+        ProcessEnding::Exit(ExitCode::Software)
+    )]
+    #[case::system_service_start_needs_root(
+        CommandFailure::SystemServiceStartNeedsRoot.into(),
+        ProcessEnding::Exit(ExitCode::NoPermission)
+    )]
+    #[case::system_service_restart_needs_root(
+        CommandFailure::SystemServiceRestartNeedsRoot.into(),
+        ProcessEnding::Exit(ExitCode::NoPermission)
+    )]
+    #[case::system_service_runs_other_program(
+        CommandFailure::SystemServiceRunsOtherProgram.into(),
+        ProcessEnding::Exit(ExitCode::Configuration)
+    )]
+    #[case::system_service_not_running(
+        CommandFailure::SystemServiceNotRunning { waited: Duration::from_millis(200) }.into(),
+        ProcessEnding::Exit(ExitCode::Unavailable)
     )]
     #[case::anything_else(anyhow!("failed"), ProcessEnding::Exit(ExitCode::Software))]
     fn a_failure_ends_the_run_as_its_cause_names(
@@ -363,5 +748,34 @@ mod tests {
         }));
         let refusal = exit_code_for_failure(&failure).expect_err("no exit code is assigned");
         assert_eq!(refusal.code, -32_099);
+    }
+
+    // Fails when a run as the account ends this run with a code other than its own, a number this
+    // program never exits with reads as one it does, or a run a Ctrl-C ended does not end this one
+    // as a Ctrl-C.
+    #[cfg(unix)]
+    #[test]
+    fn a_run_as_the_account_ends_this_run_as_it_ended() {
+        use std::os::unix::process::ExitStatusExt as _;
+        use std::process::ExitStatus;
+
+        let ended = |raw: i32| ExitCode::of_program_run(ExitStatus::from_raw(raw));
+
+        let codes = [78 << 8, 0, 3 << 8, 15].map(|raw| ended(raw).expect("no Ctrl-C ended it"));
+        let interrupted = ended(2).expect_err("a Ctrl-C ended it");
+
+        assert_eq!(
+            codes,
+            [
+                ExitCode::Configuration,
+                ExitCode::Success,
+                ExitCode::Software,
+                ExitCode::Software
+            ]
+        );
+        assert!(matches!(
+            interrupted.downcast_ref::<ClientError>(),
+            Some(ClientError::Canceled)
+        ));
     }
 }

@@ -10,6 +10,7 @@
 //! folder with no fitting service there runs one on a socket of its own beside it.
 
 pub(crate) mod personal_folder_read;
+pub(crate) mod terminal_sessions;
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -34,7 +35,9 @@ use crate::driver::codex::service::home::{
 };
 use crate::driver::codex::service::record::recorded_home_keys;
 use crate::driver::codex::service::socket_link::{is_listening, point_socket_link_at_service};
-use crate::driver::codex::service::supervisor::start::kept_records::stop_kept_services;
+use crate::driver::codex::service::supervisor::start::kept_records::{
+    KeptServicesStop, report_kept_service_unstopped, stop_kept_services,
+};
 #[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::supervisor::test_service::ScriptedCodexService;
 use crate::driver::codex::service::supervisor::{
@@ -247,10 +250,17 @@ impl CodexServiceRegistry {
     /// the one terminal reach names, and it is up or on its way back up. One that failed to start,
     /// ended in a crash loop or was stopped reads as off.
     pub(crate) fn is_terminal_service_on(&self) -> bool {
+        self.terminal_reach_service().is_some()
+    }
+
+    /// The service on the person's own folder while terminal reach is on, read as
+    /// [`Self::is_terminal_service_on`] reads it; `None` while it is off.
+    pub(crate) fn terminal_reach_service(&self) -> Option<Arc<CodexService>> {
         self.lock()
             .by_home
             .values()
-            .any(|service| is_terminal_reach_home(service.home()) && service.is_serving())
+            .find(|service| is_terminal_reach_home(service.home()) && service.is_serving())
+            .cloned()
     }
 
     /// Starts the terminal service on the person's own Codex folder as the switch turns terminal
@@ -528,7 +538,10 @@ impl CodexServiceRegistry {
         join_all(services.iter().map(|service| service.shutdown(intent))).await;
         match intent {
             DaemonStopIntent::Stop => {
-                stop_kept_services(self.dependencies.data_folder.clone()).await;
+                let data_folder = self.dependencies.data_folder.clone();
+                for failure in stop_kept_services(data_folder, KeptServicesStop::DaemonStop).await {
+                    report_kept_service_unstopped(&failure);
+                }
             }
             DaemonStopIntent::Restart => {}
         }

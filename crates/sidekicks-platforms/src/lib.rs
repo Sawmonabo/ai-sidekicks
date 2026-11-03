@@ -22,7 +22,10 @@
               the user-namespace check's and the scratch volume's `unshare` and map writes, the \
               scratch volume's `mount`, the boot id's `sysctl`, the \
               Windows host-name, free-room, volume-root (`GetVolumePathNameW`, `GetDriveTypeW`) \
-              and file-information calls, the Windows replacing rename's `MoveFileExW`, the caller \
+              and file-information calls, the Windows replacing rename's `MoveFileExW`, the \
+              opening of an address (macOS's \
+              `LSOpenCFURLRef`, Windows' `CoInitializeEx`, `ShellExecuteExW` and \
+              `CoUninitialize`), the caller \
               reads (Linux's peer process descriptor and `pidfd_open`, macOS's audit token, \
               checked process reads and responsible-process reads), macOS's code-signature checks, \
               the start as its own responsible process (its thread count, its program's path, its \
@@ -70,6 +73,7 @@
               items read (`statusForLegacyURL`) are C interfaces too"
 )]
 
+mod address_opening;
 mod atomic_write;
 mod base_environment;
 mod bash_start;
@@ -118,6 +122,7 @@ mod run_folder;
 mod running_program;
 #[cfg(any(test, feature = "test-support"))]
 mod scratch_volume;
+mod service_registration;
 mod session_child;
 mod shell_folder_start;
 mod shell_line_command;
@@ -196,6 +201,8 @@ pub use keep_awake::{KeepAwakeHold, KeepAwakePurpose, KeepAwakeRefused};
 pub use lasting_child::{LastingChild, LastingCommand};
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
 pub use linux::SHELL_FOLDER_PROBES;
+#[cfg(target_os = "linux")]
+pub use linux::address_opening::open_address;
 // The daemon's own socket on macOS and Linux is AF_UNIX too, so one peer read serves both.
 #[cfg(target_os = "linux")]
 pub use linux::caller_process::{
@@ -247,6 +254,8 @@ pub use machine_name::MachineNameError;
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
 pub use macos::SHELL_FOLDER_PROBES;
 #[cfg(target_os = "macos")]
+pub use macos::address_opening::open_address;
+#[cfg(target_os = "macos")]
 pub use macos::caller_process::{
     read_parent_process, read_peer_process, read_peer_process as unix_domain_peer_process,
     read_program_path, read_responsible_process,
@@ -279,6 +288,8 @@ pub use macos::processes::list_user_process_ids;
 pub use macos::read_command_argument_limit;
 #[cfg(target_os = "macos")]
 pub use macos::responsibility::become_own_root;
+#[cfg(target_os = "macos")]
+pub use macos::service_registration::{ServiceRegistration, service_registration};
 #[cfg(target_os = "macos")]
 pub use macos::session_child::{SessionChild, start_session_child};
 #[cfg(target_os = "macos")]
@@ -313,7 +324,7 @@ pub use path::program_output::path_from_program_output;
 pub use path::relative::relative_path;
 pub use path::resolution::{resolve_path, resolve_path_against};
 pub use path::rules::{PathRules, ShellWordRefused};
-pub use pinned_process::ProcessRecord;
+pub use pinned_process::{ProcessRecord, SurvivorsEnd, UnendedProcess};
 pub use pipe_reader::async_pipe_reader;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub use posix::allocator::{
@@ -346,7 +357,7 @@ pub const RUNS_COMMAND_WRAPPER: bool = true;
 #[cfg(target_os = "windows")]
 pub const RUNS_COMMAND_WRAPPER: bool = false;
 #[cfg(unix)]
-pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
+pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c, wait_through_ctrl_c};
 #[cfg(unix)]
 pub use posix::current_user::{current_user_id, current_user_name};
 #[cfg(unix)]
@@ -469,7 +480,7 @@ pub use process_containment::{
     ShellContainment, contain_daemon_descendants, end_leftover_shell_containments,
     stable_working_folder, take_in_orphans,
 };
-pub use process_identity::process_identity;
+pub use process_identity::{pin_identified_process, process_identity};
 pub use process_start::ProcessStart;
 pub use process_tree::{end_processes, process_table, tree_under};
 pub use program_install_folders::{ProgramFolder, program_install_folders};
@@ -483,6 +494,12 @@ pub(crate) use running_program::replaced_mark::is_program_path_marked_replaced;
 pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program_path};
 #[cfg(any(test, feature = "test-support"))]
 pub use scratch_volume::{ScratchVolume, scratch_volume};
+pub use service_registration::{
+    ServiceInstall, ServiceOwner, ServiceRegistrationError, SystemServiceKickstart,
+    SystemServiceOwner, SystemServiceState,
+};
+#[cfg(not(target_os = "macos"))]
+pub use service_registration::{ServiceRegistration, service_registration};
 pub use session_child::SessionCommand;
 #[cfg(any(test, feature = "test-support"))]
 pub use shell_folder_start::ShellFolderProbe;
@@ -493,7 +510,7 @@ pub use shell_line_command::{
 };
 pub use shell_start::{DOES_SHELL_MODE_KEEP_ITS_FOLDER, SHELL_START_CONFIRMATION};
 pub use shell_start::{ShellLaunch, ShellStart, ShellStartError, describe_start_failure};
-pub use sign_in_move::{KeychainItemRefusal, KeychainSignIn, SIGN_IN_MOVE_STEPS, SignInMoveError};
+pub use sign_in_move::{CopyLeftCause, KeychainItemRefusal, KeychainSignIn, SignInMoveError};
 #[cfg(not(target_os = "macos"))]
 pub use sign_in_move::{SignInMove, sign_in_move};
 pub use socket::connection::found_no_listener;
@@ -540,6 +557,8 @@ pub use watch::{
 };
 pub use windowless_app::WindowlessLaunch;
 #[cfg(target_os = "windows")]
+pub use windows::address_opening::open_address;
+#[cfg(target_os = "windows")]
 pub use windows::allocator::{
     GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,
 };
@@ -571,7 +590,7 @@ pub use windows::command_wrapper::{
 #[cfg(target_os = "windows")]
 pub use windows::credential_store::CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER;
 #[cfg(target_os = "windows")]
-pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
+pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c, wait_through_ctrl_c};
 #[cfg(target_os = "windows")]
 pub use windows::current_user::{current_user_id, current_user_name};
 #[cfg(target_os = "windows")]

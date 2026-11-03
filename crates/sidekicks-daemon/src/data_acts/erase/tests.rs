@@ -9,6 +9,7 @@ use secrecy::SecretString;
 use sidekicks_contracts::daemon::data::{
     DaemonDataEraseResponse, DataEraseSignOutFailure, DataEraseSignedInAccount,
 };
+use sidekicks_contracts::daemon::secrets_place::{PlaceRecord, SecretsPlace};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::CredentialStore;
 use sidekicks_provider::account::credential_home::HomeSignOutError;
@@ -19,10 +20,13 @@ use sidekicks_provider::driver::test_registry::registry_of_first_provider;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
 use sidekicks_store::credential_store::os::TestStoreAccess;
+use sidekicks_store::credential_store::place::{record_path, write_record};
 use sidekicks_store::credential_store::service::KeychainService;
 use tokio::sync::{Notify, watch};
 
-use super::{DataErase, DataEraseDeps, DataEraseFailure, DataEraseRefusal};
+use super::{
+    DataErase, DataEraseDeps, DataEraseFailure, DataEraseOutcome, DataEraseRefusal, erase_data,
+};
 
 type CallLog = Arc<Mutex<Vec<String>>>;
 
@@ -208,6 +212,50 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     assert_eq!(left, ["backups"]);
     assert!(backup.is_file(), "an earlier backup keeps its copy");
     assert!(project_file.is_file(), "a project folder is untouched");
+}
+
+// An item the keychain refuses after the check passed keeps the secrets and the whole data folder,
+// answered as kept, so the erase can run again. Killed by a refusal answered as erased, which the
+// command line would print as everything erased, and by the data folder deleted after a refusal.
+#[tokio::test]
+async fn a_refused_item_keeps_the_data_folder_and_is_answered_as_kept() {
+    let data_folder = tempfile::tempdir().expect("the data folder is made");
+    let data = data_folder.path().join(".ai-sidekicks");
+    write_file(&data.join("daemon.db"));
+    // The record names the operating system's store, so the erase must empty it.
+    write_record(
+        &record_path(&data),
+        &PlaceRecord::settled(SecretsPlace::OperatingSystem),
+    )
+    .await
+    .expect("the record is written");
+    let credentials = CredentialStore::in_memory();
+    let secret_service = KeychainService::WorkflowSecrets.as_str();
+    credentials
+        .write(secret_service, "deploy", &SecretString::from("planted"))
+        .expect("an item is stored");
+    let access = TestStoreAccess::new(credentials.clone());
+    let secret_items = SecretItems::new(SecretItemsStart {
+        data_folder: data.clone(),
+        runs_while_logged_out: false,
+        access: access as _,
+        call_timeout: Duration::from_secs(5),
+    })
+    .expect("the system gives random bytes");
+    secret_items
+        .check_for_erase()
+        .await
+        .expect("the keychain can be emptied");
+    // The store stays open once the check opened it, so the refusal is the item's own.
+    credentials.refuse_next_call(secret_service, "deploy");
+
+    let outcome = erase_data(&secret_items, &data, || async {}.boxed()).await;
+
+    assert!(matches!(outcome, DataEraseOutcome::SecretsKept(_)));
+    assert!(
+        data.join("daemon.db").is_file(),
+        "the data folder stays whole"
+    );
 }
 
 // An erase that ends before it answers, here as its sign-out panics, fails with an error and lets

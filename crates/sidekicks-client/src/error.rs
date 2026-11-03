@@ -6,10 +6,12 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use sidekicks_contracts::daemon::recovery::DaemonRepairingDetails;
 use sidekicks_contracts::jsonrpc::framing::FramingError;
 use sidekicks_contracts::jsonrpc::message::{
     ConnectionUnavailableReason, JsonRpcError, JsonRpcErrorData, MessageError,
 };
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::wire::attachment::AttachmentError;
 use sidekicks_platforms::RunFolderRefused;
 
@@ -57,6 +59,32 @@ impl From<JsonRpcError> for RemoteError {
             message: error.message,
             data: error.data,
         }
+    }
+}
+
+impl RemoteError {
+    /// Whether the daemon refused with `code`.
+    pub fn is_refusal(&self, code: RefusalCode) -> bool {
+        self.data
+            .as_ref()
+            .is_some_and(|data| data.refusal == code.as_str())
+    }
+
+    /// The `daemon.repairing` refusal's details, `None` for any other answer; fields that do not
+    /// read as the refusal's read as a repair with no count.
+    pub fn repairing_details(&self) -> Option<DaemonRepairingDetails> {
+        self.is_refusal(RefusalCode::DaemonRepairing)
+            .then(|| self.read_repairing_details())
+    }
+
+    /// This refusal's fields read as the `daemon.repairing` refusal's, with no count where they
+    /// do not read so.
+    pub(crate) fn read_repairing_details(&self) -> DaemonRepairingDetails {
+        let fields = self.data.as_ref().and_then(|data| data.fields.as_ref());
+        fields
+            .and_then(|fields| serde_json::to_value(fields).ok())
+            .and_then(|fields| serde_json::from_value(fields).ok())
+            .unwrap_or(DaemonRepairingDetails { progress: None })
     }
 }
 

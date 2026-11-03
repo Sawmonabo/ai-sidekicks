@@ -7,11 +7,14 @@
 //! the wakes of a folder's and a file's watch, whether a terminal's program waits for input, the
 //! machine's wakes from sleep, whether it runs on AC power, a wall-clock timer, the login keychain,
 //! a program's managed preferences, the Region setting's locale and hour cycle, the volume holding
-//! a path: its top and its id, the removal of an access list a mode change leaves, the app's start
-//! with no window, the shells the live test opens on a folder, the wake helper, the move of named
-//! sign-ins between the keychain and files, and a command run behind the administrator prompt.
+//! a path: its top and its id, the removal of an access list a mode change leaves, an address's
+//! opening in the application registered for it, the app's start with no window, the service's
+//! login agent and system service, the shells the live test opens on a folder, the wake helper, the
+//! move of named sign-ins between the keychain and files, and a command run behind the
+//! administrator prompt.
 
 pub(crate) mod access_control_list;
+pub(crate) mod address_opening;
 pub(crate) mod administrator_prompt;
 pub(crate) mod bash_start;
 pub(crate) mod caller_process;
@@ -21,6 +24,7 @@ pub(crate) mod descriptor_path;
 pub(crate) mod input_wait;
 pub(crate) mod lasting_child;
 pub(crate) mod loaded_images;
+pub(crate) mod login_items;
 pub(crate) mod managed_preference;
 pub(crate) mod memory;
 pub(crate) mod pinned_process;
@@ -30,10 +34,12 @@ pub(crate) mod processes;
 pub(crate) mod responsibility;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) mod scratch_volume;
+pub(crate) mod service_registration;
 pub(crate) mod session_child;
 pub(crate) mod shell_start_confirmation;
 pub(crate) mod sign_in_move;
 pub(crate) mod system_locale;
+pub(crate) mod system_service;
 pub(crate) mod volume;
 pub(crate) mod wake_helper;
 pub(crate) mod wake_watch;

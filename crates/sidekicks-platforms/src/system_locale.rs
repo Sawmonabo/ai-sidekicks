@@ -24,6 +24,30 @@ pub struct HourField {
     pub is_padded: bool,
 }
 
+impl HourField {
+    /// `hour` (0–23) and `minute` as the person's clock writes them: `14:05` on the 24-hour clock,
+    /// `2:05 PM` on the 12-hour one and `0:05 PM` on its 0–11 form, the hour two digits when the
+    /// field is padded (`03:00`).
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "the hour cycle is an open union; a cycle added to it reads as the 12-hour clock"
+    )]
+    pub fn time_of_day(self, hour: i8, minute: i8) -> String {
+        let (shown_hour, has_period) = match self.cycle {
+            HourCycle::H23 | HourCycle::Clock24 => (hour, false),
+            HourCycle::H11 => (hour % 12, true),
+            _ => ((hour + 11) % 12 + 1, true),
+        };
+        let width = if self.is_padded { 2 } else { 1 };
+        let period = match (has_period, hour < 12) {
+            (false, _) => "",
+            (true, true) => " AM",
+            (true, false) => " PM",
+        };
+        format!("{shown_hour:0width$}:{minute:02}{period}")
+    }
+}
+
 /// The hour field a time pattern names, quoted text skipped: `h` the 12-hour clock, `K` its 0–11
 /// form, and `H` or `k` the 24-hour clock, the letters CLDR's patterns and Windows' time formats
 /// share, padded when the letter is doubled; `None` for a pattern with no hour.
@@ -73,6 +97,32 @@ mod tests {
         assert_eq!(
             hour_field_in_pattern(pattern),
             expected.map(|(cycle, is_padded)| HourField { cycle, is_padded })
+        );
+    }
+
+    // Mutations: write every cycle on one clock, pad the hour whatever the field says, count the
+    // 0–11 form from 1, or put midnight or noon on the wrong side of the period.
+    #[rstest]
+    #[case::twelve_hour(HourCycle::H12, false, 3, 0, "3:00 AM")]
+    #[case::padded_twelve_hour(HourCycle::H12, true, 14, 5, "02:05 PM")]
+    #[case::twelve_hour_midnight(HourCycle::H12, false, 0, 5, "12:05 AM")]
+    #[case::twelve_hour_noon(HourCycle::H12, false, 12, 5, "12:05 PM")]
+    #[case::zero_to_eleven_midnight(HourCycle::H11, false, 0, 5, "0:05 AM")]
+    #[case::zero_to_eleven_noon(HourCycle::H11, false, 12, 5, "0:05 PM")]
+    #[case::twenty_four_hour(HourCycle::H23, true, 3, 0, "03:00")]
+    #[case::unpadded_twenty_four_hour(HourCycle::H23, false, 3, 0, "3:00")]
+    #[case::twenty_four_hour_afternoon(HourCycle::H23, true, 14, 5, "14:05")]
+    #[case::locale_chosen_twenty_four_hour(HourCycle::Clock24, true, 0, 5, "00:05")]
+    fn a_time_of_day_is_written_on_the_hour_field_s_clock(
+        #[case] cycle: HourCycle,
+        #[case] is_padded: bool,
+        #[case] hour: i8,
+        #[case] minute: i8,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(
+            HourField { cycle, is_padded }.time_of_day(hour, minute),
+            expected
         );
     }
 }

@@ -5,4 +5,4 @@
 pub mod guard;
 pub(crate) mod nonce_search;
 pub(crate) mod registry;
-pub(crate) mod sweep;
+pub mod sweep;

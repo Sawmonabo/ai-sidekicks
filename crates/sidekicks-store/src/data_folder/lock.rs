@@ -2,6 +2,7 @@
 //! held for the daemon's whole life and freed the moment the daemon dies. The holder writes its
 //! process id beside the lock, so a refused start names it.
 
+use std::collections::BTreeMap;
 use std::fmt::{self, Display};
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io;
@@ -9,12 +10,12 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// The lock file, in the data folder.
-const LOCK_FILE_NAME: &str = "daemon.lock";
-
-/// The file the holder writes its process id to, beside the lock file: a locked file cannot be
-/// read on every system.
-const PROCESS_ID_FILE_NAME: &str = "daemon.pid";
+use sidekicks_contracts::daemon::data::{
+    DAEMON_LOCK_FILE_NAME, DAEMON_PROCESS_ID_FILE_NAME, write_data_folder_held,
+};
+use sidekicks_contracts::daemon::mode_outcome::DaemonModeOutcome;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::wire::AnyValue;
 
 /// How long a held lock is tried again before the start is refused: a child the holder started is
 /// briefly between fork and exec sharing the lock file, until its exec closes it.
@@ -35,24 +36,22 @@ pub struct HeldDataFolder {
     pub source: io::Error,
 }
 
-impl Display for HeldDataFolder {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write_data_folder_held(formatter, self.process_id)
+impl HeldDataFolder {
+    /// The `daemon.dataFolder.held` refusal a mode of the daemon's program answers while the data
+    /// folder is held, naming the holder's process id when its record read.
+    pub fn mode_refusal<T>(&self) -> DaemonModeOutcome<T> {
+        let fields: BTreeMap<String, AnyValue> = self
+            .process_id
+            .map(|process_id| ("processId".to_owned(), AnyValue(process_id.into())))
+            .into_iter()
+            .collect();
+        DaemonModeOutcome::refused(RefusalCode::DaemonDataFolderHeld, self.to_string(), fields)
     }
 }
 
-/// Writes the refusal a person reads when another daemon holds the data folder, naming the
-/// holder's `process_id` when it is known.
-pub fn write_data_folder_held(
-    formatter: &mut fmt::Formatter<'_>,
-    process_id: Option<u32>,
-) -> fmt::Result {
-    match process_id {
-        Some(process_id) => write!(
-            formatter,
-            "The background service is already running (process {process_id})."
-        ),
-        None => write!(formatter, "The background service is already running."),
+impl Display for HeldDataFolder {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write_data_folder_held(formatter, self.process_id)
     }
 }
 
@@ -95,7 +94,7 @@ impl DataFolderLock {
     /// cannot be opened or locked or the id cannot be written. Blocking, so it runs through
     /// `spawn_blocking`.
     pub fn take(data_folder: &Path) -> Result<Self, DataFolderLockError> {
-        let lock_path = data_folder.join(LOCK_FILE_NAME);
+        let lock_path = data_folder.join(DAEMON_LOCK_FILE_NAME);
         let lock_error = |source| DataFolderLockError::Lock {
             path: lock_path.clone(),
             source,
@@ -125,7 +124,7 @@ impl DataFolderLock {
                 }
             }
         }
-        let process_id_path = data_folder.join(PROCESS_ID_FILE_NAME);
+        let process_id_path = data_folder.join(DAEMON_PROCESS_ID_FILE_NAME);
         fs::write(&process_id_path, std::process::id().to_string()).map_err(|source| {
             DataFolderLockError::RecordProcessId {
                 path: process_id_path,
@@ -139,7 +138,7 @@ impl DataFolderLock {
 /// The process id the holder recorded beside the lock, or `None` when the record is missing or
 /// unreadable, as when the holder has not written it yet.
 fn read_holder_process_id(data_folder: &Path) -> Option<u32> {
-    let path = data_folder.join(PROCESS_ID_FILE_NAME);
+    let path = data_folder.join(DAEMON_PROCESS_ID_FILE_NAME);
     match fs::read_to_string(&path) {
         Ok(text) => text.trim().parse().ok(),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {

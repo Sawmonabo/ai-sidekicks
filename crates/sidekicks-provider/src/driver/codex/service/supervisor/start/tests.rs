@@ -8,7 +8,9 @@ use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::{Value, json};
 use sidekicks_platforms::{
-    LeftoverSweep, Spawner, connect_unix_domain_socket, create_file_atomically, harness_test_name,
+    CAN_LINK_A_SOCKET, LeftoverSweep, ProcessRecord, Spawner, connect_unix_domain_socket,
+    create_file_atomically, harness_test_name, pin_child_process, read_socket_link,
+    replace_socket_link,
 };
 use tokio::io::AsyncReadExt as _;
 use tokio::sync::mpsc;
@@ -17,7 +19,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::{HeaderValue, header};
 use tokio_util::sync::CancellationToken;
 
-use super::kept_records::{retire_former_service, stop_kept_services};
+use super::kept_records::{KeptServicesStop, retire_former_service, stop_kept_services};
 use super::{StartFailure, StartedService, compose_launch, start_codex_service};
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
@@ -160,13 +162,20 @@ async fn a_former_service_its_record_no_longer_pins_leaves_no_tree_running() {
         .expect("the record file is named");
     let locked = Arc::new(record_file.lock().expect("the record is locked"));
     locked
-        .write(&LastingServiceRecord::launched(record.clone()))
+        .write(&LastingServiceRecord::launched(
+            record.clone(),
+            socket.clone(),
+        ))
         .expect("the record is written");
     let is_pinned = repin_lasting_codex_service(record.clone())
         .expect("the record re-pins")
         .is_some();
 
-    let retired = retire_former_service(&locked, record).await;
+    let retired = retire_former_service(
+        &locked,
+        LastingServiceRecord::launched(record, socket.clone()),
+    )
+    .await;
     let mut rest = Vec::new();
     let survivor_end = tokio::time::timeout(SURVIVOR_WAIT, survivor.read_to_end(&mut rest)).await;
     let kept = locked.read().expect("the record reads");
@@ -341,7 +350,11 @@ async fn an_account_start_adds_the_relay_environment_before_it_answers() {
     }
     // The stop a daemon stop makes ends the kept service, which outlives this test otherwise, so
     // it runs before any assertion can fail.
-    stop_kept_services(service.dependencies().data_folder.clone()).await;
+    stop_kept_services(
+        service.dependencies().data_folder.clone(),
+        KeptServicesStop::DaemonStop,
+    )
+    .await;
 
     let mut tokens = Vec::new();
     for (started, sent) in starts {
@@ -380,6 +393,45 @@ async fn an_account_start_adds_the_relay_environment_before_it_answers() {
             is_admitted
         );
     }
+}
+
+// Fails when the erase's end of a recorded service that is gone leaves the home's link naming the
+// socket the service really listened on, so a plain `codex` meets a link to a dead socket.
+#[tokio::test]
+async fn an_erase_takes_the_home_link_off_a_gone_service_s_socket() {
+    if !CAN_LINK_A_SOCKET {
+        return;
+    }
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    let home_socket = folder.path().join("home.sock");
+    let physical_socket = folder.path().join("own.sock");
+    replace_socket_link(&home_socket, &physical_socket).expect("the home's link is made");
+    // This test's own process with another start mark, as a record whose process ended reads.
+    let own = pin_child_process(std::process::id())
+        .expect("this process pins")
+        .record()
+        .expect("the record reads")
+        .expect("this process runs");
+    let mut gone = serde_json::to_value(own).expect("a process record writes as JSON");
+    gone["start"] = (gone["start"].as_u64().expect("the start mark is a number") + 1).into();
+    let gone: ProcessRecord = serde_json::from_value(gone).expect("the changed record reads");
+    LastingServiceRecordFile::of_socket(folder.path(), folder.path(), &physical_socket)
+        .expect("the record file is named")
+        .lock()
+        .expect("the records lock")
+        .write(&LastingServiceRecord {
+            physical_socket: Some(physical_socket.clone()),
+            ..LastingServiceRecord::launched(gone, home_socket.clone())
+        })
+        .expect("the record is written");
+
+    let failures = stop_kept_services(folder.path().to_owned(), KeptServicesStop::Erase).await;
+
+    assert!(failures.is_empty(), "{failures:?}");
+    assert_eq!(
+        read_socket_link(&home_socket).expect("the link reads"),
+        None
+    );
 }
 
 // Killed by any service's launch left without the person's privacy choices, the capability read's

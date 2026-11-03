@@ -76,11 +76,12 @@ async fn observe_claude_limits(
     folders: ProviderAccountFolders,
 ) -> Result<ProviderObservation, DriverError> {
     run_in_read_folder(
-        &legs.data_folder,
+        &legs.sources.0.data_folder,
         &CLAUDE_LIMITS_READ_FOLDER,
         async |folder| {
             let folders = ClaudeAccountFolders::from(&folders);
             let executable = legs
+                .sources
                 .resolve_build_on(
                     ClaudeProcessHome::AccountStore {
                         folder,

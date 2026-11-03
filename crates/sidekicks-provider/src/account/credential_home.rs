@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::{
     CredentialGeneration, ProviderAccountHealthState, ProviderAccountId,
 };
@@ -232,7 +233,7 @@ impl From<CredentialHomeResetError> for HandlerError {
     }
 }
 
-/// Why `sign_out_every_home` could not sign an account out.
+/// Why [`sign_out_homes`] could not sign an account out.
 #[derive(Debug, thiserror::Error)]
 pub enum HomeSignOutError {
     /// No registered provider runs the account's sign-out.
@@ -246,36 +247,73 @@ pub enum HomeSignOutError {
     Overran,
 }
 
-/// Signs every registered account out through its provider's own sign-out in its home, all at
-/// once and within `bound`, as `Erase all data` does before the homes go. Answers each account
-/// it could not sign out, with why. Fails when the accounts cannot be read.
+/// One account [`sign_out_homes`] signs out: its id, its provider and its home's folders.
+pub struct HomeSignOut {
+    /// The account's id.
+    pub account_id: ProviderAccountId,
+    /// The account's provider.
+    pub provider: ProviderId,
+    /// The account's home's folders, which the sign-out runs in.
+    pub folders: ProviderAccountFolders,
+}
+
+/// Signs every account of `accounts` out in its home through the provider's own sign-out that
+/// `sign_out` starts for its provider, all at once and each within `bound`. Answers each account
+/// left signed in, with why: [`HomeSignOutError::NoProvider`] where `sign_out` answers `None`.
+pub async fn sign_out_homes<'legs>(
+    accounts: impl IntoIterator<Item = HomeSignOut>,
+    sign_out: impl Fn(
+        &ProviderId,
+        ProviderAccountId,
+        ProviderAccountFolders,
+    ) -> Option<BoxFuture<'legs, Result<(), DriverError>>>,
+    bound: Duration,
+) -> Vec<(ProviderAccountId, HomeSignOutError)> {
+    let sign_outs = accounts.into_iter().map(|account| {
+        let signing_out = sign_out(
+            &account.provider,
+            account.account_id.clone(),
+            account.folders,
+        );
+        async move {
+            let Some(signing_out) = signing_out else {
+                return Some((account.account_id, HomeSignOutError::NoProvider));
+            };
+            match tokio::time::timeout(bound, signing_out).await {
+                Ok(Ok(())) => None,
+                Ok(Err(error)) => Some((account.account_id, HomeSignOutError::SignOut(error))),
+                Err(_elapsed) => Some((account.account_id, HomeSignOutError::Overran)),
+            }
+        }
+    });
+    futures::future::join_all(sign_outs)
+        .await
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
+/// Signs every account `registry` lists out through its provider's legs among `legs`, as
+/// [`sign_out_homes`] does, before `Erase all data` deletes the homes. Answers each account it
+/// could not sign out, with why. Fails when the accounts cannot be read.
 pub async fn sign_out_every_home<S: BuildHasher>(
     registry: &ProviderAccountRegistry,
     legs: &HashMap<ProviderId, Arc<dyn ProviderAccountLegs>, S>,
     bound: Duration,
 ) -> Result<Vec<(ProviderAccountId, HomeSignOutError)>, ProviderAccountRegistryError> {
-    let accounts = registry.list(None).await?;
-    let sign_outs = accounts.into_iter().map(|account| async move {
-        let Some(legs) = legs.get(&account.provider) else {
-            return Some((account.account_id, HomeSignOutError::NoProvider));
-        };
+    let accounts = registry.list(None).await?.into_iter().map(|account| {
         let folders = credential_home_folders(&account.provider, &account.credential_home);
-        let signed_out = tokio::time::timeout(
-            bound,
-            legs.sign_out_home(account.account_id.clone(), folders),
-        )
-        .await;
-        match signed_out {
-            Ok(Ok(())) => None,
-            Ok(Err(error)) => Some((account.account_id, HomeSignOutError::SignOut(error))),
-            Err(_elapsed) => Some((account.account_id, HomeSignOutError::Overran)),
+        HomeSignOut {
+            account_id: account.account_id,
+            provider: account.provider,
+            folders,
         }
     });
-    Ok(futures::future::join_all(sign_outs)
-        .await
-        .into_iter()
-        .flatten()
-        .collect())
+    let sign_out = |provider: &ProviderId, account_id, folders| {
+        legs.get(provider)
+            .map(|legs| legs.sign_out_home(account_id, folders))
+    };
+    Ok(sign_out_homes(accounts, sign_out, bound).await)
 }
 
 // Runs a file-system step off the runtime's threads, its failure a home that could not be made or

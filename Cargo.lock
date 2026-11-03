@@ -5906,6 +5906,7 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "583300ad934cba24ff5292aee751ecc070f7ca6b39a574cc21b7b5e588e06a0b"
 dependencies = [
+ "bitflags 2.13.2",
  "libc",
  "objc2-core-foundation",
 ]
@@ -8522,16 +8523,25 @@ dependencies = [
  "anyhow",
  "clap",
  "fast_qr",
+ "futures",
+ "garde",
  "icu_decimal",
  "icu_locale_core",
+ "insta",
+ "jiff",
  "rpassword",
  "rstest",
  "secrecy",
+ "serde",
  "serde_json",
  "sidekicks-client",
  "sidekicks-contracts",
  "sidekicks-platforms",
+ "strum 0.28.0",
+ "tempfile",
  "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -8837,6 +8847,7 @@ dependencies = [
  "nix 0.31.3",
  "notify",
  "objc2-core-foundation",
+ "objc2-core-services",
  "objc2-foundation",
  "objc2-io-kit",
  "objc2-security",
@@ -8989,7 +9000,6 @@ name = "sidekicks-recovery"
 version = "0.0.0"
 dependencies = [
  "futures",
- "garde",
  "getrandom 0.4.3",
  "jiff",
  "memchr",
@@ -9128,7 +9138,9 @@ dependencies = [
  "reflink-copy",
  "reqwest",
  "rstest",
+ "serde",
  "serde-saphyr",
+ "serde_json",
  "sha2 0.11.1",
  "sidekicks-contracts",
  "sidekicks-platforms",

@@ -9,21 +9,20 @@ use std::ffi::OsString;
 use std::io::{self, Write};
 use std::panic::{self, AssertUnwindSafe};
 
-use clap::{Parser, Subcommand};
-use icu_decimal::DecimalFormatter;
-use icu_decimal::input::Decimal;
-use icu_decimal::options::DecimalFormatterOptions;
-use icu_locale_core::Locale;
-use serde_json::Value;
+use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
 use sidekicks_client::error::ClientError;
 use sidekicks_contracts::daemon::recovery::{
     DaemonRepairingDetails, DaemonRepairingLinePart, describe_daemon_repairing_line,
 };
-use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_platforms::{LocaleCategory, end_as_ctrl_c, system_locale};
+use sidekicks_platforms::{end_as_ctrl_c, service_registration};
 
 use crate::command_context::CommandContext;
+use crate::commands::crash::{CrashCommand, run_crash_command};
+use crate::commands::daemon::{DaemonCommand, ServiceRegistrationCommand, run_daemon_command};
+use crate::commands::data::{DataCommand, run_data_command};
+use crate::commands::open::{OpenArgs, open};
 use crate::exit_codes::{ExitCode, ProcessEnding, exit_code_for_failure};
+use crate::local::number::LocalNumberFormat;
 
 /// The program's arguments; each command joins [`Command`].
 #[derive(Debug, Parser)]
@@ -39,9 +38,21 @@ pub(crate) struct Cli {
     command: Command,
 }
 
-/// The commands, each landing with the unit that builds it.
+/// The program's commands.
 #[derive(Debug, Subcommand)]
-enum Command {}
+enum Command {
+    /// Read the crash reports this computer keeps.
+    #[command(subcommand)]
+    Crash(CrashCommand),
+    /// Read and drive the background service.
+    #[command(subcommand)]
+    Daemon(DaemonCommand),
+    /// Act on everything the background service keeps.
+    #[command(subcommand)]
+    Data(DataCommand),
+    /// Open a sidekicks:// address in the app.
+    Open(OpenArgs),
+}
 
 /// Runs the program over `args` (the program's name first) and answers how the process ends. Help
 /// and the version go to stdout; a refused argument, a bare `sidekicks` among them, goes to stderr
@@ -53,7 +64,7 @@ pub(crate) fn run_program<Output: Write, ErrorOutput: Write>(
     args: impl IntoIterator<Item = OsString>,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> ProcessEnding {
-    let cli = match Cli::try_parse_from(args) {
+    let cli = match parse_arguments(args) {
         Ok(cli) => cli,
         Err(refusal) => return report_parse_refusal(&refusal, context),
     };
@@ -62,21 +73,51 @@ pub(crate) fn run_program<Output: Write, ErrorOutput: Write>(
     let outcome = panic::catch_unwind(AssertUnwindSafe(|| run_command(cli.command, context)));
     panic::set_hook(default_hook);
     match outcome {
-        Ok(Ok(())) => ProcessEnding::Exit(ExitCode::Success),
+        Ok(Ok(code)) => ProcessEnding::Exit(code),
         Ok(Err(failure)) => report_failure(&failure, context),
         Err(payload) => report_failure(&panic_failure(payload.as_ref()), context),
     }
 }
 
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "a command is consumed by its run; no command exists yet"
-)]
+/// The program's arguments read against its command tree, which holds `daemon install` and
+/// `uninstall` only where this system registers the service, so elsewhere clap refuses them as
+/// unknown and its help leaves them out. Fails with clap's refusal, help or version.
+fn parse_arguments(args: impl IntoIterator<Item = OsString>) -> Result<Cli, clap::Error> {
+    let registration = service_registration();
+    let mut command = Cli::command();
+    if registration.is_some() {
+        command = command.mut_subcommand("daemon", ServiceRegistrationCommand::augment_subcommands);
+    }
+    let mut matches = command.try_get_matches_from_mut(args)?;
+    if let Some(registration) = registration
+        && let Some(("daemon", daemon)) = matches.subcommand()
+        && daemon
+            .subcommand_name()
+            .is_some_and(ServiceRegistrationCommand::has_subcommand)
+    {
+        let registration_command = ServiceRegistrationCommand::from_arg_matches(daemon)
+            .map_err(|refusal| refusal.format(&mut command))?;
+        return Ok(Cli {
+            command: Command::Daemon(DaemonCommand::Registration(
+                registration,
+                registration_command,
+            )),
+        });
+    }
+    Cli::from_arg_matches_mut(&mut matches).map_err(|refusal| refusal.format(&mut command))
+}
+
+/// Runs one command and answers the exit code its run ends with.
 fn run_command<Output: Write, ErrorOutput: Write>(
     command: Command,
-    _context: &mut CommandContext<Output, ErrorOutput>,
-) -> anyhow::Result<()> {
-    match command {}
+    context: &mut CommandContext<Output, ErrorOutput>,
+) -> anyhow::Result<ExitCode> {
+    match command {
+        Command::Crash(command) => run_crash_command(&command, context),
+        Command::Daemon(command) => run_daemon_command(&command, context),
+        Command::Data(command) => run_data_command(&command, context),
+        Command::Open(args) => open(&args),
+    }
 }
 
 /// Writes clap's help, version or refusal to the stream clap names for it, in clap's styles when
@@ -113,6 +154,7 @@ fn report_parse_refusal<Output: Write, ErrorOutput: Write>(
 }
 
 /// The one error boundary: writes `error: <message>` to stderr and answers how the run ends. A
+/// command's argument refused as clap refuses one is written as clap writes it, with its usage. A
 /// daemon number with no exit code adds its own line and exits 70; a closed output pipe exits 141
 /// with nothing written, since no one is left to read it; a call canceled after a Ctrl-C takes the
 /// Ctrl-C ending with nothing written, as the terminal already shows the Ctrl-C.
@@ -120,6 +162,12 @@ pub(crate) fn report_failure<Output: Write, ErrorOutput: Write>(
     failure: &anyhow::Error,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> ProcessEnding {
+    if let Some(refusal) = failure
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<clap::Error>())
+    {
+        return report_parse_refusal(refusal, context);
+    }
     let (code, lines) = match exit_code_for_failure(failure) {
         Ok(ProcessEnding::CtrlC) => return ProcessEnding::CtrlC,
         Ok(ProcessEnding::Exit(ExitCode::BrokenPipe)) => {
@@ -137,55 +185,43 @@ pub(crate) fn report_failure<Output: Write, ErrorOutput: Write>(
 /// The failure's message: the repair's line when the daemon refused as `daemon.repairing`, its
 /// counts in the person's number format, else every cause in the failure's chain.
 fn describe_failure(failure: &anyhow::Error) -> String {
-    match repairing_line_parts(failure) {
-        Some(parts) => write_repairing_line(parts, system_locale(LocaleCategory::Number).as_ref()),
+    match repairing_details(failure) {
+        Some(details) => describe_repairing(details),
         None => format!("{failure:#}"),
     }
 }
 
-/// The repair's line in parts when the failure's first client error is the `daemon.repairing`
-/// refusal; a detail that does not read as the refusal's reads as no count.
-fn repairing_line_parts(failure: &anyhow::Error) -> Option<Vec<DaemonRepairingLinePart>> {
+/// The repair's details when the failure's first client error is the `daemon.repairing` refusal;
+/// a detail that does not read as the refusal's reads as no count.
+fn repairing_details(failure: &anyhow::Error) -> Option<DaemonRepairingDetails> {
     let client_error = failure
         .chain()
         .find_map(|cause| cause.downcast_ref::<ClientError>())?;
     let ClientError::Remote(remote) = client_error else {
         return None;
     };
-    let data = remote
-        .data
-        .as_ref()
-        .filter(|data| data.refusal == RefusalCode::DaemonRepairing.as_str())?;
-    let progress = data
-        .fields
-        .as_ref()
-        .and_then(|fields| {
-            let members = fields
-                .as_map()
-                .iter()
-                .map(|(name, value)| (name.clone(), value.0.clone()))
-                .collect();
-            serde_json::from_value::<DaemonRepairingDetails>(Value::Object(members)).ok()
-        })
-        .and_then(|details| details.progress);
-    Some(describe_daemon_repairing_line(progress))
+    remote.repairing_details()
 }
 
-/// The repair's line from its parts, each count grouped as `locale` writes numbers, and in plain
-/// digits for the POSIX locale (`None`).
-fn write_repairing_line(parts: Vec<DaemonRepairingLinePart>, locale: Option<&Locale>) -> String {
-    let formatter = locale.map(|locale| {
-        DecimalFormatter::try_new(locale.into(), DecimalFormatterOptions::default())
-            .expect("the compiled number data covers every locale through its fallback")
-    });
+/// The line naming a daemon repairing its database file, in the words the app shows, its counts
+/// in the person's number format.
+pub(crate) fn describe_repairing(details: DaemonRepairingDetails) -> String {
+    write_repairing_line(
+        describe_daemon_repairing_line(details.progress),
+        &LocalNumberFormat::read(),
+    )
+}
+
+/// The repair's line from its parts, each count written in `numbers`' format.
+fn write_repairing_line(
+    parts: Vec<DaemonRepairingLinePart>,
+    numbers: &LocalNumberFormat,
+) -> String {
     parts
         .into_iter()
-        .map(|part| match (part, &formatter) {
-            (DaemonRepairingLinePart::Words(words), _) => words,
-            (DaemonRepairingLinePart::Count(count), Some(formatter)) => {
-                formatter.format(&Decimal::from(count)).to_string()
-            }
-            (DaemonRepairingLinePart::Count(count), None) => count.to_string(),
+        .map(|part| match part {
+            DaemonRepairingLinePart::Words(words) => words,
+            DaemonRepairingLinePart::Count(count) => numbers.count(count),
         })
         .collect()
 }
@@ -267,6 +303,7 @@ mod tests {
     use super::{report_failure, run_program, write_repairing_line};
     use crate::command_context::CommandContext;
     use crate::exit_codes::{ExitCode, ProcessEnding};
+    use crate::local::number::LocalNumberFormat;
 
     /// A stream whose reader went away.
     struct ClosedPipe;
@@ -405,7 +442,7 @@ mod tests {
             total: SafeInt::new(56_789).expect("a safe integer"),
         }));
 
-        let line = write_repairing_line(parts, locale.as_ref());
+        let line = write_repairing_line(parts, &LocalNumberFormat::of_locale(locale.as_ref()));
 
         assert_eq!(
             line,

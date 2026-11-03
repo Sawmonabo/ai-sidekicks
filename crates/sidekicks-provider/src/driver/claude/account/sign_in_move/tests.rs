@@ -19,9 +19,10 @@ use crate::account::resolver::credential_home_folders;
 use crate::driver::claude::account::credentials::claude_keychain_service;
 use crate::driver::claude::account::test_account_legs;
 use crate::driver::claude::spawn::environment::{ClaudeAccountFolders, ClaudeProcessHome};
+use crate::driver::helper_mode_services_over;
 use crate::driver::schema::schema_parts;
 use crate::driver::test_registry::test_driver_services;
-use crate::driver::{DriverServices, HelperModeServices, PROVIDER_REGISTRATIONS};
+use crate::driver::{DriverServices, PROVIDER_REGISTRATIONS};
 
 // The bytes of every planted file carry this.
 const PLANTED_SECRET: &str = "planted-sign-in-secret";
@@ -56,15 +57,6 @@ impl Fixture {
             database,
             registry,
             services,
-        }
-    }
-
-    // The bundle a helper mode builds, over what the driver's services hold.
-    fn helper_mode_services(&self) -> HelperModeServices {
-        HelperModeServices {
-            data_folder: self.services.data_folder.clone(),
-            base_environment: Arc::clone(&self.services.base_environment),
-            reserved_names: Arc::clone(&self.services.reserved_names),
         }
     }
 
@@ -110,7 +102,7 @@ async fn the_helper_mode_names_each_claude_code_sign_in_and_no_codex_one() {
     let fixture = Fixture::new().await;
     let claude_account = fixture.account(claude()).await;
     let codex_account = fixture.account(codex()).await;
-    let services = fixture.helper_mode_services();
+    let services = helper_mode_services_over(&fixture.services);
 
     let homes = query_account_homes(&fixture.database.reader()).expect("the homes are listed");
     let mut named: Vec<(String, Option<KeychainSignIn>)> = homes
@@ -150,6 +142,7 @@ async fn the_helper_mode_names_each_claude_code_sign_in_and_no_codex_one() {
     assert_eq!(named, expected);
 
     let session_environment = test_account_legs(&fixture.services, Weak::new())
+        .sources
         .compose_environment_on(
             ClaudeProcessHome::Account {
                 folders: &ClaudeAccountFolders::from(&credential_home_folders(

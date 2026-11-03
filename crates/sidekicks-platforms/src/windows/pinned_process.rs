@@ -26,7 +26,7 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use crate::child_command::ChildEnd;
-use crate::pinned_process::{KILL_WAIT_BOUND, ProcessRecord};
+use crate::pinned_process::{KILL_WAIT_BOUND, ProcessRecord, SurvivorsEnd};
 use crate::windows::ctrl_c::CTRL_C_EXIT_CODE;
 use crate::windows::error_codes::win32_code;
 use crate::windows::handle_wait::HandleWait;
@@ -105,6 +105,13 @@ impl PinnedProcess {
     /// Ends the process as [`Self::stop`] does: Windows has no group signal, so the caller asks it
     /// to stop by the program's own means first, and its job's processes end with it.
     pub fn stop_group(&self, grace: Duration) -> io::Result<ChildEnd> {
+        self.stop(grace)
+    }
+
+    /// Ends the daemon's process as [`Self::stop`] does, the caller having asked it to stop by the
+    /// program's own means first; a lasting child, which breaks away into a job of its own,
+    /// outlives it.
+    pub fn stop_sparing_lasting_sessions(&self, grace: Duration) -> io::Result<ChildEnd> {
         self.stop(grace)
     }
 
@@ -238,27 +245,31 @@ pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedPr
 }
 
 /// Ends what is left of the tree `record` names once its process has ended: every process still
-/// in the job a lasting child ran in; `false` when the record names no job, its process still
-/// runs, which its stop ends, or no running process is left in a job of its name. The job holds
-/// only the child's own tree, so no process in it is told apart by an environment entry. Fails with
-/// `InvalidData` for a job name no lasting child is given, else with the system's error.
+/// in the job a lasting child ran in, ended at once, so no member is left unended; nothing is
+/// ended when the record names no job, its process still runs, which its stop ends, or no running
+/// process is left in a job of its name. The job holds only the child's own tree, so no process in
+/// it is told apart by an environment entry. Fails with `InvalidData` for a job name no lasting
+/// child is given, else with the system's error.
 pub(crate) fn end_recorded_survivors(
     record: &ProcessRecord,
     _environment_entry: &str,
-) -> io::Result<bool> {
+) -> io::Result<SurvivorsEnd> {
     let Some(name) = &record.job else {
-        return Ok(false);
+        return Ok(SurvivorsEnd::default());
     };
     // Opened before the process is read, so a name of another shape is refused whether or not
     // the process runs.
     let job = open_recorded_job(record, name)?;
     if open_recorded_process(record)?.is_some() {
-        return Ok(false);
+        return Ok(SurvivorsEnd::default());
     }
     let Some(job) = job else {
-        return Ok(false);
+        return Ok(SurvivorsEnd::default());
     };
-    end_job_processes(&job)
+    Ok(SurvivorsEnd {
+        is_any_ended: end_job_processes(&job)?,
+        unended: Vec::new(),
+    })
 }
 
 // The process `record` names, held open while it runs with the recorded id and creation time;
@@ -567,7 +578,11 @@ mod tests {
             child.process.stop(Duration::ZERO).expect("the stop reads") == ChildEnd::Stop
         } else {
             child.record.pin().expect("the re-pin reads").is_none()
-                && child.record.end_survivors("").expect("the survivors end")
+                && child
+                    .record
+                    .end_survivors("")
+                    .expect("the survivors end")
+                    .is_any_ended
         };
 
         assert!(ended);
@@ -606,7 +621,11 @@ mod tests {
         }
 
         let end = child.process.stop(Duration::ZERO).expect("the stop reads");
-        let is_ended = child.record.end_survivors("").expect("the survivors read");
+        let is_ended = child
+            .record
+            .end_survivors("")
+            .expect("the survivors read")
+            .is_any_ended;
         let read_end = child.process.read_end().expect("the exit code reads");
 
         assert_eq!(end, ChildEnd::Stop);
@@ -630,7 +649,7 @@ mod tests {
                 .iter()
                 .map(|&argument| argument.to_owned())
                 .collect(),
-            environment: std::env::vars().collect(),
+            environment: std::env::vars_os().collect(),
             working_folder: std::env::temp_dir(),
             error_output: tempfile::tempfile().expect("the error output file is made"),
         })

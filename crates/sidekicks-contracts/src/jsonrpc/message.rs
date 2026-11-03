@@ -11,6 +11,7 @@ use serde_json::Value;
 use serde_json::value::RawValue;
 
 use crate::jsonrpc::byte_length::json_utf8_byte_length;
+use crate::jsonrpc::error_code::JsonRpcErrorCode;
 use crate::jsonrpc::negotiation::CONNECTION_INITIALIZE_METHOD;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::refusal::category::RefusalCategory;
@@ -147,21 +148,42 @@ pub struct JsonRpcError {
 }
 
 impl JsonRpcError {
-    /// The answer to a call the client canceled before the daemon committed it.
-    pub fn request_canceled() -> Self {
+    /// The refusal `code`, framed by the code's own JSON-RPC number, with `message` for a person
+    /// and `fields` as its `data.fields`.
+    pub fn refusal(code: RefusalCode, message: String, fields: Option<JsonRecord>) -> Self {
         Self {
-            code: SafeSignedInt::new(i64::from(
-                RefusalCode::RequestCanceled.json_rpc_code().code(),
-            ))
-            .expect("a JSON-RPC error code is a safe integer"),
-            message: "The call was canceled.".to_owned(),
+            code: framing_code(code.json_rpc_code()),
+            message,
             data: Some(JsonRpcErrorData {
-                refusal: RefusalCode::RequestCanceled.as_str().to_owned(),
-                category: RefusalCode::RequestCanceled.category(),
-                fields: None,
+                refusal: code.as_str().to_owned(),
+                category: code.category(),
+                fields,
             }),
         }
     }
+
+    /// A failure inside whoever answers: `-32603` with `message` and no `data`.
+    pub fn internal(message: String) -> Self {
+        Self {
+            code: framing_code(JsonRpcErrorCode::InternalError),
+            message,
+            data: None,
+        }
+    }
+
+    /// The answer to a call the client canceled before the daemon committed it.
+    pub fn request_canceled() -> Self {
+        Self::refusal(
+            RefusalCode::RequestCanceled,
+            "The call was canceled.".to_owned(),
+            None,
+        )
+    }
+}
+
+// The error's framing number as the wire carries it.
+fn framing_code(code: JsonRpcErrorCode) -> SafeSignedInt {
+    SafeSignedInt::new(i64::from(code.code())).expect("a JSON-RPC error code is a safe integer")
 }
 
 /// One JSON-RPC 2.0 message.

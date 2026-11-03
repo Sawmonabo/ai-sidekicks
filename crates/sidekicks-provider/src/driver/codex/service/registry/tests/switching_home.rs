@@ -4,7 +4,6 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use serde_json::{Map, Value};
 use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, read_socket_link};
@@ -24,12 +23,12 @@ use crate::driver::codex::service::switching::test_sign_in::{
     AccountHomes, compose_access_token, write_sign_in,
 };
 use crate::driver::codex::session::purge::purge_codex_conversations;
-use crate::driver::contract::MockProviderDriver;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::registry::ProviderRegistry;
 use crate::driver::session_control::{PurgeSessionParams, SessionConversation};
-use crate::driver::test_registry::{new_session_id, test_driver_services};
-use crate::driver::{PROVIDER_REGISTRATIONS, ProviderRegistration};
+use crate::driver::test_registry::{
+    new_session_id, registrations_of_mock_drivers, test_driver_services,
+};
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The conversation the purge deletes from the switching home.
@@ -93,13 +92,7 @@ async fn a_restart_rejoins_the_switching_service_by_its_record_and_the_backup_li
     next.shutdown(DaemonStopIntent::Stop).await;
     let is_stopped = wait_until_gone(kept_process).await;
 
-    let table: Vec<ProviderRegistration> = PROVIDER_REGISTRATIONS
-        .iter()
-        .map(|registration| ProviderRegistration {
-            build: |_| Arc::new(MockProviderDriver::new()),
-            ..*registration
-        })
-        .collect();
+    let table = registrations_of_mock_drivers();
     let providers = ProviderRegistry::register_from(&table, &test_driver_services());
     let listed: Vec<(String, PathBuf)> = switching_homes(&providers, &data_folder)
         .into_iter()

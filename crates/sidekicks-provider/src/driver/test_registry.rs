@@ -1,9 +1,9 @@
-//! The driver registry other areas' tests build on: the shared services every driver's build
-//! takes, the table's first providers answered by stand-in drivers, a run bound to the first one,
-//! the session inbox addresser the table's own drivers answer, an accounts reader answering one
-//! current account, the table with Codex's driver over a scripted service, and the stand-in Codex
-//! service a test program runs as itself; the run, session and message ids the drivers' tests
-//! mint, and the run queue's intake as a driver tells it.
+//! The driver registry other areas' tests build on: the shared services every driver's build takes,
+//! the table's first providers answered by stand-in drivers, a run bound to the first one, every
+//! provider answered by a mock driver, the session inbox addresser the table's own drivers answer,
+//! an accounts reader answering one current account, the table with Codex's driver over a scripted
+//! service, and the stand-in Codex service a test program runs as itself; the run, session and
+//! message ids the drivers' tests mint, and the run queue's intake as a driver tells it.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -60,7 +60,7 @@ pub use crate::driver::codex::{
     ScriptedCodexService, serve_as_codex_service_stand_in, stand_in_codex_service,
     start_scripted_codex_service, write_codex_service_script,
 };
-use crate::driver::contract::ProviderDriver;
+use crate::driver::contract::{MockProviderDriver, ProviderDriver};
 use crate::driver::ports::DriverPorts;
 #[cfg(test)]
 use crate::driver::ports::{
@@ -273,11 +273,25 @@ pub fn registrations_of_first_providers(
         .iter()
         .map(|registration| ProviderRegistration {
             build: take_next_driver,
+            stop_recorded_services: None,
             ..*registration
         })
         .collect();
     NEXT_DRIVERS.with_borrow_mut(|next| *next = drivers.into());
     table
+}
+
+/// Every provider of the table in its order, each built as a mock driver with no expectations, so
+/// any call to one fails the test.
+pub fn registrations_of_mock_drivers() -> Vec<ProviderRegistration> {
+    PROVIDER_REGISTRATIONS
+        .iter()
+        .map(|registration| ProviderRegistration {
+            build: |_| Arc::new(MockProviderDriver::new()),
+            stop_recorded_services: None,
+            ..*registration
+        })
+        .collect()
 }
 
 /// The table's providers in its order, each built as the table builds it but Codex, whose driver's

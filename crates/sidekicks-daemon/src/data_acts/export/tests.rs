@@ -136,17 +136,18 @@ fn seed_rows(log: &TranscriptTestLog, home: &str) {
 async fn wait_until_finished(exports: &DataExports, job_id: DataExportJobId) -> DataExportProgress {
     let mut progress = exports.follow(job_id).expect("the job is known");
     let ended = progress
-        .wait_for(is_finished)
+        .wait_for(|progress| progress.as_ref().is_some_and(is_finished))
         .await
         .expect("the job reports its end");
-    ended.clone()
+    ended.clone().expect("an ended job has progress")
 }
 
 // A seeded store's export holds the session's events with a compressed body decoded, its queue
 // item and intervention, its file, the account with no home path and the README, and no byte of
 // a credential, pasted token, workflow secret or key; a second start while one runs and a start
-// into an existing folder are refused. Killed by a compressed body exported raw, by every account
-// column read or the account's home copied, and by a second export let start.
+// into an existing folder are refused, and the end counts the one session. Killed by a compressed
+// body exported raw, by every account column read or the account's home copied, by a second
+// export let start, and by an end that counts no session.
 #[tokio::test]
 async fn an_export_holds_every_part_decoded_and_no_credential() {
     let log = TranscriptTestLog::new(crate::daemon::schema::schema_parts());
@@ -187,7 +188,10 @@ async fn an_export_holds_every_part_decoded_and_no_credential() {
     ));
     let ended = wait_until_finished(&exports, job_id).await;
     assert!(
-        matches!(ended, DataExportProgress::Completed { .. }),
+        matches!(
+            ended,
+            DataExportProgress::Completed { sessions_exported, .. } if sessions_exported.get() == 1
+        ),
         "{ended:?}"
     );
     assert!(matches!(
@@ -400,11 +404,7 @@ async fn an_export_that_panics_frees_its_slot_and_fails() {
         running: Some(job_id),
         ..ExportJobs::default()
     }));
-    let zero = SafeInt::new(0).expect("zero is a safe integer");
-    let (progress, ended) = watch::channel(DataExportProgress::Running {
-        sessions_exported: zero,
-        sessions_total: zero,
-    });
+    let (progress, ended) = watch::channel(None);
     let running = RunningExport {
         jobs: Arc::clone(&jobs),
         progress,
@@ -418,7 +418,7 @@ async fn an_export_that_panics_frees_its_slot_and_fails() {
     assert!(panicked.is_err_and(|failure| failure.is_panic()));
     assert_eq!(lock(&jobs).running, None);
     assert!(
-        matches!(*ended.borrow(), DataExportProgress::Failed { .. }),
+        matches!(*ended.borrow(), Some(DataExportProgress::Failed { .. })),
         "{:?}",
         *ended.borrow()
     );

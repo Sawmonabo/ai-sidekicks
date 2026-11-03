@@ -70,13 +70,33 @@ impl ProcessRecord {
     /// answered `None` for: on Windows what is left in the job the record names; on macOS and
     /// Linux, on its boot and while no process holds its id, each member of the group the process
     /// led that is in its session, started no earlier than it and carries `environment_entry`
-    /// (`NAME=value`), so a group a stranger took the id for is left alone; `true` when something
-    /// was ended. A member that cannot be read or killed is logged and left. Fails with the
-    /// system's error, on macOS with `Unsupported` where the system has no id-checked process read,
-    /// and on Windows with `InvalidData` for a job name no lasting child is given.
-    pub fn end_survivors(&self, environment_entry: &str) -> io::Result<bool> {
+    /// (`NAME=value`), so a group a stranger took the id for is left alone; answers whether
+    /// something was ended and each member that could not be read or killed, which is left. Fails
+    /// with the system's error, on macOS with `Unsupported` where the system has no id-checked
+    /// process read, and on Windows with `InvalidData` for a job name no lasting child is given.
+    pub fn end_survivors(&self, environment_entry: &str) -> io::Result<SurvivorsEnd> {
         end_recorded_survivors(self, environment_entry)
     }
+}
+
+/// What an end of a record's survivors did: whether it ended any, and each it could not end.
+#[derive(Debug, Default)]
+pub struct SurvivorsEnd {
+    /// Whether any survivor was ended.
+    pub is_any_ended: bool,
+    /// The survivors that could not be read or killed, which may still run.
+    pub unended: Vec<UnendedProcess>,
+}
+
+/// A process an end could not read or kill, so it may still run.
+#[derive(Debug, thiserror::Error)]
+#[error("process {process_id} could not be read or killed")]
+pub struct UnendedProcess {
+    /// The process's id.
+    pub process_id: u32,
+    /// Why it could not be read or killed.
+    #[source]
+    pub error: io::Error,
 }
 
 // A record's process id; refuses 0, which names no process.
@@ -198,7 +218,8 @@ mod tests {
             ..record.clone()
         }
         .end_survivors(OWN_ENTRY)
-        .expect("the held record's survivors read");
+        .expect("the held record's survivors read")
+        .is_any_ended;
         let is_running = record.pin().expect("the re-pin reads").is_some();
         drop(child.input.take());
         child.wait().expect("the child is reaped");
@@ -224,9 +245,13 @@ mod tests {
             other
                 .end_survivors(entry)
                 .expect("the other record's survivors read")
+                .is_any_ended
         });
         let is_re_pinned = record.pin().expect("the re-pin reads").is_some();
-        let is_group_ended = record.end_survivors(OWN_ENTRY).expect("the survivors end");
+        let is_group_ended = record
+            .end_survivors(OWN_ENTRY)
+            .expect("the survivors end")
+            .is_any_ended;
         let rest = read_group_output_to_end(&mut child.output, record.id, Duration::from_secs(5));
 
         assert!(!is_held_group_ended);
@@ -252,7 +277,10 @@ mod tests {
         drop(child.input.take());
         child.wait().expect("the child is reaped");
 
-        let is_group_ended = record.end_survivors(OWN_ENTRY).expect("the survivors read");
+        let is_group_ended = record
+            .end_survivors(OWN_ENTRY)
+            .expect("the survivors read")
+            .is_any_ended;
         signal_group(record.id, Signal::SIGKILL).expect("the test ends its own child's group");
         let rest = read_group_output_to_end(&mut child.output, record.id, Duration::from_secs(5));
 

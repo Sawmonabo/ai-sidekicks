@@ -17,7 +17,7 @@ use sidekicks_contracts::mcp::server::config::{
 use sidekicks_contracts::provider::account::record::{
     CredentialGeneration, ProviderAccountId, ProviderAuthMode,
 };
-use sidekicks_contracts::provider::id::{ProviderId, is_provider_id};
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::voice::VoiceKind;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -42,6 +42,7 @@ use crate::driver::child_records::DaemonChildRecords;
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::account::HelperModeAccountLegs;
 use crate::driver::contract::error::DriverError;
+use crate::driver::daemon_stop::RecordedServicesStop;
 use crate::driver::ports::DriverPorts;
 use crate::output_validation::is_canonical_semver;
 use crate::process_registry::ProviderProcessRegistry;
@@ -78,6 +79,7 @@ pub mod session_control;
 pub mod session_inspector;
 pub mod session_messages;
 pub(crate) mod streamed_text;
+mod table_checks;
 pub mod task_list;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_registry;
@@ -186,6 +188,9 @@ pub struct ProviderDescriptor {
     /// handed over as the link's one argument; `None` where the provider starts its commands
     /// through the daemon's relay instead.
     pub(crate) shell_prefix_command: Option<ShellPrefixCommand>,
+    /// The command a person types in a terminal to pick up one of the provider's sessions typed
+    /// there again.
+    pub(crate) terminal_resume_command: &'static str,
 }
 
 /// A provider's contract with the command wrapper's link when it prefixes every shell command it
@@ -221,6 +226,12 @@ impl ProviderDescriptor {
     /// The provider's name as a person reads it, which a session's lead agent is named.
     pub fn name(&self) -> &'static str {
         self.name
+    }
+
+    /// The command a person types in a terminal to pick up one of the provider's sessions typed
+    /// there again.
+    pub fn terminal_resume_command(&self) -> &'static str {
+        self.terminal_resume_command
     }
 
     /// The variables a Terminal pane's shell is given while `Simplify for a screen reader` is on.
@@ -482,11 +493,14 @@ pub const PROVIDER_REGISTRATIONS: &[ProviderRegistration] = &[
         descriptor: &claude::DESCRIPTOR,
         build: claude::build,
         helper_mode_account_legs: claude::helper_mode_account_legs,
+        // Claude Code runs only as the daemon's child and keeps no lasting service.
+        stop_recorded_services: None,
     },
     ProviderRegistration {
         descriptor: &codex::DESCRIPTOR,
         build: codex::build,
         helper_mode_account_legs: codex::helper_mode_account_legs,
+        stop_recorded_services: Some(codex::stop_recorded_services),
     },
 ];
 
@@ -498,12 +512,6 @@ pub const PROVIDERS: &[&ProviderDescriptor] =
 /// pool's capacity counts.
 pub const DRIVERS_STATEMENT_CAPACITY: usize =
     codex::calibration::store::CODEX_CALIBRATION_STATEMENT_CAPACITY;
-
-const _: () = assert!(
-    has_valid_ids(PROVIDERS),
-    "a provider id breaks the id pattern"
-);
-const _: () = assert!(has_unique_ids(PROVIDERS), "two providers share an id");
 
 /// The shared services every driver's build takes, one bundle, so adding a provider never edits the
 /// daemon's start. Each field is a handle a driver reads, every one provider-neutral: a provider's
@@ -562,13 +570,33 @@ pub struct DriverServices {
 
 /// What a provider's helper-mode account legs read, which the daemon program's helper modes build
 /// with no daemon serving and no database pool: only what those legs read, never a driver's.
+#[derive(Clone)]
 pub struct HelperModeServices {
+    /// The one thread the legs' short-lived provider processes are spawned from.
+    pub spawner: Spawner,
     /// The daemon's data folder.
     pub data_folder: PathBuf,
+    /// The person's home folder, below which a provider's command is searched for.
+    pub home_folder: PathBuf,
+    /// The search a provider's command falls back to once its environment's `PATH` holds none.
+    pub command_search: Arc<ProviderCommandSearch>,
     /// The login shell's environment, every provider process's base.
     pub base_environment: Arc<[(String, String)]>,
     /// The names every provider sets on its processes, which no environment row may set.
     pub reserved_names: Arc<ReservedEnvironmentNames>,
+}
+
+/// The bundle a helper mode builds, over the handles a driver's `services` hold, for code that
+/// serves both; it clones handles and does no I/O.
+pub(crate) fn helper_mode_services_over(services: &DriverServices) -> HelperModeServices {
+    HelperModeServices {
+        spawner: services.spawner.clone(),
+        data_folder: services.data_folder.clone(),
+        home_folder: services.home_folder.clone(),
+        command_search: Arc::clone(&services.command_search),
+        base_environment: Arc::clone(&services.base_environment),
+        reserved_names: Arc::clone(&services.reserved_names),
+    }
 }
 
 /// Where and as whom one session's provider process runs, and the settings the daemon keeps for the
@@ -748,8 +776,8 @@ pub async fn read_current_account(
 }
 
 /// One registered provider: its descriptor, the function that builds its driver from the shared
-/// services, storing its handles without I/O, and the one that builds the account legs a helper
-/// mode runs with no driver.
+/// services, storing its handles without I/O, the one that builds the account legs a helper mode
+/// runs with no driver, and the one that ends its recorded services.
 pub struct ProviderRegistration {
     /// The provider's fixed facts.
     pub descriptor: &'static ProviderDescriptor,
@@ -757,18 +785,10 @@ pub struct ProviderRegistration {
     pub build: fn(&DriverServices) -> Arc<dyn ProviderDriver>,
     /// Builds the account legs a helper mode runs, over a bundle with no pool; it does no I/O.
     pub helper_mode_account_legs: fn(&HelperModeServices) -> Arc<dyn HelperModeAccountLegs>,
-}
-
-/// Whether every id in `table` matches the provider id pattern.
-const fn has_valid_ids(table: &[&ProviderDescriptor]) -> bool {
-    let mut i = 0;
-    while i < table.len() {
-        if !is_provider_id(table[i].id) {
-            return false;
-        }
-        i += 1;
-    }
-    true
+    /// Ends, with no daemon running and no database, every lasting service the provider's records
+    /// under the data folder still name, each record removed; `None` for a provider that keeps
+    /// none. Fails with every failure met, every other record still settled.
+    pub stop_recorded_services: Option<RecordedServicesStop>,
 }
 
 /// The descriptors of the first `N` of `registrations`, in their order; `N` is at least one.
@@ -782,22 +802,6 @@ const fn descriptors_of<const N: usize>(
         i += 1;
     }
     descriptors
-}
-
-/// Whether no two entries of `table` share an id.
-const fn has_unique_ids(table: &[&ProviderDescriptor]) -> bool {
-    let mut i = 0;
-    while i < table.len() {
-        let mut j = i + 1;
-        while j < table.len() {
-            if is_same_text(table[i].id, table[j].id) {
-                return false;
-            }
-            j += 1;
-        }
-        i += 1;
-    }
-    true
 }
 
 /// Whether two texts hold the same bytes, in a form a constant can call.

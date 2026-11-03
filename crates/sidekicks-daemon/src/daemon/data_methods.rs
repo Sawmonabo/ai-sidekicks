@@ -91,17 +91,23 @@ pub(crate) fn register_data_methods(
     })
 }
 
-// Sends the job's progress as it stands, then each change, and ends the stream once the job ends.
+// Sends the job's progress as it stands, then each change, once the job has counted its sessions,
+// and ends the stream once the job ends.
 fn follow_progress(
-    mut progress: watch::Receiver<DataExportProgress>,
+    mut progress: watch::Receiver<Option<DataExportProgress>>,
     outlet: LatestValueOutlet<DataExportProgress>,
 ) -> impl FnOnce() + Send + use<> {
     let following = tokio::spawn(async move {
         loop {
             let current = progress.borrow_and_update().clone();
-            let has_ended = is_finished(&current);
-            outlet.send(current);
-            if has_ended || progress.changed().await.is_err() {
+            if let Some(current) = current {
+                let has_ended = is_finished(&current);
+                outlet.send(current);
+                if has_ended {
+                    break;
+                }
+            }
+            if progress.changed().await.is_err() {
                 break;
             }
         }
@@ -180,6 +186,7 @@ mod tests {
         DaemonDataErase, DaemonDataExportCancel, DaemonDataExportStart, DaemonDataExportSubscribe,
         DataExportProgress,
     };
+    use sidekicks_contracts::daemon::secrets_place::{PlaceRecord, SecretsPlace};
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::method::Method as _;
     use sidekicks_contracts::session::id::SessionId;
@@ -194,9 +201,7 @@ mod tests {
     use sidekicks_provider::driver::test_registry::registry_of_first_provider;
     use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
     use sidekicks_store::credential_store::os::TestStoreAccess;
-    use sidekicks_store::credential_store::place::{
-        PlaceRecord, SecretsPlace, record_path, write_record,
-    };
+    use sidekicks_store::credential_store::place::{record_path, write_record};
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use tempfile::TempDir;

@@ -7,43 +7,11 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use garde::Validate as _;
 use sidekicks_contracts::daemon::backup::{
-    BACKUP_DATABASE_FILE_NAME, BACKUP_MANIFEST_FILE_NAME, BackupManifest,
+    BACKUP_DATABASE_FILE_NAME, BackupManifestError, read_backup_manifest,
 };
 use sidekicks_std::missing_entry::MissingEntry as _;
 use tracing::warn;
-
-/// Why a backup's manifest could not be read.
-#[derive(Debug, thiserror::Error)]
-pub enum BackupManifestError {
-    /// The file system refused the read.
-    #[error("the backup's manifest could not be read")]
-    Read(#[source] io::Error),
-    /// The manifest is not JSON, or not a manifest.
-    #[error("the backup's manifest does not parse")]
-    Parse(#[source] serde_json::Error),
-    /// The manifest breaks a manifest's rules.
-    #[error("the backup's manifest breaks a manifest's rules")]
-    Check(#[source] garde::Report),
-}
-
-/// The manifest of the backup in `backup_path`, `None` when it has none, read on the calling
-/// thread. Fails when the file system refuses the read or the manifest does not parse or check.
-pub fn read_backup_manifest(
-    backup_path: &Path,
-) -> Result<Option<BackupManifest>, BackupManifestError> {
-    let Some(manifest_bytes) = fs::read(backup_path.join(BACKUP_MANIFEST_FILE_NAME))
-        .none_if_missing()
-        .map_err(BackupManifestError::Read)?
-    else {
-        return Ok(None);
-    };
-    let manifest: BackupManifest =
-        serde_json::from_slice(&manifest_bytes).map_err(BackupManifestError::Parse)?;
-    manifest.validate().map_err(BackupManifestError::Check)?;
-    Ok(Some(manifest))
-}
 
 /// The newest backup's database copy in `backup_folder`, `None` when the folder holds none. A
 /// backup whose manifest is missing is passed over, and one whose manifest or time does not read,

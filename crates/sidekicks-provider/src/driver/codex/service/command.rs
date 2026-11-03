@@ -1,13 +1,13 @@
-//! A short Codex command the daemon runs to its end for what it prints.
+//! A short Codex command the daemon runs to its end, for what it prints or for its exit alone.
 
 use std::io;
-use std::process::Stdio;
+use std::process::{ExitStatus, Stdio};
 use std::time::Duration;
 
 use process_wrap::tokio::ChildWrapper;
 use sidekicks_platforms::{Spawner, read_child_exit, wrap_child_command};
 use tokio::io::AsyncReadExt;
-use tokio::process::ChildStdout;
+use tokio::process::{ChildStdout, Command};
 
 use crate::driver::codex::service::process::CodexProcessLaunch;
 use crate::driver::codex::service::registry::home_exec_switches;
@@ -84,12 +84,7 @@ pub(crate) async fn run_codex_command(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    let daemon_pid = std::process::id();
-    let mut child = spawner
-        .run(move || wrap_child_command(command, daemon_pid).spawn())
-        .await
-        .and_then(|spawned| spawned)
-        .map_err(CodexCommandError::Start)?;
+    let mut child = start_command(spawner, command).await?;
     let standard_output = child
         .stdout()
         .take()
@@ -103,16 +98,53 @@ pub(crate) async fn run_codex_command(
             return Err(CodexCommandError::DeadlinePassed { deadline, elapsed });
         }
     };
-    if !status.success() {
-        let exit = read_child_exit(&status, None);
-        return Err(match exit.signal_name {
-            Some(signal) => CodexCommandError::Signaled { signal },
-            None => CodexCommandError::Failed {
-                exit_code: exit.exit_code,
-            },
-        });
-    }
+    read_command_exit(status)?;
     String::from_utf8(output).map_err(CodexCommandError::NotText)
+}
+
+/// Runs a short Codex command to its end on `spawner`'s thread, prepared as every child of the
+/// daemon is, with all three of its streams closed, so nothing it prints is read; killed when the
+/// caller drops the wait, since it has no deadline of its own. Fails with [`CodexCommandError`]
+/// when it cannot start or exits with a failure code or a signal.
+pub(crate) async fn run_codex_command_to_exit(
+    spawner: &Spawner,
+    launch: CodexProcessLaunch,
+) -> Result<(), CodexCommandError> {
+    let mut command = launch.into_command();
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut child = start_command(spawner, command).await?;
+    let status = child.wait().await.map_err(CodexCommandError::Wait)?;
+    read_command_exit(status)
+}
+
+// Starts `command` on the spawner's thread as every child of the daemon starts.
+async fn start_command(
+    spawner: &Spawner,
+    command: Command,
+) -> Result<Box<dyn ChildWrapper>, CodexCommandError> {
+    let daemon_pid = std::process::id();
+    spawner
+        .run(move || wrap_child_command(command, daemon_pid).spawn())
+        .await
+        .and_then(|spawned| spawned)
+        .map_err(CodexCommandError::Start)
+}
+
+// A clean exit, or the code or signal that ended the command.
+fn read_command_exit(status: ExitStatus) -> Result<(), CodexCommandError> {
+    if status.success() {
+        return Ok(());
+    }
+    let exit = read_child_exit(&status, None);
+    Err(match exit.signal_name {
+        Some(signal) => CodexCommandError::Signaled { signal },
+        None => CodexCommandError::Failed {
+            exit_code: exit.exit_code,
+        },
+    })
 }
 
 /// The model catalog of `service`'s home as `codex debug models` prints it, run by the Codex

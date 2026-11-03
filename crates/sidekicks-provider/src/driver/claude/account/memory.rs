@@ -31,7 +31,9 @@ pub(super) fn claude_memory_import_stores(
     legs: &ClaudeAccountLegs,
     home: &CredentialHome,
 ) -> io::Result<Vec<MemoryImportStore>> {
-    let Some(own_folder) = claude_config_folder(&legs.base_environment, PathRules::NATIVE) else {
+    let Some(own_folder) =
+        claude_config_folder(&legs.sources.0.base_environment, PathRules::NATIVE)
+    else {
         return Ok(Vec::new());
     };
     let mut stores = Vec::new();
@@ -57,7 +59,7 @@ pub(super) fn claude_memory_import_stores(
     }
     stores.push(MemoryImportStore {
         source: own_folder.join(AGENT_MEMORY_FOLDER),
-        destinations: vec![agent_memory_folder(&legs.data_folder)],
+        destinations: vec![agent_memory_folder(&legs.sources.0.data_folder)],
     });
     Ok(stores)
 }

@@ -1,10 +1,13 @@
 //! The terminal's Ctrl-C on macOS and Linux: the wait for SIGINT, through tokio's signal driver,
 //! and the ending a command takes after it, SIGINT's default action put back and raised, so the
 //! shell that ran the command reads it as ended by Ctrl-C (`130`) and a script running it stops
-//! too.
+//! too; and the wait for a child that a Ctrl-C reaches alone.
 
 use std::io;
+use std::process::{Child, ExitStatus};
 
+use nix::sys::signal::Signal::SIGINT;
+use nix::sys::signal::{SaFlags, SigAction, SigHandler, SigSet, sigaction};
 use tokio::signal::unix::{Signal, SignalKind, signal};
 
 /// The terminal's Ctrl-C, listened for from [`ctrl_c`] until the listener drops; the command
@@ -26,6 +29,20 @@ impl CtrlCListener {
 /// installed.
 pub fn ctrl_c() -> io::Result<CtrlCListener> {
     signal(SignalKind::interrupt()).map(CtrlCListener)
+}
+
+/// Waits for `child` to exit with SIGINT ignored in this process, so the terminal's Ctrl-C, which
+/// it also delivers to the child, ends only the child and this process reads how it ended; the
+/// child was started before, so it keeps SIGINT's own handling. SIGINT's earlier handling is put
+/// back after. Fails as the wait does, or when SIGINT's handling cannot be changed.
+pub fn wait_through_ctrl_c(child: &mut Child) -> io::Result<ExitStatus> {
+    let ignore = SigAction::new(SigHandler::SigIgn, SaFlags::empty(), SigSet::empty());
+    // SAFETY: ignoring a signal installs no handler, so nothing runs in a signal's context.
+    let earlier = unsafe { sigaction(SIGINT, &ignore) }?;
+    let waited = child.wait();
+    // SAFETY: the action put back is the one this process had, as the system answered it.
+    unsafe { sigaction(SIGINT, &earlier) }?;
+    waited
 }
 
 /// Ends the process the way a Ctrl-C does: puts SIGINT's default action back and raises it, so

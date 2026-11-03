@@ -68,7 +68,7 @@ export const DataExportSubscribeRequestSchema: z.ZodType<
  */
 export type DataExportProgress =
   | { state: "running"; sessionsExported: number; sessionsTotal: number }
-  | { state: "completed"; path: string; totalBytes: number }
+  | { state: "completed"; path: string; sessionsExported: number; totalBytes: number }
   | { state: "failed"; message: string };
 
 /** Parses a {@link DataExportProgress}; a running export never counts past its total. */
@@ -90,6 +90,7 @@ export const DataExportProgressSchema: z.ZodType<DataExportProgress> = z.discrim
       .object({
         state: z.literal("completed"),
         path: wireFreeFormString(FILE_PATH_MAX_LEN, "DataExportProgress.path"),
+        sessionsExported: countSchema,
         totalBytes: countSchema,
       })
       .strict(),

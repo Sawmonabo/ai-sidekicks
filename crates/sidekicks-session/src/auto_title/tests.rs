@@ -77,6 +77,7 @@ async fn harness(build: fn(&DriverServices) -> Arc<dyn ProviderDriver>) -> Harne
     let providers = Arc::new(ProviderRegistry::register_from(
         &[ProviderRegistration {
             build,
+            stop_recorded_services: None,
             ..PROVIDER_REGISTRATIONS[0]
         }],
         &services,

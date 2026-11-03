@@ -20,10 +20,10 @@ Every command the product ships: what a person types into the `sidekicks` comman
 | `sidekicks account show` | Prints the hosted account's id and name. | [Spec-016](../specs/016-hosted-account-and-identity.md), [Plan-015](../plans/015-hosted-account-and-identity.md) |
 | `sidekicks account rename <new name>` | Changes the account's name. | [Spec-016](../specs/016-hosted-account-and-identity.md), [Plan-015](../plans/015-hosted-account-and-identity.md) |
 | `sidekicks data export <folder>` | Writes everything this computer keeps to a folder, as Settings' `Export all data` does. | [Spec-020](../specs/020-data-retention-export-and-deletion.md) |
-| `sidekicks data erase` | Erases all local data, as Settings' `Erase all data` does; refused while the service runs. | [Spec-020](../specs/020-data-retention-export-and-deletion.md) |
-| `sidekicks data restore <backup>` | Restores a backup with the service stopped, for a computer with no app. | [Spec-013](../specs/013-persistence-and-recovery.md) |
+| `sidekicks data erase` | Erases all local data, as Settings' `Erase all data` does; refused while the service runs; asks first, and `--yes` skips the question. | [Spec-020](../specs/020-data-retention-export-and-deletion.md) |
+| `sidekicks data restore <backup>` | Restores a backup with the service stopped, for a computer with no app; asks first, and `--yes` skips the question. | [Spec-013](../specs/013-persistence-and-recovery.md) |
 | `sidekicks daemon install` | Sets up the background service; `--while-signed-out` keeps it running while the person is signed out of the computer. | [Spec-006](../specs/006-local-ipc-and-daemon-control.md) |
-| `sidekicks daemon uninstall` · `start` · `stop` · `restart` · `status` | Removes, starts, stops, restarts or reports the background service. | [Spec-006](../specs/006-local-ipc-and-daemon-control.md) |
+| `sidekicks daemon uninstall` · `start` · `stop` · `restart` · `status` | Removes, starts, stops, restarts or reports the background service; `stop` and `restart` ask first, and `--yes` skips the question. | [Spec-006](../specs/006-local-ipc-and-daemon-control.md) |
 | `sidekicks daemon update [--check]` | Checks for, and applies, a newer background service; it never updates the app. | [Spec-023](../specs/023-self-host-secure-defaults.md), [Plan-005](../plans/005-local-ipc-and-daemon-control.md) |
 | `sidekicks device list` | Lists the person's computers and devices. | [Spec-027](../specs/027-remote-control.md) |
 | `sidekicks device link` · `rename` · `revoke` · `forget` | Links a new device with a code and six digits; renames, revokes or forgets one. | [Spec-027](../specs/027-remote-control.md) |
@@ -59,6 +59,7 @@ Nobody types these. One program, `sidekicks-daemon`, is signed and shipped; the 
 | `database shell` | The service | SQLite's own shell, used for `.recover` on a damaged database. |
 | `database copy` | The service | Copies a damaged database aside in a child process, so the service's file locks survive. |
 | `database restore <backup>` | `sidekicks data restore` or the app | Restores a backup with the service stopped. |
+| `data erase` | `sidekicks data erase` | Erases everything the app keeps on this computer with the service stopped: ends what a stopped service left running, deletes the keychain items, then the data folder but its backups. |
 | `ingest` | The service | Draws a file's preview, such as a PDF's first page, in a throwaway child process. |
 
 ## Program and link files

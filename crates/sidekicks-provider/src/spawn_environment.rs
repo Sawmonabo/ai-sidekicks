@@ -396,6 +396,7 @@ mod tests {
         switching_home_folder: None,
         account_home_credential_store_folder: &[],
         shell_prefix_command: None,
+        terminal_resume_command: "first resume",
     };
 
     /// A second registered provider, whose credential home no row may set either, and whose

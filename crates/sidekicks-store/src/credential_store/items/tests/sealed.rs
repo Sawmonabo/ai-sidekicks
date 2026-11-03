@@ -8,6 +8,7 @@ use std::time::Duration;
 use rstest::rstest;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::json;
+use sidekicks_contracts::daemon::secrets_place::SecretsPlace;
 use sidekicks_contracts::daemon::status::{
     DaemonSecretsFileUnopened as Unopened, DaemonSecretsPlainReason as Reason,
 };
@@ -24,7 +25,6 @@ use super::{
 use crate::credential_store::SecretKeychain;
 use crate::credential_store::items::{SecretItems, SecretItemsStart, cannot_open};
 use crate::credential_store::os::{SystemCredentialStore, TestStoreAccess};
-use crate::credential_store::place::SecretsPlace;
 use crate::credential_store::seal::{TestSeal, TestSealAnswer};
 use crate::credential_store::service::KeychainService;
 

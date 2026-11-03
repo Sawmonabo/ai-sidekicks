@@ -16,7 +16,7 @@ use tokio::io::unix::AsyncFd;
 use crate::child_command::ChildEnd;
 use crate::linux::process_start::read_process_start;
 use crate::linux::{read_process_file, read_process_stat_fields};
-use crate::pinned_process::ProcessRecord;
+use crate::pinned_process::{ProcessRecord, SurvivorsEnd, UnendedProcess};
 use crate::posix::process::group::signal_group;
 use crate::posix::process::id::system_process_id;
 use crate::posix::process::stop::{stop_pinned_process, wait_for_event};
@@ -97,6 +97,19 @@ impl PinnedProcess {
         stop_pinned_process(
             grace,
             |signal| self.send_to_group(signal),
+            |bound| self.wait_for_exit(bound),
+        )
+    }
+
+    /// Ends the daemon's process: `SIGTERM` through its descriptor, then once `grace` passes
+    /// without its exit `SIGKILL` the same way, to the process alone; each child it started ends
+    /// by its parent-death signal, which a lasting child does not arm, so every lasting session
+    /// outlives it. Blocking, so it runs in `spawn_blocking`; answers and fails as [`Self::stop`]
+    /// does.
+    pub fn stop_sparing_lasting_sessions(&self, grace: Duration) -> io::Result<ChildEnd> {
+        stop_pinned_process(
+            grace,
+            |signal| self.send_through_descriptor(signal, 0),
             |bound| self.wait_for_exit(bound),
         )
     }
@@ -232,35 +245,34 @@ pub(crate) fn pin_recorded(record: &ProcessRecord) -> io::Result<Option<PinnedPr
 /// Ends what is left of the group the process `record` names led, once that process has ended: on
 /// the boot it was recorded in and while no process holds its id, each member of the group that is
 /// in its session, started no earlier than it and carries `environment_entry`, killed through its
-/// own descriptor; `false` when nothing was ended. A member that cannot be read or killed is
-/// logged and left. Fails with the system's error when the boot or `/proc` cannot be read.
+/// own descriptor; a member that cannot be read or killed is left and answered. Fails with the
+/// system's error when the boot or `/proc` cannot be read.
 pub(crate) fn end_recorded_survivors(
     record: &ProcessRecord,
     environment_entry: &str,
-) -> io::Result<bool> {
+) -> io::Result<SurvivorsEnd> {
+    let mut end = SurvivorsEnd::default();
     if record.boot != current_boot()? {
-        return Ok(false);
+        return Ok(end);
     }
     // A process holding the id is the recorded one, or a later one, which took the id only once
     // the group's last member had ended.
     if is_id_held(record.id)? {
-        return Ok(false);
+        return Ok(end);
     }
-    let mut is_any_ended = false;
     for entry in std::fs::read_dir("/proc")? {
         let Ok(id) = entry?.file_name().to_string_lossy().parse::<u32>() else {
             continue;
         };
         match end_survivor(record, id, environment_entry) {
-            Ok(is_ended) => is_any_ended |= is_ended,
-            Err(error) => tracing::warn!(
-                error = &error as &(dyn std::error::Error + 'static),
-                process_id = id,
-                "a process left in an ended child's group could not be read or killed"
-            ),
+            Ok(is_ended) => end.is_any_ended |= is_ended,
+            Err(error) => end.unended.push(UnendedProcess {
+                process_id: id,
+                error,
+            }),
         }
     }
-    Ok(is_any_ended)
+    Ok(end)
 }
 
 // Kills process `id` when it is a survivor of `record`'s group carrying `environment_entry`:

@@ -309,16 +309,27 @@ interface DaemonPackageCacheClearRequest {
 // reachable, with `provider` as data, read off
 // the same directory entries the agents' session listing names, so Runtime and the agents read one
 // fact. `Stop`'s confirm counts them and the service update's waiting step counts the working ones;
-// read when a confirm opens and while an update waits, never on a timer. Empty while `Reach Codex
-// sessions started in a terminal` is off.
+// read when a confirm opens and while an update waits, never on a timer. `providers` holds each
+// provider with at least one session in `sessions`, in the provider table's order, with the name a
+// person reads and the command typed in a terminal to pick one of its sessions up again, both from
+// the provider's driver, so the confirm names no provider itself. Empty while `Reach Codex
+// sessions started in a terminal` is off; refused `provider.unavailable` when the service is on but
+// cannot be reached, and `provider.timeout` when its read outlasts the bound, never answered empty
+// for a service that is on.
 interface TerminalProviderSession {
   provider: ProviderId;
   name: string;
   threadId: string;
   state: "working" | "idle" | "unreachable";
 }
+interface TerminalSessionProvider {
+  provider: ProviderId;
+  name: string; // the provider's name as a person reads it
+  resumeCommand: string; // e.g. "codex resume"
+}
 interface ProviderTerminalSessionListResponse {
   sessions: TerminalProviderSession[];
+  providers: TerminalSessionProvider[];
 }
 
 // LocalSubscription

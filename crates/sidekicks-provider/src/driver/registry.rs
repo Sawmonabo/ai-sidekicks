@@ -20,6 +20,7 @@ use sidekicks_ipc::domain_error::DomainError;
 use crate::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE;
+use crate::driver::daemon_stop::RecordedServicesStop;
 use crate::driver::{DriverServices, ProviderDescriptor, ProviderRegistration};
 
 /// The refusal for a call naming a provider no registered driver answers; its detail carries only
@@ -75,6 +76,9 @@ struct RegisteredDriver {
     /// The capabilities its last read reported, `None` until the provider check records one; the
     /// lock is held only for a read or a write of the snapshot.
     capabilities: RwLock<Option<DriverCapabilities>>,
+    /// Ends the lasting services the provider's records name, `None` for a provider that keeps
+    /// none.
+    stop_recorded_services: Option<RecordedServicesStop>,
 }
 
 /// Holds the registered drivers in the table's order and gates capability-bound calls on their
@@ -96,6 +100,7 @@ impl ProviderRegistry {
                     descriptor: registration.descriptor,
                     driver: (registration.build)(services),
                     capabilities: RwLock::new(None),
+                    stop_recorded_services: registration.stop_recorded_services,
                 })
                 .collect(),
         }
@@ -191,6 +196,14 @@ impl ProviderRegistry {
         Ok(files)
     }
 
+    /// The stop of each registered provider's recorded services, in the table's order, for each
+    /// provider that keeps lasting services.
+    pub fn recorded_service_stops(&self) -> impl Iterator<Item = RecordedServicesStop> + '_ {
+        self.drivers
+            .iter()
+            .filter_map(|registered| registered.stop_recorded_services)
+    }
+
     /// Each registered provider with its driver, in the table's order.
     pub fn drivers(&self) -> impl Iterator<Item = (&ProviderId, &Arc<dyn ProviderDriver>)> {
         self.drivers
@@ -207,26 +220,17 @@ pub fn test_provider() -> ProviderId {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 
     use super::{ProviderRegistry, test_provider};
+    use crate::driver::PROVIDERS;
     use crate::driver::capabilities::DriverCapabilityFlag;
-    use crate::driver::contract::MockProviderDriver;
-    use crate::driver::test_registry::test_driver_services;
-    use crate::driver::{PROVIDER_REGISTRATIONS, PROVIDERS, ProviderRegistration};
+    use crate::driver::test_registry::{registrations_of_mock_drivers, test_driver_services};
 
     #[tokio::test]
     async fn the_registry_keeps_the_table_order_and_refuses_an_unknown_id() {
         let services = test_driver_services();
-        let table: Vec<ProviderRegistration> = PROVIDER_REGISTRATIONS
-            .iter()
-            .map(|registration| ProviderRegistration {
-                build: |_| Arc::new(MockProviderDriver::new()),
-                ..*registration
-            })
-            .collect();
+        let table = registrations_of_mock_drivers();
         let registry = ProviderRegistry::register_from(&table, &services);
 
         let registered: Vec<&str> = registry

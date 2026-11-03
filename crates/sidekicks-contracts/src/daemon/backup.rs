@@ -5,6 +5,10 @@
 //! manifest straight from the folder; that is why the manifest's shape is a contract. A backup is
 //! a plain copy that holds no key, so any computer can restore it.
 
+use std::io;
+use std::path::Path;
+
+use garde::Validate as _;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -29,6 +33,10 @@ pub const BACKUP_DATABASE_FILE_NAME: &str = "daemon.db";
 
 /// The folder backups go to inside the service's data folder when the person picked none.
 pub const BACKUP_DEFAULT_FOLDER_NAME: &str = "backups";
+
+/// The arguments the daemon's own program is started with to restore a backup with the service
+/// stopped; the backup's folder follows them.
+pub const DATABASE_RESTORE_MODE: [&str; 2] = ["database", "restore"];
 
 ts_constants! {
     /// The longest backup id or computer name accepted, in code points.
@@ -70,6 +78,37 @@ pub struct BackupManifest {
     #[schemars(with = "UniqueList<DistroName, 1, { usize::MAX }>")]
     #[garde(dive)]
     pub distribution_parts: Option<UniqueList<DistroName, 1, { usize::MAX }>>,
+}
+
+/// Why a backup's manifest could not be read.
+#[derive(Debug, thiserror::Error)]
+pub enum BackupManifestError {
+    /// The file system refused the read.
+    #[error("the backup's manifest could not be read")]
+    Read(#[source] io::Error),
+    /// The manifest is not JSON, or not a manifest.
+    #[error("the backup's manifest does not parse")]
+    Parse(#[source] serde_json::Error),
+    /// The manifest breaks a manifest's rules.
+    #[error("the backup's manifest breaks a manifest's rules")]
+    Check(#[source] garde::Report),
+}
+
+/// The manifest of the backup in the folder `backup_path`, `None` when it has none, read and
+/// checked on the calling thread: the restore's and the command line's one reader. Fails when the
+/// file system refuses the read or the manifest does not parse or check.
+pub fn read_backup_manifest(
+    backup_path: &Path,
+) -> Result<Option<BackupManifest>, BackupManifestError> {
+    let manifest_bytes = match std::fs::read(backup_path.join(BACKUP_MANIFEST_FILE_NAME)) {
+        Ok(manifest_bytes) => manifest_bytes,
+        Err(missing) if missing.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(failure) => return Err(BackupManifestError::Read(failure)),
+    };
+    let manifest: BackupManifest =
+        serde_json::from_slice(&manifest_bytes).map_err(BackupManifestError::Parse)?;
+    manifest.validate().map_err(BackupManifestError::Check)?;
+    Ok(Some(manifest))
 }
 
 /// One backup in the folder, as `Restore…` lists it.
