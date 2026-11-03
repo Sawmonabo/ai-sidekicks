@@ -106,9 +106,9 @@ pub trait SessionRelaunchListener: Send + Sync {
     ) -> BoxFuture<'_, Result<ResumeFunctionLegs, Box<dyn Error + Send + Sync>>>;
 
     /// Records what `session_id`'s relaunch did: a `Resumed` one's binding row, under the cursor
-    /// `open_relaunch_binding` opened, which it does not open again; a `Failed` one forgets that
-    /// cursor. Fails when its binding could not be recorded, which the driver reports as a failed
-    /// relaunch.
+    /// `open_relaunch_binding` opened, which it does not open again; a `Failed` or `Deferred` one
+    /// forgets that cursor. Fails when its binding could not be recorded, which the driver reports
+    /// as a failed relaunch.
     fn session_relaunched(
         &self,
         session_id: SessionId,

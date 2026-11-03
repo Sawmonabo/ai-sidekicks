@@ -5,9 +5,7 @@ use std::time::Duration;
 
 use futures::future::BoxFuture;
 use serde_json::json;
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use crate::driver::codex::lifecycle::CodexDriver;
@@ -19,7 +17,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::codex::session::test_fixture::TestDaemonTurnBindings;
 use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
-use crate::driver::test_registry::{new_session_id, test_driver_services};
+use crate::driver::test_registry::{new_agent_id, new_session_id, test_driver_services};
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::runtime_binding::test_store::record_session_leg;
 
@@ -71,7 +69,7 @@ fn driver_on_account(
             .register(Arc::clone(engine) as _)
             .is_ok()
     );
-    let agent_id = AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id");
+    let agent_id = new_agent_id();
     assert!(
         ports
             .daemon_turn_bindings

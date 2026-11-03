@@ -17,6 +17,7 @@ use tokio::time::Instant;
 use crate::driver::claude::delivery::commands::ClaudeHeldCommand;
 use crate::driver::claude::delivery::run_readings::{ClaudeOpenTurn, ClaudeStreamSession};
 use crate::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
+use crate::driver::claude::goals::endings::ClaudeProcessGoal;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::arrivals::{ClaudeArrivalSender, ClaudeTurnAtRead};
@@ -44,6 +45,9 @@ pub(crate) struct ClaudeSessionStream {
     // switch among its frames.
     account: ClaudeProcessAccount,
     pub(super) step_bound: Option<SafeInt<1>>,
+    // The lead whose goal the process carries, and the conversation file its outcomes are read
+    // from.
+    pub(super) goal: ClaudeProcessGoal,
     readings: Mutex<ClaudeStreamSession>,
     arrivals: ClaudeArrivalSender,
     routes: Arc<ClaudeRunRoutes>,
@@ -63,10 +67,12 @@ pub(crate) struct ClaudeSessionStream {
 impl ClaudeSessionStream {
     /// A stream for the process running on `provider_account_id`'s home, counting each turn's
     /// steps against `step_bound`, queuing onto `arrivals` and taking the mode reports into
-    /// `permission_mode`, the process's record the live session shares.
+    /// `permission_mode`, the process's record the live session shares, and reading the goal of
+    /// `goal`'s lead from its conversation file.
     pub(crate) fn new(
         provider_account_id: ProviderAccountId,
         step_bound: Option<SafeInt<1>>,
+        goal: ClaudeProcessGoal,
         arrivals: ClaudeArrivalSender,
         routes: Arc<ClaudeRunRoutes>,
         prompts: Arc<Mutex<ClaudeSentPrompts>>,
@@ -77,6 +83,7 @@ impl ClaudeSessionStream {
             readings: Mutex::new(ClaudeStreamSession::new()),
             account: ClaudeProcessAccount::new(Some(provider_account_id)),
             step_bound,
+            goal,
             arrivals,
             routes,
             prompts,
@@ -171,6 +178,11 @@ impl ClaudeSessionStream {
     /// The running command `task_id` of the session's own process, where its tasks hold it.
     pub(crate) fn held_command(&self, task_id: &str) -> Option<ClaudeHeldCommand> {
         self.lock().command_tasks.held_command(task_id)
+    }
+
+    /// The ids of the session's own running command tasks that belong to `run_id`.
+    pub(crate) fn command_ids_of_run(&self, run_id: RunId) -> Vec<String> {
+        self.lock().command_tasks.command_ids_of_run(run_id)
     }
 
     /// Whether the lead `result` in `text` ends the session's turn, read on the process's reader.

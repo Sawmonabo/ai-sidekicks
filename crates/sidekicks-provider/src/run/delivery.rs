@@ -20,16 +20,19 @@ use sidekicks_contracts::event::usage::{
 };
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
-use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
+use sidekicks_contracts::provider::driver::methods::{
+    PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN,
+};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::provider_choice::{
     AgentRunRefusalChoiceRequestedPayload, AgentRunRefusalChoiceResolvedPayload,
     AgentRunUsageCreditsChoiceRequestedPayload, AgentRunUsageCreditsChoiceResolvedPayload,
 };
 use sidekicks_contracts::run::state::RunState;
-use sidekicks_contracts::run::subagent::SubagentLifecyclePayload;
+use sidekicks_contracts::run::subagent::{SubagentId, SubagentLifecyclePayload};
 use sidekicks_contracts::session::controls::events::{
     ApprovalReviewerFlaggedPayload, RunSafetyBufferingUpdatedPayload, SessionNoticePostedPayload,
     SessionSideQuestionAnsweredPayload,
@@ -38,6 +41,7 @@ use sidekicks_contracts::session::events::{
     SessionAdvisorChangedPayload, SessionOutputStyleChangedPayload,
     SessionProviderStatusReportedPayload,
 };
+use sidekicks_contracts::session::goal::{SessionGoalClearedPayload, SessionGoalUpdatedPayload};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::wire::list::BoundedVec;
@@ -55,6 +59,24 @@ pub struct DeliveryOperation<'key> {
     pub correlation_key: &'key str,
     /// Whether this is the operation's first delivery.
     pub is_opening: bool,
+}
+
+/// The helper a child run is for, as its provider names it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChildRunSubagent {
+    /// The provider's own id for the helper.
+    pub subagent_id: SubagentId,
+    /// The provider's id for the helper that launched it, as the provider gave it; `None` for one
+    /// the lead launched.
+    pub parent_subagent_id: Option<SubagentId>,
+    /// The name its provider gave it, where the provider names helpers.
+    pub name: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// The role its provider started it in.
+    pub role: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// Its path in its provider's tree, where the provider keeps one.
+    pub provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// The provider's call that started this run of the helper, where the provider names one.
+    pub start_call_id: Option<ToolCallId>,
 }
 
 /// The runtime binding a delivery arrived on, and the provider operation it belongs to, where it
@@ -102,6 +124,8 @@ pub enum InboundDelivery<'key> {
         binding: DeliveryBinding<'key>,
         /// The run the subagent starts under.
         parent_run_id: RunId,
+        /// The subagent, as its provider names it.
+        subagent: ChildRunSubagent,
     },
     /// A marker the provider reported on a live run.
     RunMarker {
@@ -422,8 +446,8 @@ unstamped_rows! {
 
 /// A row about the session as a whole, on no binding: a side question's answer, which never
 /// enters the conversation, and its usage, which no run counts, a priced request's costs, which
-/// may come after its run's binding closed, and a change of the session's own advisor or output
-/// style.
+/// may come after its run's binding closed, a change of the session's own advisor or output
+/// style, and a change of an agent's goal, which outlives any one run.
 #[derive(Debug)]
 pub enum SessionScopedRow {
     /// `session.sideQuestion.answered`.
@@ -438,6 +462,10 @@ pub enum SessionScopedRow {
     AdvisorChanged(SessionAdvisorChangedPayload),
     /// `session.outputStyle.changed`.
     OutputStyleChanged(SessionOutputStyleChangedPayload),
+    /// `session.goal.updated`.
+    GoalUpdated(SessionGoalUpdatedPayload),
+    /// `session.goal.cleared`.
+    GoalCleared(SessionGoalClearedPayload),
 }
 
 impl SessionScopedRow {
@@ -474,6 +502,16 @@ impl SessionScopedRow {
                 payload.session_id,
                 Vec::new(),
                 SessionEvent::SessionOutputStyleChanged(payload),
+            ),
+            Self::GoalUpdated(payload) => (
+                payload.session_id,
+                Vec::new(),
+                SessionEvent::SessionGoalUpdated(payload),
+            ),
+            Self::GoalCleared(payload) => (
+                payload.session_id,
+                Vec::new(),
+                SessionEvent::SessionGoalCleared(payload),
             ),
         }
     }

@@ -29,8 +29,8 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::port::inbound_dispatch::InboundDispatch;
 use sidekicks_provider::port::run_state_publisher::RunStatePublisher;
 use sidekicks_provider::run::delivery::{
-    DeliveryBinding, InboundDelivery, InboundOutcome, LateAppendableRow, LateEventAbsorbReason,
-    RunMarker, SessionScopedRow, UnstampedRow, stamp,
+    ChildRunSubagent, DeliveryBinding, InboundDelivery, InboundOutcome, LateAppendableRow,
+    LateEventAbsorbReason, RunMarker, SessionScopedRow, UnstampedRow, stamp,
 };
 use sidekicks_provider::run::state_entry::RunStateReport;
 use sidekicks_provider::run::turn_end::ProviderTurnEnd;
@@ -141,6 +141,7 @@ enum RunWork {
     },
     ChildRun {
         parent_run_id: RunId,
+        subagent: ChildRunSubagent,
     },
     Marker {
         marker: RunMarker,
@@ -178,7 +179,7 @@ impl RunWork {
                 ("runLifecycle", change.run_id, Some(change.entry.state()))
             }
             Self::Continued { run_id } => ("runContinued", *run_id, None),
-            Self::ChildRun { parent_run_id } => ("childRun", *parent_run_id, None),
+            Self::ChildRun { parent_run_id, .. } => ("childRun", *parent_run_id, None),
             Self::Marker { marker } => ("runMarker", marker.run_id(), None),
         };
         AbsorbedDelivery {
@@ -424,9 +425,13 @@ impl RunInboundDispatch {
             InboundDelivery::ChildRun {
                 binding,
                 parent_run_id,
+                subagent,
             } => (
                 binding,
-                Absorbable::Run(RunWork::ChildRun { parent_run_id }),
+                Absorbable::Run(RunWork::ChildRun {
+                    parent_run_id,
+                    subagent,
+                }),
             ),
             InboundDelivery::RunMarker { binding, marker } => {
                 (binding, Absorbable::Run(RunWork::Marker { marker }))
@@ -580,10 +585,13 @@ impl RunInboundDispatch {
                     None => run_ended().await?,
                 }
             }
-            RunWork::ChildRun { parent_run_id } => {
+            RunWork::ChildRun {
+                parent_run_id,
+                subagent,
+            } => {
                 match self
                     .engine
-                    .start_provider_subagent_run(parent_run_id)
+                    .start_provider_subagent_run(parent_run_id, subagent)
                     .await?
                 {
                     Some(SubagentRunStart::Running(run_id)) => {
@@ -658,7 +666,9 @@ fn session_row_statements(row: &SessionScopedRow) -> Vec<WriteStatement> {
         SessionScopedRow::SideQuestionAnswered(_)
         | SessionScopedRow::UsageTokenCountRecorded(_)
         | SessionScopedRow::UsageCostUpdated(_)
-        | SessionScopedRow::OutputStyleChanged(_) => Vec::new(),
+        | SessionScopedRow::OutputStyleChanged(_)
+        | SessionScopedRow::GoalUpdated(_)
+        | SessionScopedRow::GoalCleared(_) => Vec::new(),
     }
 }
 

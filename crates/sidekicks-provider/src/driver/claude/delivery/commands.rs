@@ -268,6 +268,15 @@ impl ClaudeCommandTasks {
         })
     }
 
+    /// The ids of the running command tasks that belong to `run_id`.
+    pub(crate) fn command_ids_of_run(&self, run_id: RunId) -> Vec<String> {
+        self.tasks
+            .iter()
+            .filter(|(_, task)| task.start.run_id == run_id)
+            .map(|(task_id, _)| task_id.clone())
+            .collect()
+    }
+
     /// What `frame`, of `kind`, changes in `session_id`'s running commands; `run_id` is the run a
     /// task it starts belongs to. A task of a helper, a workflow or a tool server, or one of no
     /// kind, is no command; a later start of a task the background set already listed gives that
@@ -327,6 +336,11 @@ impl ClaudeCommandTasks {
     /// background set listed.
     pub(crate) fn listed_other_tasks(&self) -> usize {
         self.listed_other_tasks
+    }
+
+    /// Whether any command task still runs.
+    pub(crate) fn has_running_task(&self) -> bool {
+        !self.tasks.is_empty()
     }
 
     /// Forgets every command task: the session's process is gone, and its commands with it.

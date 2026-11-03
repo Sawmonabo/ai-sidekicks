@@ -27,7 +27,6 @@ use super::{ClaudeDriver, ClaudeSessionParts, internal};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::capabilities::resolve_claude_model_catalog;
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
-use crate::driver::claude::frame_routing::read_prior_emitted;
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::controls::{
     ClaudeCopyComposition, ClaudeSideQuestionCopy, claude_full_model_id, without_credential_prompts,
@@ -69,6 +68,7 @@ use crate::driver::contract::params_and_results::{
     GetCapabilitiesResult, ListModelsParams, ListModesParams, ProviderReportedLevel,
 };
 use crate::driver::diagnostics::DriverDiagnosticKind;
+use crate::driver::prior_usage::read_prior_emitted;
 use crate::driver::read_current_account;
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, DriverAuthProbeResult,
@@ -872,6 +872,7 @@ async fn compose_resting_side_question_copy(
     let declaration = read_claude_initialize_declaration(catalog.initialize.as_deref());
     let parent_cumulative = read_prior_emitted(
         &sources.ports.usage,
+        DESCRIPTOR.provider_id(),
         resume.session_id,
         &resume.resume_handle,
     )

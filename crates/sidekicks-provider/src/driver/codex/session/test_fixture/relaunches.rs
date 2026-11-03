@@ -69,7 +69,7 @@ impl SessionRelaunchListener for TakenRelaunches {
     ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
         let binding_id = match result {
             DriverResumeResult::Resumed { binding_id, .. } => Some(binding_id),
-            DriverResumeResult::Failed { .. } => None,
+            DriverResumeResult::Failed { .. } | DriverResumeResult::Deferred { .. } => None,
         };
         (self.heard)(format!("relaunched {binding_id:?}"));
         let is_refused = self.refused == RefusedRelaunchStep::Record;

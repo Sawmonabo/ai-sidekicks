@@ -66,6 +66,7 @@ pub mod idle_sleep;
 pub mod mcp_server;
 pub mod message_handing;
 pub mod ports;
+pub(crate) mod prior_usage;
 pub(crate) mod question_answers;
 pub mod registry;
 pub(crate) mod reorder_buffer;
@@ -550,6 +551,8 @@ pub struct DriverServices {
     pub shell_lines: Arc<ShellLineReadingBound>,
     /// Every provider's background work, which no agent's shell line may start.
     pub background_work: Arc<BackgroundWorkForms>,
+    /// The program's one scheduler, whose wall-clock jobs fire at their instant across sleep.
+    pub scheduler: Arc<sidekicks_std::scheduler::Scheduler>,
     /// Whether the daemon's program runs the hook mode a provider's hook command starts, so a
     /// driver composes and trusts a hook that runs this program only while it does.
     pub dispatches_hook_mode: bool,

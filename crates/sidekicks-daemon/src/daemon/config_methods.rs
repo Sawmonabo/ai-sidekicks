@@ -123,9 +123,12 @@ mod tests {
     async fn a_refused_setting_writes_nothing_and_a_held_port_is_saved() {
         let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await;
-        let reads = DatabaseReadPool::new(database.path(), DAEMON_CONFIGURATION_STATEMENT_CAPACITY);
+        let reads = Arc::new(DatabaseReadPool::new(
+            database.path(),
+            DAEMON_CONFIGURATION_STATEMENT_CAPACITY,
+        ));
         let configuration = Arc::new(
-            ConfigurationStore::open(Arc::clone(&log.writer), &reads)
+            ConfigurationStore::open(Arc::clone(&log.writer), reads)
                 .await
                 .expect("the configuration store opens"),
         );

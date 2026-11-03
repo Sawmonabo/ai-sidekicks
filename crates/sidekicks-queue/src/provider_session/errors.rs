@@ -56,7 +56,8 @@ pub enum ProviderSessionError {
     /// No driver answers the session's provider.
     #[error(transparent)]
     Provider(#[from] DomainError),
-    /// The driver failed the create, the resume, or the level or mode move.
+    /// The driver failed the create, the resume, the level or mode move, or the end of the turns a
+    /// restart kept.
     #[error(transparent)]
     Driver(#[from] DriverError),
     /// The provider refused to resume the session's conversation.

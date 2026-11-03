@@ -11,6 +11,7 @@ use crate::approval::{
 };
 use crate::machine::id::MachineId;
 use crate::provider::tool_call::ToolCallId;
+use crate::release_manifest::Sha256Hex;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
@@ -21,8 +22,9 @@ use crate::wire::text::NonEmptyText;
 /// The `approval.requested` payload. `askId` is present when the request is a provider's
 /// permission ask: the daemon's own durable id for the ask, so an answer reaches the right ask
 /// after a restart when several are open on one run. `toolCallId` names the tool call the ask
-/// holds, so that call's row draws its held mark and `Declined`. The ask's tool name and the
-/// provider's prompt text ride `resourceDescriptor`.
+/// holds, so that call's row draws its held mark and `Declined`; `inputDigest` fingerprints the
+/// call's tool name and input. The ask's tool name and the provider's prompt text ride
+/// `resourceDescriptor`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ApprovalRequestedPayload {
@@ -56,6 +58,16 @@ pub struct ApprovalRequestedPayload {
     )]
     #[schemars(with = "ToolCallId")]
     pub tool_call_id: Option<ToolCallId>,
+    /// The SHA-256 of the asked call's tool name and input as canonical JSON, by which a call made
+    /// again after a restart finds this card; absent where the input has no canonical form or the
+    /// card has no call.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Sha256Hex")]
+    pub input_digest: Option<Sha256Hex>,
 }
 
 /// The `approval.approved` and `approval.rejected` payload: the answer, the device it came from,

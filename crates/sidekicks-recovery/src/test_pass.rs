@@ -46,6 +46,7 @@ use sidekicks_queue::provider_session::test_opening::{
     test_opening_composer,
 };
 use sidekicks_queue::provider_session::{ProviderSessions, ProviderSessionsDeps};
+use sidekicks_session::interventions::service::test_fixture::test_intervention_service;
 use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::run::engine::RunEngine;
@@ -663,7 +664,9 @@ pub(crate) fn insert_runs(database: &TestDatabase, session: SessionId, runs: &[(
 }
 
 // The provider sessions over `store`'s database, resuming on `providers` and recording bindings in
-// `bindings`, each resume's runs settled through recovery's finalize over `engine`.
+// `bindings`, each resume's runs settled through recovery's finalize over `engine`, with an
+// interventions service wired to `engine` handing a pending interrupt again, a person's or a
+// limit's.
 fn resuming_provider_sessions(
     store: &ArtifactTestStore,
     engine: &Arc<RunEngine>,
@@ -682,6 +685,12 @@ fn resuming_provider_sessions(
                 Arc::clone(providers),
             ),
             providers: Arc::clone(providers),
+            interventions: test_intervention_service(
+                Arc::clone(&store.reads),
+                Arc::clone(&store.event_log),
+                engine,
+                Arc::clone(providers),
+            ),
         })) as Arc<dyn ResumedRunsIngress>)
         .expect("a new port holds no ingress yet");
     Arc::new(ProviderSessions::new(ProviderSessionsDeps {

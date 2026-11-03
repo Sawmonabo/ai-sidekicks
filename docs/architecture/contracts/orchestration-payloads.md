@@ -10,7 +10,7 @@ Contracts per D-013-1..20. The Rust types live in the topic modules [Plan-013 D-
 interface OrchestrationRunConfig {
   tokenLimit?: number; // the run's `Tokens per run`, input and output together; absent = `Unlimited`, the default (Spec-014 §Budget Policies)
 }
-type ChildRunProvenance = "providerSubagent" | "bridgeRun" | "workflowStep"; // D-013-12: how a child was reached — the provider's own subagent, the cross-provider bridge's `agent_run`, or a workflow's `agent.run` step (agent-definition-payloads.md §Plan-024). A `providerSubagent` link is written by the provider driver: Claude Code's subagent start and stop notifications and Codex's collaborating-agent events each add or close the run-link row for that subagent, so a provider's own subagents appear in the agent tree like any other child. Internal provenance: stored with the child's link and never drawn, so no mechanism word reaches the screen
+type ChildRunProvenance = "providerSubagent" | "bridgeRun" | "workflowStep"; // D-013-12: how a child was reached — the provider's own subagent, the cross-provider bridge's `agent_run`, or a workflow's `agent.run` step (agent-definition-payloads.md §Plan-024). A `providerSubagent` link is the helper's own run: each start of a provider's own helper (a Claude Code task, a Codex child thread) queues a run whose `agent.run.queued` names the run it started beneath and the helper's agent-tree node, so a provider's own subagents appear in the agent tree like any other child. Internal provenance: stored with the child's link and never drawn, so no mechanism word reaches the screen
 // The reason carried on a system-initiated interrupt, the same set as agent.run.interrupted's
 // `trigger`, which this set rides only. The token limit ends its run, so its `tokenLimit` rides
 // agent.run.stopped's `trigger` instead.
@@ -44,9 +44,9 @@ interface AgentRunCreateResponse {
 
 // AgentChildRunLinkList — wire: agent.childRunLink.list. A read OF the daemon's parent-to-child
 // index (the paragraph after the registry below), for the WHOLE session: every child at every
-// depth, whether it has a run of its own (an agent the bridge's `agent_run` started, linked in
-// run_links — single-parent: `child_run_id` is the PK, so a child appears under exactly one parent;
-// D-013-3) or is a provider's own helper inside its parent's run. The pane's list, the transcript's
+// depth, whether it has a run of its own (an agent the bridge's `agent_run` started, linked by
+// its own `runs` row's one `parent_run_id`, so a child appears under exactly one parent; D-013-3)
+// or is a provider's own helper inside its parent's run. The pane's list, the transcript's
 // child rows and each child's own view all read this one source; the screen reads it again on
 // agent.subagent.started, agent.subagent.completed, agent.run.queued, agent.run.rejected and each
 // run state change.
@@ -539,9 +539,9 @@ interface AgentListEntry {
 
 // agent.run.queued payload (Spec-005 §Run Lifecycle): a run's creation, and the one durable record
 // of how it came to be. The linkage members ride a run another run or a workflow created, on this
-// row only and never on the run's state stream; an orchestration-created child's run_links row and
-// its per-run limits rebuild from this event alone, while a provider's own subagent's row is
-// written by the provider driver from that provider's subagent notifications. `effectiveRunConfig`
+// row only and never on the run's state stream; a child's parent link and its per-run limits
+// rebuild from this event alone, and so does a provider's own helper's agent-tree node, written in
+// this event's own write from the `providerChild` member. `effectiveRunConfig`
 // is the admission-resolved OrchestrationRunConfig (request override else session default), kept so
 // the token-limit enforcement rebuilds the same even if session defaults change mid-run (D-013-5).
 //
@@ -580,12 +580,31 @@ type AgentRunQueuedPayload = {
   // admission refuses a provider with no account to run on.
   admittedProviderAccountId: ProviderAccountId;
 } & (
-  | { agentId: AgentId; resolvedAgent?: never }
+  | {
+      agentId: AgentId;
+      resolvedAgent?: never;
+      providerChild?: ProviderChildStart; // only on a run reached as providerSubagent: the helper it is for
+    }
   | {
       agentId?: never;
       resolvedAgent: AgentListEntry & { resolvedConfiguration: AgentResolvedConfiguration };
+      providerChild?: never;
     }
 );
+
+// A provider's own helper as the run it starts names it: the handle the daemon minted for it at its
+// first start and the ids its provider gave it and its parent.
+interface ProviderChildStart {
+  childHandle: string; // UUID
+  provider: ProviderId;
+  subagentId: SubagentId;
+  parentSubagentId?: SubagentId; // absent under the lead
+  parentChildHandle?: string; // absent under the lead or where no node holds the parent
+  name?: string;
+  role?: string;
+  providerPath?: string;
+  startCallId?: ToolCallId; // the provider's call that started this run of the helper
+}
 
 // Orchestration queue-admission carrier (D-013-9) — IN-PROCESS seam type, not a wire shape,
 // declared in `crates/sidekicks-daemon/src/orchestration/` and never in

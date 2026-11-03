@@ -1,8 +1,8 @@
 //! Reads which agent a run is for, from the session's log: the agent its `agent.run.queued` names,
 //! the one minted from a saved definition with it, else the session's lead, for a lead run queued
-//! before a run named its agent; the account that event admitted the run against; the session's
-//! lead, which `session.created` names, with the binding and the model it runs on now; and
-//! whether the log names an agent at all.
+//! before a run named its agent; the binding that agent runs on now, from its `agents` row; the
+//! account that event admitted the run against; the session's lead, which `session.created` names,
+//! with the binding and the model it runs on now; and whether the log names an agent at all.
 
 use std::sync::LazyLock;
 
@@ -28,6 +28,8 @@ use sidekicks_store::events::session::read::{
 };
 
 use crate::run::ids::read_session_run_ids;
+
+use crate::agents::projection::read_agent_row;
 
 static SELECT_RUN_AGENT_SQL: LazyLock<String> = LazyLock::new(|| {
     let session_created = SessionEventType::SessionCreated.as_str();
@@ -66,15 +68,35 @@ static SELECT_LEAD_AGENT_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// The bindings the agent of the CTE `born` (its `sequence`, `agent_id`, `binding` and `model`)
+// took, as the CTE `bindings` of its `sequence`, `binding` and `model`: its birth's, then each of
+// its landed switches in the session's readable log, each switch's `to` with the account it pins,
+// never the one it landed on, so an agent that follows the current account still follows it.
+fn agent_bindings_cte(born: &str) -> String {
+    let binding_changed = SessionEventType::AgentProviderBindingChanged.as_str();
+    let readable_changed = readable_event_sql("changed");
+    format!(
+        "bindings AS (
+    SELECT sequence, binding, model FROM {born}
+    UNION ALL
+    SELECT changed.sequence,
+           json_extract(changed.payload, '$.to'),
+           json_extract(changed.payload, '$.to.modelId')
+      FROM session_events AS changed JOIN {born}
+     WHERE changed.session_id = @session_id AND changed.type = '{binding_changed}'
+       AND json_extract(changed.payload, '$.agentId') = {born}.agent_id
+       AND {readable_changed})"
+    )
+}
+
 // The lead as the session's readable log leaves it: its agent, which `session.created` names; its
 // binding, from the newest of that event and the lead's landed switches, each switch's `to` with
 // the account it pins, never the one it landed on, so a lead that follows the current account
-// still follows it; and the model it runs on, from the newest of those and the provider's moves of the rest of the session onto another
-// model, of the lead's turns or of no agent's. A row before the session's creation sorts behind
-// its own, so it moves nothing.
+// still follows it; and the model it runs on, from the newest of those and the provider's moves
+// of the rest of the session onto another model, of the lead's turns or of no agent's. A row
+// before the session's creation sorts behind its own, so it moves nothing.
 static SELECT_SESSION_LEAD_SQL: LazyLock<String> = LazyLock::new(|| {
     let session_created = SessionEventType::SessionCreated.as_str();
-    let binding_changed = SessionEventType::AgentProviderBindingChanged.as_str();
     let turn_rerouted = SessionEventType::AgentTurnRerouted.as_str();
     let session_scope =
         serde_json::to_value(ModelRerouteScope::Session).expect("a closed word serializes");
@@ -82,8 +104,8 @@ static SELECT_SESSION_LEAD_SQL: LazyLock<String> = LazyLock::new(|| {
         .as_str()
         .expect("a closed word serializes as text");
     let readable_born = readable_event_sql("born");
-    let readable_changed = readable_event_sql("changed");
     let readable_rerouted = readable_event_sql("rerouted");
+    let bindings = agent_bindings_cte("lead");
     format!(
         "WITH lead AS (
     SELECT born.sequence AS sequence,
@@ -93,16 +115,7 @@ static SELECT_SESSION_LEAD_SQL: LazyLock<String> = LazyLock::new(|| {
       FROM session_events AS born
      WHERE born.session_id = @session_id AND born.type = '{session_created}'
        AND {readable_born}),
-  bindings AS (
-    SELECT sequence, binding, model FROM lead
-    UNION ALL
-    SELECT changed.sequence,
-           json_extract(changed.payload, '$.to'),
-           json_extract(changed.payload, '$.to.modelId')
-      FROM session_events AS changed JOIN lead
-     WHERE changed.session_id = @session_id AND changed.type = '{binding_changed}'
-       AND json_extract(changed.payload, '$.agentId') = lead.agent_id
-       AND {readable_changed}),
+  {bindings},
   models AS (
     SELECT sequence, model FROM bindings
     UNION ALL
@@ -280,9 +293,19 @@ pub(crate) fn is_agent_named(
     )
 }
 
-/// The statements [`RunAgentReader`] runs: the run's agent, its admitted account and the session's
-/// lead.
-pub const RUN_AGENT_STATEMENT_CAPACITY: usize = 3;
+/// The statements [`RunAgentReader`] runs: the run's agent, its row, its admitted account and the
+/// session's lead.
+pub const RUN_AGENT_STATEMENT_CAPACITY: usize = 4;
+
+/// The agent a run is for and the binding it runs on now.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunAgent {
+    /// The agent.
+    pub agent_id: AgentId,
+    /// Its binding, effort, options and speed included; `provider_account_id` is the account the
+    /// binding pins, `None` for the provider's current account.
+    pub binding: AgentProviderBinding,
+}
 
 /// Why the agent of a run, or a session's lead, could not be read.
 #[derive(Debug, thiserror::Error)]
@@ -319,6 +342,19 @@ pub enum RunAgentReadError {
         /// The run read.
         run_id: RunId,
     },
+    /// The agent the log names for a run has no `agents` row: each agent's row is written in the
+    /// append of the event that brings it in, so this is a broken store.
+    #[error(
+        "agent \"{}\" of session \"{}\" has no row",
+        .agent_id,
+        .session_id
+    )]
+    NoAgentBinding {
+        /// The session read.
+        session_id: SessionId,
+        /// The agent read.
+        agent_id: AgentId,
+    },
     /// The log names an agent by text that is no agent id.
     #[error("the session's log names an agent by text that is no agent id")]
     MalformedAgentId(#[source] IdError),
@@ -342,7 +378,7 @@ where
     .await
 }
 
-/// Reads the agent of a run, and a session's lead, from the session's log on the reader the
+/// Reads the agent of a run, the binding it runs on, and a session's lead, on the reader the
 /// caller passes.
 pub struct RunAgentReader<'connection> {
     /// The daemon's read-only connection.
@@ -399,6 +435,26 @@ impl<'connection> RunAgentReader<'connection> {
         AgentId::new(&agent_id).map_err(RunAgentReadError::MalformedAgentId)
     }
 
+    /// The agent the run is for and the binding its `agents` row holds now. Fails as
+    /// [`Self::read_agent`] does, and with [`RunAgentReadError::NoAgentBinding`] when the agent has
+    /// no row.
+    pub fn read_agent_binding(
+        &self,
+        session_id: &SessionId,
+        run_id: &RunId,
+    ) -> Result<RunAgent, RunAgentReadError> {
+        let agent_id = self.read_agent(session_id, run_id)?;
+        let row =
+            read_agent_row(self.reader, &agent_id)?.ok_or(RunAgentReadError::NoAgentBinding {
+                session_id: *session_id,
+                agent_id,
+            })?;
+        Ok(RunAgent {
+            agent_id,
+            binding: row.binding,
+        })
+    }
+
     /// The account the run was admitted against, as its `agent.run.queued` names it. Fails with
     /// [`RunAgentReadError::NoRunAccount`] when the log names none.
     pub fn read_admitted_account(
@@ -429,17 +485,23 @@ impl<'connection> RunAgentReader<'connection> {
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::{Connection, params};
+    use rusqlite::Connection;
     use serde_json::{Value, json};
     use sidekicks_contracts::event::registry::SessionEventType;
+    use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_provider::driver::PROVIDERS;
-    use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+    use sidekicks_store::database::writer::test_file::{
+        TestDatabase, test_run_id, test_session_id,
+    };
     use sidekicks_store::events::session::read::session_read_bound;
 
-    use super::{SessionLead, read_session_lead};
-    use crate::run::schema::schema_parts;
+    use super::{RunAgent, RunAgentReader, SessionLead, read_session_lead};
+    use crate::agents::projection::test_fixture::{
+        binding, project, session_created, write_log_row,
+    };
+    use crate::agents::schema::schema_parts;
 
     // One session's log, written row by row in sequence order.
     struct Log {
@@ -462,23 +524,41 @@ mod tests {
         }
 
         fn write(&mut self, event_type: SessionEventType, payload: &Value) {
-            self.connection
-                .execute(
-                    "INSERT INTO session_events
-                       (id, session_id, sequence, occurred_at, monotonic_ns, category, type,
-                        payload)
-                     VALUES (?1, ?2, ?3, '2026-10-28T09:00:00.000Z', ?3, ?4, ?5, ?6)",
-                    params![
-                        mint_uuid_v7().to_string(),
-                        self.session_id.text().as_str(),
-                        self.sequence,
-                        event_type.category().as_str(),
-                        event_type.as_str(),
-                        payload.to_string(),
-                    ],
-                )
-                .expect("the test writes the row");
+            self.write_of_run(event_type, payload, None);
+        }
+
+        fn write_of_run(
+            &mut self,
+            event_type: SessionEventType,
+            payload: &Value,
+            run_id: Option<&RunId>,
+        ) {
+            write_log_row(
+                &self.connection,
+                self.session_id,
+                self.sequence,
+                (event_type, payload),
+                run_id.copied(),
+                "2026-10-28T09:00:00.000Z",
+            );
             self.sequence += 1;
+        }
+
+        // Queues a run for `agent_id`, naming it by id.
+        fn queue_run(&mut self, agent_id: &str) -> RunId {
+            let run_id = test_run_id();
+            self.write_of_run(
+                SessionEventType::AgentRunQueued,
+                &json!({ "agentId": agent_id }),
+                Some(&run_id),
+            );
+            run_id
+        }
+
+        fn run_agent(&self, run_id: &RunId) -> RunAgent {
+            RunAgentReader::new(&self.connection)
+                .read_agent_binding(&self.session_id, run_id)
+                .expect("the run's agent reads")
         }
 
         fn switch(&mut self, agent_id: &str, to: &Value, landed: &str) {
@@ -506,15 +586,6 @@ mod tests {
                 .expect("the lead reads")
                 .expect("the session has a lead")
         }
-    }
-
-    fn binding(provider: &str, model: &str) -> Value {
-        json!({
-            "providerName": provider,
-            "modelId": model,
-            "effort": null,
-            "providerAccountId": null,
-        })
     }
 
     fn pinned_binding(provider: &str, model: &str, account: &str) -> Value {
@@ -587,5 +658,26 @@ mod tests {
             ),
             "the newer switch's model and pin win"
         );
+    }
+
+    // Killed by the binding read from anywhere but the agent's row, the row's own model then never
+    // answered, and by the run's agent read as another's.
+    #[test]
+    fn a_runs_agent_runs_on_its_rows_binding() {
+        let lead = mint_uuid_v7().to_string();
+        let mut log = Log::new();
+        let created = session_created(log.session_id, &lead, &binding(PROVIDERS[0].id, "model-a"));
+        project(&log.connection, log.session_id, &created);
+        let run_id = log.queue_run(&lead);
+        log.connection
+            .execute(
+                "UPDATE agents SET model_id = 'model-row' WHERE id = ?1",
+                [&lead],
+            )
+            .expect("the test moves the row");
+
+        let agent = log.run_agent(&run_id);
+        assert_eq!(agent.agent_id.text().as_str(), lead);
+        assert_eq!(agent.binding.model_id.as_str(), "model-row");
     }
 }

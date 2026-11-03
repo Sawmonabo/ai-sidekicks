@@ -11,7 +11,7 @@ use sidekicks_provider::run::state_entry::RunStateEntry;
 
 use crate::questions::service::test_fixture::{Fixture, choice_page, failed};
 use crate::questions::service::{HeldRequestAnswerer, QuestionRecording};
-use crate::run::engine::test_fixture::stored_run_state;
+use crate::run::engine::test_fixture::{is_run_stopping, stored_run_state};
 use crate::run::read::{LiveRun, RunRead};
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
@@ -130,6 +130,7 @@ async fn a_held_question_ends_canceled_with_its_runs_reason(
                         parent_run_id: None,
                         reached_by: None,
                     },
+                    is_run_stopping(&fixture.database, &fixture.run_id),
                     "not resumed",
                     None,
                 )

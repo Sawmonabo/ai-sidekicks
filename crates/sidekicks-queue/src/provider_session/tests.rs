@@ -37,7 +37,8 @@ use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::error_causes::ExecutableUnresolvable;
 use sidekicks_provider::driver::session_control::{
-    DriverResumeResult, ResumeSessionParams, answer_every_run_gone,
+    DriverResumeResult, ProviderTurnAnswer, ResumeSessionParams, ResumedRunAnswer,
+    answer_every_run_gone,
 };
 use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
 use sidekicks_provider::run::posture::ExecutionPostureService;
@@ -98,8 +99,9 @@ type ClosedAppendHook = Box<dyn Fn() + Send + Sync>;
 // or on `came_up_on` once a test sets it, checking that binding's cursor is open as it runs, and
 // closes at once, counting each close; each event changes the session's directory row, so a close
 // leaves the session reading closed. Once a test sets `is_row_taken`, a resume first records a row
-// under the binding it runs on, so the queue's own record of it fails; once it sets `git_folder`,
-// an opening names that git folder, and once it sets `provider`, that provider; once it sets
+// under the binding it runs on, so the queue's own record of it fails; once it sets `is_deferred`,
+// a resume starts no process and answers every run waiting; once it sets `git_folder`, an opening
+// names that git folder, and once it sets `provider`, that provider; once it sets
 // `is_provider_missing`, a resume or restart answers the provider not installed. The session
 // runs in `TEST_PLACE`. The resumed runs' stand-in records each resume's runs, and
 // whether the binding last handed out had a row as they reached it.
@@ -113,6 +115,7 @@ struct Opening {
     handed_ids: Arc<Mutex<Vec<RuntimeBindingId>>>,
     came_up_on: Arc<Mutex<Option<RuntimeBindingId>>>,
     is_row_taken: Arc<AtomicBool>,
+    is_deferred: Arc<AtomicBool>,
     git_folder: Arc<Mutex<Option<FilesystemPath>>>,
     provider: Arc<Mutex<Option<ProviderId>>>,
     is_provider_missing: Arc<AtomicBool>,
@@ -205,6 +208,7 @@ impl Opening {
         let handed_ids = Arc::new(Mutex::new(Vec::new()));
         let came_up_on = Arc::new(Mutex::new(None::<RuntimeBindingId>));
         let is_row_taken = Arc::new(AtomicBool::new(false));
+        let is_deferred = Arc::new(AtomicBool::new(false));
         let closes = Arc::new(AtomicUsize::new(0));
         let git_folder = Arc::new(Mutex::new(None));
         let provider = Arc::new(Mutex::new(None));
@@ -215,8 +219,11 @@ impl Opening {
         let answer_relaunch = || {
             let (epochs, store) = (Arc::clone(&epochs), Arc::clone(&store));
             let (came_up_on, is_row_taken) = (Arc::clone(&came_up_on), Arc::clone(&is_row_taken));
-            let (on_resume, is_provider_missing) =
-                (Arc::clone(&on_resume), Arc::clone(&is_provider_missing));
+            let (on_resume, is_deferred, is_provider_missing) = (
+                Arc::clone(&on_resume),
+                Arc::clone(&is_deferred),
+                Arc::clone(&is_provider_missing),
+            );
             move |params: ResumeSessionParams| {
                 assert_eq!(params.resume_handle, "conversation-1");
                 assert!(
@@ -227,6 +234,17 @@ impl Opening {
                     return async { Err(unresolvable_provider(false)) }.boxed();
                 }
                 on_resume(&params);
+                if is_deferred.load(Ordering::SeqCst) {
+                    let runs = params
+                        .live_runs
+                        .iter()
+                        .map(|run| ResumedRunAnswer {
+                            run_id: run.run_id,
+                            turn: ProviderTurnAnswer::Waiting,
+                        })
+                        .collect();
+                    return async move { Ok(DriverResumeResult::Deferred { runs }) }.boxed();
+                }
                 let binding_id = lock(&came_up_on)
                     .clone()
                     .unwrap_or_else(|| params.binding_id.clone());
@@ -328,6 +346,7 @@ impl Opening {
             handed_ids,
             came_up_on,
             is_row_taken,
+            is_deferred,
             git_folder,
             provider,
             is_provider_missing,
