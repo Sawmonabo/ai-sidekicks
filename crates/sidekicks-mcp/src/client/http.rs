@@ -43,6 +43,7 @@ use rmcp::transport::streamable_http_client::{
     StreamableHttpClientTransportConfig, StreamableHttpError, StreamableHttpPostResponse,
 };
 use sidekicks_contracts::dpop::{DPOP_AUTHORIZATION_SCHEME, DPOP_NONCE_HEADER_NAME};
+use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_provider::inbound_json::decode_inbound_json;
 use sidekicks_std::mutex_lock::lock;
 
@@ -170,11 +171,11 @@ pub(super) struct McpHttpClient {
 }
 
 impl McpServerConnection {
-    /// Opens a connection to the server at `uri` over the client's one HTTP client, sending
-    /// `headers` with every request and the headers `authorizer` makes for each, its start held to
-    /// `startup_timeout` or the 30 s
-    /// default. Refused when `headers` names `Accept`, `Mcp-Session-Id` or `Last-Event-Id`, which
-    /// the transport sets itself; fails when the server does not complete its start in time.
+    /// Opens a connection to the server at `address`, whose canonical form is its endpoint, over
+    /// the client's one HTTP client, sending `headers` with every request and the headers
+    /// `authorizer` makes for each, its start held to `startup_timeout` or the 30 s default.
+    /// Refused when `headers` names `Accept`, `Mcp-Session-Id` or `Last-Event-Id`, which the
+    /// transport sets itself; fails when the server does not complete its start in time.
     #[cfg_attr(
         not(test),
         expect(
@@ -184,7 +185,7 @@ impl McpServerConnection {
         )
     )]
     pub(crate) async fn connect_http(
-        uri: &str,
+        address: &McpServerAddress,
         headers: HashMap<HeaderName, HeaderValue>,
         authorizer: Arc<dyn McpRequestAuthorizer>,
         startup_timeout: Option<Duration>,
@@ -199,7 +200,7 @@ impl McpServerConnection {
                 name: name.as_str().to_owned(),
             });
         }
-        let start = McpConnectionStart::http(startup_timeout);
+        let start = McpConnectionStart::http(startup_timeout, address);
         let raw = RawReplyCopy::default();
         let client = McpHttpClient {
             http: scope.http.clone(),
@@ -208,7 +209,7 @@ impl McpServerConnection {
             cut_streams: Arc::default(),
             dpop_nonce: Arc::default(),
         };
-        let mut config = StreamableHttpClientTransportConfig::with_uri(uri);
+        let mut config = StreamableHttpClientTransportConfig::with_uri(address.as_str());
         config.custom_headers = headers;
         let mut retry = ExponentialBackoff::default();
         retry.max_times = Some(STREAM_RETRY_MAX_TIMES);

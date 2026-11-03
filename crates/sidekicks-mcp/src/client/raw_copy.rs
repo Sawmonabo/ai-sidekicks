@@ -9,12 +9,15 @@
 //! - The stdio tee and the HTTP client both feed it, before rmcp sees the reply, so a reply is
 //!   kept before the call waiting on it resolves; both hand rmcp the same repaired text they keep,
 //!   so a lone surrogate escape a server writes never fails rmcp's own read of the message.
+//! - The transport also drops the client's answer to a server request detached from a closing
+//!   connection, so the server never reads an answer the person did not give.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, ready};
 
+use futures::future::Either;
 use rmcp::RoleClient;
 use rmcp::model::{ClientJsonRpcMessage, ClientRequest, RequestId};
 use rmcp::transport::Transport;
@@ -114,11 +117,16 @@ impl RawReplyCopy {
     }
 }
 
+/// The ids of the server's requests detached from a closing connection, each until the client's
+/// answer to it is dropped; shared by the connection's handler and its transport.
+pub(super) type DetachedRequests = Arc<Mutex<HashSet<RequestId>>>;
+
 /// A transport that notes each request it sends in the connection's raw copy, around the
-/// transport that carries it.
+/// transport that carries it, and drops the answer to each detached request.
 pub(super) struct RawCopyTransport<T> {
     pub(super) inner: T,
     pub(super) raw: RawReplyCopy,
+    pub(super) detached: DetachedRequests,
 }
 
 impl<T: Transport<RoleClient>> Transport<RoleClient> for RawCopyTransport<T> {
@@ -128,8 +136,17 @@ impl<T: Transport<RoleClient>> Transport<RoleClient> for RawCopyTransport<T> {
         &mut self,
         item: ClientJsonRpcMessage,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static {
+        let answered_id = match &item {
+            ClientJsonRpcMessage::Response(response) => Some(&response.id),
+            ClientJsonRpcMessage::Error(error) => error.id.as_ref(),
+            ClientJsonRpcMessage::Request(_) | ClientJsonRpcMessage::Notification(_) => None,
+        };
+        // A detached request's answer is dropped, its id with it, so the set never grows.
+        if answered_id.is_some_and(|id| lock(&self.detached).remove(id)) {
+            return Either::Left(std::future::ready(Ok(())));
+        }
         self.raw.note_sent(&item);
-        self.inner.send(item)
+        Either::Right(self.inner.send(item))
     }
 
     fn receive(

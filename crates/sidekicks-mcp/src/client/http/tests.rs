@@ -22,6 +22,7 @@ use rmcp::service::ClientInitializeError;
 use rmcp::transport::streamable_http_client::{AuthRequiredError, InsufficientScopeError};
 use rstest::rstest;
 use serde_json::{Value, json};
+use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use tokio::sync::Notify;
 use tokio::time::timeout;
 
@@ -35,7 +36,7 @@ use crate::client::test_server::{test_client, test_scope};
 
 /// A 2025-11-25 server at an address whose event stream sends one small event with an id,
 /// then one past the bound; the stream requests it received are counted.
-async fn serve_oversized_event(stream_requests: Arc<AtomicUsize>) -> String {
+async fn serve_oversized_event(stream_requests: Arc<AtomicUsize>) -> McpServerAddress {
     let oversized = format!(
         "id: e1\ndata: {{}}\n\ndata: {}\n\n",
         "x".repeat(DEFAULT_MAX_SSE_EVENT_SIZE + 1)
@@ -63,7 +64,7 @@ async fn serve_oversized_event(stream_requests: Arc<AtomicUsize>) -> String {
         .expect("a local port");
     let address = listener.local_addr().expect("the port's address");
     tokio::spawn(async move { axum::serve(listener, router).await });
-    format!("http://{address}/mcp")
+    McpServerAddress::new(&format!("http://{address}/mcp")).expect("a loopback address")
 }
 
 fn answer_post(body: &str) -> Response {
@@ -110,11 +111,11 @@ fn answer_post(body: &str) -> Response {
 async fn an_event_past_the_bound_ends_the_stream_without_a_resume() {
     let (client, _card) = test_client();
     let stream_requests = Arc::new(AtomicUsize::new(0));
-    let uri = serve_oversized_event(Arc::clone(&stream_requests)).await;
+    let address = serve_oversized_event(Arc::clone(&stream_requests)).await;
     let authorizer: Arc<dyn McpRequestAuthorizer> = Arc::new(NoAuthorization);
 
     let connection = McpServerConnection::connect_http(
-        &uri,
+        &address,
         HashMap::new(),
         authorizer,
         None,
@@ -139,7 +140,10 @@ async fn an_event_past_the_bound_ends_the_stream_without_a_resume() {
 /// A 2025-11-25 server at an address whose `tasks/get` reply streams one event past the bound
 /// before any id, and whose standalone stream sends nothing: the first closes once `release` is
 /// notified, every later one stays open. The stream requests it received are counted.
-async fn serve_id_less_cut(stream_requests: Arc<AtomicUsize>, release: Arc<Notify>) -> String {
+async fn serve_id_less_cut(
+    stream_requests: Arc<AtomicUsize>,
+    release: Arc<Notify>,
+) -> McpServerAddress {
     let router = Router::new().route(
         "/mcp",
         post(|body: String| async move {
@@ -175,7 +179,7 @@ async fn serve_id_less_cut(stream_requests: Arc<AtomicUsize>, release: Arc<Notif
         .expect("a local port");
     let address = listener.local_addr().expect("the port's address");
     tokio::spawn(async move { axum::serve(listener, router).await });
-    format!("http://{address}/mcp")
+    McpServerAddress::new(&format!("http://{address}/mcp")).expect("a loopback address")
 }
 
 // Mutation: in `McpHttpClient::events`, mark a stream cut before any event id; the standalone
@@ -185,10 +189,10 @@ async fn a_cut_before_any_event_id_leaves_the_standalone_stream_resuming() {
     let (client, _card) = test_client();
     let stream_requests = Arc::new(AtomicUsize::new(0));
     let release = Arc::new(Notify::new());
-    let uri = serve_id_less_cut(Arc::clone(&stream_requests), Arc::clone(&release)).await;
+    let address = serve_id_less_cut(Arc::clone(&stream_requests), Arc::clone(&release)).await;
 
     let connection = McpServerConnection::connect_http(
-        &uri,
+        &address,
         HashMap::new(),
         Arc::new(NoAuthorization),
         None,
@@ -291,7 +295,10 @@ enum Unauthorized {
 
 /// A 2025-11-25 server at an address that refuses requests as `unauthorized` says, and takes one
 /// only with a single `Authorization` header; the body of each request it receives is kept.
-async fn serve_unauthorized(unauthorized: Unauthorized, posts: Arc<Mutex<Vec<String>>>) -> String {
+async fn serve_unauthorized(
+    unauthorized: Unauthorized,
+    posts: Arc<Mutex<Vec<String>>>,
+) -> McpServerAddress {
     let router = Router::new().route(
         "/mcp",
         post(move |headers: HeaderMap, body: String| async move {
@@ -331,7 +338,7 @@ async fn serve_unauthorized(unauthorized: Unauthorized, posts: Arc<Mutex<Vec<Str
         .expect("a local port");
     let address = listener.local_addr().expect("the port's address");
     tokio::spawn(async move { axum::serve(listener, router).await });
-    format!("http://{address}/mcp")
+    McpServerAddress::new(&format!("http://{address}/mcp")).expect("a loopback address")
 }
 
 // Mutations: in `McpHttpClient::send`, put a nonce challenge to the authorizer, return the 401
@@ -349,11 +356,11 @@ async fn a_refused_request_is_sent_once_more_at_most(
 ) {
     let (client, _card) = test_client();
     let posts = Arc::new(Mutex::new(Vec::new()));
-    let uri = serve_unauthorized(unauthorized, Arc::clone(&posts)).await;
+    let address = serve_unauthorized(unauthorized, Arc::clone(&posts)).await;
     let authorizer = Arc::new(RenewingAuthorizer::default());
 
     let opened = McpServerConnection::connect_http(
-        &uri,
+        &address,
         HashMap::new(),
         Arc::clone(&authorizer) as Arc<dyn McpRequestAuthorizer>,
         None,
@@ -399,7 +406,7 @@ async fn a_refused_request_is_sent_once_more_at_most(
 
 /// A server at an address that refuses every request with a 403 asking for the `tracker:write`
 /// scope.
-async fn serve_insufficient_scope() -> String {
+async fn serve_insufficient_scope() -> McpServerAddress {
     let router = Router::new().route(
         "/mcp",
         post(|| async {
@@ -418,17 +425,17 @@ async fn serve_insufficient_scope() -> String {
         .expect("a local port");
     let address = listener.local_addr().expect("the port's address");
     tokio::spawn(async move { axum::serve(listener, router).await });
-    format!("http://{address}/mcp")
+    McpServerAddress::new(&format!("http://{address}/mcp")).expect("a loopback address")
 }
 
 // Mutations: in `auth_challenge`, leave out the 403 arm, or read no scope in `required_scope`.
 #[tokio::test]
 async fn a_server_refusing_with_a_403_asks_for_the_scope_its_challenge_names() {
     let (client, _card) = test_client();
-    let uri = serve_insufficient_scope().await;
+    let address = serve_insufficient_scope().await;
 
     let opened = McpServerConnection::connect_http(
-        &uri,
+        &address,
         HashMap::new(),
         Arc::new(NoAuthorization),
         None,
@@ -495,8 +502,10 @@ async fn a_server_entry_setting_a_header_the_transport_sets_is_refused(#[case] n
         HeaderValue::from_static("x"),
     )]);
 
+    let address = McpServerAddress::new("http://127.0.0.1:9/mcp").expect("a loopback address");
+
     let opened = McpServerConnection::connect_http(
-        "http://127.0.0.1:9/mcp",
+        &address,
         headers,
         Arc::new(NoAuthorization),
         None,

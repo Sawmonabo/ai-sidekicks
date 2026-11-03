@@ -10,8 +10,8 @@ use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::question::{QuestionAskedState, QuestionId};
 use sidekicks_provider::port::question::{
-    ProviderQuestionWithdrawal, QuestionLinePlace, QuestionTurnEnd, ToolServerQuestionAnswer,
-    take_question_in_turn,
+    ProviderQuestionWithdrawal, QuestionLinePlace, QuestionTurnEnd, ToolServerAnswerDelivery,
+    ToolServerQuestionAnswer, take_question_in_turn,
 };
 use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 
@@ -22,7 +22,10 @@ use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
 /// A tool server's answerer that records what it is sent into `sent`.
 fn task_answer(sent: &HandedAnswers) -> Arc<dyn ToolServerQuestionAnswer> {
-    Arc::new(RecordingTaskAnswer(Arc::clone(sent)))
+    Arc::new(RecordingTaskAnswer(
+        Arc::clone(sent),
+        ToolServerAnswerDelivery::Delivered,
+    ))
 }
 
 /// The sequence of the log's newest event of `event_type`.

@@ -1,23 +1,32 @@
-//! A skill pick resolved for a session with no live command list: Codex's skills read in the
-//! folder the session's runs work in.
+//! Reads for a Codex session with no live process, its command list and a skill pick, each from
+//! Codex's skills in the folder the session's runs work in.
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use serde_json::json;
+use serde_json::{Value, json};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::commands::{
+    ProviderCommandBinding, ProviderCommandBindingGroup,
+};
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::super::CodexDriver;
+use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
-use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
+use crate::driver::codex::service::supervisor::test_service::{
+    ScriptedCodexService, start_scripted_codex_service,
+};
+use crate::driver::contract::params_and_results::ListProviderCommandsParams;
 use crate::driver::test_registry::{new_session_id, test_driver_services};
 use crate::driver::{ProviderAccountFolders, SessionSpawnContext, SessionSpawnContextResolver};
+use crate::runtime_binding::store::mint_runtime_binding_id;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The folder every session's process starts in.
@@ -97,4 +106,78 @@ async fn a_skill_pick_with_no_live_listing_is_read_in_the_run_folder() {
     let picked = picked.expect("the pick is listed in the run folder");
     let paths: Vec<&str> = picked.iter().map(|skill| skill.path.as_str()).collect();
     assert_eq!(paths, [format!("{skill_folder}/SKILL.md").as_str()]);
+}
+
+// Answers the next `skills/list` the driver sends, which must ask for the run folder, with one
+// skill of `name` there.
+async fn answer_skills_in_run_folder(scripted: &mut ScriptedCodexService, name: &str) {
+    let sent = scripted.script.next_sent().await;
+    assert_eq!(sent["method"], "skills/list", "{sent}");
+    assert_eq!(sent["params"]["cwds"], json!([RUN_FOLDER]), "{sent}");
+    let skill =
+        json!({"name": name, "path": format!("{RUN_FOLDER}/.codex/skills/{name}/SKILL.md")});
+    scripted.script.answer(
+        &sent,
+        &json!({"data": [{"cwd": RUN_FOLDER, "skills": [skill]}]}),
+    );
+}
+
+fn listed_names(group: &ProviderCommandBindingGroup) -> Vec<String> {
+    group
+        .entries
+        .iter()
+        .map(|entry| {
+            let entry: Value = serde_json::to_value(entry).expect("an entry writes as JSON");
+            entry["name"]
+                .as_str()
+                .expect("every entry has a name")
+                .to_owned()
+        })
+        .collect()
+}
+
+// Kills an error or an empty list for a session with no live process, the process's folder read
+// in place of the run folder, a resting listing held (the second call then sends no `skills/list`
+// and the timeout fails the test), and the params' binding not carried onto the group.
+#[tokio::test]
+async fn a_resting_session_lists_its_commands_from_the_run_folder_each_time() {
+    let mut scripted = start_scripted_codex_service();
+    let services = test_driver_services();
+    services
+        .ports
+        .spawn_contexts
+        .register(Arc::new(RunFolderApart) as _)
+        .expect("the spawn contexts register once");
+    let mut driver = CodexDriver::new(&services);
+    driver.registry = CodexServiceRegistry::holding(&scripted);
+    let session_id = new_session_id();
+    let binding = ProviderCommandBinding {
+        provider_name: DESCRIPTOR.provider_id(),
+        provider_account_id: test_provider_account_id(),
+    };
+    let params = || ListProviderCommandsParams {
+        session_id,
+        binding_id: mint_runtime_binding_id(),
+        binding: binding.clone(),
+        run_id: None,
+    };
+
+    let mut lists = Vec::new();
+    for name in ["review", "deploy"] {
+        let (listed, ()) = tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::join!(
+                driver.list_provider_commands(params()),
+                answer_skills_in_run_folder(&mut scripted, name),
+            )
+        })
+        .await
+        .expect("each call reads Codex's skills afresh");
+        lists.push(listed.expect("a session with no live process lists its commands"));
+    }
+
+    for list in &lists {
+        assert_eq!(list.binding, binding);
+    }
+    assert_eq!(listed_names(&lists[0]), ["review"]);
+    assert_eq!(listed_names(&lists[1]), ["deploy"]);
 }

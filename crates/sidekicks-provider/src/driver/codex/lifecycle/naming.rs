@@ -361,6 +361,8 @@ async fn draw_title_until_stopped(
         collaboration_mode: None,
         model: None,
         client_user_message_id: None,
+        turn_trigger: None,
+        root_turn_id: None,
         output_schema: Some(title_schema()),
         effort: effort.map(|effort| effort.parse().expect("the title effort is an effort")),
         service_tier: None,

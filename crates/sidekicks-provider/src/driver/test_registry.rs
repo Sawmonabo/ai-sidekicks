@@ -13,12 +13,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 #[cfg(test)]
 use std::sync::Mutex;
+use std::time::SystemTime;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use rusqlite::params;
 use secrecy::SecretString;
 use serde_json::{Map, Value};
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::account::record::{
     CredentialGeneration, ProviderAccountId, ProviderAuthMode,
@@ -37,6 +39,8 @@ use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 #[cfg(test)]
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
+use sidekicks_std::scheduler::Scheduler;
+use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_workspace::git::process::{GitLimits, GitRunner};
@@ -44,6 +48,7 @@ use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tokio::runtime::Handle;
 #[cfg(test)]
 use tokio::sync::Notify;
+use tokio::sync::watch;
 
 use crate::background_work::BackgroundWorkForms;
 use crate::command::waiting_checks::SystemInputWaitReader;
@@ -182,12 +187,15 @@ pub fn registered_test_accounts(
 /// The shared services every driver's build takes, with every port unregistered, the spawn
 /// contexts among them, no attachment or binding rebind served, no child recorded, the read pool
 /// on a database no test opens, every folder under a relative one that no test makes, and a set of
-/// held provider services of its own, which a test reads through its field. Called on a tokio
-/// runtime, which the spawner thread starts on.
+/// held provider services of its own, which a test reads through its field, and a scheduler on a
+/// test wall clock set to the present and never moved, so no job a driver sets for an instant
+/// falls due. Called on a tokio runtime, which the spawner thread and the scheduler start on.
 pub fn test_driver_services() -> DriverServices {
     let spawner = Spawner::new(Handle::current()).expect("the spawner thread starts");
     let folder = PathBuf::from("driver-services");
     let base_environment: Arc<[(String, String)]> = Arc::from([]);
+    let clock = Arc::new(TestWallClock::default());
+    clock.set_now(SystemTime::now());
     DriverServices {
         spawner: spawner.clone(),
         data_folder: folder.join("data"),
@@ -220,6 +228,7 @@ pub fn test_driver_services() -> DriverServices {
         runtime_bindings: Arc::new(NothingServed),
         shell_lines: Arc::new(ShellLineReadingBound::new(TEST_SHELL_LINE_LIMIT)),
         background_work: Arc::new(BackgroundWorkForms::of_providers(PROVIDERS)),
+        scheduler: Arc::new(Scheduler::start(clock, None, watch::channel(0).1)),
         dispatches_hook_mode: false,
         caller_processes: Arc::new(
             ProcessTableReader::for_this_program().expect("this program's reader builds"),
@@ -342,6 +351,11 @@ pub fn session_inbox_addresser() -> Arc<dyn SessionInboxAddresser> {
         .drivers()
         .find_map(|(_, driver)| driver.session_inbox_addresser())
         .expect("a provider in the table answers a session inbox")
+}
+
+/// A minted agent id.
+pub fn new_agent_id() -> AgentId {
+    AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id")
 }
 
 /// A minted run id.

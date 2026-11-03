@@ -12,6 +12,7 @@ use sidekicks_contracts::approval::{
     RememberedScope, RememberedScopeKind,
 };
 use sidekicks_contracts::provider::tool_call::ToolCallId;
+use sidekicks_contracts::release_manifest::Sha256Hex;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionShape;
@@ -55,6 +56,9 @@ pub(crate) struct StoredApprovalRequest {
     pub(crate) ask_id: Option<NonEmptyText>,
     /// The tool call the ask holds, where its provider named one.
     pub(crate) tool_call_id: Option<ToolCallId>,
+    /// The digest of the call's tool name and input, where the ask holds a call whose input has a
+    /// canonical form.
+    pub(crate) input_digest: Option<Sha256Hex>,
     /// Where the ask stands.
     pub(crate) state: ApprovalState,
     /// When it was raised.
@@ -126,6 +130,9 @@ pub struct InsertedApprovalRequest {
     pub ask_id: Option<NonEmptyText>,
     /// The tool call the ask holds, where its provider named one.
     pub tool_call_id: Option<ToolCallId>,
+    /// The digest of the call's tool name and input, where the ask holds a call whose input has a
+    /// canonical form.
+    pub input_digest: Option<Sha256Hex>,
     /// When it was raised.
     pub created_at: WireInstant,
 }
@@ -219,9 +226,9 @@ static INSERT_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO approval_requests
     (id, session_id, run_id, requested_by, category, scope, resource_descriptor, ask_id,
-     tool_call_id, state, created_at, updated_at)
+     tool_call_id, input_digest, state, created_at, updated_at)
   VALUES (@id, @session_id, @run_id, @requested_by, @category, @scope, @resource_descriptor,
-          @ask_id, @tool_call_id, '{}', @created_at, @created_at)",
+          @ask_id, @tool_call_id, @input_digest, '{}', @created_at, @created_at)",
         pending()
     )
 });
@@ -235,8 +242,8 @@ static REWRITE_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
     session_id = excluded.session_id, run_id = excluded.run_id,
     requested_by = excluded.requested_by, category = excluded.category, scope = excluded.scope,
     resource_descriptor = excluded.resource_descriptor, ask_id = excluded.ask_id,
-    tool_call_id = excluded.tool_call_id, state = excluded.state,
-    created_at = excluded.created_at, updated_at = excluded.updated_at",
+    tool_call_id = excluded.tool_call_id, input_digest = excluded.input_digest,
+    state = excluded.state, created_at = excluded.created_at, updated_at = excluded.updated_at",
         *INSERT_REQUEST_SQL
     )
 });
@@ -297,7 +304,8 @@ const SELECT_REQUESTS_SQL: &str = "SELECT request.id, request.session_id, reques
        resolution.effective_scope, resolution.remembered_scope_kind,
        resolution.remembered_scope_pattern, resolution.asked_scope_kind,
        resolution.asked_scope_pattern, resolution.edited_action, resolution.decline_reason,
-       resolution.resolved_at, session.shape AS session_shape, request.tool_call_id
+       resolution.resolved_at, session.shape AS session_shape, request.tool_call_id,
+       request.input_digest
   FROM approval_requests AS request
   LEFT JOIN approval_resolutions AS resolution ON resolution.request_id = request.id
   LEFT JOIN sessions AS session ON session.id = request.session_id";
@@ -542,6 +550,10 @@ fn request_statement(
                 "@tool_call_id",
                 request.tool_call_id.as_ref().map(ToolCallId::as_str),
             ),
+            nullable_text_binding(
+                "@input_digest",
+                request.input_digest.as_ref().map(Sha256Hex::as_str),
+            ),
             text_binding("@created_at", request.created_at.as_str()),
         ]),
         expected_row_count: Some(1),
@@ -655,6 +667,11 @@ impl<'connection> ApprovalRequestReader<'connection> {
 #[error("the stored device id is not a device id")]
 struct NotADeviceId;
 
+/// Stored text that is not a SHA-256 in lower-case hex.
+#[derive(Debug, thiserror::Error)]
+#[error("the stored digest is not a SHA-256 in lower-case hex")]
+struct NotASha256Hex;
+
 /// Stored text that is empty where its column holds text.
 #[derive(Debug, thiserror::Error)]
 #[error("the stored text is empty")]
@@ -686,6 +703,9 @@ fn stored_request_of(row: &Row<'_>) -> rusqlite::Result<StoredApprovalRequest> {
         resource_descriptor,
         ask_id,
         tool_call_id: optional_text_column(row, 23, ToolCallId::new)?,
+        input_digest: optional_text_column(row, 24, |text| {
+            Sha256Hex::new(text).ok_or(NotASha256Hex)
+        })?,
         state: text_column(row, 8, closed_word)?,
         created_at: text_column(row, 9, WireInstant::try_from)?,
         updated_at: text_column(row, 10, WireInstant::try_from)?,

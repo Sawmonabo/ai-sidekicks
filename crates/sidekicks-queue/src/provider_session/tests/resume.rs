@@ -1,6 +1,8 @@
 //! A session's conversation resumed: the live runs it names to the provider, the provider's answer
-//! for them handed on before the binding is recorded, a run bound on it after the resume, and the
-//! idle sleep's wake of a session no process holds.
+//! for them handed on before the binding is recorded, a run bound on it after the resume, the idle
+//! sleep's wake of a session no process holds, and a resume the provider deferred, which opens
+//! nothing; a resume or restart whose provider is missing posts the session's `providerMissing`
+//! notice.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -10,6 +12,7 @@ use rusqlite::params;
 use serde_json::{Value, json};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::ProviderTurnId;
@@ -32,8 +35,11 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use tokio::time::timeout;
 
-use super::{Opening, READ_STATEMENT_CAPACITY, WAIT};
+use super::{Opening, READ_STATEMENT_CAPACITY, WAIT, unregistered_provider};
+use crate::provider_session::errors::ProviderSessionError;
+use crate::provider_session::resume::ResumedSession;
 use crate::provider_session::resumed_runs::ResumedRuns;
+use crate::provider_session::test_opening::{first_provider, read_provider_missing_notices};
 
 /// The recurring job the wake's test stores for the session.
 const CRON: &str = "0 9 * * 1";
@@ -161,6 +167,8 @@ async fn a_resume_names_each_live_run_with_its_open_turns_and_helper_id() {
                 started_event_id: FreeFormText::new(started_event_id).expect("an event id"),
             }],
             subagent_id: None,
+            is_stopping: false,
+            run_state: RunState::Running,
         }
     );
     assert_eq!(
@@ -170,6 +178,8 @@ async fn a_resume_names_each_live_run_with_its_open_turns_and_helper_id() {
             parent_run_id: Some(lead),
             open_turns: Vec::new(),
             subagent_id: Some(SubagentId::new(SUBAGENT_ID.to_owned()).expect("a helper id")),
+            is_stopping: false,
+            run_state: RunState::Running,
         }
     );
 }
@@ -419,4 +429,164 @@ async fn only_a_relaunch_opens_status_legs_and_a_composed_resume_opens_none() {
         1,
         "the relaunch opens its binding's legs"
     );
+}
+
+// Which of the queue's entries brings a session's conversation back.
+#[derive(Clone, Copy)]
+enum Relaunching {
+    ResumeAfterRestart,
+    WakeProcess,
+    Restart,
+}
+
+// A resume the provider deferred, starting no process since every run waits on the person, hands
+// each run's answer to the ingress in the provider's order, records no relaunch and leaves the
+// session unopened, so the same entry called again reaches the driver again; a wake answers the
+// session still asleep and a resume after a restart answers it deferred with no binding. Killed by
+// the opening recorded on the deferred arm (the second resume or wake never reaches the driver, or
+// the session is followed awake), by `Awake` answered, by the relaunch recorded (a binding row
+// beside the leg), and by the runs not handed. For the restart, which never reads the opening, the
+// second call proves nothing; the record and the follow do.
+#[rstest]
+#[case::resume_after_restart(Relaunching::ResumeAfterRestart)]
+#[case::wake_process(Relaunching::WakeProcess)]
+#[case::restart(Relaunching::Restart)]
+#[tokio::test]
+async fn a_deferred_relaunch_opens_nothing(#[case] relaunching: Relaunching) {
+    let resumes = Arc::new(AtomicUsize::new(0));
+    let opening = Opening::new(
+        Box::new({
+            let resumes = Arc::clone(&resumes);
+            move |_| {
+                resumes.fetch_add(1, Ordering::SeqCst);
+            }
+        }),
+        Box::new(|| {}),
+        |_, _| {},
+    )
+    .await;
+    opening.is_deferred.store(true, Ordering::SeqCst);
+
+    for call in 1..=2 {
+        match relaunching {
+            Relaunching::ResumeAfterRestart => {
+                let resumed = timeout(
+                    WAIT,
+                    opening.sessions.resume_after_restart(opening.session_id),
+                )
+                .await
+                .expect("the resume takes its own lock once")
+                .expect("the resume answers");
+                assert_eq!(
+                    resumed,
+                    ResumedSession {
+                        named_run_ids: vec![opening.earlier_run_id, opening.run_id],
+                        is_binding_recorded: false,
+                        is_deferred: true,
+                    }
+                );
+            }
+            Relaunching::WakeProcess => {
+                let woken = timeout(WAIT, opening.sessions.wake_process(opening.session_id))
+                    .await
+                    .expect("the wake takes its own lock once")
+                    .expect("the wake answers");
+                assert_eq!(woken, SessionSleepState::Asleep);
+            }
+            Relaunching::Restart => {
+                timeout(WAIT, opening.sessions.restart(opening.session_id))
+                    .await
+                    .expect("the restart takes its own lock once")
+                    .expect("the restart answers");
+            }
+        }
+        assert_eq!(
+            resumes.load(Ordering::SeqCst),
+            call,
+            "each call reaches the driver, the session left unopened"
+        );
+    }
+
+    let waiting = |run_id| ResumedRunAnswer {
+        run_id,
+        turn: ProviderTurnAnswer::Waiting,
+    };
+    let handed = ResumedRuns {
+        session_id: opening.session_id,
+        runs: vec![waiting(opening.earlier_run_id), waiting(opening.run_id)],
+    };
+    assert_eq!(opening.resumed_runs.taken(), [handed.clone(), handed]);
+    let bindings: i64 = opening
+        .database
+        .reader()
+        .query_row("SELECT COUNT(*) FROM runtime_bindings", [], |row| {
+            row.get(0)
+        })
+        .expect("the test counts the bindings");
+    assert_eq!(bindings, 1, "only the leg's binding stands");
+    assert!(
+        opening.following.followed().is_empty(),
+        "no opening is followed awake"
+    );
+}
+
+// A resume or a restart whose stored leg names a provider no driver answers, or whose driver finds
+// the provider not installed, posts one `providerMissing` notice naming that provider and the
+// session's place, fails, forgets every binding it minted and keeps no process opened. Killed by
+// the resume or the restart left without the post (the lookup, the capability check or the
+// driver's failure), and by a minted binding's cursor kept.
+#[rstest]
+#[case::resume_not_installed(false, false)]
+#[case::resume_no_driver(false, true)]
+#[case::restart_not_installed(true, false)]
+#[case::restart_no_driver(true, true)]
+#[tokio::test]
+async fn a_resume_or_a_restart_whose_provider_is_missing_posts_one_notice(
+    #[case] is_restart: bool,
+    #[case] is_driverless: bool,
+) {
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |_, _| {}).await;
+    let provider = if is_driverless {
+        opening
+            .database
+            .reader()
+            .execute(
+                "UPDATE runtime_bindings SET provider_name = ?1",
+                [unregistered_provider().as_str()],
+            )
+            .expect("the leg names a provider no driver answers");
+        unregistered_provider()
+    } else {
+        opening.is_provider_missing.store(true, Ordering::SeqCst);
+        first_provider()
+    };
+
+    let relaunched = if is_restart {
+        opening.sessions.restart(opening.session_id).await
+    } else {
+        opening
+            .sessions
+            .open(opening.session_id, opening.run_id)
+            .await
+    };
+
+    assert!(
+        matches!(
+            &relaunched,
+            Err(ProviderSessionError::Provider(_) | ProviderSessionError::Driver(_))
+        ),
+        "{relaunched:?}"
+    );
+    assert_eq!(
+        read_provider_missing_notices(&opening.database.reader()),
+        vec![opening.provider_missing_notice(provider)]
+    );
+    let epochs = lock(&opening.epochs);
+    assert!(
+        lock(&opening.handed_ids)
+            .iter()
+            .all(|minted_id| epochs.binding(minted_id).is_err()),
+        "every binding the relaunch minted is forgotten"
+    );
+    assert_eq!(opening.following.followed(), Vec::new());
 }

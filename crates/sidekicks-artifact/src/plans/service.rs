@@ -43,22 +43,23 @@ pub mod test_fixture;
 #[cfg(test)]
 mod tests;
 
-/// The statements [`PlansService`] prepares on a read connection: the plans of a session still
-/// waiting on a held request (`HELD_PLANS_SQL`), and those still waiting on a held request or on
-/// none (`WAITING_PLANS_OF_SESSION_SQL`).
-pub const PLANS_STATEMENT_CAPACITY: usize = 2;
+/// The statements the plans' services prepare on a read connection: the plans of a session still
+/// waiting on a held request (`HELD_PLANS_SQL`), those still waiting on a held request or on none
+/// (`WAITING_PLANS_OF_SESSION_SQL`), and the verdicts' read of one plan (`PLAN_BY_ID_SQL`).
+pub const PLANS_STATEMENT_CAPACITY: usize = 3;
 
-/// The media type a plan's artifact is kept under.
-const PLAN_MEDIA_TYPE: &str = "text/markdown";
+/// The media type a plan's artifact, and its seed copy in a fresh session, is kept under.
+pub(crate) const PLAN_MEDIA_TYPE: &str = "text/markdown";
 
-/// Why a plan was not recorded or a hold not ended; nothing of the failed write is kept.
+/// Why a plan was not recorded, a hold not ended, a verdict not settled or a seed copy not written;
+/// nothing of the failed write is kept.
 #[derive(Debug, thiserror::Error)]
 pub enum PlanError {
     /// The plan's artifact was not kept, or its write was refused.
     #[error(transparent)]
     Artifact(#[from] ArtifactError),
-    /// The write of a lost hold was not kept.
-    #[error("the end of a plan's held request was not recorded")]
+    /// The write of a lost hold or of a verdict was not kept.
+    #[error("a write of a plan's record was not kept")]
     Append(#[from] SessionEventAppendError),
     /// A read of the plan rows did not reach a connection.
     #[error(transparent)]

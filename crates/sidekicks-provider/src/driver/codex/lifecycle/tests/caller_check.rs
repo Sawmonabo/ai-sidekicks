@@ -1,6 +1,6 @@
 //! The caller check over the provider services the driver dials.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
@@ -39,6 +39,8 @@ async fn the_caller_check_refuses_the_process_serving_a_codex_service_the_driver
         Arc::new(ScriptedReader {
             responsible: ResponsibleProcess::Itself,
             parent: ParentProcess::Root,
+            parents: HashMap::new(),
+            programs: HashMap::new(),
             is_desktop_client: false,
             was_signature_read: AtomicBool::new(false),
         }) as Arc<dyn CallerProcessReader>,

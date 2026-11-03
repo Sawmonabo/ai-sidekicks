@@ -421,14 +421,14 @@ mod tests {
             live_runs: _,
             recovery: _,
             _shells: shells,
-            _home: home,
+            home,
         } = fixture;
         let reads = Arc::new(DatabaseReadPool::new(
             database.path(),
             RETENTION_STATEMENT_CAPACITY + DAEMON_CONFIGURATION_STATEMENT_CAPACITY,
         ));
         let configuration = Arc::new(
-            ConfigurationStore::open(Arc::clone(&log.writer), &reads)
+            ConfigurationStore::open(Arc::clone(&log.writer), Arc::clone(&reads))
                 .await
                 .expect("the configuration store opens"),
         );

@@ -86,7 +86,7 @@ where
 /// binding (`None` for a session this daemon does not hold or that is not bound here, one answer
 /// for both). Refused `session.notFound` for `None`, then `provider.notFound` for a provider no
 /// driver answers.
-pub(crate) fn resolve_session_driver(
+pub fn resolve_session_driver(
     providers: &ProviderRegistry,
     session_id: &SessionId,
     bound: Option<ProviderId>,
@@ -96,10 +96,30 @@ pub(crate) fn resolve_session_driver(
     Ok((provider, driver))
 }
 
+/// The provider the session's lead runs on and the account it is bound to (`None` for the
+/// provider's current account), the lead's binding read through `pool` from the readable part of
+/// the session's log; `None` for a session this daemon does not hold or that is not bound here.
+/// Fails as the pool and the read do.
+pub async fn read_session_provider<Failure>(
+    pool: &DatabaseReadPool,
+    read_damaged_from_sequence: &DamagedFromSequenceReader,
+    session_id: SessionId,
+) -> Result<Option<(ProviderId, Option<ProviderAccountId>)>, Failure>
+where
+    Failure: From<DatabaseReadError> + From<rusqlite::Error> + Send + 'static,
+{
+    let read_bound = session_read_bound(read_damaged_from_sequence, &session_id, None);
+    let lead = pool
+        .read(ReadLength::Short, move |reader| -> Result<_, Failure> {
+            Ok(read_session_lead(reader, &session_id, read_bound)?)
+        })
+        .await?;
+    Ok(lead.map(|lead| (lead.binding.provider_name, lead.binding.provider_account_id)))
+}
+
 /// The provider the session's lead runs on, the account it is bound to (`None` for the provider's
-/// current account) and its driver, the lead's binding read through `pool` from the readable part
-/// of the session's log. Refused as `resolve_session_driver` refuses, and fails as the pool and
-/// the read do.
+/// current account) and its driver, read as [`read_session_provider`] reads them. Refused as
+/// `resolve_session_driver` refuses, and fails as the pool and the read do.
 pub async fn read_session_driver<Failure>(
     pool: &DatabaseReadPool,
     providers: &ProviderRegistry,
@@ -116,15 +136,10 @@ pub async fn read_session_driver<Failure>(
 where
     Failure: From<DatabaseReadError> + From<rusqlite::Error> + From<DomainError> + Send + 'static,
 {
-    let read_bound = session_read_bound(read_damaged_from_sequence, &session_id, None);
-    let lead = pool
-        .read(ReadLength::Short, move |reader| -> Result<_, Failure> {
-            Ok(read_session_lead(reader, &session_id, read_bound)?)
-        })
-        .await?;
-    let (provider, provider_account_id) = lead
-        .map(|lead| (lead.binding.provider_name, lead.binding.provider_account_id))
-        .unzip();
+    let (provider, provider_account_id) =
+        read_session_provider::<Failure>(pool, read_damaged_from_sequence, session_id)
+            .await?
+            .unzip();
     let (provider, driver) = resolve_session_driver(providers, &session_id, provider)?;
     Ok((provider, provider_account_id.flatten(), driver))
 }

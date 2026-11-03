@@ -13,7 +13,7 @@ use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_contracts::session::id::SessionId;
 
 /// A session's in-process tool servers, registered through a `PortRegistration`.
-pub(crate) trait InProcessToolServers: Send + Sync {
+pub trait InProcessToolServers: Send + Sync {
     /// The names of `session_id`'s servers, the daemon's own among them.
     fn server_names(&self, session_id: &SessionId) -> Vec<String>;
 
@@ -33,13 +33,9 @@ pub(crate) trait InProcessToolServers: Send + Sync {
 
 /// The route a server's own messages take to the provider: a progress notification, or a request
 /// of its own.
-pub(crate) trait InProcessToolServerOutbound: Send + Sync {
+pub trait InProcessToolServerOutbound: Send + Sync {
     /// Sends `message`, one JSON-RPC message from `server_name`, and settles once the provider
     /// took it. Fails when the provider's channel did.
-    #[expect(
-        dead_code,
-        reason = "the tool-server front sends each server's own messages through it"
-    )]
     fn send(
         &self,
         server_name: String,
@@ -49,7 +45,7 @@ pub(crate) trait InProcessToolServerOutbound: Send + Sync {
 
 /// Why an in-process server could not answer a message.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum InProcessToolServerError {
+pub enum InProcessToolServerError {
     /// The session has no server of the name the message named.
     #[error("the session has no tool server named {server_name}")]
     ServerNotFound {
@@ -58,13 +54,6 @@ pub(crate) enum InProcessToolServerError {
     },
     /// The server, or the route to the provider, failed.
     #[error("the tool server failed")]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the tool-server front and a server's own sends fail with it"
-        )
-    )]
     Failed(#[source] Box<dyn Error + Send + Sync>),
 }
 

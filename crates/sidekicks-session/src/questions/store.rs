@@ -1,6 +1,6 @@
 //! The question rows' writes, each the statement its event's live write and a rebuild's fold share,
-//! with the guards the live write keeps, and the reads of a record, its pages and the questions a
-//! run's end settles.
+//! with the guards the live write keeps, and the reads of a record, its pages, the questions a
+//! run's end settles and those a restart withdraws.
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -10,9 +10,7 @@ use rusqlite::types::{Type, Value as SqlValue};
 use rusqlite::{Connection, OptionalExtension as _, named_params};
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::registry::SessionEventType;
-use sidekicks_contracts::question::{
-    QuestionAskedPayload, QuestionAskedState, QuestionId, QuestionSettledState,
-};
+use sidekicks_contracts::question::{QuestionAskedPayload, QuestionAskedState, QuestionId};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::{UuidText, UuidTextForm};
@@ -22,6 +20,7 @@ use sidekicks_store::database::statement::{
 };
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 
+use crate::questions::QuestionSettledState;
 use crate::questions::schema::QuestionState;
 
 const INSERT_QUESTION_SQL: &str = "INSERT INTO questions
@@ -98,6 +97,19 @@ static UNSETTLED_HELD_OF_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// A session's questions its agents wait on, open or waiting for their run, that came on a
+// request, oldest first.
+static UNSETTLED_OF_REQUESTS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT id, run_id, provider_request_id FROM questions
+  WHERE session_id = @sessionId AND state IN ('{waiting}', '{open}') AND is_agent_waiting = 1
+    AND run_id IS NOT NULL AND provider_request_id IS NOT NULL
+  ORDER BY rowid",
+        waiting = <&'static str>::from(QuestionState::WaitingForRun),
+        open = <&'static str>::from(QuestionState::Open)
+    )
+});
+
 // The run's open question its agent waits on that came on the provider's request, oldest first.
 static OPEN_OF_PROVIDER_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -156,6 +168,21 @@ pub(crate) struct HeldQuestion {
     pub(crate) question_id: QuestionId,
     /// Its session.
     pub(crate) session_id: SessionId,
+}
+
+/// A question its agent waits on, open or waiting for its run, with the request it came on.
+#[expect(
+    clippy::struct_field_names,
+    reason = "the row's three ids, each named for what it identifies"
+)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RequestedQuestion {
+    /// The question.
+    pub(crate) question_id: QuestionId,
+    /// The run that holds it.
+    pub(crate) run_id: RunId,
+    /// The id of the request it came on.
+    pub(crate) request_id: String,
 }
 
 /// The record's row as `asked` writes it, open or waiting for its run. Refused when the record is
@@ -384,5 +411,26 @@ pub(crate) fn read_unsettled_held_questions(
                 session_id: text_column(row, 1, |text| SessionId::new(&text))?,
             })
         })?
+        .collect()
+}
+
+/// The questions of `session_id` its agents wait on, open or waiting for their run, that came on
+/// a request, oldest first. Fails as SQLite does, or when a stored id does not read.
+pub(crate) fn read_unsettled_of_requests(
+    connection: &Connection,
+    session_id: &SessionId,
+) -> rusqlite::Result<Vec<RequestedQuestion>> {
+    connection
+        .prepare_cached(&UNSETTLED_OF_REQUESTS_SQL)?
+        .query_map(
+            named_params! { "@sessionId": session_id.text().as_str() },
+            |row| {
+                Ok(RequestedQuestion {
+                    question_id: text_column(row, 0, |text| QuestionId::new(&text))?,
+                    run_id: text_column(row, 1, |text| RunId::new(&text))?,
+                    request_id: row.get(2)?,
+                })
+            },
+        )?
         .collect()
 }

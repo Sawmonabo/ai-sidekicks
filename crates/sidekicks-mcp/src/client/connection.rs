@@ -5,11 +5,14 @@
 //! - The lifecycle probes `server/discover` and falls back to `initialize`, so a 2026-07-28 server
 //!   and a 2025-11-25 one both connect; a 2026-07-28 server declares the Tasks extension in its
 //!   typed capabilities, a 2025-11-25 one `capabilities.tasks.requests.tools.call` in its raw
-//!   `initialize` reply. The whole start is held to the server's start-up timeout.
+//!   `initialize` reply, beside `capabilities.tasks.cancel` when it takes `tasks/cancel`. The
+//!   whole start is held to the server's start-up timeout.
 //! - Every question the server asks goes on the questions card: one carrying a followed task's
 //!   id under that task's run, any other under the run of the call in flight on the connection,
 //!   and with none in flight it is answered `cancel`, since nobody saw it. While it is open, the
 //!   connection's tool calls' idle window stands still.
+
+pub(super) mod standing;
 
 use std::collections::HashSet;
 use std::io;
@@ -29,20 +32,25 @@ use rmcp::service::{
 use rmcp::{ClientHandler, RoleClient};
 use serde_json::{Value, json};
 use sidekicks_contracts::mcp::server::McpServerName;
+use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::spawn_environment::SpawnEnvironmentError;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 
 use crate::client::calls::CallsInFlight;
 use crate::client::idle_window::ToolCallActivity;
 use crate::client::prompts::PromptWatchers;
-use crate::client::raw_copy::{INITIALIZE_METHOD, RawCopyTransport, RawReplyCopy};
+use crate::client::raw_copy::{
+    DetachedRequests, INITIALIZE_METHOD, RawCopyTransport, RawReplyCopy,
+};
 use crate::client::requests::{McpRequestError, PageCursors, RequestWait, ServerRequests};
 use crate::client::stdio::StdioProcess;
-use crate::client::tasks::{McpTaskGeneration, QuestionOutcome, TaskWatches};
+use crate::client::tasks::watches::{QuestionOutcome, TaskWatches};
+use crate::client::tasks::{McpServerEndpoint, McpTaskGeneration};
 
 /// The notification a 2025-11-25 server sends when a task's status changes.
 const V1_TASK_STATUS_METHOD: &str = "notifications/tasks/status";
@@ -111,13 +119,14 @@ pub(crate) struct McpConnectionScope {
     pub(crate) release_version: ReleaseVersion,
 }
 
-/// How a connection starts: the deadline its start is held to, its tool calls' idle window, and
-/// the stdio server's process it holds, if any.
+/// How a connection starts: the deadline its start is held to, its tool calls' idle window, the
+/// stdio server's process it holds, if any, and the server's endpoint.
 pub(super) struct McpConnectionStart {
     startup_timeout: Duration,
     startup_deadline: Instant,
     tool_call_idle_timeout: Duration,
     process: Option<StdioProcess>,
+    endpoint: McpServerEndpoint,
 }
 
 impl McpConnectionStart {
@@ -127,15 +136,17 @@ impl McpConnectionStart {
             startup_timeout,
             crate::client::requests::STDIO_TOOL_CALL_IDLE_TIMEOUT,
             process,
+            McpServerEndpoint::stdio(),
         )
     }
 
-    /// A start at an address, from now, within `startup_timeout` or the default.
-    pub(super) fn http(startup_timeout: Option<Duration>) -> Self {
+    /// A start at `address`, from now, within `startup_timeout` or the default.
+    pub(super) fn http(startup_timeout: Option<Duration>, address: &McpServerAddress) -> Self {
         Self::new(
             startup_timeout,
             crate::client::requests::HTTP_TOOL_CALL_IDLE_TIMEOUT,
             None,
+            McpServerEndpoint::at_address(address),
         )
     }
 
@@ -143,6 +154,7 @@ impl McpConnectionStart {
         startup_timeout: Option<Duration>,
         tool_call_idle_timeout: Duration,
         process: Option<StdioProcess>,
+        endpoint: McpServerEndpoint,
     ) -> Self {
         let startup_timeout = startup_timeout.unwrap_or(DEFAULT_STARTUP_TIMEOUT);
         Self {
@@ -150,6 +162,7 @@ impl McpConnectionStart {
             startup_deadline: Instant::now() + startup_timeout,
             tool_call_idle_timeout,
             process,
+            endpoint,
         }
     }
 
@@ -162,10 +175,15 @@ impl McpConnectionStart {
 /// One open connection to a tool server.
 pub(crate) struct McpServerConnection {
     pub(super) scope: McpConnectionScope,
+    /// Which server this is, stamped on each task it accepts.
+    pub(super) endpoint: McpServerEndpoint,
     pub(super) service: RunningService<RoleClient, McpClientHandler>,
     pub(super) requests: ServerRequests,
     /// The Tasks protocol the server speaks, `None` when it offers no tasks.
     pub(super) task_generation: Option<McpTaskGeneration>,
+    /// Whether the server takes `tasks/cancel`: on a 2025-11-25 server, when it declares
+    /// `tasks.cancel`; on a 2026-07-28 server always, since its Tasks extension carries the method.
+    pub(super) can_cancel_tasks: bool,
     /// The tool calls in flight, with their runs.
     pub(super) calls: Arc<CallsInFlight>,
     /// On a 2025-11-25 server, each tool whose `execution.taskSupport` takes a task.
@@ -174,6 +192,9 @@ pub(crate) struct McpServerConnection {
     are_tools_stale: Arc<AtomicBool>,
     /// A stdio server's process, ended when the connection closes or drops.
     pub(super) process: Option<StdioProcess>,
+    /// Canceled as the connection starts to close, before its service, so a 2025-11-25 task's
+    /// question whose request the close cuts is detached rather than withdrawn.
+    closing: CancellationToken,
 }
 
 impl McpServerConnection {
@@ -194,21 +215,27 @@ impl McpServerConnection {
             startup_deadline,
             tool_call_idle_timeout,
             process,
+            endpoint,
         } = start;
         let are_tools_stale = Arc::new(AtomicBool::new(false));
         let calls = Arc::new(CallsInFlight::default());
         let activity = Arc::new(ToolCallActivity::new());
+        let closing = CancellationToken::new();
+        let detached = DetachedRequests::default();
         let handler = McpClientHandler {
             scope: scope.clone(),
             are_tools_stale: Arc::clone(&are_tools_stale),
             calls: Arc::clone(&calls),
             activity: Arc::clone(&activity),
+            closing: closing.clone(),
+            detached: Arc::clone(&detached),
         };
         let lifecycle = serve_client_with_lifecycle(
             handler,
             RawCopyTransport {
                 inner: transport,
                 raw: raw.clone(),
+                detached,
             },
             ClientLifecycleMode::Auto {
                 preferred_versions: vec![ProtocolVersion::V_2026_07_28],
@@ -235,6 +262,11 @@ impl McpServerConnection {
             .peer()
             .peer_info()
             .is_some_and(|info| info.capabilities.supports_tasks());
+        let can_cancel_tasks = declares_v2_tasks
+            || initialize
+                .as_ref()
+                .and_then(|reply| reply.pointer("/result/capabilities/tasks/cancel"))
+                .is_some();
         let task_generation = if declares_v2_tasks {
             Some(McpTaskGeneration::V2)
         } else if declares_v1_tasks {
@@ -250,12 +282,15 @@ impl McpServerConnection {
                 activity,
             },
             scope,
+            endpoint,
             service,
             task_generation,
+            can_cancel_tasks,
             calls,
             task_tools: Mutex::new(HashSet::new()),
             are_tools_stale,
             process: None,
+            closing,
         };
         if task_generation == Some(McpTaskGeneration::V1)
             && let Err(error) = connection.read_task_tools().await
@@ -267,21 +302,33 @@ impl McpServerConnection {
         Ok(connection)
     }
 
-    /// Closes the connection: its transport first, which closes a stdio server's input, the
-    /// primary way to ask it to stop; then, for a stdio server, its process is ended as
-    /// [`StdioProcess::close`] says. Never fails.
+    /// Closes the connection: it is marked closing, then its transport is closed, which closes a
+    /// stdio server's input, the primary way to ask it to stop; then, for a stdio server, its
+    /// process is ended as [`StdioProcess::close`] says. Never fails.
     pub(crate) async fn close(&self) {
+        self.closing.cancel();
         self.service.cancellation_token().cancel();
         if let Some(process) = &self.process {
             process.close().await;
         }
     }
 
-    /// Whether `tool_name` takes a task on this 2025-11-25 server, its tools read again first
-    /// when the server said they changed. Fails as that read fails.
+    /// Whether `tool_name` takes a task on this server. On a 2025-11-25 server, the answer comes
+    /// from its tools' `execution.taskSupport`, read again first when the server said they
+    /// changed; on any other server it is false, since that server decides per call or takes no
+    /// task. Fails as that read fails; the tools then stay marked changed, as they do when the
+    /// caller stops waiting for the read, so the next task call reads them again.
     pub(super) async fn is_task_tool(&self, tool_name: &str) -> Result<bool, McpRequestError> {
+        if self.task_generation != Some(McpTaskGeneration::V1) {
+            return Ok(false);
+        }
         if self.are_tools_stale.swap(false, Ordering::AcqRel) {
+            let mut unread = StaleToolsMark {
+                are_tools_stale: &self.are_tools_stale,
+                is_read: false,
+            };
             self.read_task_tools().await?;
+            unread.is_read = true;
         }
         Ok(lock(&self.task_tools).contains(tool_name))
     }
@@ -346,6 +393,21 @@ async fn end_failed_start(
     }
 }
 
+/// Marks a connection's tools changed again when dropped before their read succeeded: the read
+/// failed, or its caller stopped waiting.
+struct StaleToolsMark<'connection> {
+    are_tools_stale: &'connection AtomicBool,
+    is_read: bool,
+}
+
+impl Drop for StaleToolsMark<'_> {
+    fn drop(&mut self) {
+        if !self.is_read {
+            self.are_tools_stale.store(true, Ordering::Release);
+        }
+    }
+}
+
 /// The client's side of a connection: what it declares, and the server's requests and
 /// notifications it takes.
 pub(crate) struct McpClientHandler {
@@ -353,6 +415,10 @@ pub(crate) struct McpClientHandler {
     are_tools_stale: Arc<AtomicBool>,
     calls: Arc<CallsInFlight>,
     activity: Arc<ToolCallActivity>,
+    /// The connection's closing mark.
+    closing: CancellationToken,
+    /// The requests whose answer the transport drops.
+    detached: DetachedRequests,
 }
 
 impl ClientHandler for McpClientHandler {
@@ -387,16 +453,23 @@ impl ClientHandler for McpClientHandler {
                 Some(task_id) => {
                     self.scope
                         .task_watches
-                        .ask_v1_task_question(&self.scope, task_id, params)
+                        .ask_v1_task_question(&self.scope, task_id, params, &self.closing)
                         .await
                 }
                 None => self.calls.ask_newest_call(&self.scope, params).await,
             }
         };
-        // A request the server canceled drops its question, which withdraws it from the card.
+        // A request the server canceled drops its question, which withdraws it from the card. One
+        // the connection's close cut leaves a task's question open for the server's next ask on
+        // another connection, and the answer to it is never sent.
         let asked = tokio::select! {
             asked = ask => asked,
-            () = context.ct.cancelled() => Some(QuestionOutcome::Withdrawn),
+            () = context.ct.cancelled() => {
+                if self.closing.is_cancelled() && related_task.is_some() {
+                    lock(&self.detached).insert(context.id.clone());
+                }
+                Some(QuestionOutcome::Withdrawn)
+            }
         };
         Ok(match asked {
             Some(QuestionOutcome::Answered(content)) => {
@@ -463,10 +536,16 @@ impl ClientHandler for McpClientHandler {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
+
+    use serde_json::json;
     use tokio::time::{Duration, Instant, timeout};
 
-    use super::{DEFAULT_STARTUP_TIMEOUT, McpConnectionError};
-    use crate::client::test_server::{Reply, start_test_server, test_client, test_scope};
+    use super::{DEFAULT_STARTUP_TIMEOUT, McpConnectionError, McpConnectionStart};
+    use crate::client::test_server::{
+        Reply, method_not_found, open_test_server, start_test_server, test_client, test_scope,
+        v1_initialize_result,
+    };
 
     // Mutation: in `McpServerConnection::open`, await the lifecycle without `timeout_at`, or
     // measure the deadline from a later instant.
@@ -477,7 +556,11 @@ mod tests {
 
         let (opened, _server) = timeout(
             Duration::from_secs(120),
-            start_test_server(test_scope(&client), Box::new(|_, _| Reply::Silent), None),
+            start_test_server(
+                test_scope(&client),
+                Box::new(|_, _| Reply::Silent),
+                McpConnectionStart::stdio(None, None),
+            ),
         )
         .await
         .expect("the start ends");
@@ -487,5 +570,47 @@ mod tests {
         };
         assert_eq!(timeout, DEFAULT_STARTUP_TIMEOUT);
         assert_eq!(started.elapsed(), Duration::from_secs(30));
+    }
+
+    // Mutation: in `is_task_tool`, leave the tools unmarked after a failed read; the second call
+    // then answers `false` from the old set.
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_read_of_changed_tools_leaves_them_marked_for_the_next_task_call() {
+        let (client, _card) = test_client();
+        let mut tools_reads = 0;
+        let (connection, server) = open_test_server(
+            &client,
+            Box::new(move |method, _params| match method {
+                "initialize" => Reply::Answer(json!({ "result": v1_initialize_result() })),
+                "tools/list" => {
+                    tools_reads += 1;
+                    let track = json!({ "name": "track", "inputSchema": { "type": "object" } });
+                    match tools_reads {
+                        1 => Reply::Answer(json!({ "result": { "tools": [track] } })),
+                        2 => {
+                            Reply::Answer(json!({ "error": { "code": -32603, "message": "busy" } }))
+                        }
+                        _ => Reply::Answer(json!({ "result": { "tools": [track, {
+                            "name": "export",
+                            "inputSchema": { "type": "object" },
+                            "execution": { "taskSupport": "optional" },
+                        }] } })),
+                    }
+                }
+                _ => method_not_found(),
+            }),
+        )
+        .await;
+        connection.are_tools_stale.store(true, Ordering::Release);
+
+        let failed = connection.is_task_tool("export").await;
+        let read_again = connection.is_task_tool("export").await;
+
+        assert!(failed.is_err(), "the failed read fails the call");
+        assert!(
+            read_again.expect("the second read answers"),
+            "export takes a task"
+        );
+        assert_eq!(server.requests("tools/list").len(), 3);
     }
 }

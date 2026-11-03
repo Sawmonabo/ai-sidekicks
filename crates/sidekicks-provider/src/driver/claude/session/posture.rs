@@ -2,10 +2,9 @@
 //! output schema so a change is noticed.
 
 use serde_json::{Map, Value};
-use sha2::{Digest, Sha256};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
-use sidekicks_store::events::canonicalizer::{CanonicalizationRefusal, canonicalize_json};
+use sidekicks_store::events::canonicalizer::{CanonicalizationRefusal, digest_canonical_json};
 
 /// Names the first axis a spawn binds on which a run differs from its session's spawn posture,
 /// with both values, or `None` when none does: the credential policy strictly, then the writable
@@ -42,10 +41,8 @@ pub(crate) fn find_posture_divergence(
 pub(crate) fn digest_output_schema(
     output_schema: &Map<String, Value>,
 ) -> Result<String, CanonicalizationRefusal> {
-    let bytes = canonicalize_json(&Value::Object(output_schema.clone()))?;
-    Ok(base16ct::lower::encode_string(&Sha256::digest(
-        bytes.as_bytes(),
-    )))
+    let digest = digest_canonical_json(&Value::Object(output_schema.clone()))?;
+    Ok(digest.as_str().to_owned())
 }
 
 // Order-insensitive but multiplicity-sensitive: a duplicated root is a different declaration.

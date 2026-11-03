@@ -1,6 +1,6 @@
 //! The relaunch of a Claude Code session the driver brings back itself: the resume it composes
-//! from the ended process, the resume through the establishment, and the answer handed to the
-//! session directory.
+//! from the ended process, the resume through the establishment, a sleeping session's wake, and the
+//! answer handed to the session directory.
 
 use std::error::Error;
 
@@ -21,6 +21,7 @@ use crate::driver::claude::session::ultracode::relaunch_claude_options;
 use crate::driver::claude::spawn::environment::claude_config_folder;
 use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
+use crate::driver::idle_sleep::SessionSleepState;
 use crate::driver::session_control::{DriverResumeResult, ResumeSessionParams};
 use crate::runtime_binding::resume::ResumeFunctionLegs;
 use crate::runtime_binding::store::mint_runtime_binding_id;
@@ -78,6 +79,31 @@ impl ClaudeSessionRestarts {
             listener.open_relaunch_legs(session_id, binding_id)
         };
         legs.await.map_err(DriverError::Internal)
+    }
+
+    /// Wakes a sleeping session through `resume`, under a binding the session directory opens
+    /// first, and hands the directory the result, so it records the binding, and answers `Awake`
+    /// once a process is up, or `Asleep` where the resume started none since every run in progress
+    /// waits on the person or stops. Fails with the resume's failure, which the directory records
+    /// too, and as the record fails.
+    pub(crate) async fn wake(
+        &self,
+        resume: ResumeSessionParams,
+    ) -> Result<SessionSleepState, DriverError> {
+        let session_id = resume.session_id;
+        let answer = self.resume(Some(resume), true).await;
+        let woken = match &answer.result {
+            DriverResumeResult::Resumed { .. } => Ok(SessionSleepState::Awake),
+            DriverResumeResult::Deferred { .. } => Ok(SessionSleepState::Asleep),
+            DriverResumeResult::Failed {
+                provider_failure_detail,
+                ..
+            } => Err(DriverError::Internal(
+                provider_failure_detail.as_str().into(),
+            )),
+        };
+        self.record_relaunch(session_id, answer).await?;
+        woken
     }
 
     /// Hands the session directory a relaunch's answer, so it records the binding or the failure; a

@@ -20,7 +20,9 @@ use super::{
 };
 use crate::questions::schema::schema_parts;
 use crate::run::engine::errors::RunEngineError;
-use crate::run::engine::test_fixture::{append, insert_running_run, stored_run_state, test_engine};
+use crate::run::engine::test_fixture::{
+    append, insert_running_run, is_run_stopping, stored_run_state, test_engine,
+};
 use crate::run::engine::tests::{
     continue_request, events, hand_limit_interrupter, started_turn, stored_events, token_limit,
     turn_completed_at, turn_started_at,
@@ -107,7 +109,12 @@ async fn a_restart_stops_a_run_at_the_token_limit_its_log_still_owes() {
     .await;
 
     engine
-        .settle_run_after_restart(&running_at(session_id, run_id, 1), "not resumed", None)
+        .settle_run_after_restart(
+            &running_at(session_id, run_id, 1),
+            is_run_stopping(&database, &run_id),
+            "not resumed",
+            None,
+        )
         .await
         .expect("the restart settles the run");
 
@@ -417,7 +424,12 @@ async fn a_restart_ends_each_turn_a_limits_row_names_with_the_limit(
     expected.extend_from_slice(settled_events);
 
     engine
-        .settle_run_after_restart(&running_at(session_id, run_id, 1), "not resumed", None)
+        .settle_run_after_restart(
+            &running_at(session_id, run_id, 1),
+            is_run_stopping(&database, &run_id),
+            "not resumed",
+            None,
+        )
         .await
         .expect("the restart settles the run");
 
@@ -476,7 +488,12 @@ async fn a_restart_after_an_overtaken_token_stop_and_a_continue_stops_the_run() 
     let restarted = test_engine(&database, log.service, home.path());
 
     restarted
-        .settle_run_after_restart(&running_at(session_id, run_id, 3), "not resumed", None)
+        .settle_run_after_restart(
+            &running_at(session_id, run_id, 3),
+            is_run_stopping(&database, &run_id),
+            "not resumed",
+            None,
+        )
         .await
         .expect("the restart settles the run");
 
@@ -545,6 +562,7 @@ async fn a_message_queued_while_a_restart_settles_a_queued_run_leaves_it_queued(
         pending_interrupts: Vec::new(),
         owed_limit: None,
         turn_cuts: Vec::new(),
+        is_stopping: false,
         has_queued_item: false,
     };
     let settled = engine
@@ -596,7 +614,8 @@ async fn a_restart_settle_is_refused_by_an_interrupt_asked_for_after_its_read() 
         "2026-01-01T00:00:00.000Z",
     );
     let run = running_at(session_id, run_id, 1);
-    let facts = read_restart_facts(&connection, &run).expect("the restart reads the run's facts");
+    let facts = read_restart_facts(&connection, &run, is_run_stopping(&database, &run_id))
+        .expect("the restart reads the run's facts");
     // The step limit's interrupt is asked for after the read.
     record_interrupt(
         STEP_INTERRUPT_ID,
@@ -690,7 +709,12 @@ async fn a_restart_settle_the_table_refuses_from_the_state_read_is_an_error() {
     };
 
     let settled = engine
-        .settle_run_after_restart(&run, "not resumed", None)
+        .settle_run_after_restart(
+            &run,
+            is_run_stopping(&database, &run_id),
+            "not resumed",
+            None,
+        )
         .await;
 
     assert!(
@@ -761,7 +785,12 @@ async fn a_restart_settle_meets_what_landed_after_its_read(
     };
     let engine = test_engine(&database, log.service, home.path());
     let paused = engine.restart_facts_pause().arm();
-    let mut settling = Box::pin(engine.settle_run_after_restart(&run, "not resumed", None));
+    let mut settling = Box::pin(engine.settle_run_after_restart(
+        &run,
+        is_run_stopping(&database, &run_id),
+        "not resumed",
+        None,
+    ));
 
     tokio::select! {
         settled = &mut settling => panic!("the settle passed its pause: {settled:?}"),

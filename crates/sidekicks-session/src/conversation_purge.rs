@@ -11,7 +11,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_provider::driver::session_control::{PurgeSessionParams, PurgedConversation};
+use sidekicks_provider::driver::session_control::{PurgeSessionParams, SessionConversation};
 use sidekicks_provider::left_conversations::read_left_conversations;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::{
@@ -102,7 +102,7 @@ impl ConversationPurge {
 fn read_conversations(
     reader: &Connection,
     session_id: SessionId,
-) -> rusqlite::Result<Vec<(ProviderId, Vec<PurgedConversation>)>> {
+) -> rusqlite::Result<Vec<(ProviderId, Vec<SessionConversation>)>> {
     let snapshot = reader.unchecked_transaction()?;
     let mut bound: Vec<_> = read_session_bindings(&snapshot, session_id)?
         .into_iter()
@@ -140,7 +140,7 @@ fn read_conversations(
         })
         .collect();
 
-    let mut by_provider: Vec<(ProviderId, Vec<PurgedConversation>)> = Vec::new();
+    let mut by_provider: Vec<(ProviderId, Vec<SessionConversation>)> = Vec::new();
     let mut listed: HashSet<(ProviderId, String)> = HashSet::new();
     let conversations = bound
         .into_iter()
@@ -152,7 +152,7 @@ fn read_conversations(
         if !listed.insert((provider.clone(), resume_handle.clone())) {
             continue;
         }
-        let conversation = PurgedConversation {
+        let conversation = SessionConversation {
             resume_handle,
             provider_account_id,
             runtime_metadata,

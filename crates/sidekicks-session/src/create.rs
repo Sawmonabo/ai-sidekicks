@@ -10,7 +10,11 @@
 //! - Creates of one key run one at a time, each whole in a task of its own: a create with a
 //!   recorded key answers the session that key made, finishing it first when it was left
 //!   `provisioning`.
+//! - A plan handed to a fresh session births it here under the id its verdict fixed, in the
+//!   planning session's project or folder, and finishes it with the seeding port's writes and the
+//!   verdict's level; see [`hand_off`].
 
+pub mod hand_off;
 mod provisioning;
 #[cfg(test)]
 mod tests;
@@ -18,7 +22,7 @@ mod tests;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::error::Error;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex, Weak};
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, named_params};
@@ -28,6 +32,7 @@ use sidekicks_contracts::agent::definition::binding::AgentProviderBinding;
 use sidekicks_contracts::agent::methods::AgentSubscribeEntry;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::place::Place;
@@ -38,10 +43,11 @@ use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountState};
 use sidekicks_contracts::session::directory::{
     SessionCreateRequest, SessionCreateResponse, SessionLead,
 };
-use sidekicks_contracts::session::events::SessionCreatedPayload;
+use sidekicks_contracts::session::events::{SessionCreatedPayload, SessionRenameOrigin};
 use sidekicks_contracts::session::groups::SessionGroupId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{SessionShape, SessionState};
+use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::wire::id::{ClientUuid, UuidText, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -62,7 +68,9 @@ use sidekicks_std::settle_all::SettleFailures;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::statement::{
+    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
+};
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
@@ -73,15 +81,20 @@ use sidekicks_workspace::managed::service::{ManagedWorkspaceError, ManagedWorksp
 use sidekicks_workspace::repo::errors::RepoRefusal;
 use sidekicks_workspace::schema::MountOrigin;
 use sidekicks_workspace::service::{WorkspaceService, WorkspaceServiceError};
+use tokio::sync::SetOnce;
 
+use crate::changes::renamed_event;
 use crate::console_state::INSERT_CONSOLE_STATE_SQL;
+use crate::create::hand_off::HandOffSeeding;
 use crate::create::provisioning::{SessionFinishFailure, SessionToFinish};
 
 /// The statements the creation's reads keep prepared on each read connection: a recorded create,
 /// the current account and whether any is registered, a project's target, the sessions left
 /// provisioning, a session's mount, whether a project clones, the unborn chats, whether one chat
-/// is unborn and a session's state.
-pub const SESSION_CREATION_STATEMENT_CAPACITY: usize = 10;
+/// is unborn, a session's state, a session's state with whether a hand-off names it, for a
+/// hand-off's birth its record, the planning session's working folder and its project, and for
+/// the start pass every hand-off and its seed's queue item.
+pub const SESSION_CREATION_STATEMENT_CAPACITY: usize = 16;
 
 // Each statement's position in `session.created`'s write: the request's record, then the account
 // guard; a project session's project and folder guards and its group guard follow.
@@ -91,11 +104,12 @@ const FOLDER_GUARD_INDEX: usize = 3;
 const GROUP_GUARD_INDEX: usize = 4;
 
 const RECORD_CREATE_REQUEST_SQL: &str = "INSERT INTO session_create_requests
-  (client_idempotency_key, session_id, project_id, execution_mode, group_id, provider_account_id)
-  VALUES (@key, @sessionId, @projectId, @executionMode, @groupId, @providerAccountId)";
+  (client_idempotency_key, session_id, project_id, execution_mode, group_id, provider_account_id,
+   directory)
+  VALUES (@key, @sessionId, @projectId, @executionMode, @groupId, @providerAccountId, @directory)";
 
-// A create's record joined with the session it made as it reads now, the lead it was born on and
-// the account the record keeps it was born on.
+// A create's record joined with the session it made as it reads now, the lead it was born on, the
+// account the record keeps it was born on and where in the mount it works.
 static SELECT_RECORDED_CREATE_SQL: LazyLock<String> = LazyLock::new(|| {
     let session_created = SessionEventType::SessionCreated.as_str();
     format!(
@@ -103,7 +117,7 @@ static SELECT_RECORDED_CREATE_SQL: LazyLock<String> = LazyLock::new(|| {
         session.shape, session.state, session.place,
         json_extract(created.payload, '$.mainAgent.binding'),
         json_extract(created.payload, '$.mainAgent.agentId'),
-        request.provider_account_id
+        request.provider_account_id, request.directory
    FROM session_create_requests AS request
    JOIN sessions AS session ON session.id = request.session_id
    JOIN session_events AS created
@@ -186,6 +200,9 @@ pub struct SessionCreation {
     // The chats whose workspace is made or being made and whose `session.created` has not settled,
     // so the removal of unborn chats' workspaces never takes one of theirs.
     chats_being_created: Mutex<HashSet<SessionId>>,
+    // The daemon's writes of a hand-off's transcript file and seed plan, and its finish of a
+    // hand-off a stop left; held weakly, as the daemon's side holds the creation.
+    hand_off_seeding: SetOnce<Weak<dyn HandOffSeeding>>,
     /// Where a test holds a create just before it appends `session.created`.
     #[cfg(test)]
     pub(crate) created_append_pause: PausePoint,
@@ -230,8 +247,9 @@ pub enum SessionCreateError {
     /// An event and the rows it carries were not kept.
     #[error("the session's event was not appended")]
     Append(#[source] SessionEventAppendError),
-    /// A chat has no managed mount to bind to, which its create always makes first.
-    #[error("chat {session_id} has no managed mount to bind to")]
+    /// A chat holds no managed folder to bind to, which its create or its hand-off always gives it
+    /// first.
+    #[error("chat {session_id} holds no managed folder to bind to")]
     ChatWithoutMount {
         /// The chat.
         session_id: SessionId,
@@ -242,6 +260,9 @@ pub enum SessionCreateError {
     /// Some stopped creates could not be finished; every other one was.
     #[error(transparent)]
     Finish(#[from] SettleFailures<SessionFinishFailure>),
+    /// The hand-off seeding port is not set, or a step of it failed.
+    #[error("the hand-off seeding port is not set, or a step of it failed")]
+    HandOffSeeding(#[source] Box<dyn Error + Send + Sync>),
 }
 
 impl From<SessionCreateError> for HandlerError {
@@ -261,7 +282,8 @@ impl From<SessionCreateError> for HandlerError {
             | SessionCreateError::Append(_)
             | SessionCreateError::ChatWithoutMount { .. }
             | SessionCreateError::Unanswered(_)
-            | SessionCreateError::Finish(_)) => Self::Internal(Box::new(fault)),
+            | SessionCreateError::Finish(_)
+            | SessionCreateError::HandOffSeeding(_)) => Self::Internal(Box::new(fault)),
         }
     }
 }
@@ -282,6 +304,8 @@ struct CreateTarget<'request> {
     project_id: Option<ProjectId>,
     execution_mode: ExecutionMode,
     group_id: Option<SessionGroupId>,
+    // Where in the mount the session works, `None` at the mount's root.
+    directory: Option<String>,
 }
 
 /// A session about to be born, as `session.created` records it.
@@ -296,6 +320,8 @@ struct NewSession<'request> {
         reason = "a pick the app never made differs from one set to no advisor"
     )]
     advisor_pick: Option<Option<String>>,
+    // The name its birth gives it, written in the same write; `None` leaves it unnamed.
+    name: Option<FreeFormText<SESSION_NAME_MAX_LEN>>,
 }
 
 /// A create's record with the session it made, as that session reads now.
@@ -319,6 +345,7 @@ impl SessionCreation {
             settings: deps.settings,
             key_lock: Arc::new(KeyedLock::new()),
             chats_being_created: Mutex::new(HashSet::new()),
+            hand_off_seeding: SetOnce::new(),
             #[cfg(test)]
             created_append_pause: PausePoint::default(),
             #[cfg(test)]
@@ -373,6 +400,46 @@ impl SessionCreation {
         if let Some(recorded) = self.read_recorded(target.key.clone()).await? {
             return self.answer_recorded(recorded).await;
         }
+        let session_id =
+            SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+        let (mut new_session, account) = self.prepare_birth(target, session_id).await?;
+        let agent_id = new_session.agent_id;
+        let (lead_binding, provider_account_id) = match new_session.target.project_id {
+            None => self.create_chat(&mut new_session, account).await?,
+            Some(project_id) => {
+                new_session.place = self.read_project_place(project_id).await?;
+                self.append_created(&new_session, account).await?
+            }
+        };
+        let session = SessionToFinish {
+            session_id,
+            project_id: new_session.target.project_id,
+            execution_mode: new_session.target.execution_mode,
+            group_id: new_session.target.group_id,
+            agent_id,
+            lead: lead_binding.clone(),
+            provider_account_id,
+            directory: None,
+        };
+        let state = self.finish(&session).await?;
+        Ok(SessionCreateResponse {
+            session_id,
+            shape: new_session.target.shape,
+            state,
+            place: new_session.place,
+            lead: lead_binding,
+        })
+    }
+
+    // What a session's birth reads and checks before its `session.created`, for `target` under
+    // `session_id`: the lead's driver and its check of the lead's binding, the agent's name, the
+    // provider's current account and the advisor the app picked, with no place and no name. Refuses
+    // as `create` says for the lead and its account.
+    async fn prepare_birth<'request>(
+        &self,
+        target: CreateTarget<'request>,
+        session_id: SessionId,
+    ) -> Result<(NewSession<'request>, ResolvedAccount), SessionCreateError> {
         let lead = target.lead;
         let agent_id = AgentId::try_from(mint_uuid_v7()).expect("a minted UUID is an agent id");
         let driver = self.lead_driver(agent_id, &lead.provider_name)?;
@@ -396,41 +463,16 @@ impl SessionCreation {
             .cloned()
             .unwrap_or_else(ProviderRowValues::default);
         let advisor_pick = driver.session_advisor_pick(&app_values);
-        let session_id =
-            SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
-
-        let mut new_session = NewSession {
+        let new_session = NewSession {
             session_id,
             target,
             agent_id,
             agent_name,
             place: None,
             advisor_pick,
+            name: None,
         };
-        let (lead_binding, provider_account_id) = match new_session.target.project_id {
-            None => self.create_chat(&mut new_session, account).await?,
-            Some(project_id) => {
-                new_session.place = self.read_project_place(project_id).await?;
-                self.append_created(&new_session, account).await?
-            }
-        };
-        let session = SessionToFinish {
-            session_id,
-            project_id: new_session.target.project_id,
-            execution_mode: new_session.target.execution_mode,
-            group_id: new_session.target.group_id,
-            agent_id,
-            lead: lead_binding.clone(),
-            provider_account_id,
-        };
-        let state = self.finish(&session).await?;
-        Ok(SessionCreateResponse {
-            session_id,
-            shape: new_session.target.shape,
-            state,
-            place: new_session.place,
-            lead: lead_binding,
-        })
+        Ok((new_session, account))
     }
 
     // The lead's driver; a provider no driver answers is refused `agent.providerAxisInvalid` on
@@ -473,9 +515,10 @@ impl SessionCreation {
         }
     }
 
-    // Appends `session.created` with the request's record and its guards, answering the binding
-    // the lead was born on and its account. A refused account guard means the current account
-    // moved since it was read, so it is read again and the write tried again.
+    // Appends `session.created` with the request's record and its guards, and the session's name
+    // where its birth gives one, answering the binding the lead was born on and its account. A
+    // refused account guard means the current account moved since it was read, so it is read again
+    // and the write tried again.
     async fn append_created(
         &self,
         new_session: &NewSession<'_>,
@@ -516,24 +559,42 @@ impl SessionCreation {
                 actor: None,
                 place: new_session.place.clone(),
             };
-            let draft = SessionEventDraft::of_session(
+            let created = SessionEventDraft::of_session(
                 session_id,
                 &SessionEvent::SessionCreated(Box::new(payload)),
             )?;
             let transactional_prelude = created_prelude(new_session, &account, &created_at);
-            #[cfg(test)]
-            self.created_append_pause.pass().await;
-            let appended = self
-                .appender
-                .append(
-                    draft,
+            let (draft, linkage) = match &new_session.name {
+                None => (
+                    created,
                     SessionEventLinkage {
                         occurred_at: Some(created_at),
                         transactional_prelude,
                         ..SessionEventLinkage::default()
                     },
-                )
-                .await;
+                ),
+                // The name is the write's main event, after `session.created`; a preceding event
+                // is stamped at the append, so the name takes the clock's instant after it.
+                Some(name) => (
+                    SessionEventDraft::of_session(
+                        session_id,
+                        &renamed_event(
+                            session_id,
+                            Some(name.clone()),
+                            None,
+                            SessionRenameOrigin::Auto,
+                        ),
+                    )?,
+                    SessionEventLinkage {
+                        transactional_prelude,
+                        preceding_events: vec![created],
+                        ..SessionEventLinkage::default()
+                    },
+                ),
+            };
+            #[cfg(test)]
+            self.created_append_pause.pass().await;
+            let appended = self.appender.append(draft, linkage).await;
             let Err(error) = appended else {
                 return Ok((lead_binding, account.provider_account_id));
             };
@@ -678,6 +739,7 @@ fn target_of(request: &SessionCreateRequest) -> CreateTarget<'_> {
             project_id: Some(project.binding.project_id),
             execution_mode: project.binding.execution_mode,
             group_id: project.group_id,
+            directory: None,
         },
         SessionCreateRequest::Chat(chat) => CreateTarget {
             key: &chat.client_idempotency_key,
@@ -686,6 +748,7 @@ fn target_of(request: &SessionCreateRequest) -> CreateTarget<'_> {
             project_id: None,
             execution_mode: ExecutionMode::BoundRoot,
             group_id: None,
+            directory: None,
         },
     }
 }
@@ -720,6 +783,7 @@ fn created_prelude(
                         .map_or(Value::Null, |group| Value::Text(group.as_str().to_owned())),
                 ),
                 text_binding("@providerAccountId", account.provider_account_id.as_str()),
+                nullable_text_binding("@directory", target.directory.as_deref()),
             ]),
             expected_row_count: None,
         },
@@ -792,6 +856,7 @@ fn read_recorded_create(
                         serde_json::from_str::<AgentProviderBinding>(&text)
                     })?,
                     provider_account_id: text_column(row, 9, closed_word::<ProviderAccountId>)?,
+                    directory: optional_text_column(row, 10, FilesystemPath::new)?,
                 },
                 shape: text_column(row, 4, closed_word)?,
                 state: text_column(row, 5, closed_word)?,

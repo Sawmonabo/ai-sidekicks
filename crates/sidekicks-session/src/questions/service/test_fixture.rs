@@ -8,7 +8,7 @@ use futures::FutureExt as _;
 use serde_json::{Value, json};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::question::{
-    QuestionAnswer, QuestionId, QuestionPrompt, QuestionResolveRequest, QuestionSettledState,
+    QuestionAnswer, QuestionId, QuestionPrompt, QuestionResolveRequest, QuestionResolveState,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -222,7 +222,7 @@ impl Fixture {
         &self,
         question_id: QuestionId,
         answers: Value,
-    ) -> Result<QuestionSettledState, QuestionError> {
+    ) -> Result<QuestionResolveState, QuestionError> {
         self.questions
             .resolve_question(
                 QuestionResolveRequest {

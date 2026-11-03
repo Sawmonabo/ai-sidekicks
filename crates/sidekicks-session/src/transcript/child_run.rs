@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::sync::LazyLock;
 
-use rusqlite::{Connection, OptionalExtension, named_params};
+use rusqlite::{Connection, named_params};
 use serde_json::json;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
@@ -31,12 +31,13 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::{SafeInt, count_bound};
 use sidekicks_contracts::wire::{False, True};
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::database::stored_column::{closed_word, text_column};
 use sidekicks_store::events::session::read::{
     SELECTED_COLUMNS, SessionEventReads, readable_event_sql, resolve_event_cursor,
 };
 use sidekicks_store::transcript::rejoin::{row_condition_sql, stored_patch_part_sql};
 
+use crate::run::read::RunStateReader;
 use crate::run::refusals::RunRefusal;
 use crate::service::ProviderDriverLookup;
 use crate::transcript::block_cut::BlockParse;
@@ -95,8 +96,6 @@ static CHILD_COUNTS_SQL: LazyLock<String> = LazyLock::new(|| {
 // Each child's state alone, read when its events could not be counted.
 const CHILD_STATES_SQL: &str =
     "SELECT run_id, state FROM runs WHERE run_id IN (SELECT value FROM json_each(@run_ids))";
-
-const RUN_SQL: &str = "SELECT session_id, parent_run_id, state FROM runs WHERE run_id = ?";
 
 /// A child's state and its events through a head, as one count read them.
 pub(crate) struct ChildCount {
@@ -267,13 +266,6 @@ fn set_child_run_summary(row: &mut TranscriptReadRow, summary: ChildRunSummary) 
     *slot = Some(summary);
 }
 
-/// A run as the expansion reads it from the runs table.
-struct ExpandedRun {
-    session_id: SessionId,
-    parent_run_id: Option<RunId>,
-    state: RunState,
-}
-
 /// Reads one page of `request`'s child run's rows on `reader`, oldest first, each child-creation
 /// row among them summarized as of `observed_at`, each reply cut into blocks by `parse` and each
 /// task-list call the driver `driver_of` answers for the session's provider reads as one left out;
@@ -294,7 +286,7 @@ where
 {
     let snapshot = reader.unchecked_transaction()?;
     let run_id = request.run_id;
-    let Some(run) = read_run(reader, &run_id)? else {
+    let Some(run) = RunStateReader::new(reader).read_run_parentage(&run_id)? else {
         return Err(DomainError::from(RunRefusal::NotFound { run_id }).into());
     };
     let Some(parent_run_id) = run.parent_run_id else {
@@ -410,19 +402,6 @@ where
             joined_through: Some(joined_through),
         },
     ))
-}
-
-fn read_run(reader: &Connection, run_id: &RunId) -> rusqlite::Result<Option<ExpandedRun>> {
-    reader
-        .prepare_cached(RUN_SQL)?
-        .query_row([run_id.text().as_str()], |row| {
-            Ok(ExpandedRun {
-                session_id: text_column(row, 0, |text| SessionId::new(&text))?,
-                parent_run_id: optional_text_column(row, 1, |text| RunId::new(&text))?,
-                state: text_column(row, 2, closed_word)?,
-            })
-        })
-        .optional()
 }
 
 fn cursor_at(position: i64) -> EventCursor {

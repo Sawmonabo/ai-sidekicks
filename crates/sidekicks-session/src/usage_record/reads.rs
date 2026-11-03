@@ -1,6 +1,7 @@
 //! The usage record's reads of the log and the accounts: where a reading's row goes, an account's
 //! generation and the quota windows kept for it, a run's tally seeded once per run, the turn a
-//! provider's turn id opened, and a thread's prior counts.
+//! provider's turn id opened, and a thread's prior counts; and the one expression of a token count,
+//! which the agent tree's heads read too.
 
 use std::sync::LazyLock;
 
@@ -85,12 +86,17 @@ static SELECT_ADMITTED_TOKEN_LIMIT_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// A run's token count: the input and output of its rows, never the cache or the reasoning.
+/// The token count over the `usage.tokenCount.recorded` rows a statement aggregates, read from
+/// their unqualified `payload`: input plus output, never cache or reasoning, and 0 over no row.
+pub(crate) const TOKEN_COUNT_SUM_SQL: &str = "COALESCE(SUM(
+    COALESCE(json_extract(payload, '$.inputTokens'), 0)
+      + COALESCE(json_extract(payload, '$.outputTokens'), 0)), 0)";
+
+// A run's token count.
 static SELECT_TOKEN_COUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     let recorded = SessionEventType::UsageTokenCountRecorded;
     format!(
-        "SELECT COALESCE(SUM(COALESCE(json_extract(payload, '$.inputTokens'), 0)
-                   + COALESCE(json_extract(payload, '$.outputTokens'), 0)), 0)
+        "SELECT {TOKEN_COUNT_SUM_SQL}
   FROM session_events
   WHERE session_id = @session_id
     AND type = '{recorded}'

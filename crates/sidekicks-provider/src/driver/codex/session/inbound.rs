@@ -41,7 +41,9 @@ use crate::driver::codex::session::recovery::in_place_resume::CodexInPlaceResume
 use crate::driver::codex::session::rewind::CodexMessageTurn;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::contract::error::DriverError;
+use crate::driver::run_control::ReattachedHelper;
 use crate::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkResult};
+use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// The depth past which a session's queue is logged, then again at each doubling.
 const CODEX_SESSION_INBOUND_DEPTH_MARK: usize = 512;
@@ -170,6 +172,16 @@ pub(crate) enum CodexSessionCall {
     },
     /// A call of run control: an interrupt, a pause or a continue.
     RunControl(CodexRunControlCall),
+    /// Restores a helper re-attached after a restart, its conversation reopened: bound to its
+    /// child run and registered in the session's routing.
+    RestoreHelper {
+        /// The helper, as the session's tree holds it.
+        helper: Box<ReattachedHelper>,
+        /// What was already metered on its conversation, which its usage is based on.
+        prior_emitted: UsageAxisCounts,
+        /// Answered once it is restored.
+        reply: oneshot::Sender<()>,
+    },
     /// Marks a held turn retried and takes its route, before its interrupt goes out.
     StopTurnForRetry {
         /// The run.

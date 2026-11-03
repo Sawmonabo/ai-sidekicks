@@ -4,11 +4,16 @@
 //! `.claude/settings.local.json`, which Claude Code keeps at the repository's root (a worktree's
 //! main checkout) and otherwise beside `.claude/settings.json`, and reads from both places: Claude
 //! Code writes an allow there itself when the answer carries it, and the daemon writes it for the
-//! project's other folders, writes a host's block, which a decline cannot carry, and removes a
-//! revoked rule. The file is edited in place, every other byte kept, and a file that is not a
-//! strict JSON object is refused, never overwritten. A command allow a prefix rule would stretch
-//! over a force push or a branch delete is never handed over: the daemon answers each ask it
-//! covers.
+//! project's other folders and writes a host's block, which a decline cannot carry. A revoke takes
+//! the rule out of every file it sits in that the person keeps, the person's own settings, a
+//! project's shared and local ones; a rule the managed settings keep is refused, since the daemon
+//! never edits the administrator's files. A file is edited in place, every other byte kept, and a
+//! file that is not a strict JSON object is refused, never overwritten. A command allow a prefix
+//! rule would stretch over a force push or a branch delete is never handed over: the daemon answers
+//! each ask it covers.
+
+mod listing;
+mod protected_paths;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -17,18 +22,21 @@ use std::sync::{Arc, Mutex};
 use futures::FutureExt;
 use jsonc_parser::cst::{CstInputValue, CstNode, CstObject};
 use serde::Serialize;
+use serde_json::Value;
 use sidekicks_contracts::approval::RememberedRuleSense;
+use sidekicks_contracts::wire::text::TextError;
 use sidekicks_platforms::PathRules;
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use sidekicks_policy::destructive_git::covers_destructive_git;
 use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_workspace::git::exclude::{ExcludeError, add_repository_exclude};
 
-use crate::driver::claude::session::ignored_settings::list_managed_settings_files;
 use crate::driver::claude::session::settings_file::{
-    ClaudeSettingsFileError, edit_settings_object, hold_settings_file, read_claude_settings_file,
-    read_settings_file, write_settings_file,
+    ClaudeSettingsFileError, delete_settings_file, edit_settings_object, hold_settings_file,
+    hold_settings_files, read_claude_managed_settings, read_settings_file, refuse_unread_settings,
+    write_settings_file,
 };
 use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
 use crate::project_rule_folders::write_into_project_folders;
@@ -38,18 +46,18 @@ use crate::project_rule_folders::write_into_project_folders;
 const CLAUDE_LOCAL_SETTINGS_FILE: [&str; 2] = [".claude", "settings.local.json"];
 const CLAUDE_LOCAL_SETTINGS_EXCLUDE_PATTERN: &str = "/.claude/settings.local.json";
 
-/// The project's shared settings file, from a folder, which the person commits and the daemon never
-/// edits; under a home folder, the person's own settings file.
+/// The project's shared settings file, from a folder, which the person commits and a revoke edits;
+/// under a home folder, the person's own settings file.
 pub(crate) const CLAUDE_SHARED_SETTINGS_FILE: [&str; 2] = [".claude", "settings.json"];
 
-// The person's own settings file in a Claude Code home's config folder, which the daemon never
-// edits.
+// The person's own settings file in a Claude Code home's config folder.
 const CLAUDE_USER_SETTINGS_FILE: &str = "settings.json";
 
 // The name Claude Code gives a connector it fetches itself starts so, and is written more tightly.
 const CLAUDE_CONNECTOR_SERVER_PREFIX: &str = "claude.ai ";
 
-// The local settings file is the person's own, readable as Claude Code leaves it.
+// A settings file the daemon makes is the person's own, readable as Claude Code leaves it; one
+// already there keeps its own mode.
 const CLAUDE_LOCAL_SETTINGS_MODE: u32 = 0o644;
 
 // The characters a gitignore pattern reads as more than themselves, escaped in a path rule so it
@@ -70,14 +78,24 @@ pub(crate) enum ClaudeRulesError {
     /// The settings file could not be listed in the repository's exclude list.
     #[error("keeping the project's local settings out of commits failed")]
     Exclude(#[source] ExcludeError),
-    /// A revoked rule is in no local settings file, nor in a file the daemon does not edit.
+    /// A revoked rule is in none of the settings files Claude Code reads for the project.
     #[error("the rule is in none of the project's settings files")]
     RuleNotFound,
-    /// A revoked rule is kept in a settings file the daemon never edits, so it still applies.
+    /// A revoked rule is kept in a managed settings file, which the daemon never edits, so it
+    /// still applies.
     #[error("the rule is kept in {}, which the daemon does not edit", path.display())]
     RuleInUneditedFile {
         /// The file that keeps it.
         path: PathBuf,
+    },
+    /// A rule's text, a protected path or a file's path does not fit the settings list's bounds.
+    #[error("a rule or path read from {} does not fit the settings list", path.display())]
+    Unlistable {
+        /// The file it was read from.
+        path: PathBuf,
+        /// The bound it broke.
+        #[source]
+        failure: TextError,
     },
 }
 
@@ -210,9 +228,11 @@ pub(crate) fn compose_claude_project_allow_update(
 /// Adds a project rule once to the local settings file of each of `folders`, in the list of its
 /// sense, taking the same entries out of the other list so an allow and a block never stand
 /// together; `written_by_answer`, the resolved file Claude Code itself writes for the answer's
-/// allow (the repository root's in the normal case), is skipped, and taken back with the rest when
-/// a later file fails. A file the daemon creates in a repository is first listed in its exclude
-/// list, each repository's list read once per call. One edit at a time on each file.
+/// allow (the repository root's in the normal case), is skipped. When a later file fails, each file
+/// the daemon wrote is put back as it was and the rule's entries are taken out of
+/// `written_by_answer`. A file the daemon creates in a repository is first listed in its exclude
+/// list, each repository's list read once per call. Every file, `written_by_answer` among them, is
+/// held from before the first write until the last take-back, so no other edit lands between.
 pub(crate) async fn write_claude_project_rule(
     folders: &[ClaudeProjectFolder<'_>],
     home_folder: &Path,
@@ -231,10 +251,22 @@ pub(crate) async fn write_claude_project_rule(
         }
         common_git_folders.insert(resolved.path, resolved.common_git_folder);
     }
-    let written_already: Vec<PathBuf> = written_by_answer
-        .map(Path::to_path_buf)
+    let written_already: Vec<(PathBuf, ClaudeProjectRuleWrite)> = written_by_answer
+        .map(|file| (file.to_path_buf(), ClaudeProjectRuleWrite::WrittenByAnswer))
         .into_iter()
         .collect();
+    let held_files: Vec<PathBuf> = files
+        .iter()
+        .cloned()
+        .chain(written_by_answer.map(Path::to_path_buf))
+        .collect();
+    let holds = hold_settings_files(&held_files).await.map_err(|error| {
+        CleanupFailures::new(
+            ClaudeRulesError::from(error),
+            Vec::new(),
+            "holding the project's settings files",
+        )
+    })?;
     let excluded_repositories = Arc::new(Mutex::new(HashSet::new()));
     write_into_project_folders(
         &files,
@@ -242,10 +274,12 @@ pub(crate) async fn write_claude_project_rule(
         |file: &Path, rule: &ProviderAskRule| {
             let common_git_folder = common_git_folders.get(file).cloned().flatten();
             let excluded_repositories = Arc::clone(&excluded_repositories);
+            let hold = holds.hold(file);
             async move {
                 let written = rule_entries(rule, path_rules)?;
                 let (list, other_list) = sense_lists(rule.sense);
                 edit_local_settings(
+                    &hold,
                     file,
                     common_git_folder.as_deref(),
                     &excluded_repositories,
@@ -266,27 +300,26 @@ pub(crate) async fn write_claude_project_rule(
             }
             .boxed()
         },
-        |file: &Path, rule: &ProviderAskRule| {
+        |file: &Path, rule: &ProviderAskRule, change: &ClaudeProjectRuleWrite| {
+            let hold = holds.hold(file);
             async move {
-                remove_rule_from_file(file, rule, path_rules)
-                    .await
-                    .map(|_is_removed| ())
+                take_back_claude_project_rule(&hold, file, rule, path_rules, change).await
             }
             .boxed()
         },
-        &written_already,
+        written_already,
     )
     .await
 }
 
-/// Removes a revoked project rule from the local settings of each of `folders`: the file Claude
-/// Code keeps for the folder and the one in the folder itself, since Claude Code applies the rules
-/// of both. A file that does not exist holds none and is not made. First searches every file
-/// Claude Code reads and the daemon does not edit, the managed settings in
-/// `managed_settings_folder` with every drop-in, the user settings of `config_folder` and each
-/// folder's shared `.claude/settings.json`: where one keeps the rule it answers
-/// `RuleInUneditedFile` and changes nothing, since the rule would still apply. Refuses a rule no
-/// file holds with `RuleNotFound`, and fails as a file or the drop-in folder cannot be read.
+/// Takes a revoked project rule out of every settings file Claude Code reads for `folders` that
+/// the person keeps, where the rule sits: the user settings of `config_folder`, each folder's
+/// shared `.claude/settings.json`, and the local settings Claude Code keeps for each folder and the
+/// one in the folder itself. A file that does not exist holds none and is not made. First searches
+/// the managed settings in `managed_settings_folder` with every drop-in, which the daemon never
+/// edits: where one keeps the rule it answers `RuleInUneditedFile` and changes nothing, since the
+/// rule would still apply. Refuses a rule no file holds with `RuleNotFound`, and fails as a file or
+/// the drop-in folder cannot be read or edited.
 pub(crate) async fn remove_claude_project_rule(
     folders: &[ClaudeProjectFolder<'_>],
     managed_settings_folder: Option<&Path>,
@@ -297,47 +330,35 @@ pub(crate) async fn remove_claude_project_rule(
 ) -> Result<(), ClaudeRulesError> {
     let entries = rule_entries(rule, path_rules)?;
     let (list, _) = sense_lists(rule.sense);
-    let mut managed_files = Vec::new();
+    let is_revoked = |entry: &str| entries.iter().any(|revoked| revoked == entry);
     if let Some(folder) = managed_settings_folder {
-        let mut failures = Vec::new();
-        managed_files = list_managed_settings_files(folder, &mut failures).await;
-        if let Some(unlisted) = failures.pop() {
-            return Err(ClaudeSettingsFileError::Read {
-                path: unlisted.path,
-                failure: unlisted.failure,
-            }
-            .into());
+        let managed = read_claude_managed_settings(folder).await;
+        refuse_unread_settings(managed.failures)?;
+        let kept_in = managed.files.into_iter().find(|(_, settings)| {
+            settings
+                .get("permissions")
+                .and_then(|permissions| permissions.get(list))
+                .and_then(Value::as_array)
+                .is_some_and(|kept| kept.iter().filter_map(Value::as_str).any(is_revoked))
+        });
+        if let Some((path, _)) = kept_in {
+            return Err(ClaudeRulesError::RuleInUneditedFile { path });
         }
     }
-    let unedited_files = managed_files
-        .into_iter()
-        .chain([config_folder.join(CLAUDE_USER_SETTINGS_FILE)])
-        .chain(
-            folders
-                .iter()
-                .map(|folder| settings_path(folder.working_folder, CLAUDE_SHARED_SETTINGS_FILE)),
-        );
-    for file in unedited_files {
-        let settings = read_claude_settings_file(&file).await.map_err(|failure| {
-            ClaudeSettingsFileError::Read {
-                path: file.clone(),
-                failure,
-            }
-        })?;
-        let is_kept = settings
-            .as_ref()
-            .and_then(|settings| settings.get("permissions")?.get(list)?.as_array())
-            .is_some_and(|kept| {
-                kept.iter()
-                    .any(|kept| entries.iter().any(|entry| kept.as_str() == Some(entry)))
-            });
-        if is_kept {
-            return Err(ClaudeRulesError::RuleInUneditedFile { path: file });
+    let mut files = vec![config_folder.join(CLAUDE_USER_SETTINGS_FILE)];
+    for file in folders
+        .iter()
+        .map(|folder| settings_path(folder.working_folder, CLAUDE_SHARED_SETTINGS_FILE))
+        .chain(every_local_settings_file(folders, home_folder, path_rules))
+    {
+        if !files.contains(&file) {
+            files.push(file);
         }
     }
     let mut is_removed = false;
-    for file in every_local_settings_file(folders, home_folder, path_rules) {
-        is_removed |= remove_rule_from_file(&file, rule, path_rules).await?;
+    for file in files {
+        let hold = hold_settings_file(&file).await?;
+        is_removed |= remove_list_entries(&hold, &file, list, is_revoked).await?;
     }
     if is_removed {
         Ok(())
@@ -568,43 +589,95 @@ struct ListChange<'entries> {
 
 // Whether the rule was in the file and went.
 async fn remove_rule_from_file(
+    hold: &KeyHold<'_, PathBuf>,
     file: &Path,
     rule: &ProviderAskRule,
     path_rules: PathRules,
 ) -> Result<bool, ClaudeRulesError> {
     let removed = rule_entries(rule, path_rules)?;
     let (list, _) = sense_lists(rule.sense);
-    let hold = hold_settings_file(file).await?;
-    let Some(text) = read_settings_file(&hold, file).await? else {
+    remove_list_entries(hold, file, list, |entry| {
+        removed.iter().any(|revoked| revoked == entry)
+    })
+    .await
+}
+
+/// Takes every entry `is_revoked` picks out of the permission list `list` of the settings file
+/// `file`, whose edit lock `hold` holds, every other byte kept; the one edit every revoke makes.
+/// Answers whether any entry went, `false` for a file that is not there. Fails as the file cannot
+/// be read, is refused as not a strict JSON object with permission lists, or cannot be written.
+pub(crate) async fn remove_list_entries(
+    hold: &KeyHold<'_, PathBuf>,
+    file: &Path,
+    list: &str,
+    is_revoked: impl Fn(&str) -> bool,
+) -> Result<bool, ClaudeRulesError> {
+    let Some(text) = read_settings_file(hold, file).await? else {
         return Ok(false);
     };
-    let change = ListChange {
-        list,
-        add: &[],
-        remove: &removed,
-    };
     let Some(edited) = edit_permission_lists(file, &text, |permissions, path| {
-        apply_list_changes(permissions, path, std::slice::from_ref(&change))
+        remove_entries(permissions, list, path, &is_revoked)
     })?
     else {
         return Ok(false);
     };
-    write_settings_file(&hold, file, edited, CLAUDE_LOCAL_SETTINGS_MODE).await?;
+    write_settings_file(hold, file, edited, CLAUDE_LOCAL_SETTINGS_MODE).await?;
     Ok(true)
+}
+
+// What a project rule write changed in one local settings file, which its take-back puts back.
+enum ClaudeProjectRuleWrite {
+    // The file Claude Code itself wrote for the answer, whose entries for the rule are taken out.
+    WrittenByAnswer,
+    // The edit changed nothing, so the file was left as it was.
+    Unchanged,
+    // The file was written over `text_before`, its text until then, or made where that is `None`.
+    Written { text_before: Option<String> },
+}
+
+// Puts `file`, whose edit lock `hold` holds since the write, back as it was before the write that
+// answered `change`: the text it held written back, or the file deleted where the write made it, so
+// an entry the write moved or found already there stands again; the file Claude Code wrote for the
+// answer loses only the rule's entries.
+async fn take_back_claude_project_rule(
+    hold: &KeyHold<'_, PathBuf>,
+    file: &Path,
+    rule: &ProviderAskRule,
+    path_rules: PathRules,
+    change: &ClaudeProjectRuleWrite,
+) -> Result<(), ClaudeRulesError> {
+    let text_before = match change {
+        ClaudeProjectRuleWrite::Unchanged => return Ok(()),
+        ClaudeProjectRuleWrite::WrittenByAnswer => {
+            return remove_rule_from_file(hold, file, rule, path_rules)
+                .await
+                .map(|_is_removed| ());
+        }
+        ClaudeProjectRuleWrite::Written { text_before } => text_before,
+    };
+    match text_before {
+        Some(text) => {
+            write_settings_file(hold, file, text.clone(), CLAUDE_LOCAL_SETTINGS_MODE).await?;
+        }
+        None => delete_settings_file(hold, file).await?,
+    }
+    Ok(())
 }
 
 // Applies `changes` to `file`, made where missing and an entry is added (first listed in the
 // exclude list of the repository `common_git_folder` names, unless `excluded_repositories` holds
-// it already), one edit at a time on the file, the exclude step under the same hold.
+// it already), under `hold`, the file's edit lock, the exclude step included. Answers what it
+// changed, for a take-back.
 async fn edit_local_settings(
+    hold: &KeyHold<'_, PathBuf>,
     file: &Path,
     common_git_folder: Option<&Path>,
     excluded_repositories: &Mutex<HashSet<PathBuf>>,
     changes: &[ListChange<'_>],
-) -> Result<(), ClaudeRulesError> {
-    let hold = hold_settings_file(file).await?;
-    let edited = if let Some(text) = read_settings_file(&hold, file).await? {
-        edit_permission_lists(file, &text, |permissions, path| {
+) -> Result<ClaudeProjectRuleWrite, ClaudeRulesError> {
+    let text_before = read_settings_file(hold, file).await?;
+    let edited = if let Some(text) = &text_before {
+        edit_permission_lists(file, text, |permissions, path| {
             apply_list_changes(permissions, path, changes)
         })?
     } else {
@@ -613,7 +686,7 @@ async fn edit_local_settings(
             .filter(|change| !change.add.is_empty())
             .collect();
         if added.is_empty() {
-            return Ok(());
+            return Ok(ClaudeProjectRuleWrite::Unchanged);
         }
         if let Some(common_git_folder) = common_git_folder
             && lock(excluded_repositories).insert(common_git_folder.to_path_buf())
@@ -631,10 +704,11 @@ async fn edit_local_settings(
         text.push('\n');
         Some(text)
     };
-    if let Some(edited) = edited {
-        write_settings_file(&hold, file, edited, CLAUDE_LOCAL_SETTINGS_MODE).await?;
-    }
-    Ok(())
+    let Some(edited) = edited else {
+        return Ok(ClaudeProjectRuleWrite::Unchanged);
+    };
+    write_settings_file(hold, file, edited, CLAUDE_LOCAL_SETTINGS_MODE).await?;
+    Ok(ClaudeProjectRuleWrite::Written { text_before })
 }
 
 // Hands `edit` the `permissions` object of `text`, the contents of `file` (made when missing and
