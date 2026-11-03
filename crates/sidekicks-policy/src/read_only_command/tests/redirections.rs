@@ -59,7 +59,8 @@ use super::reads_only;
 #[case::partly_quoted_delimiter_then_a_write("cat <<E'OF'\nx\nEOF\nrm a", false)]
 #[case::quote_inside_a_delimiter_then_a_read("cat <<E'O'F\n$(touch f)\nEOF\nls", true)]
 #[case::quote_inside_a_delimiter_then_a_write("cat <<E'O'F\n$(touch f)\nEOF\nrm a", false)]
-// The parser reads this unquoted start into no redirect; its body still runs `touch`.
+// The parser reads this unquoted start into no redirect, so the line is not read whole and reads as
+// not read-only.
 #[case::unquoted_start_the_parser_misreads("( cat <<EOF\n$(touch f\nEOF\n)", false)]
 #[case::cat_lt_lt_upper_eof_pipe_sh_newline_x("cat <<EOF | sh\nx\nEOF", false)]
 #[case::cat_lt_lt_upper_eof_amp_amp_rm_a_newline_x("cat <<EOF && rm a\nx\nEOF", false)]

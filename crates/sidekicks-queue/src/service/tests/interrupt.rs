@@ -422,13 +422,13 @@ enum SettledAgain {
     Restart,
 }
 
-// An interrupt's release that cannot hand its run what waits, the run bound to no provider yet in
-// a session an earlier run opened, fails and records on the interrupt's row that only what the hold held back is left, its choice
-// settled: applied, or not due; once the run is bound, a run's end taking the session's hold, or
-// the queue's recovery after a restart, hands the message and clears the record. Killed by keeping
-// the unsettled release in memory only (the restart never hands), by settling it only at the holds
-// the queue's own calls take (the run's end never hands), by recording the choice again, or by
-// never clearing the record.
+// An interrupt's release that cannot hand its run what waits, the run bound to no provider yet in a
+// session an earlier run opened, fails and records on the interrupt's row that only what the hold
+// held back is left, its choice settled: applied, or not due; once the run is bound, a run's end
+// taking the session's hold, or the queue's recovery after a restart, hands the message and clears
+// the record. Killed by keeping the unsettled release in memory only (the restart never hands), by
+// settling it only at the holds the queue's own calls take (the run's end never hands), by
+// recording the choice again, or by never clearing the record.
 #[rstest]
 #[case::run_end(SettledAgain::RunEnd)]
 #[case::restart(SettledAgain::Restart)]
