@@ -51,7 +51,8 @@ unsafe extern "C" {
     // properties of the description to the open file, answering 0, or -1 with `errno` set.
     fn fchmodx_np(descriptor: libc::c_int, filesec: *mut c_void) -> libc::c_int;
     // `acl_t acl_get_fd_np(int, acl_type_t)`, declared in the SDK's `sys/acl.h`: the open file's
-    // access list, which `acl_free` frees, or NULL with `errno` set (`ENOENT` when it has none).
+    // access list, which `acl_free` frees, or NULL with `errno` set: `ENOENT` when it has none,
+    // `EOPNOTSUPP` when its volume keeps none.
     fn acl_get_fd_np(descriptor: libc::c_int, kind: libc::c_int) -> *mut c_void;
     // `int acl_get_entry(acl_t, int, acl_entry_t *)`: the list's first or next entry, answering 0,
     // or -1 once no entry is left.
@@ -83,7 +84,8 @@ unsafe extern "C" {
 }
 
 /// Removes every entry of the access list of the open file or folder `file`, its inherited ones
-/// included, leaving its owner and mode alone, as `chmod -N` does. Fails with the system's error.
+/// included, leaving its owner and mode alone, as `chmod -N` does; on a volume that keeps no access
+/// lists there is none to remove. Fails with the system's error.
 pub(crate) fn remove_access_control_list(file: &File) -> io::Result<()> {
     // SAFETY: the call takes no argument and answers a description this function frees below.
     let filesec = unsafe { filesec_init() };
@@ -98,15 +100,15 @@ pub(crate) fn remove_access_control_list(file: &File) -> io::Result<()> {
 
 /// Whether the access list of the open folder `folder` lets an account other than the user
 /// `user` and root remove or rename its entries: an allowing entry that is not only passed down
-/// and grants `delete_child` to any other account or group. A folder with no access list grants
-/// none. Fails with the system's error.
+/// and grants `delete_child` to any other account or group. A folder with no access list, or on a
+/// volume that keeps none, grants none. Fails with the system's error.
 pub(crate) fn grants_others_delete_child(folder: &File, user: libc::uid_t) -> io::Result<bool> {
     // SAFETY: the descriptor is the open folder's, alive for the call.
     let acl = unsafe { acl_get_fd_np(folder.as_raw_fd(), ACL_TYPE_EXTENDED) };
     if acl.is_null() {
         let error = io::Error::last_os_error();
         return match error.raw_os_error() {
-            Some(libc::ENOENT) => Ok(false),
+            Some(libc::ENOENT | libc::EOPNOTSUPP) => Ok(false),
             _ => Err(error),
         };
     }
@@ -191,7 +193,12 @@ fn apply_access_list_removal(file: &File, filesec: *mut c_void) -> io::Result<()
     }
     // SAFETY: the descriptor is the open file's, alive for the call, and `filesec` is live.
     if unsafe { fchmodx_np(file.as_raw_fd(), filesec) } != 0 {
-        return Err(io::Error::last_os_error());
+        let error = io::Error::last_os_error();
+        // The kernel answers `ENOTSUP` to any access list change on a volume that keeps none.
+        if error.raw_os_error() == Some(libc::ENOTSUP) {
+            return Ok(());
+        }
+        return Err(error);
     }
     Ok(())
 }
