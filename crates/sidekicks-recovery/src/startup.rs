@@ -3,11 +3,13 @@
 //! restart left in every session, and records the pass on the service's own session. A session
 //! whose runs were in progress has them re-armed from the log and its conversation resumed through
 //! the provider sessions, which settle each run the resume names as the provider answers for it;
-//! every other session is not opened, a session whose live runs are all paused among them. The runs
-//! no resume took are then settled: failed as no provider session came back, or with the
-//! provider's own words where it refused the resume, each of those then listed for the person until
-//! the session's next run starts, and a lead the person paused kept paused; the questions the
-//! tool-server client asked, whose requests the restart ended, are withdrawn. No write is taken until
+//! every other session is not opened, a session whose live runs are all paused among them. Before
+//! any session resumes, the calls each session held in the background are settled through the
+//! provider sessions, a stale session's once it is rebuilt. The runs no resume took are then
+//! settled: failed as no provider session came back, or with the provider's own words where it
+//! refused the resume, each of those then listed for the person until the session's next run
+//! starts, and a lead the person paused kept paused; the questions the tool-server client asked,
+//! whose requests the restart ended, are withdrawn. No write is taken until
 //! the pass has listed the sessions it rebuilds and those whose runs it ends; from then each listed
 //! session alone refuses the calls that name it until it is rebuilt and settled, so every other
 //! session takes its writes while the pass goes on. A session whose rebuild fails is healed: the
@@ -54,6 +56,7 @@ use sidekicks_queue::provider_session::errors::ProviderSessionError;
 use sidekicks_session::interventions::store::read_pending_retries;
 use sidekicks_session::interventions::unresolved::read_ended_runs_with_unresolved;
 use sidekicks_session::questions::service::{QuestionError, QuestionsService};
+use sidekicks_session::run::held_tool_calls::read_sessions_holding_tool_calls;
 use sidekicks_session::run::provider_choice::run_end::read_ended_runs_with_open_choices;
 use sidekicks_session::run::read::RunStateReader;
 use sidekicks_std::elapsed::elapsed_ms_since;
@@ -82,10 +85,10 @@ use crate::restart_settle::{
 use crate::status::RecoveryStatusTracker;
 
 /// The statements the pass's own reads run: the failed passes since the last that succeeded, and
-/// the seven every-session listings of what the restart left (the live runs, the pending retries,
+/// the eight every-session listings of what the restart left (the live runs, the pending retries,
 /// the ended runs with an open turn, with an unresolved intervention, with a pending ask and with
-/// an open choice, and the held plans).
-pub const STARTUP_RECOVERY_STATEMENT_CAPACITY: usize = 8;
+/// an open choice, the held plans, and the sessions holding background calls).
+pub const STARTUP_RECOVERY_STATEMENT_CAPACITY: usize = 9;
 
 // The failed passes since the last one that succeeded, read from the service's own session.
 static COUNT_FAILURES_SINCE_SUCCESS_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -218,6 +221,8 @@ struct PassListing {
     current: BTreeSet<SessionId>,
     // Of those, the ones with a run still live past its queue, which refuse calls until settled.
     current_listed: BTreeSet<SessionId>,
+    // Every session the log shows holding a call moved to the background with no close.
+    holding_tool_calls: BTreeSet<SessionId>,
 }
 
 impl StartupRecovery {
@@ -281,6 +286,16 @@ impl StartupRecovery {
         self.deps.status.mark_pass_listed();
 
         pass.phase = RecoveryPhase::RunResumption;
+        // Before any resume, so a resume's rebuild reads each call the restart ended as settled.
+        for &session_id in &listing.holding_tool_calls {
+            if listing.stale.contains(&session_id) {
+                continue;
+            }
+            if stop.is_cancelled() {
+                return Err(PassFailure::Stopped);
+            }
+            self.settle_held_tool_calls(session_id).await;
+        }
         for &session_id in &listing.current {
             self.settle_session(session_id, tally, stop).await?;
         }
@@ -297,6 +312,9 @@ impl StartupRecovery {
                 continue;
             }
             pass.phase = RecoveryPhase::RunResumption;
+            if listing.holding_tool_calls.contains(&session_id) {
+                self.settle_held_tool_calls(session_id).await;
+            }
             self.settle_session(session_id, tally, stop).await?;
         }
 
@@ -335,30 +353,56 @@ impl StartupRecovery {
     }
 
     // Every session a rebuild or a settle must take, read with no session filter: the stale ones,
-    // and every other one any leftover read names. A stale session's leftovers are read again
-    // after its rebuild.
+    // every other one any leftover read names, and every one holding a background call. A stale
+    // session's leftovers are read again after its rebuild.
     async fn list_sessions(&self) -> Result<PassListing, PassFailure> {
         let stale = self
             .deps
             .projection_rebuild
             .list_sessions_to_rebuild()
             .await?;
-        let (mut current, mut current_listed) = self
+        let ((mut current, mut current_listed), mut holding_tool_calls) = self
             .deps
             .reads
             .read(ReadLength::Short, |reader| {
-                Ok::<_, PassFailure>(read_sessions_with_leftovers(reader)?)
+                Ok::<_, PassFailure>((
+                    read_sessions_with_leftovers(reader)?,
+                    read_sessions_holding_tool_calls(reader)?
+                        .into_iter()
+                        .collect::<BTreeSet<_>>(),
+                ))
             })
             .await?;
         for session_id in stale.iter().chain([&*DAEMON_SCOPE_SENTINEL_SESSION_ID]) {
             current.remove(session_id);
             current_listed.remove(session_id);
         }
+        holding_tool_calls.remove(&*DAEMON_SCOPE_SENTINEL_SESSION_ID);
         Ok(PassListing {
             stale,
             current,
             current_listed,
+            holding_tool_calls,
         })
+    }
+
+    // Settles the calls `session_id` held in the background through the provider sessions; a
+    // failure is logged and the pass goes on, the calls left running until the session's next
+    // resume settles them.
+    async fn settle_held_tool_calls(&self, session_id: SessionId) {
+        if let Err(failure) = self
+            .deps
+            .provider_sessions
+            .settle_held_tool_calls(session_id)
+            .await
+        {
+            tracing::warn!(
+                session_id = %session_id,
+                error = &failure as &(dyn Error + 'static),
+                "the calls a session held in the background could not be settled after the \
+                 restart; its next resume settles them"
+            );
+        }
     }
 
     // Rebuilds one stale session, healing it when its log cannot be folded, and answers whether
