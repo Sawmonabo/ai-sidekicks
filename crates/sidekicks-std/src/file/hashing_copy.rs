@@ -4,8 +4,8 @@ use std::io::{self, Read, Write};
 
 use sha2::{Digest as _, Sha256};
 
-/// The bytes of a SHA-256 digest.
-pub const SHA256_BYTES: usize = 32;
+// The bytes of a SHA-256 digest.
+const SHA256_BYTES: usize = 32;
 
 // The bytes read at a time.
 const CHUNK_BYTES: usize = 64 * 1024;
@@ -32,7 +32,5 @@ pub fn copy_with_sha256(
         inspect(chunk);
         writer.write_all(chunk)?;
     }
-    let mut digest = [0; SHA256_BYTES];
-    digest.copy_from_slice(&hasher.finalize());
-    Ok(digest)
+    Ok(hasher.finalize().into())
 }

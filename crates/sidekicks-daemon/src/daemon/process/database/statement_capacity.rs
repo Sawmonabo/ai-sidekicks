@@ -175,6 +175,7 @@ pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     // The reviewer denials', the run engine's and the live run folders' sets each hold the run
     // agent reader's, which is counted once.
     - 2 * RUN_AGENT_STATEMENT_CAPACITY
-    // The session service's, the run engine's, the binding cursors' and the turn capture's sets
-    // each hold the read of where a run stands, which is counted once.
-    - 3 * RUN_STANDING_STATEMENT_CAPACITY;
+    // The session service's, the run engine's, the binding cursors', the turn capture's, the event
+    // log's and the usage record's sets each hold the read of where a run stands, which is counted
+    // once.
+    - 5 * RUN_STANDING_STATEMENT_CAPACITY;

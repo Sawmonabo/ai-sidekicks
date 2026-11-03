@@ -13,7 +13,8 @@ use std::path::Path;
 
 use sidekicks_std::missing_entry::is_missing_entry;
 
-use super::CLAIM_READ_CHUNK_BYTES;
+// How much of a file one read of a tool's claim takes.
+const CLAIM_READ_CHUNK_BYTES: usize = 64 * 1024;
 
 /// The byte-order mark of a UTF-8 file.
 const UTF8_BOM: &[u8] = &[0xEF, 0xBB, 0xBF];

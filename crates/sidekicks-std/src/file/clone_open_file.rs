@@ -7,6 +7,7 @@ use std::path::Path;
 
 use sidekicks_platforms::{CloneRefusal, read_clone_refusal};
 
+use crate::cleanup_failures::CleanupFailures;
 use crate::file::temporary_removal::remove_temporary_after;
 
 /// Why an open file was not cloned.
@@ -16,35 +17,46 @@ pub enum CloneOpenFileError {
     /// clones.
     #[error("the clone was refused: {0}")]
     Refused(CloneRefusal),
-    /// The clone failed for any other reason, an entry already at the path, a missing folder or a
-    /// source that is not a regular file among them.
+    /// The clone failed for any other reason, an entry already at the path or a missing folder
+    /// among them.
     #[error("the clone failed")]
     Failed(#[source] io::Error),
 }
 
-/// What a failed clone names as its operation when removing what it left fails too.
+// What a failed clone names as its operation when removing what it left fails too.
 const CLONING: &str = "cloning the file";
 
 /// Clones the open file `source` into a new file at `destination`, which takes the source's
 /// permissions, never as a byte copy and never over an entry already there; a failed clone leaves
-/// nothing at the path. Fails with [`CloneOpenFileError::Refused`] when the copy's place is on
-/// another volume or the volume makes no clones, else with [`CloneOpenFileError::Failed`] holding
-/// the clone's error, of its own kind, wrapping the removal's failure too when the clone was made
-/// (as before setting its permissions failed) and could not be removed.
+/// nothing at the path unless removing what it left there fails. Fails with
+/// [`CloneOpenFileError::Refused`] when the copy's place is on another volume or the volume makes
+/// no clones, else with [`CloneOpenFileError::Failed`] holding the clone's error, of its own kind.
+/// The removal runs after every failure but an entry already at the path, so it also runs when the
+/// clone made no file at all; when it fails (the clone was made and setting its permissions failed,
+/// or the folder refuses the removal), the answer is `Failed`, a refused clone's included, wrapping
+/// the removal's failure beside the clone's. `source` is a regular file: on Linux and Windows the
+/// clone answers any other kind of source with `InvalidInput`, which hides an entry already at the
+/// path, so that entry would be removed.
 pub fn clone_open_file(source: &File, destination: &Path) -> Result<(), CloneOpenFileError> {
-    reflink_copy::reflink_file_to_path(source, destination).map_err(
-        |error| match read_clone_refusal(source, destination, error) {
+    reflink_copy::reflink_file_to_path(source, destination).map_err(|error| {
+        // The entry already there is another's, so it stays.
+        if error.kind() == io::ErrorKind::AlreadyExists {
+            return CloneOpenFileError::Failed(error);
+        }
+        // The clone's permissions are set once its file is made, so a failure there, refusal or
+        // not, leaves that file at `destination` for this removal.
+        let (error, removal_failures, operation) =
+            remove_temporary_after(error, destination, CLONING).into_parts();
+        if !removal_failures.is_empty() {
+            return CloneOpenFileError::Failed(
+                CleanupFailures::new(error, removal_failures, operation).into_io_error(),
+            );
+        }
+        match read_clone_refusal(source, destination, error) {
             Ok(refusal) => CloneOpenFileError::Refused(refusal),
-            // The entry already there is another's, so it stays.
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                CloneOpenFileError::Failed(error)
-            }
-            // The clone's permissions are set once its file is made, so a failure there leaves it.
-            Err(error) => CloneOpenFileError::Failed(
-                remove_temporary_after(error, destination, CLONING).into_io_error(),
-            ),
-        },
-    )
+            Err(error) => CloneOpenFileError::Failed(error),
+        }
+    })
 }
 
 #[cfg(test)]

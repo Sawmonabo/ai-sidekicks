@@ -127,8 +127,8 @@ fn folder_bytes(folder: &Path) -> io::Result<u64> {
 }
 
 // Whether `folder`, or the nearest folder above it that exists, sits on the volume holding
-// `data_folder`. A network share has no volume id, so a folder on one is never on the service's
-// disk.
+// `data_folder`. On macOS and Windows a network share has no volume id, so a folder on one reads as
+// not on the service's disk; on Linux the mount table gives a share an id as it does any mount.
 fn is_on_same_volume(folder: &Path, data_folder: &Path) -> io::Result<bool> {
     let volume_of = |path: &Path| -> io::Result<Option<VolumeId>> {
         let mut existing: PathBuf = path.to_path_buf();

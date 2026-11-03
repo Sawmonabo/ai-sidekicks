@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use sidekicks_platforms::{
     create_missing_private_folders, flush_file, remove_tree, rename_replacing,
 };
-use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::file::temporary_removal::remove_temporary_after;
 use sidekicks_std::file::time_precision::probe_time_precision;
 use sidekicks_std::missing_entry::{MissingEntry as _, is_missing_entry};
 use tokio_util::sync::CancellationToken;
@@ -353,16 +353,9 @@ fn copy_file(
         })
         .and_then(|()| flush_file(&in_progress))
         .and_then(|()| rename_replacing(&in_progress, copy));
-    let Err(failure) = placed else {
-        return Ok(());
-    };
-    match fs::remove_file(&in_progress).none_if_missing() {
-        Ok(_removed) => Err(failure),
-        Err(removal) => Err(io::Error::new(
-            failure.kind(),
-            CleanupFailures::new(failure, vec![removal], "the mirror's copy"),
-        )),
-    }
+    placed.map_err(|failure| {
+        remove_temporary_after(failure, &in_progress, "the mirror's copy").into_io_error()
+    })
 }
 
 // Deletes each copy under `copy_root` whose source under `source` is gone or is no longer of its
