@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use secrecy::SecretString;
 use serde_json::Map;
@@ -52,7 +53,9 @@ async fn a_resupplied_token_relaunches_each_live_session_on_the_account() {
     legs.hand_resupplied_token(&account, &folders, &SecretString::from("new-setup-token"))
         .await
         .expect("the relaunches are set going");
-    let relaunched = fixture.next_start().await;
+    let relaunched = tokio::time::timeout(Duration::from_secs(5), fixture.next_start())
+        .await
+        .expect("the session on the account starts again");
     settle().await;
 
     assert!(matches!(

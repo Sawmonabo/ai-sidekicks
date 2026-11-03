@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use secrecy::SecretString;
 use serde_json::json;
@@ -88,7 +89,12 @@ async fn a_resupplied_key_reaches_the_running_key_service_and_no_other() {
     let (handed, login) = tokio::join!(
         hand_resupplied_codex_key(&registry, &dependencies, &account_a, &folders, &new_key),
         async {
-            let login = on_a.next_request(CODEX_LOGIN_START_METHOD).await;
+            let login = tokio::time::timeout(
+                Duration::from_secs(5),
+                on_a.next_request(CODEX_LOGIN_START_METHOD),
+            )
+            .await
+            .expect("A's service is sent the key's login");
             on_a.script.answer(&login, &json!({"type": "apiKey"}));
             login
         }
