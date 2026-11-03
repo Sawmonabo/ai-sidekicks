@@ -1,7 +1,8 @@
 //! Every Claude Code process the driver starts goes through one launcher, which keeps each one it
 //! started so the daemon's stop reaches them all and none starts once that stop began: a session's
 //! process brought up with its hooks and settings, the processes that keep nothing (the sign-in
-//! probe, the model catalog, the build's version, a session's figures) and the one-turn process.
+//! probe, the model catalog, the build's version, a session's figures, a resting session's command
+//! list) and the one-turn process.
 //! A process on a token account is handed that account's token there, on a pipe only it reads.
 
 pub(crate) mod bring_up;
@@ -9,6 +10,7 @@ pub(crate) mod control_only;
 pub(crate) mod figures;
 pub(crate) mod initialize_reply;
 pub(crate) mod installed_build;
+pub(crate) mod listed_commands;
 pub(crate) mod one_turn;
 
 use std::error::Error;

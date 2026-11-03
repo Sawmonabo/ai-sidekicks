@@ -335,19 +335,20 @@ impl CodexDriver {
         Ok(read_codex_starting_level(&service, &params.working_folder).await?)
     }
 
-    /// The live session's command list, as one group carrying the params' run and binding. Fails
-    /// with `CodexError::Transport` with no live record, and as the list's read fails.
+    /// The session's command list, as one group carrying the params' run and binding: the live
+    /// session's list, or for a session with no live process a fresh read on its account's service
+    /// over the folder its runs work in. Fails as the source cannot be resolved and as the read
+    /// fails.
     pub(crate) async fn list_provider_commands(
         &self,
         params: ListProviderCommandsParams,
     ) -> Result<ProviderCommandBindingGroup, DriverError> {
         let source = self
-            .views
-            .command_source(params.session_id)
-            .ok_or_else(|| CodexError::Transport {
-                detail: format!("No live Codex session for \"{}\".", params.session_id),
-                cause: None,
-            })?;
+            .resolve_command_source(
+                params.session_id,
+                params.binding.provider_account_id.clone(),
+            )
+            .await?;
         let listed = self
             .provider_commands
             .compose_provider_command_list(&source)

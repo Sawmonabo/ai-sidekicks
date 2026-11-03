@@ -21,6 +21,7 @@ use crate::driver::claude::capabilities::read_claude_capabilities;
 use crate::driver::claude::mcp::ClaudeMcpProcess;
 use crate::driver::claude::mcp::connectors::ClaudeAccountServersReadRequest;
 use crate::driver::claude::mcp::machine_probe::ClaudeMcpProbeProcessRequest;
+use crate::driver::claude::mcp::organization::has_readable_managed_mcp_file;
 use crate::driver::claude::mcp::sign_in::ClaudeMcpSignInStart;
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
@@ -40,6 +41,8 @@ use crate::driver::claude::spawn::launch::control_only::{
 use crate::driver::claude::spawn::launch::figures::{
     read_claude_creation_figures, read_claude_reply_reserve,
 };
+use crate::driver::claude::spawn::launch::initialize_reply::ClaudeListedCommand;
+use crate::driver::claude::spawn::launch::listed_commands::read_claude_session_commands;
 use crate::driver::claude::spawn::launch::one_turn::{
     ClaudeOneTurnReply, ClaudeOneTurnRequest, run_claude_one_turn,
 };
@@ -104,6 +107,16 @@ pub(crate) trait ClaudeProcessStarts: Send + Sync {
         environment: Vec<(String, String)>,
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<String, ClaudeLaunchError>>;
+
+    /// Reads the commands a session at rest lists from a process that keeps nothing, started in
+    /// `environment` in `working_directory` on `provider_account_id`'s account, in the reply's
+    /// order. Fails as the command's resolution, the start or `initialize` fails.
+    fn read_session_commands(
+        &self,
+        environment: Vec<(String, String)>,
+        working_directory: PathBuf,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'static, Result<Vec<ClaudeListedCommand>, ClaudeLaunchError>>;
 
     /// Reads the model catalog from a process that keeps nothing, started in `environment` on
     /// `provider_account_id`'s account.
@@ -323,6 +336,33 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
             probe_claude_sign_in(&self.launcher, &executable, Some(provider_account_id), None)
                 .await?
                 .into_signed_in_detail()
+        }
+        .boxed()
+    }
+
+    fn read_session_commands(
+        &self,
+        environment: Vec<(String, String)>,
+        working_directory: PathBuf,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'static, Result<Vec<ClaudeListedCommand>, ClaudeLaunchError>> {
+        let (launcher, command_search) =
+            (Arc::clone(&self.launcher), Arc::clone(&self.command_search));
+        let home_folder = self.home_folder.clone();
+        async move {
+            let executable =
+                resolve_claude_build(&command_search, &home_folder, environment).await?;
+            let has_managed_mcp_file =
+                has_readable_managed_mcp_file(DESCRIPTOR.managed_settings_folder().as_deref())
+                    .await;
+            read_claude_session_commands(
+                &launcher,
+                &executable,
+                working_directory,
+                provider_account_id,
+                has_managed_mcp_file,
+            )
+            .await
         }
         .boxed()
     }

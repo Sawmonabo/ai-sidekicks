@@ -112,20 +112,43 @@ CREATE INDEX idx_session_related_related ON session_related(related_session_id);
 
 -- Each session.create's idempotency key, the session it made and where that session works: its
 -- project (NULL for a chat, which works in its own managed mount), its execution mode and the group
--- it asked for (NULL for none, and for every chat). Written in the session.created write, so a
--- retry with the key, or the daemon's start, finishes a session left provisioning; a session made
--- in a project still cloning is finished once the clone attaches it.
+-- it asked for (NULL for none, and for every chat), the account its lead was born on, the current
+-- one that write's guard held, and where in the mount the session works, NULL at the mount's root
+-- (a plan's fresh session works in its planning session's folder). Written in the session.created
+-- write, so a retry with the key, or the daemon's start, finishes a session left provisioning; a
+-- session made in a project still cloning is finished once the clone attaches it.
 CREATE TABLE session_create_requests (
   client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
   session_id              TEXT NOT NULL UNIQUE,
   project_id              TEXT,
   execution_mode          TEXT NOT NULL
     CHECK (execution_mode IN ('boundRoot', 'provisionedWorktree')),
-  group_id                TEXT
+  group_id                TEXT,
+  provider_account_id     TEXT NOT NULL,
+  directory               TEXT
 ) STRICT;
 
 -- A project's sessions, which its rules reach, found by the project they were made in.
 CREATE INDEX idx_session_create_requests_project ON session_create_requests(project_id);
+
+-- A plan handed to a fresh session: what its verdict fixed for the session it births, under the
+-- fresh session's id as that create's idempotency key. The lead is a create's lead as JSON, and
+-- the title the plan's first heading, which names the fresh session. Written in the verdict's
+-- write; the birth reads it.
+CREATE TABLE session_hand_offs (
+  session_id              TEXT NOT NULL PRIMARY KEY,
+  client_idempotency_key  TEXT NOT NULL UNIQUE,
+  plan_id                 TEXT NOT NULL UNIQUE,
+  planning_session_id     TEXT NOT NULL,
+  lead                    TEXT NOT NULL,
+  permission_level        TEXT NOT NULL
+    CHECK (permission_level IN ('readonly', 'ask', 'reviewed', 'sandboxed', 'yolo')),
+  title                   TEXT NOT NULL,
+  device_id               TEXT NOT NULL
+) STRICT;
+
+-- The purge mark's refusal finds a planning session's hand-offs by it.
+CREATE INDEX idx_session_hand_offs_planning ON session_hand_offs(planning_session_id);
 
 -- A chat's conversion: the session.convert key it runs under, which the latest request that
 -- resumed it takes over, the project mount it attached and the working tree it copies into.

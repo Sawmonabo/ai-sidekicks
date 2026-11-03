@@ -144,6 +144,12 @@ static OPEN_CHAT_SQL: LazyLock<String> = LazyLock::new(|| {
 // The open-chat guard is the first statement of `session.converted`'s write.
 const OPEN_CHAT_GUARD_INDEX: usize = 0;
 
+// The converted session's create record names the project its folder is attached as, so a read
+// of the session's project finds it once the session no longer works there.
+const RECORD_CONVERTED_PROJECT_SQL: &str = "UPDATE session_create_requests
+  SET project_id = (SELECT project_id FROM repo_mounts WHERE id = @repo_mount_id)
+  WHERE session_id = @session_id";
+
 /// What converting a chat reads, locks, attaches, binds and appends through.
 pub struct SessionConversionDeps {
     /// The read pool, sized with [`SESSION_CONVERSION_STATEMENT_CAPACITY`].
@@ -676,17 +682,28 @@ impl SessionConversion {
         payload: SessionConvertedPayload,
     ) -> Result<(), SessionConversionError> {
         let session_id = payload.session_id;
+        let repo_mount_id = payload.repo_mount_id;
         let draft =
             SessionEventDraft::of_session(session_id, &SessionEvent::SessionConverted(payload))?;
         let linkage = SessionEventLinkage {
-            transactional_prelude: vec![WriteStatement {
-                sql: Cow::Borrowed(OPEN_CHAT_SQL.as_str()),
-                bindings: StatementBindings::Named(vec![text_binding(
-                    "@session_id",
-                    session_id.text().as_str(),
-                )]),
-                expected_row_count: Some(1),
-            }],
+            transactional_prelude: vec![
+                WriteStatement {
+                    sql: Cow::Borrowed(OPEN_CHAT_SQL.as_str()),
+                    bindings: StatementBindings::Named(vec![text_binding(
+                        "@session_id",
+                        session_id.text().as_str(),
+                    )]),
+                    expected_row_count: Some(1),
+                },
+                WriteStatement {
+                    sql: Cow::Borrowed(RECORD_CONVERTED_PROJECT_SQL),
+                    bindings: StatementBindings::Named(vec![
+                        text_binding("@session_id", session_id.text().as_str()),
+                        text_binding("@repo_mount_id", repo_mount_id.text().as_str()),
+                    ]),
+                    expected_row_count: Some(1),
+                },
+            ],
             ..SessionEventLinkage::default()
         };
         match self.appender.append(draft, linkage).await {

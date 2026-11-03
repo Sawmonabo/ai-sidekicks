@@ -1,8 +1,11 @@
-//! The steps a session takes from `provisioning` to `active`: the bind to the mount it works in,
-//! the level and mode its provider starts it at, and `session.activated`. A create runs them at
-//! once; a project's clone runs them for the sessions made while it cloned; the daemon's start
-//! runs them for every session a stop left provisioning, after removing the workspace of each chat
-//! whose create stopped before the chat was born.
+//! The steps a session takes from `provisioning` to `active`: the bind in the folder its create
+//! recorded, or at its mount's root once that folder is no longer a live tree of the mount, the
+//! level and mode its provider starts it at, and `session.activated`. A create runs them at once;
+//! a project's clone runs them for the sessions made while it cloned; the daemon's start runs them
+//! for every session a stop left provisioning, after removing the workspace of each chat whose
+//! create stopped before the chat was born. Both then hand each hand-off whose seed no run has
+//! taken, the clone only its project's, to the seeding port. A session a hand-off names is
+//! finished only by its hand-off's finish, which shares the bind and the activation.
 
 use std::borrow::Cow;
 use std::error::Error;
@@ -15,10 +18,14 @@ use rusqlite::{OptionalExtension, named_params};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::AgentProviderBinding;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::plan::PlanHandOffStep;
 use sidekicks_contracts::project::{ProjectId, ProjectState};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountId, RepoMountState};
 use sidekicks_contracts::repo::workspace::WorkspaceBindRequest;
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::events::SessionLifecycleChangePayload;
 use sidekicks_contracts::session::groups::SessionGroupId;
 use sidekicks_contracts::session::id::SessionId;
@@ -35,8 +42,10 @@ use sidekicks_store::database::stored_column::{closed_word, text_column};
 use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventLinkage};
 use sidekicks_workspace::clone::service::CloneAttachedListener;
 use sidekicks_workspace::schema::MountOrigin;
+use sidekicks_workspace::service::WorkspaceServiceError;
 
 use crate::console_state::session_mode_change_statement;
+use crate::create::hand_off::HandOffStepFailure;
 use crate::create::{SessionCreateError, SessionCreation, project_folder_not_attached};
 use crate::groups::store::session_group_placement_statement;
 use crate::permission_level::permission_level_change_statement;
@@ -59,13 +68,15 @@ static SELECT_PROVISIONING_CREATES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The mount a session binds to: a chat's own managed mount, or its project's attached one, which a
-// project still cloning has not yet.
+// The mount a session binds to: the one managed folder a chat holds, made for it or handed to it
+// by a plan, or its project's attached mount, which a project still cloning has not yet.
 static SELECT_SESSION_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT id, canonical_root FROM repo_mounts
   WHERE state = '{attached}'
-    AND CASE WHEN @projectId IS NULL THEN managed_session_id = @sessionId
+    AND CASE WHEN @projectId IS NULL
+             THEN id IN (SELECT repo_mount_id FROM managed_folder_holds
+                          WHERE session_id = @sessionId)
              ELSE origin = '{attached_origin}' AND project_id = @projectId END",
         attached = <&'static str>::from(RepoMountState::Attached),
         attached_origin = <&'static str>::from(MountOrigin::Attached),
@@ -80,6 +91,11 @@ static PROVISIONING_GUARD_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 const SELECT_SESSION_STATE_SQL: &str = "SELECT state FROM sessions WHERE id = @sessionId";
+
+// A session's state, with whether a hand-off names it.
+const SELECT_FINISH_STATE_SQL: &str = "SELECT state,
+        EXISTS (SELECT 1 FROM session_hand_offs WHERE session_id = @sessionId)
+   FROM sessions WHERE id = @sessionId";
 
 static SELECT_PROJECT_CLONING_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -98,11 +114,16 @@ fn never_born_sql(session_id_sql: &str) -> String {
     )
 }
 
-// The chats whose managed workspace was made but whose create stopped before the chat was born.
+// The chats whose managed workspace was made but whose create stopped before the chat was born,
+// and which no other chat holds. No hold can appear before the removal: a handed-off hold needs
+// its planning chat's `sessions` row, which a chat never born lacks.
 static SELECT_UNBORN_CHATS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT mount.managed_session_id FROM repo_mounts AS mount
   WHERE mount.origin = '{managed}' AND {}
+    AND NOT EXISTS (SELECT 1 FROM managed_folder_holds AS hold
+                     WHERE hold.repo_mount_id = mount.id
+                       AND hold.session_id <> mount.managed_session_id)
   ORDER BY mount.managed_session_id",
         never_born_sql("mount.managed_session_id"),
         managed = <&'static str>::from(MountOrigin::Managed),
@@ -128,6 +149,8 @@ pub(crate) struct SessionToFinish {
     pub(crate) lead: AgentProviderBinding,
     /// The account its lead was born on.
     pub(crate) provider_account_id: ProviderAccountId,
+    /// Where in the mount it works, `None` at the mount's root.
+    pub(crate) directory: Option<FilesystemPath>,
 }
 
 /// One session a stopped create's finish, or one chat workspace's removal, could not complete.
@@ -144,8 +167,11 @@ pub struct SessionFinishFailure {
 impl SessionCreation {
     /// Finishes what a stop left of the creates: the managed workspace of each chat never born is
     /// removed with its mount, but for one whose create runs now, then every session left
-    /// `provisioning` is finished as a retry of its create would. Every one is tried, and the
-    /// failures are answered together as [`SessionCreateError::Finish`]; what failed is left for
+    /// `provisioning` is finished as a retry of its create would, but for one a hand-off names,
+    /// and every hand-off whose seed no run has taken is handed to the seeding port's
+    /// `finish_hand_off`, holding no key, so the port takes the plan's lock before the key. Every
+    /// one is tried, and the failures are answered together as [`SessionCreateError::Finish`], a
+    /// port unset or failing as [`SessionCreateError::HandOffSeeding`]; what failed is left for
     /// the next start or a retry of its create.
     pub async fn finish_stopped_creates(&self) -> Result<(), SessionCreateError> {
         let mut outcomes = Vec::new();
@@ -157,16 +183,18 @@ impl SessionCreation {
             );
         }
         outcomes.extend(self.finish_each_provisioning(None).await?);
+        outcomes.extend(self.hand_unseeded_hand_offs_to_port(None).await?);
         settle_all(outcomes, "finishing the creates a stop left part way")?;
         Ok(())
     }
 
     /// The bind and the activation of a session left provisioning, answering the state it reads
-    /// after: `provisioning`, with nothing done, while its project is still cloning; `active` once
+    /// after: `provisioning`, with nothing done, while its project is still cloning or while a
+    /// hand-off names it, which only the hand-off's finish binds and activates; `active` once
     /// activated; and as it reads now when it left `provisioning` meanwhile, an archive among
     /// them, which nothing binds or activates. Runs while its create's key is held, which it never
-    /// takes. Fails with [`SessionCreateError::ChatWithoutMount`] for a chat with no managed mount,
-    /// refuses `repoMount.notFound` for a project with no attached folder,
+    /// takes. Fails with [`SessionCreateError::ChatWithoutMount`] for a chat holding no managed
+    /// folder, refuses `repoMount.notFound` for a project with no attached folder,
     /// `agent.providerAxisInvalid` for a lead whose provider no driver answers now and
     /// `session.notFound` for a session purged meanwhile, and fails as the bind, the starting
     /// level's read and the append fail.
@@ -174,33 +202,36 @@ impl SessionCreation {
         &self,
         session: &SessionToFinish,
     ) -> Result<SessionState, SessionCreateError> {
-        let session_id = session.session_id;
-        let project_id = session.project_id;
-        let driver = self.lead_driver(session.agent_id, &session.lead.provider_name)?;
-        // A session that left provisioning meanwhile is answered as it reads, with nothing bound.
-        let state = self.read_session_state(session_id).await?;
-        if state != SessionState::Provisioning {
+        let (state, is_handed_off) = self.read_finish_state(session.session_id).await?;
+        // A session that left provisioning meanwhile is answered as it reads, and one a hand-off
+        // names reads `provisioning`, both with nothing bound.
+        if state != SessionState::Provisioning || is_handed_off {
             return Ok(state);
         }
-        let Some((repo_mount_id, working_folder)) =
-            self.read_session_mount(session_id, project_id).await?
+        self.finish_at_starting_level(session)
+            .await
+            .map_err(|failed| failed.failure)
+    }
+
+    /// The bind and the activation at the level and mode the lead's driver starts the session at,
+    /// of a session no hand-off names or whose hand-off ended, answering as [`Self::finish`] does
+    /// once its state is read, each failure with the step it stopped at: the driver's lookup and
+    /// the bind at [`PlanHandOffStep::Bind`], the starting read and the append at
+    /// [`PlanHandOffStep::Activation`].
+    pub(super) async fn finish_at_starting_level(
+        &self,
+        session: &SessionToFinish,
+    ) -> Result<SessionState, HandOffStepFailure> {
+        let driver = self
+            .lead_driver(session.agent_id, &session.lead.provider_name)
+            .map_err(failed_at(PlanHandOffStep::Bind))?;
+        let Some(working_folder) = self
+            .bind_session(session)
+            .await
+            .map_err(failed_at(PlanHandOffStep::Bind))?
         else {
-            return match project_id {
-                None => Err(SessionCreateError::ChatWithoutMount { session_id }),
-                Some(project_id) if self.is_project_cloning(project_id).await? => {
-                    Ok(SessionState::Provisioning)
-                }
-                Some(project_id) => Err(project_folder_not_attached(project_id).into()),
-            };
+            return Ok(SessionState::Provisioning);
         };
-        self.workspaces
-            .bind(&WorkspaceBindRequest {
-                session_id,
-                repo_mount_id,
-                execution_mode: session.execution_mode,
-                directory: None,
-            })
-            .await?;
         let lead = &session.lead;
         let starting = driver
             .read_starting_level(StartingLevelParams::new(
@@ -208,8 +239,65 @@ impl SessionCreation {
                 lead.model_id.clone(),
                 session.provider_account_id.clone(),
             ))
-            .await?;
+            .await
+            .map_err(failed_at(PlanHandOffStep::Activation))?;
+        self.activate(session, starting.level(), starting.session_mode())
+            .await
+            .map_err(failed_at(PlanHandOffStep::Activation))
+    }
 
+    /// Binds the session in the folder its create recorded, or at its mount's root when it
+    /// recorded none or the bind refuses the folder `repoMount.outsideTrustEnvelope`, as it
+    /// refuses a folder no longer a live tree of the mount; answers the mount's root, or `None`
+    /// with nothing bound while its project is still cloning. Fails with
+    /// [`SessionCreateError::ChatWithoutMount`] for a chat holding no managed folder, refuses
+    /// `repoMount.notFound` for a project with no attached folder, and fails as the bind does, a
+    /// folder whose read timed out among them.
+    pub(super) async fn bind_session(
+        &self,
+        session: &SessionToFinish,
+    ) -> Result<Option<PathBuf>, SessionCreateError> {
+        let session_id = session.session_id;
+        let project_id = session.project_id;
+        let Some((repo_mount_id, working_folder)) =
+            self.read_session_mount(session_id, project_id).await?
+        else {
+            return match project_id {
+                None => Err(SessionCreateError::ChatWithoutMount { session_id }),
+                Some(project_id) if self.is_project_cloning(project_id).await? => Ok(None),
+                Some(project_id) => Err(project_folder_not_attached(project_id).into()),
+            };
+        };
+        let mut request = WorkspaceBindRequest {
+            session_id,
+            repo_mount_id,
+            execution_mode: session.execution_mode,
+            directory: session.directory.clone(),
+        };
+        match self.workspaces.bind(&request).await {
+            Ok(_) => {}
+            Err(WorkspaceServiceError::Refused(refusal))
+                if request.directory.is_some()
+                    && refusal.code == RefusalCode::RepoMountOutsideTrustEnvelope =>
+            {
+                request.directory = None;
+                self.workspaces.bind(&request).await?;
+            }
+            Err(error) => return Err(error.into()),
+        }
+        Ok(Some(working_folder))
+    }
+
+    /// Sets the session active at `level` and `mode`, placed in the group it asked for, with
+    /// `session.activated`, answering `active`, or the state it reads when it left `provisioning`
+    /// meanwhile. Fails as the append fails, and refuses `session.notFound` for a session purged.
+    pub(super) async fn activate(
+        &self,
+        session: &SessionToFinish,
+        level: PermissionLevel,
+        mode: SessionMode,
+    ) -> Result<SessionState, SessionCreateError> {
+        let session_id = session.session_id;
         let activated_at = WireInstant::now();
         let mut transactional_prelude = vec![WriteStatement {
             sql: Cow::Borrowed(PROVISIONING_GUARD_SQL.as_str()),
@@ -226,13 +314,10 @@ impl SessionCreation {
             placement.expected_row_count = None;
             transactional_prelude.push(placement);
         }
-        transactional_prelude.push(permission_level_change_statement(
-            &session_id,
-            starting.level(),
-        ));
+        transactional_prelude.push(permission_level_change_statement(&session_id, level));
         transactional_prelude.push(session_mode_change_statement(
             &session_id,
-            starting.session_mode(),
+            mode,
             activated_at.as_str(),
         ));
         let draft = SessionEventDraft::of_session(
@@ -280,6 +365,28 @@ impl SessionCreation {
                         .query_row(
                             named_params! { "@sessionId": session_id.text().as_str() },
                             |row| text_column(row, 0, closed_word),
+                        )
+                        .optional()?,
+                )
+            })
+            .await?;
+        state.ok_or_else(|| session_not_found(&session_id).into())
+    }
+
+    // The session's state, with whether a hand-off names it.
+    async fn read_finish_state(
+        &self,
+        session_id: SessionId,
+    ) -> Result<(SessionState, bool), SessionCreateError> {
+        let state = self
+            .reads
+            .read(ReadLength::Short, move |connection| {
+                Ok::<_, SessionCreateError>(
+                    connection
+                        .prepare_cached(SELECT_FINISH_STATE_SQL)?
+                        .query_row(
+                            named_params! { "@sessionId": session_id.text().as_str() },
+                            |row| Ok((text_column(row, 0, closed_word)?, row.get::<_, bool>(1)?)),
                         )
                         .optional()?,
                 )
@@ -414,14 +521,20 @@ impl SessionCreation {
 }
 
 impl CloneAttachedListener for SessionCreation {
-    /// Finishes every session made in the project while it cloned; each is tried, and the
-    /// failures are answered together.
+    /// Finishes every session made in the project while it cloned, and hands each of its
+    /// hand-offs whose seed no run has taken to the seeding port, whose finish binds the fresh
+    /// session now that the folder is attached; each is tried, and the failures are answered
+    /// together.
     fn clone_attached(
         &self,
         project_id: ProjectId,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         async move {
-            let outcomes = self.finish_each_provisioning(Some(project_id)).await?;
+            let mut outcomes = self.finish_each_provisioning(Some(project_id)).await?;
+            outcomes.extend(
+                self.hand_unseeded_hand_offs_to_port(Some(project_id))
+                    .await?,
+            );
             settle_all(
                 outcomes,
                 "finishing the sessions made while the project cloned",
@@ -432,7 +545,21 @@ impl CloneAttachedListener for SessionCreation {
     }
 }
 
-fn finish_failure(session_id: SessionId, failure: SessionCreateError) -> SessionFinishFailure {
+/// Names `step` as where a failure of a hand-off's finish stopped.
+pub(super) fn failed_at<Failure: Into<SessionCreateError>>(
+    step: PlanHandOffStep,
+) -> impl FnOnce(Failure) -> HandOffStepFailure {
+    move |failure| HandOffStepFailure {
+        step,
+        failure: failure.into(),
+    }
+}
+
+/// `failure` as the failure of `session_id`'s finish.
+pub(super) fn finish_failure(
+    session_id: SessionId,
+    failure: SessionCreateError,
+) -> SessionFinishFailure {
     SessionFinishFailure {
         session_id,
         failure: Box::new(failure),

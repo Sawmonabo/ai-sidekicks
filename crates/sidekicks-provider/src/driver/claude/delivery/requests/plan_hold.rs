@@ -5,6 +5,8 @@
 //! plan that cannot be recorded is refused at once, and once a newer plan is recorded the held
 //! requests of the older plans its record set aside are answered to wait for the person.
 
+mod verdict;
+
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Map, Value, json};
@@ -42,22 +44,16 @@ const PLAN_KEPT_REASON: &str =
     "The person is still reviewing the plan. Stop and wait for their next message.";
 
 impl ClaudeInboundRequests {
-    /// The request the session holds open for the plan `plan_id`, from the moment it is admitted.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the plan verdict answers the request it finds here"
-        )
-    )]
+    /// The id and the recording of the request the session holds open for the plan `plan_id`, from
+    /// the moment it is admitted.
     pub(crate) fn held_plan_request(
         &self,
         session_id: SessionId,
         plan_id: PlanId,
-    ) -> Option<String> {
+    ) -> Option<(String, u64)> {
         self.lock()
             .held_plan(session_id, plan_id)
-            .map(|(request_id, _admission)| request_id.to_owned())
+            .map(|(request_id, admission)| (request_id.to_owned(), admission))
     }
 
     // Holds the plan the request carries, Claude Code's `plan` text and the plan file it wrote

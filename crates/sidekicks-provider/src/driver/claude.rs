@@ -43,6 +43,7 @@ use crate::driver::contract::params_and_results::{
     ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
     ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
+use crate::driver::contract::plan_verdict::{AnswerPlanParams, PlanVerdictAnswer};
 use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::error_causes::ProviderAxisInvalid;
@@ -103,6 +104,7 @@ mod spent_retries_signal;
 mod tools;
 mod turn_evidence;
 mod version;
+mod written_names;
 
 /// Claude Code's fixed facts. Its plan ids read as their own words, and it reads no tool-server
 /// declaration member beyond the shared ones.
@@ -221,6 +223,13 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     // It keeps a project's `local` servers in its own config.
     is_mcp_local_scope_emulated: false,
     skill_name_max_length: None,
+    written_name_forms: &written_names::CLAUDE_WRITTEN_NAME_FORMS,
+    permission_identifiers: &[
+        "ExitPlanMode",
+        "plan mode",
+        "permission mode",
+        "auto-accept",
+    ],
     callback_tools_asked: true,
     // Its sign-in takes the daemon's receiver's address when the authorization server accepts it.
     can_mcp_sign_in_return_to_daemon_receiver: true,
@@ -352,6 +361,13 @@ impl ProviderDriver for ClaudeDriver {
         params: RespondToRequestParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
         self.respond_to_request(params).boxed()
+    }
+
+    fn answer_plan(
+        &self,
+        params: AnswerPlanParams,
+    ) -> BoxFuture<'_, Result<PlanVerdictAnswer, DriverError>> {
+        self.answer_plan(params).boxed()
     }
 
     fn override_denial(
@@ -569,7 +585,7 @@ impl ProviderDriver for ClaudeDriver {
         &self,
         params: ListProviderCommandsParams,
     ) -> BoxFuture<'_, Result<ProviderCommandBindingGroup, DriverError>> {
-        ready(self.list_provider_commands(params)).boxed()
+        self.list_provider_commands(params).boxed()
     }
 
     fn stop_command(&self, params: RunningCommandParams) -> BoxFuture<'_, Result<(), DriverError>> {

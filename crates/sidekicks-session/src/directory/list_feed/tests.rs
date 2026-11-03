@@ -2,6 +2,7 @@
 //! to one place per session, a purge's removal, a chat's document count, and the renewal running
 //! only while a session runs.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -205,15 +206,19 @@ async fn a_slow_subscriber_sends_the_newest_entry_once_and_a_purge_removes_it() 
     }
 }
 
-// Catches a chat's document count left out of its entry, or read only at the opening: the count its
-// managed mount's row holds reaches the list, and again once the workspace names the chat.
+// Catches a chat's document count left out of its entry, read only at the opening, or read for the
+// chat its folder was made for alone: the count of the managed mount a chat holds reaches its row,
+// for the folder's founding chat and a chat it was handed to alike, and again once the workspace
+// names the chat; a chat holding no folder lists none.
 #[tokio::test]
-async fn a_chats_document_count_reaches_the_list_when_the_workspace_names_it() {
+async fn a_folder_s_document_count_reaches_every_chat_holding_it() {
     let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
-    let session_id = test_session_id();
+    let (founding, holder, stranger) = (test_session_id(), test_session_id(), test_session_id());
     let connection = database.reader();
-    insert_session_row(&connection, session_id.text().as_str(), None, None);
+    for session_id in [founding, holder, stranger] {
+        insert_session_row(&connection, session_id.text().as_str(), None, None);
+    }
     connection
         .execute(
             "INSERT INTO repo_mounts (id, machine_id, local_path, canonical_root, origin, \
@@ -221,32 +226,50 @@ async fn a_chats_document_count_reaches_the_list_when_the_workspace_names_it() {
              VALUES ('mount', 'machine', '/chat', '/chat', ?1, ?2, ?3, ?3)",
             params![
                 <&'static str>::from(MountOrigin::Managed),
-                session_id.text().as_str(),
+                founding.text().as_str(),
                 PARENT_ROWS_AT
             ],
         )
         .expect("the test stores the chat's managed mount");
+    for session_id in [founding, holder] {
+        connection
+            .execute(
+                "INSERT INTO managed_folder_holds (repo_mount_id, session_id) VALUES ('mount', ?1)",
+                params![session_id.text().as_str()],
+            )
+            .expect("the test stores the chat's hold");
+    }
     let feed = SessionListFeed::for_test(&database, &log.followers);
     let SessionListOpening {
         sessions,
         mut subscriber,
         ..
     } = feed.open().await.expect("the list opens");
+    // The opening lists its entries in no set order, so each is found by its session.
+    let opening_counts: HashMap<SessionId, Option<u64>> = sessions
+        .iter()
+        .map(|entry| match entry {
+            SessionListEntry::Chat(chat) => (chat.session_id, document_count_of(entry)),
+            SessionListEntry::Project(_) => panic!("every session stored is a chat"),
+        })
+        .collect();
     assert_eq!(
-        sessions.iter().map(document_count_of).collect::<Vec<_>>(),
-        [Some(0)]
+        opening_counts,
+        HashMap::from([(founding, Some(0)), (holder, Some(0)), (stranger, None)])
     );
     let gate = CreditGate::with_credit(1);
 
     connection
         .execute(
-            "UPDATE repo_mounts SET document_count = 3 WHERE managed_session_id = ?1",
-            params![session_id.text().as_str()],
+            "UPDATE repo_mounts SET document_count = 3 WHERE id = 'mount'",
+            [],
         )
-        .expect("the test counts the chat's documents");
-    feed.refresh_session(session_id);
-    let counted = upsert_of(&mut subscriber, &gate, session_id).await;
-    assert_eq!(document_count_of(&counted), Some(3));
+        .expect("the test counts the folder's documents");
+    for session_id in [founding, holder] {
+        feed.refresh_session(session_id);
+        let counted = upsert_of(&mut subscriber, &gate, session_id).await;
+        assert_eq!(document_count_of(&counted), Some(3));
+    }
 }
 
 fn document_count_of(entry: &SessionListEntry) -> Option<u64> {

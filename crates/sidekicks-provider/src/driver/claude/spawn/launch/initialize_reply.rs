@@ -12,6 +12,7 @@ use crate::driver::claude::session::transport::declarations::{
     ClaudeFastModeDeclaration, ClaudeInitializeDeclaration, ClaudeOfferedModel,
 };
 use crate::lenient_json::{LenientList, lenient_object, read_lenient};
+use crate::record_readers::filter_non_empty;
 
 #[derive(Default, Deserialize)]
 struct InitializeReply {
@@ -75,6 +76,22 @@ impl ClaudeModelEffort {
 struct CommandRow {
     #[serde(default, deserialize_with = "read_lenient")]
     name: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    description: Option<String>,
+    #[serde(rename = "argumentHint", default, deserialize_with = "read_lenient")]
+    argument_hint: Option<String>,
+}
+
+/// One command an `initialize` reply lists: its name, and its description and argument hint where
+/// the reply gives non-empty ones.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ClaudeListedCommand {
+    /// The name, without its `/`.
+    pub(crate) name: String,
+    /// What it does.
+    pub(crate) description: Option<String>,
+    /// What follows the name.
+    pub(crate) argument_hint: Option<String>,
 }
 
 lenient_object!(ModelRow, CommandRow);
@@ -85,10 +102,6 @@ fn read_reply(reply: Option<&RawValue>) -> InitializeReply {
         .unwrap_or_default()
 }
 
-fn non_empty(text: Option<String>) -> Option<String> {
-    text.filter(|text| !text.is_empty())
-}
-
 /// What `reply` declares about the process's models, styles and fast mode.
 pub(crate) fn read_claude_initialize_declaration(
     reply: Option<&RawValue>,
@@ -97,10 +110,10 @@ pub(crate) fn read_claude_initialize_declaration(
     let mut models = Vec::new();
     let mut auto_mode_models = HashSet::new();
     for row in reply.models.map(|models| models.0).unwrap_or_default() {
-        let Some(value) = non_empty(row.value) else {
+        let Some(value) = filter_non_empty(row.value) else {
             continue;
         };
-        let resolved_model = non_empty(row.resolved_model);
+        let resolved_model = filter_non_empty(row.resolved_model);
         if row.supports_auto_mode == Some(true) {
             auto_mode_models.insert(value.clone());
             auto_mode_models.extend(resolved_model.clone());
@@ -108,14 +121,14 @@ pub(crate) fn read_claude_initialize_declaration(
         models.push(ClaudeOfferedModel {
             value,
             resolved_model,
-            display_name: non_empty(row.display_name),
+            display_name: filter_non_empty(row.display_name),
             effort_levels: row.effort.into_levels(),
         });
     }
     ClaudeInitializeDeclaration {
         fast_mode: ClaudeFastModeDeclaration {
-            fast_mode_state: non_empty(reply.fast_mode_state),
-            fast_mode_disabled_reason: non_empty(reply.fast_mode_disabled_reason),
+            fast_mode_state: filter_non_empty(reply.fast_mode_state),
+            fast_mode_disabled_reason: filter_non_empty(reply.fast_mode_disabled_reason),
         },
         models,
         auto_mode_models,
@@ -123,17 +136,33 @@ pub(crate) fn read_claude_initialize_declaration(
             .available_output_styles
             .map(|styles| styles.0)
             .unwrap_or_default(),
-        output_style: non_empty(reply.output_style),
+        output_style: filter_non_empty(reply.output_style),
     }
 }
 
-/// The names of the commands `reply` lists.
-pub(crate) fn read_claude_listed_commands(reply: Option<&RawValue>) -> HashSet<String> {
+/// The commands `reply` lists, in its order, a row naming no command skipped.
+pub(crate) fn read_claude_listed_command_rows(
+    reply: Option<&RawValue>,
+) -> Vec<ClaudeListedCommand> {
     read_reply(reply)
         .commands
         .map(|commands| commands.0)
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|command| non_empty(command.name))
+        .filter_map(|command| {
+            Some(ClaudeListedCommand {
+                name: filter_non_empty(command.name)?,
+                description: filter_non_empty(command.description),
+                argument_hint: filter_non_empty(command.argument_hint),
+            })
+        })
+        .collect()
+}
+
+/// The names of the commands `reply` lists.
+pub(crate) fn read_claude_listed_commands(reply: Option<&RawValue>) -> HashSet<String> {
+    read_claude_listed_command_rows(reply)
+        .into_iter()
+        .map(|command| command.name)
         .collect()
 }
