@@ -227,8 +227,8 @@ impl RunQueue {
     /// provider of the target's run does it, outside every lock. Once the provider applied it, one
     /// write records an `agent.run.rolledBack` of the target's run at the turn before the target's
     /// and of each later lead run at its start, with `companions` committing in it, and the cut is
-    /// fenced on the session's live binding; the hold stays. A turn the provider opens on the
-    /// session between its answer and the write's end opens once the write has ended. Refuses as
+    /// fenced on the session's live binding; the hold stays. A turn opening on the session that
+    /// meets the write in progress opens once the write has ended. Refuses as
     /// [`ConversationCutError`] says before the provider is asked, an open turn among the runs it
     /// reaches and a companion its check refuses included; a provider's fallback or failure writes
     /// nothing, and a write the store does not record once the provider cut answers
@@ -267,8 +267,8 @@ impl RunQueue {
                 return Ok(ConversationCut::Degraded { fallback_action });
             }
         };
-        // A turn the provider opens on the session from here until the write ends waits for it,
-        // so no turn opened on a run the cut reaches refuses the rollback.
+        // A turn opening that meets this mark waits for the write to end, so it cannot refuse the
+        // rollback; one already past its check can, and the write then answers `Unrecorded`.
         let undo_write = self.engine.mark_undo_write(session_id);
         let _queue_hold = self.session_lock.hold_session(session_id).await;
         let append_hold = SESSION_APPEND_LOCK.acquire(session_id).await;
