@@ -244,10 +244,10 @@ fn free_member_name(members: &serde_json::Map<String, serde_json::Value>, name: 
     if !members.contains_key(&name) {
         return name;
     }
-    (2_u64..)
+    (2..=members.len() + 1)
         .map(|number| format!("{name} ({number})"))
         .find(|candidate| !members.contains_key(candidate))
-        .expect("a map holds finitely many names, so a free one is found")
+        .expect("the map holds fewer names than the candidates, so one is free")
 }
 
 /// The needle set `shared` holds now; a poisoned lock still holds a whole set, since a writer only
@@ -390,7 +390,7 @@ mod tests {
     fn a_json_value_is_masked_in_its_numbers_too() {
         let redaction = redaction_of(&["4821"]);
         let mut value =
-            serde_json::json!({ "pin": 4821, "code": 948217, "count": 3, "note": "4821" });
+            serde_json::json!({ "pin": 4821, "code": 948_217, "count": 3, "note": "4821" });
 
         redaction.scrub_json(&mut value);
 
