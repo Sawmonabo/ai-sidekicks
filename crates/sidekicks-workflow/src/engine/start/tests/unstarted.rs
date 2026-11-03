@@ -14,7 +14,7 @@ use sidekicks_contracts::workflow::run::trigger::WorkflowRunChainPlace;
 
 use super::{
     Fixture, ROOT_RUN_ID, TestSession, UNKNOWN_VERSION_ID, body, item, joins_root, refusal,
-    run_folders, start, test_provider,
+    runs_folders, start, test_provider,
 };
 use crate::engine::ports::REFUSED_PORT_CALL;
 use crate::engine::start::{WorkflowStartArrival, WorkflowStartOutcome};
@@ -30,7 +30,8 @@ enum NothingWritten {
 
 /// Mutations: a refusal checked after the write (a run row or an event is kept); a wrong code; the
 /// inputs left unchecked (the run starts); the count's refusal read as an error; a held start's
-/// own folder left behind; a held start's stored input, above the inline cap, left undeleted.
+/// own folder, or its emptied runs folder, left behind; a held start's stored input, above the
+/// inline cap, left undeleted.
 #[rstest]
 #[case::unknown_session(NothingWritten::UnknownSession)]
 #[case::unknown_version(NothingWritten::UnknownVersion)]
@@ -115,7 +116,7 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
         stored_runs
     );
     assert_eq!(fixture.count("SELECT COUNT(*) FROM session_events"), 0);
-    assert_eq!(run_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
+    assert_eq!(runs_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
     let written: Vec<ArtifactId> = fixture
         .payloads
         .writes()
@@ -164,5 +165,5 @@ async fn a_held_start_that_cannot_clean_up_is_still_held() {
         faults,
         vec![(json!("heldStartLeftBehind"), json!(REFUSED_PORT_CALL))]
     );
-    assert_eq!(run_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
+    assert_eq!(runs_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
 }

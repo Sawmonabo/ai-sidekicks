@@ -457,11 +457,12 @@ fn entries(folder: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-// Every run's own folder under the data folder.
-fn run_folders(data_folder: &Path) -> Vec<PathBuf> {
+// Every workflow's runs folder under the data folder, which holds its runs' own folders.
+fn runs_folders(data_folder: &Path) -> Vec<PathBuf> {
     entries(&data_folder.join("workflows"))
         .iter()
-        .flat_map(|workflow| entries(&workflow.join("runs")))
+        .map(|workflow| workflow.join("runs"))
+        .filter(|runs| runs.exists())
         .collect()
 }
 
@@ -537,7 +538,7 @@ async fn a_trigger_start_passes_the_rules_and_a_persons_or_agents_does_not(
         );
         assert_eq!(fixture.count("SELECT COUNT(*) FROM workflow_runs"), 0);
         assert_eq!(fixture.count("SELECT COUNT(*) FROM session_events"), 0);
-        assert_eq!(run_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
+        assert_eq!(runs_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
     }
 }
 
@@ -757,7 +758,8 @@ async fn the_start_scope_holds_the_pinned_version_the_workflows_level_and_its_pi
 }
 
 /// Mutations: the scope read after the write (a run row and its event are kept); the run's own
-/// folder left behind; the scope read after the trigger's input (the large input is stored).
+/// folder, or its emptied runs folder, left behind; the scope read after the trigger's input (the
+/// large input is stored).
 #[tokio::test]
 async fn a_failed_scope_read_writes_no_run() {
     let fixture = Fixture::new(&body(None), TestSession::WithoutFolder, None, None).await;
@@ -775,6 +777,6 @@ async fn a_failed_scope_read_writes_no_run() {
     assert!(matches!(outcome, Err(WorkflowRunStartError::Provider(_))));
     assert_eq!(fixture.count("SELECT COUNT(*) FROM workflow_runs"), 0);
     assert_eq!(fixture.count("SELECT COUNT(*) FROM session_events"), 0);
-    assert_eq!(run_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
+    assert_eq!(runs_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
     assert_eq!(fixture.payloads.writes(), Vec::new());
 }

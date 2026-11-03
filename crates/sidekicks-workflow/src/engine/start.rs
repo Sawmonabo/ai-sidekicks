@@ -343,8 +343,8 @@ impl WorkflowRunStarter {
     /// `workflow.run.inputRequired`), [`WorkflowRunStartError::Version`]
     /// (`workflow.version.notFound`) or [`WorkflowRunStartError::Session`] (`session.notFound`)
     /// before anything is made, and with the other variants when a read, the provider, the folder,
-    /// the payload store or the write fails; the run's own folder and its stored trigger input go
-    /// with every outcome but a start. A held start whose folder or stored input cannot be removed
+    /// the payload store or the write fails; the run's own folder, with its workflow's runs folder
+    /// once that is empty, and its stored trigger input go with every outcome but a start. A held start whose folder or stored input cannot be removed
     /// is still answered held, the removal's failure going to the engine's record.
     #[cfg_attr(
         not(test),
@@ -380,7 +380,7 @@ impl WorkflowRunStarter {
             };
         }
         if let RunFolder::Own(folder) = prepared.folder
-            && let Err(removal) = tokio::fs::remove_dir_all(&folder).await
+            && let Err((folder, removal)) = remove_own_folder(folder).await
         {
             ended = match ended {
                 Ok(held) => {
@@ -821,5 +821,34 @@ async fn make_own_folder(folder: &Path) -> io::Result<()> {
             tokio::fs::create_dir(folder).await
         }
         made => made,
+    }
+}
+
+// Removes a run's own `folder`, then its workflow's runs folder when that leaves it empty, so no
+// empty folder stays for a workflow whose start made no run. Fails with the folder left and why.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
+async fn remove_own_folder(folder: PathBuf) -> Result<(), (PathBuf, io::Error)> {
+    if let Err(removal) = tokio::fs::remove_dir_all(&folder).await {
+        return Err((folder, removal));
+    }
+    let runs_folder = folder
+        .parent()
+        .expect("a run's folder sits in its workflow's runs folder")
+        .to_path_buf();
+    match tokio::fs::remove_dir(&runs_folder).await {
+        Ok(()) => Ok(()),
+        // Another run of the workflow still has its folder there, or a run's delete took it.
+        Err(removal)
+            if matches!(
+                removal.kind(),
+                io::ErrorKind::DirectoryNotEmpty | io::ErrorKind::NotFound
+            ) =>
+        {
+            Ok(())
+        }
+        Err(removal) => Err((runs_folder, removal)),
     }
 }
