@@ -71,7 +71,7 @@ pub(super) fn losing_places(graph: &RunGraph, place: usize, winning_slot: usize)
 /// Marks in `marked` every node reached from `starts` by walking back along forward main edges,
 /// entering only the nodes `may_enter` accepts.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-fn mark_ancestors(
+pub(super) fn mark_ancestors(
     graph: &RunGraph,
     starts: impl Iterator<Item = usize>,
     may_enter: impl Fn(usize) -> bool,
