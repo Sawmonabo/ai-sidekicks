@@ -1,6 +1,7 @@
-//! A step's launch: everything between its admission and the start of its executor. Its secrets
-//! resolve, its params are read and its templates opened on the expression thread, and its context
-//! is built.
+//! A step's launch, which its driver runs before the step's executor or agent run starts: before
+//! its turn in the memory gate's line for a step that waits at the gate or makes its own run, and
+//! after the dispatch admits it for any other. Its secrets resolve, its params are read and its
+//! templates opened on the expression thread, and its context is built.
 
 use std::sync::Arc;
 
