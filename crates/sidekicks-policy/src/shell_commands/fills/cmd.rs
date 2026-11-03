@@ -92,7 +92,6 @@ pub(super) fn keep_through_delayed_expansion(line: &str, references: &[Range<usi
             (CharacterReading::Quoted | CharacterReading::Reference, '"') if is_quoted => {
                 is_quoted = false;
             }
-            (CharacterReading::Escaped | CharacterReading::Quoted, _) => {}
             (CharacterReading::EscapeCaret, _) => is_escaping = true,
             (CharacterReading::Reference | CharacterReading::Unquoted, '"') => is_quoted = true,
             (CharacterReading::Unquoted, '&') if after_operator => is_text = false,
@@ -122,7 +121,13 @@ pub(super) fn keep_through_delayed_expansion(line: &str, references: &[Range<usi
                 };
                 is_text = false;
             }
-            (CharacterReading::Reference | CharacterReading::Unquoted, _) => {}
+            (
+                CharacterReading::Reference
+                | CharacterReading::Escaped
+                | CharacterReading::Quoted
+                | CharacterReading::Unquoted,
+                _,
+            ) => {}
         }
         // A character of text starts the name or a target where none has begun.
         if is_text {
