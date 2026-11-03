@@ -9,13 +9,11 @@ use std::path::{Path, PathBuf};
 use sidekicks_platforms::create_new_file;
 
 use crate::cleanup_failures::CleanupFailures;
+use crate::file::clone_open_file::NEW_COPY_MODE;
 use crate::file::publish_without_replacing::{PublishOutcome, blocking_publish_without_replacing};
 use crate::file::removal_after_failure::remove_file_after_failure;
 use crate::missing_entry::MissingEntry as _;
 use crate::random_hex::random_hex;
-
-// The mode a fallback copy is made with, before it takes the source's own.
-const FALLBACK_COPY_MODE: u32 = 0o600;
 
 // The random bytes in a fallback copy's temporary name, so two copies to one path never meet.
 const TEMPORARY_NAME_RANDOM_BYTES: usize = 8;
@@ -95,7 +93,7 @@ fn temporary_path_beside(destination: &Path) -> io::Result<PathBuf> {
 fn copy_into_new_file(source: &Path, path: &Path) -> io::Result<Permissions> {
     let mut reader = File::open(source)?;
     let permissions = reader.metadata()?.permissions();
-    let mut copy = create_new_file(path, FALLBACK_COPY_MODE)?;
+    let mut copy = create_new_file(path, NEW_COPY_MODE)?;
     io::copy(&mut reader, &mut copy)?;
     Ok(permissions)
 }

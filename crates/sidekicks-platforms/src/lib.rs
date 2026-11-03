@@ -168,7 +168,7 @@ pub use child_tree::{
     ChildTree, ChildTreeOutput, ChildTreeOutputError, read_bounded_to_end,
     read_stderr_left_at_exit, start_child_tree,
 };
-pub use clone_refusal::CloneRefusal;
+pub use clone_refusal::{CAN_CLONE_INTO_OPEN_FILE, CloneRefusal};
 #[cfg(not(target_os = "macos"))]
 pub use code_signature::DesktopClientRequirement;
 pub use code_signature::{CodeSignatureError, SignatureCheck};
