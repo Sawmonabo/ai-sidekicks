@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::release_manifest::Sha256Hex;
 use sidekicks_platforms::{
-    RegularFileOpen, create_missing_private_folders, create_new_file, file_mode_of, flush_folder,
-    flush_open_file, open_regular_file,
+    RegularFileOpen, create_missing_private_folders, create_new_file, file_mode_of, flush_file,
+    flush_folder, flush_open_file, open_regular_file,
 };
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::file::clone_open_file::{CloneOpenFileError, clone_open_file};
@@ -135,14 +135,13 @@ impl CopyStore {
         self.keep_byte_copy(&mut reader)
     }
 
-    // Hashes the clone at `temporary` and gives it its hash's name.
+    // Hashes the clone at `temporary` and gives it its hash's name. The clone carries its source's
+    // read-only bit, so it is flushed by path, which opens it for writing where a flush needs that.
     fn keep_clone(&self, temporary: &Path) -> Result<Sha256Hex, FileCopyError> {
-        let hashed = File::open(temporary).and_then(|clone| {
-            let hash = copy_hashing(&mut &clone, &mut io::sink())?;
-            Ok((clone, hash))
-        });
+        let hashed =
+            File::open(temporary).and_then(|clone| copy_hashing(&mut &clone, &mut io::sink()));
         match hashed {
-            Ok((clone, hash)) => self.publish(temporary, clone, hash),
+            Ok(hash) => self.publish(temporary, hash, || flush_file(temporary)),
             Err(failure) => Err(FileCopyError::TemporaryFile(remove_temporary_after(
                 failure, temporary, KEEPING,
             ))),
@@ -155,21 +154,21 @@ impl CopyStore {
         let temporary = self.temporary_path()?;
         let mut copy = create_new_file(&temporary, BYTE_COPY_MODE).map_err(FileCopyError::Io)?;
         match copy_hashing(reader, &mut copy) {
-            Ok(hash) => self.publish(&temporary, copy, hash),
+            Ok(hash) => self.publish(&temporary, hash, move || flush_open_file(&copy)),
             Err(failure) => Err(FileCopyError::TemporaryFile(remove_temporary_after(
                 failure, &temporary, KEEPING,
             ))),
         }
     }
 
-    // Gives the whole file at `temporary`, open as `copy`, its hash's name, or removes it when a
-    // copy already has that name. Only a newly named copy is flushed; the folder is flushed either
+    // Gives the whole file at `temporary` its hash's name, or removes it when a copy already has
+    // that name. Only a newly named copy is flushed, through `flush`; the folder is flushed either
     // way, so a copy another writer named is on disk before a row names it.
     fn publish(
         &self,
         temporary: &Path,
-        copy: File,
         hash: Sha256Hex,
+        flush: impl FnOnce() -> io::Result<()>,
     ) -> Result<Sha256Hex, FileCopyError> {
         let target = self.copy_path(&hash);
         match target.try_exists() {
@@ -191,12 +190,11 @@ impl CopyStore {
                 )));
             }
         }
-        if let Err(failure) = flush_open_file(&copy) {
+        if let Err(failure) = flush() {
             return Err(FileCopyError::TemporaryFile(remove_temporary_after(
                 failure, temporary, KEEPING,
             )));
         }
-        drop(copy);
         // Published or found named by another writer, the copy is flushed with its folder.
         let (PublishOutcome::Published | PublishOutcome::TargetExists) =
             blocking_publish_without_replacing(temporary, &target)
