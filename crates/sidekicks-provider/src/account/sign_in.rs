@@ -145,6 +145,9 @@ pub enum ProviderSignInError {
     /// No sign-in legs are registered for the provider.
     #[error("the provider's sign-in cannot be brokered")]
     Unsupported,
+    /// The account signs in with a pasted key or token, which only a new one pasted replaces.
+    #[error("the provider account's pasted key or token is replaced by pasting a new one")]
+    PastedCredential,
     /// A sign-in from another device named the browser arm, whose callback that device's browser
     /// cannot reach.
     #[error("a browser sign-in cannot be finished from another device")]
@@ -166,8 +169,8 @@ pub enum ProviderSignInError {
 impl From<ProviderSignInError> for HandlerError {
     /// An open attempt in the way refuses `provider.account.signInInFlight` with details naming
     /// it and its account, and a switch or a reset in flight refuses it with none; a provider
-    /// with no legs and the browser arm from another device refuse
-    /// `provider.account.signInUnsupported`; the registry's and the driver's
+    /// with no legs, the browser arm from another device and an account with a pasted key or token
+    /// refuse `provider.account.signInUnsupported`; the registry's and the driver's
     /// failures answer as their own conversions say, and a failed mint is the daemon's.
     fn from(error: ProviderSignInError) -> Self {
         match error {
@@ -190,6 +193,10 @@ impl From<ProviderSignInError> for HandlerError {
             ),
             ProviderSignInError::Unsupported => Self::Refused(DomainError::new(
                 "The provider's sign-in cannot be brokered",
+                RefusalCode::ProviderAccountSignInUnsupported,
+            )),
+            ProviderSignInError::PastedCredential => Self::Refused(DomainError::new(
+                "This account uses a pasted key or token; paste a new one to replace it",
                 RefusalCode::ProviderAccountSignInUnsupported,
             )),
             ProviderSignInError::BrowserFromAnotherDevice => Self::Refused(DomainError::new(
@@ -246,7 +253,9 @@ impl ProviderSignInBroker {
     /// and home it mints, on the arm `request` names or, naming none, the one `origin` calls for,
     /// once the account's home is free, and answers what the person needs. Fails with
     /// [`ProviderSignInError::BrowserFromAnotherDevice`], before anything is read or minted, where
-    /// another device names the browser arm; [`ProviderSignInError::AttemptOpen`] while the
+    /// another device names the browser arm; [`ProviderSignInError::PastedCredential`], nothing
+    /// reserved or started, for an account with a pasted key or token;
+    /// [`ProviderSignInError::AttemptOpen`] while the
     /// account has an open attempt, or while the start holds what the machine has only one of and
     /// another of the provider's open attempts holds it; [`ProviderSignInError::InFlight`] while
     /// the account has a switch onto it or its home's reset in flight;
@@ -268,6 +277,9 @@ impl ProviderSignInBroker {
         let (legs, reservation) = match request {
             ProviderAccountSignInRequest::Registered(registered) => {
                 let account = self.attempt.registry.read(registered.account_id).await?;
+                if account.has_pasted_credential() {
+                    return Err(ProviderSignInError::PastedCredential);
+                }
                 let legs = self.legs_of(&account.provider)?;
                 let reservation = self
                     .attempt

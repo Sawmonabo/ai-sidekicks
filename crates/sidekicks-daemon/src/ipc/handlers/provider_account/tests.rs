@@ -28,7 +28,7 @@ use sidekicks_contracts::provider::account::methods::{
     ProviderAccountUpdateResponse, ProviderWakeHelperState,
 };
 use sidekicks_contracts::provider::account::record::{
-    ProviderAccountId, ProviderAccountNotification, ProviderAuthMode,
+    BillingMode, ProviderAccountId, ProviderAccountNotification, ProviderAuthMode,
 };
 use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderAccountRegisterResponse, ProviderAccountSignInResponse,
@@ -59,7 +59,7 @@ use sidekicks_provider::account::home_lock::AccountHomeLock;
 use sidekicks_provider::account::observer::{
     AccountLiveTurns, ProviderAccountObserver, ProviderAccountObserverDeps,
 };
-use sidekicks_provider::account::registry::ProviderAccountRegistry;
+use sidekicks_provider::account::registry::{AccountAdmission, ProviderAccountRegistry};
 use sidekicks_provider::account::resolver::ProviderAccounts;
 use sidekicks_provider::account::sign_in::{
     AccountsInFlight, ProviderSignInBroker, SignedInAccountWatcher,
@@ -755,18 +755,25 @@ async fn an_account_signing_in_is_neither_switched_to_nor_reset(#[case] act: Act
     let inputs =
         MethodInputs::new(Arc::new(ScriptedWakeHelper::new(WakeHelperStatus::Missing))).await;
     let current = inputs.register_token_account().await.account;
-    let other: ProviderAccountRegisterResponse = inputs
-        .call(
-            ProviderAccountRegister::DESCRIPTOR.method,
-            &json!({
-                "provider": first_provider().as_str(),
-                "displayLabel": "Home",
-                "billingMode": "subscription",
-                "nonInteractiveToken": "another-pasted-token",
-            }),
+    // An account its provider signs in, since one with a pasted token takes no brokered sign-in.
+    let minted = inputs
+        .accounts
+        .mint(first_provider())
+        .expect("the account is minted");
+    let other = inputs
+        .accounts
+        .admit(
+            &minted,
+            &AccountAdmission {
+                display_label: None,
+                billing_mode: BillingMode::Subscription,
+                health: None,
+                observed_auth_mode: Some(ProviderAuthMode::OauthSubscription),
+            },
         )
-        .await;
-    let account_id = other.account.account_id().clone();
+        .await
+        .expect("the account is admitted");
+    let account_id = other.account_id;
     let before = inputs
         .accounts
         .read(account_id.clone())
