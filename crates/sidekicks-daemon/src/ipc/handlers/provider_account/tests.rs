@@ -265,6 +265,15 @@ impl ProviderTokenStatusLegs for AcceptingStatusRead {
     ) -> BoxFuture<'call, Result<Option<ProviderAuthMode>, DriverError>> {
         async { Ok(Some(ProviderAuthMode::OauthToken)) }.boxed()
     }
+
+    fn hand_resupplied_token<'call>(
+        &'call self,
+        _provider_account_id: &'call ProviderAccountId,
+        _folders: &'call ProviderAccountFolders,
+        _token: &'call SecretString,
+    ) -> BoxFuture<'call, Result<(), DriverError>> {
+        async { Ok(()) }.boxed()
+    }
 }
 
 // A usage record no test reads: no provider here has a limits read or a window turn.

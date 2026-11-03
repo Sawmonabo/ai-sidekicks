@@ -320,6 +320,20 @@ pub(crate) fn start_scripted_account_service_for(
     )
 }
 
+/// Starts the key service on the home of `provider_account_id`, an account signed in with a pasted
+/// API key, whose connection the test scripts. Must be called within a runtime.
+#[cfg(test)]
+pub(crate) fn start_scripted_api_key_service_for(
+    provider_account_id: ProviderAccountId,
+) -> ScriptedCodexService {
+    start_scripted_codex_service_on(
+        CodexHomeKind::ApiKeyAccount(provider_account_id),
+        CodexServiceKind::Account,
+        Arc::new(UnstartedProgram),
+        Arc::new(UnheardEvents),
+    )
+}
+
 /// Starts a service on an account's home whose connection the test scripts and whose own start,
 /// once its supervisor begins one, never answers, so the test publishes the new process up. Must
 /// be called within a runtime.
