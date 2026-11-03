@@ -52,9 +52,9 @@ use crate::driver::session_control::{
 use crate::run::turn_end::TurnOutcome;
 
 /// Codex's own words for the turn that continues work its server's restart interrupted.
-pub(crate) const CODEX_CONTINUATION_TEXT: &str = "The server restarted and interrupted the previous turn. \
-     Continue the unfinished work from the saved conversation. Check the current state before \
-     repeating actions that may already have completed.";
+pub(crate) const CODEX_CONTINUATION_TEXT: &str = "The server restarted and interrupted the previous turn. Continue the unfinished work from \
+     the saved conversation. Check the current state before repeating actions that may already \
+     have completed.";
 
 /// Codex's own classification of the caller that starts a turn recovering from its restart.
 const DAEMON_RECOVERY_TURN_TRIGGER: &str = "daemon_recovery";
@@ -253,7 +253,8 @@ impl CodexSessionEstablishment {
                     session_id = %record.session_id,
                     run_id = %held.held_run_continue.lead_run_id,
                     error = &error as &(dyn Error + 'static),
-                    "the person's answers could not be carried to the codex lead the restart resumed"
+                    "the person's answers could not be carried to the codex lead the restart \
+                     resumed"
                 );
                 return None;
             }
