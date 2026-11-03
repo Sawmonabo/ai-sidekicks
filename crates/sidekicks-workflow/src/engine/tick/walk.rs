@@ -573,7 +573,8 @@ impl RunWalk {
 
     /// Whether the `round` of the node at `place`, which a win won or overtook, can take no more
     /// feeds: every slot not yet fed is fed only from places on a losing branch of such a win,
-    /// whose steps of the round's pass that win cancels.
+    /// whose steps of the round's pass that win cancels. A slot settled empty counts as not yet
+    /// fed while a feeder of it has a live step on the round's pass, whose items it still takes.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn is_spent(&self, place: usize, round: &Round) -> bool {
         let wins: Vec<&[bool]> = round
@@ -587,7 +588,17 @@ impl RunWalk {
             .iter()
             .zip(&self.graph.node(place).slots)
             .all(|(slot, input)| {
-                matches!(slot, RoundSlot::Filled { .. })
+                let is_fed = match slot {
+                    RoundSlot::Unfilled => false,
+                    RoundSlot::Filled { count, .. } => {
+                        *count > 0
+                            || !self.live.values().any(|live_step| {
+                                input.feeders.contains(&live_step.place)
+                                    && round.lineage.passes.is_same_as(&live_step.lineage.passes)
+                            })
+                    }
+                };
+                is_fed
                     || input
                         .feeders
                         .iter()
