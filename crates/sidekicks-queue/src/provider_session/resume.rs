@@ -248,9 +248,11 @@ impl ProviderSessions {
     // runs the resume named are settled as it answered for them; a process whose runs or record
     // fail is closed. A process already up that answers on its own binding records nothing, and
     // stays up when its runs fail; a deferred resume started none and records nothing. The held
-    // lead's continue is claimed before the driver runs and given back when it fails or defers; a
-    // `Continue` with none to carry calls no driver. Answers the opening, `None` for a deferred
-    // resume or a continue not run, beside what the resume brought back.
+    // lead's continue is claimed before the driver runs and given back when it fails, defers or
+    // does not run the lead on; one the provider carried stays claimed whatever fails after, since
+    // the lead has its answers. A `Continue` with none to carry calls no driver. Answers the
+    // opening, `None` for a deferred resume or a continue not run, beside what the resume brought
+    // back.
     async fn relaunch(
         &self,
         session_id: SessionId,
@@ -395,26 +397,22 @@ impl ProviderSessions {
         {
             let unmoved = ProviderSessionError::ResumedRuns { session_id, cause };
             self.deps.binding_cursors.forget_binding(&minted_id);
-            let unmoved = if binding_id == minted_id {
+            return Err(if binding_id == minted_id {
                 close_unrecorded(driver.as_ref(), session_id, unmoved).await
             } else {
                 unmoved
-            };
-            let claims = self.take_handed_continue(session_id);
-            return Err(self.release_marks_after(session_id, claims, unmoved).await);
+            });
         }
         let named_run_ids = runs.iter().map(|run| run.run_id).collect();
         // Each run the resume named is settled before the binding is recorded, so none goes live
-        // on the resumed process ahead of its settlement. A failure from here on gives the
-        // continue back, so the next relaunch carries it.
+        // on the resumed process ahead of its settlement. A failure from here on gives nothing
+        // back: a continue the lead did not take was given back above, and one it took reached it.
         let taken = self.take_resumed_runs(session_id, runs).await;
         let is_binding_recorded = binding_id == minted_id;
         if is_binding_recorded {
             if let Err(untaken) = taken {
                 self.deps.binding_cursors.forget_binding(&minted_id);
-                let untaken = close_unrecorded(driver.as_ref(), session_id, untaken).await;
-                let claims = self.take_handed_continue(session_id);
-                return Err(self.release_marks_after(session_id, claims, untaken).await);
+                return Err(close_unrecorded(driver.as_ref(), session_id, untaken).await);
             }
             // A provider that continued the conversation in a new one left the old one behind.
             let left_conversations = leg
@@ -440,21 +438,13 @@ impl ProviderSessions {
                 })
                 .await;
             if let Err(unrecorded) = recorded {
-                let unrecorded =
-                    close_unrecorded(driver.as_ref(), session_id, unrecorded.into()).await;
-                let claims = self.take_handed_continue(session_id);
-                return Err(self
-                    .release_marks_after(session_id, claims, unrecorded)
-                    .await);
+                return Err(close_unrecorded(driver.as_ref(), session_id, unrecorded.into()).await);
             }
         } else {
             // A process already up answered on the binding that brought it up, which has its
             // cursor and its row.
             self.deps.binding_cursors.forget_binding(&minted_id);
-            if let Err(untaken) = taken {
-                let claims = self.take_handed_continue(session_id);
-                return Err(self.release_marks_after(session_id, claims, untaken).await);
-            }
+            taken?;
         }
         Ok((
             Some(OpenedSession {

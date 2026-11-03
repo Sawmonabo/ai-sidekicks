@@ -1,7 +1,7 @@
 //! A held lead continued once the person answered: the resume carries the answers owed it only
 //! while the lead runs, each answer once, and owes it again to the next resume when the provider
-//! refused the one that carried it or resumed without continuing the lead, or when the resume's
-//! runs could not be settled or its binding recorded.
+//! refused the one that carried it or resumed without continuing the lead, never once the provider
+//! carried it, though the resume's runs could not be settled or its binding recorded after.
 
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -201,16 +201,15 @@ enum AcceptedResumeFailure {
     RunsUnsettledOnProcessUp,
 }
 
-// A continue whose resume the provider accepted, but whose runs could not be settled or whose
-// binding could not be recorded, gives its answer back, so the next continue carries it again, a
-// process already up included. Killed by the give-back on that path dropped (the second continue
-// resumes nothing).
+// A continue the provider carried, whose runs could not be settled or whose binding could not be
+// recorded after, keeps its answer claimed, so no later continue sends it again, a process already
+// up included. Killed by a give-back on that path (the second continue carries the answer again).
 #[rstest]
 #[case::runs_unsettled(AcceptedResumeFailure::RunsUnsettled)]
 #[case::binding_unrecorded(AcceptedResumeFailure::BindingUnrecorded)]
 #[case::runs_unsettled_on_process_up(AcceptedResumeFailure::RunsUnsettledOnProcessUp)]
 #[tokio::test]
-async fn a_continue_failed_after_its_resume_owes_its_answer_to_the_next(
+async fn a_carried_continue_that_fails_after_keeps_its_answer_claimed(
     #[case] failure: AcceptedResumeFailure,
 ) {
     let (opening, carried, entry) = held_lead().await;
@@ -232,11 +231,11 @@ async fn a_continue_failed_after_its_resume_owes_its_answer_to_the_next(
     fail(false);
     resume_after_answer(&opening)
         .await
-        .expect("the next continue resumes the lead");
+        .expect("the next continue answers with nothing owed");
 
     let entries: Vec<_> = lock(&carried)
         .iter()
         .map(|carried| carried.as_ref().map(|carried| carried.entries.clone()))
         .collect();
-    assert_eq!(entries, [Some(vec![entry.clone()]), Some(vec![entry])]);
+    assert_eq!(entries, [Some(vec![entry])]);
 }
