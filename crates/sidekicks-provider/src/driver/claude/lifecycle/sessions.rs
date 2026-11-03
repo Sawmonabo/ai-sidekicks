@@ -278,24 +278,37 @@ impl ClaudeDriver {
         let live = parts.and_then(|parts| parts.slots().live_session(session_id));
         let mut ended = parts.and_then(|parts| parts.restarts.ended_conversation(session_id));
         if live.is_none() && ended.is_none() {
-            let Some(leg) = self.read_session_leg(session_id).await? else {
+            let Some(stored) = self.stored_conversation(session_id).await? else {
                 return Ok(());
             };
-            let Some(handle) = leg.resume_handle else {
-                return Ok(());
-            };
-            ended = Some(
-                stored_claude_conversation(
-                    &self.sources,
-                    session_id,
-                    leg.spawn_config.provider_account_id,
-                    handle,
-                    read_claude_conversation_home(&leg.runtime_metadata).as_deref(),
-                )
-                .await?,
-            );
+            ended = Some(stored);
         }
         tell_claude_session_name(session_id, live.as_deref(), ended, name).await
+    }
+
+    /// The conversation the session's stored leg names, at rest on the account the leg ran on,
+    /// which outlives a restart of the daemon; `None` for a session that never ran or whose leg
+    /// names no conversation. Fails as the leg, the session's folder or its stored settings
+    /// cannot be read.
+    pub(super) async fn stored_conversation(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Option<ClaudeEndedConversation>, DriverError> {
+        let Some(leg) = self.read_session_leg(session_id).await? else {
+            return Ok(None);
+        };
+        let Some(handle) = leg.resume_handle else {
+            return Ok(None);
+        };
+        stored_claude_conversation(
+            &self.sources,
+            session_id,
+            leg.spawn_config.provider_account_id,
+            handle,
+            read_claude_conversation_home(&leg.runtime_metadata).as_deref(),
+        )
+        .await
+        .map(Some)
     }
 
     /// The messages a process that ended took, read from the conversation it wrote: the live

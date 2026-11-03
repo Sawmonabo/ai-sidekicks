@@ -3,6 +3,7 @@
 //! after the drivers are registered, on the first call that needs a session.
 
 mod controls;
+mod held_calls;
 mod runs;
 mod sessions;
 #[cfg(test)]
