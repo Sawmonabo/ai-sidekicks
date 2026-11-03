@@ -629,9 +629,10 @@ mod tests {
     }
 
     // cmd.exe's delayed expansion reads again each piece of a command holding a `!`, the arguments
-    // as one piece, so a launch escapes the author's `^` and `!` there, inside quotes and out, and
-    // leaves a name running through a `/`, a redirection's target and another command without a
-    // `!` as written.
+    // as one piece, and of an `if` each compared value alone, so a launch escapes the author's
+    // `^` and `!` there, inside quotes and out, and leaves a name running through a `/`, a
+    // redirection's target, another command, an `if`'s other value and its command without a `!`
+    // as written.
     #[rstest]
     #[case::a_caret_in_a_string("grep \"^{{ x }}\" file", "grep \"^^!SIDEKICKS_VALUE_1!\" file")]
     #[case::a_caret_before_text_in_a_string(
@@ -652,11 +653,43 @@ mod tests {
         "echo \"^a\" & echo {{ x }}",
         "echo \"^a\" & echo \"!SIDEKICKS_VALUE_1!\""
     )]
+    #[case::an_if_comparison(
+        "IF \"^a{{ x }}\"==\"^b\" echo \"^c\"",
+        "IF \"^^a!SIDEKICKS_VALUE_1!\"==\"^b\" echo \"^c\""
+    )]
+    #[case::an_if_comparison_after_its_options(
+        "IF /I NOT \"^a\" EQU \"^b{{ x }}\" echo \"^c\"",
+        "IF /I NOT \"^a\" EQU \"^^b!SIDEKICKS_VALUE_1!\" echo \"^c\""
+    )]
     fn a_cmd_launch_keeps_the_written_text_through_delayed_expansion(
         #[case] line: &str,
         #[case] filled: &str,
     ) {
         assert_eq!(launch(line, ShellGrammar::Cmd), Ok(filled.to_owned()));
+    }
+
+    // Of a `for` delayed expansion reads the set alone, and the command after `do` as a command of
+    // its own; each case runs the escape step on the line a launch would build.
+    #[rstest]
+    #[case::a_reference_in_the_set(
+        "for %i in (\"^a\" \"!SIDEKICKS_VALUE_1!\") do echo \"^b\"",
+        "for %i in (\"^^a\" \"!SIDEKICKS_VALUE_1!\") do echo \"^b\""
+    )]
+    #[case::a_reference_in_the_command(
+        "for %i in (\"^a\") do echo \"^b\" \"!SIDEKICKS_VALUE_1!\"",
+        "for %i in (\"^a\") do echo \"^^b\" \"!SIDEKICKS_VALUE_1!\""
+    )]
+    fn a_cmd_for_keeps_the_written_text_through_delayed_expansion(
+        #[case] line: &str,
+        #[case] kept: &str,
+    ) {
+        let reference = "\"!SIDEKICKS_VALUE_1!\"";
+        let start = line.find(reference).expect("each line holds the reference");
+        let range = start..start + reference.len();
+        assert_eq!(
+            cmd::keep_through_delayed_expansion(line, std::slice::from_ref(&range), &|_| false),
+            kept
+        );
     }
 
     // In a piece delayed expansion reads again, a `%NAME%` the launch's environment defines is
