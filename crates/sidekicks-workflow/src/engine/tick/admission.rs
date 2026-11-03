@@ -480,8 +480,9 @@ mod tests {
         assert!(received.recv().await.is_none());
     }
 
-    /// A step canceled while its hold report waits on a full channel ends `Canceled` at once.
-    /// Mutations: send the hold without watching the cancel.
+    /// A step canceled while its first hold report waits on a full channel ends `Canceled` at
+    /// once, with no hold start, since no hold went out. Mutations: send the hold without watching
+    /// the cancel; carry the start of a hold never reported.
     #[tokio::test(start_paused = true)]
     async fn a_hold_blocked_on_a_full_channel_still_ends_on_cancel() {
         let (_gate, admission) = watch::channel(None);
@@ -508,7 +509,7 @@ mod tests {
         assert!(matches!(
             end,
             GateWaitEnd::Canceled {
-                hold_started_at: Some(_)
+                hold_started_at: None
             }
         ));
     }

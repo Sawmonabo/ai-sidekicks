@@ -13,7 +13,7 @@ use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use jsonata_core::ast::AstNode;
 use jsonata_core::evaluator::{Context, Evaluator, EvaluatorError, EvaluatorOptions, HostFnResult};
-use jsonata_core::parser::{ParserError, parse};
+use jsonata_core::parser::ParserError;
 use jsonata_core::value::{JArray, JValue};
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::machine::settings::{
@@ -32,11 +32,6 @@ use tokio::sync::oneshot::error::RecvError;
 use crate::definitions::kept_values::WorkflowKeptValue;
 use crate::expressions::lineage::{LineageError, StepKey, StepOutputs, walk_paired_item};
 use crate::expressions::syntax_tree::find_in_syntax_tree;
-
-/// The call `$now` formats the run's instant with, so a picture and a time zone read exactly as
-/// `$fromMillis` reads them.
-#[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
-const INSTANT_TEXT_CALL: &str = "$fromMillis($instantMillis, $picture, $timezone)";
 
 /// The binding that answers a labeled node's params, `$params('<label>')`.
 const PARAMS_BINDING: &str = "params";
@@ -131,7 +126,8 @@ pub(crate) struct StepBindings {
     /// `$runIndex`.
     #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     run_index: JValue,
-    /// `$now` read as a value: the run's instant in ISO 8601.
+    /// `$now`, a value as `$json` is, which hides the engine's own `$now()`: the run's instant as
+    /// `$run.startedAt` writes it.
     #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     now: JValue,
     /// `$today`.
@@ -152,14 +148,10 @@ pub(crate) struct StepBindings {
     /// The run's instant in milliseconds, which `$millis()` answers.
     #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     instant_millis: i64,
-    /// [`INSTANT_TEXT_CALL`], parsed once for every `$now(...)` call of the step.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
-    instant_text_call: Rc<AstNode>,
 }
 
 impl StepBindings {
-    /// The step's bindings, each constant value converted and [`INSTANT_TEXT_CALL`] parsed here,
-    /// once for all its items.
+    /// The step's bindings, each constant value converted here, once for all its items.
     #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     pub(crate) fn new(bindings: ExpressionBindings) -> Self {
         let environment = bindings
@@ -190,26 +182,22 @@ impl StepBindings {
             .date()
             .strftime("%Y-%m-%d")
             .to_string();
-        let instant_millis = bindings.run_started_at.as_millisecond();
-        let instant_text_call = parse(INSTANT_TEXT_CALL).expect("the instant's call is JSONata");
-        let now = instant_text(&instant_text_call, instant_millis, &[])
-            .expect("an instant formats with no picture");
+        let started_at = WireInstant::from_timestamp(bindings.run_started_at);
         Self {
             run_index: JValue::from(bindings.run_index),
-            now,
+            now: JValue::from(json!(started_at)),
             today: JValue::string(today),
             environment: JValue::object(environment),
             variables: JValue::from(Value::Object(variables)),
             run: JValue::from(json!({
                 "id": bindings.run_id,
-                "startedAt": WireInstant::from_timestamp(bindings.run_started_at),
+                "startedAt": started_at,
                 "trigger": bindings.run_trigger,
             })),
             workflow: JValue::from(
                 json!({ "id": bindings.workflow_id, "name": bindings.workflow_name }),
             ),
-            instant_millis,
-            instant_text_call: Rc::new(instant_text_call),
+            instant_millis: bindings.run_started_at.as_millisecond(),
             items: Rc::new(StepItems {
                 step: bindings.step,
                 input_items: bindings.input_items,
@@ -278,8 +266,8 @@ impl StepBindings {
         context
     }
 
-    /// The bindings called as functions: the item readers, `$params`, and `$now` and `$millis`
-    /// answering the run's instant. An item reader's lineage or label failure is written to
+    /// The bindings called as functions: the item readers, `$params`, and `$millis` answering the
+    /// run's instant. An item reader's lineage or label failure is written to
     /// `lineage_error` as well as returned, so the caller reads it typed.
     #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     fn register(
@@ -302,13 +290,7 @@ impl StepBindings {
         evaluator
             .register_fn(PARAMS_BINDING, move |args: &[JValue]| reader.params(args))
             .expect("params is no built-in's name");
-        let call = Rc::clone(&self.instant_text_call);
         let millis = self.instant_millis;
-        evaluator
-            .register_fn_override("now", move |args: &[JValue]| {
-                instant_text(&call, millis, args)
-            })
-            .expect("$now is a built-in the evaluator lets a host replace");
         evaluator
             .register_fn_override("millis", move |args: &[JValue]| {
                 if args.is_empty() {
@@ -507,24 +489,6 @@ fn items_array(items: &[WorkflowItem]) -> JArray {
 #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
 fn item_value(item: &WorkflowItem) -> JValue {
     JValue::from(serde_json::to_value(item).expect("an item writes as JSON"))
-}
-
-/// The instant `instant_millis` as `$fromMillis` writes it under `picture_and_zone`, jsonata's
-/// `$now(picture, timezone)`, through `call`, the parsed [`INSTANT_TEXT_CALL`]: ISO 8601 in UTC
-/// when both are absent.
-#[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
-fn instant_text(call: &AstNode, instant_millis: i64, picture_and_zone: &[JValue]) -> HostFnResult {
-    if picture_and_zone.len() > 2 {
-        return Err(EvaluatorError::EvaluationError(
-            "T0410: now() takes at most a picture and a timezone".to_owned(),
-        ));
-    }
-    let mut context = Context::new();
-    context.bind("instantMillis".to_owned(), JValue::from(instant_millis));
-    for (name, value) in ["picture", "timezone"].into_iter().zip(picture_and_zone) {
-        context.bind(name.to_owned(), value.clone());
-    }
-    Evaluator::with_context(context).evaluate(call, &JValue::Undefined)
 }
 
 /// Whether `name` is shaped like a credential's, the rule a project's environment rows are saved
@@ -764,7 +728,6 @@ mod tests {
     #[case::params("$params('source').mode", json!("fast"))]
     #[case::indexes("[$runIndex, $itemIndex]", json!([2.0, 1.0]))]
     #[case::now_value("$now", json!("2025-03-04T15:00:00.000Z"))]
-    #[case::now_call("$now()", json!("2025-03-04T15:00:00.000Z"))]
     #[case::millis("$string($millis())", json!("1741100400000"))]
     #[case::today("$today", json!("2025-03-05"))]
     #[case::env("$env.REGION", json!("eu"))]

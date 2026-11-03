@@ -618,29 +618,6 @@ mod tests {
         }
     }
 
-    /// `$now(picture, offset)` formats the run's instant, not the clock's, at the offset, through
-    /// the call the step parsed once, for every item.
-    #[tokio::test]
-    async fn now_formats_the_runs_instant() {
-        let evaluator = ExpressionEvaluator::start().expect("the thread starts");
-        let step = evaluator
-            .open_step(
-                test_expression_bindings(named_items(&["Ada", "Bob"]), no_steps()),
-                vec![template(
-                    "={{ $now('[Y0001]-[M01]-[D01] [H01]:[m01]', '+0100') }}",
-                )],
-                &CancellationToken::new(),
-            )
-            .await
-            .expect("the step opens");
-        for index in 0..2 {
-            assert_eq!(
-                step.evaluate_item(index).await.expect("the item evaluates"),
-                vec![json!("2025-03-04 16:00")]
-            );
-        }
-    }
-
     /// A regex class takes JavaScript's meaning: `\d` is `[0-9]`, so an Arabic-Indic digit is none.
     #[tokio::test]
     async fn a_regex_digit_class_is_ascii() {

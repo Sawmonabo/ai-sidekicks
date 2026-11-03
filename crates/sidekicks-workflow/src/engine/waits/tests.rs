@@ -228,7 +228,7 @@ fn timed_out(limit_ms: u64) -> Value {
 #[tokio::test]
 async fn a_deadline_that_passed_fails_its_step_once_the_clock_reaches_it() {
     let database = TestDatabase::new(schema_parts());
-    let rows = database.reader();
+    let rows = database.opener()().expect("the test creates its database");
     insert_workflow_version(&rows, DEFINITION_ID, VERSION_ID, "Review");
     insert_run(
         &rows,
