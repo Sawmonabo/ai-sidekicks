@@ -489,6 +489,8 @@ async fn a_turn_opened_once_the_provider_answered_opens_after_the_rollback() {
         .await
         .expect("the provider is asked for the cut")
         .expect("the opening is spawned");
+    // Sound only on the current-thread test runtime, where the mark goes in before the opening
+    // first runs; on a multi-threaded one the opening could pass its check first.
     let opened_before_the_write = timeout(HELD_WATCH, &mut opening).await.is_ok();
     drop(queue_lock);
     let (cut, _hold) = timeout(WAIT, cut)
