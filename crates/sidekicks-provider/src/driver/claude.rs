@@ -64,8 +64,9 @@ use crate::driver::session_control::{
     DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, MoveSessionToForkParams,
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
     ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
-    SessionCommandAnswer, SetSessionGoalParams, StartingLevel, StartingLevelParams,
-    SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
+    SessionCommandAnswer, SetSessionGoalParams, SettleHeldToolCallsParams, StartingLevel,
+    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
+    UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{
@@ -516,6 +517,13 @@ impl ProviderDriver for ClaudeDriver {
 
     fn close_session(&self, params: CloseSessionParams) -> BoxFuture<'_, Result<(), DriverError>> {
         self.close_session(params).boxed()
+    }
+
+    fn settle_held_tool_calls(
+        &self,
+        params: SettleHeldToolCallsParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.settle_held_tool_calls(params).boxed()
     }
 
     fn name_session(

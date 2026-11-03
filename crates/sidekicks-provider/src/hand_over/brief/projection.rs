@@ -16,7 +16,7 @@ use sidekicks_contracts::provider::driver::declared_loss::DeclaredLossKind;
 
 use crate::hand_over::canonical_transcript::{
     CanonicalTranscriptProjection, CanonicalTranscriptRole, CanonicalTranscriptSegment,
-    CanonicalTranscriptTurn,
+    CanonicalTranscriptTurn, shown_tool_result_body,
 };
 use crate::hand_over::transform_pipeline::{
     order_declared_losses, segment_content_is_unavailable, transform_transcript,
@@ -349,12 +349,13 @@ fn render_segment(segment: &CanonicalTranscriptSegment) -> Option<String> {
         CanonicalTranscriptSegment::ToolResult {
             tool_call_id,
             outcome,
+            end_cause,
             text,
             ..
         } => Some(format!(
             "[tool result {} ({tool_call_id})] {}",
             outcome.as_str(),
-            body(text)
+            body(shown_tool_result_body(text, *end_cause))
         )),
     }
 }
@@ -435,6 +436,7 @@ mod tests {
                 tool_call_id: "call-1".to_owned(),
                 outcome: CanonicalToolResultOutcome::Succeeded,
                 provenance: CanonicalToolResultProvenance::Provider,
+                end_cause: None,
                 text: "contents".to_owned(),
                 is_content_unavailable: false,
             }],

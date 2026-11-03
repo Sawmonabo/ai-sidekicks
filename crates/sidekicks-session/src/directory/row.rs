@@ -304,6 +304,7 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::AgentMessageSent
         | SessionEventType::AgentThinkingUpdated
         | SessionEventType::AgentToolCallInvoked
+        | SessionEventType::AgentToolCallBackgrounded
         | SessionEventType::AgentToolCallCompleted
         | SessionEventType::AgentToolCallFailed
         | SessionEventType::AgentSubagentStarted

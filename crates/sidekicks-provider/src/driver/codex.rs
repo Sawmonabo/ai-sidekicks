@@ -70,8 +70,9 @@ use crate::driver::session_control::{
     DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, MoveSessionToForkParams,
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
     ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
-    SessionCommandAnswer, SetSessionGoalParams, StartingLevel, StartingLevelParams,
-    SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
+    SessionCommandAnswer, SetSessionGoalParams, SettleHeldToolCallsParams, StartingLevel,
+    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
+    UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{
@@ -528,6 +529,14 @@ impl ProviderDriver for CodexDriver {
 
     fn close_session(&self, params: CloseSessionParams) -> BoxFuture<'_, Result<(), DriverError>> {
         self.close_session(params).boxed()
+    }
+
+    fn settle_held_tool_calls(
+        &self,
+        _params: SettleHeldToolCallsParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        // Codex holds no call in the background; its long calls ride the daemon's route.
+        async { Ok(()) }.boxed()
     }
 
     fn name_session(

@@ -432,6 +432,7 @@ fn sessions_named(event: &CommittedEvent) -> Result<Vec<SessionId>, serde_json::
         SessionEventType::AgentMessageSent
         | SessionEventType::AgentThinkingUpdated
         | SessionEventType::AgentToolCallInvoked
+        | SessionEventType::AgentToolCallBackgrounded
         | SessionEventType::AgentToolCallCompleted
         | SessionEventType::AgentToolCallFailed
         | SessionEventType::AgentSubagentStarted

@@ -40,6 +40,7 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::command_shape::{CLAUDE_SHELL_PREFIX_COMMAND, bash_line_text};
 use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
+use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
 use crate::port::running_command_publisher::{
     CommandStart, ProviderCommandEnd, ReseedScope, RunningCommandPublisher,
@@ -74,6 +75,8 @@ pub(crate) struct ClaudeTaskFrame {
     #[serde(default, deserialize_with = "read_lenient")]
     parent_task_id: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
+    run_id: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
     description: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     is_backgrounded: Option<bool>,
@@ -104,6 +107,13 @@ struct ClaudeListedTask {
     task_type: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     description: Option<String>,
+}
+
+impl ClaudeListedTask {
+    // Whether the listed task is one of the session's running commands.
+    fn is_command(&self) -> bool {
+        is_command_task(filter_non_empty(self.task_type.as_deref()))
+    }
 }
 
 // The `command` of a Bash or Monitor call's input.
@@ -148,12 +158,33 @@ impl ClaudeTaskFrame {
         filter_non_empty(self.parent_task_id.as_deref())
     }
 
+    /// The run of the task the frame reports, where it names one; a task's runs sort, in plain
+    /// string order, in the order they opened.
+    pub(crate) fn run_id(&self) -> Option<&str> {
+        filter_non_empty(self.run_id.as_deref())
+    }
+
+    /// The tasks a background list names, by id; `None` for a frame that carries no list.
+    pub(crate) fn listed_task_ids(&self) -> Option<impl Iterator<Item = &str>> {
+        self.tasks
+            .is_some()
+            .then(|| self.listed_entries().map(|(task_id, _)| task_id))
+    }
+
+    // Each task a background list names by a non-empty id, with its entry.
+    fn listed_entries(&self) -> impl Iterator<Item = (&str, &ClaudeListedTask)> {
+        self.tasks
+            .iter()
+            .flat_map(|tasks| &tasks.0)
+            .filter_map(|entry| Some((filter_non_empty(entry.task_id.as_deref())?, entry)))
+    }
+
     /// How a finished task ended: `completed`, `failed` or `stopped`.
     pub(crate) fn status(&self) -> Option<&str> {
         self.status.as_deref()
     }
 
-    /// Claude Code's summary of a finished task.
+    /// Claude Code's summary of a task: a finished one's, or a running one's progress.
     pub(crate) fn summary(&self) -> Option<&str> {
         filter_non_empty(self.summary.as_deref())
     }
@@ -223,13 +254,13 @@ struct ClaudeCommandTask {
 }
 
 /// One session's command tasks: the lines of the Bash and Monitor calls its agents started, each
-/// command task by its id while it runs, and how many tasks running no command the latest
+/// command task by its id while it runs, and the ids of the tasks running no command the latest
 /// background set listed.
 #[derive(Default)]
 pub(crate) struct ClaudeCommandTasks {
     calls: VecDeque<(String, String)>,
     tasks: HashMap<String, ClaudeCommandTask>,
-    listed_other_tasks: usize,
+    listed_other_task_ids: Vec<String>,
 }
 
 impl ClaudeCommandTasks {
@@ -277,10 +308,11 @@ impl ClaudeCommandTasks {
             .collect()
     }
 
-    /// What `frame`, of `kind`, changes in `session_id`'s running commands; `run_id` is the run a
-    /// task it starts belongs to. A task of a helper, a workflow or a tool server, or one of no
-    /// kind, is no command; a later start of a task the background set already listed gives that
-    /// task the line of the call that started it, and its start again.
+    /// What `frame`, of `kind`, changes in `session_id`'s running commands; `run` is the run a
+    /// task it starts belongs to, and the binding its ending is appended on. A task of a helper, a
+    /// workflow or a tool server, or one of no kind, is no command; a later start of a task the
+    /// background set already listed gives that task the line of the call that started it, and its
+    /// start again.
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "only the task frames reach this read, and any other kind changes no command"
@@ -290,11 +322,11 @@ impl ClaudeCommandTasks {
         kind: &ClaudeWireFrameKind,
         frame: &ClaudeTaskFrame,
         session_id: SessionId,
-        run_id: Option<RunId>,
+        run: Option<&ClaudeBoundRun>,
     ) -> Option<ClaudeCommandFact> {
         match kind {
             ClaudeWireFrameKind::SystemTaskStarted => self
-                .start(frame, session_id, run_id)
+                .start(frame, session_id, run)
                 .map(ClaudeCommandFact::Started),
             ClaudeWireFrameKind::SystemTaskUpdated => {
                 let patch = frame.patch.as_ref()?;
@@ -325,17 +357,17 @@ impl ClaudeCommandTasks {
                 })
             }
             ClaudeWireFrameKind::SystemBackgroundTasksChanged => {
-                let listed = self.list(frame, session_id, run_id);
+                let listed = self.list(frame, session_id, run);
                 Some(ClaudeCommandFact::Listed { session_id, listed })
             }
             _ => None,
         }
     }
 
-    /// How many tasks running no command, a helper's, a workflow's or a tool server's, the latest
-    /// background set listed.
-    pub(crate) fn listed_other_tasks(&self) -> usize {
-        self.listed_other_tasks
+    /// The ids of the tasks running no command, a helper's, a workflow's or a tool server's, the
+    /// latest background set listed.
+    pub(crate) fn listed_other_tasks(&self) -> impl Iterator<Item = &str> {
+        self.listed_other_task_ids.iter().map(String::as_str)
     }
 
     /// Whether any command task still runs.
@@ -347,14 +379,14 @@ impl ClaudeCommandTasks {
     pub(crate) fn forget(&mut self) {
         self.calls.clear();
         self.tasks.clear();
-        self.listed_other_tasks = 0;
+        self.listed_other_task_ids.clear();
     }
 
     fn start(
         &mut self,
         frame: &ClaudeTaskFrame,
         session_id: SessionId,
-        run_id: Option<RunId>,
+        run: Option<&ClaudeBoundRun>,
     ) -> Option<CommandStart> {
         let task_id = frame.task_id()?;
         if !is_command_task(frame.task_type()) {
@@ -377,7 +409,8 @@ impl ClaudeCommandTasks {
         let start = CommandStart {
             session_id,
             command_id: CommandId::new(task_id.to_owned())?,
-            run_id: run_id?,
+            run_id: run?.run_id,
+            binding_id: run?.binding_id.clone(),
             name: command_name(frame.description.as_deref(), command.as_deref(), task_id)?,
             started_at: WireInstant::now(),
             line: command.as_deref().map(bash_line_text),
@@ -397,46 +430,43 @@ impl ClaudeCommandTasks {
     }
 
     // The command tasks of a whole background set: a task held keeps its start, and one first
-    // seen here, which Claude Code lists before its start, is added on `run_id`. A background task
+    // seen here, which Claude Code lists before its start, is added on `run`. A background task
     // held but no longer listed ends with the reseed.
     fn list(
         &mut self,
         frame: &ClaudeTaskFrame,
         session_id: SessionId,
-        run_id: Option<RunId>,
+        run: Option<&ClaudeBoundRun>,
     ) -> Vec<CommandStart> {
-        let entries = frame.tasks.as_ref().map_or(&[][..], |tasks| &tasks.0);
-        self.listed_other_tasks = entries
-            .iter()
-            .filter(|entry| filter_non_empty(entry.task_id.as_deref()).is_some())
-            .filter(|entry| !is_command_task(filter_non_empty(entry.task_type.as_deref())))
-            .count();
-        let listed_ids: Vec<&str> = entries
-            .iter()
-            .filter(|entry| is_command_task(filter_non_empty(entry.task_type.as_deref())))
-            .filter_map(|entry| filter_non_empty(entry.task_id.as_deref()))
+        self.listed_other_task_ids = frame
+            .listed_entries()
+            .filter(|(_, entry)| !entry.is_command())
+            .map(|(task_id, _)| task_id.to_owned())
+            .collect();
+        let listed_commands: Vec<(&str, &ClaudeListedTask)> = frame
+            .listed_entries()
+            .filter(|(_, entry)| entry.is_command())
             .collect();
         self.tasks.retain(|task_id, task| {
-            !task.start.is_backgrounded || listed_ids.contains(&&**task_id)
+            !task.start.is_backgrounded
+                || listed_commands
+                    .iter()
+                    .any(|(listed_id, _)| *listed_id == task_id.as_str())
         });
         let mut listed = Vec::new();
-        for entry in entries {
-            let Some(task_id) = filter_non_empty(entry.task_id.as_deref())
-                .filter(|_| is_command_task(filter_non_empty(entry.task_type.as_deref())))
-            else {
-                continue;
-            };
+        for (task_id, entry) in listed_commands {
             if let Some(task) = self.tasks.get_mut(task_id) {
                 task.start.is_backgrounded = true;
                 task.start.can_move_to_background = false;
                 listed.push(task.start.clone());
                 continue;
             }
-            let Some(start) = run_id.and_then(|run_id| {
+            let Some(start) = run.and_then(|run| {
                 Some(CommandStart {
                     session_id,
                     command_id: CommandId::new(task_id.to_owned())?,
-                    run_id,
+                    run_id: run.run_id,
+                    binding_id: run.binding_id.clone(),
                     name: command_name(entry.description.as_deref(), None, task_id)?,
                     started_at: WireInstant::now(),
                     line: None,
@@ -544,15 +574,15 @@ impl ClaudeCommandChannels {
     }
 
     /// A channel of its own for one process of the session `session_id` apart from its own that
-    /// runs only `run_id`, such as a staged review's, whose commands are rows under that run; the
-    /// caller closes it once that process ended. `None` and failures as [`Self::open`] answers
-    /// them.
+    /// runs only `run`, such as a staged review's, whose commands are rows under that run, ending
+    /// on its binding; the caller closes it once that process ended. `None` and failures as
+    /// [`Self::open`] answers them.
     pub(crate) async fn open_apart(
         &self,
         session_id: SessionId,
-        run_id: RunId,
+        run: ClaudeBoundRun,
     ) -> io::Result<Option<Arc<ClaudeCommandChannel>>> {
-        let opened = self.open_channel(session_id, Some(run_id)).await?;
+        let opened = self.open_channel(session_id, Some(run)).await?;
         if let Some(opened) = &opened {
             let mut apart = lock(&self.apart);
             let channels = apart.entry(session_id).or_default();
@@ -585,7 +615,7 @@ impl ClaudeCommandChannels {
     async fn open_channel(
         &self,
         session_id: SessionId,
-        apart_run: Option<RunId>,
+        apart_run: Option<ClaudeBoundRun>,
     ) -> io::Result<Option<Arc<ClaudeCommandChannel>>> {
         if !RUNS_COMMAND_WRAPPER {
             return Ok(None);
@@ -627,7 +657,7 @@ impl ClaudeCommandChannels {
     async fn follow_ready(
         &self,
         session_id: SessionId,
-        apart_run: Option<RunId>,
+        apart_run: Option<ClaudeBoundRun>,
         channel: &Arc<CommandChannel>,
         sets: Arc<RunningCommandSets>,
     ) -> io::Result<Arc<ClaudeCommandChannel>> {
@@ -657,7 +687,7 @@ impl ClaudeCommandChannels {
             channel: Arc::clone(channel),
             environment,
             apart_run: apart_run
-                .map(|run_id| ClaudeApartRunCommands::new(session_id, run_id, Arc::clone(&sets))),
+                .map(|run| ClaudeApartRunCommands::new(session_id, run, Arc::clone(&sets))),
             sets,
             input_waits: Arc::clone(&self.input_waits),
             watch: Mutex::new(Some(watch)),

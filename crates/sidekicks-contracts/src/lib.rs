@@ -55,6 +55,7 @@ pub mod session;
 pub mod skill;
 pub mod tag;
 pub mod terminal;
+pub mod tool_call_status;
 pub mod transcript;
 pub mod trust;
 pub mod trust_statement;
@@ -158,6 +159,7 @@ const ROOT_TYPESCRIPT_MODULES: &[&TypeScriptModule] = &[
     &skill::TYPESCRIPT_MODULE,
     &tag::TYPESCRIPT_MODULE,
     &terminal::TYPESCRIPT_MODULE,
+    &tool_call_status::TYPESCRIPT_MODULE,
     &trust_statement::TYPESCRIPT_MODULE,
     &turn::TYPESCRIPT_MODULE,
     &voice::TYPESCRIPT_MODULE,

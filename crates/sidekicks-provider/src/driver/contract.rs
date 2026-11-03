@@ -52,8 +52,9 @@ use crate::driver::session_control::{
     DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, MoveSessionToForkParams,
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
     ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
-    SessionCommandAnswer, SetSessionGoalParams, StartingLevel, StartingLevelParams,
-    SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
+    SessionCommandAnswer, SetSessionGoalParams, SettleHeldToolCallsParams, StartingLevel,
+    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
+    UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
@@ -295,6 +296,14 @@ pub trait ProviderDriver: Send + Sync {
 
     /// Closes one session.
     fn close_session(&self, params: CloseSessionParams) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// Settles the tool calls a session held in the background while no process of it runs, after
+    /// a restart of the daemon: each ends as the provider kept it or as the restart ended it, and
+    /// every one of a closed session ends.
+    fn settle_held_tool_calls(
+        &self,
+        params: SettleHeldToolCallsParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// Names a session from its first exchange in one short pass of the provider's own: through
     /// the provider's naming verb on the session's live leg when it has one and the verb answers
