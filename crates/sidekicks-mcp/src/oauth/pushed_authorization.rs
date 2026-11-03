@@ -478,15 +478,15 @@ mod tests {
     // metadata names, Basic where it names none. Mutations: send no secret; send it in the form
     // where the metadata names only Basic; leave the id or the secret unencoded in the header.
     #[rstest]
-    #[case::no_method_named(json!({}), None, Some("Basic Y2xpZW50LTRiMWQ6cyUzQWVjcmV0"))]
+    #[case::no_method_named(json!({}), None, Some("Basic Y2xpZW50LTRiMWQ6dG9wJTNBc2VjcmV0"))]
     #[case::basic_and_post_named(
         json!({ "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"] }),
         None,
-        Some("Basic Y2xpZW50LTRiMWQ6cyUzQWVjcmV0")
+        Some("Basic Y2xpZW50LTRiMWQ6dG9wJTNBc2VjcmV0")
     )]
     #[case::post_named(
         json!({ "token_endpoint_auth_methods_supported": ["client_secret_post"] }),
-        Some("s:ecret"),
+        Some("top:secret"),
         None
     )]
     #[tokio::test]
@@ -503,7 +503,7 @@ mod tests {
         let mut fields = methods;
         fields["pushed_authorization_request_endpoint"] = json!(format!("{base}/par"));
         let endpoints = endpoints(&base, fields);
-        let client_secret = SecretString::from("s:ecret");
+        let client_secret = SecretString::from("top:secret");
 
         browser_authorization_url(
             &reqwest::Client::new(),
