@@ -234,17 +234,14 @@ impl RecordFollower {
                     exit_code.and_then(|code| SafeSignedInt::new(i64::from(code)));
                 self.set.wrapper_exited(session_id, party, row_exit_code);
                 // A wrapper ended before it began, killed while it waited for its `go`, ran
-                // nothing.
-                let end = if self
+                // nothing, and its release closes its window unrun.
+                if self
                     .wrappers
                     .get(&party)
                     .is_some_and(|wrapper| wrapper.has_begun)
                 {
-                    CommandWindowEnd::Exited { exit_code, signal }
-                } else {
-                    CommandWindowEnd::Unrun
-                };
-                self.close_window(party, end);
+                    self.close_window(party, CommandWindowEnd::Exited { exit_code, signal });
+                }
                 self.release(party).await;
             }
             PartyRecord::Warning { message } => {
@@ -372,9 +369,17 @@ impl RecordFollower {
         self.channel.forget_party(party).await;
     }
 
-    // Lets the wrapper `party` go: its output read to the end, its checks stopped, its row's
-    // pairing and its place on the channel forgotten.
+    // Lets the wrapper `party` go: a window it still holds closed unrun where its command never
+    // began, its output read to the end, its checks stopped, its row's pairing and its place on
+    // the channel forgotten.
     async fn release(&mut self, party: PartyId) {
+        if self
+            .wrappers
+            .get(&party)
+            .is_some_and(|wrapper| !wrapper.has_begun)
+        {
+            self.close_window(party, CommandWindowEnd::Unrun);
+        }
         if let Some(wrapper) = self.wrappers.remove(&party) {
             if let Some(process_end) = wrapper.process_end {
                 process_end.abort();

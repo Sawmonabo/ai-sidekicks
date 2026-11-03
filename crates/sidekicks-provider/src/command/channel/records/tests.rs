@@ -589,10 +589,10 @@ async fn a_wrapper_s_exit_written_just_before_its_end_settles_its_row() {
 
 // Fails when a line's wrapper is answered `go` before its capture window opened, is answered `go`
 // twice, or when its window is closed before an open still running, closed twice, closed untold
-// at an `Exited`, closed as run at an `Exited` before the command began, or not told how the
-// command began. Mutations: send `Go` in `take_record` beside the acknowledgment; drop the `Began`
-// arm's window call; drop the `Exited` arm's close; close every `Exited` as `Exited`; let the
-// window's task go on past its `Close`.
+// at an `Exited`, closed as run at an `Exited` or a kill before the command began, or not told how
+// the command began. Mutations: send `Go` in `take_record` beside the acknowledgment; drop the
+// `Began` arm's window call; drop the `Exited` arm's close; close every `Exited` as `Exited`; let
+// the window's task go on past its `Close`; drop the release's unrun close.
 #[tokio::test]
 async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
     let folder = tempfile::tempdir().expect("a folder");
@@ -677,6 +677,19 @@ async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
         CaptureCall::Close(second_id, CommandWindowEnd::Unrun)
     );
     no_call(&mut called, "the window closed twice").await;
+
+    // A wrapper killed while it waits, its command never begun, tells nothing, and its window
+    // closes unrun at its process's end.
+    let (mut third, third_keys, ready) = started_party(None);
+    let third_id = ready[0];
+    write_party_record(&channel, &third_keys, third_id, 1, &starting(None));
+    assert_eq!(next_call(&mut called).await, CaptureCall::Open(third_id));
+    third.kill().expect("the wrapper is killed");
+    third.wait().expect("the killed wrapper is reaped");
+    assert_eq!(
+        next_call(&mut called).await,
+        CaptureCall::Close(third_id, CommandWindowEnd::Unrun)
+    );
     follower.abort();
     end_party(first);
     end_party(second);
