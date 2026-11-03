@@ -6,7 +6,8 @@
 // other.
 import { z } from "zod";
 
-import { ReleaseVersionSchema, Sha256HexSchema } from "./release-manifest.js";
+import { Sha256HexSchema } from "./internal/sha256-hex.js";
+import { ReleaseVersionSchema } from "./release-manifest.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./free-form-string.js";
 
 /**
