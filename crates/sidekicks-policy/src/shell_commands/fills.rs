@@ -79,7 +79,8 @@ pub enum FillRefusal {
     },
     /// Single quotes, `$'…'`, a quoted here-document's body or a PowerShell verbatim string.
     #[error(
-        "sits in single quotes, `$'…'`, a quoted here-document or a verbatim string, where nothing expands"
+        "sits in single quotes, `$'…'`, a quoted here-document or a verbatim string, where \
+         nothing expands"
     )]
     NotExpanding,
     /// Shell arithmetic, which evaluates the value as an expression.
@@ -549,8 +550,8 @@ mod tests {
         );
     }
 
-    // Each shell's reference for a bare word and for a string's text, read from the line the template
-    // wrote, never from a placeholder.
+    // Each shell's reference for a bare word and for a string's text, read from the line the
+    // template wrote, never from a placeholder.
     #[rstest]
     #[case::posix("bash", "echo \"${SIDEKICKS_VALUE_1}\" \"a ${SIDEKICKS_VALUE_2}\"")]
     #[case::powershell(
@@ -628,9 +629,9 @@ mod tests {
         assert_eq!(launch(line, grammar(program)), Ok(filled.to_owned()));
     }
 
-    // The places a launch refuses with the rule that names them: a quote inside a substitution inside
-    // a string, a here-document's quoted body as each requoted start reads, a body line that begins
-    // with the delimiter, and csh's body, backquotes and comment.
+    // The places a launch refuses with the rule that names them: a quote inside a substitution
+    // inside a string, a here-document's quoted body as each requoted start reads, a body line that
+    // begins with the delimiter, and csh's body, backquotes and comment.
     #[rstest]
     #[case::single_quotes_in_a_substitution(
         "echo \"$(echo '{{ x }}')\"",

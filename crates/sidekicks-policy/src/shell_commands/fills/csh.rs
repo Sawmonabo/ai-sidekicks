@@ -225,8 +225,8 @@ impl<'s> CshScan<'s> {
         }
     }
 
-    /// Refuses, for `refusal`, every fill of the logical line from fill `first` on, answered or not,
-    /// up to the scan's position.
+    /// Refuses, for `refusal`, every fill of the logical line from fill `first` on, answered or
+    /// not, up to the scan's position.
     fn refuse_line_from(&mut self, first: usize, refusal: &FillRefusal) {
         for (placeholder, placing) in self.placeholders.iter().zip(&mut self.placings).skip(first) {
             if placeholder.start >= self.position {
