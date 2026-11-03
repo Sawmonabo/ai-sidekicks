@@ -560,70 +560,76 @@ fn first_to_arrive_wins_on_items_and_cancels_only_its_losing_branch() {
     );
 }
 
-/// The loop the won-round tests run: the trigger feeds A and B, A feeds M's first main slot and B
-/// its second, and M feeds C, which feeds A and B again.
+/// The loop the won-round tests run: the trigger feeds the loop node L, whose loop output feeds A
+/// and B; A feeds M's first main slot and B its second, and M feeds C, which wires back into L.
 fn looping_first_to_arrive_walk() -> (RunWalk, WalkTurn) {
     start(
         vec![
             node("trigger", "test.trigger", 0, false),
-            node("A", "test.step", 1, false),
-            node("B", "test.step", 2, false),
-            node("M", "test.first", 3, false),
-            node("C", "test.step", 4, false),
+            node("L", "test.loop", 1, false),
+            node("A", "test.step", 2, false),
+            node("B", "test.step", 3, false),
+            node("M", "test.first", 4, false),
+            node("C", "test.step", 5, false),
         ],
         &[
-            edge("trigger", 0, "A", 0),
-            edge("trigger", 0, "B", 0),
+            edge("trigger", 0, "L", 0),
+            edge("L", 1, "A", 0),
+            edge("L", 1, "B", 0),
             edge("A", 0, "M", 0),
             edge("B", 0, "M", 1),
             edge("M", 0, "C", 0),
-            edge("C", 0, "A", 0),
-            edge("C", 0, "B", 0),
+            edge("C", 0, "L", 0),
         ],
     )
 }
 
-/// Inside a loop, a first-to-arrive round won on one pass takes only the late feeds of the steps
-/// live at its win: its own pass's straggler closes it, and the next pass's feed opens the next
-/// round and wins it. A loser readied earlier in the turn of its win is taken back from the turn's
-/// ready steps and canceled. Mutations: let a won round take any feed; let it take none; leave a
-/// same-turn loser ready.
+/// Inside a loop, a first-to-arrive win names the live step on its losing branch, though the loop
+/// comes back round to that branch, and its round takes only its own pass's late feed: that
+/// pass's straggler closes it, and the next pass's feed opens the next round and wins it, naming
+/// the next pass's loser. A loser readied earlier in the turn of its win is taken back from the
+/// turn's ready steps and canceled. Mutations: follow a loop's back edge to the losers, so none
+/// loses; let a won round take any feed; let it take none; leave a same-turn loser ready.
 #[test]
 fn a_won_round_takes_only_its_own_pass_and_a_same_turn_loser_never_runs() {
     let (mut walk, start_turn) = looping_first_to_arrive_walk();
     let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
-    let a_turn = walk.settle(&readied(&trigger_turn, "A"), &[1]);
+    let l_turn = walk.settle(&readied(&trigger_turn, "L"), &[0, 1]);
+    let a_turn = walk.settle(&readied(&l_turn, "A"), &[1]);
     assert_eq!(
         describe(&a_turn),
         [
-            "ready M run 0 exec 3 from A:0@1 - -",
-            "win M exec 3 losers []"
+            "ready M run 0 exec 4 from A:0@2 - -",
+            "win M exec 4 losers [B@3]"
         ]
     );
     assert_eq!(
-        describe(&walk.settle(&readied(&trigger_turn, "B"), &[1])),
+        describe(&walk.settle(&readied(&l_turn, "B"), &[1])),
         Vec::<String>::new()
     );
     assert_eq!(open_rounds(&walk, "M"), Vec::<u64>::new());
 
     let (mut walk, start_turn) = looping_first_to_arrive_walk();
     let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
-    let a_turn = walk.settle(&readied(&trigger_turn, "A"), &[1]);
-    walk.drop_step(&readied(&trigger_turn, "B"));
+    let l_turn = walk.settle(&readied(&trigger_turn, "L"), &[0, 1]);
+    let a_turn = walk.settle(&readied(&l_turn, "A"), &[1]);
+    walk.drop_step(&readied(&l_turn, "B"));
     let m_turn = walk.settle(&readied(&a_turn, "M"), &[1]);
     let c_turn = walk.settle(&readied(&m_turn, "C"), &[1]);
+    assert_eq!(describe(&c_turn), ["ready L run 1 exec 6 from C:0@5"]);
+    let next_l_turn = walk.settle(&readied(&c_turn, "L"), &[0, 1]);
     assert_eq!(
-        describe(&c_turn),
+        describe(&next_l_turn),
         [
-            "ready A run 1 exec 5 from C:0@4",
-            "ready B run 1 exec 6 from C:0@4"
+            "ready A run 1 exec 7 from L:1@6",
+            "ready B run 1 exec 8 from L:1@6"
         ]
     );
     assert_eq!(
-        describe(&walk.settle(&readied(&c_turn, "B"), &[1])),
+        describe(&walk.settle(&readied(&next_l_turn, "B"), &[1])),
         [
-            "ready M run 1 exec 7 from - B:0@6 -",
-            "win M exec 7 losers []"
+            "ready M run 1 exec 9 from - B:0@8 -",
+            "win M exec 9 losers [A@7]"
         ]
     );
 

@@ -85,6 +85,8 @@ pub(crate) struct RunGraph {
     places: HashMap<WorkflowNodeId, usize>,
     /// The trigger's place.
     trigger: usize,
+    /// Each node's feeders along forward main edges, by place, each once.
+    forward_feeders: Vec<Vec<usize>>,
     /// Each node's ancestors along forward main edges, by place, lowest first.
     ancestors: Vec<Vec<usize>>,
 }
@@ -204,11 +206,13 @@ impl RunGraph {
         let trigger = *places
             .get(trigger)
             .expect("a run's trigger is a node of its pinned version");
-        let ancestors = forward_ancestors(&graph_nodes, trigger);
+        let forward_feeders = forward_feeders(&graph_nodes, trigger);
+        let ancestors = forward_ancestors(&forward_feeders);
         Ok(Self {
             nodes: graph_nodes,
             places,
             trigger,
+            forward_feeders,
             ancestors,
         })
     }
@@ -247,13 +251,11 @@ impl RunGraph {
         &self.ancestors[place]
     }
 
-    /// The places of the nodes whose main outputs feed the node at `place`, with repeats.
+    /// The places of the nodes that feed the node at `place` along forward main edges, each once;
+    /// a loop's back edge is left out.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-    pub(crate) fn feeders(&self, place: usize) -> impl Iterator<Item = usize> + '_ {
-        self.nodes[place]
-            .slots
-            .iter()
-            .flat_map(|slot| slot.feeders.iter().copied())
+    pub(crate) fn forward_feeders(&self, place: usize) -> &[usize] {
+        &self.forward_feeders[place]
     }
 }
 
@@ -269,11 +271,11 @@ enum WalkMark {
     Left,
 }
 
-/// Each of `nodes`' ancestors along forward main edges, by place, lowest first. A depth-first walk
-/// from `trigger`, then from each node it has not reached in place order, following each node's
-/// targets in output order, takes every edge but those that close a loop, its back edges.
+/// Each of `nodes`' feeders along forward main edges, by place, each once. A depth-first walk from
+/// `trigger`, then from each node it has not reached in place order, following each node's targets
+/// in output order, takes every edge but those that close a loop, its back edges.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-fn forward_ancestors(nodes: &[RunGraphNode], trigger: usize) -> Vec<Vec<usize>> {
+fn forward_feeders(nodes: &[RunGraphNode], trigger: usize) -> Vec<Vec<usize>> {
     let node_count = nodes.len();
     let targets: Vec<Vec<usize>> = nodes
         .iter()
@@ -312,6 +314,17 @@ fn forward_ancestors(nodes: &[RunGraphNode], trigger: usize) -> Vec<Vec<usize>> 
             }
         }
     }
+    for feeders in &mut forward_feeders {
+        feeders.sort_unstable();
+        feeders.dedup();
+    }
+    forward_feeders
+}
+
+/// Each node's ancestors along `forward_feeders`, by place, lowest first.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+fn forward_ancestors(forward_feeders: &[Vec<usize>]) -> Vec<Vec<usize>> {
+    let node_count = forward_feeders.len();
     (0..node_count)
         .map(|place| {
             let mut is_ancestor = vec![false; node_count];
