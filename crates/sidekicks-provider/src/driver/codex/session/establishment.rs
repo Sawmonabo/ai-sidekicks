@@ -195,6 +195,8 @@ pub(crate) struct CodexInPlaceResume {
     pub(crate) outcome: CodexInPlaceOutcome,
     /// The conversation's turns, oldest first.
     pub(crate) listed_turns: Vec<CodexListedTurn>,
+    /// How Codex read the conversation at the resume, `None` when it failed.
+    pub(crate) status: Option<CodexThreadStatus>,
     /// The frames that waited for the conversation, delivered.
     pub(crate) routed: CodexRoutedFrames,
 }
@@ -509,6 +511,7 @@ impl CodexSessionEstablishment {
                         is_service_lost,
                     },
                     listed_turns: Vec::new(),
+                    status: None,
                     routed: CodexRoutedFrames::default(),
                 }
             }
@@ -577,6 +580,7 @@ impl CodexSessionEstablishment {
                 is_service_lost: false,
             },
             listed_turns: resumed.listed_turns,
+            status: resumed.status,
             routed,
         })
     }

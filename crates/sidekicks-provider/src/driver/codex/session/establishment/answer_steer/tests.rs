@@ -1,14 +1,12 @@
 //! The person's answers that reach their held lead by neither the steer nor their own turn fail
 //! the lead's run as a provider failure and go back to the queue.
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::json;
 use sidekicks_std::mutex_lock::lock;
-use tokio_util::task::TaskTracker;
 
-use super::{CodexAnswerSteer, CodexAnswerSteerDependencies, CodexAnswerSteers};
+use super::CodexAnswerSteer;
 use crate::driver::codex::run::routes::CodexRunBinding;
 use crate::driver::codex::session::establishment::continuation::CODEX_CONTINUATION_TEXT;
 use crate::driver::codex::session::test_fixture::TestCodexSession;
@@ -32,13 +30,7 @@ async fn a_refused_answer_turn_fails_the_lead_and_gives_its_answers_back() {
     let run_id = new_run_id();
     let session_id = session.task.record.session_id;
     session.task.record.answer_turn_owed_run_ids.insert(run_id);
-    let steers = CodexAnswerSteers::new(CodexAnswerSteerDependencies {
-        run_routes: Arc::clone(&session.task.run_routes),
-        run_start: Arc::clone(&session.run_start),
-        dispatch: Arc::clone(&session.engine) as _,
-        continue_given_back: Arc::clone(&session.task.ports.continue_given_back),
-        tasks: TaskTracker::new(),
-    });
+    let steers = session.answer_steers();
     let steer = CodexAnswerSteer {
         run_id,
         turn_id: "turn-1".to_owned(),

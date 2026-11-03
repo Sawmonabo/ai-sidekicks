@@ -13,10 +13,12 @@
 //! Once the person answered, the lead's continue carries the answers: a turn the daemon starts
 //! for the lead holds them after Codex's continuation words, and a continuation Codex still runs
 //! for it is held and the answers steered into it under the first answered card's or question's
-//! id, a turn holding them started instead where that continuation ended first.
+//! id, a turn holding them started instead where that continuation ended first. The person's
+//! restart of a session whose conversation resumes in place carries them the same way.
 
 use std::error::Error;
 
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::run::events::TurnEndCause;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
@@ -56,6 +58,17 @@ pub(crate) const CODEX_CONTINUATION_TEXT: &str = "The server restarted and inter
 
 /// Codex's own classification of the caller that starts a turn recovering from its restart.
 const DAEMON_RECOVERY_TURN_TRIGGER: &str = "daemon_recovery";
+
+/// The person's answers a restart carries to the session's held lead: its continue, the session's
+/// live runs it reads, and the lead's agent, whose deliveries a turn carrying them goes to.
+pub(crate) struct CodexHeldLeadContinue {
+    /// The continue the queue composed.
+    pub(crate) held_run_continue: HeldRunContinue,
+    /// The session's live runs, the lead among them.
+    pub(crate) live_runs: Vec<LiveRunResume>,
+    /// The lead's agent.
+    pub(crate) agent_id: AgentId,
+}
 
 // A continuation turn to start: the first turn of the chain it continues, as Codex names it, and
 // its words.
@@ -135,14 +148,15 @@ impl CodexSessionEstablishment {
     /// whose cut turns' end could not be written, is left as it stands.
     #[expect(
         clippy::too_many_arguments,
-        reason = "the adoption's record, connection, runs, page, binding and continues it reads"
+        reason = "the resume's record, connection, runs, status, turns, binding and continues"
     )]
     pub(super) async fn continue_held_lead(
         &self,
         record: &mut CodexSessionRecord,
         connection: &CodexAppServerConnection,
         live_runs: &[LiveRunResume],
-        resumed: &CodexResumedThread,
+        status: Option<CodexThreadStatus>,
+        listed_turns: &[CodexListedTurn],
         binding: &CodexRunBinding,
         held_run_continue: Option<&HeldRunContinue>,
         continued: &mut Vec<ResumedRunAnswer>,
@@ -151,7 +165,6 @@ impl CodexSessionEstablishment {
         let run = live_runs
             .iter()
             .find(|run| run.run_id == held.lead_run_id)?;
-        let listed_turns = &resumed.listed_turns;
         let running_turn_id = match continued.iter().find(|taken| taken.run_id == run.run_id) {
             Some(_) if record.service.kind().is_daemons_own() => return None,
             Some(taken) if matches!(taken.turn, ProviderTurnAnswer::StillRunning) => {
@@ -184,8 +197,7 @@ impl CodexSessionEstablishment {
             });
         }
         let cut = read_cut_turns(run, listed_turns);
-        if resumed.status != Some(CodexThreadStatus::Idle)
-            || (cut.is_none() && !run.open_turns.is_empty())
+        if status != Some(CodexThreadStatus::Idle) || (cut.is_none() && !run.open_turns.is_empty())
         {
             return None;
         }
@@ -210,6 +222,63 @@ impl CodexSessionEstablishment {
             turn,
         });
         None
+    }
+
+    /// Carries `held`'s answers to its lead once the conversation `record` holds resumed in place,
+    /// Codex reading it `status` with the turns `listed_turns`, as an adoption carries them: a
+    /// continuation Codex still runs is held and answers the steer owed it, and a lead with no
+    /// turn on an idle conversation gets one holding Codex's continuation words and the answers,
+    /// its answer in `result` set still running. A lead whose step bound or connection could not
+    /// be read gets nothing, so `result` gives its answers back; that is logged.
+    pub(crate) async fn continue_held_lead_in_place(
+        &self,
+        record: &mut CodexSessionRecord,
+        status: Option<CodexThreadStatus>,
+        listed_turns: &[CodexListedTurn],
+        held: &CodexHeldLeadContinue,
+        result: &mut DriverResumeResult,
+    ) -> Option<CodexAnswerSteer> {
+        let binding_id = record.binding_id.clone()?;
+        let read = async {
+            let connection = record.service.connection()?;
+            let context = self
+                .resolve_spawn_context(record.session_id, &record.provider_account_id)
+                .await?;
+            Ok::<_, CodexError>((connection, context.step_bound))
+        };
+        let (connection, step_bound) = match read.await {
+            Ok(read) => read,
+            Err(error) => {
+                tracing::warn!(
+                    session_id = %record.session_id,
+                    run_id = %held.held_run_continue.lead_run_id,
+                    error = &error as &(dyn Error + 'static),
+                    "the person's answers could not be carried to the codex lead the restart resumed"
+                );
+                return None;
+            }
+        };
+        let binding = CodexRunBinding {
+            session_id: record.session_id,
+            binding_id,
+            agent_id: held.agent_id,
+            step_bound,
+        };
+        let mut continued = Vec::new();
+        let answer_steer = self
+            .continue_held_lead(
+                record,
+                &connection,
+                &held.live_runs,
+                status,
+                listed_turns,
+                &binding,
+                Some(&held.held_run_continue),
+                &mut continued,
+            )
+            .await;
+        answer_continued_runs(result, &continued);
+        answer_steer
     }
 
     // Starts `run`'s `continuation` as `start_continuation` does, answering `StillRunning`, or
@@ -428,7 +497,8 @@ impl CodexSessionEstablishment {
     }
 }
 
-/// Puts each answer of `continued` in place of its run's in `result`.
+/// Puts each answer of `continued` in place of its run's in `result`, adding one `result` does
+/// not name.
 pub(super) fn answer_continued_runs(
     result: &mut DriverResumeResult,
     continued: &[ResumedRunAnswer],
@@ -436,9 +506,10 @@ pub(super) fn answer_continued_runs(
     let DriverResumeResult::Resumed { runs, .. } = result else {
         return;
     };
-    for answer in runs {
-        if let Some(taken) = continued.iter().find(|taken| taken.run_id == answer.run_id) {
-            answer.turn = taken.turn;
+    for taken in continued {
+        match runs.iter_mut().find(|answer| answer.run_id == taken.run_id) {
+            Some(answer) => answer.turn = taken.turn,
+            None => runs.push(taken.clone()),
         }
     }
 }

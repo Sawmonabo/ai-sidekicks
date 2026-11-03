@@ -400,6 +400,7 @@ impl CodexDriver {
                 release: Arc::clone(&self.release),
                 run_ends: Arc::clone(&engine),
                 dispatch: Arc::clone(&dispatch),
+                answer_steers: Arc::clone(&answer_steers),
                 reviewer_denials: Arc::clone(&ports.reviewer_denials),
                 process_gone: Arc::clone(&ports.process_gone),
                 session_relaunched: Arc::clone(&ports.session_relaunched),
