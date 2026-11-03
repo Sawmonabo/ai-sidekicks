@@ -412,9 +412,10 @@ impl ClaudeDriver {
     /// settings and level, and the bring-up reads the command list and tool servers again and
     /// measures spend from what the conversation already reported. A session this daemon put to
     /// sleep resumes as it ran; one found asleep after a restart of the daemon resumes from its
-    /// stored binding, and stays `Asleep` where every run in progress waits on the person or stops,
-    /// so no process is started. A session with a live process, or one that never ran, answers
-    /// `Awake` at once. Fails with the resume's failure, the session left asleep.
+    /// stored binding, and stays `Asleep` where every run in progress waits on the person, is
+    /// pausing, or stops, so no process is started. A session with a live process, or one that
+    /// never ran, answers `Awake` at once. Fails with the resume's failure, the session left
+    /// asleep.
     pub(crate) async fn wake_session(
         &self,
         session_id: SessionId,

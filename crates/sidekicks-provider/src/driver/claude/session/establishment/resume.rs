@@ -4,8 +4,8 @@
 //! brought up again with the resume's own. A fresh process continues the turn of the run in
 //! progress where the resume names one, on that run and turn, and where that run is a lead the
 //! restart held on the person, with the person's answers as the words it continues with; where
-//! every run in progress waits on the person or stops, no process is started and the resume is
-//! deferred.
+//! every run in progress waits on the person, is pausing, or stops, no process is started and the
+//! resume is deferred.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -384,8 +384,8 @@ fn answer_fresh_process(
 
 // Whether a fresh process has work in `live_runs`: a lead with neither a stop nor a hold stands
 // queued, starting or running, or no run is in progress at all (none, or each queued or paused),
-// so the process comes up as a plain resume. Otherwise every run in progress waits on the person
-// or stops, and no process is started for it.
+// so the process comes up as a plain resume. Otherwise every run in progress waits on the person,
+// is pausing, or stops, and no process is started for it.
 fn is_process_owed(live_runs: &[LiveRunResume]) -> bool {
     let has_lead_to_run = live_runs.iter().any(|run| {
         run.is_lead()
