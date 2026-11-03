@@ -709,6 +709,8 @@ async fn only_a_leads_own_open_ask_withholds_its_messages(#[case] has_own_ask: b
 
     fixture.observe_running(lead);
     fixture.reconcile().await;
+    // The hands go on the session's chain, so the steers are read once it has run them.
+    fixture.queue.delivery.settle(fixture.session_id).await;
 
     if has_own_ask {
         assert_eq!(
