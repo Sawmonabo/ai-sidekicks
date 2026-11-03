@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::agent::definition::AgentDefinitionId;
+use crate::jsonrpc::issue::{IssuePathSegment, reader_issue_path};
 use crate::project::ProjectId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -30,8 +31,9 @@ use crate::workflow::secret::WorkflowSecretReference;
 const SECRET_SCHEME: &str = "secret://";
 
 /// One parameter value the check refused. `path` is the value's dotted place, its parameter's id
-/// first (`headers.0.token` inside a repeating collection), `message` names the fault, such as
-/// a tool binding's `approvalMode`, and `rule` the finding the save raises for it, where one does.
+/// first (`headers.0.token` inside a repeating collection, `tool.approvalMode` for a member a tool
+/// binding does not take), `message` names the fault and never quotes the value, and `rule` the
+/// finding the save raises for it, where one does.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowParamIssue {
@@ -251,14 +253,26 @@ fn check_reference<Reference: DeserializeOwned>(
 }
 
 // A tool binding reads as one only with no member past the server and the tool, so a nested node
-// or a policy is refused by name, then its members are held to their rules.
+// or a policy is refused at its key, then its members are held to their rules. A refused read is
+// named by its place alone, never by serde's message, which quotes the value and could leak a
+// pasted secret; a member left out is named at the binding's place.
 fn check_tool_binding(value: &Value, place: &str, issues: &mut Vec<WorkflowParamIssue>) {
-    let binding = match WorkflowToolBinding::deserialize(value) {
+    let binding = match serde_path_to_error::deserialize::<_, WorkflowToolBinding>(value) {
         Ok(binding) => binding,
         Err(error) => {
+            let mut path = place.to_owned();
+            for segment in reader_issue_path(error.path()) {
+                path.push('.');
+                match segment {
+                    IssuePathSegment::Member(name) => path.push_str(&name),
+                    IssuePathSegment::Index(index) => path.push_str(&index.get().to_string()),
+                }
+            }
             issues.push(WorkflowParamIssue {
-                path: place.to_owned(),
-                message: error.to_string(),
+                path,
+                message: "expected a tool binding: its server binding and its tool name, and no \
+                          other member"
+                    .to_owned(),
                 rule: None,
             });
             return;
@@ -609,5 +623,42 @@ mod tests {
                 .contains(|character: char| "48213377".contains(character)),
             "{issue:?}"
         );
+    }
+
+    // A tool binding that does not read is refused at the key that broke the read, and its issue
+    // quotes nothing of the value, a pasted token or the digits of a number. Mutation: pass serde's
+    // message through, which quotes both.
+    #[rstest]
+    #[case::text_where_the_binding_belongs(
+        json!({ "tool": "ghp_inline-token-value" }),
+        "tool",
+        "ghp_inline-token-value"
+    )]
+    #[case::a_number_as_the_tool_name(
+        json!({
+            "tool": {
+                "binding": { "scope": "user", "provider": "codex", "serverName": "github" },
+                "toolName": 48_213_377,
+            },
+        }),
+        "tool.toolName",
+        "48213377"
+    )]
+    fn a_tool_binding_that_does_not_read_is_refused_without_its_value(
+        #[case] params: Value,
+        #[case] path: &str,
+        #[case] value_text: &str,
+    ) {
+        let specs: Vec<WorkflowParamSpec> = serde_json::from_value(json!([
+            { "id": "tool", "label": "Tool", "type": "mcpTool" },
+        ]))
+        .expect("the specs read");
+        let params = params.as_object().expect("the params are an object");
+        let issues = check_workflow_node_params(params, &specs);
+        assert_eq!(issues.len(), 1, "{issues:?}");
+        let issue = &issues[0];
+        assert_eq!(issue.path, path, "{issue:?}");
+        assert_eq!(issue.rule, None, "{issue:?}");
+        assert!(!issue.message.contains(value_text), "{issue:?}");
     }
 }
