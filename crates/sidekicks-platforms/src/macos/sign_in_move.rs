@@ -21,8 +21,8 @@ use subtle::ConstantTimeEq as _;
 use self::keychain_item::KeychainItem;
 use crate::spawner::Spawner;
 use crate::{
-    KeychainSignIn, LeftoverSweep, SignInMoveError, flush_folder, remove_atomic_write_leftovers,
-    replace_file_atomically,
+    CopyLeftCause, KeychainSignIn, LeftoverSweep, SignInMoveError, flush_folder,
+    remove_atomic_write_leftovers, replace_file_atomically,
 };
 
 // The mode a sign-in's file is written with: its owner reads and writes it, no one else.
@@ -145,28 +145,48 @@ async fn check_copy_then_delete_source(
 }
 
 // `refusal`, a refusal once `sign_in`'s copy was written at `destination`, after the copy is
-// deleted where `source` still reads the same sign-in; else `CopyLeft` over `refusal`, the copy
-// kept since it may be the only one left. A step past its bound stops the move, so it keeps the
-// copy with no further step.
+// deleted where `source` still reads the same sign-in; else `CopyLeft` over `refusal`, naming why
+// the copy stays. A step past its bound stops the move, so it keeps the copy with no further step.
 async fn take_copy_back(
     refusal: SignInMoveError,
     source: &impl SignInPlace,
     destination: &impl SignInPlace,
     sign_in: &[u8],
 ) -> SignInMoveError {
-    if !matches!(refusal, SignInMoveError::Overran) {
-        let is_source_whole = matches!(
-            source.read().await,
-            Ok(Some(held)) if is_held(Some(held.as_slice()), sign_in)
-        );
-        if is_source_whole && destination.delete().await.is_ok() {
-            return refusal;
-        }
-    }
+    let Err(cause) = delete_copy_of_whole_source(&refusal, source, destination, sign_in).await
+    else {
+        return refusal;
+    };
     SignInMoveError::CopyLeft {
         destination: destination.describe(),
+        cause,
         refusal: Box::new(refusal),
     }
+}
+
+// Deletes `sign_in`'s copy at `destination` once `source` reads the same sign-in again. Fails
+// with why the copy stays: `refusal` a step past its bound, the source changed or unreadable, or
+// the delete failed.
+async fn delete_copy_of_whole_source(
+    refusal: &SignInMoveError,
+    source: &impl SignInPlace,
+    destination: &impl SignInPlace,
+    sign_in: &[u8],
+) -> Result<(), CopyLeftCause> {
+    if matches!(refusal, SignInMoveError::Overran) {
+        return Err(CopyLeftCause::Overran);
+    }
+    let held = source
+        .read()
+        .await
+        .map_err(|failure| CopyLeftCause::SourceUnreadable(Box::new(failure)))?;
+    if !is_held(held.as_ref().map(|held| held.as_slice()), sign_in) {
+        return Err(CopyLeftCause::SourceNotSame);
+    }
+    destination
+        .delete()
+        .await
+        .map_err(|failure| CopyLeftCause::CopyUndeletable(Box::new(failure)))
 }
 
 // Whether `held` is `sign_in`, compared in constant time.

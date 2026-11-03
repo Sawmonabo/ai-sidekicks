@@ -65,16 +65,38 @@ pub enum SignInMoveError {
     #[error("a step of the sign-in move outlasted its bound, so the move stopped")]
     Overran,
     /// The move was refused after the sign-in's copy was written, and the copy stays at its
-    /// destination: the source no longer read the same sign-in or could not be read, the copy
-    /// could not be deleted, or a step outlasted its bound.
-    #[error("the sign-in copied to {destination} stays there after the move was refused")]
+    /// destination for the reason `cause` names.
+    #[error(
+        "the sign-in copied to {destination} stays there after the move was refused, since {cause}"
+    )]
     CopyLeft {
         /// The destination in words, as [`SignInMoveError::CopyDiffers`] names it.
         destination: String,
+        /// Why the copy stays.
+        cause: CopyLeftCause,
         /// Why the move was refused.
         #[source]
         refusal: Box<SignInMoveError>,
     },
+}
+
+/// Why a refused move's copy stays at its destination, with the failure that kept it where one
+/// did.
+#[derive(Debug, thiserror::Error)]
+pub enum CopyLeftCause {
+    /// The source no longer holds the sign-in the copy was made from, so the copy may be the only
+    /// one left.
+    #[error("its source no longer holds the same sign-in")]
+    SourceNotSame,
+    /// The source could not be read again, so whether it still holds the sign-in is not known.
+    #[error("its source could not be read ({0})")]
+    SourceUnreadable(Box<SignInMoveError>),
+    /// The copy's delete failed.
+    #[error("the copy could not be deleted ({0})")]
+    CopyUndeletable(Box<SignInMoveError>),
+    /// A step outlasted its bound, which stops the move with no further step.
+    #[error("a step outlasted its bound")]
+    Overran,
 }
 
 /// Why the keychain refused a call on a sign-in's item, as the keychain tool's exit answers it.
