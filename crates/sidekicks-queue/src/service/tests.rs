@@ -313,6 +313,10 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
 /// provider answered by `driver`, its process read from `processes`, its account by `account`,
 /// the runs it halts recorded in `halted_runs`, and its cards' kept answers and open asks read
 /// from `kept_approvals`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the record, the home, the driver and each stand-in a test swaps in"
+)]
 fn queue_over(
     database: &TestDatabase,
     log: &TestLog,
