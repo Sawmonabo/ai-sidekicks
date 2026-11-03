@@ -132,8 +132,8 @@ impl ClaudeAccountLegs {
 }
 
 // The environment a Claude Code process on `home` starts with over `base_environment`, with no
-// environment row, `deny_env_vars` removed: the one composition the legs and the helper mode's
-// names share. Fails as it cannot be composed.
+// environment row, `deny_env_vars` removed: the one composition the legs, the sign-out and the
+// helper mode's names share. Fails as it cannot be composed.
 fn compose_account_environment(
     data_folder: &Path,
     base_environment: &[(String, String)],
@@ -166,7 +166,15 @@ impl ProviderAccountLegs for ClaudeAccountLegs {
         _provider_account_id: ProviderAccountId,
         folders: ProviderAccountFolders,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
-        sign_out::sign_out_claude_home(self, folders).boxed()
+        let sources = sign_out::ClaudeSignOutSources {
+            spawner: &self.spawner,
+            command_search: &self.command_search,
+            home_folder: &self.home_folder,
+            data_folder: &self.data_folder,
+            base_environment: &self.base_environment,
+            reserved_names: &self.reserved_names,
+        };
+        sign_out::sign_out_claude_home(sources, folders).boxed()
     }
 
     fn remove_sign_in_move_leftovers<'call>(

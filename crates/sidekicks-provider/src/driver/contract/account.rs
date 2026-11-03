@@ -104,6 +104,16 @@ pub trait HelperModeAccountLegs: Send + Sync {
         &self,
         folders: &ProviderAccountFolders,
     ) -> Result<Option<KeychainSignIn>, DriverError>;
+
+    /// Signs `provider_account_id`'s account out through the provider's own sign-out, run by a
+    /// short-lived process of its own in `folders` and no other home; the folders stay. Has no
+    /// bound of its own, the caller bounds it. Fails with the driver's error when the sign-out
+    /// could not run or ended in a failure.
+    fn sign_out_home(
+        &self,
+        provider_account_id: ProviderAccountId,
+        folders: ProviderAccountFolders,
+    ) -> BoxFuture<'_, Result<(), DriverError>>;
 }
 
 /// A provider's own interactive sign-in, run in one account's home: the flow's start, and the

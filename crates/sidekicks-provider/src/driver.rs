@@ -571,8 +571,14 @@ pub struct DriverServices {
 /// What a provider's helper-mode account legs read, which the daemon program's helper modes build
 /// with no daemon serving and no database pool: only what those legs read, never a driver's.
 pub struct HelperModeServices {
+    /// The one thread the legs' short-lived provider processes are spawned from.
+    pub spawner: Spawner,
     /// The daemon's data folder.
     pub data_folder: PathBuf,
+    /// The person's home folder, below which a provider's command is searched for.
+    pub home_folder: PathBuf,
+    /// The search a provider's command falls back to once its environment's `PATH` holds none.
+    pub command_search: Arc<ProviderCommandSearch>,
     /// The login shell's environment, every provider process's base.
     pub base_environment: Arc<[(String, String)]>,
     /// The names every provider sets on its processes, which no environment row may set.

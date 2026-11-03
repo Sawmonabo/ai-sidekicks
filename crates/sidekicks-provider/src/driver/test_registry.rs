@@ -1,5 +1,5 @@
 //! The driver registry other areas' tests build on: the shared services every driver's build
-//! takes, the table's first providers answered by stand-in drivers, a run bound to the first one,
+//! takes and the bundle a helper mode builds over them, the table's first providers answered by stand-in drivers, a run bound to the first one,
 //! every provider answered by a mock driver, the session inbox addresser the table's own drivers
 //! answer, an accounts reader answering one current account, the table with Codex's driver over a
 //! scripted service, and the stand-in Codex service a test program runs as itself; the run,
@@ -70,8 +70,9 @@ use crate::driver::ports::{
 };
 use crate::driver::registry::ProviderRegistry;
 use crate::driver::{
-    AccountFoldersError, CurrentProviderAccount, DriverServices, PROVIDER_REGISTRATIONS, PROVIDERS,
-    ProviderAccountFolders, ProviderAccountReader, ProviderRegistration, codex,
+    AccountFoldersError, CurrentProviderAccount, DriverServices, HelperModeServices,
+    PROVIDER_REGISTRATIONS, PROVIDERS, ProviderAccountFolders, ProviderAccountReader,
+    ProviderRegistration, codex,
 };
 use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::process_registry::ProviderProcessRegistry;
@@ -183,6 +184,18 @@ pub fn registered_test_accounts(
         .register(Arc::new(TestProviderAccounts(current)) as Arc<dyn ProviderAccountReader>)
         .expect("a new registration takes its port");
     Arc::new(provider_accounts)
+}
+
+/// The bundle a helper mode builds, over the handles `services` hold.
+pub fn helper_mode_services_over(services: &DriverServices) -> HelperModeServices {
+    HelperModeServices {
+        spawner: services.spawner.clone(),
+        data_folder: services.data_folder.clone(),
+        home_folder: services.home_folder.clone(),
+        command_search: Arc::clone(&services.command_search),
+        base_environment: Arc::clone(&services.base_environment),
+        reserved_names: Arc::clone(&services.reserved_names),
+    }
 }
 
 /// The shared services every driver's build takes, with every port unregistered, the spawn

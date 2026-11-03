@@ -26,6 +26,7 @@ use sidekicks_platforms::{
     KeychainItemRefusal, KeychainSignIn, SignInMoveError, Spawner, sign_in_move,
 };
 use sidekicks_provider::account::homes::{AccountHome, query_account_homes};
+use sidekicks_provider::command_search::ProviderCommandSearch;
 use sidekicks_provider::driver::{
     HelperModeServices, PROVIDER_REGISTRATIONS, PROVIDERS, ProviderDescriptor,
 };
@@ -193,7 +194,10 @@ async fn helper_mode_services(
                 not_started("the providers' environment could not be read", &failure)
             })?;
     Ok(HelperModeServices {
+        spawner: spawner.clone(),
         data_folder: folders.data_folder.clone(),
+        home_folder: folders.home_folder.clone(),
+        command_search: Arc::new(ProviderCommandSearch::new(spawner.clone())),
         base_environment: Arc::from(base_environment),
         reserved_names: Arc::new(ReservedEnvironmentNames::of_providers(PROVIDERS)),
     })

@@ -310,11 +310,11 @@ pub(super) fn stop_recorded_services(
     .boxed()
 }
 
-/// Builds Codex's helper-mode account legs, which hold nothing of `_services`.
+/// Builds Codex's helper-mode account legs over `services`; they hold handles and do no I/O.
 pub(super) fn helper_mode_account_legs(
-    _services: &HelperModeServices,
+    services: &HelperModeServices,
 ) -> Arc<dyn HelperModeAccountLegs> {
-    Arc::new(account::helper_mode::CodexHelperModeLegs)
+    Arc::new(account::helper_mode::CodexHelperModeLegs::new(services))
 }
 
 /// The service registry the next driver [`build_over_scripted_service`] builds holds.
