@@ -420,13 +420,14 @@ mod tests {
     const LIMIT: usize = 4_096;
 
     // A cmd launch's environment: names spelled in another case than the lines spell them, a
-    // value holding a `^`, one holding a `!`, one a lone `"` and one whose `^^` and `!` cmd.exe's
-    // second phase reads as a `^` and a `!`.
+    // value holding a `^`, one holding a `!`, one a lone `"`, one whose `^^` and `!` cmd.exe's
+    // second phase reads as a `^` and a `!`, and one a `!` then a `"`.
     const CMD_ENVIRONMENT: &[(&str, &str)] = &[
         ("Target", "C:\\a^b"),
         ("Bang", "a!b"),
         ("q", "\""),
         ("Carets", "a^^b!"),
+        ("Mark", "!\""),
     ];
 
     // The fills of a command step's line, written as its param holds it after the `=`.
@@ -761,6 +762,10 @@ mod tests {
     #[case::an_escape_caret_before_a_value_opening_quotes(
         "copy {{ x }} ^%Q% \"^a\"",
         "copy \"!SIDEKICKS_VALUE_1!\" ^%Q% \"^^a\""
+    )]
+    #[case::a_quoted_value_closing_its_quotes(
+        "copy {{ x }} \"%MARK%\"",
+        "copy \"!SIDEKICKS_VALUE_1!\" \"^!\"\""
     )]
     #[case::a_target_not_read_again(
         "copy {{ x }} b > \"%TARGET%\"",
