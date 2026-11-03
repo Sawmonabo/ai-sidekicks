@@ -27,7 +27,7 @@ const CODEX_PROTOCOL_BUNDLE_SHA3_256: &str =
 const CODEX_PROTOCOL_RELEASE: &str = "rust-v0.163.0";
 
 /// The protocol types the provider crate sends, generated with every type they reach.
-const CODEX_SENT_TYPES: [&str; 35] = [
+const CODEX_SENT_TYPES: [&str; 36] = [
     "ThreadStartParams",
     "ThreadResumeParams",
     "ThreadForkParams",
