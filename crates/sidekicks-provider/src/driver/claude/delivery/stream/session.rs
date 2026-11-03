@@ -106,6 +106,8 @@ impl ClaudeSessionStream {
     ) {
         let mut readings = self.lock();
         readings.turn_readings.open(run.run_id, provider_turn_id);
+        // The resumed turn is under way, so a message it takes in joins it.
+        readings.has_turn_message = true;
         readings.turn = Some(ClaudeOpenTurn {
             run_id: run.run_id,
             binding_id: run.binding_id,

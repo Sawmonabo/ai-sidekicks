@@ -6,10 +6,7 @@
 //! routing, as an adoption restores a helper; a held helper's turn listed over at the adoption
 //! ends as the daemon's.
 
-use sidekicks_contracts::agent::definition::AgentId;
-use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
 
 use super::adoption::request_bare_thread_resume;
@@ -26,8 +23,9 @@ use crate::driver::run_control::ReattachedHelper;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// Reopens the helper `thread_id` on `connection` as it stands, with no setting, and answers its
-/// newest turn, `None` where it holds none. Fails as the resume does, a parent not loaded among
-/// Codex's refusals.
+/// newest turn, `None` where it holds none; Codex answers a resume that asks for its newest-turn
+/// page, as this one does, with the page or a refusal, so a reply with no page holds no turn.
+/// Fails as the resume does, a parent not loaded among Codex's refusals.
 pub(crate) async fn reopen_codex_helper(
     connection: &CodexAppServerConnection,
     thread_id: &str,
@@ -58,29 +56,22 @@ pub(crate) async fn reopen_registered_codex_helper(
     reopened
 }
 
-/// Binds the helper `subagent_id`, whose id is its conversation's, to its child run `bound` on
-/// `binding_id` for `agent_id`, so its rows and asks land on that run and its end completes it,
-/// and routes the run to the helper's conversation, which an interrupt of the run reaches.
+/// Records `child` as the helper's on its conversation `thread_id`, so its rows and asks land on
+/// its child run and its end completes it, and routes a bound child run to the conversation, which
+/// an interrupt of the run reaches.
 pub(crate) fn bind_codex_helper_run(
     record: &mut CodexSessionRecord,
     run_routes: &CodexRunRoutes,
-    subagent_id: SubagentId,
-    bound: CodexBoundChildRun,
-    agent_id: AgentId,
-    binding_id: RuntimeBindingId,
+    thread_id: String,
+    child: CodexChildRun,
 ) {
-    let thread_id = subagent_id.as_str().to_owned();
-    run_routes.bind_helper_run(bound.child_run_id, record.session_id, &thread_id);
-    record.delivery.child_run_by_thread_id.insert(
-        thread_id,
-        CodexChildRun {
-            bound: Some(bound),
-            agent_id,
-            binding_id,
-            subagent_id,
-            parent_tool_call_id: None,
-        },
-    );
+    if let Some(bound) = &child.bound {
+        run_routes.bind_helper_run(bound.child_run_id, record.session_id, &thread_id);
+    }
+    record
+        .delivery
+        .child_run_by_thread_id
+        .insert(thread_id, child);
 }
 
 /// Restores a helper re-attached after a restart on the session's task, as an adoption restores
@@ -99,18 +90,22 @@ pub(crate) async fn restore_reattached_codex_helper(
         return CodexRoutedFrames::default();
     }
     if let Some(binding_id) = task.record.binding_id.clone() {
-        let agent_id = task.record.lead_agent_id;
-        bind_codex_helper_run(
-            task.record,
-            &dependencies.runs.run_routes,
-            helper.subagent_id,
-            CodexBoundChildRun {
+        let child = CodexChildRun {
+            bound: Some(CodexBoundChildRun {
                 child_run_id: helper.run_id,
                 parent_run_id: helper.parent_run_id,
                 start_row_event_id: None,
-            },
-            agent_id,
+            }),
+            agent_id: task.record.lead_agent_id,
             binding_id,
+            subagent_id: helper.subagent_id,
+            parent_tool_call_id: None,
+        };
+        bind_codex_helper_run(
+            task.record,
+            &dependencies.runs.run_routes,
+            thread_id.clone(),
+            child,
         );
     }
     task.routing

@@ -7,7 +7,6 @@ use futures::StreamExt as _;
 use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::{Map, Value, json};
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::session::controls::methods::{
@@ -24,6 +23,7 @@ use crate::driver::codex::service::supervisor::test_service::{
     next_socket_request, send_on_socket,
 };
 use crate::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
+use crate::driver::test_registry::new_agent_id;
 use crate::run::posture::compose_execution_posture;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 use crate::runtime_binding::test_store::test_provider_account_id;
@@ -45,7 +45,7 @@ pub(crate) fn resting_session(session_id: SessionId, folder: &Path) -> ResumeSes
     ResumeSessionParams {
         session_id,
         binding_id: mint_runtime_binding_id(),
-        agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
+        agent_id: new_agent_id(),
         resume_handle: STORED_THREAD.to_owned(),
         model: ProviderToken::new("gpt-5".to_owned()).expect("the model fits"),
         larger_window: None,

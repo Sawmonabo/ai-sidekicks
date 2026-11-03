@@ -4,10 +4,11 @@
 use std::borrow::Cow;
 
 use rusqlite::{Connection, OptionalExtension as _, Row, named_params};
+use sidekicks_contracts::agent::tree::ChildHandle;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::{UuidText, UuidTextForm};
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
@@ -52,7 +53,7 @@ const READ_SESSION_NODES_SQL: &str =
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgentTreeNode {
     /// The handle the daemon minted for the helper.
-    pub child_handle: UuidTextForm,
+    pub child_handle: ChildHandle,
     /// The session the helper runs in.
     pub session_id: SessionId,
     /// The provider that named the helper.
@@ -62,7 +63,7 @@ pub struct AgentTreeNode {
     /// Its parent's id in the provider, `None` under the lead.
     pub parent_subagent_id: Option<String>,
     /// Its parent's node, `None` under the lead.
-    pub parent_child_handle: Option<UuidTextForm>,
+    pub parent_child_handle: Option<ChildHandle>,
     /// The name its provider gave it, where the provider names helpers.
     pub name: Option<String>,
     /// The role its provider started it in.
@@ -83,7 +84,7 @@ pub struct AgentTreeNode {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NewAgentTreeNode {
     /// The handle the daemon minted for the helper, which its first run's event carries.
-    pub child_handle: UuidTextForm,
+    pub child_handle: ChildHandle,
     /// The session the helper runs in.
     pub session_id: SessionId,
     /// The provider that named the helper.
@@ -93,7 +94,7 @@ pub struct NewAgentTreeNode {
     /// Its parent's id in the provider, `None` under the lead.
     pub parent_subagent_id: Option<String>,
     /// Its parent's node, `None` under the lead.
-    pub parent_child_handle: Option<UuidTextForm>,
+    pub parent_child_handle: Option<ChildHandle>,
     /// The name its provider gave it, where the provider names helpers.
     pub name: Option<String>,
     /// The role its provider started it in.
@@ -114,17 +115,14 @@ pub fn insert_node(node: &NewAgentTreeNode) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(INSERT_NODE_SQL),
         bindings: StatementBindings::Named(vec![
-            text_binding("@childHandle", node.child_handle.text().as_str()),
+            text_binding("@childHandle", node.child_handle.as_str()),
             text_binding("@sessionId", node.session_id.text().as_str()),
             text_binding("@providerName", node.provider_name.as_str()),
             text_binding("@subagentId", &node.subagent_id),
             nullable_text_binding("@parentSubagentId", node.parent_subagent_id.as_deref()),
             nullable_text_binding(
                 "@parentChildHandle",
-                node.parent_child_handle
-                    .map(|handle| handle.text())
-                    .as_ref()
-                    .map(UuidText::as_str),
+                node.parent_child_handle.as_ref().map(ChildHandle::as_str),
             ),
             nullable_text_binding("@name", node.name.as_deref()),
             nullable_text_binding("@role", node.role.as_deref()),
@@ -141,7 +139,7 @@ pub fn insert_node(node: &NewAgentTreeNode) -> WriteStatement {
 /// `start_call_id` where its provider names one, at `updated_at`; its first start stays. Refused
 /// when no node holds the handle.
 pub fn bind_newest_run(
-    child_handle: UuidTextForm,
+    child_handle: &ChildHandle,
     own_run_id: RunId,
     start_call_id: Option<&str>,
     updated_at: &WireInstant,
@@ -149,7 +147,7 @@ pub fn bind_newest_run(
     WriteStatement {
         sql: Cow::Borrowed(BIND_NEWEST_RUN_SQL),
         bindings: StatementBindings::Named(vec![
-            text_binding("@childHandle", child_handle.text().as_str()),
+            text_binding("@childHandle", child_handle.as_str()),
             text_binding("@ownRunId", own_run_id.text().as_str()),
             nullable_text_binding("@startCallId", start_call_id),
             text_binding("@updatedAt", updated_at.as_str()),
@@ -184,12 +182,12 @@ pub fn find_node(
 /// column does not read as its type.
 pub fn read_node(
     connection: &Connection,
-    child_handle: UuidTextForm,
+    child_handle: &ChildHandle,
 ) -> rusqlite::Result<Option<AgentTreeNode>> {
     connection
         .prepare_cached(READ_NODE_SQL)?
         .query_row(
-            named_params! { "@childHandle": child_handle.text().as_str() },
+            named_params! { "@childHandle": child_handle.as_str() },
             node_of_row,
         )
         .optional()
@@ -210,14 +208,30 @@ pub fn read_session_nodes(
         .collect()
 }
 
+/// A new helper's handle, minted at its first start and kept by every later one.
+pub(crate) fn mint_child_handle() -> ChildHandle {
+    ChildHandle::new(mint_uuid_v7().to_string()).expect("a UUID's text fits a child handle")
+}
+
+/// Stored text that is not a child's handle.
+#[derive(Debug, thiserror::Error)]
+#[error("the stored child handle is not a handle")]
+pub(crate) struct NotAChildHandle;
+
+/// A child's handle as a column stores it. Fails with [`NotAChildHandle`] for text no handle
+/// holds.
+pub(crate) fn read_child_handle(text: String) -> Result<ChildHandle, NotAChildHandle> {
+    ChildHandle::new(text).ok_or(NotAChildHandle)
+}
+
 fn node_of_row(row: &Row<'_>) -> rusqlite::Result<AgentTreeNode> {
     Ok(AgentTreeNode {
-        child_handle: text_column(row, 0, |text| UuidTextForm::new(&text))?,
+        child_handle: text_column(row, 0, read_child_handle)?,
         session_id: text_column(row, 1, |text| SessionId::new(&text))?,
         provider_name: text_column(row, 2, closed_word::<ProviderId>)?,
         subagent_id: row.get(3)?,
         parent_subagent_id: row.get(4)?,
-        parent_child_handle: optional_text_column(row, 5, |text| UuidTextForm::new(&text))?,
+        parent_child_handle: optional_text_column(row, 5, read_child_handle)?,
         name: row.get(6)?,
         role: row.get(7)?,
         provider_path: row.get(8)?,
@@ -229,4 +243,150 @@ fn node_of_row(row: &Row<'_>) -> rusqlite::Result<AgentTreeNode> {
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use rusqlite::{Connection, ErrorCode, params};
+    use sidekicks_contracts::provider::id::ProviderId;
+    use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::instant::WireInstant;
+    use sidekicks_store::database::statement::{StatementBindings, WriteStatement, named_bindings};
+    use sidekicks_store::database::writer::test_file::{
+        TestDatabase, test_run_id, test_session_id,
+    };
+
+    use super::{
+        AgentTreeNode, NewAgentTreeNode, find_node, insert_node, mint_child_handle, read_node,
+    };
+    use crate::agent_tree::schema::schema_parts;
+
+    // A database on the agent tree's schema and a connection opened as the daemon opens its own, so
+    // foreign keys are on.
+    fn open() -> (TestDatabase, Connection) {
+        let database = TestDatabase::new(schema_parts());
+        let connection = database.opener()().expect("the test opens its database");
+        (database, connection)
+    }
+
+    fn run_statement(
+        connection: &Connection,
+        statement: &WriteStatement,
+    ) -> rusqlite::Result<usize> {
+        let StatementBindings::Named(values) = &statement.bindings else {
+            panic!("every agent tree statement binds by name");
+        };
+        connection.execute(&statement.sql, named_bindings(values).as_slice())
+    }
+
+    fn insert_run(connection: &Connection, session_id: SessionId) -> RunId {
+        let run_id = test_run_id();
+        connection
+            .execute(
+                "INSERT INTO runs (run_id, session_id, state, run_version)
+             VALUES (?1, ?2, 'running', 1)",
+                params![run_id.text().as_str(), session_id.text().as_str()],
+            )
+            .expect("the test writes the run");
+        run_id
+    }
+
+    fn provider() -> ProviderId {
+        ProviderId::new("test-provider".to_owned()).expect("a provider id")
+    }
+
+    fn new_node(session_id: SessionId, own_run_id: RunId, subagent_id: &str) -> NewAgentTreeNode {
+        NewAgentTreeNode {
+            child_handle: mint_child_handle(),
+            session_id,
+            provider_name: provider(),
+            subagent_id: subagent_id.to_owned(),
+            parent_subagent_id: None,
+            parent_child_handle: None,
+            name: None,
+            role: None,
+            provider_path: None,
+            start_call_id: None,
+            own_run_id,
+            started_at: WireInstant::now(),
+        }
+    }
+
+    fn is_constraint_failure(error: &rusqlite::Error, extended_code: i32) -> bool {
+        matches!(
+            error,
+            rusqlite::Error::SqliteFailure(failure, _)
+                if failure.code == ErrorCode::ConstraintViolation
+                    && failure.extended_code == extended_code
+        )
+    }
+
+    #[test]
+    fn inserted_node_reads_back_and_its_provider_key_is_unique() {
+        let (_database, connection) = open();
+        let session_id = test_session_id();
+        let parent_run = insert_run(&connection, session_id);
+        let parent = new_node(session_id, parent_run, "parent");
+        let parent_handle = parent.child_handle.clone();
+        run_statement(&connection, &insert_node(&parent)).expect("the parent's row is written");
+
+        let own_run = insert_run(&connection, session_id);
+        let node = NewAgentTreeNode {
+            parent_subagent_id: Some("parent".to_owned()),
+            parent_child_handle: Some(parent_handle.clone()),
+            name: Some("scout".to_owned()),
+            role: Some("explorer".to_owned()),
+            provider_path: Some("/root/scout".to_owned()),
+            start_call_id: Some("call-1".to_owned()),
+            ..new_node(session_id, own_run, "child")
+        };
+        assert_eq!(run_statement(&connection, &insert_node(&node)), Ok(1));
+
+        // The row holds the handle the node was given, never one the store minted.
+        let expected = AgentTreeNode {
+            child_handle: node.child_handle.clone(),
+            session_id,
+            provider_name: provider(),
+            subagent_id: "child".to_owned(),
+            parent_subagent_id: Some("parent".to_owned()),
+            parent_child_handle: Some(parent_handle),
+            name: Some("scout".to_owned()),
+            role: Some("explorer".to_owned()),
+            provider_path: Some("/root/scout".to_owned()),
+            start_call_id: Some("call-1".to_owned()),
+            own_run_id: own_run,
+            started_at: node.started_at.clone(),
+            updated_at: node.started_at,
+        };
+        assert_eq!(
+            find_node(&connection, session_id, &provider(), "child").expect("the find reads"),
+            Some(expected.clone())
+        );
+        assert_eq!(
+            read_node(&connection, &node.child_handle).expect("the read reads"),
+            Some(expected)
+        );
+
+        let again = insert_node(&new_node(session_id, own_run, "child"));
+        let refusal = run_statement(&connection, &again).expect_err("the same helper is refused");
+        assert!(
+            is_constraint_failure(&refusal, rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE),
+            "{refusal:?}"
+        );
+    }
+
+    #[test]
+    fn a_parent_handle_naming_no_node_is_refused() {
+        let (_database, connection) = open();
+        let session_id = test_session_id();
+        let own_run = insert_run(&connection, session_id);
+        let node = NewAgentTreeNode {
+            parent_child_handle: Some(mint_child_handle()),
+            ..new_node(session_id, own_run, "orphan")
+        };
+        let refusal = run_statement(&connection, &insert_node(&node))
+            .expect_err("a missing parent is refused");
+        assert!(
+            is_constraint_failure(&refusal, rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY),
+            "{refusal:?}"
+        );
+    }
+}

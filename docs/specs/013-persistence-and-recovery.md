@@ -91,50 +91,44 @@ This spec covers local persistence, shared coordination persistence, recovery ru
 
 ## Idempotency Protocol
 
-A side-effecting tool call must not execute twice, and a restart re-executes none. The daemon records each through a **two-phase command receipt**: `accept` → `execute` → terminal-status, with each phase committed in its own SQLite transaction. A tool call is uniquely identified by `command_id`.
+A side-effecting tool call must not execute twice, and a restart re-executes none. The daemon records each through a **command receipt**: the receipt is recorded and claimed in one SQLite transaction before the call is sent, and its end is written once, in a later transaction. A tool call is uniquely identified by `command_id`.
 
 ### Two-Phase Receipt Commit
 
 ```sql
--- Phase 1: accept (one transaction)
+-- Before the call: record and claim (one transaction)
 BEGIN;
   INSERT INTO command_receipts
     (id, command_id, run_id, status, created_at)
     VALUES (?, ?, ?, 'accepted', now());
-COMMIT;
-
--- Phase 2: execute (one transaction, optimistic compare-and-set)
-BEGIN;
   UPDATE command_receipts
     SET started_at = now()
-    WHERE id = ? AND started_at IS NULL;
-  -- rowcount = 1 → this worker owns the execution; rowcount = 0 → another worker
-  -- already claimed the receipt, abort this attempt without invoking the tool.
+    WHERE id = ?;
 COMMIT;
 -- side-effecting tool call happens here, outside any DB transaction
 
--- Phase 3: terminal-status (one transaction)
+-- The end (one transaction)
 BEGIN;
   UPDATE command_receipts
     SET status = ?, completed_at = now()
-    WHERE id = ?;
-  -- status ∈ {'completed','failed'}; 'rejected' is only set at accept-time.
+    WHERE id = ? AND started_at IS NOT NULL AND completed_at IS NULL;
+  -- status ∈ {'completed','failed','unknown'}
 COMMIT;
 ```
 
-The `UPDATE ... SET started_at = now() WHERE started_at IS NULL` in Phase 2 is an **optimistic compare-and-set primitive**. Under SQLite WAL mode it is serializable on the row's page, so exactly one concurrent caller observes a rowcount of 1 and proceeds to invoke the tool; all others observe 0 and abort without invoking. This closes the double-execution window when two workers race to claim the same receipt.
+`command_id` is unique, so a second record of the same command fails its transaction and the call is not sent. The end's `WHERE` writes it once: inline when the call returns, at the hand-off of a call moved to the background, or at its session's close, whichever comes first.
 
 ### In-Flight Receipts After A Restart
 
-A receipt whose Phase 2 started but never reached Phase 3 — `started_at IS NOT NULL AND completed_at IS NULL` — is an in-flight receipt.
+A receipt that was claimed but never ended — `started_at IS NOT NULL AND completed_at IS NULL` — is an in-flight receipt.
 
-The in-flight-receipt sweep runs **only at daemon startup**, per [§Default Behavior](#default-behavior) ("Recovery runs automatically at every daemon start"). While the daemon is running, an in-flight marker denotes a live worker that owns the receipt and is actively invoking the tool; another worker MUST NOT re-claim it. The optimistic CAS in Phase 2 covers the narrow concurrent-boot race (for example a supervisor restarting the daemon twice in quick succession); it is **not** a general garbage-collector for long-running in-flight executions. A receipt stuck in-flight across a fully-live daemon is treated as a bug, not a recovery input.
+The in-flight-receipt sweep runs **only at daemon startup**, per [§Default Behavior](#default-behavior) ("Recovery runs automatically at every daemon start"). While the daemon is running, an in-flight receipt is a call still under way, and nothing else claims it.
 
-The sweep re-executes no command. A receipt that persisted a durable MCP **task handle** — which the daemon's one MCP client writes to the receipt before anything else — resolves, for a server reached at an address, by polling `tasks/get` to a terminal status and reading the recorded outcome (`tasks/result` on a 2025-11-25 server, the result `tasks/get` carries on a 2026-07-28 one): never re-executed and nothing asked of the person, its real recorded outcome delivered once. Every other in-flight receipt halts the affected run with a `recoveryNeeded` condition per [Spec-004 § Fallback Behavior](004-provider-driver-contract-and-capabilities.md#fallback-behavior) and asks the person: a receipt with no task handle; a task on a stdio server, which ends with the daemon; a purged or expired task; and a task observed in `input_required`, which awaits input the sweep cannot supply through `tasks/update`, its handle preserved for the person.
+The sweep re-executes no command. A receipt that persisted a durable MCP **task handle** — which the daemon's one MCP client writes to the receipt before anything else — resolves, for a server reached at an address, by polling `tasks/get` to a terminal status and reading the recorded outcome (`tasks/result` on a 2025-11-25 server, the result `tasks/get` carries on a 2026-07-28 one): never re-executed, its real recorded outcome delivered once. A task found waiting on input is asked again on a 2026-07-28 server, whose `tasks/get` carries each input request, and canceled on a 2025-11-25 server, whose questions arrive only on a held `tasks/result`. Every other in-flight receipt ends with its outcome unknown and is never run again, and its run goes on, told the outcome is unknown: a receipt with no task handle, a task on a stdio server, which ends with the daemon, a purged or expired task, and a canceled one.
 
 ### References
 
-- [Local SQLite Schema § Command Receipts](../architecture/schemas/local-sqlite-schema.md) — `command_receipts` table and two-phase columns
+- [Local SQLite Schema § Command Receipts](../architecture/schemas/local-sqlite-schema.md) — `command_receipts` table, its claim and its end
 
 ## Writer Concurrency
 

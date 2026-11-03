@@ -3,6 +3,7 @@
 //! its session is kept; a message's words, and a plan message's, ride its payload beside its
 //! `user.message.sent` row.
 
+pub mod plan_message;
 pub mod send_now;
 pub mod summary;
 
@@ -17,13 +18,12 @@ use sidekicks_contracts::agent::tree::ChildHandle;
 use sidekicks_contracts::artifacts::attachment_reference::AttachmentReferenceList;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::event::registry::SessionEventType;
-use sidekicks_contracts::plan::PlanId;
 use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::{
-    MessageContent, PlanMessage, PlanMessageKind, QueueItemId, QueueItemNotDeliveredKind,
+    MessageContent, PlanMessage, QueueItemId, QueueItemNotDeliveredKind,
     QueueItemNotDeliveredReason, QueueItemState,
 };
 use sidekicks_contracts::run::state::RunState;
@@ -43,6 +43,7 @@ use sidekicks_store::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
 };
 
+use crate::agent_tree::store::read_child_handle;
 use crate::directory::lookups::ENDED_SESSION_STATES_SQL;
 use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 
@@ -461,21 +462,6 @@ static SELECT_QUEUE_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The lead's plan message of one plan and kind that a retry has not superseded; a retry
-// supersedes the item it sends again, so at most one such item stands.
-static SELECT_PLAN_MESSAGE_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT {COLUMNS} FROM queue_items
-  WHERE session_id = @session_id AND child_handle IS NULL
-    AND json_extract(payload, '$.kind') = 'planMessage'
-    AND json_extract(payload, '$.planMessage.planId') = @plan_id
-    AND json_extract(payload, '$.planMessage.kind') = @kind
-    AND state <> '{}'
-  {QUEUE_ORDER} LIMIT 1",
-        <&'static str>::from(QueueItemState::Superseded)
-    )
-});
-
 /// The queued messages that target one run, bound to its id at the one `?`, in queue order; a
 /// write that must find none uses it as its guard.
 pub(crate) static SELECT_WAITING_FOR_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -689,27 +675,6 @@ impl<'reader> QueueItemReader<'reader> {
             .optional()
     }
 
-    /// The session's plan message of `kind` for `plan_id` that no retry superseded, whatever key
-    /// it was sent under, or `None`.
-    pub fn get_plan_message(
-        &self,
-        session_id: &SessionId,
-        plan_id: &PlanId,
-        kind: PlanMessageKind,
-    ) -> rusqlite::Result<Option<QueueItemRecord>> {
-        self.reader
-            .prepare_cached(&SELECT_PLAN_MESSAGE_SQL)?
-            .query_row(
-                named_params! {
-                    "@session_id": session_id.text().as_str(),
-                    "@plan_id": plan_id.text().as_str(),
-                    "@kind": <&'static str>::from(kind),
-                },
-                record_of,
-            )
-            .optional()
-    }
-
     /// A queue, the lead's or a child's, in its order: the items in `state` when it is given, else
     /// every item waiting or not delivered.
     pub fn list(
@@ -781,11 +746,6 @@ impl<'reader> QueueItemReader<'reader> {
 #[error("the stored queue item state and its not-delivered reason do not pair")]
 struct UnpairedNotDeliveredReason;
 
-/// Stored text that is not a child's handle.
-#[derive(Debug, thiserror::Error)]
-#[error("the stored child handle is not a handle")]
-struct NotAChildHandle;
-
 /// The item a row of `COLUMNS` holds; fails with `rusqlite::Error::FromSqlConversionFailure` when a
 /// value does not read as its type. The payload is written only by `insert_queue_item_statement`,
 /// from a typed body.
@@ -837,9 +797,7 @@ pub fn record_of(row: &Row<'_>) -> rusqlite::Result<QueueItemRecord> {
         state,
         body: text_column(row, 4, |text| serde_json::from_str::<QueueItemBody>(&text))?,
         target_run_id: optional_text_column(row, 5, |text| RunId::new(&text))?,
-        child_handle: optional_text_column(row, 6, |text| {
-            ChildHandle::new(text).ok_or(NotAChildHandle)
-        })?,
+        child_handle: optional_text_column(row, 6, read_child_handle)?,
         position: safe_int_column(row, 7)?,
         client_idempotency_key: optional_text_column(row, 8, ClientUuid::new)?,
         created_at: text_column(row, 9, WireInstant::try_from)?,

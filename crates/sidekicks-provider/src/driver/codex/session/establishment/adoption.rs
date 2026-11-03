@@ -32,8 +32,9 @@ use super::{
     CodexEstablishedSession, CodexHandleResume, CodexResumedThread, CodexSessionEstablishment,
     compose_failed_resume, prepare_adoption, read_resumed_thread, request_thread_resume,
 };
-use crate::driver::codex::delivery::memory::CodexBoundChildRun;
+use crate::driver::codex::delivery::memory::{CodexBoundChildRun, CodexChildRun};
 use crate::driver::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
+use crate::driver::codex::run::turn_interrupt::interrupt_codex_running_turn;
 use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::service::supervisor::start::read_codex_loaded_threads;
 use crate::driver::codex::service::supervisor::{CODEX_UNLOAD_TIMEOUT, CodexService};
@@ -464,27 +465,43 @@ fn find_live_helpers(live_runs: &[LiveRunResume], loaded: &[String]) -> Vec<Adop
 
 // Reads each of `helpers`' newest turns on `connection`, in their order: a loaded one reopened,
 // so its frames reach the daemon's connection, an unloaded one listed, which loads nothing. A
-// read Codex refuses is logged and leaves the helper with no turn, which reads `Gone`.
+// read Codex refuses is logged and leaves the helper with no turn, which reads `Gone`; a loaded
+// one's running turn is then interrupted, so it does not run on with no run to answer for it.
 async fn read_helper_newest_turns(
     connection: &CodexAppServerConnection,
     session_id: SessionId,
     helpers: &mut [AdoptedHelper],
 ) {
     for helper in helpers {
+        let thread_id = helper.subagent_id.as_str();
         let read = if helper.is_loaded {
-            reopen_codex_helper(connection, helper.subagent_id.as_str()).await
+            reopen_codex_helper(connection, thread_id).await
         } else {
-            read_codex_newest_turn(connection, helper.subagent_id.as_str()).await
+            read_codex_newest_turn(connection, thread_id).await
         };
         match read {
             Ok(newest_turn) => helper.newest_turn = newest_turn,
-            Err(error) => tracing::warn!(
-                session_id = %session_id,
-                run_id = %helper.run_id,
-                thread_id = %helper.subagent_id.as_str(),
-                error = &error as &(dyn Error + 'static),
-                "codex refused the read of an adopted helper's newest turn"
-            ),
+            Err(error) => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    run_id = %helper.run_id,
+                    thread_id = %thread_id,
+                    error = &error as &(dyn Error + 'static),
+                    "codex refused the read of an adopted helper's newest turn"
+                );
+                if helper.is_loaded
+                    && let Err(error) =
+                        interrupt_codex_running_turn(connection, thread_id, None).await
+                {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        run_id = %helper.run_id,
+                        thread_id = %thread_id,
+                        error = &error as &(dyn Error + 'static),
+                        "codex refused the interrupt of an unread adopted helper"
+                    );
+                }
+            }
         }
     }
 }
@@ -563,18 +580,18 @@ fn restore_helper(
         }
         return None;
     };
-    bind_codex_helper_run(
-        record,
-        run_routes,
-        helper.subagent_id,
-        CodexBoundChildRun {
+    let child = CodexChildRun {
+        bound: Some(CodexBoundChildRun {
             child_run_id: helper.run_id,
             parent_run_id: helper.parent_run_id,
             start_row_event_id: None,
-        },
-        binding.agent_id,
-        binding.binding_id.clone(),
-    );
+        }),
+        agent_id: binding.agent_id,
+        binding_id: binding.binding_id.clone(),
+        subagent_id: helper.subagent_id,
+        parent_tool_call_id: None,
+    };
+    bind_codex_helper_run(record, run_routes, thread_id.clone(), child);
     if helper.is_held && !is_codex_turn_in_progress(&newest_turn.turn) {
         record
             .held_continuation_turn_ids

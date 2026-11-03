@@ -18,7 +18,7 @@ use tokio_tungstenite::tungstenite::http::{HeaderValue, header};
 use tokio_util::sync::CancellationToken;
 
 use super::kept_records::{retire_former_service, stop_kept_services};
-use super::{StartFailure, StartedService, start_codex_service};
+use super::{StartFailure, StartedService, compose_launch, start_codex_service};
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::process::{
@@ -378,6 +378,99 @@ async fn an_account_start_adds_the_relay_environment_before_it_answers() {
         assert_eq!(
             tokio_tungstenite::connect_async(request).await.is_ok(),
             is_admitted
+        );
+    }
+}
+
+// Killed by any service's launch left without the person's privacy choices, the capability read's
+// on the daemon's own empty home among them, or carrying them before the switches the daemon sets,
+// where an earlier switch loses.
+#[tokio::test]
+async fn every_launch_carries_the_person_s_privacy_choices_last() {
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    let dependencies = test_codex_service_dependencies(
+        folder.path(),
+        Arc::new(TestCodexProgram {
+            program: write_failing_codex(folder.path()),
+            environment: Vec::new(),
+        }),
+        Arc::new(UnheardEvents),
+        Arc::new(UnrecordedChildren),
+    );
+    let personal_home = dependencies.personal_home.clone();
+    std::fs::create_dir(&personal_home).expect("the person's folder is made");
+    std::fs::write(
+        personal_home.join("config.toml"),
+        "[analytics]\nenabled = false\n\n[feedback]\nenabled = false\n",
+    )
+    .expect("the person's configuration is written");
+    let socket = folder.path().join("s.sock");
+    let homes = [
+        (
+            CodexServiceHome {
+                codex_home: folder.path().join("account"),
+                kind: CodexHomeKind::Account(test_provider_account_id()),
+            },
+            CodexServiceKind::Account,
+        ),
+        (
+            CodexServiceHome {
+                codex_home: folder.path().join("capability-read"),
+                kind: CodexHomeKind::CapabilityRead,
+            },
+            CodexServiceKind::Account,
+        ),
+        (
+            CodexServiceHome {
+                codex_home: personal_home,
+                kind: CodexHomeKind::PersonalFolder,
+            },
+            CodexServiceKind::Terminal,
+        ),
+    ];
+
+    let mut launched = Vec::new();
+    for (home, kind) in homes {
+        let service = CodexService::new(
+            home,
+            CodexServiceSocket {
+                path: socket.clone(),
+                home_socket: socket.clone(),
+            },
+            kind,
+            Arc::clone(&dependencies),
+            vec!["service.own=1".to_owned()],
+        );
+        let executable = dependencies
+            .program
+            .resolve(service.home())
+            .await
+            .expect("the test program resolves");
+        let Ok(launch) = compose_launch(
+            &service,
+            &executable,
+            service.launch_config_overrides(),
+            &socket,
+        )
+        .await
+        else {
+            panic!("the launch was not composed");
+        };
+        launched.push(launch.arguments);
+    }
+
+    assert_eq!(launched.len(), 3);
+    for arguments in &launched {
+        assert!(
+            arguments.ends_with(&[
+                "-c".to_owned(),
+                "service.own=1".to_owned(),
+                "-c".to_owned(),
+                "analytics.enabled=false".to_owned(),
+                "-c".to_owned(),
+                "feedback.enabled=false".to_owned(),
+            ]),
+            "{arguments:?}"
         );
     }
 }

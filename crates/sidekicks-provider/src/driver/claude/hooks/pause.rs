@@ -133,6 +133,12 @@ pub(crate) struct ClaudeReleasedCallback {
     pub(crate) answer: ClaudeHookAnswer,
 }
 
+/// The renewal job standing for one held helper, with the id that tells it from a later one.
+struct HoldRenewal {
+    id: u64,
+    job: ScheduledJobHandle,
+}
+
 /// Every session's pauses, the lead's and each helper's, the callbacks the pauses hold, and the
 /// renewal standing for each held helper.
 #[derive(Default)]
@@ -144,7 +150,9 @@ pub(crate) struct ClaudeRunPauses {
     /// The stopped helpers, whose tool uses are denied.
     stopped_helpers: ClaudeStoppedHelpers,
     /// The one renewal job standing for each held helper, by session and agent id.
-    renewals: HashMap<(SessionId, String), ScheduledJobHandle>,
+    renewals: HashMap<(SessionId, String), HoldRenewal>,
+    /// The id the next renewal job takes.
+    next_renewal_id: u64,
 }
 
 impl ClaudeRunPauses {
@@ -280,7 +288,7 @@ impl ClaudeRunPauses {
         steer: Option<&str>,
     ) -> Vec<ClaudeReleasedCallback> {
         if let Some(renewal) = self.renewals.remove(&(*session_id, agent_id.to_owned())) {
-            renewal.cancel();
+            renewal.job.cancel();
         }
         let Some(ended) = self
             .helper_pauses
@@ -310,25 +318,58 @@ impl ClaudeRunPauses {
             .contains_key(&(*session_id, agent_id.to_owned()))
     }
 
-    /// Keeps `renewal` as the one job standing for the helper `agent_id`'s held calls.
+    /// Mints the id of the next renewal job, which its run and its refusal name it by.
+    pub(crate) fn mint_renewal_id(&mut self) -> u64 {
+        let id = self.next_renewal_id;
+        self.next_renewal_id += 1;
+        id
+    }
+
+    /// Keeps `job`, minted `id`, as the one renewal standing for the helper `agent_id`'s held
+    /// calls.
     pub(crate) fn keep_renewal(
         &mut self,
         session_id: SessionId,
         agent_id: String,
-        renewal: ScheduledJobHandle,
+        id: u64,
+        job: ScheduledJobHandle,
     ) {
-        self.renewals.insert((session_id, agent_id), renewal);
+        self.renewals
+            .insert((session_id, agent_id), HoldRenewal { id, job });
     }
 
-    /// Takes the calls the helper `agent_id`'s pause holds as its renewal falls due, each denied
-    /// so the helper makes it again; the pause stays in force and holds the call it makes.
+    /// Drops the renewal `renewal_id` standing for the helper `agent_id`, answering whether it was
+    /// the one standing; a later renewal is left in place.
+    pub(crate) fn drop_renewal(
+        &mut self,
+        session_id: &SessionId,
+        agent_id: &str,
+        renewal_id: u64,
+    ) -> bool {
+        let helper = (*session_id, agent_id.to_owned());
+        let is_standing = self
+            .renewals
+            .get(&helper)
+            .is_some_and(|renewal| renewal.id == renewal_id);
+        if is_standing {
+            self.renewals.remove(&helper);
+        }
+        is_standing
+    }
+
+    /// Takes the calls the helper `agent_id`'s pause holds as its renewal `renewal_id` falls due,
+    /// each denied so the helper makes it again; the pause stays in force and holds the call it
+    /// makes. A renewal no longer standing, one a continue ended while it ran, takes nothing.
     pub(crate) fn take_renewed_calls(
         &mut self,
         session_id: &SessionId,
         agent_id: &str,
+        renewal_id: u64,
     ) -> Vec<ClaudeReleasedCallback> {
+        if !self.drop_renewal(session_id, agent_id, renewal_id) {
+            return Vec::new();
+        }
         let helper = (*session_id, agent_id.to_owned());
-        self.renewals.remove(&helper);
         self.helper_pauses
             .take_held(&helper)
             .into_iter()
@@ -355,7 +396,7 @@ impl ClaudeRunPauses {
         self.renewals.retain(|(renewed_session_id, _), renewal| {
             let is_kept = renewed_session_id != session_id;
             if !is_kept {
-                renewal.cancel();
+                renewal.job.cancel();
             }
             is_kept
         });
@@ -364,10 +405,21 @@ impl ClaudeRunPauses {
 
 #[cfg(test)]
 mod tests {
-    use crate::driver::test_registry::fixed_session_id;
-    use sidekicks_contracts::run::id::RunId;
+    use std::sync::Arc;
+    use std::time::Duration;
 
-    use super::{ClaudeHookAnswer, ClaudePauseAnswer, ClaudeReleasedCallback, ClaudeRunPauses};
+    use futures::FutureExt;
+    use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
+    use sidekicks_std::scheduler::{JobCondition, Scheduler};
+    use tokio::sync::watch;
+
+    use super::{
+        ClaudeHookAnswer, ClaudePauseAnswer, ClaudeReleasedCallback, ClaudeRunPauses,
+        HELD_HELPER_RENEWAL_REASON,
+    };
+    use crate::driver::test_registry::fixed_session_id;
 
     fn bytes_of(answer: ClaudePauseAnswer) -> String {
         let ClaudePauseAnswer::Answer(answer) = answer else {
@@ -455,5 +507,59 @@ mod tests {
                 answer: ClaudeHookAnswer::Pass,
             }]
         );
+    }
+
+    // Arms a renewal for the helper `agent_id` on `scheduler`, answering its id.
+    fn arm(
+        scheduler: &Scheduler,
+        pauses: &mut ClaudeRunPauses,
+        session_id: SessionId,
+        agent_id: &str,
+    ) -> u64 {
+        let id = pauses.mint_renewal_id();
+        let job = scheduler
+            .schedule(
+                "renewal",
+                JobCondition::Always,
+                Duration::from_hours(1),
+                |_| async { Ok(()) }.boxed(),
+            )
+            .expect("the scheduler runs");
+        pauses.keep_renewal(session_id, agent_id.to_owned(), id, job);
+        id
+    }
+
+    // A renewal falling due after a continue ended it, once a later hold armed the next, takes
+    // nothing and leaves the next standing to take the later hold's calls. Killed by a renewal
+    // that takes the held calls whichever renewal it is.
+    #[tokio::test]
+    async fn an_ended_renewal_leaves_the_next_one_standing() {
+        let scheduler = Scheduler::start(
+            Arc::new(TestWallClock::default()),
+            None,
+            watch::channel(0).1,
+        );
+        let session_id = fixed_session_id();
+        let mut pauses = ClaudeRunPauses::default();
+        pauses.pause_helper(&session_id, "helper");
+        pauses.answer_before_tool(&session_id, Some("helper"), "r1");
+        let ended = arm(&scheduler, &mut pauses, session_id, "helper");
+        pauses.resume_helper(&session_id, "helper", None);
+        pauses.pause_helper(&session_id, "helper");
+        pauses.answer_before_tool(&session_id, Some("helper"), "r2");
+        let standing = arm(&scheduler, &mut pauses, session_id, "helper");
+
+        assert_eq!(pauses.take_renewed_calls(&session_id, "helper", ended), []);
+        assert!(pauses.has_renewal(&session_id, "helper"));
+        assert_eq!(
+            pauses.take_renewed_calls(&session_id, "helper", standing),
+            [ClaudeReleasedCallback {
+                request_id: "r2".to_owned(),
+                answer: ClaudeHookAnswer::Deny {
+                    reason: HELD_HELPER_RENEWAL_REASON.to_owned(),
+                },
+            }]
+        );
+        assert!(!pauses.has_renewal(&session_id, "helper"));
     }
 }

@@ -7,6 +7,7 @@ use strum::{IntoStaticStr, VariantArray};
 
 use crate::agent::definition::{AgentId, AgentResolvedConfiguration};
 use crate::agent::methods::agent_entry;
+use crate::agent::tree::ChildHandle;
 use crate::orchestration::OrchestrationRunConfig;
 use crate::provider::account::record::ProviderAccountId;
 use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
@@ -16,7 +17,6 @@ use crate::run::id::RunId;
 use crate::run::subagent::SubagentId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
-use crate::wire::id::UuidTextForm;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::FreeFormText;
 use crate::wire::{Never, literal};
@@ -68,7 +68,7 @@ agent_entry! {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderChildStart {
     /// The handle the daemon minted for the helper at its first start.
-    pub child_handle: UuidTextForm,
+    pub child_handle: ChildHandle,
     /// The provider that started the helper.
     pub provider: ProviderId,
     /// The provider's own id for the helper.
@@ -87,8 +87,8 @@ pub struct ProviderChildStart {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "UuidTextForm")]
-    pub parent_child_handle: Option<UuidTextForm>,
+    #[schemars(with = "ChildHandle")]
+    pub parent_child_handle: Option<ChildHandle>,
     /// The name its provider gave it, where the provider names helpers.
     #[serde(
         default,

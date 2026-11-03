@@ -4,7 +4,8 @@
 //! conversation, the release of a conversation it moved off, the purge of its conversations, its
 //! side questions and the throwaway conversations they and its naming run on a connection of
 //! their own, its recovery when its service ends or moves, the cut of its conversation back to an
-//! earlier turn, and the slots its transitions are claimed in.
+//! earlier turn, the slots its transitions are claimed in, and the delivery of another session's
+//! message, a wake-up or a reminder with the reply chain it carries.
 
 pub(super) mod background_terminals;
 pub(super) mod calls;
@@ -20,6 +21,7 @@ pub(super) mod history;
 pub(super) mod inbound;
 pub(super) mod lifecycle_call;
 pub(super) mod owed_turn_ends;
+pub(super) mod peer_delivery;
 pub(super) mod purge;
 pub(super) mod recovery;
 pub(super) mod rewind;

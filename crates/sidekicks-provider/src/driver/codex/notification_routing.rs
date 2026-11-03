@@ -492,8 +492,11 @@ impl CodexSessionRouting {
         let Some(thread_id) = &frame.thread_id else {
             return;
         };
+        // Params that do not read as an object name no turn, which ends nothing held.
+        let turn_members: Map<String, Value> =
+            serde_json::from_str(frame.params.get()).unwrap_or_default();
         if delivery
-            .end_held_helper_turn(record, thread_id, &frame.params)
+            .end_held_helper_turn(record, thread_id, &turn_members)
             .await
         {
             return;
@@ -508,7 +511,7 @@ impl CodexSessionRouting {
         self.accountant.release_thread(thread_id);
         if is_subagent {
             delivery
-                .complete_child(record, thread_id, &frame.params)
+                .complete_child(record, thread_id, &frame.params, &turn_members)
                 .await;
         }
     }

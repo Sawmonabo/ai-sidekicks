@@ -101,14 +101,6 @@ pub enum DriverDiagnosticKind {
     /// The provider refused the output-speed level the driver applied, so the process runs on the
     /// level it held; the run's declared state reports which.
     OutputSpeedApplyRefused,
-    /// A receiver-generated task handle could not be stored on its receipt row (over a column
-    /// bound, ill-formed Unicode, absent row, or a different handle; the disposition reason names
-    /// which). The call stays halted after a restart, never run again, and the handle is never
-    /// logged.
-    McpTaskHandleWriteRefused,
-    /// The database refused a storable handle: a local fault, kept apart from the remote-caused
-    /// refusal. The disposition reason carries the SQLite result code.
-    McpTaskHandleWriteFailed,
     /// A provider delivery the run engine absorbed instead of appending: a lifecycle event or ask
     /// from the execution before an undo's cut, or a lifecycle event for a run that had already
     /// ended.
@@ -200,8 +192,6 @@ impl DriverDiagnosticKind {
             Self::McpServerStatusRejected => "driver.mcpServerStatus.rejected",
             Self::OutputSpeedStateRejected => "driver.outputSpeed.stateRejected",
             Self::OutputSpeedApplyRefused => "driver.outputSpeed.applyRefused",
-            Self::McpTaskHandleWriteRefused => "driver.mcpTaskHandle.writeRefused",
-            Self::McpTaskHandleWriteFailed => "driver.mcpTaskHandle.writeFailed",
             Self::LateEventAbsorbed => "run.lateEvent.absorbed",
             Self::EpochAssociationEvicted => "run.epoch.associationEvicted",
             Self::ProviderRestarted => "driver.process.restarted",
@@ -343,7 +333,7 @@ mod recorded_events {
 
         /// Makes this recorder the thread's subscriber until the guard drops, so the tasks of a
         /// current-thread runtime record across awaits.
-        pub(crate) fn record_until_dropped(&self) -> DefaultGuard {
+        pub fn record_until_dropped(&self) -> DefaultGuard {
             tracing::subscriber::set_default(tracing_subscriber::registry().with(self.clone()))
         }
 
@@ -359,8 +349,7 @@ mod recorded_events {
         }
 
         /// Every field's value on each event recorded, in order.
-        #[cfg(test)]
-        pub(crate) fn texts(&self) -> Vec<String> {
+        pub fn texts(&self) -> Vec<String> {
             self.0
                 .lock()
                 .expect("no test thread panics holding the lock")

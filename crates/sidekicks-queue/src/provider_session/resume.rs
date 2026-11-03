@@ -143,16 +143,24 @@ impl ProviderSessions {
     /// [`ProviderSessionError::Provider`] when no driver answers its provider or the driver cannot
     /// resume, the driver never called, [`ProviderSessionError::ResumeRefused`] for a restart the
     /// provider refused, [`ProviderSessionError::ResumedRuns`] for runs the resume named that were
-    /// not settled, and as the composition, the driver or the binding's record fails.
+    /// not settled, and as the composition, the driver or the binding's record fails. A restart
+    /// whose provider no driver answers, or is not installed, posts the `providerMissing` notice
+    /// first.
     pub async fn restart(&self, session_id: SessionId) -> Result<(), ProviderSessionError> {
         let _hold = self.deps.transition_lock.acquire(session_id).await;
         self.refuse_ended(session_id).await?;
         let leg = read_session_leg(&self.deps.pool, session_id)
             .await?
             .ok_or(ProviderSessionError::NoConversation { session_id })?;
-        self.deps
+        if let Err(refusal) = self
+            .deps
             .providers
-            .check_capability(&leg.provider_name, DriverCapabilityFlag::Resume)?;
+            .check_capability(&leg.provider_name, DriverCapabilityFlag::Resume)
+        {
+            return Err(self
+                .answer_failed_start(session_id, &leg.provider_name, refusal.into())
+                .await);
+        }
         let (opened, _resumed) = self.relaunch(session_id, leg, Relaunch::Restart).await?;
         if let Some(opened) = opened {
             self.record_opened(session_id, opened);
@@ -169,7 +177,8 @@ impl ProviderSessions {
     /// [`ProviderSessionError::NoConversation`] for one with none to resume, the driver never
     /// called, [`ProviderSessionError::ResumeRefused`] for a resume the provider refused,
     /// [`ProviderSessionError::ResumedRuns`] for runs the resume named that were not settled, and
-    /// as the composition, the driver or the binding's record fails.
+    /// as the composition, the driver or the binding's record fails. A resume whose provider no
+    /// driver answers, or is not installed, posts the `providerMissing` notice first.
     pub async fn resume_after_restart(
         &self,
         session_id: SessionId,
@@ -194,6 +203,8 @@ impl ProviderSessions {
     /// an ended session, [`ProviderSessionError::NoConversation`] for one with none to resume,
     /// [`ProviderSessionError::ResumeRefused`] for a resume the provider refused, its answers then
     /// owed to the next resume, and as the composition, the driver or the binding's record fails.
+    /// A continue whose provider no driver answers, or is not installed, posts the
+    /// `providerMissing` notice first.
     pub async fn resume_after_answer(
         &self,
         session_id: SessionId,
@@ -250,7 +261,14 @@ impl ProviderSessions {
         } = self
             .compose_resume(session_id, &leg, minted_id.clone())
             .await?;
-        let driver = self.deps.providers.lookup(&leg.provider_name)?;
+        let driver = match self.deps.providers.lookup(&leg.provider_name) {
+            Ok(driver) => driver,
+            Err(refusal) => {
+                return Err(self
+                    .answer_failed_start(session_id, &leg.provider_name, refusal.into())
+                    .await);
+            }
+        };
         let (held_run_continue, claims) = self
             .claim_held_run_continue(session_id, &params.live_runs, &params.kept_schedules)
             .await?;
@@ -278,9 +296,10 @@ impl ProviderSessions {
             Ok(answer) => answer,
             Err(error) => {
                 self.deps.binding_cursors.forget_binding(&minted_id);
-                return Err(self
-                    .release_marks_after(session_id, claims, error.into())
-                    .await);
+                let failed = self
+                    .answer_failed_start(session_id, &leg.provider_name, error.into())
+                    .await;
+                return Err(self.release_marks_after(session_id, claims, failed).await);
             }
         };
         let (binding_id, resume_handle, spawned_version, runs) = match answer {

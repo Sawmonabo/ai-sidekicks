@@ -18,13 +18,15 @@ use rusqlite::{Connection, named_params};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::question::{
     QuestionAskedPayload, QuestionAskedState, QuestionCanceledPayload, QuestionCanceledReason,
-    QuestionId, QuestionResolveResponse, QuestionSettledState, RunQuestionAskedPayload,
+    QuestionId, QuestionResolveResponse, RunQuestionAskedPayload,
 };
 use sidekicks_contracts::release_manifest::Sha256Hex;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{InterventionState, InterventionType};
+use sidekicks_contracts::run::queue::MessageContent;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
@@ -49,6 +51,7 @@ use sidekicks_store::events::session::appender::{
 };
 
 use crate::driver_resolution::LiveRunDriverError;
+use crate::questions::QuestionSettledState;
 use crate::questions::kept_answers::KeptSecretAnswers;
 use crate::questions::schema::QuestionState;
 use crate::questions::store::{
@@ -67,9 +70,9 @@ mod tests;
 
 /// The statements [`QuestionsService`] prepares on a read connection: a record, its pages,
 /// whether its run has an interrupt recorded, which held questions are still open, the open
-/// questions a request sent again returns to, the kept answers a question asked again takes, and
-/// the kept answers a session's continues owe.
-pub const QUESTION_STATEMENT_CAPACITY: usize = 7;
+/// questions a request sent again returns to, the kept answers a question asked again takes, the
+/// kept answers a session's continues owe, and a session's open questions that came on a request.
+pub const QUESTION_STATEMENT_CAPACITY: usize = 8;
 
 // Whether a person's or the daemon's interrupt of the run was asked for or carried out.
 static RUN_INTERRUPTED_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -99,6 +102,18 @@ pub(super) struct HeldRequest {
     /// Whether its question's record is written; until then a read of the settled questions
     /// keeps it.
     pub(super) is_recorded: bool,
+    /// The answer a tool server kept for its next ask, until its settle.
+    pub(super) kept_answer: Option<KeptAnswer>,
+}
+
+/// An answer a tool server kept for its next ask: the person's turn as it was composed before the
+/// answer went out, and the device that answered.
+#[derive(Clone)]
+pub(super) struct KeptAnswer {
+    /// The person's turn.
+    pub(super) message: MessageContent,
+    /// The device that answered.
+    pub(super) device_id: DeviceId,
 }
 
 /// Who sends a held question's answer to whoever asked it.
@@ -137,6 +152,18 @@ pub enum QuestionError {
     /// The driver did not take the answer; nothing was written.
     #[error("the provider's driver did not take the answer")]
     Driver(#[from] DriverError),
+    /// No provider request is held for an open question whose answer a tool server kept.
+    #[error("no provider request is held for question {question_id}")]
+    RequestNotHeld {
+        /// The question.
+        question_id: QuestionId,
+    },
+    /// A settle of a kept answer found none kept.
+    #[error("no answer is kept for question {question_id}")]
+    AnswerNotKept {
+        /// The question.
+        question_id: QuestionId,
+    },
     /// The log holds no `question.asked` for a recorded question.
     #[error("the log holds no question.asked for question {question_id}")]
     AskedMissing {
@@ -170,9 +197,9 @@ pub enum QuestionError {
 /// provider request held its question, the session and run whose continue owes it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QuestionResolution {
-    /// The record's settled state.
+    /// The record's settled state, or `kept` for an answer a tool server kept for its next ask.
     pub response: QuestionResolveResponse,
-    /// The session and run of a kept answer.
+    /// The session and run of an answer kept because no provider request held its question.
     pub kept: Option<(SessionId, RunId)>,
 }
 
@@ -334,6 +361,7 @@ impl QuestionsService {
             request_id,
             answered_by,
             is_recorded: false,
+            kept_answer: None,
         };
         let _question_hold = self.question_lock.acquire(question_id).await;
         // Taken before the read of settled holds, which keeps a hold whose record is unwritten.
@@ -456,6 +484,7 @@ impl QuestionsService {
                     request_id: request_id.to_owned(),
                     answered_by: answered_by.clone(),
                     is_recorded: true,
+                    kept_answer: None,
                 },
             );
             return Ok(Some(question_id));
@@ -482,7 +511,19 @@ impl QuestionsService {
         let Some(held) = self.held_request(&question_id) else {
             return Ok(());
         };
-        let run_id = held.run_id;
+        self.cancel_withdrawn_question(question_id, held.session_id, held.run_id)
+            .await
+    }
+
+    /// Cancels `question_id` of `session_id`, which `run_id` holds, as [`Self::withdraw_question`]
+    /// says, and lets its request go; the caller holds the question's lock. Fails as the read or
+    /// the move fails, the question left as it was.
+    pub(super) async fn cancel_withdrawn_question(
+        &self,
+        question_id: QuestionId,
+        session_id: SessionId,
+        run_id: RunId,
+    ) -> Result<(), QuestionError> {
         let (is_interrupted, state) = self
             .reads
             .read(ReadLength::Short, move |reader| {
@@ -499,7 +540,7 @@ impl QuestionsService {
         };
         if state == Some(QuestionState::WaitingForRun) {
             let canceled = self
-                .cancel_waiting_question(question_id, held.session_id, reason)
+                .cancel_waiting_question(question_id, session_id, reason)
                 .await;
             // One its run's end canceled meanwhile stays as that end settled it.
             if let Err(failure) = canceled {
@@ -521,7 +562,7 @@ impl QuestionsService {
             self.engine.wake_running_waiters(&run_id);
             return Ok(());
         }
-        let canceled = canceled_event(held.session_id, question_id, reason)?;
+        let canceled = canceled_event(session_id, question_id, reason)?;
         let moved = self
             .engine
             .transition(
@@ -600,6 +641,18 @@ impl QuestionsService {
     /// The request `question_id`'s answer goes back under, while it is held.
     pub(super) fn held_request(&self, question_id: &QuestionId) -> Option<HeldRequest> {
         lock(&self.held_requests).get(question_id).cloned()
+    }
+
+    /// Keeps `kept`, the answer a tool server kept for its next ask, with `question_id`'s held
+    /// request until its settle; false when the request is no longer held, as once its run's end
+    /// settled the question and another question's take let the request go.
+    pub(super) fn keep_answer(&self, question_id: &QuestionId, kept: KeptAnswer) -> bool {
+        let mut held_requests = lock(&self.held_requests);
+        let Some(held) = held_requests.get_mut(question_id) else {
+            return false;
+        };
+        held.kept_answer = Some(kept);
+        true
     }
 
     /// Lets go the request `question_id` was held under, once the question is settled.
@@ -695,6 +748,19 @@ impl QuestionPort for QuestionsService {
         QuestionsService::withdraw_question(self, withdrawal)
             .map(|withdrawn| withdrawn.map_err(Into::into))
             .boxed()
+    }
+
+    fn settle_kept_answer(
+        &self,
+        session_id: SessionId,
+        request_id: String,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async move {
+            QuestionsService::settle_kept_answer(self, session_id, &request_id)
+                .await
+                .map_err(Into::into)
+        }
+        .boxed()
     }
 }
 

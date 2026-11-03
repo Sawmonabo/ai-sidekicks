@@ -13,7 +13,8 @@ use tokio::sync::oneshot;
 
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::run::turn_interrupt::{
-    CodexTurnInterrupt, TURN_INTERRUPT_METHOD, interrupt_codex_running_turn, interrupt_codex_turn,
+    CodexRunningTurnInterrupt, CodexTurnInterrupt, TURN_INTERRUPT_METHOD,
+    interrupt_codex_running_turn, interrupt_codex_turn,
 };
 use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
@@ -145,7 +146,8 @@ async fn connect_kept_service(
                 error = &error as &(dyn Error + 'static),
                 session_id = %params.session_id,
                 conversation = params.conversation,
-                "the codex service running the turns a restart kept could not be joined; they run on"
+                "the codex service running the turns a restart kept could not be joined; they run \
+                 on"
             );
             None
         }
@@ -196,9 +198,9 @@ async fn follow_refused_interrupt(
     message: String,
 ) -> Result<KeptTurnInterrupt, CodexError> {
     match interrupt_codex_running_turn(connection, thread_id, Some(turn_id)).await {
-        Ok(Some(answer)) => read_kept_turn_interrupt(Ok(answer)),
+        Ok(CodexRunningTurnInterrupt::Running(answer)) => read_kept_turn_interrupt(Ok(answer)),
         Err(error) => read_kept_turn_interrupt(Err(error)),
-        Ok(None) => {
+        Ok(CodexRunningTurnInterrupt::NoTurn | CodexRunningTurnInterrupt::Untouched(_)) => {
             if let Some(running) = read_running_turn_named(&message) {
                 return read_kept_turn_interrupt(
                     interrupt_codex_turn(connection, thread_id, running).await,

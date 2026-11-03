@@ -1,19 +1,20 @@
 //! The questions service's tests: a held question's answer and the refusals that send nothing,
 //! each way a question ends unanswered, a question's turn while its run waits on another, the
-//! queued answers of a question its agent does not wait for, and the answer kept while no request
-//! held its question.
+//! queued answers of a question its agent does not wait for, a tool server's kept answer, and the
+//! answer kept while no request held its question.
 
 mod answers;
 mod endings;
 mod kept;
 mod queued_answers;
 mod run_turn;
+mod tool_server;
 
 use futures::FutureExt as _;
 use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::question::QuestionAnswer;
-use sidekicks_provider::port::question::ToolServerQuestionAnswer;
+use sidekicks_provider::port::question::{ToolServerAnswerDelivery, ToolServerQuestionAnswer};
 
 use super::QuestionError;
 use super::test_fixture::{Fixture, HandedAnswers, choice_page};
@@ -22,19 +23,23 @@ use crate::run::engine::test_fixture::stored_run_state;
 /// The secret the tests answer with, which no stored row may hold.
 const SECRET: &str = "the-secret-value-41";
 
-/// A stand-in tool-server task that records each answer it is sent.
-struct RecordingTaskAnswer(HandedAnswers);
+/// A stand-in tool-server task that records each answer it is sent and answers with its delivery.
+struct RecordingTaskAnswer(HandedAnswers, ToolServerAnswerDelivery);
 
 impl ToolServerQuestionAnswer for RecordingTaskAnswer {
     fn answer(
         &self,
         answers: Vec<QuestionAnswer>,
-    ) -> futures::future::BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
+    ) -> futures::future::BoxFuture<
+        '_,
+        Result<ToolServerAnswerDelivery, Box<dyn std::error::Error + Send + Sync>>,
+    > {
         self.0
             .lock()
             .expect("the test's record is never poisoned")
             .push(("task".to_owned(), answers));
-        async { Ok(()) }.boxed()
+        let delivery = self.1;
+        async move { Ok(delivery) }.boxed()
     }
 }
 

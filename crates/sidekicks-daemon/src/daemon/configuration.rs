@@ -26,7 +26,7 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
-use sidekicks_store::database::stored_column::safe_int_column;
+use sidekicks_store::database::stored_column::{optional_safe_int_column, safe_int_column};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use tokio::sync::{Mutex, watch};
 
@@ -188,15 +188,11 @@ fn read_configuration(connection: &Connection) -> Result<DaemonConfiguration, Co
                 4,
                 WorkflowChainAskAfterRuns::new,
             )?,
-            max_steps_per_turn: optional_integer_column(row, 5, SafeInt::new)?,
-            spend_limit_usd_micros: optional_integer_column(row, 6, |value| {
-                SafeInt::new(value).map(UsdMicros)
-            })?,
-            tokens_per_run: optional_integer_column(row, 7, |value| {
-                SafeInt::new(value).map(TokensPerRun)
-            })?,
-            tool_memory_cap_bytes: optional_integer_column(row, 8, SafeInt::new)?,
-            package_cache_limit_bytes: optional_integer_column(row, 9, SafeInt::new)?,
+            max_steps_per_turn: optional_safe_int_column(row, 5)?,
+            spend_limit_usd_micros: optional_safe_int_column(row, 6)?.map(UsdMicros),
+            tokens_per_run: optional_safe_int_column(row, 7)?.map(TokensPerRun),
+            tool_memory_cap_bytes: optional_safe_int_column(row, 8)?,
+            package_cache_limit_bytes: optional_safe_int_column(row, 9)?,
             record_traces: row.get(10)?,
             record_provider_messages: row.get(11)?,
         })
@@ -355,13 +351,13 @@ mod tests {
         TokensPerRun(SafeInt::new(count).expect("the test's limit is a safe integer"))
     }
 
-    // A new lead run takes the session's own `Tokens per run` over the configuration's, and the
-    // configuration's when the session set none. Killed by the fallback order swapped.
+    // The daemon's schema holds the sessions' limits, so a new lead run takes the session's own
+    // `Tokens per run` over the configuration's, and the configuration's when the session set none.
+    // Killed by the limits' part dropped from the daemon's schema (the limits' write fails), and by
+    // the fallback order swapped.
     #[tokio::test]
     async fn a_session_limit_answers_over_the_configuration() {
-        let database = TestDatabase::new(
-            schema_parts().with_parts(sidekicks_session::budget::schema::schema_parts()),
-        );
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await;
         let reads = Arc::new(DatabaseReadPool::new(
             database.path(),

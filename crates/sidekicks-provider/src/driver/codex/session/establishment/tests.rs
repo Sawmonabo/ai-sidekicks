@@ -25,9 +25,9 @@ use crate::process_identity::ProviderProcessIds as _;
 use crate::runtime_binding::resume::ResumeFunctionLegs;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 
+mod adopted_helpers;
 mod continuation;
 mod held;
-mod helpers;
 
 // Killed by dropping the profile's read-back, and by dropping the let-go of the conversation a
 // refused read-back leaves.

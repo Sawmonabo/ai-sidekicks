@@ -1,12 +1,18 @@
 //! A run's start waits for its session's process to settle before its binding is opened: within
-//! the delivery timeout, and on the leg the process settled on.
+//! the delivery timeout, and on the leg the process settled on; and a send on a provider no driver
+//! answers starts nothing and posts the session's `providerMissing` notice, unless the session is
+//! closed.
 
 use std::sync::Arc;
 
 use rusqlite::params;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
+use sidekicks_contracts::session::controls::events::SessionNotice;
+use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::runtime_binding::store::{RuntimeBindingRelaunch, RuntimeBindingStore};
 use sidekicks_provider::runtime_binding::test_store::spawned_build;
@@ -16,6 +22,9 @@ use tokio::time::timeout;
 
 use super::{DriverCalls, Fixture, READ_STATEMENT_CAPACITY, WAIT, fixture, recording_driver};
 use crate::admission::QUEUE_DELIVERY_TIMEOUT;
+use crate::error::QueueError;
+use crate::provider_session::errors::ProviderSessionError;
+use crate::provider_session::test_opening::read_provider_missing_notices;
 
 impl Fixture {
     /// The resume handle of the binding `run_id` was given.
@@ -155,4 +164,92 @@ async fn a_run_admitted_during_a_relaunch_is_bound_on_the_relaunched_leg() {
         fixture.run_resume_handle(second_run_id),
         "conversation-relaunched"
     );
+}
+
+// A send to a session whose lead runs on a provider no driver answers is refused
+// `provider.notFound` once one `providerMissing` notice naming that provider is posted, and starts
+// nothing. Killed by the admission refusing without posting, and by the notice posted twice.
+#[tokio::test]
+async fn a_send_on_a_provider_with_no_driver_posts_one_notice_and_is_refused() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    fixture
+        .database
+        .reader()
+        .execute(
+            "UPDATE session_events
+                SET payload = json_set(payload, '$.mainAgent.binding.providerName', 'unregistered')
+              WHERE type = 'session.created'",
+            [],
+        )
+        .expect("the lead moves to a provider no driver answers");
+
+    let sent = timeout(WAIT, fixture.send())
+        .await
+        .expect("the send answers");
+    fixture.queue.stop().await;
+
+    assert!(
+        matches!(
+            &sent,
+            Err(QueueError::ProviderSession(ProviderSessionError::Provider(refusal)))
+                if refusal.code == RefusalCode::ProviderNotFound
+        ),
+        "{sent:?}"
+    );
+    assert_eq!(
+        read_provider_missing_notices(&fixture.database.reader()),
+        vec![SessionNotice::ProviderMissing {
+            session_id: fixture.session_id,
+            provider: ProviderId::new("unregistered".to_owned()).expect("a provider id"),
+            place: None,
+        }]
+    );
+    assert_eq!(calls.starts(), Vec::new());
+}
+
+// A send to a closed session whose provider no driver answers is refused as closed, and posts no
+// notice into the closed session's history. Killed by the admission running before the state's
+// refusal.
+#[tokio::test]
+async fn a_send_to_a_closed_session_on_a_missing_provider_posts_no_notice() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let reader = fixture.database.reader();
+    reader
+        .execute(
+            "UPDATE session_events
+                SET payload = json_set(payload, '$.mainAgent.binding.providerName', 'unregistered')
+              WHERE type = 'session.created'",
+            [],
+        )
+        .expect("the lead moves to a provider no driver answers");
+    reader
+        .execute(
+            "UPDATE sessions SET state = ?2 WHERE id = ?1",
+            params![
+                fixture.session_id.text().as_str(),
+                <&'static str>::from(SessionState::Closed)
+            ],
+        )
+        .expect("the session is closed");
+    drop(reader);
+
+    let sent = timeout(WAIT, fixture.send())
+        .await
+        .expect("the send answers");
+    fixture.queue.stop().await;
+
+    assert!(
+        matches!(
+            &sent,
+            Err(QueueError::Refused(refusal)) if refusal.code == RefusalCode::SessionAlreadyClosed
+        ),
+        "{sent:?}"
+    );
+    assert_eq!(
+        read_provider_missing_notices(&fixture.database.reader()),
+        Vec::new()
+    );
+    assert_eq!(calls.starts(), Vec::new());
 }

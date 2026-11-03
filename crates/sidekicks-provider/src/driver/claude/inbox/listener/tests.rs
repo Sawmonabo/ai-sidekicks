@@ -1,5 +1,6 @@
 //! A session's inbox across its sleep: the frame that reaches it asleep wakes it and arrives, the
-//! inbox keeps its name, and Claude Code's answer finds the frame's own sender.
+//! inbox keeps its name, and Claude Code's answer finds the frame's own sender while what each
+//! receipt the daemon's inbox reads tells reaches the session message readings.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -23,11 +24,15 @@ use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
 use super::ClaudeSessionInboxes;
 use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
+use crate::driver::claude::session::scripted::daemon_services::RecordingPorts;
 use crate::driver::claude::session::scripted::scripted_live_session;
 use crate::driver::claude::session::slots::ClaudeSessionSlots;
 use crate::driver::claude::session::transport::channel::MockClaudeProcessChannel;
 use crate::driver::test_registry::new_session_id;
 use crate::port::session_inbox_address::SessionInboxAddresser;
+use crate::port::session_message_reading_publisher::{
+    SessionFarReply, SessionMessageReading, SessionMessageReadingPublisher,
+};
 use crate::port::session_wake::SessionWaker;
 
 /// How long a step of the exchange may take before the test fails.
@@ -98,24 +103,31 @@ async fn next_frame(listener: &Listener) -> Value {
     serde_json::from_str(&line).expect("the line is JSON")
 }
 
-// Writes `frame` as one line on a new connection to `socket`, held open until dropped.
-async fn send_frame(socket: &Path, frame: &Value) -> UnixDomainStream {
+// Writes each of `frames` as one line, in order, on a new connection to `socket`, held open until
+// dropped.
+async fn send_frames(socket: &Path, frames: &[Value]) -> UnixDomainStream {
     let mut connection = connect_unix_domain_socket(socket)
         .await
         .expect("the socket takes a connection");
-    let mut line = frame.to_string();
-    line.push('\n');
+    let mut lines = String::new();
+    for frame in frames {
+        lines.push_str(&frame.to_string());
+        lines.push('\n');
+    }
     connection
-        .write_all(line.as_bytes())
+        .write_all(lines.as_bytes())
         .await
-        .expect("the frame is written");
+        .expect("the frames are written");
     connection
 }
 
 // Killed by a wake that binds the inbox again under another name (the second frame finds no
 // listener), by a held first line dropped across the wake (the process reads nothing), by a frame
-// passed on with its sender's own `from` (no answer could reach the daemon), and by an answer not
-// passed back to that sender.
+// passed on with its sender's own `from` (no answer could reach the daemon), by an answer not
+// passed back to that sender, by a receipt tried before the route (the answer would be read as a
+// receipt, not reach its sender), by a receipt or a line of neither kind sent to a sender, by the
+// readings port read once at the bind (it is registered after), by a coalesced drop read for its
+// `orig_msg_id` only or with an id repeated, and by a refused `expired` read as not delivered.
 #[tokio::test]
 async fn a_frame_to_a_sleeping_session_wakes_it_and_arrives_from_the_daemon_s_inbox() {
     if !CAN_BIND_A_SOCKET_LISTENER {
@@ -142,31 +154,58 @@ async fn a_frame_to_a_sleeping_session_wakes_it_and_arrives_from_the_daemon_s_in
     let session_id = new_session_id();
     let session_inbox = addresser.session_inbox_address(&session_id, None);
     let daemon_inbox = addresser.daemon_inbox_address(None);
+    let readings = Arc::new(PortRegistration::new("session message readings"));
     let inboxes = Arc::new(ClaudeSessionInboxes::new(
         Arc::new(addresser),
         wakes,
         slots,
         Arc::new(ClaudeIdleSleep::default()),
+        Arc::clone(&readings),
     ));
     inboxes.bind(session_id).await;
+    let recording = Arc::new(RecordingPorts::default());
+    readings
+        .register(Arc::clone(&recording) as Arc<dyn SessionMessageReadingPublisher>)
+        .expect("the readings register once");
 
-    let _asleep = send_frame(
+    let _asleep = send_frames(
         Path::new(session_inbox.as_str()),
-        &json!({"type": "user", "from": format!("uds:{}", sender_socket.display()),
+        &[
+            json!({"type": "user", "from": format!("uds:{}", sender_socket.display()),
             "msg_id": "first", "text": "hello"}),
+        ],
     )
     .await;
     let arrived = next_frame(&process).await;
-    let _receipt = send_frame(
+    let reply = "<cross-session-message from=\"uds:/tmp/cc-socks/4101.sock\" \
+        hop-chain=\"0123456789abcdef01234567\" from-name=\"builder\">\namber\n\
+        </cross-session-message>";
+    // The answer goes last, so once it reaches the sender every line before it was read.
+    let _receipts = send_frames(
         Path::new(daemon_inbox.as_str()),
-        &json!({"type": "control", "action": "peer_message_status", "status": "delivered",
-            "from": "uds:/elsewhere.sock", "orig_msg_id": "first"}),
+        &[
+            json!({"type": "control", "action": "peer_message_status", "status": "dropped",
+                "drop_reason": "duplicate", "reason": "Dropped as a duplicate.",
+                "orig_msg_id": "c", "dropped_msg_ids": ["a", "b", "c"]}),
+            json!({"type": "control", "action": "peer_message_status", "status": "expired",
+                "status_detail": "refused", "reason": "The receiver refused it.",
+                "orig_msg_id": "refused"}),
+            json!({"type": "control", "action": "peer_message_status", "status": "expired",
+                "reason": "It expired.", "orig_msg_id": "expired"}),
+            json!({"type": "control", "action": "peer_message_status", "status": "held",
+                "reason": "Held for the person.", "orig_msg_id": "held"}),
+            json!({"msgV": 1, "msg_id": "reply", "type": "user",
+                "message": {"role": "user", "content": reply}}),
+            json!({"type": "auth", "token": "proof"}),
+            json!({"type": "control", "action": "peer_message_status", "status": "delivered",
+                "from": "uds:/elsewhere.sock", "orig_msg_id": "first"}),
+        ],
     )
     .await;
     let answered = next_frame(&sender).await;
-    let _awake = send_frame(
+    let _awake = send_frames(
         Path::new(session_inbox.as_str()),
-        &json!({"type": "user", "from": "uds:/other.sock", "msg_id": "second", "text": "again"}),
+        &[json!({"type": "user", "from": "uds:/other.sock", "msg_id": "second", "text": "again"})],
     )
     .await;
     let second = next_frame(&process).await;
@@ -178,6 +217,37 @@ async fn a_frame_to_a_sleeping_session_wakes_it_and_arrives_from_the_daemon_s_in
     assert_eq!(answered["orig_msg_id"], "first");
     assert_eq!(answered["from"], format!("uds:{}", session_inbox.as_str()));
     assert_eq!(second["msg_id"], "second");
+    let dropped = |message_id: &str| SessionMessageReading::Refused {
+        message_id: message_id.to_owned(),
+        reason: Some("Dropped as a duplicate.".to_owned()),
+        drop_reason: Some("duplicate".to_owned()),
+    };
+    assert_eq!(
+        recording.message_readings(),
+        [
+            dropped("a"),
+            dropped("b"),
+            dropped("c"),
+            SessionMessageReading::Refused {
+                message_id: "refused".to_owned(),
+                reason: Some("The receiver refused it.".to_owned()),
+                drop_reason: None,
+            },
+            SessionMessageReading::NotDelivered {
+                message_id: "expired".to_owned(),
+            },
+            SessionMessageReading::Held {
+                message_id: "held".to_owned(),
+            },
+            SessionMessageReading::FarReply(SessionFarReply {
+                from: "uds:/tmp/cc-socks/4101.sock".to_owned(),
+                message_id: "reply".to_owned(),
+                body: "amber".to_owned(),
+                hop_chain: vec!["0123456789abcdef01234567".to_owned()],
+                from_name: Some("builder".to_owned()),
+            }),
+        ]
+    );
     inboxes.release_all();
 }
 
@@ -196,6 +266,7 @@ fn each_process_socket_is_fresh_beside_the_session_s_inbox() {
         Arc::new(PortRegistration::new("session wakes")),
         ClaudeSessionSlots::new(Arc::new(|_predecessor| {})),
         Arc::new(ClaudeIdleSleep::default()),
+        Arc::new(PortRegistration::new("session message readings")),
     );
     let session_id = new_session_id();
 

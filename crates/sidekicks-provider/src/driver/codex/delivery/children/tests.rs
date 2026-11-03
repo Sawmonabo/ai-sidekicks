@@ -208,10 +208,14 @@ async fn start_helper(session: &mut TestCodexSession, helper_thread: &str) -> Ru
 /// Ends the helper on `helper_thread` with its last turn's `turn/completed` ending `status`.
 async fn end_helper(session: &mut TestCodexSession, helper_thread: &str, status: &str) {
     let delivery = Arc::clone(&session.task.calls.forks.delivery);
-    let params = turn_completed(helper_thread, HELPER_TURN, status)["params"].to_string();
-    let params = RawValue::from_string(params).expect("the params are JSON");
+    let members = turn_completed(helper_thread, HELPER_TURN, status)["params"]
+        .as_object()
+        .cloned()
+        .expect("the params are an object");
+    let params = RawValue::from_string(serde_json::to_string(&members).expect("JSON writes"))
+        .expect("the params are JSON");
     delivery
-        .complete_child(&mut session.task.record, helper_thread, &params)
+        .complete_child(&mut session.task.record, helper_thread, &params, &members)
         .await;
 }
 

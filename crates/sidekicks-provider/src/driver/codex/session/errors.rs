@@ -16,6 +16,7 @@ use sidekicks_ipc::domain_error::DomainError;
 
 use crate::driver::capabilities::DriverCapabilityFlag;
 use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::config_read::CodexConfigFileError;
 use crate::driver::contract::error::{
     DriverError, PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE, bound_failure_detail,
 };
@@ -211,6 +212,10 @@ pub(crate) enum CodexError {
         /// Where the policy failed to read, and why.
         detail: String,
     },
+    /// A `config.toml` of the person's Codex cannot be read as Codex reads it, so Codex would not
+    /// start on it.
+    #[error(transparent)]
+    ConfigUnreadable(CodexConfigFileError),
     /// The driver's configuration lacks the shape the driver needs: a wiring defect.
     #[error("the Codex driver's {field} configuration is unusable: {detail}")]
     DriverConfig {
@@ -377,6 +382,12 @@ impl From<CodexError> for DriverError {
             CodexError::MachinePolicyUnreadable { .. } => Self::from(provider_failure_refusal(
                 &DESCRIPTOR.provider_id(),
                 "Codex's machine policy cannot be read, so Codex would not start",
+                RefusalCode::ProviderUnavailable,
+                error,
+            )),
+            CodexError::ConfigUnreadable(_) => Self::from(provider_failure_refusal(
+                &DESCRIPTOR.provider_id(),
+                "Codex's configuration cannot be read, so Codex would not start",
                 RefusalCode::ProviderUnavailable,
                 error,
             )),

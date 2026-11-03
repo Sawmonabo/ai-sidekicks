@@ -1,8 +1,8 @@
 //! The params and results of the driver operations that act on one live run: a steer or an
 //! interrupt, pause and continue, withdrawing a waiting message, overruling a reviewer's block,
 //! answering a provider's choice and resending a held turn on a faster model; and the binding the
-//! run queue opens for a turn the daemon starts itself; and stopping a helper alone and re-attaching
-//! a session's helpers after a restart.
+//! run queue opens for a turn the daemon starts itself; and stopping a helper alone and
+//! re-attaching a session's helpers after a restart.
 
 use std::error::Error;
 

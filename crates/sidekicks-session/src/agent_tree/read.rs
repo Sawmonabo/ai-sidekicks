@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use rusqlite::types::Type;
-use rusqlite::{Connection, OptionalExtension as _, named_params};
+use rusqlite::{Connection, named_params};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::agent::tree::{AgentTreeMember, ChildHandle};
@@ -19,7 +19,6 @@ use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::cost::{AgentSpend, UsdMicros};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
@@ -31,6 +30,7 @@ use sidekicks_store::events::session::read::readable_event_sql;
 use crate::agent_tree::store::{AgentTreeNode, read_node, read_session_nodes};
 use crate::agents::projection::read_agent_row;
 use crate::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError, RunAgentReader};
+use crate::run::read::RunStateReader;
 use crate::usage_record::reads::TOKEN_COUNT_SUM_SQL;
 
 // Every run of the session with the time its `agent.run.queued` row was written, read as the run's
@@ -113,8 +113,6 @@ static SELECT_REJECTED_CREATES_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // A node's newest own run as `resolve_child` reads it: its state and the run it hangs under.
-const SELECT_OWN_RUN_SQL: &str = "SELECT state, parent_run_id FROM runs WHERE run_id = ?";
-
 /// The statements the tree read and [`resolve_child`] prepare on a read connection: the session's
 /// runs, its nodes, its helper starts, the newest models, the token counts, the refused creates,
 /// one node and one own run, then the run agent reader's.
@@ -156,50 +154,41 @@ impl ResolvedChild {
     pub fn member(&self) -> AgentTreeMember {
         AgentTreeMember::ProviderChild {
             run_id: self.parent_run_id,
-            child_handle: child_handle_of(self.node.child_handle),
+            child_handle: self.node.child_handle.clone(),
         }
     }
 }
 
 /// The node of `session_id` that the wire handle `child_handle` names, with its newest own run's
-/// state and parent; `None` when the text is no UUID, no node holds it, or its node belongs to
-/// another session. Fails with [`AgentTreeReadError::RunMissing`] when its own run has no row, and
-/// as SQLite or a stored column does.
+/// state and parent; `None` when no node holds it, or its node belongs to another session. Fails
+/// with [`AgentTreeReadError::RunMissing`] when its own run has no row, and as SQLite or a stored
+/// column does.
 pub fn resolve_child(
     reader: &Connection,
     session_id: &SessionId,
     child_handle: &ChildHandle,
 ) -> Result<Option<ResolvedChild>, AgentTreeReadError> {
-    let Ok(handle) = UuidTextForm::new(child_handle.as_str()) else {
-        return Ok(None);
-    };
-    let Some(node) = read_node(reader, handle)?.filter(|node| node.session_id == *session_id)
+    let Some(node) = read_node(reader, child_handle)?.filter(|node| node.session_id == *session_id)
     else {
         return Ok(None);
     };
-    let (state, parent_run_id) = reader
-        .prepare_cached(SELECT_OWN_RUN_SQL)?
-        .query_row([node.own_run_id.text().as_str()], |row| {
-            Ok((
-                text_column(row, 0, closed_word::<RunState>)?,
-                text_column(row, 1, |text| RunId::new(&text))?,
-            ))
-        })
-        .optional()?
+    let own_run = RunStateReader::new(reader)
+        .read_run_parentage(&node.own_run_id)?
         .ok_or(AgentTreeReadError::RunMissing {
             run_id: node.own_run_id,
         })?;
     Ok(Some(ResolvedChild {
         node,
-        state,
-        parent_run_id,
+        state: own_run.state,
+        parent_run_id: own_run_parent(own_run.parent_run_id)?,
     }))
 }
 
 /// `session_id`'s whole agent tree: every bridged or workflow run and every provider helper at any
 /// depth, oldest first, each with its head; the badge's figures; and the refused creates that name
 /// a parent run. What the log reports is read from its events before `read_bound` outside its
-/// skipped ranges; each head's spend is its member's own in `agent_spend`, 0 where the list names
+/// skipped ranges; each head's binding and name are its agent's row as it stands now, which no
+/// bound limits; each head's spend is its member's own in `agent_spend`, 0 where the list names
 /// none. Fails as a run's agent read does, with [`AgentTreeReadError::RunMissing`] when a run the
 /// tree names has no row, and as SQLite or a stored column does.
 pub fn read_agent_tree(
@@ -227,10 +216,9 @@ pub fn read_agent_tree(
     };
     let mut links = Vec::with_capacity(drafts.len());
     for draft in drafts {
-        let run_agent =
-            ancestry
-                .agents
-                .read_agent_binding(session_id, &draft.head_run, read_bound)?;
+        let run_agent = ancestry
+            .agents
+            .read_agent_binding(session_id, &draft.head_run)?;
         let model_id = draft
             .model_runs
             .iter()
@@ -253,12 +241,12 @@ pub fn read_agent_tree(
                 }),
             ),
             LinkSubject::Node { place, .. } => {
-                let handle = child_handle_of(tree.nodes[*place].child_handle);
+                let handle = &tree.nodes[*place].child_handle;
                 (
                     ancestry.node_ancestry(*place)?,
                     own_spend(agent_spend, |member| {
                         matches!(member, AgentTreeMember::ProviderChild { child_handle, .. }
-                            if *child_handle == handle)
+                            if child_handle == handle)
                     }),
                 )
             }
@@ -297,8 +285,8 @@ pub fn read_agent_tree(
                 let node = &tree.nodes[place];
                 ChildRunLink::ProviderChild {
                     run_id,
-                    child_handle: child_handle_of(node.child_handle),
-                    parent_child_handle: node.parent_child_handle.map(child_handle_of),
+                    child_handle: node.child_handle.clone(),
+                    parent_child_handle: node.parent_child_handle.clone(),
                     state,
                     head,
                 }
@@ -347,7 +335,7 @@ struct SessionTree {
     session_id: SessionId,
     runs: HashMap<RunId, StoredRun>,
     nodes: Vec<AgentTreeNode>,
-    node_of_handle: HashMap<UuidTextForm, usize>,
+    node_of_handle: HashMap<ChildHandle, usize>,
     node_of_run: HashMap<RunId, usize>,
 }
 
@@ -376,7 +364,7 @@ impl SessionTree {
         let node_of_handle = nodes
             .iter()
             .enumerate()
-            .map(|(place, node)| (node.child_handle, place))
+            .map(|(place, node)| (node.child_handle.clone(), place))
             .collect();
         let node_of_helper: HashMap<(&str, &str), usize> = nodes
             .iter()
@@ -425,25 +413,15 @@ impl SessionTree {
             .ok_or(AgentTreeReadError::RunMissing { run_id })
     }
 
-    // The run the node's newest own run hangs under, which the helper runs in. An own run is a
-    // provider subagent's, written with its parent, so one with none reads as a column that does
-    // not read as its type.
+    // The run the node's newest own run hangs under, which the helper runs in.
     fn carrying_run(&self, place: usize) -> Result<RunId, AgentTreeReadError> {
-        self.run(self.nodes[place].own_run_id)?
-            .parent_run_id
-            .ok_or_else(|| {
-                AgentTreeReadError::Read(rusqlite::Error::InvalidColumnType(
-                    1,
-                    "parent_run_id".to_owned(),
-                    Type::Null,
-                ))
-            })
+        own_run_parent(self.run(self.nodes[place].own_run_id)?.parent_run_id)
     }
 
     fn member(&self, place: usize) -> Result<AgentTreeMember, AgentTreeReadError> {
         Ok(AgentTreeMember::ProviderChild {
             run_id: self.carrying_run(place)?,
-            child_handle: child_handle_of(self.nodes[place].child_handle),
+            child_handle: self.nodes[place].child_handle.clone(),
         })
     }
 
@@ -489,7 +467,7 @@ impl SessionTree {
                 head_run: node.own_run_id,
                 model_runs,
                 started_at: node.started_at.clone(),
-                order_key: node.child_handle.text().as_str().to_owned(),
+                order_key: node.child_handle.as_str().to_owned(),
                 subject: LinkSubject::Node {
                     place,
                     run_id: self.carrying_run(place)?,
@@ -546,7 +524,8 @@ impl AncestryWalk<'_> {
         let mut topmost = place;
         while let Some(parent) = self.tree.nodes[topmost]
             .parent_child_handle
-            .and_then(|handle| self.tree.node_of_handle.get(&handle).copied())
+            .as_ref()
+            .and_then(|handle| self.tree.node_of_handle.get(handle).copied())
         {
             upward.push(self.tree.member(parent)?);
             seen.insert(parent);
@@ -730,9 +709,16 @@ fn count_of(count: usize) -> SafeInt<0> {
         .expect("a count of links held in memory is a safe integer")
 }
 
-// The wire handle of a node's handle; a UUID's 36 characters always fit one.
-fn child_handle_of(handle: UuidTextForm) -> ChildHandle {
-    ChildHandle::new(handle.text().as_str().to_owned()).expect("a UUID's text fits a child handle")
+// The run a node's own run hangs under. An own run is a provider subagent's, written with its
+// parent, so one with none reads as a column that does not read as its type.
+fn own_run_parent(parent_run_id: Option<RunId>) -> Result<RunId, AgentTreeReadError> {
+    parent_run_id.ok_or_else(|| {
+        AgentTreeReadError::Read(rusqlite::Error::InvalidColumnType(
+            1,
+            "parent_run_id".to_owned(),
+            Type::Null,
+        ))
+    })
 }
 
 #[cfg(test)]

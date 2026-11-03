@@ -1,6 +1,7 @@
-//! Reading a stored column into a typed value: TEXT through a parse or as a JSON object, a rowid as
-//! unsigned, an integer as a safe one, the failure kept as the read's cause, and a JSON one kept
-//! without the stored value; a value of a type its column never holds fails as a conversion.
+//! Reading a stored column, or a value of a row a write's `RETURNING` answered, into a typed value:
+//! TEXT through a parse or as a JSON object, a place as its stored JSON, a rowid as unsigned, an
+//! integer as a safe one, the failure kept as the read's cause, and a JSON one kept without the
+//! stored value; a value of a type its column never holds fails as a conversion.
 
 use std::error::Error;
 
@@ -8,6 +9,7 @@ use rusqlite::Row;
 use rusqlite::types::{FromSqlError, Type, Value as SqliteValue};
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
+use sidekicks_contracts::place::Place;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 /// The TEXT column at `index` read through `parse`; fails with
@@ -37,6 +39,14 @@ where
     text.map(parse)
         .transpose()
         .map_err(|failure| conversion_failure(index, failure))
+}
+
+/// The nullable TEXT column at `index` read as the place `place_value` stores, `None` for `NULL`;
+/// fails as [`text_column`] does, keeping a [`StoredJsonFault`].
+pub fn place_column(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<Place>> {
+    optional_text_column(row, index, |text| {
+        serde_json::from_str::<Place>(&text).map_err(StoredJsonFault::from)
+    })
 }
 
 /// The TEXT column at `index` read as a JSON object, as every stored payload is; fails as
@@ -86,6 +96,50 @@ pub fn wrong_type_failure(index: usize, value: &SqliteValue) -> rusqlite::Error 
         value.data_type(),
         Box::new(FromSqlError::InvalidType),
     )
+}
+
+/// The TEXT value at `index` of a row a write's `RETURNING` answered; fails as
+/// [`wrong_type_failure`] for a value of another type, and with
+/// `rusqlite::Error::InvalidColumnIndex` past the row's end.
+pub fn returned_text(row: &[SqliteValue], index: usize) -> rusqlite::Result<&str> {
+    match row.get(index) {
+        Some(SqliteValue::Text(text)) => Ok(text),
+        Some(
+            other @ (SqliteValue::Null
+            | SqliteValue::Integer(_)
+            | SqliteValue::Real(_)
+            | SqliteValue::Blob(_)),
+        ) => Err(wrong_type_failure(index, other)),
+        None => Err(rusqlite::Error::InvalidColumnIndex(index)),
+    }
+}
+
+/// The INTEGER value at `index` of a row a write's `RETURNING` answered; fails as
+/// [`returned_text`] does.
+pub fn returned_integer(row: &[SqliteValue], index: usize) -> rusqlite::Result<i64> {
+    match row.get(index) {
+        Some(SqliteValue::Integer(integer)) => Ok(*integer),
+        Some(
+            other @ (SqliteValue::Null
+            | SqliteValue::Text(_)
+            | SqliteValue::Real(_)
+            | SqliteValue::Blob(_)),
+        ) => Err(wrong_type_failure(index, other)),
+        None => Err(rusqlite::Error::InvalidColumnIndex(index)),
+    }
+}
+
+/// The TEXT value at `index` of a returned row read through `parse`; fails as [`returned_text`]
+/// does, and as [`text_column`] does keeping `parse`'s failure.
+pub fn returned_parsed<Parsed, Failure>(
+    row: &[SqliteValue],
+    index: usize,
+    parse: impl FnOnce(&str) -> Result<Parsed, Failure>,
+) -> rusqlite::Result<Parsed>
+where
+    Failure: Error + Send + Sync + 'static,
+{
+    parse(returned_text(row, index)?).map_err(|failure| conversion_failure(index, failure))
 }
 
 /// A rowid, or a key built from one, as unsigned: SQLite holds it signed, so a negative one fails

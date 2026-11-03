@@ -19,6 +19,7 @@ use futures::future::BoxFuture;
 use rusqlite::params;
 use secrecy::SecretString;
 use serde_json::{Map, Value};
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::account::record::{
     CredentialGeneration, ProviderAccountId, ProviderAuthMode,
@@ -334,6 +335,11 @@ pub fn session_inbox_addresser() -> Arc<dyn SessionInboxAddresser> {
         .drivers()
         .find_map(|(_, driver)| driver.session_inbox_addresser())
         .expect("a provider in the table answers a session inbox")
+}
+
+/// A minted agent id.
+pub fn new_agent_id() -> AgentId {
+    AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id")
 }
 
 /// A minted run id.

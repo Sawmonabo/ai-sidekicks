@@ -1,6 +1,6 @@
 //! The question rows' writes, each the statement its event's live write and a rebuild's fold share,
 //! with the guards the live write keeps, and the reads of a record, its pages, the questions a
-//! run's end settles and the open question a request sent again returns to.
+//! run's end settles or a restart withdraws, and the open question a request sent again returns to.
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -11,7 +11,7 @@ use rusqlite::{Connection, OptionalExtension as _, named_params};
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::question::{
-    QuestionAskedPayload, QuestionAskedState, QuestionId, QuestionPrompt, QuestionSettledState,
+    QuestionAskedPayload, QuestionAskedState, QuestionId, QuestionPrompt,
 };
 use sidekicks_contracts::release_manifest::Sha256Hex;
 use sidekicks_contracts::run::id::RunId;
@@ -24,6 +24,7 @@ use sidekicks_store::database::statement::{
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 use sidekicks_store::events::canonicalizer::digest_canonical_json;
 
+use crate::questions::QuestionSettledState;
 use crate::questions::schema::QuestionState;
 
 const INSERT_QUESTION_SQL: &str = "INSERT INTO questions
@@ -95,6 +96,19 @@ static UNSETTLED_HELD_OF_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT id, session_id FROM questions
   WHERE run_id = @runId AND state IN ('{waiting}', '{open}') AND is_agent_waiting = 1
+  ORDER BY rowid",
+        waiting = <&'static str>::from(QuestionState::WaitingForRun),
+        open = <&'static str>::from(QuestionState::Open)
+    )
+});
+
+// A session's questions its agents wait on, open or waiting for their run, that came on a
+// request, oldest first.
+static UNSETTLED_OF_REQUESTS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT id, run_id, provider_request_id FROM questions
+  WHERE session_id = @sessionId AND state IN ('{waiting}', '{open}') AND is_agent_waiting = 1
+    AND run_id IS NOT NULL AND provider_request_id IS NOT NULL
   ORDER BY rowid",
         waiting = <&'static str>::from(QuestionState::WaitingForRun),
         open = <&'static str>::from(QuestionState::Open)
@@ -173,6 +187,21 @@ pub(crate) fn question_input_digest(questions: &[QuestionPrompt]) -> Option<Sha2
             );
         })
         .ok()
+}
+
+/// A question its agent waits on, open or waiting for its run, with the request it came on.
+#[expect(
+    clippy::struct_field_names,
+    reason = "the row's three ids, each named for what it identifies"
+)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RequestedQuestion {
+    /// The question.
+    pub(crate) question_id: QuestionId,
+    /// The run that holds it.
+    pub(crate) run_id: RunId,
+    /// The id of the request it came on.
+    pub(crate) request_id: String,
 }
 
 /// The record's row as `asked` writes it, open or waiting for its run, a run's question with the
@@ -414,5 +443,26 @@ pub(crate) fn read_unsettled_held_questions(
                 session_id: text_column(row, 1, |text| SessionId::new(&text))?,
             })
         })?
+        .collect()
+}
+
+/// The questions of `session_id` its agents wait on, open or waiting for their run, that came on
+/// a request, oldest first. Fails as SQLite does, or when a stored id does not read.
+pub(crate) fn read_unsettled_of_requests(
+    connection: &Connection,
+    session_id: &SessionId,
+) -> rusqlite::Result<Vec<RequestedQuestion>> {
+    connection
+        .prepare_cached(&UNSETTLED_OF_REQUESTS_SQL)?
+        .query_map(
+            named_params! { "@sessionId": session_id.text().as_str() },
+            |row| {
+                Ok(RequestedQuestion {
+                    question_id: text_column(row, 0, |text| QuestionId::new(&text))?,
+                    run_id: text_column(row, 1, |text| RunId::new(&text))?,
+                    request_id: row.get(2)?,
+                })
+            },
+        )?
         .collect()
 }

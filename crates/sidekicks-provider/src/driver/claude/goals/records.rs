@@ -17,11 +17,11 @@ use crate::lenient_json::{lenient_object, read_lenient};
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct GoalStatusRecord {
     /// Whether the goal reads met, or cleared on a sentinel.
-    pub(crate) met: bool,
+    pub(crate) is_met: bool,
     /// Whether the check found the goal impossible.
-    pub(crate) failed: bool,
+    pub(crate) is_failed: bool,
     /// Whether the record marks a set, a clear or a compaction rather than a check's outcome.
-    pub(crate) sentinel: bool,
+    pub(crate) is_sentinel: bool,
     /// The goal's condition, where the record names it.
     pub(crate) condition: Option<String>,
     /// The check's reason for its outcome.
@@ -55,9 +55,9 @@ pub(crate) async fn read_goal_status_tail(file: &Path, from: u64) -> io::Result<
             && attachment.attachment_type.as_deref() == Some(GOAL_STATUS_ATTACHMENT_TYPE)
         {
             records.push(GoalStatusRecord {
-                met: attachment.met == Some(true),
-                failed: attachment.failed == Some(true),
-                sentinel: attachment.sentinel == Some(true),
+                is_met: attachment.met == Some(true),
+                is_failed: attachment.failed == Some(true),
+                is_sentinel: attachment.sentinel == Some(true),
                 condition: attachment.condition,
                 reason: attachment.reason,
             });
@@ -186,12 +186,12 @@ mod tests {
             GoalStatusTail {
                 records: vec![
                     GoalStatusRecord {
-                        sentinel: true,
+                        is_sentinel: true,
                         condition: Some("ship it".to_owned()),
                         ..GoalStatusRecord::default()
                     },
                     GoalStatusRecord {
-                        met: true,
+                        is_met: true,
                         condition: Some("ship it".to_owned()),
                         reason: Some("it shipped".to_owned()),
                         ..GoalStatusRecord::default()
@@ -233,8 +233,8 @@ mod tests {
             cleared,
             GoalStatusTail {
                 records: vec![GoalStatusRecord {
-                    met: true,
-                    sentinel: true,
+                    is_met: true,
+                    is_sentinel: true,
                     condition: Some("ship it".to_owned()),
                     ..GoalStatusRecord::default()
                 }],

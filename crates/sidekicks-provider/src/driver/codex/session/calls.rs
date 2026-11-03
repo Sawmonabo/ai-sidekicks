@@ -5,6 +5,8 @@
 
 use std::sync::Arc;
 
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::run::id::RunId;
 use tokio::sync::oneshot;
 
@@ -55,8 +57,9 @@ pub(crate) struct CodexSessionCallDependencies {
     pub(crate) runs: CodexRunCallDependencies,
 }
 
-/// What a goal's turn, a rewind, `Allow once` and a helper's reopen read of a session: the service
-/// and connection its conversation is on, the conversation, and the state of its turns.
+/// What a goal's turn, a rewind, `Allow once`, a helper's reopen and a message's delivery read of
+/// a session: the service and connection its conversation is on, the conversation, the state of
+/// its turns, and the posture and account a turn the daemon starts on it runs at.
 pub(crate) struct CodexSessionReading {
     /// The service, which a reopened helper is registered on.
     pub(crate) service: Arc<CodexService>,
@@ -71,6 +74,26 @@ pub(crate) struct CodexSessionReading {
     /// Whether the service holds the conversation the reading was asked about loaded: the
     /// session's own or one of its helpers'.
     pub(crate) is_thread_loaded: bool,
+    /// The session's level and roots as they stand now.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the driver method that delivers another session's message, wake-up or \
+                      reminder starts its turn at it"
+        )
+    )]
+    pub(crate) execution_posture: ExecutionPosture,
+    /// The account the session's process was admitted against.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the driver method that delivers another session's message, wake-up or \
+                      reminder starts its turn on it"
+        )
+    )]
+    pub(crate) provider_account_id: ProviderAccountId,
 }
 
 /// Runs `call` on the session's task, answering on the call's own reply, and settles the waits
@@ -279,7 +302,8 @@ pub(crate) async fn wait_for_codex_turns(
     }
 }
 
-// What the session's task reads for a goal's turn, a rewind, an `Allow once` or a helper's reopen.
+// What the session's task reads for a goal's turn, a rewind, an `Allow once`, a helper's reopen
+// or a message's delivery.
 fn read_codex_session(task: &CodexSessionTask<'_>, thread_id: Option<&str>) -> CodexSessionReading {
     let record = &*task.record;
     CodexSessionReading {
@@ -295,5 +319,7 @@ fn read_codex_session(task: &CodexSessionTask<'_>, thread_id: Option<&str>) -> C
         is_thread_loaded: thread_id.is_none_or(|thread_id| {
             thread_id == record.thread_id || task.routing.is_helper_thread(thread_id)
         }),
+        execution_posture: record.execution_posture.clone(),
+        provider_account_id: record.provider_account_id.clone(),
     }
 }

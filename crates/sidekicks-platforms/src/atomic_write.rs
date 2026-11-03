@@ -19,7 +19,8 @@ use crate::{
 #[derive(Debug, thiserror::Error)]
 #[error("{failure}{}", removal_note(.removal_failure.as_ref()))]
 pub struct AtomicWriteError {
-    /// Making, locking, writing, flushing, renaming or linking the temporary file failed.
+    /// Making, locking, writing, flushing, renaming or linking the temporary file failed, or, for a
+    /// write its check refused, removing it.
     #[source]
     pub failure: io::Error,
     /// Removing the temporary file after that failure failed too.
@@ -48,16 +49,52 @@ pub fn replace_file_atomically(
     mode: u32,
     sweep: LeftoverSweep,
 ) -> Result<(), AtomicWriteError> {
-    let (held, mut temporary_path) =
+    let (held, temporary_path) =
         write_temporary(target, contents, mode, sweep, <File as Write>::write_all)?;
-    if let Err(failure) = rename_replacing(&temporary_path, target) {
-        drop(held);
-        return Err(remove_temporary_after(failure, temporary_path));
+    rename_over_target(held, temporary_path, target)
+}
+
+/// Replaces the existing file `target` with `contents` as [`replace_file_atomically`] does, the new
+/// file keeping the old one's permissions, but only while `is_current`, asked once the temporary
+/// file is flushed and just before the rename, answers `true`: on `false` the temporary file is
+/// removed, the target is left as it stands and the call answers `false`. Blocks; fails when the
+/// target cannot be read, as a write fails, or with `is_current`'s own error.
+pub fn replace_file_atomically_while(
+    target: &Path,
+    contents: &[u8],
+    sweep: LeftoverSweep,
+    is_current: impl FnOnce() -> io::Result<bool>,
+) -> Result<bool, AtomicWriteError> {
+    let permissions = fs::metadata(target)
+        .map_err(|failure| AtomicWriteError {
+            failure,
+            removal_failure: None,
+        })?
+        .permissions();
+    // Made private to the owner first, then given the target's permissions before any byte lands.
+    let (held, temporary_path) =
+        write_temporary(target, contents, 0o600, sweep, |file, contents| {
+            file.set_permissions(permissions)?;
+            file.write_all(contents)
+        })?;
+    match is_current() {
+        Ok(true) => rename_over_target(held, temporary_path, target).map(|()| true),
+        Ok(false) => {
+            drop(held);
+            match remove_temporary(temporary_path) {
+                None => Ok(false),
+                // The removal is the one step that failed.
+                Some(failure) => Err(AtomicWriteError {
+                    failure,
+                    removal_failure: None,
+                }),
+            }
+        }
+        Err(failure) => {
+            drop(held);
+            Err(remove_temporary_after(failure, temporary_path))
+        }
     }
-    // The temporary name is the target's now, so nothing is left to remove.
-    temporary_path.disable_cleanup(true);
-    release(held);
-    Ok(())
 }
 
 /// Makes `target` holding `contents` as [`replace_file_atomically`] writes it, its temporary file
@@ -140,6 +177,23 @@ fn create_file_atomically_through(
     }
 }
 
+// Renames the flushed temporary file over `target`, releasing its lock once it holds the target's
+// name; a failed rename removes it.
+fn rename_over_target(
+    held: Option<File>,
+    mut temporary_path: TempPath,
+    target: &Path,
+) -> Result<(), AtomicWriteError> {
+    if let Err(failure) = rename_replacing(&temporary_path, target) {
+        drop(held);
+        return Err(remove_temporary_after(failure, temporary_path));
+    }
+    // The temporary name is the target's now, so nothing is left to remove.
+    temporary_path.disable_cleanup(true);
+    release(held);
+    Ok(())
+}
+
 // Unlocks a file that has taken the target's name at once, since Windows locks out every other
 // handle's read until then and may release a lock left to the close late. The write is done, and
 // the close releases the lock anyway, so a failed unlock is logged and is not the caller's.
@@ -204,17 +258,20 @@ fn write_temporary(
     }
 }
 
-// Removes the temporary file after `failure`, keeping the removal's own failure beside it; a file
-// already gone is no failure.
+// Removes the temporary file after `failure`, keeping the removal's own failure beside it.
 fn remove_temporary_after(failure: io::Error, temporary_path: TempPath) -> AtomicWriteError {
-    let removal_failure = match temporary_path.close() {
+    AtomicWriteError {
+        failure,
+        removal_failure: remove_temporary(temporary_path),
+    }
+}
+
+// Removes the temporary file, answering the removal's failure; a file already gone is no failure.
+fn remove_temporary(temporary_path: TempPath) -> Option<io::Error> {
+    match temporary_path.close() {
         Ok(()) => None,
         Err(removal_failure) if removal_failure.kind() == io::ErrorKind::NotFound => None,
         Err(removal_failure) => Some(removal_failure),
-    };
-    AtomicWriteError {
-        failure,
-        removal_failure,
     }
 }
 
@@ -233,7 +290,7 @@ mod tests {
 
     use super::{
         LeftoverSweep, create_file_atomically_through, remove_atomic_write_leftovers,
-        replace_file_atomically,
+        replace_file_atomically, replace_file_atomically_while,
     };
 
     // A rename that cannot replace its target must leave the old target whole and no temporary
@@ -253,6 +310,27 @@ mod tests {
             fs::read(target.join("kept")).expect("the target's file reads"),
             b"kept"
         );
+        let entries = fs::read_dir(scratch.path())
+            .expect("the scratch folder lists")
+            .map(|entry| entry.expect("an entry reads").file_name())
+            .collect::<Vec<_>>();
+        assert_eq!(entries, ["target"]);
+    }
+
+    // A write whose check says the target changed since it was read leaves the target as it stands
+    // and no temporary file beside it. Killed by a rename that ignores the check.
+    #[test]
+    fn a_write_the_check_refuses_leaves_the_target_and_no_temporary_file() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let target = scratch.path().join("target");
+        fs::write(&target, b"theirs").expect("the target is written");
+
+        let is_written =
+            replace_file_atomically_while(&target, b"ours", LeftoverSweep::Unswept, || Ok(false))
+                .expect("a refused write is no failure");
+
+        assert!(!is_written);
+        assert_eq!(fs::read(&target).expect("the target reads"), b"theirs");
         let entries = fs::read_dir(scratch.path())
             .expect("the scratch folder lists")
             .map(|entry| entry.expect("an entry reads").file_name())

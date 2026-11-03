@@ -53,6 +53,8 @@
         "keepCrashReports": true,
         "editorId": null,
         "providerSettings": {},
+        "providerCommandPaths": {},
+        "providerKnobs": {},
         "commitTextModel": null,
         "defaultCheckout": "provisionedWorktree",
         "newSessionCarriesLastModel": true,
@@ -120,6 +122,8 @@
         "keepCrashReports": true,
         "editorId": null,
         "providerSettings": {},
+        "providerCommandPaths": {},
+        "providerKnobs": {},
         "commitTextModel": null,
         "defaultCheckout": "provisionedWorktree",
         "newSessionCarriesLastModel": true,
@@ -192,6 +196,8 @@
         "keepCrashReports": true,
         "editorId": null,
         "providerSettings": {},
+        "providerCommandPaths": {},
+        "providerKnobs": {},
         "commitTextModel": null,
         "defaultCheckout": "provisionedWorktree",
         "newSessionCarriesLastModel": true,
@@ -264,6 +270,8 @@
         "keepCrashReports": true,
         "editorId": null,
         "providerSettings": {},
+        "providerCommandPaths": {},
+        "providerKnobs": {},
         "commitTextModel": null,
         "defaultCheckout": "provisionedWorktree",
         "newSessionCarriesLastModel": true,
@@ -328,6 +336,8 @@
         "keepCrashReports": true,
         "editorId": null,
         "providerSettings": {},
+        "providerCommandPaths": {},
+        "providerKnobs": {},
         "commitTextModel": null,
         "defaultCheckout": "provisionedWorktree",
         "newSessionCarriesLastModel": true,
@@ -395,6 +405,8 @@
         "keepCrashReports": true,
         "editorId": null,
         "providerSettings": {},
+        "providerCommandPaths": {},
+        "providerKnobs": {},
         "commitTextModel": null,
         "defaultCheckout": "provisionedWorktree",
         "newSessionCarriesLastModel": true,
@@ -473,6 +485,8 @@
         "keepCrashReports": true,
         "editorId": null,
         "providerSettings": {},
+        "providerCommandPaths": {},
+        "providerKnobs": {},
         "commitTextModel": null,
         "defaultCheckout": "provisionedWorktree",
         "newSessionCarriesLastModel": true,
@@ -581,6 +595,8 @@
             ]
           }
         },
+        "providerCommandPaths": {},
+        "providerKnobs": {},
         "commitTextModel": null,
         "defaultCheckout": "provisionedWorktree",
         "newSessionCarriesLastModel": true,
@@ -637,6 +653,199 @@
         "providerSettings": {
           "codex": {
             "reachable": true
+          }
+        }
+      },
+      "settings": null
+    },
+    {
+      "file": {
+        "providerCommandPaths": {
+          "codex": [
+            {
+              "place": "windows",
+              "path": "C:\\Tools\\codex.exe"
+            },
+            {
+              "place": {
+                "distro": "Ubuntu"
+              },
+              "path": "/opt/codex/bin/codex"
+            }
+          ],
+          "claude": [
+            {
+              "path": "/usr/local/bin/claude"
+            }
+          ]
+        },
+        "providerKnobs": {
+          "claude": {
+            "availableForNewSessions": false,
+            "helpersAtOnce": 0,
+            "autoCompactPercent": 80
+          },
+          "codex": {
+            "helpersAtOnce": null
+          },
+          "other": {}
+        }
+      },
+      "settings": {
+        "updatesAutomatic": true,
+        "keepCrashReports": true,
+        "editorId": null,
+        "providerSettings": {},
+        "providerCommandPaths": {
+          "claude": [
+            {
+              "path": "/usr/local/bin/claude"
+            }
+          ],
+          "codex": [
+            {
+              "place": "windows",
+              "path": "C:\\Tools\\codex.exe"
+            },
+            {
+              "place": {
+                "distro": "Ubuntu"
+              },
+              "path": "/opt/codex/bin/codex"
+            }
+          ]
+        },
+        "providerKnobs": {
+          "claude": {
+            "availableForNewSessions": false,
+            "helpersAtOnce": 0,
+            "autoCompactPercent": 80
+          },
+          "codex": {
+            "helpersAtOnce": null
+          },
+          "other": {}
+        },
+        "commitTextModel": null,
+        "defaultCheckout": "provisionedWorktree",
+        "newSessionCarriesLastModel": true,
+        "lastLeadModel": null,
+        "keepAwakeWhileAgentWorks": false,
+        "keepAwakeForOtherDevices": false,
+        "notifications": {
+          "appIconCount": true,
+          "notifyOutsideApp": true,
+          "kinds": {
+            "waitingOnYou": true,
+            "finished": true,
+            "failed": true,
+            "notifyStep": true
+          },
+          "emailDigest": {
+            "enabled": false,
+            "sendTo": null,
+            "mailServer": null,
+            "port": null,
+            "userName": null,
+            "after": "day"
+          },
+          "webAddress": {
+            "enabled": false,
+            "kinds": {
+              "waitingOnYou": true,
+              "finished": true,
+              "failed": true,
+              "notifyStep": true
+            }
+          }
+        },
+        "rememberSiteData": true,
+        "browserToolsForAgents": true,
+        "sandboxBackgroundBrowser": false,
+        "screenReaderMode": false,
+        "environmentRows": [],
+        "backup": {
+          "automatic": false,
+          "folder": null
+        },
+        "branchNamePattern": "sidekicks/{session}/{title}",
+        "cloneFolder": null,
+        "voice": {
+          "mode": "hold",
+          "callVoice": null,
+          "dictationLanguage": null
+        }
+      }
+    },
+    {
+      "file": {
+        "providerCommandPaths": {
+          "codex": []
+        }
+      },
+      "settings": null
+    },
+    {
+      "file": {
+        "providerCommandPaths": {
+          "codex": [
+            { "place": "windows", "path": "C:\\Tools\\codex.exe" },
+            { "place": "windows", "path": "D:\\codex.exe" }
+          ]
+        }
+      },
+      "settings": null
+    },
+    {
+      "file": {
+        "providerSettings": {
+          "codex": {
+            "reachable": [
+              { "place": "windows", "enabled": true },
+              { "place": "windows", "enabled": false }
+            ]
+          }
+        }
+      },
+      "settings": null
+    },
+    {
+      "file": {
+        "providerCommandPaths": {
+          "codex": [
+            {
+              "place": "windows"
+            }
+          ]
+        }
+      },
+      "settings": null
+    },
+    {
+      "file": {
+        "providerKnobs": {
+          "claude": {
+            "autoCompactPercent": 82
+          }
+        }
+      },
+      "settings": null
+    },
+    {
+      "file": {
+        "providerKnobs": {
+          "claude": {
+            "availableForNewSessions": null
+          }
+        }
+      },
+      "settings": null
+    },
+    {
+      "file": {
+        "providerKnobs": {
+          "claude": {
+            "helpersAtOnce": -1
           }
         }
       },

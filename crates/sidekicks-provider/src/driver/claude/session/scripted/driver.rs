@@ -13,7 +13,6 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use secrecy::SecretString;
 use serde_json::{Map, json};
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::{
@@ -23,7 +22,6 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -52,7 +50,9 @@ use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::ports::SessionRelaunchListener;
 use crate::driver::schema::schema_parts;
 use crate::driver::session_control::{CreateSessionParams, DriverResumeResult, SessionAccountPin};
-use crate::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
+use crate::driver::test_registry::{
+    new_agent_id, new_run_id, new_session_id, test_driver_services,
+};
 use crate::driver::{
     AccountFoldersError, CommandSandboxAvailability, CurrentProviderAccount, DriverServices,
     MissingSandboxPrerequisite, ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext,
@@ -628,7 +628,7 @@ pub(crate) fn end_turn_of(
 pub(crate) fn create_params(session_id: SessionId) -> CreateSessionParams {
     CreateSessionParams {
         session_id,
-        agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
+        agent_id: new_agent_id(),
         config: Map::new(),
         model: ProviderToken::new("opus".to_owned()).expect("the model fits"),
         effort: None,

@@ -207,6 +207,8 @@ pub(crate) struct ClaudeStreamSession {
     pub(crate) tool_server_tasks: ClaudeToolServerTasks,
     /// What the working line reads about the lead's running turn.
     pub(crate) turn_readings: ClaudeTurnReadings,
+    /// Whether the open turn already took a message.
+    pub(crate) has_turn_message: bool,
 }
 
 /// A turn's end as the stream delivers it on its run's binding: held while the daemon's own end
@@ -251,6 +253,7 @@ impl ClaudeStreamSession {
             command_tasks: ClaudeCommandTasks::default(),
             tool_server_tasks: ClaudeToolServerTasks::default(),
             turn_readings: ClaudeTurnReadings::default(),
+            has_turn_message: false,
         }
     }
 

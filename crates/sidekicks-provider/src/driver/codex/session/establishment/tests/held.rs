@@ -14,11 +14,11 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::integer::SafeInt;
 
+use super::adopted_helpers::{HELPER_TURN, adopt_with_helpers, helper_run, loaded, unloaded};
 use super::continuation::{
     ADOPTED_THREAD, AdoptionScript, CONTINUATION_TURN, ROOT_TURN, adopt, cut_turn_end,
     cut_turn_listed, lead_run, page_turn, turn_ends,
 };
-use super::helpers::{HELPER_TURN, adopt_with_helpers, helper_run, loaded, unloaded};
 use crate::driver::codex::run::steer::register_codex_steer;
 use crate::driver::codex::service::supervisor::test_service::start_scripted_joined_service;
 use crate::driver::codex::session::inbound::CodexSessionInbound;
@@ -29,6 +29,7 @@ use crate::port::run_host::test_host::EngineCall;
 use crate::run::delivery::LateAppendableRow;
 use crate::run::state_entry::RunStateEntry;
 use crate::run::turn_end::TurnOutcome;
+use crate::usage_delta_accountant::UsageAxisCounts;
 
 // The held turn's end the daemon writes for `run_id`: the first turn the test's engine opened on
 // the run, interrupted by the restart.
@@ -108,7 +109,10 @@ async fn open_held_running_continuation(session: &mut TestCodexSession, folder: 
             .held_continuation_turn_ids
             .contains(CONTINUATION_TURN)
     );
-    let opened = session.establishment(folder).open(established, None).await;
+    let opened = session
+        .establishment(folder)
+        .open(established, UsageAxisCounts::default())
+        .await;
     session.task.record = opened.record;
     session.task.routing = opened.routing;
     run_id
@@ -138,7 +142,7 @@ async fn a_held_leads_ended_continuation_leaves_the_run_waiting() {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let opened = session
         .establishment(folder.path())
-        .open(established, None)
+        .open(established, UsageAxisCounts::default())
         .await;
 
     assert_eq!(session.engine.moves_of_run(run_id), Vec::new());
@@ -243,7 +247,7 @@ async fn a_held_helpers_ended_turn_leaves_its_run_waiting() {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let opened = session
         .establishment(folder.path())
-        .open(established, None)
+        .open(established, UsageAxisCounts::default())
         .await;
 
     assert_eq!(session.engine.moves_of_run(helper_run_id), Vec::new());
@@ -264,8 +268,8 @@ async fn a_held_helpers_ended_turn_leaves_its_run_waiting() {
 }
 
 // A held helper whose turn still runs at the adoption is bound with its turn unmarked, so the turn
-// runs on as the run's own: the person's stop of it ends the run as that stop's, with its
-// `subagent.completed` row and the end read as the daemon's interrupt, never as the restart's.
+// runs on as the run's own: the person's stop of it ends the run with its `subagent.completed` row,
+// never as the restart's held end.
 // Killed by a running held turn marked (the end is written as the daemon's and the run never
 // moves, so the stop hangs it).
 #[tokio::test(start_paused = true)]
@@ -290,7 +294,7 @@ async fn a_stopped_held_helper_ends_as_its_stop() {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let opened = session
         .establishment(folder.path())
-        .open(established, None)
+        .open(established, UsageAxisCounts::default())
         .await;
     session.task.record = opened.record;
     session.task.routing = opened.routing;
@@ -305,10 +309,6 @@ async fn a_stopped_held_helper_ends_as_its_stop() {
     let ended = turn_completed("thread-helper-a", HELPER_TURN, "interrupted");
     session.task.handle(queued(&ended)).await;
 
-    assert_eq!(
-        session.engine.daemon_interrupt_ends_of_run(helper_run_id),
-        vec![true]
-    );
     assert_eq!(subagent_completed_rows(&session, helper_run_id), 1);
     assert_eq!(turn_ends(&session.engine.calls()).0, Vec::new());
 }

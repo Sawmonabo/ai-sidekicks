@@ -1,10 +1,13 @@
-//! The agents' events as tests write them, and the projection's statements run on a test's own
-//! connection as the writer runs them.
+//! The agents' events as tests write them, the projection's statements run on a test's own
+//! connection as the writer runs them, and a log row written as a test spells it.
 
-use rusqlite::{Connection, params_from_iter};
+use rusqlite::{Connection, params, params_from_iter};
 use serde_json::{Value, json};
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, named_bindings};
 use sidekicks_store::database::writer::test_file::test_envelope;
 
@@ -146,6 +149,37 @@ pub(crate) fn run_statements(connection: &Connection, statements: &[WriteStateme
             assert_eq!(changed, expected, "{}", statement.sql);
         }
     }
+}
+
+/// Writes one row of `session_id`'s log at `sequence`, an `event_type` event with `payload` as the
+/// test spells it, filed under `run_id` where it names one and occurring at `occurred_at`.
+pub(crate) fn write_log_row(
+    connection: &Connection,
+    session_id: SessionId,
+    sequence: i64,
+    event: (SessionEventType, &Value),
+    run_id: Option<RunId>,
+    occurred_at: &str,
+) {
+    let (event_type, payload) = event;
+    connection
+        .execute(
+            "INSERT INTO session_events
+               (id, session_id, sequence, occurred_at, monotonic_ns, category, type, payload,
+                run_id)
+             VALUES (?1, ?2, ?3, ?4, ?3, ?5, ?6, ?7, ?8)",
+            params![
+                mint_uuid_v7().to_string(),
+                session_id.text().as_str(),
+                sequence,
+                occurred_at,
+                event_type.category().as_str(),
+                event_type.as_str(),
+                payload.to_string(),
+                run_id.map(|run_id| run_id.text().as_str().to_owned()),
+            ],
+        )
+        .expect("the test writes the row");
 }
 
 fn event(event_type: &str, payload: &Value) -> SessionEvent {

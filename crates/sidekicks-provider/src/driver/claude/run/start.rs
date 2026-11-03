@@ -485,7 +485,6 @@ mod tests {
 
     use rstest::rstest;
     use serde_json::json;
-    use sidekicks_contracts::agent::definition::AgentId;
     use sidekicks_contracts::artifacts::id::ArtifactId;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::run::id::RunId;
@@ -504,7 +503,7 @@ mod tests {
     use crate::driver::run_control::{
         ApplyInterventionParams, ResumeRunParams, SteerPayload, WaitingMessage,
     };
-    use crate::driver::test_registry::new_run_id;
+    use crate::driver::test_registry::{new_agent_id, new_run_id};
     use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 
     // The opening of `run_id` on `session`'s lead binding, carrying `attachments`.
@@ -518,8 +517,7 @@ mod tests {
             opening: RunOpening {
                 session_id: session.session_id,
                 binding_id: binding_id("lead"),
-                agent_id: AgentId::new(&mint_uuid_v7().to_string())
-                    .expect("a minted UUID is an agent id"),
+                agent_id: new_agent_id(),
                 message_id: QueueItemId::new(&mint_uuid_v7().to_string())
                     .expect("a minted UUID is an item id"),
                 item: RunOpeningItem::Message {

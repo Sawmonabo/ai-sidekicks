@@ -116,6 +116,11 @@ impl UuidTextForm {
     pub fn text(&self) -> UuidText {
         UuidText::new(self.0)
     }
+
+    /// The version number, 1 to 8, 0 for the Nil UUID and 15 for the Max.
+    pub fn version(&self) -> usize {
+        self.0.get_version_num()
+    }
 }
 
 impl From<Uuid> for UuidTextForm {

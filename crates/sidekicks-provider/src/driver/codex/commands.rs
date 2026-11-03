@@ -1,13 +1,13 @@
 //! The Codex driver's provider commands: the reader that turns a `skills/list` reply into command
-//! entries and the file each skill loads from, the per-session listing, read once per session and
-//! discarded on `skills/changed` and with the session, the tool servers' prompts beside it, and
-//! the listeners that follow a session's list as it changes.
+//! entries and the file each skill loads from, the per-session listing, read once per live session
+//! and discarded on `skills/changed` and with the session, or read afresh for a session with no
+//! live process and never held, the tool servers' prompts beside it, and the listeners that follow
+//! a session's list as it changes.
 
 #[cfg(test)]
 mod tests;
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -40,8 +40,8 @@ use crate::port::server_prompts::ServerPromptPort;
 /// The provider's live skill listing.
 const CODEX_SKILLS_LIST_METHOD: &str = "skills/list";
 
-/// What one live session's list is read from: its service, the account it runs on, its own folder
-/// and the run whose list it is.
+/// What one session's list is read from: its service, the account it runs on, its folder and the
+/// run whose list it is.
 #[derive(Clone)]
 pub(crate) struct CodexCommandSource {
     /// The session.
@@ -50,8 +50,9 @@ pub(crate) struct CodexCommandSource {
     pub(crate) service: Arc<CodexService>,
     /// The account.
     pub(crate) provider_account_id: ProviderAccountId,
-    /// The session's own folder: one service holds every session of the account, so the default
-    /// folder would be the service's.
+    /// The session's own folder, or for a session with no live process the folder its runs work
+    /// in: one service holds every session of the account, so the default folder would be the
+    /// service's.
     pub(crate) working_directory: String,
     /// The session's one live run, where one runs.
     pub(crate) run_id: Option<RunId>,
@@ -115,7 +116,8 @@ impl CodexProviderCommandCache {
         })
     }
 
-    /// The whole command list of one session, from the held listing or a fresh read.
+    /// The whole command list of one session: a live session's held listing, read once, or for a
+    /// session with no live process a fresh read held nowhere.
     pub(crate) async fn compose_provider_command_list(
         &self,
         source: &CodexCommandSource,
@@ -124,7 +126,7 @@ impl CodexProviderCommandCache {
             provider_name: DESCRIPTOR.provider_id(),
             provider_account_id: source.provider_account_id.clone(),
         };
-        let mut entries = self.held_listing_for(source).await?.entries;
+        let mut entries = self.listing_for(source).await?.entries;
         if let Some(port) = self.server_prompts.port() {
             entries.extend(port.read_prompts(source.session_id, binding.clone()).await);
         }
@@ -138,24 +140,13 @@ impl CodexProviderCommandCache {
         })
     }
 
-    /// Each skill Codex lists for the session, by its name and the file it loads it from: the
-    /// live session's held listing, else a read from `service`, the service of
-    /// `provider_account_id`, over `working_directory`.
+    /// Each skill Codex lists for the session, by its name and the file it loads it from: a live
+    /// session's held listing, or for a session with no live process a fresh read held nowhere.
     pub(crate) async fn read_skill_files(
         &self,
-        session_id: SessionId,
-        service: &CodexService,
-        provider_account_id: ProviderAccountId,
-        working_directory: &Path,
+        source: &CodexCommandSource,
     ) -> Result<Vec<PickedSkill>, CodexError> {
-        if let Some(source) = (self.source_for)(session_id) {
-            return Ok(self.held_listing_for(&source).await?.skill_files);
-        }
-        let reply =
-            request_skills(service, working_directory.to_string_lossy().into_owned()).await?;
-        Ok(self
-            .read_reply(session_id, &reply, provider_account_id)?
-            .skill_files)
+        Ok(self.listing_for(source).await?.skill_files)
     }
 
     /// Follows a session's live list: `listener` gets the current list now and each new one after
@@ -252,6 +243,23 @@ impl CodexProviderCommandCache {
         let mut state = lock(&self.state);
         state.listings.remove(&session_id);
         state.generation_by_session.remove(&session_id);
+    }
+
+    // A live session's held listing; for a session with no live process a read from `source`'s
+    // service over its folder, stored nowhere, so a session that never comes back holds nothing.
+    async fn listing_for(
+        &self,
+        source: &CodexCommandSource,
+    ) -> Result<CodexSkillListing, CodexError> {
+        if let Some(live) = (self.source_for)(source.session_id) {
+            return self.held_listing_for(&live).await;
+        }
+        let reply = request_skills(&source.service, source.working_directory.clone()).await?;
+        self.read_reply(
+            source.session_id,
+            &reply,
+            source.provider_account_id.clone(),
+        )
     }
 
     // The held listing, read from the provider if absent. The generation taken before the request

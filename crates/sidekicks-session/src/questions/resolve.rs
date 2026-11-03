@@ -5,8 +5,10 @@
 //! `running`, guarded so a second answer that raced the first, or the run's end, is refused whole
 //! and reads the state back. Where no provider request holds the question, as after the daemon's
 //! restart before its provider asked again, nothing goes out and the same write keeps the answer
-//! for the question asked again and the run's continue. A question a workflow wait holds gets its
-//! answers through the wait. A settled record answers its state and sends nothing.
+//! for the question asked again and the run's continue. An answer the tool server keeps for its
+//! next ask leaves the question open and its run waiting until that ask takes it, when the same
+//! one write settles it. A question a workflow wait holds gets its answers through the wait. A
+//! settled record answers its state and sends nothing.
 //!
 //! One window stays open on a provider that drops its own pending requests when its turn ends and
 //! drops a late answer with no word back: an answer that reaches the driver in that window returns
@@ -18,7 +20,7 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::question::{
     QuestionAnswer, QuestionAnswerInvalidReason, QuestionAskedPayload, QuestionId, QuestionPrompt,
-    QuestionResolveRequest, QuestionResolveResponse, QuestionSettledState,
+    QuestionResolveRequest, QuestionResolveResponse, QuestionResolveState,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, UserMessageSentPayload};
@@ -31,16 +33,18 @@ use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::driver::contract::params_and_results::{
     ProviderRequestAnswer, RespondToRequestParams,
 };
+use sidekicks_provider::port::question::ToolServerAnswerDelivery;
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::events::session::appender::SessionEventDraft;
 
 use crate::driver_resolution::read_run_driver;
+use crate::questions::QuestionSettledState;
 use crate::questions::answer_text::compose_answer_text;
 use crate::questions::kept_answers::insert_kept_answer_statement;
 use crate::questions::schema::QuestionState;
 use crate::questions::service::{
-    HeldRequestAnswerer, QuestionError, QuestionResolution, QuestionsService,
+    HeldRequestAnswerer, KeptAnswer, QuestionError, QuestionResolution, QuestionsService,
 };
 use crate::questions::store::{
     QuestionHolder, question_input_digest, read_asked, read_question, settle_question_statement,
@@ -48,8 +52,16 @@ use crate::questions::store::{
 use crate::questions::waits::QuestionWaitAnswer;
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
+// An answer no provider request took, kept by the write that settles its question: the pages of
+// the question asked again that takes it, and the answers.
+struct AnswerKeep<'a> {
+    pages: &'a [QuestionPrompt],
+    answers: Vec<QuestionAnswer>,
+}
+
 impl QuestionsService {
-    /// Answers every question of `request`'s record from `device_id` and answers its state.
+    /// Answers every question of `request`'s record from `device_id` and answers its state, or
+    /// `kept` for an answer the tool server kept for its next ask, the question left open.
     /// Refused `question.notFound` for an id no record holds, `question.notWaiting` for a question
     /// its agent does not wait for, `question.waitingForRun` for one that still waits for its run,
     /// `question.answersIncomplete` for a list that does not answer every question and
@@ -79,7 +91,7 @@ impl QuestionsService {
             return Ok(QuestionResolution {
                 response: QuestionResolveResponse {
                     question_id,
-                    state: settled,
+                    state: settled.into(),
                 },
                 kept: None,
             });
@@ -92,7 +104,7 @@ impl QuestionsService {
         }
         let asked = asked.ok_or(QuestionError::AskedMissing { question_id })?;
         check_answers(question_id, asked_pages(&asked), &answers)?;
-        let (state, kept) = match stored.holder {
+        let (state, kept): (QuestionResolveState, _) = match stored.holder {
             QuestionHolder::Wait(wait_id) => (
                 self.waits
                     .require_port()?
@@ -104,7 +116,8 @@ impl QuestionsService {
                         device_id,
                     })
                     .await
-                    .map_err(QuestionError::Wait)?,
+                    .map_err(QuestionError::Wait)?
+                    .into(),
                 None,
             ),
             QuestionHolder::Run(run_id) => {
@@ -126,12 +139,10 @@ impl QuestionsService {
     }
 
     // The answers to whoever asked, the run's driver or the tool server through the tool-server
-    // client, then the settle, the person's turn and the run's move in one write. Where no request
-    // holds the question nothing goes out, and that write keeps the answer instead, or, where it
-    // holds a secret, the answer is kept in memory once the write lands; answers the session and
-    // run that keep it. A write refused after the answers went out, as when a second answer raced
-    // them or the run ended meanwhile, reads the state back: the run's end settled it `canceled`.
-    // The request is let go either way, since it has been answered.
+    // client, then the settle, the person's turn and the run's move in one write. An answer the
+    // tool server kept for its next ask is held with its turn and its device, the question left
+    // open and nothing written. Where no request holds the question nothing goes out, and that
+    // write keeps the answer instead; answers the session and run that keep it.
     async fn answer_held(
         &self,
         question_id: QuestionId,
@@ -140,33 +151,113 @@ impl QuestionsService {
         pages: &[QuestionPrompt],
         answers: Vec<QuestionAnswer>,
         device_id: DeviceId,
-    ) -> Result<(QuestionSettledState, Option<(SessionId, RunId)>), QuestionError> {
+    ) -> Result<(QuestionResolveState, Option<(SessionId, RunId)>), QuestionError> {
         let message = MessageContent::new(compose_answer_text(&answers))
             .map_err(QuestionError::AnswerText)?;
+        let Some(held) = self.held_request(&question_id) else {
+            let keep = AnswerKeep { pages, answers };
+            let (state, is_kept) = self
+                .settle_answered(
+                    question_id,
+                    session_id,
+                    run_id,
+                    message,
+                    device_id,
+                    Some(keep),
+                )
+                .await?;
+            return Ok((state.into(), is_kept.then_some((session_id, run_id))));
+        };
+        let delivery = self
+            .send_answers(run_id, held.request_id, &held.answered_by, answers)
+            .await?;
+        let state = match delivery {
+            ToolServerAnswerDelivery::Delivered => {
+                self.settle_answered(question_id, session_id, run_id, message, device_id, None)
+                    .await?
+                    .0
+            }
+            ToolServerAnswerDelivery::Kept => {
+                if self.keep_answer(&question_id, KeptAnswer { message, device_id }) {
+                    return Ok((QuestionResolveState::Kept, None));
+                }
+                // Let go meanwhile: the question was settled, so its state is read back.
+                self.read_state(question_id)
+                    .await?
+                    .and_then(settled_state)
+                    .ok_or(QuestionError::RequestNotHeld { question_id })?
+            }
+        };
+        Ok((state.into(), None))
+    }
+
+    /// Settles answered the open question `session_id`'s tool server asked under `request_id`,
+    /// whose answer was kept, in one write with the person's turn and the run's move, a question
+    /// no longer held left as it is. Fails with [`QuestionError::AnswerNotKept`] when no answer
+    /// was kept, and as the write fails.
+    pub(crate) async fn settle_kept_answer(
+        &self,
+        session_id: SessionId,
+        request_id: &str,
+    ) -> Result<(), QuestionError> {
+        let Some(question_id) = self.held_question_of(session_id, request_id) else {
+            return Ok(());
+        };
+        let _question_hold = self.question_lock.acquire(question_id).await;
+        let Some(held) = self.held_request(&question_id) else {
+            return Ok(());
+        };
+        let KeptAnswer { message, device_id } = held
+            .kept_answer
+            .ok_or(QuestionError::AnswerNotKept { question_id })?;
+        self.settle_answered(
+            question_id,
+            held.session_id,
+            held.run_id,
+            message,
+            device_id,
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+
+    // The settle `answered`, the person's turn and the run's move back to `running` in one write,
+    // with `keep`'s answer kept where no request took it: its row in that write, or, where it
+    // holds a secret, in memory once the write lands. A write refused, as when a second answer
+    // raced it or the run ended meanwhile, reads the state back: the run's end settled it
+    // `canceled`. The request is let go either way, since it has been answered. Answers the state
+    // and whether this write kept the answer.
+    async fn settle_answered(
+        &self,
+        question_id: QuestionId,
+        session_id: SessionId,
+        run_id: RunId,
+        message: MessageContent,
+        device_id: DeviceId,
+        keep: Option<AnswerKeep<'_>>,
+    ) -> Result<(QuestionSettledState, bool), QuestionError> {
         let mut statements = vec![settle_question_statement(
             &question_id,
             QuestionSettledState::Answered,
         )];
+        let is_kept = keep.is_some();
         let mut kept_secret = None;
-        match self.held_request(&question_id) {
-            Some(held) => {
-                self.send_answers(run_id, held.request_id, &held.answered_by, answers)
-                    .await?;
-            }
-            None if answers
+        if let Some(AnswerKeep { pages, answers }) = keep {
+            if answers
                 .iter()
-                .any(|answer| matches!(answer, QuestionAnswer::Secret { .. })) =>
+                .any(|answer| matches!(answer, QuestionAnswer::Secret { .. }))
             {
-                kept_secret = Some(answers);
+                kept_secret = Some((pages, answers));
+            } else {
+                statements.push(insert_kept_answer_statement(
+                    question_id,
+                    session_id,
+                    run_id,
+                    &answers,
+                ));
             }
-            None => statements.push(insert_kept_answer_statement(
-                question_id,
-                session_id,
-                run_id,
-                &answers,
-            )),
         }
-        let is_kept = statements.len() > 1 || kept_secret.is_some();
         let turn = SessionEventDraft::new(
             UserMessageSentPayload {
                 session_id,
@@ -204,7 +295,7 @@ impl QuestionsService {
         let failure = match moved {
             Ok(_run) => {
                 self.forget_held_request(&question_id);
-                if let Some(answers) = kept_secret {
+                if let Some((pages, answers)) = kept_secret {
                     self.kept_secrets.keep(
                         question_id,
                         session_id,
@@ -213,8 +304,7 @@ impl QuestionsService {
                         answers,
                     );
                 }
-                let kept = is_kept.then_some((session_id, run_id));
-                return Ok((QuestionSettledState::Answered, kept));
+                return Ok((QuestionSettledState::Answered, is_kept));
             }
             Err(failure) => failure,
         };
@@ -222,19 +312,20 @@ impl QuestionsService {
         self.forget_held_request(&question_id);
         stored?
             .and_then(settled_state)
-            .map(|state| (state, None))
+            .map(|state| (state, false))
             .ok_or_else(|| failure.into())
     }
 
     /// Sends `answers` to `request_id` of `run_id` through `answered_by`: the run's driver, or the
-    /// tool server whose task asked. Fails as the driver's lookup or the send fails.
+    /// tool server whose task asked, which answers whether a waiting request took them or it kept
+    /// them for its next ask. Fails as the driver's lookup or the send fails.
     pub(super) async fn send_answers(
         &self,
         run_id: RunId,
         request_id: String,
         answered_by: &HeldRequestAnswerer,
         answers: Vec<QuestionAnswer>,
-    ) -> Result<(), QuestionError> {
+    ) -> Result<ToolServerAnswerDelivery, QuestionError> {
         match answered_by {
             HeldRequestAnswerer::Driver => {
                 let driver =
@@ -246,13 +337,13 @@ impl QuestionsService {
                         response: ProviderRequestAnswer::Question { answers },
                     })
                     .await?;
+                Ok(ToolServerAnswerDelivery::Delivered)
             }
             HeldRequestAnswerer::ToolServerTask(answer) => answer
                 .answer(answers)
                 .await
-                .map_err(QuestionError::ToolServerTask)?,
+                .map_err(QuestionError::ToolServerTask),
         }
-        Ok(())
     }
 }
 
@@ -268,6 +359,8 @@ impl From<QuestionError> for HandlerError {
             | QuestionError::Append(_)
             | QuestionError::Draft(_)
             | QuestionError::NoQuestions { .. }
+            | QuestionError::RequestNotHeld { .. }
+            | QuestionError::AnswerNotKept { .. }
             | QuestionError::AskedMissing { .. }
             | QuestionError::AnswerText(_)
             | QuestionError::WaitsUnregistered(_)

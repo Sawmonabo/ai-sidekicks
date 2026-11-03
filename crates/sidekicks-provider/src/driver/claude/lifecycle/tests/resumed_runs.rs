@@ -125,6 +125,7 @@ async fn a_resume_the_live_process_answers_holds_only_the_turn_it_runs() {
             agent_id: "helper-1".to_owned(),
             parent_run_id: held,
             binding_id: binding_id("lead"),
+            is_refused: false,
         },
     );
     let named = |run_id| LiveRunResume {

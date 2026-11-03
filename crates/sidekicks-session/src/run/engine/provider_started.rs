@@ -13,7 +13,7 @@ use sidekicks_contracts::run::queued::{
     RunQueuedSessionAgentPayload,
 };
 use sidekicks_contracts::run::state::RunState;
-use sidekicks_contracts::wire::id::{UuidTextForm, mint_uuid_v7};
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::run_control::InterruptRunRequest;
@@ -26,7 +26,7 @@ use sidekicks_store::events::session::appender::SessionEventDraft;
 use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGateError};
 
 use crate::agent_tree::projection::{ProviderChildNodeWrite, provider_child_node_statement};
-use crate::agent_tree::store::find_node;
+use crate::agent_tree::store::{find_node, mint_child_handle};
 use crate::driver_resolution::{LiveRunDriverError, read_run_driver};
 use crate::run::agent::RunAgentReader;
 use crate::run::engine::errors::RunEngineError;
@@ -102,14 +102,11 @@ impl RunEngine {
         let node_write = match &node {
             Some(_) => ProviderChildNodeWrite::BindNewestRun,
             None => ProviderChildNodeWrite::Insert {
-                parent_child_handle,
+                parent_child_handle: parent_child_handle.clone(),
             },
         };
         let provider_child = ProviderChildStart {
-            child_handle: node.map_or_else(
-                || UuidTextForm::from(mint_uuid_v7()),
-                |node| node.child_handle,
-            ),
+            child_handle: node.map_or_else(mint_child_handle, |node| node.child_handle),
             provider,
             subagent_id: subagent.subagent_id,
             parent_subagent_id: subagent.parent_subagent_id,
@@ -143,7 +140,7 @@ impl RunEngine {
                             run_id,
                             &provider_child,
                             &started_at,
-                            node_write,
+                            node_write.clone(),
                         ),
                     ],
                     draft: SessionEventDraft::of_session(

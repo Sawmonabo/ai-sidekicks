@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use serde_json::Map;
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
@@ -14,6 +13,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use crate::driver::claude::session::scripted::binding_id;
 use crate::driver::contract::params_and_results::{RunOpening, RunOpeningItem, StartRunParams};
 use crate::driver::session_control::ResumeSessionParams;
+use crate::driver::test_registry::new_agent_id;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
@@ -23,6 +23,7 @@ mod hand_over;
 mod level_moves;
 mod naming;
 mod restarts;
+mod resting_commands;
 mod resumed_runs;
 mod session_controls;
 mod settings_reads;
@@ -36,7 +37,7 @@ fn start_params(session_id: SessionId, run_id: RunId) -> StartRunParams {
         opening: RunOpening {
             session_id,
             binding_id: binding_id("lead"),
-            agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an id"),
+            agent_id: new_agent_id(),
             message_id: QueueItemId::new(&mint_uuid_v7().to_string())
                 .expect("a minted UUID is an item id"),
             item: RunOpeningItem::Message {
@@ -59,7 +60,7 @@ fn resume_params(session_id: SessionId) -> ResumeSessionParams {
     ResumeSessionParams {
         session_id,
         binding_id: mint_runtime_binding_id(),
-        agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
+        agent_id: new_agent_id(),
         resume_handle: "conversation".to_owned(),
         model: ProviderToken::new("opus".to_owned()).expect("the model fits"),
         larger_window: None,

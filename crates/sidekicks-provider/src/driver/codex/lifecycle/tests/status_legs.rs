@@ -4,9 +4,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use sidekicks_contracts::agent::definition::AgentId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-
 use super::super::intake::CodexSessionIntake;
 use super::{answer_stopping_request, driver_holding};
 use crate::driver::codex::notification_routing::CodexRoutedFrames;
@@ -17,7 +14,7 @@ use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::lifecycle_call::let_go_codex_session_record;
 use crate::driver::codex::session::test_fixture::open_test_record;
 use crate::driver::codex::session::test_fixture::status_sink::CountingStatusSink;
-use crate::driver::test_registry::{new_run_id, new_session_id};
+use crate::driver::test_registry::{new_agent_id, new_run_id, new_session_id};
 
 /// How long the exit and the let-go may take before the test counts them as stuck.
 const STEP_BOUND: Duration = Duration::from_secs(10);
@@ -46,7 +43,7 @@ async fn a_service_exit_ends_each_attached_sessions_status_leg_once() {
         let (mut record, routing) = open_test_record(
             &scripted,
             session_id,
-            AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
+            new_agent_id(),
             inbound.clone(),
             &parts.delivery,
             parts.pending_compactions.clone(),

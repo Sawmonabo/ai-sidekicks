@@ -9,15 +9,16 @@ use sidekicks_store::database::statement::{StatementBindings, WriteStatement, te
 
 /// One link an event records, from the session that acted to the one it acted on.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RecordedSessionLink {
+pub struct RecordedSessionLink {
     /// The session that acted.
-    pub(crate) source_session_id: SessionId,
+    pub source_session_id: SessionId,
     /// The session it acted on.
-    pub(crate) target_session_id: SessionId,
-    /// What it did: any kind but `related`, which a person adds; none is ever removed.
-    pub(crate) kind: SessionLinkKind,
+    pub target_session_id: SessionId,
+    /// What it did: any kind but `related`, which is added on purpose, by a person or by an agent
+    /// asked to; none is ever removed.
+    pub kind: SessionLinkKind,
     /// When the event occurred, in the stored form.
-    pub(crate) occurred_at: String,
+    pub occurred_at: String,
 }
 
 // A repeat of the same pair and kind is one more use: `messaged` counts the messages traded.
@@ -30,7 +31,7 @@ const RECORD_LINK_SQL: &str = "INSERT INTO session_links
 /// The statement an event's producer puts in that event's write to record its link, or count one
 /// more use of it. Once the write commits, the producer asks the related ranking to re-score
 /// around the two sessions.
-pub(crate) fn recorded_session_link_statement(link: &RecordedSessionLink) -> WriteStatement {
+pub fn recorded_session_link_statement(link: &RecordedSessionLink) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(RECORD_LINK_SQL),
         bindings: StatementBindings::Named(vec![

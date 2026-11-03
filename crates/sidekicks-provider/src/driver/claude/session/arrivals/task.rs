@@ -42,7 +42,6 @@ use crate::driver::claude::intervention::ClaudeInterventions;
 use crate::driver::claude::run::controls::claude_dialog_session;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::rewind::ClaudeConversationCuts;
-use crate::driver::claude::run::routes::ClaudeRunRoute;
 use crate::driver::claude::run::self_started_turns::ClaudeSelfStartedTurns;
 use crate::driver::claude::run::settlement::ClaudeTurnSettlement;
 use crate::driver::claude::session::context_reading::ClaudeContextReadings;
@@ -302,10 +301,7 @@ impl ClaudeSessionTask {
     async fn report_helper_paused(&self, agent_id: &str) {
         let start = &self.services.self_started.start;
         let session_id = self.live.session_id;
-        let Some(child_run_id) = start.routes.child_run_for(session_id, agent_id) else {
-            return;
-        };
-        let Some(ClaudeRunRoute::Child(route)) = start.routes.route_of(child_run_id) else {
+        let Some((child_run_id, route)) = start.routes.child_route_for(session_id, agent_id) else {
             return;
         };
         let delivery = InboundDelivery::RunLifecycle {

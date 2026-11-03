@@ -26,7 +26,6 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
@@ -93,7 +92,7 @@ use crate::driver::run_control::{
 };
 use crate::driver::schema::schema_parts;
 use crate::driver::session_control::{CreateSessionParams, SessionAccountPin};
-use crate::driver::test_registry::{RecordedQueue, new_session_id};
+use crate::driver::test_registry::{RecordedQueue, new_agent_id, new_session_id};
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, PROVIDERS, ProviderAccountFolders,
     ProviderAccountReader, SessionSpawnContext, SessionSpawnContextResolver,
@@ -189,8 +188,7 @@ impl TestCodexSession {
             provider_accounts: Arc::new(PortRegistration::new("provider accounts")),
         }));
         let session_id = new_session_id();
-        let lead_agent_id =
-            AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id");
+        let lead_agent_id = new_agent_id();
         let (inbound, receiver) = codex_session_inbound(session_id);
         let slots = Arc::new(CodexSessionSlots::new());
         slots
@@ -647,7 +645,7 @@ pub(crate) fn fork_reply(thread_id: &str, settings: &CodexThreadSettings) -> Val
 pub(crate) fn create_session_params(session_id: SessionId) -> CreateSessionParams {
     CreateSessionParams {
         session_id,
-        agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
+        agent_id: new_agent_id(),
         config: Map::new(),
         model: ProviderToken::new("gpt-5".to_owned()).expect("the model fits"),
         effort: None,

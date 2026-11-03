@@ -1,3 +1,5 @@
+mod cost;
+
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -6,6 +8,7 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rstest::rstest;
 use rusqlite::params;
+use serde_json::Value;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
 use sidekicks_contracts::event::session::SessionEvent;
@@ -33,7 +36,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::registry::test_provider;
 use sidekicks_provider::driver::test_registry::new_run_id;
 use sidekicks_provider::port::usage_sink::{
-    MeteredUsage, MeteredUsageOwner, ProviderQuotaWindow, UsageSink,
+    MeteredUsage, MeteredUsageOwner, ProviderQuotaWindow, RecordedUsage, UsageSink,
 };
 use sidekicks_provider::usage_delta_accountant::{
     MeteredUsageDelta, UsageAxisCounts, UsageDiagnosticBand,
@@ -237,7 +240,7 @@ impl Harness {
         input: u64,
         output: u64,
         cache_read: u64,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<RecordedUsage>, Box<dyn std::error::Error + Send + Sync>> {
         self.record
             .record_metered(MeteredUsage {
                 session_id: self.session_id,
@@ -294,6 +297,31 @@ impl Harness {
             .collect::<Result<_, _>>()
             .expect("each event reads")
     }
+
+    // Each stored event of `event_type`: its id, its run and its payload.
+    fn stored_events(&self, event_type: &str) -> Vec<(String, Option<String>, Value)> {
+        self.database
+            .reader()
+            .prepare(
+                "SELECT id, run_id, payload FROM session_events
+                 WHERE session_id = ?1 AND type = ?2 ORDER BY sequence",
+            )
+            .expect("the test reads the session's events")
+            .query_map(
+                params![self.session_id.text().as_str(), event_type],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, String>(2)?)),
+            )
+            .expect("the events read")
+            .map(|row| {
+                let (id, run_id, payload) = row.expect("each event reads");
+                (
+                    id,
+                    run_id,
+                    serde_json::from_str(&payload).expect("a payload is JSON"),
+                )
+            })
+            .collect()
+    }
 }
 
 fn account() -> ProviderAccountId {
@@ -331,6 +359,7 @@ fn queued(
 }
 
 const THREAD: &str = "thread-1";
+const MODEL: &str = "model-1";
 // How long a report is given to return while its stop is held.
 const STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 const RECORDED: &str = "usage.tokenCount.recorded";

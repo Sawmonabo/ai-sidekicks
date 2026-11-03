@@ -1,6 +1,7 @@
 //! Every process start answered by a script instead of a Claude Code program: a session's process
 //! is the next scripted channel, declaring the next scripted `initialize` reply; a one-turn process
-//! answers the next scripted reply; a catalog or figures read answers the next scripted reading;
+//! answers the next scripted reply; a catalog or figures read answers the next scripted reading,
+//! and a resting session's command read the next scripted rows;
 //! an account read's process and the MCP server probe's process are the next scripted channels;
 //! an MCP sign-in's process is the next scripted channel, the next scripted saved sign-ins kept
 //! where it was scripted to keep them: its credential folder's file, or the keychain item named
@@ -8,6 +9,7 @@
 //! Each start is recorded with what it asked for.
 
 use std::collections::{HashSet, VecDeque};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt;
@@ -44,6 +46,7 @@ use crate::driver::claude::spawn::launch::bring_up::{
     ClaudeBringUpRequest, ClaudeSettingsReadback,
 };
 use crate::driver::claude::spawn::launch::control_only::ClaudeShortProcessArrival;
+use crate::driver::claude::spawn::launch::initialize_reply::ClaudeListedCommand;
 use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeProcessStarts, ClaudeStartedSession,
 };
@@ -98,6 +101,9 @@ struct ScriptedStartTables {
     catalog_environments: Vec<Vec<(String, String)>>,
     creation_figures: VecDeque<ClaudeCreationFiguresReading>,
     creation_reads: usize,
+    session_commands: VecDeque<Vec<ClaudeListedCommand>>,
+    session_command_holds: VecDeque<oneshot::Receiver<()>>,
+    session_command_reads: usize,
     one_turn_replies: VecDeque<ClaudeOneTurnReply>,
     one_turns: Vec<ScriptedOneTurnRecord>,
     one_turn_environments: Vec<Vec<(String, String)>>,
@@ -204,6 +210,24 @@ impl ScriptedStarts {
     /// Scripts the next creation-time figures read to answer `reading`.
     pub(crate) fn script_creation_figures(&self, reading: ClaudeCreationFiguresReading) {
         self.lock().creation_figures.push_back(reading);
+    }
+
+    /// Scripts the next resting session's command read to answer `rows`.
+    pub(crate) fn script_session_commands(&self, rows: Vec<ClaudeListedCommand>) {
+        self.lock().session_commands.push_back(rows);
+    }
+
+    /// Holds the next resting session's command read, once counted, until the returned sender
+    /// fires or drops.
+    pub(crate) fn hold_next_session_commands_read(&self) -> oneshot::Sender<()> {
+        let (release, held) = oneshot::channel();
+        self.lock().session_command_holds.push_back(held);
+        release
+    }
+
+    /// Takes the count of resting sessions' command reads so far, each one process.
+    pub(crate) fn take_session_commands_read_count(&self) -> usize {
+        std::mem::take(&mut self.lock().session_command_reads)
     }
 
     /// Scripts the next one-turn process to answer `reply`.
@@ -417,6 +441,30 @@ impl ClaudeProcessStarts for ScriptedStarts {
         _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<String, ClaudeLaunchError>> {
         async { Err(spawn_failure("no sign-in scripted")) }.boxed()
+    }
+
+    fn read_session_commands(
+        &self,
+        _environment: Vec<(String, String)>,
+        _working_directory: PathBuf,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'static, Result<Vec<ClaudeListedCommand>, ClaudeLaunchError>> {
+        let (rows, hold) = {
+            let mut tables = self.lock();
+            tables.session_command_reads += 1;
+            (
+                tables.session_commands.pop_front(),
+                tables.session_command_holds.pop_front(),
+            )
+        };
+        async move {
+            if let Some(hold) = hold {
+                // A dropped sender releases the read too.
+                hold.await.unwrap_or(());
+            }
+            rows.ok_or_else(|| spawn_failure("no session commands scripted"))
+        }
+        .boxed()
     }
 
     fn read_model_catalog(

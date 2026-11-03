@@ -4,10 +4,12 @@
 use std::error::Error;
 
 use futures::future::BoxFuture;
-use sidekicks_contracts::question::{QuestionAnswer, QuestionId, QuestionSettledState};
+use sidekicks_contracts::question::{QuestionAnswer, QuestionId};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::UuidTextForm;
+
+use crate::questions::QuestionSettledState;
 
 /// The person's answers to a question a workflow wait holds.
 #[expect(

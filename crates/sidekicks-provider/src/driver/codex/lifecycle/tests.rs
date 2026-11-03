@@ -2,6 +2,7 @@
 //! driver's own, one run on a live turn, and the run engine's and the run queue's intake recorded;
 //! and a driver on a Codex folder of a test's own, with a service of the test's listening there.
 
+mod at_rest;
 mod caller_check;
 mod capability_read;
 mod commands;
@@ -12,7 +13,6 @@ mod questions;
 mod resume;
 mod rule_revoke;
 mod sessions;
-mod skill_picks;
 mod status_legs;
 mod terminal_reach;
 mod usage;
@@ -23,12 +23,10 @@ use std::sync::Arc;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::bind_socket_listener;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::writer::test_file::TestDatabase;
@@ -53,7 +51,7 @@ use crate::driver::codex::session::test_fixture::{
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::schema::schema_parts;
 use crate::driver::test_registry::{
-    RecordedQueue, new_run_id, new_session_id, test_driver_services,
+    RecordedQueue, new_agent_id, new_run_id, new_session_id, test_driver_services,
 };
 use crate::port::question::QuestionPort;
 use crate::port::run_host::test_host::RecordingRunEngine;
@@ -113,8 +111,7 @@ impl LiveCodexSession {
         let database = TestDatabase::new(schema_parts());
         let engine = Arc::new(RecordingRunEngine::default());
         let session_id = new_session_id();
-        let agent_id =
-            AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id");
+        let agent_id = new_agent_id();
         let mut services = test_driver_services();
         // The retry's fork points the run's binding at the conversation it moves onto.
         let bindings = Arc::new(open_store(&database).await);
@@ -311,7 +308,7 @@ pub(super) fn driver_holding(scripted: &ScriptedCodexService, folder: &Path) -> 
     let ports = &services.ports;
     assert!(ports.run_engine.register(Arc::clone(&engine) as _).is_ok());
     assert!(ports.inbound_dispatch.register(engine as _).is_ok());
-    let agent_id = AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id");
+    let agent_id = new_agent_id();
     assert!(
         ports
             .daemon_turn_bindings

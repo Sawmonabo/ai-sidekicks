@@ -79,10 +79,15 @@ const APPROVALS_EVENT_TYPES: [SessionEventType; 5] = [
     SessionEventType::ApprovalRuleRemembered,
 ];
 
-/// The `approval_requests` and `approval_resolutions` rows as a rebuild replaces them. Its fold
-/// keeps no state, so the projection is its own fold.
+/// The `approval_requests` and `approval_resolutions` rows as a rebuild replaces them.
 #[derive(Clone, Copy, Debug)]
 pub struct ApprovalsProjection;
+
+// One rebuild's fold of a session's approvals, which keeps nothing but its session, whose asks a
+// gate answered it settles once the log is read.
+struct ApprovalsFold {
+    session_id: SessionId,
+}
 
 impl SessionProjection for ApprovalsProjection {
     fn name(&self) -> &'static str {
@@ -100,16 +105,14 @@ impl SessionProjection for ApprovalsProjection {
         ]
     }
 
-    fn closing_statements(&self, session_id: &SessionId) -> Vec<WriteStatement> {
-        vec![session_statement(&SETTLE_AS_GATES_ANSWERED_SQL, session_id)]
-    }
-
-    fn fold(&self, _session_id: &SessionId) -> Box<dyn SessionProjectionFold> {
-        Box::new(*self)
+    fn fold(&self, session_id: &SessionId) -> Box<dyn SessionProjectionFold> {
+        Box::new(ApprovalsFold {
+            session_id: *session_id,
+        })
     }
 }
 
-impl SessionProjectionFold for ApprovalsProjection {
+impl SessionProjectionFold for ApprovalsFold {
     fn apply(
         &mut self,
         envelope: &EventEnvelope,
@@ -169,6 +172,13 @@ impl SessionProjectionFold for ApprovalsProjection {
             ));
         }
         Ok(())
+    }
+
+    fn closing_statements(&self) -> Vec<WriteStatement> {
+        vec![session_statement(
+            &SETTLE_AS_GATES_ANSWERED_SQL,
+            &self.session_id,
+        )]
     }
 }
 

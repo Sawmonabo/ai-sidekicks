@@ -6,6 +6,7 @@
 //! each folder it searches once.
 
 pub(crate) mod lines;
+pub(crate) mod peer_replies;
 pub(crate) mod title;
 
 use std::collections::HashSet;

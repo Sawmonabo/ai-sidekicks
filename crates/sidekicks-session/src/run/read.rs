@@ -1,4 +1,5 @@
-//! Reads a run's current state and version from its `runs` row; the runs not yet ended across
+//! Reads a run's current state and version from its `runs` row, or its session, parent and state;
+//! the runs not yet ended across
 //! every session or in one, those of one session with the agent each runs for, and those of one
 //! session as a resume names them to the provider, with their open turns; the ended runs
 //! that hold a turn with no end, across every session or in one; the provider subagents beneath
@@ -53,6 +54,17 @@ pub struct RunRead {
     pub state: RunState,
 }
 
+/// A run's session, the run it was started beneath and its current state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RunParentage {
+    /// The session the run belongs to.
+    pub session_id: SessionId,
+    /// The run it was started beneath, `None` for a lead run.
+    pub parent_run_id: Option<RunId>,
+    /// Its current state.
+    pub state: RunState,
+}
+
 /// A run and the session it belongs to, as a read across sessions names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SessionRun {
@@ -92,6 +104,9 @@ impl LiveRun {
 }
 
 const SELECT_RUN_SQL: &str = "SELECT session_id, state, run_version FROM runs WHERE run_id = ?";
+
+const SELECT_RUN_PARENTAGE_SQL: &str =
+    "SELECT session_id, parent_run_id, state FROM runs WHERE run_id = ?";
 
 // The run's own `agent.run.failed` row naming a setup failure, found on the index of one session's
 // runs' events by type, so the read never walks the log.
@@ -288,6 +303,20 @@ impl<'connection> RunStateReader<'connection> {
                     session_id: text_column(row, 0, |text| SessionId::new(&text))?,
                     state: text_column(row, 1, closed_word)?,
                     version: row.get(2)?,
+                })
+            })
+            .optional()
+    }
+
+    /// The run's session, parent and state, or `None` for a run the daemon has no row for.
+    pub fn read_run_parentage(&self, run_id: &RunId) -> rusqlite::Result<Option<RunParentage>> {
+        self.reader
+            .prepare_cached(SELECT_RUN_PARENTAGE_SQL)?
+            .query_row([run_id.text().as_str()], |row| {
+                Ok(RunParentage {
+                    session_id: text_column(row, 0, |text| SessionId::new(&text))?,
+                    parent_run_id: optional_text_column(row, 1, |text| RunId::new(&text))?,
+                    state: text_column(row, 2, closed_word)?,
                 })
             })
             .optional()

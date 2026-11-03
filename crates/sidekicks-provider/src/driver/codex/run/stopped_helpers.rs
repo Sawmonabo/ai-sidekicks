@@ -170,8 +170,9 @@ impl CodexHookAnswerer for CodexStoppedHelpers {
 impl CodexDriver {
     /// Stops the helper `params.subagent_id` names, whose id is its own conversation's, by
     /// interrupting that conversation's running turn, and marks it so each turn it starts later is
-    /// interrupted at its start; a session with no live conversation or a helper running no turn
-    /// is left as it is. Fails as the service's requests do.
+    /// interrupted at its start; a session not live, reached as run control reaches it, or a helper
+    /// running no turn is left as it is. Fails as the session's reading and the service's requests
+    /// do.
     pub(crate) async fn stop_helper_at_token_limit(
         &self,
         params: HelperStopParams,
@@ -181,10 +182,14 @@ impl CodexDriver {
             params.subagent_id.as_str(),
             HelperStopReason::TokenLimit,
         );
-        let Some(conversation) = self.views.conversation(params.session_id) else {
+        let Some(connection) = self
+            .parts()?
+            .run_control
+            .live_connection(params.session_id)
+            .await?
+        else {
             return Ok(());
         };
-        let connection = conversation.service.connection()?;
         interrupt_codex_running_turn(&connection, params.subagent_id.as_str(), None).await?;
         Ok(())
     }

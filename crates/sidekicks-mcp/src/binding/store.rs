@@ -322,8 +322,12 @@ impl McpBindingStore {
     }
 }
 
-// The key the first four columns of a binding's or an override's row name.
-fn read_key(provider: &ProviderId, row: &rusqlite::Row<'_>) -> rusqlite::Result<McpBindingKey> {
+/// The key the first four columns of a binding's, an override's or a mutation receipt's row name,
+/// under `provider`.
+pub(crate) fn read_key(
+    provider: &ProviderId,
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<McpBindingKey> {
     Ok(McpBindingKey {
         provider: provider.clone(),
         scope: text_column(row, 0, closed_word)?,

@@ -5,7 +5,6 @@
 //! the safety hold Codex keeps on it until its answer starts; the hook runs that block its prompt;
 //! and the asks it held, which its end or Codex's own settle withdraws.
 
-use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::{ApiRetryErrorKind, UsageApiRequestRetriedPayload};
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
@@ -340,7 +339,8 @@ impl CodexFrameDelivery {
         self.dependencies.run_routes.forget_run(turn_run.run_id);
     }
 
-    /// Ends a held helper's turn, the `turn/completed` of `turn_params` on its conversation
+    /// Ends a held helper's turn, the `turn/completed` whose params are `turn_params` on its
+    /// conversation
     /// `helper_thread_id`, as a held continuation ends: the daemon's end written on the helper's
     /// child run, which stays live and waiting, and its binding and route gone. Answers `false`,
     /// ending nothing, for a turn not marked held or a helper with no bound child run.
@@ -348,11 +348,9 @@ impl CodexFrameDelivery {
         &self,
         record: &mut CodexSessionRecord,
         helper_thread_id: &str,
-        turn_params: &RawValue,
+        turn_params: &Map<String, Value>,
     ) -> bool {
-        let members: Map<String, Value> =
-            serde_json::from_str(turn_params.get()).unwrap_or_default();
-        let Some(turn_id) = read_completed_turn_id(&members) else {
+        let Some(turn_id) = read_completed_turn_id(turn_params) else {
             return false;
         };
         let Some(child) = record.delivery.child_run_by_thread_id.get(helper_thread_id) else {
