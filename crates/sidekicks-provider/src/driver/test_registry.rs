@@ -65,7 +65,8 @@ use crate::driver::contract::{MockProviderDriver, ProviderDriver};
 use crate::driver::ports::DriverPorts;
 #[cfg(test)]
 use crate::driver::ports::{
-    MessageGivenBackListener, MessageRefusedListener, MessageTakenListener,
+    ContinueGivenBackListener, MessageGivenBackListener, MessageRefusedListener,
+    MessageTakenListener,
 };
 use crate::driver::registry::ProviderRegistry;
 use crate::driver::{
@@ -390,6 +391,8 @@ pub(super) struct RecordedQueue {
     pub(super) refused: Mutex<Vec<(String, QueueItemNotDeliveredReason)>>,
     /// The messages told given back, in order.
     pub(super) given_back: Mutex<Vec<String>>,
+    /// The leads whose continue was told given back, in order.
+    pub(super) continues_given_back: Mutex<Vec<RunId>>,
     /// Tells a waiter at each.
     pub(super) changed: Notify,
 }
@@ -419,6 +422,14 @@ impl MessageRefusedListener for RecordedQueue {
 impl MessageGivenBackListener for RecordedQueue {
     fn message_given_back(&self, _session_id: SessionId, message_id: &str) {
         lock(&self.given_back).push(message_id.to_owned());
+        self.changed.notify_one();
+    }
+}
+
+#[cfg(test)]
+impl ContinueGivenBackListener for RecordedQueue {
+    fn continue_given_back(&self, _session_id: SessionId, lead_run_id: RunId) {
+        lock(&self.continues_given_back).push(lead_run_id);
         self.changed.notify_one();
     }
 }

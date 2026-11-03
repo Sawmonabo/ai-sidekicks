@@ -79,7 +79,7 @@ impl ProviderSessions {
 // Whether a start failed because the session's provider is missing: no driver answers it, or its
 // driver found no installed build of the bare command name it searched for. A typed path that does
 // not run, or a build found that cannot start, is installed.
-fn is_provider_missing(failed: &ProviderSessionError) -> bool {
+pub(super) fn is_provider_missing(failed: &ProviderSessionError) -> bool {
     matches!(
         failed,
         ProviderSessionError::Provider(refusal) if refusal.code == RefusalCode::ProviderNotFound

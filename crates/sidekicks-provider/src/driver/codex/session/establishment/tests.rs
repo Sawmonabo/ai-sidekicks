@@ -26,6 +26,7 @@ use crate::runtime_binding::resume::ResumeFunctionLegs;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 
 mod adopted_helpers;
+mod answered;
 mod continuation;
 mod held;
 

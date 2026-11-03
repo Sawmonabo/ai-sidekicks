@@ -2,29 +2,49 @@
 //! continue, move them to the run before it, to the live run or to a next run; rest until a send
 //! when a limit ended it; a start that failed; a process gone for good after its restart; and the
 //! queue's stop waiting for a start a run's end made meanwhile and the hand that start's drain made
-//! after it.
+//! after it; a lead running before its session's process opened, which is handed nothing; a lead's
+//! messages withheld only while it waits on an ask of its own, and handed when it runs again; and
+//! a lead whose continue after an orphaned answer the provider failed, moved back to its wait, or
+//! left running where only its settle or hand failed after the provider carried it.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use rstest::rstest;
+use rusqlite::params;
+use serde_json::json;
+use sidekicks_contracts::approval::{ApprovalDecision, ApprovalRequestId};
+use sidekicks_contracts::daemon::recovery::DaemonRecoveryHaltedRun;
+use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
+use sidekicks_contracts::session::controls::events::{ProviderWarningSource, SessionNotice};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::params_and_results::SessionProcessState;
-use sidekicks_provider::driver::session_control::{DriverResumeResult, answer_every_run_gone};
+use sidekicks_provider::driver::session_control::held_run_continue::ContinueAnswer;
+use sidekicks_provider::driver::session_control::{
+    DriverResumeResult, ProviderTurnAnswer, answer_every_run_gone,
+};
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_provider::process_identity::TEST_PROVIDER_PROCESS;
+use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_provider::runtime_binding::test_store::spawned_build;
 use sidekicks_session::queue_store::RecordedQueueItemState;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::writer::test_file::test_envelope;
+use sidekicks_store::events::session::followers::CommittedEvent;
 use tokio::time::{sleep, timeout};
 
 use super::{DriverCalls, Fixture, HELD_WATCH, WAIT, fixture, recording_driver};
+use crate::provider_session::held_run_continue::{OrphanedAnswerSource as _, OwedAnswer};
+use crate::provider_session::test_opening::read_notices;
 
 /// How the session's lead runs stand when one of them ends with a message waiting.
 #[derive(Clone, Copy, Debug)]
@@ -132,7 +152,11 @@ async fn a_runs_end_moves_its_waiting_message_on(#[case] ended: EndedRun) {
 async fn a_message_a_gone_process_kept_moves_on_once_a_driver_tells_of_it() {
     let calls = Arc::new(DriverCalls::default());
     calls.is_kept_by_process.store(true, Ordering::SeqCst);
-    let fixture = fixture(recording_driver(&calls)).await;
+    let mut driver = recording_driver(&calls);
+    driver
+        .expect_session_process_state()
+        .returning(|_session_id| SessionProcessState::Down);
+    let fixture = fixture(driver).await;
     fixture.process.set(Some(TEST_PROVIDER_PROCESS));
     let run_id = fixture.insert_run("running");
     bind_run_to_first_provider(&fixture.database, run_id);
@@ -351,4 +375,380 @@ async fn stop_waits_for_the_work_a_runs_end_starts_during_the_stop() {
         .expect("the opening went to a run");
     assert_eq!(calls.starts(), [(next_run_id, opening)]);
     assert_eq!(calls.steers(), [(rest, false)]);
+}
+
+// A lead the restart held on the person runs again once answered, before any process of its
+// session is open in this daemon: the reconcile hands it nothing, so its message waits for the
+// continue that opens one rather than reaching a process that is not there. Killed by the hand's
+// gate dropped (the message is steered or started).
+#[tokio::test]
+async fn a_running_lead_in_an_unopened_session_is_handed_nothing() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let run_id = fixture.insert_run("waitingForApproval");
+    fixture.set_run_state(run_id, "running");
+    bind_run_to_first_provider(&fixture.database, run_id);
+    let item_id = fixture.queue_message(run_id).await;
+
+    timeout(WAIT, fixture.queue.lifecycle.reconcile(fixture.session_id))
+        .await
+        .expect("the reconcile answers")
+        .expect("the reconcile is heard")
+        .expect("the reconcile hands nothing");
+
+    assert_eq!(
+        fixture.stored_item(item_id).state,
+        RecordedQueueItemState::Queued
+    );
+    assert!(calls.steers().is_empty(), "the message was steered");
+    assert!(calls.starts().is_empty(), "the message was started");
+}
+
+// Where the provider failed a lead's continue.
+#[derive(Clone, Copy, Debug)]
+enum ProviderContinueFailure {
+    // The session holds no conversation to continue.
+    NoConversation,
+    // The driver failed the continue's resume.
+    DriverFailed,
+}
+
+// A lead the orphaned answer moved to `running` whose continue the provider failed, for a session
+// with no conversation to resume or a resume its driver failed, is moved back to the wait the
+// answer ended, halted in the recovery status as the provider's failure, and the provider's words
+// are posted as the session's provider warning, once the queue's stop has waited for the
+// continue's task. Killed by the failure leaving the lead `running`, by the halt dropped or read as
+// the daemon's own failure, and by the warning not posted.
+#[rstest]
+#[case::no_conversation(ProviderContinueFailure::NoConversation)]
+#[case::driver_failed(ProviderContinueFailure::DriverFailed)]
+#[tokio::test]
+async fn a_lead_whose_continue_the_provider_failed_waits_again(
+    #[case] failure: ProviderContinueFailure,
+) {
+    let calls = Arc::new(DriverCalls::default());
+    let mut driver = recording_driver(&calls);
+    driver.expect_resume_session().returning(|_params| {
+        async { Err(DriverError::Internal("the test's resume fails".into())) }.boxed()
+    });
+    let fixture = fixture(driver).await;
+    let run_id = fixture.insert_run("waitingForApproval");
+    fixture.set_run_state(run_id, "running");
+    let words = match failure {
+        ProviderContinueFailure::NoConversation => {
+            format!(
+                "session {} has no conversation to run on",
+                fixture.session_id
+            )
+        }
+        ProviderContinueFailure::DriverFailed => {
+            let binding_id = bind_run_to_first_provider(&fixture.database, run_id);
+            fixture
+                .database
+                .reader()
+                .execute(
+                    "UPDATE runtime_bindings SET resume_handle = 'conversation-1' WHERE id = ?1",
+                    [binding_id.as_str()],
+                )
+                .expect("the test gives the run's binding a conversation");
+            let approval_request_id =
+                ApprovalRequestId::try_from(mint_uuid_v7()).expect("a minted UUID is an ask's id");
+            fixture.orphaned_approvals.owe(OwedAnswer {
+                id: approval_request_id,
+                run_id,
+                answer: ContinueAnswer::Approval {
+                    approval_request_id,
+                    subject: "rm -rf build".to_owned(),
+                    tool_name: Some("Bash".to_owned()),
+                    decision: ApprovalDecision::Approved,
+                    decline_reason: None,
+                    edited_action: None,
+                },
+            });
+            "the provider driver failed: the test's resume fails".to_owned()
+        }
+    };
+
+    fixture.queue.continue_after_answer(
+        fixture.session_id,
+        run_id,
+        RunStateEntry::WaitingForApproval,
+    );
+    timeout(WAIT, fixture.queue.stop())
+        .await
+        .expect("the continue's task ends");
+
+    assert_eq!(fixture.run_state(run_id), "waitingForApproval");
+    let halted = lock(&fixture.halted_runs.0).clone();
+    assert_eq!(
+        halted,
+        [(
+            fixture.session_id,
+            DaemonRecoveryHaltedRun {
+                run_id,
+                recovery_condition: RecoveryCondition::RecoveryNeeded,
+                failure_category: Some(RunFailureCategory::ProviderFailure),
+            }
+        )]
+    );
+    assert_eq!(
+        read_notices(&fixture.database.reader()),
+        [SessionNotice::ProviderWarning {
+            session_id: fixture.session_id,
+            source: ProviderWarningSource::Refusal,
+            text: FreeFormText::new(words).expect("the provider's words are text"),
+            details: None,
+        }]
+    );
+}
+
+// A lead whose continue resumed, but whose waiting messages could not be handed after, stays
+// running as the provider runs it, and is halted in the recovery status as the daemon's own
+// failure. Killed by the failed hand moving the lead back to its wait, and by its halt dropped.
+#[tokio::test]
+async fn a_lead_whose_hand_failed_after_its_continue_stays_running() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let run_id = fixture.insert_run("waitingForApproval");
+    fixture.set_run_state(run_id, "running");
+    let binding_id = bind_run_to_first_provider(&fixture.database, run_id);
+    let reader = fixture.database.reader();
+    reader
+        .execute(
+            "UPDATE runtime_bindings SET resume_handle = 'conversation-1' WHERE id = ?1",
+            [binding_id.as_str()],
+        )
+        .expect("the test gives the run's binding a conversation");
+    // The hand reads the waiting messages first, so with their table gone it fails.
+    reader
+        .execute_batch("DROP TABLE queue_items")
+        .expect("the test drops the waiting messages' table");
+
+    fixture.queue.continue_after_answer(
+        fixture.session_id,
+        run_id,
+        RunStateEntry::WaitingForApproval,
+    );
+    timeout(WAIT, fixture.queue.stop())
+        .await
+        .expect("the continue's task ends");
+
+    assert_eq!(fixture.run_state(run_id), "running");
+    let halted = lock(&fixture.halted_runs.0).clone();
+    assert_eq!(
+        halted,
+        [(
+            fixture.session_id,
+            DaemonRecoveryHaltedRun {
+                run_id,
+                recovery_condition: RecoveryCondition::RecoveryNeeded,
+                failure_category: Some(RunFailureCategory::LocalPersistenceFailure),
+            }
+        )]
+    );
+}
+
+// A lead whose continue its provider carried, on a process already up, but whose resumed runs
+// could not be settled after, stays running as the provider runs it, keeps its answer claimed, and
+// is halted in the recovery status as the daemon's own failure, with no notice posted. Killed by
+// the failure moving the lead back to its wait, and by its halt dropped.
+#[tokio::test]
+async fn a_carried_continue_whose_settle_failed_leaves_the_lead_running() {
+    let calls = Arc::new(DriverCalls::default());
+    let mut driver = recording_driver(&calls);
+    driver.expect_resume_session().returning(|params| {
+        let lead_run_id = params
+            .held_run_continue
+            .as_ref()
+            .map(|held_run_continue| held_run_continue.lead_run_id);
+        let mut runs = answer_every_run_gone(&params.live_runs);
+        for answer in &mut runs {
+            if Some(answer.run_id) == lead_run_id {
+                answer.turn = ProviderTurnAnswer::StillRunning;
+            }
+        }
+        async move {
+            Ok(DriverResumeResult::Resumed {
+                binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string())
+                    .expect("a UUID is a binding id"),
+                session_position: SafeInt::new(1).expect("a position"),
+                resume_handle: NonEmptyText::new("conversation-1".to_owned())
+                    .expect("a resume handle"),
+                spawned_version: spawned_build("1.0.1", "/opt/provider/bin"),
+                runs,
+            })
+        }
+        .boxed()
+    });
+    let fixture = fixture(driver).await;
+    let run_id = fixture.insert_run("waitingForApproval");
+    fixture.set_run_state(run_id, "running");
+    let binding_id = bind_run_to_first_provider(&fixture.database, run_id);
+    fixture
+        .database
+        .reader()
+        .execute(
+            "UPDATE runtime_bindings SET resume_handle = 'conversation-1' WHERE id = ?1",
+            [binding_id.as_str()],
+        )
+        .expect("the test gives the run's binding a conversation");
+    let approval_request_id =
+        ApprovalRequestId::try_from(mint_uuid_v7()).expect("a minted UUID is an ask's id");
+    fixture.orphaned_approvals.owe(OwedAnswer {
+        id: approval_request_id,
+        run_id,
+        answer: ContinueAnswer::Approval {
+            approval_request_id,
+            subject: "rm -rf build".to_owned(),
+            tool_name: Some("Bash".to_owned()),
+            decision: ApprovalDecision::Approved,
+            decline_reason: None,
+            edited_action: None,
+        },
+    });
+    fixture.resumed_runs.set_refused(true);
+
+    fixture.queue.continue_after_answer(
+        fixture.session_id,
+        run_id,
+        RunStateEntry::WaitingForApproval,
+    );
+    timeout(WAIT, fixture.queue.stop())
+        .await
+        .expect("the continue's task ends");
+
+    assert_eq!(fixture.run_state(run_id), "running");
+    let halted = lock(&fixture.halted_runs.0).clone();
+    assert_eq!(
+        halted,
+        [(
+            fixture.session_id,
+            DaemonRecoveryHaltedRun {
+                run_id,
+                recovery_condition: RecoveryCondition::RecoveryNeeded,
+                failure_category: Some(RunFailureCategory::LocalPersistenceFailure),
+            }
+        )]
+    );
+    assert_eq!(read_notices(&fixture.database.reader()), []);
+    let owed = fixture
+        .orphaned_approvals
+        .owed_continues(fixture.session_id)
+        .await
+        .expect("the stand-in reads");
+    assert!(
+        owed.is_empty(),
+        "the carried answer was given back: {owed:?}"
+    );
+}
+
+impl Fixture {
+    // Makes a helper's run beneath `lead` that waits on an ask the person has not answered.
+    fn insert_waiting_helper(&self, lead: RunId) -> RunId {
+        let helper = self.insert_run("waitingForApproval");
+        self.database
+            .reader()
+            .execute(
+                "UPDATE runs SET parent_run_id = ?1 WHERE run_id = ?2",
+                params![lead.text().as_str(), helper.text().as_str()],
+            )
+            .expect("the test makes the run a helper");
+        self.orphaned_approvals.set_open_ask(helper, true);
+        helper
+    }
+
+    // Has the lifecycle take `run_id`'s move from a wait to running, as the log's follow delivers
+    // it.
+    fn observe_running(&self, run_id: RunId) {
+        let running: SessionEvent = serde_json::from_value(json!({
+            "type": "agent.run.running",
+            "payload": {
+                "sessionId": self.session_id,
+                "runId": run_id,
+                "runVersion": 2,
+                "previousState": "waitingForApproval",
+                "newState": "running",
+            },
+        }))
+        .expect("the test's running event reads");
+        self.queue
+            .lifecycle
+            .observe(&CommittedEvent {
+                envelope: Arc::new(test_envelope(self.session_id, &running)),
+                sequence: SafeInt::new(1).expect("a sequence"),
+            })
+            .expect("the running event reads as its type");
+    }
+
+    // Reconciles the session and waits for its answer.
+    async fn reconcile(&self) {
+        timeout(WAIT, self.queue.lifecycle.reconcile(self.session_id))
+            .await
+            .expect("the reconcile answers")
+            .expect("the reconcile is heard")
+            .expect("the reconcile reads the session");
+    }
+}
+
+// A running lead whose helper waits on an ask is handed its message, both at its move to running
+// and at a reconcile; one with an open ask of its own beside the helper's is handed nothing on
+// either path. Killed by the helper's ask counted against the lead (the lead with only a helper's
+// ask is handed nothing), and by the lead's own ask not read (its message is steered).
+#[rstest]
+#[case::own_ask_beside_a_helpers(true)]
+#[case::only_a_helpers_ask(false)]
+#[tokio::test]
+async fn only_a_leads_own_open_ask_withholds_its_messages(#[case] has_own_ask: bool) {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let lead = fixture.insert_run("running");
+    bind_run_to_first_provider(&fixture.database, lead);
+    fixture.insert_waiting_helper(lead);
+    fixture.orphaned_approvals.set_open_ask(lead, has_own_ask);
+    let item_id = fixture.queue_message(lead).await;
+
+    fixture.observe_running(lead);
+    fixture.reconcile().await;
+
+    if has_own_ask {
+        assert_eq!(
+            fixture.stored_item(item_id).state,
+            RecordedQueueItemState::Queued
+        );
+        assert!(calls.steers().is_empty(), "the message was steered");
+    } else {
+        assert!(
+            calls.steers().contains(&(item_id, false)),
+            "the message was withheld"
+        );
+    }
+    assert!(calls.starts().is_empty(), "the message was started");
+}
+
+// A message withheld while the lead waits on its own ask is handed once the person answers and
+// the lead moves to running, with no reconcile behind it, in a live session as after a restart.
+// Killed by the withheld message never handed at the lead's move to running.
+#[tokio::test]
+async fn a_message_withheld_on_a_leads_own_ask_is_handed_when_it_runs_again() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let lead = fixture.insert_run("running");
+    bind_run_to_first_provider(&fixture.database, lead);
+    fixture.orphaned_approvals.set_open_ask(lead, true);
+    let item_id = fixture.queue_message(lead).await;
+    fixture.reconcile().await;
+    let steered_while_asking = calls.steers();
+
+    fixture.orphaned_approvals.set_open_ask(lead, false);
+    fixture.observe_running(lead);
+    timeout(WAIT, async {
+        while calls.steers().is_empty() {
+            sleep(HELD_WATCH).await;
+        }
+    })
+    .await
+    .expect("the withheld message is handed");
+
+    assert!(steered_while_asking.is_empty(), "the message was steered");
+    assert_eq!(calls.steers(), [(item_id, false)]);
 }

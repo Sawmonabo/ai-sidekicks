@@ -54,8 +54,26 @@ impl<Key: Eq + Hash + Clone, Settlement: Clone> KeyedWaits<Key, Settlement> {
     /// Arms a wait on `key`. Arm before the action whose result settles it: a settlement sent
     /// before the wait is armed finds no waiter.
     pub fn arm(&self, key: Key) -> ArmedWait<Key, Settlement> {
-        let (sender, receiver) = oneshot::channel();
+        self.arm_held(&mut lock(&self.waits), key)
+    }
+
+    /// Arms a wait on `key` as [`Self::arm`] does, only while no wait is armed on it, the check and
+    /// the arm under one lock: `None` where another wait holds the key.
+    pub fn arm_unless_armed(&self, key: Key) -> Option<ArmedWait<Key, Settlement>> {
         let mut waits = lock(&self.waits);
+        if waits.by_key.contains_key(&key) {
+            return None;
+        }
+        Some(self.arm_held(&mut waits, key))
+    }
+
+    // Arms a wait on `key` in `waits`, the map's lock held by the caller.
+    fn arm_held(
+        &self,
+        waits: &mut ArmedWaits<Key, Settlement>,
+        key: Key,
+    ) -> ArmedWait<Key, Settlement> {
+        let (sender, receiver) = oneshot::channel();
         let waiter_id = waits.next_waiter_id;
         waits.next_waiter_id += 1;
         waits
@@ -63,7 +81,6 @@ impl<Key: Eq + Hash + Clone, Settlement: Clone> KeyedWaits<Key, Settlement> {
             .entry(key.clone())
             .or_default()
             .insert(waiter_id, sender);
-        drop(waits);
         ArmedWait {
             waits: Arc::clone(&self.waits),
             key,
@@ -103,13 +120,13 @@ impl<Key: Eq + Hash + Clone, Settlement: Clone> KeyedWaits<Key, Settlement> {
         send_to_each(waiters, &settlement);
     }
 
-    /// How many waits are armed on `key`.
-    pub fn pending_count_for<Lookup>(&self, key: &Lookup) -> usize
+    /// Whether any wait is armed on `key`, read at this instant.
+    pub fn is_armed<Lookup>(&self, key: &Lookup) -> bool
     where
         Key: Borrow<Lookup>,
         Lookup: Eq + Hash + ?Sized,
     {
-        lock(&self.waits).by_key.get(key).map_or(0, HashMap::len)
+        lock(&self.waits).by_key.contains_key(key)
     }
 }
 
@@ -171,8 +188,9 @@ mod tests {
     use super::KeyedWaits;
 
     // Every waiter of a key is settled together, a predicate settles every key it picks, and a
-    // dropped wait withdraws only itself. Killed by settling one waiter per key, and by a drop that
-    // takes out the whole key.
+    // dropped wait withdraws only itself, its key no longer armed once its last wait drops. Killed
+    // by settling one waiter per key, by a drop that takes out the whole key, and by a drop that
+    // leaves its emptied key in the map.
     #[tokio::test]
     async fn a_settlement_reaches_every_waiter_it_names_and_a_drop_withdraws_one() {
         let waits = KeyedWaits::<(u8, u8), &str>::default();
@@ -181,8 +199,11 @@ mod tests {
         let withdrawn = waits.arm((1, 1));
         let same_run = waits.arm((1, 2));
         let other_run = waits.arm((2, 1));
+        let alone = waits.arm((3, 1));
         drop(withdrawn);
-        assert_eq!(waits.pending_count_for(&(1, 1)), 2);
+        drop(alone);
+        assert!(waits.is_armed(&(1, 1)));
+        assert!(!waits.is_armed(&(3, 1)));
 
         waits.settle_all(&(1, 1), "row");
         assert_eq!(first.settled().await, "row");
@@ -192,6 +213,6 @@ mod tests {
         assert_eq!(same_run.settled().await, "ended");
         let mut other_run = std::pin::pin!(other_run.settled());
         assert!(poll!(other_run.as_mut()).is_pending());
-        assert_eq!(waits.pending_count_for(&(2, 1)), 1);
+        assert!(waits.is_armed(&(2, 1)));
     }
 }

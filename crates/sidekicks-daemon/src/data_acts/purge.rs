@@ -58,6 +58,7 @@ use sidekicks_recovery::damaged_history::DamagedSessionPurge;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_session::conversation_purge::{ConversationPurge, ConversationPurgeError};
 use sidekicks_session::directory::list_feed::SessionListFeed;
+use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::readings::context::ContextReadings;
 use sidekicks_session::readings::tool_call_status::ToolCallStatuses;
 use sidekicks_session::readings::turn::TurnReadings;
@@ -226,6 +227,8 @@ pub(crate) struct SessionPurgeDeps {
     pub(crate) tool_call_statuses: Arc<ToolCallStatuses>,
     /// The runs' postures, which forget the level moves they kept for a purged session.
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
+    /// The questions, which forget the secret answers they kept in memory for a purged session.
+    pub(crate) questions: Arc<QuestionsService>,
 }
 
 /// Deletes whole sessions.
@@ -355,6 +358,7 @@ impl SessionPurge {
         deps.turn_readings.forget_purged_session(session_id);
         deps.tool_call_statuses.forget_purged_session(session_id);
         deps.execution_postures.forget_session(&session_id);
+        deps.questions.forget_purged_session(session_id);
         deps.list_feed.refresh([session_id]);
         deps.project_list_feed.refresh_sessions(&[session_id]);
         let hand_out_failure = deps

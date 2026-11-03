@@ -13,6 +13,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_std::mutex_lock::lock;
 
 use super::adopted_helpers::{HELPER_TURN, adopt_with_helpers, helper_run, loaded, unloaded};
 use super::continuation::{
@@ -165,7 +166,7 @@ async fn a_held_leads_ended_continuation_leaves_the_run_waiting() {
 async fn a_held_leads_running_continuation_ends_without_ending_the_run() {
     let mut session = TestCodexSession::start_on(start_scripted_joined_service()).await;
     let folder = tempfile::tempdir().expect("the test makes a folder");
-    let run_id = open_held_running_continuation(&mut session, folder.path()).await;
+    let run_id = Box::pin(open_held_running_continuation(&mut session, folder.path())).await;
 
     let ended = turn_completed(ADOPTED_THREAD, CONTINUATION_TURN, "completed");
     session.task.handle(queued(&ended)).await;
@@ -192,7 +193,7 @@ async fn a_held_leads_running_continuation_ends_without_ending_the_run() {
 async fn a_steer_that_reaches_the_held_continuation_releases_its_end() {
     let mut session = TestCodexSession::start_on(start_scripted_joined_service()).await;
     let folder = tempfile::tempdir().expect("the test makes a folder");
-    let run_id = open_held_running_continuation(&mut session, folder.path()).await;
+    let run_id = Box::pin(open_held_running_continuation(&mut session, folder.path())).await;
     let message_id = new_message_id();
     let _registered = register_codex_steer(&mut session.task.record, run_id, None, message_id)
         .expect("the continuation takes a steer");
@@ -212,6 +213,44 @@ async fn a_steer_that_reaches_the_held_continuation_releases_its_end() {
         turn_ends(&session.engine.calls()),
         (vec![cut_turn_end(run_id)], Vec::new())
     );
+}
+
+// The steer of the person's answers that Codex was handed but never echoed by its held
+// continuation's end did not carry them: the end is the run's own, so the run completes as the turn
+// ended, only the cut turn's end is the daemon's, and the queue is told to give the continue back.
+// Killed by the held end kept for an unechoed answer steer (the run never moves, left running with
+// no turn), and by the give-back dropped (the answers stay claimed by a lead that never read them).
+#[tokio::test(start_paused = true)]
+async fn an_unechoed_answer_steer_ends_the_lead_and_gives_its_answers_back() {
+    let mut session = TestCodexSession::start_on(start_scripted_joined_service()).await;
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let run_id = Box::pin(open_held_running_continuation(&mut session, folder.path())).await;
+    let message_id = new_message_id();
+    session
+        .task
+        .record
+        .answer_steer_by_turn_id
+        .insert(CONTINUATION_TURN.to_owned(), message_id);
+    let _registered = register_codex_steer(&mut session.task.record, run_id, None, message_id)
+        .expect("the continuation takes a steer");
+
+    let ended = turn_completed(ADOPTED_THREAD, CONTINUATION_TURN, "completed");
+    session.task.handle(queued(&ended)).await;
+
+    assert_eq!(
+        session.engine.moves_of_run(run_id),
+        vec![RunStateEntry::Completed {
+            intended_close: None
+        }]
+    );
+    assert_eq!(
+        turn_ends(&session.engine.calls()),
+        (vec![cut_turn_end(run_id)], Vec::new())
+    );
+    assert_eq!(*lock(&session.queue.continues_given_back), [run_id]);
+    let record = &session.task.record;
+    assert!(record.held_continuation_turn_ids.is_empty());
+    assert!(record.answer_turn_owed_run_ids.is_empty());
 }
 
 // A helper waiting on its approval whose newest turn Codex lists completed answers waiting, its

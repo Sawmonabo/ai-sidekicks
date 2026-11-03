@@ -34,7 +34,10 @@ use crate::driver::claude::mcp::{read_claude_mcp_servers, reread_claude_live_mcp
 use crate::driver::claude::session::establishment::context::{
     CLAUDE_ADVISOR_ROW_ID, read_claude_row_choice,
 };
-use crate::driver::claude::spawn::environment::CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE;
+use crate::driver::claude::spawn::environment::{
+    CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE, CLAUDE_RESUME_INTERRUPTED_TURN_KEY,
+    CLAUDE_RESUME_MAX_AGE_KEY, CLAUDE_RESUME_PROMPT_KEY, CLAUDE_RESUME_SHOWS_CUT_OFF_CALLS_KEY,
+};
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::account::{HelperModeAccountLegs, ProviderAccountLegs};
 use crate::driver::contract::error::DriverError;
@@ -218,6 +221,11 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         OAUTH_TOKEN_VARIABLE,
         // Names the pipe a pasted token is handed on, which only the daemon's start sets.
         CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE,
+        // Continue an interrupted turn, which only a resume's own process does.
+        CLAUDE_RESUME_INTERRUPTED_TURN_KEY,
+        CLAUDE_RESUME_SHOWS_CUT_OFF_CALLS_KEY,
+        CLAUDE_RESUME_PROMPT_KEY,
+        CLAUDE_RESUME_MAX_AGE_KEY,
     ],
     screen_reader_environment_names: &["CLAUDE_AX_SCREEN_READER"],
     voice_kinds: &[VoiceKind::Dictation],

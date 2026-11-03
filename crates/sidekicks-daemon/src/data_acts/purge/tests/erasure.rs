@@ -100,7 +100,9 @@ fn contains(bytes: &[u8], text: &str) -> bool {
 // receipt outside the delete's write or naming another range, a count of live runs that only run
 // state changes move (the purged run stays counted), and a purge that skips a run's snapshot refs
 // (the run's ref stays in its repository), and any of the messaging deletes left out (its row on
-// the session, at either end of a pair, stays, and the reminder's note keeps the marker).
+// the session, at either end of a pair, stays, and the reminder's note keeps the marker), and
+// either orphaned answers' delete left out (its row stays, and the question's answer keeps the
+// marker), and either question delete left out (the question or its paired answer stays).
 #[tokio::test]
 async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log() {
     let fixture = purge_fixture().await;
@@ -211,11 +213,37 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
                VALUES ('r-1', ?1, ?2, ?3, ?3)",
             [session, MARKER, at],
         ),
+        (
+            "INSERT INTO approval_orphaned_answers
+               (approval_request_id, session_id, run_id, recorded_at)
+               VALUES ('card-1', ?1, ?2, ?3)",
+            [session, lead_run_id.text().as_str(), at],
+        ),
+        (
+            "INSERT INTO question_orphaned_answers
+               (question_id, session_id, run_id, answer, recorded_at)
+               VALUES ('question-1', ?1, 'run-1', ?2, ?3)",
+            [session, MARKER, at],
+        ),
     ] {
         reader
             .execute(sql, row)
             .expect("the test stores a messaging row");
     }
+    reader
+        .execute(
+            "INSERT INTO questions (id, session_id, run_id, is_agent_waiting)
+               VALUES ('question-1', ?1, 'run-1', 0)",
+            [session],
+        )
+        .expect("the test stores a question");
+    reader
+        .execute(
+            "INSERT INTO question_answer_items (queue_item_id, question_id)
+               VALUES ('item-1', 'question-1')",
+            [],
+        )
+        .expect("the test pairs a queued answer with the question");
     assert_eq!(
         *fixture.live_runs.borrow(),
         1,
@@ -273,6 +301,10 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
         ),
         ("session_waits WHERE awaited_session_id = ?1", session),
         ("session_reminders WHERE session_id = ?1", session),
+        ("approval_orphaned_answers WHERE session_id = ?1", session),
+        ("question_orphaned_answers WHERE session_id = ?1", session),
+        ("questions WHERE session_id = ?1", session),
+        ("question_answer_items WHERE question_id = ?1", "question-1"),
     ] {
         let left: i64 = reader
             .query_row(&format!("SELECT COUNT(*) FROM {rows}"), [id], |row| {

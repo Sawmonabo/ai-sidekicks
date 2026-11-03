@@ -10,6 +10,7 @@
 // person pastes.
 import { z } from "zod";
 
+import { Sha256HexSchema } from "./internal/sha256-hex.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
@@ -59,9 +60,7 @@ export interface RelayRepinRequest {
 /** Parses a {@link RelayRepinRequest}: a full SHA-256, 64 lowercase hex characters. */
 export const RelayRepinRequestSchema: z.ZodType<RelayRepinRequest, RelayRepinRequest> = z
   .object({
-    spkiHash: z
-      .string()
-      .regex(/^[0-9a-f]{64}$/u, "a key hash is a SHA-256, 64 lowercase hex characters"),
+    spkiHash: Sha256HexSchema,
   })
   .strict();
 

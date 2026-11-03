@@ -1,8 +1,8 @@
 //! What a test's Codex services run on: their shared dependencies, a program a test names, a
 //! listener's answers as a Codex service gives them, a service whose connection a test scripts, a
 //! service of the daemon's own kind published as up and holding a connection on a
-//! `ScriptedService`, its frames and asks routed as a dialed one's are, and the stand-in Codex
-//! service a test program runs as itself.
+//! `ScriptedService`, its frames and asks routed as a dialed one's are, a former daemon's service
+//! kept in a home's record, and the stand-in Codex service a test program runs as itself.
 
 mod stand_in;
 
@@ -22,8 +22,8 @@ use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 #[cfg(test)]
 use sidekicks_platforms::{
-    CAN_BIND_A_SOCKET_LISTENER, StandInAnswer, StandInProgram, bind_socket_listener,
-    write_stand_in_program,
+    CAN_BIND_A_SOCKET_LISTENER, LeftoverSweep, StandInAnswer, StandInProgram, bind_socket_listener,
+    create_file_atomically, write_stand_in_program,
 };
 use sidekicks_platforms::{ProgramStart, Spawner};
 use sidekicks_std::port_registration::PortRegistration;
@@ -58,6 +58,12 @@ use crate::driver::codex::service::command_line::{
     TerminalServiceHooks, read_terminal_service_hooks,
 };
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
+#[cfg(test)]
+use crate::driver::codex::service::process::{
+    CodexProcessLaunch, LastingCodexService, start_lasting_codex_service,
+};
+#[cfg(test)]
+use crate::driver::codex::service::record::{LastingServiceRecord, LastingServiceRecordFile};
 use crate::driver::codex::service::registry::switching_home;
 use crate::driver::codex::service::supervisor::drain::LastingServiceDrains;
 use crate::driver::codex::service::supervisor::events::{
@@ -666,7 +672,11 @@ fn resumed_thread(params: &Value, replies: &StandInReplies) -> Value {
         _ => "idle",
     };
     json!({
-        "thread": {"id": params["threadId"], "sessionId": "codex-session", "status": {"type": status}},
+        "thread": {
+            "id": params["threadId"],
+            "sessionId": "codex-session",
+            "status": {"type": status},
+        },
         "activePermissionProfile": {"id": params["permissions"]},
     })
 }
@@ -736,6 +746,54 @@ pub(crate) fn write_failing_codex(folder: &Path) -> PathBuf {
 pub(crate) fn bind_test_listener(socket: &Path) -> Option<Listener> {
     CAN_BIND_A_SOCKET_LISTENER
         .then(|| bind_socket_listener(socket).expect("the test's socket listens"))
+}
+
+/// Starts a stand-in Codex process in `folder` and keeps it in the record of `service`'s home as
+/// a former daemon's service on `physical_socket`, draining toward its exit when `is_draining`,
+/// the record's lock let go; answers the process, which the test ends. Panics where the start or
+/// the record fails.
+#[cfg(test)]
+pub(crate) async fn keep_former_service(
+    service: &CodexService,
+    folder: &Path,
+    physical_socket: &Path,
+    is_draining: bool,
+) -> LastingCodexService {
+    let program = folder.join("stand-in");
+    create_file_atomically(
+        &program,
+        STAND_IN_CODEX.as_bytes(),
+        0o755,
+        LeftoverSweep::Unswept,
+    )
+    .expect("the stand-in is written");
+    let kept = start_lasting_codex_service(
+        &service.dependencies().spawner,
+        CodexProcessLaunch {
+            program,
+            arguments: Vec::new(),
+            environment: vec![("PATH".to_owned(), "/usr/bin:/bin".to_owned())],
+            working_folder: folder.to_owned(),
+        },
+        &folder.join("kept.log"),
+    )
+    .await
+    .expect("the kept service starts");
+    LastingServiceRecordFile::of_socket(
+        &service.dependencies().data_folder,
+        &service.home().codex_home,
+        service.socket_path(),
+    )
+    .expect("the record file is named")
+    .lock()
+    .expect("the record is locked")
+    .write(&LastingServiceRecord {
+        process: kept.record().clone(),
+        physical_socket: Some(physical_socket.to_owned()),
+        is_draining,
+    })
+    .expect("the record is written");
+    kept
 }
 
 /// The next request the daemon sent on `socket`, its notifications skipped.
