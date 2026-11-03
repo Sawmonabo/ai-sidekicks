@@ -1,22 +1,26 @@
 //! The run side of an undo's conversation cut: the check, read before the provider cuts, of every
-//! condition the rollback's write refuses on, and the forward `agent.run.rolledBack` of each run a
-//! cut the provider confirmed reaches, all in one write, each advancing its run's version, opening
-//! a new execution epoch, and moving the run through no state.
+//! condition the rollback's write refuses on; the forward `agent.run.rolledBack` of each run a cut
+//! the provider confirmed reaches, all in one write, each advancing its run's version, opening a
+//! new execution epoch, and moving the run through no state; and the mark that holds a turn
+//! opening on the session back while that write is in progress.
 
 #[cfg(test)]
 mod tests;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 use sidekicks_contracts::event::envelope::SourcePosition;
 use sidekicks_contracts::run::control::AgentRunRolledBackEvent;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::events::session::append_lock::SessionAppendHold;
+use tokio::sync::SetOnce;
 
 use crate::run::engine::RunEngine;
 use crate::run::engine::errors::RunEngineError;
+use crate::run::engine::live::{LiveRuns, UndoWrite, settle};
 use crate::run::read::{RunRead, RunStateReader};
 use crate::run::state_change::{RunWriteCompanions, rolled_back_event};
 
@@ -112,7 +116,57 @@ pub struct RunRollback {
     pub run: RunRead,
 }
 
+/// An undo's rollback write in progress on one session, from [`RunEngine::mark_undo_write`]: while
+/// it is held, a turn opening on the session waits for it to drop and then opens, never refused
+/// and never waiting on the provider's session task. Dropping it ends the write's hold on every
+/// path, a failed write and a dropped future included.
+#[must_use = "a turn opening waits for the write only while the mark is held"]
+pub struct UndoWriteMark<'engine> {
+    live: &'engine Mutex<LiveRuns>,
+    session_id: SessionId,
+    write: Arc<UndoWrite>,
+}
+
+impl Drop for UndoWriteMark<'_> {
+    fn drop(&mut self) {
+        LiveRuns::remove_own(
+            &mut lock(self.live).undo_writes,
+            &self.session_id,
+            &self.write,
+        );
+        settle(&self.write.ended, ());
+    }
+}
+
 impl RunEngine {
+    /// Marks an undo's rollback write in progress on `session_id`, taken once the provider
+    /// confirmed the cut and dropped once the write has ended, so a turn the provider opens on the
+    /// session meanwhile opens after the rollback and cannot refuse it.
+    pub fn mark_undo_write(&self, session_id: SessionId) -> UndoWriteMark<'_> {
+        let write = Arc::new(UndoWrite {
+            ended: SetOnce::new(),
+        });
+        lock(&self.live)
+            .undo_writes
+            .insert(session_id, Arc::clone(&write));
+        UndoWriteMark {
+            live: &self.live,
+            session_id,
+            write,
+        }
+    }
+
+    /// Waits until the undo's rollback write in progress on `session_id` has ended, answering
+    /// whether there was one, so the caller reads its run again.
+    pub(super) async fn wait_out_undo_write(&self, session_id: &SessionId) -> bool {
+        let write = lock(&self.live).undo_writes.get(session_id).cloned();
+        let Some(write) = write else {
+            return false;
+        };
+        write.ended.wait().await;
+        true
+    }
+
     /// Records a cut the provider confirmed on the conversation as a forward
     /// `agent.run.rolledBack` of `cut`'s run and of each of `later_cuts`, the runs after it oldest
     /// first, in one write under `hold`, the session's append lock: each run's version advances by

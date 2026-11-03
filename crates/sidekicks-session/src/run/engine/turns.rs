@@ -230,8 +230,9 @@ impl RunEngine {
     /// recorded on its start, where the provider reports one. `opening` is the queue item whose
     /// message opened the turn: where that message is recorded, the start's own write keeps the
     /// checkpoint before it, at the turn the start moves the run to, and a message already kept
-    /// keeps its first. Fails with `RunRefusal::NotFound` for an unknown run and with the read's or
-    /// the append's failure.
+    /// keeps its first. While an undo's rollback write is in progress on the run's session, the
+    /// start waits for that write to end and then opens on the run as the rollback left it. Fails
+    /// with `RunRefusal::NotFound` for an unknown run and with the read's or the append's failure.
     pub(crate) async fn start_turn(
         &self,
         run_id: RunId,
@@ -248,6 +249,10 @@ impl RunEngine {
             let run = self.require_run(run_id).await?;
             if run.state.is_terminal() {
                 return Ok(None);
+            }
+            // The rollback moves the run, so a start that waited it out reads the run again.
+            if self.wait_out_undo_write(&run.session_id).await {
+                continue;
             }
             let reading = self.read_turn_start(&run, run_id, opening).await?;
             let turn_number = reading.turn_number;
