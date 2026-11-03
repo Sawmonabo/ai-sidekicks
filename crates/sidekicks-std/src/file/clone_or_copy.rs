@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 use sidekicks_platforms::create_new_file;
 
+use crate::cleanup_failures::CleanupFailures;
 use crate::file::publish_without_replacing::{PublishOutcome, blocking_publish_without_replacing};
 use crate::file::temporary_removal::remove_temporary_after;
 use crate::missing_entry::MissingEntry as _;
@@ -65,7 +66,9 @@ fn copy_then_publish(source: &Path, destination: &Path) -> io::Result<()> {
             return Err(remove_temporary_after(error, &temporary, COPYING).into_io_error());
         }
     };
-    match blocking_publish_without_replacing(&temporary, destination).map_err(io::Error::other)? {
+    match blocking_publish_without_replacing(&temporary, destination)
+        .map_err(CleanupFailures::into_io_error)?
+    {
         PublishOutcome::Published => fs::set_permissions(destination, permissions),
         PublishOutcome::TargetExists => Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
