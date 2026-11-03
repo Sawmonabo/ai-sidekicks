@@ -404,8 +404,8 @@ impl RecordFollower {
 // Opens `start`'s capture window on a task of its own, which answers the wrapper `go` once the open
 // settled, opened or not, then makes the window's calls in the order they are sent, and closes it
 // untold where they end unclosed. Bounded by the wrapper's records: one `Began` and one close. The
-// open has no bound of its own: one that never settles holds the wrapper at its wait for `go`, and
-// this task, until the daemon stops.
+// open has no bound of its own: one that never settles holds the wrapper at its wait for `go` until
+// the daemon stops or the wrapper is killed, and this task until the daemon stops.
 fn open_window(
     capture: Arc<dyn CommandCapture>,
     start: CommandWindowStart,
