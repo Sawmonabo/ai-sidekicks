@@ -50,9 +50,7 @@ pub fn clone_or_copy(source: &Path, destination: &Path) -> io::Result<()> {
 // Whether `failure` carries a failed removal of what the clone made, which a byte copy would
 // then find at the path.
 fn is_cleanup_failure(failure: &io::Error) -> bool {
-    failure
-        .get_ref()
-        .is_some_and(|inner| inner.is::<CleanupFailures<io::Error>>())
+    matches!(failure.get_ref(), Some(inner) if inner.is::<CleanupFailures<io::Error>>())
 }
 
 // Copies `source`'s bytes into a new temporary file beside `destination`, gives it `destination`'s
