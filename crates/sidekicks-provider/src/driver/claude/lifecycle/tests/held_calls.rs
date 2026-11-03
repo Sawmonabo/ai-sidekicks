@@ -1,6 +1,7 @@
 //! A session's held tool-server calls once its process is gone for good: the surviving tasks a
-//! person's close stops, the calls settled at its close, live or at rest, by what Claude Code
-//! kept, and left alone while the daemon stops or a fork takes the session.
+//! person's close stops, the calls settled at its close, live or at rest, and at the start after a
+//! restart, by what Claude Code kept, and left alone while the daemon stops or a fork takes the
+//! session.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -31,7 +32,7 @@ use crate::driver::claude::session::scripted::{
 use crate::driver::claude::spawn::environment::claude_config_folder;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::session_control::{
-    CloseSessionParams, MoveSessionToForkParams, SessionCloseCause,
+    CloseSessionParams, MoveSessionToForkParams, SessionCloseCause, SettleHeldToolCallsParams,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
 
@@ -570,4 +571,95 @@ async fn only_a_persons_close_stops_the_surviving_tasks(#[case] cause: SessionCl
             ("call-A".to_owned(), ENDED_WITH_THE_PROCESS, None),
         ]
     );
+}
+
+// Fails when the start after a restart settles a resting session's held calls other than by what
+// Claude Code kept: a call kept nowhere reads stopped by the restart, and one only recorded stays
+// open for the next resume, while a closed session ends every call kept nowhere or only recorded
+// with its process. The driver is new and no session call composed its pieces, as at a real start.
+// Mutations: the `Restart` column's `Unkept` cell answering `processExit` (call-1 reads it when not
+// closed); the record ignored after a restart (call-3 closed when not closed); `Restart` passed for
+// a closed session (no close for call-3 when closed).
+#[rstest]
+#[case::open(false)]
+#[case::closed(true)]
+#[tokio::test(start_paused = true)]
+async fn the_start_after_a_restart_settles_a_resting_sessions_held_calls(#[case] is_closed: bool) {
+    let fixture = ScriptedDriver::new();
+    let session_id = new_session_id();
+    let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
+    fixture.record_session_leg(session_id, account.clone(), STORED_CONVERSATION, Map::new());
+    let runs: Vec<RunId> = (0..3).map(|_| new_run_id()).collect();
+    fixture
+        .services
+        .ports
+        .held_tool_calls
+        .register(logged_held_calls(
+            vec![
+                held_call("call-3", "task-3", (runs[2], "binding-3"), None, None),
+                held_call("call-2", "task-2", (runs[1], "binding-2"), None, None),
+                held_call("call-1", "task-1", (runs[0], "binding-1"), None, None),
+            ],
+            &fixture.engine,
+        ))
+        .expect("the read registers once");
+    write_kept_files(
+        &fixture.home.join(".claude"),
+        STORED_CONVERSATION,
+        &[
+            (
+                "mcp-task-task-2.outcome.json",
+                json!({
+                    "toolUseId": "call-2",
+                    "status": "completed",
+                    "statusMessage": "Exported",
+                    "serverName": "files",
+                    "toolName": "export",
+                }),
+            ),
+            ("mcp-task-task-3.meta.json", record("call-3")),
+        ],
+    );
+    let driver = ClaudeDriver::with_starts(
+        &fixture.services,
+        fixture.starts.clone(),
+        fixture.starts.keychain.clone(),
+    );
+
+    driver
+        .settle_held_tool_calls(SettleHeldToolCallsParams {
+            session_id,
+            provider_account_id: account,
+            conversation: STORED_CONVERSATION.to_owned(),
+            runtime_metadata: Map::new(),
+            is_closed,
+        })
+        .await
+        .expect("the held calls are settled");
+    settle().await;
+
+    let mut closed = closed_calls(&fixture);
+    closed.sort_by(|left, right| left.0.cmp(&right.0));
+    let completed = (
+        "call-2".to_owned(),
+        Ending::Completed,
+        Some("Exported".to_owned()),
+    );
+    let expected = if is_closed {
+        vec![
+            ("call-1".to_owned(), ENDED_WITH_THE_PROCESS, None),
+            completed,
+            ("call-3".to_owned(), ENDED_WITH_THE_PROCESS, None),
+        ]
+    } else {
+        vec![
+            (
+                "call-1".to_owned(),
+                Ending::Failed(Some(ToolCallEndCause::DaemonRestart)),
+                None,
+            ),
+            completed,
+        ]
+    };
+    assert_eq!(closed, expected);
 }
