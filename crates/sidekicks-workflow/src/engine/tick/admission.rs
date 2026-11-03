@@ -191,7 +191,8 @@ struct GateEntryLine {
 
 /// The order ready steps enter the memory gate in: the order their drivers take their turns, each
 /// once its params are evaluated, so a step is ready for the gate when its evaluation ends and the
-/// line keeps that order exactly. Clones share one line.
+/// line keeps that order exactly; siblings readied in one turn take theirs in the order they were
+/// readied, through their [`SiblingEntry`]. Clones share one line.
 #[derive(Clone, Debug, Default)]
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct GateEntryOrder {
@@ -210,6 +211,67 @@ impl GateEntryOrder {
             line: Arc::clone(&self.line),
             place,
         }
+    }
+
+    /// The entries of `count` steps of one run readied in one turn, in the order the walk readied
+    /// them, which is their nodes' order.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(crate) fn sibling_entries(&self, count: usize) -> Vec<SiblingEntry> {
+        let mut previous: Option<CancellationToken> = None;
+        (0..count)
+            .map(|_| {
+                let released = CancellationToken::new();
+                SiblingEntry {
+                    order: self.clone(),
+                    previous: previous.replace(released.clone()),
+                    released,
+                }
+            })
+            .collect()
+    }
+}
+
+/// One step's place among the steps readied with it in one turn: it takes its turn in the line
+/// only once the sibling before it has taken its own or given its place up, so the siblings enter
+/// in the order they were readied whichever evaluation ends first, while a step readied in another
+/// turn still enters as soon as its own evaluation ends. Dropping it gives its place up.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+pub(crate) struct SiblingEntry {
+    /// The line it takes its turn in.
+    order: GateEntryOrder,
+    /// Canceled once the sibling before it has taken its turn or given its place up; `None` for
+    /// the first sibling.
+    previous: Option<CancellationToken>,
+    /// Canceled when this entry is dropped, which releases the sibling after it.
+    released: CancellationToken,
+}
+
+impl SiblingEntry {
+    /// Waits for the sibling before it, takes the step's turn, which releases the sibling after
+    /// it, and waits for that turn in the line, answering it; `None`, with no turn held, when
+    /// `cancel` comes first.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(crate) async fn wait_for_turn(self, cancel: &CancellationToken) -> Option<GateEntryTurn> {
+        if let Some(previous) = &self.previous {
+            tokio::select! {
+                biased;
+                () = cancel.cancelled() => return None,
+                () = previous.cancelled() => {}
+            }
+        }
+        let turn = self.order.take_turn();
+        drop(self);
+        tokio::select! {
+            biased;
+            () = cancel.cancelled() => None,
+            () = turn.wait() => Some(turn),
+        }
+    }
+}
+
+impl Drop for SiblingEntry {
+    fn drop(&mut self) {
+        self.released.cancel();
     }
 }
 

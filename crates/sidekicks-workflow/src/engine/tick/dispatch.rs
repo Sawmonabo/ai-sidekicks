@@ -1,8 +1,8 @@
 //! The tick's dispatch: it decides in the tick's turn how each step the walk readies is admitted,
 //! and a driver task per step launches it, evaluating its params, waits at the memory gate where
-//! its kind asks, runs its executor and settles it, sending every later report to the tick. An
-//! agent step's driver creates the step's agent run, which waits at the gate itself, and follows
-//! the run to its end.
+//! its kind asks, steps readied together entering in their order, runs its executor and settles
+//! it, sending every later report to the tick. An agent step's driver creates the step's agent
+//! run, which waits at the gate itself, and follows the run to its end.
 
 mod agent_step;
 mod launch;
@@ -29,7 +29,7 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use super::admission::{GateEntryOrder, GateEntryTurn, GateWaitEnd, send, wait_at_gate};
+use super::admission::{GateEntryOrder, GateWaitEnd, SiblingEntry, send, wait_at_gate};
 use super::node_settings::{
     execute_once_inputs, main_input_lengths, main_output_count, pinned_outputs, shape_outputs,
 };
@@ -106,21 +106,40 @@ impl StepDispatch {
         }
     }
 
-    /// Dispatches `ready`, a step of the run of `scope`, reading `snapshot`, deciding in this turn
-    /// how it is admitted. A kind or version the table does not list fails at once, and a node
-    /// pinned in a manual run settles with its pinned items, both with no task. A step the memory
-    /// gate does not weigh is admitted at once and its driver spawned; a step the gate weighs, and
-    /// an agent step, whose run joins the gate, has its driver evaluate its params first and take
-    /// its turn in the entry line only then, so the line holds evaluated steps in the order they
-    /// were evaluated and no step waits behind another's evaluation; the driver reports its hold
-    /// and its admission. Answers the step's cancel and the reports the tick writes this turn.
-    /// Must be called inside tokio.
+    /// Dispatches `readied`, the steps of the run of `scope` the walk readied in one turn in its
+    /// order, reading `snapshot`, deciding in this turn how each is admitted, and answers each
+    /// step's cancel and the reports the tick writes this turn, in the same order. A kind or
+    /// version the table does not list fails at once, and a node pinned in a manual run settles
+    /// with its pinned items, both with no task. A step the memory gate does not weigh is admitted
+    /// at once and its driver spawned; a step the gate weighs, and an agent step, whose run joins
+    /// the gate, has its driver evaluate its params first and take its turn in the entry line only
+    /// then, after every sibling before it has taken its own, so the line holds evaluated steps,
+    /// siblings in their order, and no step waits behind the evaluation of a step readied in
+    /// another turn; the driver reports its hold and its admission. Must be called inside tokio.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn dispatch(
         &self,
         scope: &Arc<RunScope>,
         snapshot: &RunSnapshot,
+        readied: Vec<ReadyStep>,
+    ) -> Vec<DispatchedStep> {
+        let entries = self.gate_entries.sibling_entries(readied.len());
+        readied
+            .into_iter()
+            .zip(entries)
+            .map(|(ready, entry)| self.dispatch_step(scope, snapshot, ready, entry))
+            .collect()
+    }
+
+    /// Dispatches `ready` as [`Self::dispatch`] does, its `entry` its place among its siblings,
+    /// given up at once by a step that takes no turn in the line.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    fn dispatch_step(
+        &self,
+        scope: &Arc<RunScope>,
+        snapshot: &RunSnapshot,
         mut ready: ReadyStep,
+        entry: SiblingEntry,
     ) -> DispatchedStep {
         let node = scope
             .nodes
@@ -202,6 +221,7 @@ impl StepDispatch {
                     Arc::clone(scope),
                     snapshot.clone(),
                     ready,
+                    entry,
                     cancel.clone(),
                     shape,
                 ));
@@ -215,6 +235,7 @@ impl StepDispatch {
                     Arc::clone(scope),
                     snapshot.clone(),
                     ready,
+                    entry,
                     cancel.clone(),
                 ));
                 DispatchedStep {
@@ -246,16 +267,17 @@ impl StepDispatch {
 
     /// Drives `ready`, a step the memory gate weighs as `shape`, to its admission: launches it,
     /// which evaluates its params, measures what it runs, then waits for its turn in the entry
-    /// line, enters the gate and reports its hold and its admission, then runs it as
-    /// [`Self::drive`] does, holding its ticket. A step whose launch fails settles before it takes
-    /// a turn; one canceled in the line or at the gate settles canceled; one the gate releases
-    /// unadmitted fails.
+    /// line through its sibling `entry`, enters the gate and reports its hold and its admission,
+    /// then runs it as [`Self::drive`] does, holding its ticket. A step whose launch fails settles
+    /// before it takes a turn; one canceled in the line or at the gate settles canceled; one the
+    /// gate releases unadmitted fails.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     async fn drive_at_gate(
         self,
         scope: Arc<RunScope>,
         snapshot: RunSnapshot,
         ready: ReadyStep,
+        entry: SiblingEntry,
         cancel: CancellationToken,
         shape: StepAdmissionShape,
     ) {
@@ -267,6 +289,9 @@ impl StepDispatch {
         let mut context = match launched {
             Ok(context) => context,
             Err(failure) => {
+                // Every path gives its place up before it reports, so a slow report channel never
+                // holds up a sibling.
+                drop(entry);
                 let settlement =
                     settle_launch_failure(failure, &cancel, &node.id, &scope.redaction);
                 self.report(&step, &cancel, StepReportKind::Settled(settlement))
@@ -291,6 +316,7 @@ impl StepDispatch {
                     node_key,
                 },
                 Err(error) => {
+                    drop(entry);
                     drop(context);
                     let failure = StepFailure::Failed(Box::new(uncoded_step_error(format!(
                         "the step's input could not be measured: {error}"
@@ -305,11 +331,9 @@ impl StepDispatch {
                 }
             },
         };
-        let turn = self.gate_entries.take_turn();
-        if is_canceled_in_line(&turn, &cancel).await {
-            // Every path drops the turn before it reports, so a slow report channel never holds
-            // up the line.
-            drop(turn);
+        // A step canceled before its turn came holds no turn when it reports, so a slow report
+        // channel never holds up the line.
+        let Some(turn) = entry.wait_for_turn(&cancel).await else {
             drop(context);
             let canceled = StepSettlement::Canceled {
                 hold_started_at: None,
@@ -318,7 +342,7 @@ impl StepDispatch {
             self.report(&step, &cancel, StepReportKind::Settled(canceled))
                 .await;
             return;
-        }
+        };
         let ticket: Arc<dyn StepAdmissionTicket> = Arc::from(self.ports.admission.enqueue(work));
         drop(turn);
         let end = wait_at_gate(step.clone(), ticket.admitted(), &cancel, &self.reports).await;
@@ -438,16 +462,6 @@ impl StepDispatch {
             cancel.cancel();
         }
         is_taken
-    }
-}
-
-/// Waits for `turn` in the entry line, answering whether the step's `cancel` came first.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-async fn is_canceled_in_line(turn: &GateEntryTurn, cancel: &CancellationToken) -> bool {
-    tokio::select! {
-        biased;
-        () = cancel.cancelled() => true,
-        () = turn.wait() => false,
     }
 }
 

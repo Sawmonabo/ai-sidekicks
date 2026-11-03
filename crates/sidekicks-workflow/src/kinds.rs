@@ -241,12 +241,18 @@ pub(crate) fn coded_step_error(
     })
 }
 
-/// One kind's version: its spec, the param holding its shell line, and its executor.
+/// One kind's version: its spec, the param holding its shell line, whether it is the loop, and
+/// its executor.
 pub(crate) struct NodeKind {
     /// The kind's spec, as the catalog lists it.
     pub(crate) spec: WorkflowNodeKindSpec,
-    /// The id of the param holding the kind's shell line; `None` for a kind that runs none.
+    /// The id of the param holding the kind's shell line, one the spec lists, so a save holds it to
+    /// its spec like any other param; `None` for a kind that runs none.
     pub(crate) shell_line_param: Option<&'static str>,
+    /// Whether the kind is the loop, whose one input takes both the loop's entry and the edge its
+    /// body's last node wires back, so an edge from its body into it closes the loop.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(crate) is_loop: bool,
     /// What runs the kind's step.
     #[cfg_attr(
         not(test),
@@ -385,8 +391,8 @@ impl NodeExecutor for PassThroughExecutor {
     }
 }
 
-/// A kind whose spec is `spec`, a `workflow.kind.list` entry's JSON, that holds its shell line in
-/// `shell_line_param` and runs its steps through `executor`.
+/// A kind other than the loop whose spec is `spec`, a `workflow.kind.list` entry's JSON, that holds
+/// its shell line in `shell_line_param` and runs its steps through `executor`.
 #[cfg(test)]
 pub(crate) fn test_kind(
     spec: Value,
@@ -396,19 +402,21 @@ pub(crate) fn test_kind(
     NodeKind {
         spec: serde_json::from_value(spec).expect("the test kind's spec reads"),
         shell_line_param,
+        is_loop: false,
         executor,
     }
 }
 
 /// The command step `developer.shell` at version 1, with one main input and one main output,
-/// whose shell line is its `command` param, passing its inputs on as its outputs.
+/// whose shell line is the `command` param it lists, passing its inputs on as its outputs.
 #[cfg(test)]
 pub(crate) fn command_test_kind() -> NodeKind {
     test_kind(
         serde_json::json!({
             "kind": "developer.shell", "version": 1, "category": "developer",
             "displayName": "Run a command", "description": "A command in a working directory.",
-            "icon": "terminal", "params": [],
+            "icon": "terminal",
+            "params": [{ "id": COMMAND_PARAM, "label": "Command", "type": "text" }],
             "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
             "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
             "outputsDeriveFromParams": false,

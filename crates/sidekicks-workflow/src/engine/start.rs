@@ -73,6 +73,7 @@ use crate::runs::creation::{
     CHAIN_COUNT_STATEMENT_INDEX, CHAIN_ROOT_CHECK_STATEMENT_INDEX, WorkflowRunCreation,
     workflow_run_creation_statements,
 };
+use crate::runs::deletion::remove_run_folder;
 use crate::secrets::redaction::RunRedaction;
 
 pub(crate) use self::errors::WorkflowRunStartError;
@@ -381,7 +382,7 @@ impl WorkflowRunStarter {
             };
         }
         if let RunFolder::Own(folder) = prepared.folder
-            && let Err((folder, removal)) = remove_own_folder(folder).await
+            && let Err((folder, removal)) = remove_run_folder(folder).await
         {
             ended = match ended {
                 Ok(held) => {
@@ -824,34 +825,5 @@ async fn make_own_folder(folder: &Path) -> io::Result<()> {
             tokio::fs::create_dir(folder).await
         }
         made => made,
-    }
-}
-
-// Removes a run's own `folder`, then its workflow's runs folder when that leaves it empty, so no
-// empty folder stays for a workflow whose start made no run. Fails with the folder left and why.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the engine's run start handlers")
-)]
-async fn remove_own_folder(folder: PathBuf) -> Result<(), (PathBuf, io::Error)> {
-    if let Err(removal) = tokio::fs::remove_dir_all(&folder).await {
-        return Err((folder, removal));
-    }
-    let runs_folder = folder
-        .parent()
-        .expect("a run's folder sits in its workflow's runs folder")
-        .to_path_buf();
-    match tokio::fs::remove_dir(&runs_folder).await {
-        Ok(()) => Ok(()),
-        // Another run of the workflow still has its folder there, or a run's delete took it.
-        Err(removal)
-            if matches!(
-                removal.kind(),
-                io::ErrorKind::DirectoryNotEmpty | io::ErrorKind::NotFound
-            ) =>
-        {
-            Ok(())
-        }
-        Err(removal) => Err((runs_folder, removal)),
     }
 }
