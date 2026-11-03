@@ -15,7 +15,9 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::sync::Arc;
 
+use serde_json::Value;
 use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
+use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::Record;
@@ -521,8 +523,8 @@ fn scrub_outputs(outputs: &mut [Vec<WorkflowItem>], redaction: &RunRedaction) {
     }
 }
 
-/// Scrubs `error`'s message and, for a coded failure, every string of its details through
-/// `redaction`; an agent resolution's details are typed values only.
+/// Scrubs `error`'s message and, for a coded failure, every string of its details, member names
+/// included, through `redaction`; an agent resolution's details are typed values only.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn scrub_step_error(error: &mut WorkflowStepError, redaction: &RunRedaction) {
     let (message, _node_id, _item_index) = error_members(error);
@@ -532,11 +534,25 @@ fn scrub_step_error(error: &mut WorkflowStepError, redaction: &RunRedaction) {
     if let WorkflowStepError::Coded(coded) = error
         && let Some(details) = &mut coded.details
     {
-        let mut members = std::mem::take(details).into_map();
-        for member in members.values_mut() {
-            redaction.scrub_json(&mut member.0);
-        }
-        *details = Record::new(members).expect("a scrub keeps the details' member names");
+        let mut whole = Value::Object(
+            std::mem::take(details)
+                .into_map()
+                .into_iter()
+                .map(|(name, member)| (name, member.0))
+                .collect(),
+        );
+        redaction.scrub_json(&mut whole);
+        let members = whole
+            .as_object_mut()
+            .map(std::mem::take)
+            .expect("a scrub keeps an object an object");
+        *details = Record::new(
+            members
+                .into_iter()
+                .map(|(name, member)| (name, AnyValue(member)))
+                .collect(),
+        )
+        .expect("a scrub keeps the details a record");
     }
 }
 
