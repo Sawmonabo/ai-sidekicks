@@ -1,9 +1,10 @@
 //! The continue a person's answer owes a lead the daemon's restart held: run on a task the queue
 //! tracks once the answer is recorded, so the answer never waits on a process start, and undone
 //! where its resume fails, the lead moved back to the wait the answer ended. A provider's refusal
-//! is posted on the session as its provider warning; a failure on the daemon's side halts the run
-//! in the recovery status the Runtime page shows, a reconcile that fails after the resume leaving
-//! the run running as the provider has it.
+//! is posted on the session as its provider warning; its failure to continue is posted the same
+//! way and halts the run as the provider's failure, and a failure on the daemon's side halts it as
+//! the daemon's own, in the recovery status the Runtime page shows; a reconcile that fails after
+//! the resume leaves the run running as the provider has it.
 
 use std::error::Error;
 
@@ -31,9 +32,9 @@ impl RunQueue {
     /// held it, on a task the queue's stop waits for, once none is still owed it, then hands it
     /// the messages that waited while no process held its session. A resume that fails moves
     /// `run_id`, which the answer moved to `running`, back to `waiting`, the wait the answer
-    /// ended, and halts it in the recovery status, but for the provider's refusal, which the
-    /// resume posts on the session. A hand that fails after the resume leaves the run running and
-    /// halts it as the daemon's own failure.
+    /// ended, and halts it in the recovery status under its failure's category, but for the
+    /// provider's refusal, which the resume posts on the session. A hand that fails after the
+    /// resume leaves the run running and halts it as the daemon's own failure.
     pub fn continue_after_answer(
         &self,
         session_id: SessionId,
@@ -56,12 +57,8 @@ impl RunQueue {
                     error = &failure as &(dyn Error + 'static),
                     "the continue after an orphaned answer failed"
                 );
-                if failure.provider_refusal().is_none() {
-                    queue.halt(
-                        session_id,
-                        run_id,
-                        RunFailureCategory::LocalPersistenceFailure,
-                    );
+                if let Some(failure_category) = failure.continue_halt_category() {
+                    queue.halt(session_id, run_id, failure_category);
                 }
                 queue.restore_wait(run_id, waiting).await;
                 return;

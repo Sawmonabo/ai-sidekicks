@@ -204,8 +204,9 @@ impl ProviderSessions {
     /// Fails with [`ProviderSessionError::Closed`] or [`ProviderSessionError::BeingDeleted`] for
     /// an ended session, [`ProviderSessionError::NoConversation`] for one with none to resume,
     /// [`ProviderSessionError::ResumeRefused`] for a resume the provider refused, its answers then
-    /// owed to the next resume and its words posted as the session's provider warning, and as the
-    /// composition, the driver or the binding's record fails. A continue whose provider no driver
+    /// owed to the next resume, and as the composition, the driver or the binding's record fails;
+    /// the provider's refusal, a missing conversation or the driver's failure posts the provider's
+    /// words as the session's provider warning. A continue whose provider no driver
     /// answers, or is not installed, posts the `providerMissing` notice first.
     pub async fn resume_after_answer(
         &self,
@@ -213,9 +214,10 @@ impl ProviderSessions {
     ) -> Result<(), ProviderSessionError> {
         let _hold = self.deps.transition_lock.acquire(session_id).await;
         self.refuse_ended(session_id).await?;
-        let leg = read_session_leg(&self.deps.pool, session_id)
-            .await?
-            .ok_or(ProviderSessionError::NoConversation { session_id })?;
+        let Some(leg) = read_session_leg(&self.deps.pool, session_id).await? else {
+            let failed = ProviderSessionError::NoConversation { session_id };
+            return Err(self.answer_failed_continue(session_id, failed).await);
+        };
         let (opened, _resumed) = match self.relaunch(session_id, leg, Relaunch::Continue).await {
             Ok(relaunched) => relaunched,
             Err(failed) => return Err(self.answer_failed_continue(session_id, failed).await),
