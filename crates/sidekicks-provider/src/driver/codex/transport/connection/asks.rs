@@ -1,6 +1,7 @@
 //! The requests a Codex service sends the daemon on one connection: each routed ask answered
-//! through the responder or held for the person, every other request answered `-32601`, and the
-//! held asks answered, found and let go of by their request id.
+//! through the responder or held for the person, a token refresh answered through the refresher,
+//! every other request answered `-32601`, and the held asks answered, found and let go of by their
+//! request id.
 
 use std::error::Error;
 use std::sync::{Arc, LazyLock};
@@ -13,10 +14,12 @@ use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAI
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::error_description::describe_error;
 
+use crate::driver::codex::account::token_refresh::CodexTokenRefreshAnswer;
 use crate::driver::codex::server_requests::{
-    CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON, CodexAskKind, CodexInboundServerRequest,
-    CodexRoutedMethod, CodexServerRequestAnswer, CodexServerRequestDecision, CodexUnadjudicatedAsk,
-    compose_unrouted_request_error, is_codex_server_request_method,
+    CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON, CODEX_TOKEN_REFRESH_METHOD, CodexAskKind,
+    CodexInboundServerRequest, CodexRoutedMethod, CodexServerRequestAnswer,
+    CodexServerRequestDecision, CodexTokenRefresher, CodexUnadjudicatedAsk,
+    compose_token_refresh_refusal, compose_unrouted_request_error, is_codex_server_request_method,
 };
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::transport::connection::{
@@ -58,10 +61,10 @@ struct AskConversation {
 }
 
 #[derive(Serialize)]
-struct OutboundResult<'message> {
+struct OutboundResult<'message, Answer: ?Sized> {
     jsonrpc: &'static str,
     id: &'message RawValue,
-    result: &'message Value,
+    result: &'message Answer,
 }
 
 #[derive(Serialize)]
@@ -194,6 +197,35 @@ impl ConnectionShared {
         };
         if let Err(error) = sent {
             report_answer_write_failure(&method, error);
+        }
+    }
+
+    // Answers a token refresh with the tokens `refresher` answers, or the one fixed refusal. The
+    // encoded answer holds a token, so it is written and never logged; a failed write is reported
+    // by the method alone.
+    pub(super) async fn answer_token_refresh(
+        self: Arc<Self>,
+        id: Box<RawValue>,
+        refresher: Arc<dyn CodexTokenRefresher>,
+    ) {
+        let encoded = match refresher.refresh_tokens().await {
+            Some(tokens) => serde_json::to_string(&OutboundResult {
+                jsonrpc: JSON_RPC_VERSION,
+                id: &id,
+                result: &CodexTokenRefreshAnswer::from(&tokens),
+            }),
+            None => serde_json::to_string(&OutboundError {
+                jsonrpc: JSON_RPC_VERSION,
+                id: &id,
+                error: &compose_token_refresh_refusal(),
+            }),
+        };
+        let sent = match encoded {
+            Ok(text) => self.send_text(CODEX_TOKEN_REFRESH_METHOD, text).await,
+            Err(error) => Err(encoding_failure(error)),
+        };
+        if let Err(error) = sent {
+            report_answer_write_failure(CODEX_TOKEN_REFRESH_METHOD, error);
         }
     }
 

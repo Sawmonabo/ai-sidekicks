@@ -15,13 +15,13 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_platforms::path_from_program_output;
 use sidekicks_std::file::clone_or_copy::clone_or_copy;
+use sidekicks_std::file::tree_copy::{TreeCopyError, TreeCopyPolicy, copy_tree};
 use sidekicks_std::missing_entry::MissingEntry;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use tokio::task::JoinError;
 
 use crate::git::GITLINK_MODE;
 use crate::git::process::{CONFIG_UNSET_EXIT_CODE, GitCall, GitError, GitRunner, background_read};
-use crate::git::worktree::copy::{TreeCopyError, TreeCopyPolicy, copy_tree};
 use crate::git::worktree::kept_copy::pins::{KeptPin, KeptWorktreePins};
 use crate::git::worktree::kept_copy::{KEPT_LFS_ENTRY, KEPT_REF_STORE_ENTRY};
 use crate::git::worktree::reads::{LINKED_RECORDS_FOLDER_NAME, read_current_branch};

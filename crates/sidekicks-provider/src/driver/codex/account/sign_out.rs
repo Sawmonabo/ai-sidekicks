@@ -5,11 +5,9 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
 use crate::driver::ProviderAccountFolders;
 use crate::driver::codex::account::CodexAccountLegs;
+use crate::driver::codex::account::login::CODEX_ACCOUNT_LOGOUT_METHOD;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::contract::error::DriverError;
-
-/// The request that signs a Codex home out; it takes no params.
-const CODEX_ACCOUNT_LOGOUT_METHOD: &str = "account/logout";
 
 /// Sends `account/logout` on the service running in `folders`' Codex home, or, where none runs,
 /// on a short-lived service started there and stopped after. Fails as the start or the request
@@ -77,6 +75,7 @@ mod tests {
             CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage"))),
             accounts,
             Arc::new(NothingServed),
+            Arc::new(PortRegistration::new("account home lock")),
         );
         let codex_home = scripted.service.home().codex_home.clone();
         let named = ProviderAccountFolders {

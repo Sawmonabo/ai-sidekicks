@@ -12,8 +12,10 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 
-use crate::driver::ProviderDescriptor;
+use crate::account::credential_home::CredentialHome;
+use crate::account::resolver::credential_home_folders;
 use crate::driver::registry::ProviderRegistry;
+use crate::driver::{ProviderAccountFolders, ProviderDescriptor};
 
 const ACCOUNT_HOMES_SQL: &str =
     "SELECT account_id, provider, credential_home_path FROM provider_accounts";
@@ -29,6 +31,14 @@ pub enum AccountHomesReadError {
     Query(#[from] rusqlite::Error),
 }
 
+/// An account home whose row names no provider id, so the folders in it are not known.
+#[derive(Debug, thiserror::Error)]
+#[error("the home of provider account {account_id} names no provider id")]
+pub struct UnknownAccountHomeProvider {
+    /// The row's account id.
+    pub account_id: String,
+}
+
 /// One account's home and the provider whose account it is.
 pub struct AccountHome {
     /// The account's id.
@@ -37,6 +47,20 @@ pub struct AccountHome {
     pub provider: String,
     /// The account's home folder.
     pub home: PathBuf,
+}
+
+impl AccountHome {
+    /// The account's folders, by the path rule every provider's account runs on. Fails naming the
+    /// account when the row's provider is no provider id.
+    pub fn folders(&self) -> Result<ProviderAccountFolders, UnknownAccountHomeProvider> {
+        let provider =
+            ProviderId::new(self.provider.clone()).ok_or_else(|| UnknownAccountHomeProvider {
+                account_id: self.account_id.clone(),
+            })?;
+        // The home was read as text, so the round trip back to text loses nothing.
+        let home = CredentialHome::from_stored(self.home.to_string_lossy().into_owned());
+        Ok(credential_home_folders(&provider, &home))
+    }
 }
 
 /// One provider's switching home, apart from every account home, where its one switching service
@@ -77,7 +101,11 @@ pub async fn read_account_homes(
         .await
 }
 
-fn query_account_homes(connection: &Connection) -> Result<Vec<AccountHome>, AccountHomesReadError> {
+/// Every account home in the accounts table, read on `connection`, for a caller that holds one read
+/// connection of its own with no pool, such as a helper mode. Fails when the query fails.
+pub fn query_account_homes(
+    connection: &Connection,
+) -> Result<Vec<AccountHome>, AccountHomesReadError> {
     let mut statement = connection.prepare_cached(ACCOUNT_HOMES_SQL)?;
     let homes = statement
         .query_map([], |row| {

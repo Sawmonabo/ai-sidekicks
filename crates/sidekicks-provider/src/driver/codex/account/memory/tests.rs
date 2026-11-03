@@ -39,13 +39,14 @@ async fn codex_legs(
     let (account_registry, _writer) =
         open_test_registry(&fixture.database, fixture.data_folder.path()).await;
     assert!(accounts.register(Arc::new(account_registry)).is_ok());
-    let legs: Arc<dyn ProviderMemoryImportLegs> = Arc::new(CodexAccountLegs::new(
+    let legs: Arc<dyn ProviderMemoryImportLegs> = CodexAccountLegs::new(
         registry,
         Arc::clone(&scripted.dependencies),
         CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage"))),
         accounts,
         Arc::new(NothingServed),
-    ));
+        Arc::new(PortRegistration::new("account home lock")),
+    );
     let switching = switching_home(&scripted.dependencies.data_folder).join(store);
     (legs, switching, scripted)
 }

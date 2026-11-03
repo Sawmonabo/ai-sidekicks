@@ -634,7 +634,7 @@ async fn read_account_answers(
                 }
                 ConnectorFetch::Through { .. } => {
                     marks
-                        .read(&environment, build_version.as_deref(), &settings)
+                        .read(&environment, None, build_version.as_deref(), &settings)
                         .await
                 }
             }

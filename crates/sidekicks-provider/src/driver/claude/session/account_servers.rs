@@ -30,6 +30,7 @@ use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
 use crate::driver::claude::spawn::environment::claude_config_folder;
 use crate::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
+use crate::driver::claude::spawn::launch::read_token_account_token;
 use crate::driver::contract::error::DriverError;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 
@@ -150,6 +151,10 @@ async fn read_account(
 ) -> Result<ClaudeMcpAccountServers, DriverError> {
     let read = async {
         let environment = sources.account_environment(&provider_account_id).await?;
+        let handed_token =
+            read_token_account_token(&sources.ports.provider_accounts, &provider_account_id)
+                .await
+                .map_err(DriverError::Internal)?;
         let account_home =
             claude_config_folder(&environment, PathRules::NATIVE).ok_or_else(|| {
                 DriverError::Internal("the account's Claude Code home is not named".into())
@@ -165,7 +170,12 @@ async fn read_account(
             &*channel,
             async |build_version: Option<String>, settings: ClaudeConnectorFetchSettings| {
                 marks
-                    .read(&environment, build_version.as_deref(), &settings)
+                    .read(
+                        &environment,
+                        handed_token.as_ref(),
+                        build_version.as_deref(),
+                        &settings,
+                    )
                     .await
             },
             probe_ceiling(&environment),

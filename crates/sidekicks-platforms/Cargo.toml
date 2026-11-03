@@ -11,7 +11,7 @@ publish.workspace = true
 
 [package.metadata.cargo-shear]
 ignored = [
-  # Claude Code's token pipe and the background browser's DevTools pipe on fixed descriptors.
+  # The background browser's DevTools pipe on fixed descriptors.
   "command-fds",
   # The link to an agent's memory folder on Windows.
   "junction",

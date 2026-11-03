@@ -8,7 +8,8 @@ use tokio::task::JoinHandle;
 
 use super::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::test_service::{
-    ScriptedCodexService, start_scripted_codex_service, start_scripted_terminal_service,
+    ScriptedCodexService, start_scripted_account_service_for, start_scripted_codex_service,
+    start_scripted_terminal_service,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::test_registry::new_session_id;
@@ -218,6 +219,28 @@ async fn a_failed_switch_off_wait_puts_the_service_back_only_into_an_empty_slot(
         registered.len() == 1 && Arc::ptr_eq(&registered[0], &expected),
         "the folder's service is not the one expected"
     );
+}
+
+// Fails when a removed account's service keeps running, or stays its home's service, so the next
+// read on the home would reach a service of an account that is gone.
+#[tokio::test]
+async fn a_removed_account_s_service_is_stopped_and_leaves_its_home() {
+    let account_id = test_provider_account_id();
+    let scripted = start_scripted_account_service_for(account_id.clone());
+    let registry = CodexServiceRegistry::holding(&scripted);
+
+    registry
+        .stop_account_service(&account_id)
+        .expect("the account's service is stopped")
+        .await
+        .expect("the stop ends");
+
+    assert!(
+        registry
+            .service_on(&scripted.service.home().codex_home)
+            .is_none()
+    );
+    assert!(!scripted.service.is_serving());
 }
 
 mod account_home;

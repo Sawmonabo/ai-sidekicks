@@ -1,20 +1,14 @@
 use std::collections::HashMap;
-use std::error::Error;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
-use futures::FutureExt as _;
-use futures::future::BoxFuture;
-use serde_json::value::RawValue;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::{
     BillingMode, ProviderAccountHealthState, ProviderAccountId, ProviderAuthMode,
 };
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_std::mutex_lock::lock;
@@ -22,32 +16,23 @@ use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use tempfile::TempDir;
 use tokio::sync::oneshot;
-use tokio::time::Instant;
 
 use super::{hand_switching_service_again, move_codex_sessions};
 use crate::account::registry::{AccountAdmission, HealthObservation, open_test_registry};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::CodexAccountLegs;
-use crate::driver::codex::lifecycle::account_move::CodexBindingMove;
+use crate::driver::codex::account::login::CODEX_LOGIN_START_METHOD;
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
-use crate::driver::codex::server_requests::{
-    CodexInboundServerRequest, CodexServerRequestDecision,
-};
 use crate::driver::codex::service::registry::CodexServiceRegistry;
-use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_switching_service,
 };
-use crate::driver::codex::service::switching::CODEX_LOGIN_START_METHOD;
+use crate::driver::codex::service::switching::test_moves::{
+    RecordedMoves, SessionQueue, switching_person,
+};
 use crate::driver::codex::service::switching::test_sign_in::{
     AccountHomes, TEST_PLAN, compose_access_token, write_sign_in,
 };
-use crate::driver::codex::session::inbound::{
-    CodexAccountMove, CodexSessionCall, CodexSessionInboundHandler, codex_session_inbound,
-    drain_codex_session_inbound,
-};
-use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
-use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::codex::usage_limit_signal::{
     CodexRateLimitObservation, observe_codex_rate_limit_read,
 };
@@ -56,10 +41,7 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::diagnostics::RecordedEvents;
 use crate::driver::schema::schema_parts;
 use crate::driver::test_registry::{NothingServed, new_session_id};
-use crate::port::session_account_move::SessionAccountMoveRecorder;
-use crate::runtime_binding::store::RuntimeBindingRebind;
 use crate::runtime_binding::test_store::test_provider_account_id;
-use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 /// The conversation the moved session runs on the switching service.
 const THREAD: &str = "thread-on-the-switching-service";
@@ -68,185 +50,11 @@ const THREAD: &str = "thread-on-the-switching-service";
 const WORKSPACE_LEFT: &str = "workspace-of-the-account-left";
 const WORKSPACE_TO: &str = "workspace-of-the-account-moved-to";
 
-/// Each binding move the store was asked for, and each move reported as no switch's with the
-/// person it names.
-#[derive(Default)]
-struct RecordedMoves {
-    bindings: Mutex<Vec<(RuntimeBindingId, ProviderAccountId)>>,
-    reported: Mutex<Vec<(SessionId, ProviderAccountId, Option<DeviceId>)>>,
-}
-
-impl RecordedMoves {
-    fn reported(&self) -> Vec<(SessionId, ProviderAccountId, Option<DeviceId>)> {
-        lock(&self.reported).clone()
-    }
-}
-
-/// The person whose switch the tests make.
-fn switching_person() -> DeviceId {
-    DeviceId::new(mint_uuid_v7().to_string()).expect("a minted UUID is a device id")
-}
-
-impl RuntimeBindingWriter for RecordedMoves {
-    fn rebind(
-        &self,
-        _rebind: RuntimeBindingRebind,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        unreachable!("a switch points no binding at another conversation")
-    }
-
-    fn keep_recovery_data(
-        &self,
-        _binding_id: RuntimeBindingId,
-        _runtime_metadata: Map<String, Value>,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        unreachable!("a switch keeps no recovery data")
-    }
-
-    fn move_account(
-        &self,
-        binding_id: RuntimeBindingId,
-        provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        lock(&self.bindings).push((binding_id, provider_account_id));
-        async { Ok(()) }.boxed()
-    }
-}
-
-impl SessionAccountMoveRecorder for RecordedMoves {
-    fn record_account_moved(
-        &self,
-        moved: SessionAccountMove,
-        provider_account_id: ProviderAccountId,
-        actor: Option<DeviceId>,
-    ) -> BoxFuture<'_, ()> {
-        lock(&self.reported).push((moved.session_id, provider_account_id, actor));
-        async {}.boxed()
-    }
-}
-
-/// A session's task: what it saw, in order, each frame by method and each move by its account,
-/// and its record, whose account and binding each move lands as the session's task lands it.
-#[derive(Clone)]
-struct SessionQueue {
-    seen: Arc<Mutex<Vec<String>>>,
-    session_id: SessionId,
-    record_account: Arc<Mutex<ProviderAccountId>>,
-    record_binding: RuntimeBindingId,
-    moves: Arc<RecordedMoves>,
-    recorder: Arc<PortRegistration<Arc<dyn SessionAccountMoveRecorder>>>,
-}
-
-impl SessionQueue {
-    // The task of `session_id`, its record on `record_account`, its moves kept in `moves`.
-    fn new(
-        session_id: SessionId,
-        record_account: ProviderAccountId,
-        moves: &Arc<RecordedMoves>,
-    ) -> Self {
-        let recorder = Arc::new(PortRegistration::new("session account moves"));
-        assert!(
-            recorder
-                .register(Arc::clone(moves) as Arc<dyn SessionAccountMoveRecorder>)
-                .is_ok()
-        );
-        Self {
-            seen: Arc::default(),
-            session_id,
-            record_account: Arc::new(Mutex::new(record_account)),
-            record_binding: RuntimeBindingId::new(mint_uuid_v7().to_string())
-                .expect("a binding id"),
-            moves: Arc::clone(moves),
-            recorder,
-        }
-    }
-
-    // Attaches this session to `service` and drains what reaches it on a task of its own.
-    fn attach(&self, service: &CodexService) -> tokio::task::JoinHandle<()> {
-        let (sender, receiver) = codex_session_inbound(self.session_id);
-        service.attach_session(sender);
-        let mut handler = self.clone();
-        tokio::spawn(async move {
-            drain_codex_session_inbound(receiver, &mut handler).await;
-        })
-    }
-
-    fn seen(&self) -> Vec<String> {
-        lock(&self.seen).clone()
-    }
-
-    // Waits until this session's task saw `count` items, as the service's reader routes them on
-    // its own task.
-    async fn wait_until_seen(&self, count: usize) {
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while self.seen().len() < count {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("the session's task sees the frames");
-    }
-}
-
-impl CodexSessionInboundHandler for SessionQueue {
-    fn frame(&mut self, method: String, _params: Box<RawValue>) -> BoxFuture<'_, ()> {
-        lock(&self.seen).push(method);
-        async {}.boxed()
-    }
-
-    fn ask(
-        &mut self,
-        _request: CodexInboundServerRequest,
-        _decision: oneshot::Sender<Result<CodexServerRequestDecision, DriverError>>,
-    ) -> BoxFuture<'_, ()> {
-        unreachable!("the service asks nothing")
-    }
-
-    fn asks_withdrawn(&mut self, _dropped: Vec<CodexForgottenRequest>) -> BoxFuture<'_, ()> {
-        unreachable!("the connection stays open")
-    }
-
-    fn held_thread(&mut self, _thread_id: String, _is_held: bool) {}
-
-    fn call(&mut self, _call: CodexSessionCall) -> BoxFuture<'_, ()> {
-        unreachable!("the driver makes no call")
-    }
-
-    fn lifecycle(&mut self, _call: CodexLifecycleCall) -> BoxFuture<'_, ()> {
-        unreachable!("the driver makes no call")
-    }
-
-    fn account_moved(&mut self, account_move: CodexAccountMove) -> BoxFuture<'_, ()> {
-        lock(&self.seen).push(format!(
-            "moved to {}",
-            account_move.provider_account_id.as_str()
-        ));
-        let binding_move = {
-            let mut record_account = lock(&self.record_account);
-            CodexBindingMove::plan(
-                self.session_id,
-                Some((&mut *record_account, Some(&self.record_binding))),
-                account_move,
-            )
-        };
-        // The test's task meters no spend, so the bindings move at once.
-        async move { binding_move.land(&*self.moves, &self.recorder).await }.boxed()
-    }
-
-    fn next_deadline(&self) -> Option<Instant> {
-        None
-    }
-
-    fn deadline_reached(&mut self, _now: Instant) -> BoxFuture<'_, ()> {
-        unreachable!("no deadline waits")
-    }
-}
-
 /// The switching service on a scripted connection, the legs over a registry holding it, one
 /// session attached to it with its conversation registered, and two accounts signed in each in a
 /// home of its own: the one the service carries, and a registered one to move to.
 struct Fixture {
-    legs: CodexAccountLegs,
+    legs: Arc<CodexAccountLegs>,
     scripted: ScriptedCodexService,
     database: TestDatabase,
     session: SessionToMove,
@@ -300,8 +108,9 @@ impl Fixture {
         AccountHomes {
             homes: homes.clone(),
             current: left.clone(),
+            api_keys: HashMap::new(),
         }
-        .register_on(scripted.dependencies.switching.provider_accounts());
+        .register_on(&scripted.dependencies.provider_accounts);
         let accounts = Arc::new(PortRegistration::new("provider account registry"));
         assert!(accounts.register(Arc::new(registry)).is_ok());
         let legs = CodexAccountLegs::new(
@@ -310,6 +119,7 @@ impl Fixture {
             CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage"))),
             accounts,
             Arc::new(NothingServed),
+            Arc::new(PortRegistration::new("account home lock")),
         );
 
         // The service carries the account left, as its start handed it.
@@ -414,6 +224,16 @@ fn reached_on_the_account_left() -> CodexRateLimitObservation {
     }}))
 }
 
+// Reads the next request, which must be the switch's check, and answers it with the account
+// signed in.
+async fn answer_check(scripted: &mut ScriptedCodexService) {
+    let check = scripted.next_request("account/read").await;
+    scripted.script.answer(
+        &check,
+        &json!({"account": {"type": "chatgpt"}, "requiresOpenaiAuth": true}),
+    );
+}
+
 // Settles a move's first request.
 async fn first_request(moved: SessionAccountMove) -> FirstRequestAfterMove {
     moved
@@ -422,13 +242,14 @@ async fn first_request(moved: SessionAccountMove) -> FirstRequestAfterMove {
         .expect("the first request settles")
 }
 
-// Fails when a switch sends anything but one login carrying the new account's tokens, when the
-// move reaches the session at another place among its frames than the login's answer, when the
-// service keeps carrying the account left or its limit readings, when those readings are lost to
-// a frame of the account left that the session reads after the switch, when the credential
-// generation moves, when a token reaches a log line, a reply or an error, when a login follows
-// on a timer, or when the named session's move is reported, which the daemon records itself at
-// the move's acknowledgment.
+// Fails when a switch sends anything but one login carrying the new account's tokens and one
+// account read checking it, when a check answered with an account settles the move's first request
+// as anything but run, when the move reaches the session at another place among its frames than the
+// login's answer, when the service keeps carrying the account left or its limit readings, when
+// those readings are lost to a frame of the account left that the session reads after the switch,
+// when the credential generation moves, when a token reaches a log line, a reply or an error, when
+// a login follows on a timer, or when the named session's move is reported, which the daemon
+// records itself at the move's acknowledgment.
 #[tokio::test]
 async fn a_switch_is_one_login_whose_answer_moves_each_session_in_its_place() {
     let mut fixture = Fixture::new().await;
@@ -463,6 +284,7 @@ async fn a_switch_is_one_login_whose_answer_moves_each_session_in_its_place() {
             .map(|moved| moved.as_ref().err())
             .collect::<Vec<_>>()
     );
+    answer_check(&mut fixture.scripted).await;
     let mut settled = Vec::new();
     for moved in moved {
         let moved = moved.expect("the move lands");
@@ -494,9 +316,9 @@ async fn a_switch_is_one_login_whose_answer_moves_each_session_in_its_place() {
     assert_eq!(
         after,
         Vec::<Value>::new(),
-        "the switch sent more than its login"
+        "the switch sent more than its login and its check"
     );
-    assert_eq!(settled, [FirstRequestAfterMove::Unobserved]);
+    assert_eq!(settled, [FirstRequestAfterMove::Ran]);
     assert_eq!(
         seen,
         [
@@ -660,6 +482,7 @@ async fn a_session_start_moves_the_switching_service_onto_its_account_once() {
         switching.carry_for_session(&service, &to),
         answer_login(&mut fixture.scripted)
     );
+    answer_check(&mut fixture.scripted).await;
     let again = switching.carry_for_session(&service, &to).await;
     let after = fixture.unread_requests();
     let token = fixture.tokens[&to].clone();
@@ -707,6 +530,7 @@ async fn a_renewal_waiting_on_a_switch_hands_nothing_once_the_switch_lands() {
         renewal,
         script
     );
+    answer_check(&mut fixture.scripted).await;
     let after = fixture.unread_requests();
 
     assert!(moved.iter().all(Result::is_ok));

@@ -686,7 +686,7 @@ export const ProviderAccountSubscribeRequestSchema: z.ZodType<
   ProviderAccountSubscribeRequest
 > = z.object({}).strict();
 
-const PROVIDER_LOGIN_OUTCOME_VALUES = ["succeeded", "failed", "canceled"] as const;
+const PROVIDER_LOGIN_OUTCOME_VALUES = ["succeeded", "failed", "expired", "canceled"] as const;
 
 /** How a brokered sign-in attempt ended. */
 export type ProviderLoginOutcome = (typeof PROVIDER_LOGIN_OUTCOME_VALUES)[number];

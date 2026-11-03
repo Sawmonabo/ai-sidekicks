@@ -61,6 +61,7 @@ fn scripted_connection() -> (CodexAppServerConnection, ScriptedService) {
         CodexConnectionHandlers {
             events,
             responder: None,
+            token_refresher: None,
         },
     )
 }

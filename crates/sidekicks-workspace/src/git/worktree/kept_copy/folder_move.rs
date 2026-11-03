@@ -17,12 +17,12 @@ use sidekicks_contracts::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
 use sidekicks_contracts::worktree::copy_progress::WorktreeCopy;
 use sidekicks_platforms::{entry_identity, is_held_file_error, rename_replacing};
 use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::file::tree_copy::{TreeCopyError, TreeCopyFollower, TreeCopyPolicy, copy_tree};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::random_hex::random_hex;
 use tokio::task::JoinError;
 
-use crate::git::worktree::copy::progress::{WorktreeCopiesUnderWay, WorktreeCopyReport};
-use crate::git::worktree::copy::{TreeCopyError, TreeCopyFollower, TreeCopyPolicy, copy_tree};
+use crate::git::worktree::copy_progress::{WorktreeCopiesUnderWay, WorktreeCopyReport};
 use crate::git::worktree::folder_names::read_folder_names;
 use crate::git::worktree::naming::REMOVED_WORKTREES_FOLDER_NAME;
 use crate::git::worktree::path_holds::PathHolds;

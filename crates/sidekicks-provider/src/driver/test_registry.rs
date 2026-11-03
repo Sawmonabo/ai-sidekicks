@@ -269,12 +269,12 @@ pub fn registry_of_first_providers(drivers: Vec<Arc<dyn ProviderDriver>>) -> Pro
 pub fn registrations_of_first_providers(
     drivers: Vec<Arc<dyn ProviderDriver>>,
 ) -> Vec<ProviderRegistration> {
-    let table = PROVIDERS[..drivers.len()]
+    let table = PROVIDER_REGISTRATIONS[..drivers.len()]
         .iter()
-        .map(|descriptor| ProviderRegistration {
-            descriptor,
+        .map(|registration| ProviderRegistration {
             build: take_next_driver,
             stop_recorded_services: None,
+            ..*registration
         })
         .collect();
     NEXT_DRIVERS.with_borrow_mut(|next| *next = drivers.into());
@@ -284,12 +284,12 @@ pub fn registrations_of_first_providers(
 /// Every provider of the table in its order, each built as a mock driver with no expectations, so
 /// any call to one fails the test.
 pub fn registrations_of_mock_drivers() -> Vec<ProviderRegistration> {
-    PROVIDERS
+    PROVIDER_REGISTRATIONS
         .iter()
-        .map(|descriptor| ProviderRegistration {
-            descriptor,
+        .map(|registration| ProviderRegistration {
             build: |_| Arc::new(MockProviderDriver::new()),
             stop_recorded_services: None,
+            ..*registration
         })
         .collect()
 }
@@ -305,13 +305,12 @@ pub fn registrations_over_scripted_codex(
     PROVIDER_REGISTRATIONS
         .iter()
         .map(|registration| ProviderRegistration {
-            descriptor: registration.descriptor,
             build: if registration.descriptor.id == codex::DESCRIPTOR.id {
                 codex::build_over_scripted_service
             } else {
                 registration.build
             },
-            stop_recorded_services: registration.stop_recorded_services,
+            ..*registration
         })
         .collect::<Vec<_>>()
         .leak()

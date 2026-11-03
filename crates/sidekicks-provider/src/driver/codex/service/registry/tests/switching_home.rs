@@ -2,35 +2,27 @@
 //! listed for the backup, holding the conversations a purge deletes there, and apart from the
 //! account home whose socket a terminal's plain `codex` joins.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use futures::future::BoxFuture;
 use serde_json::{Map, Value};
-use sidekicks_platforms::{
-    CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, ProgramStart, read_socket_link,
-    short_socket_folder,
-};
+use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, read_socket_link};
 
 use super::stand_in::{
-    StandInServices, another_daemon, is_running, last_launch_arguments, services_on, this_daemon,
-    wait_until_gone,
+    another_daemon, is_running, last_launch_arguments, per_home_services, recorded_methods,
+    recorded_requests, this_daemon, wait_until_gone,
 };
 use crate::account::homes::{account_home_conversation_folders, switching_homes};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::CODEX_EPHEMERAL_CREDENTIAL_STORE;
-use crate::driver::codex::service::home::{CodexConversationHome, CodexHomeKind, CodexServiceHome};
+use crate::driver::codex::service::home::{CodexConversationHome, CodexHomeKind};
 use crate::driver::codex::service::registry::{home_socket_path, switching_home};
-use crate::driver::codex::service::supervisor::test_service::{
-    CODEX_HOME_NAME, REQUEST_RECORD_NAME, TestCodexProgram,
-};
-use crate::driver::codex::service::supervisor::{CodexProgramResolver, CodexServiceDependencies};
+use crate::driver::codex::service::supervisor::CodexServiceDependencies;
+use crate::driver::codex::service::supervisor::test_service::read_tree;
 use crate::driver::codex::service::switching::test_sign_in::{
     AccountHomes, compose_access_token, write_sign_in,
 };
 use crate::driver::codex::session::purge::purge_codex_conversations;
-use crate::driver::contract::error::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::registry::ProviderRegistry;
 use crate::driver::session_control::{PurgeSessionParams, SessionConversation};
@@ -38,84 +30,12 @@ use crate::driver::test_registry::{
     new_session_id, registrations_of_mock_drivers, test_driver_services,
 };
 use crate::runtime_binding::test_store::test_provider_account_id;
-use crate::spawned_version::ResolvedProviderExecutable;
 
 /// The conversation the purge deletes from the switching home.
 const SWITCHING_THREAD: &str = "switching-thread-1";
 
 /// The `ChatGPT` workspace the test's account signs in to.
 const TEST_WORKSPACE: &str = "workspace-of-the-test-account";
-
-/// The test's stand-in run with each home as its `CODEX_HOME`, as the daemon's own resolver runs
-/// Codex, recording each home's requests in a file of its own beside the homes.
-struct ProgramPerHome {
-    program: TestCodexProgram,
-    records_folder: PathBuf,
-}
-
-impl CodexProgramResolver for ProgramPerHome {
-    fn resolve<'call>(
-        &'call self,
-        home: &'call CodexServiceHome,
-    ) -> BoxFuture<'call, Result<ResolvedProviderExecutable, DriverError>> {
-        let mut environment: Vec<(String, String)> = self
-            .program
-            .environment
-            .iter()
-            .filter(|(name, _)| name != CODEX_HOME_NAME)
-            .cloned()
-            .collect();
-        environment.extend([
-            (
-                CODEX_HOME_NAME.to_owned(),
-                home.codex_home.display().to_string(),
-            ),
-            (
-                REQUEST_RECORD_NAME.to_owned(),
-                request_record(&self.records_folder, &home.codex_home)
-                    .display()
-                    .to_string(),
-            ),
-        ]);
-        let resolved = ResolvedProviderExecutable {
-            requested_command: "codex".to_owned(),
-            resolved_executable_path: self.program.program.clone(),
-            start: ProgramStart {
-                program: self.program.program.clone(),
-                leading_arguments: Vec::new(),
-            },
-            environment,
-        };
-        Box::pin(async move { Ok(resolved) })
-    }
-}
-
-// The file the requests of the service on `codex_home` are recorded in, under `records_folder`.
-fn request_record(records_folder: &Path, codex_home: &Path) -> PathBuf {
-    let name = codex_home
-        .file_name()
-        .expect("a home names a folder")
-        .to_string_lossy();
-    records_folder.join(format!("{name}-requests"))
-}
-
-// The services of one test on an account's home, each home's stand-in on its own home.
-fn per_home_services() -> StandInServices {
-    let folder = short_socket_folder().expect("a scratch folder is made");
-    let codex_home = folder.path().join("account");
-    std::fs::create_dir_all(&codex_home).expect("the home is made");
-    let home = CodexServiceHome {
-        codex_home,
-        kind: CodexHomeKind::Account(test_provider_account_id()),
-    };
-    let records_folder = folder.path().to_owned();
-    services_on(home, folder, move |program| {
-        Arc::new(ProgramPerHome {
-            program,
-            records_folder,
-        })
-    })
-}
 
 // Signs the test's account in within its own home and has `dependencies`' switching service find
 // it there as the current account, so each of its starts hands that account's tokens.
@@ -128,45 +48,9 @@ fn sign_in(dependencies: &CodexServiceDependencies, account_home: &Path) {
     AccountHomes {
         homes: HashMap::from([(test_provider_account_id(), account_home.to_owned())]),
         current: test_provider_account_id(),
+        api_keys: HashMap::new(),
     }
-    .register_on(dependencies.switching.provider_accounts());
-}
-
-// The methods of the requests the service on `codex_home` was sent, in order.
-fn recorded_methods(services: &StandInServices, codex_home: &Path) -> Vec<String> {
-    std::fs::read_to_string(request_record(services.folder.path(), codex_home))
-        .expect("the service's requests were recorded")
-        .lines()
-        .map(|line| {
-            let request: Value = serde_json::from_str(line).expect("a request is JSON");
-            request["method"].as_str().unwrap_or_default().to_owned()
-        })
-        .collect()
-}
-
-// Every entry under `folder`, by path, with a file's bytes; a socket, a link or a folder by its
-// kind.
-fn read_tree(folder: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
-    let mut tree = BTreeMap::new();
-    let mut pending = vec![folder.to_owned()];
-    while let Some(next) = pending.pop() {
-        for entry in std::fs::read_dir(&next).expect("the folder lists") {
-            let path = entry.expect("the entry reads").path();
-            let file_type = std::fs::symlink_metadata(&path)
-                .expect("the entry reads")
-                .file_type();
-            let content = if file_type.is_dir() {
-                pending.push(path.clone());
-                b"folder".to_vec()
-            } else if file_type.is_file() {
-                std::fs::read(&path).expect("the file reads")
-            } else {
-                format!("{file_type:?}").into_bytes()
-            };
-            tree.insert(path, content);
-        }
-    }
-    tree
+    .register_on(&dependencies.provider_accounts);
 }
 
 // Fails when a restart stops the switching service, when the next daemon launches another instead
@@ -178,7 +62,7 @@ async fn a_restart_rejoins_the_switching_service_by_its_record_and_the_backup_li
     if !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let services = per_home_services();
+    let services = per_home_services(CodexHomeKind::Account(test_provider_account_id()));
     let startup_timeout = services.dependencies.startup_timeout;
     let data_folder = services.dependencies.data_folder.clone();
 
@@ -262,7 +146,7 @@ async fn a_purge_deletes_an_unpinned_conversation_from_the_switching_home_alone(
     if !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let services = per_home_services();
+    let services = per_home_services(CodexHomeKind::Account(test_provider_account_id()));
     let startup_timeout = services.dependencies.startup_timeout;
     let registry = this_daemon(&services);
     let account_home = services.home.codex_home.clone();
@@ -288,17 +172,14 @@ async fn a_purge_deletes_an_unpinned_conversation_from_the_switching_home_alone(
     .await;
     let after = read_tree(&account_home);
     registry.shutdown(DaemonStopIntent::Stop).await;
-    let switching_record = request_record(
-        services.folder.path(),
+    let deleted: Vec<Value> = recorded_requests(
+        &services,
         &switching_home(&services.dependencies.data_folder),
-    );
-    let deleted: Vec<Value> = std::fs::read_to_string(switching_record)
-        .expect("the switching service's requests were recorded")
-        .lines()
-        .map(|line| serde_json::from_str::<Value>(line).expect("a request is JSON"))
-        .filter(|request| request["method"] == "thread/delete")
-        .map(|request| request["params"]["threadId"].clone())
-        .collect();
+    )
+    .into_iter()
+    .filter(|request| request["method"] == "thread/delete")
+    .map(|request| request["params"]["threadId"].clone())
+    .collect();
 
     assert!(purged.is_ok(), "{purged:?}");
     assert_eq!(deleted, vec![Value::from(SWITCHING_THREAD)]);
@@ -312,7 +193,7 @@ async fn a_terminal_in_an_account_home_joins_the_accounts_own_service() {
     if !CAN_BIND_A_SOCKET_LISTENER || !CAN_LINK_A_SOCKET {
         return;
     }
-    let services = per_home_services();
+    let services = per_home_services(CodexHomeKind::Account(test_provider_account_id()));
     let startup_timeout = services.dependencies.startup_timeout;
     let registry = this_daemon(&services);
     let account_home = services.home.codex_home.clone();

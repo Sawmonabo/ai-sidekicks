@@ -37,13 +37,14 @@ use crate::account::registry::{
     AccountAdmission, HealthObservation, PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY,
     ProviderAccountRegistry, RegisteredAccount,
 };
+use crate::account::resolver::credential_home_folders;
 use crate::account::sign_in::{AccountsInFlight, ProviderAccountNotificationPublisher};
 use crate::account::token_custody::ProviderTokenCustody;
 use crate::account::token_custody::tests::ScriptedKeychain;
 use crate::account::wake_helper::{MachineWakeHelper, ScriptedWakeHelper};
 use crate::driver::contract::account::{
-    ProviderAccountFigures, ProviderObservation, ProviderObserveLegs, ProviderWindowTurnLegs,
-    TokenLimitsReading, WindowTurnAnswer, WindowTurnSpend,
+    ProviderAccountFigures, ProviderObservation, ProviderObserveLegs, ProviderTokenLimitsLegs,
+    ProviderWindowTurnLegs, TokenLimitsReading, WindowTurnAnswer, WindowTurnSpend,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::test_registry::new_session_id;
@@ -148,7 +149,9 @@ impl ProviderWindowTurnLegs for ScriptedTurns {
         self.window_starts.fetch_add(1, Ordering::SeqCst);
         async { Ok(WindowTurnAnswer::Spent(turn_spend())) }.boxed()
     }
+}
 
+impl ProviderTokenLimitsLegs for ScriptedTurns {
     fn read_token_limits<'call>(
         &'call self,
         _provider_account_id: &'call ProviderAccountId,
@@ -215,17 +218,28 @@ pub(super) fn figures() -> ProviderAccountFigures {
     }
 }
 
-// Each whole set of quota windows the observer recorded, with its account.
-#[derive(Default)]
-pub(super) struct RecordedWholeSets(Mutex<Vec<(ProviderAccountId, Vec<ProviderQuotaWindow>)>>);
+// One set of quota windows the observer recorded, with its account.
+type RecordedQuotaSet = (ProviderAccountId, Vec<ProviderQuotaWindow>);
 
-impl RecordedWholeSets {
-    pub(super) fn sets(&self) -> Vec<(ProviderAccountId, Vec<ProviderQuotaWindow>)> {
-        lock(&self.0).clone()
+// Each set of quota windows the observer recorded: the whole sets a limits read answered, and the
+// partial ones a turn named.
+#[derive(Default)]
+pub(super) struct RecordedQuotaSets {
+    whole: Mutex<Vec<RecordedQuotaSet>>,
+    partial: Mutex<Vec<RecordedQuotaSet>>,
+}
+
+impl RecordedQuotaSets {
+    pub(super) fn whole_sets(&self) -> Vec<RecordedQuotaSet> {
+        lock(&self.whole).clone()
+    }
+
+    pub(super) fn partial_sets(&self) -> Vec<RecordedQuotaSet> {
+        lock(&self.partial).clone()
     }
 }
 
-impl UsageSink for RecordedWholeSets {
+impl UsageSink for RecordedQuotaSets {
     fn record_metered(
         &self,
         _metered: MeteredUsage,
@@ -243,10 +257,11 @@ impl UsageSink for RecordedWholeSets {
     fn record_quota_windows(
         &self,
         _provider: ProviderId,
-        _provider_account_id: ProviderAccountId,
-        _windows: Vec<ProviderQuotaWindow>,
+        provider_account_id: ProviderAccountId,
+        windows: Vec<ProviderQuotaWindow>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        async { Err("the observer records only whole sets".into()) }.boxed()
+        lock(&self.partial).push((provider_account_id, windows));
+        async { Ok(()) }.boxed()
     }
 
     fn record_whole_quota_windows(
@@ -255,7 +270,7 @@ impl UsageSink for RecordedWholeSets {
         provider_account_id: ProviderAccountId,
         windows: Vec<ProviderQuotaWindow>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        lock(&self.0).push((provider_account_id, windows));
+        lock(&self.whole).push((provider_account_id, windows));
         async { Ok(()) }.boxed()
     }
 
@@ -305,7 +320,8 @@ impl AccountLiveTurns for TestLiveTurns {
     }
 }
 
-// An accounts reader answering every account's folders as its home.
+// An accounts reader answering each registered account's folders as the daemon's own reader does,
+// with no look at whether its home stands.
 struct HomeFolders(Arc<ProviderAccountRegistry>);
 
 impl ProviderAccountReader for HomeFolders {
@@ -314,14 +330,15 @@ impl ProviderAccountReader for HomeFolders {
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
         async move {
-            let Ok(account) = self.0.read(provider_account_id).await else {
-                return Err(AccountFoldersError::NotFound);
-            };
-            let home = account.credential_home.path().to_path_buf();
-            Ok(ProviderAccountFolders {
-                configuration_folder: home.clone(),
-                credential_store_folder: home,
-            })
+            let account = self
+                .0
+                .read(provider_account_id)
+                .await
+                .map_err(|_unregistered| AccountFoldersError::NotFound)?;
+            Ok(credential_home_folders(
+                &account.provider,
+                &account.credential_home,
+            ))
         }
         .boxed()
     }
@@ -375,7 +392,7 @@ pub(super) struct Fixture {
     pub(super) keychain: Arc<ScriptedKeychain>,
     pub(super) legs: Arc<ScriptedLegs>,
     pub(super) turns: HashMap<ProviderId, Arc<ScriptedTurns>>,
-    pub(super) usage: Arc<RecordedWholeSets>,
+    pub(super) usage: Arc<RecordedQuotaSets>,
     pub(super) wakes: Arc<ScriptedWakeHelper>,
     pub(super) notifications: Arc<RecordedNotifications>,
     pub(super) observer: ProviderAccountObserver,
@@ -427,7 +444,11 @@ impl Fixture {
                 )
             })
             .collect();
-        let usage = Arc::new(RecordedWholeSets::default());
+        let token_limits_legs = HashMap::from([(
+            claude(),
+            Arc::clone(&turns[&claude()]) as Arc<dyn ProviderTokenLimitsLegs>,
+        )]);
+        let usage = Arc::new(RecordedQuotaSets::default());
         let wakes = Arc::new(ScriptedWakeHelper::new(WakeHelperStatus::Installed));
         let notifications = Arc::new(RecordedNotifications::default());
         let observer = ProviderAccountObserver::new(ProviderAccountObserverDeps {
@@ -435,6 +456,7 @@ impl Fixture {
             account_reader: Arc::new(HomeFolders(Arc::clone(&registry))),
             legs: HashMap::from([(claude(), Arc::clone(&legs) as Arc<dyn ProviderObserveLegs>)]),
             window_turn_legs,
+            token_limits_legs,
             token_custody: Arc::new(ProviderTokenCustody::new(
                 Arc::clone(&registry),
                 Arc::clone(&keychain) as Arc<dyn SecretKeychain>,

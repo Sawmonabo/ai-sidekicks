@@ -3,11 +3,15 @@
 //! run once, each later asker waiting on the answer in flight.
 //!
 //! - A hold waits behind every act that asked for the home first and ends when it drops.
-//! - A shared act joins the one in flight on the account, else starts only while no other act
-//!   holds the home. It runs in a task of its own, so it keeps the home until it ends even after
-//!   every asker stops waiting, and leaves no act behind that would hold the home for ever.
+//! - A shared act joins the one in flight on the account, else starts, either only while no other
+//!   act holds the home or once the home is free. It runs in a task of its own, so it keeps the
+//!   home until it ends even after every asker stops waiting, and leaves no act behind that would
+//!   hold the home for ever.
+//! - A sign-in holds the home only while its flow starts, never across the person's browser step,
+//!   so it marks the home as signing in for the flow's life; a renewal waits for the mark to go
+//!   rather than run the provider there beside the flow.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
@@ -15,12 +19,21 @@ use futures::future::{BoxFuture, Shared};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::Notify;
 use tokio::task::JoinError;
 
 /// The per-account lock on credential homes, one for the daemon; see the module doc.
 #[derive(Default)]
 pub struct AccountHomeLock {
     holds: KeyedLock<ProviderAccountId>,
+    signing_in: Arc<SigningIn>,
+}
+
+// The homes a sign-in's flow runs in, and the wake of every wait for one of them to end.
+#[derive(Default)]
+struct SigningIn {
+    homes: Mutex<HashSet<ProviderAccountId>>,
+    ended: Notify,
 }
 
 impl AccountHomeLock {
@@ -32,6 +45,55 @@ impl AccountHomeLock {
     ) -> KeyHold<'_, ProviderAccountId> {
         self.holds.acquire(provider_account_id).await
     }
+
+    /// Marks `provider_account_id`'s home as one a sign-in's flow runs in until the answered mark
+    /// drops. Taken under the home's hold, so a renewal running there has ended first.
+    pub fn mark_signing_in(&self, provider_account_id: ProviderAccountId) -> SigningInMark {
+        lock(&self.signing_in.homes).insert(provider_account_id.clone());
+        SigningInMark {
+            signing_in: Arc::clone(&self.signing_in),
+            provider_account_id,
+        }
+    }
+
+    /// Whether a sign-in's flow runs in `provider_account_id`'s home; read under the home's hold.
+    pub fn is_signing_in(&self, provider_account_id: &ProviderAccountId) -> bool {
+        lock(&self.signing_in.homes).contains(provider_account_id)
+    }
+
+    /// Waits until no sign-in's flow runs in `provider_account_id`'s home, at once where none
+    /// does. A sign-in may mark the home again right after, so a caller checks again under the
+    /// home's hold.
+    pub async fn wait_out_sign_in(&self, provider_account_id: &ProviderAccountId) {
+        loop {
+            // Made before the check, so a mark let go between the two still wakes it.
+            let ended = self.signing_in.ended.notified();
+            if !self.is_signing_in(provider_account_id) {
+                return;
+            }
+            ended.await;
+        }
+    }
+}
+
+/// A home's mark as one a sign-in's flow runs in, let go when dropped.
+pub struct SigningInMark {
+    signing_in: Arc<SigningIn>,
+    provider_account_id: ProviderAccountId,
+}
+
+impl Drop for SigningInMark {
+    fn drop(&mut self) {
+        lock(&self.signing_in.homes).remove(&self.provider_account_id);
+        self.signing_in.ended.notify_waiters();
+    }
+}
+
+// How a shared act takes its account's home: only when no other act holds it, or once it is free.
+#[derive(Clone, Copy)]
+enum HomeWait {
+    IfFree,
+    UntilFree,
 }
 
 /// A shared act ended without an answer: its task panicked or the runtime stopped under it.
@@ -67,12 +129,36 @@ impl<Answer: Clone + Send + Sync + 'static> AccountHomeFlights<Answer> {
         provider_account_id: ProviderAccountId,
         work: impl FnOnce() -> BoxFuture<'static, Answer> + Send + 'static,
     ) -> Result<Option<Answer>, AccountHomeActEnded> {
+        self.join_or_start(provider_account_id, HomeWait::IfFree, work)
+            .await
+    }
+
+    /// Joins the act in flight on `provider_account_id`, else starts `work` once the home's hold
+    /// is free, waiting behind every act that asked for it first, and answers the act's answer;
+    /// `None` only when it joined an act [`Self::run_if_free`] started that found the home held.
+    /// Fails when the act's task ended without an answer.
+    pub async fn run_when_free(
+        &self,
+        provider_account_id: ProviderAccountId,
+        work: impl FnOnce() -> BoxFuture<'static, Answer> + Send + 'static,
+    ) -> Result<Option<Answer>, AccountHomeActEnded> {
+        self.join_or_start(provider_account_id, HomeWait::UntilFree, work)
+            .await
+    }
+
+    // The act in flight on the account, else one started with `wait`.
+    async fn join_or_start(
+        &self,
+        provider_account_id: ProviderAccountId,
+        wait: HomeWait,
+        work: impl FnOnce() -> BoxFuture<'static, Answer> + Send + 'static,
+    ) -> Result<Option<Answer>, AccountHomeActEnded> {
         let flight = {
             let mut in_flight = lock(&self.in_flight);
             if let Some(flight) = in_flight.get(&provider_account_id) {
                 flight.clone()
             } else {
-                let flight = self.start(provider_account_id.clone(), work);
+                let flight = self.start(provider_account_id.clone(), wait, work);
                 in_flight.insert(provider_account_id, flight.clone());
                 flight
             }
@@ -80,19 +166,26 @@ impl<Answer: Clone + Send + Sync + 'static> AccountHomeFlights<Answer> {
         flight.await
     }
 
-    // Spawns the act's task, which takes the home only when it is free, and drops its entry once
-    // the home is freed, so an asker in between joins the answer rather than finding the home
-    // held by an act already done.
+    // Spawns the act's task, which takes the home as `wait` says, and drops its entry once the
+    // home is freed, so an asker in between joins the answer rather than finding the home held by
+    // an act already done.
     fn start(
         &self,
         provider_account_id: ProviderAccountId,
+        wait: HomeWait,
         work: impl FnOnce() -> BoxFuture<'static, Answer> + Send + 'static,
     ) -> AccountHomeFlight<Answer> {
         let home_lock = Arc::clone(&self.home_lock);
         let in_flight = Arc::clone(&self.in_flight);
         let task = tokio::spawn(async move {
-            let answer = if let Ok(hold) = home_lock.holds.try_acquire(provider_account_id.clone())
-            {
+            let hold = match wait {
+                HomeWait::IfFree => home_lock
+                    .holds
+                    .try_acquire(provider_account_id.clone())
+                    .ok(),
+                HomeWait::UntilFree => Some(home_lock.hold(provider_account_id.clone()).await),
+            };
+            let answer = if let Some(hold) = hold {
                 let answer = work().await;
                 drop(hold);
                 Some(answer)

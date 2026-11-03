@@ -22,6 +22,7 @@ doctest = false
 base16ct.workspace = true
 futures.workspace = true
 getrandom.workspace = true
+ignore.workspace = true
 reflink-copy.workspace = true
 # The outbound HTTP client's shared settings.
 reqwest = { workspace = true, optional = true }

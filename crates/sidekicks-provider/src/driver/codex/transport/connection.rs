@@ -25,7 +25,8 @@ use tokio::time::Instant;
 
 use crate::driver::codex::event_normalizer::CODEX_OPT_OUT_NOTIFICATION_METHODS;
 use crate::driver::codex::server_requests::{
-    CodexAskKind, CodexRoutedMethod, CodexServerRequestResponder,
+    CODEX_TOKEN_REFRESH_METHOD, CodexAskKind, CodexRoutedMethod, CodexServerRequestResponder,
+    CodexTokenRefresher,
 };
 use crate::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
 use crate::driver::codex::transport::connection::asks::{HeldServerRequest, read_dropped_request};
@@ -90,12 +91,16 @@ pub(crate) trait CodexConnectionEvents: Send + Sync {
 }
 
 /// What one connection hands up: notifications and its close to `events`, routed asks to
-/// `responder`. With no responder, every routed ask answers its own refusal.
+/// `responder`, token refreshes to `token_refresher`. With no responder, every routed ask answers
+/// its own refusal; with no refresher, a token refresh answers `-32601`. Both are in place from the
+/// connection's start, before its `initialize`, so no request finds them missing.
 pub(crate) struct CodexConnectionHandlers {
     /// Notifications, the drop and the held asks let go of.
     pub(crate) events: Arc<dyn CodexConnectionEvents>,
     /// Answers or holds each routed ask.
     pub(crate) responder: Option<Arc<dyn CodexServerRequestResponder>>,
+    /// Answers each token refresh; `None` on every service but the switching one.
+    pub(crate) token_refresher: Option<Arc<dyn CodexTokenRefresher>>,
 }
 
 /// The sending half of the socket a connection writes to.
@@ -199,6 +204,8 @@ struct ConnectionShared {
     events: Arc<dyn CodexConnectionEvents>,
     /// Answers or holds each routed ask.
     responder: Option<Arc<dyn CodexServerRequestResponder>>,
+    /// Answers each token refresh.
+    token_refresher: Option<Arc<dyn CodexTokenRefresher>>,
 }
 
 /// The connection's bookkeeping, changed only under its lock.
@@ -288,6 +295,7 @@ impl CodexAppServerConnection {
             writer: AsyncMutex::new(Some(writer)),
             events: handlers.events,
             responder: handlers.responder,
+            token_refresher: handlers.token_refresher,
         });
         let reader_shared = Arc::clone(&shared);
         let reader = tokio::spawn(async move {
@@ -620,9 +628,14 @@ impl ConnectionShared {
                 let decision = self.decide_routed_request(&id, routed, &params);
                 tokio::spawn(Arc::clone(self).answer_routed_request(id, routed, params, decision));
             }
-            None => {
-                tokio::spawn(Arc::clone(self).refuse_unrouted_request(id, method));
-            }
+            None => match &self.token_refresher {
+                Some(refresher) if method == CODEX_TOKEN_REFRESH_METHOD => {
+                    tokio::spawn(Arc::clone(self).answer_token_refresh(id, Arc::clone(refresher)));
+                }
+                Some(_) | None => {
+                    tokio::spawn(Arc::clone(self).refuse_unrouted_request(id, method));
+                }
+            },
         }
     }
 

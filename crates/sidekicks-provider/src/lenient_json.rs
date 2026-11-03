@@ -25,6 +25,14 @@ pub(crate) fn read_lenient<'de, D: Deserializer<'de>, T: Lenient>(
     T::read(deserializer)
 }
 
+/// A member's `deserialize_with`, beside `default`: whether the member is a non-empty string, its
+/// text dropped as it is read, so a person's data such as an email is never kept.
+pub(crate) fn read_is_non_empty_text<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<bool, D::Error> {
+    Ok(String::read(deserializer)?.is_some_and(|text| !text.is_empty()))
+}
+
 /// Skips any JSON value but the one shape `Wanted` reads, which each `Visitor` impl names.
 pub(crate) struct LenientVisitor<Wanted>(pub(crate) PhantomData<Wanted>);
 

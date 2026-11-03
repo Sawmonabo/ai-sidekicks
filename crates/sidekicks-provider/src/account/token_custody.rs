@@ -8,7 +8,8 @@
 //!   item no row names, and a refused read or a row not written destroys the item.
 //! - A re-supply runs the status read first, since the account's one item still holds the token in
 //!   use, then seals the new token over it, which destroys the prior one, then raises the
-//!   generation with the reading in one write.
+//!   generation with the reading in one write, then hands the new token to the account's processes
+//!   running on the prior one.
 //! - The start's sweep destroys every item no registered row names, the items of rows whose
 //!   removal has begun among them, then deletes those rows.
 
@@ -70,9 +71,16 @@ pub enum TokenCustodyError {
     /// The keychain holds no token for the account.
     #[error("no token is sealed for the account")]
     NotSealed,
+    /// A re-supply named an account that signs in another way than a pasted token or key.
+    #[error("the account takes no pasted token")]
+    NotTokenAccount,
     /// The keychain could not destroy the account's sealed token.
     #[error("the sealed token could not be destroyed")]
     Destroying(#[source] KeychainRefusal),
+    /// A re-supplied token, sealed and recorded, could not be handed to a process running on the
+    /// account.
+    #[error("the new token could not be handed to the processes running on the account")]
+    Handing(#[source] DriverError),
     /// The registry could not read or write the account.
     #[error(transparent)]
     Registry(#[from] ProviderAccountRegistryError),
@@ -81,8 +89,9 @@ pub enum TokenCustodyError {
 impl From<TokenCustodyError> for HandlerError {
     /// A token the keychain could not seal refuses `provider.account.credentialSealRefused` with
     /// its cause, and one it could not destroy `provider.account.credentialDestroyRefused` with
-    /// its cause; one the provider did not accept `provider.account.tokenNotAccepted`, and a
-    /// registry failure as the registry answers it; every other failure is the daemon's own.
+    /// its cause; one the provider did not accept `provider.account.tokenNotAccepted`, a re-supply
+    /// of an account that takes no pasted token `provider.account.notFound`, and a registry failure
+    /// as the registry answers it; every other failure is the daemon's own.
     fn from(error: TokenCustodyError) -> Self {
         match error {
             TokenCustodyError::Sealing(refusal) => Self::Refused(DomainError::keychain_refused(
@@ -99,12 +108,17 @@ impl From<TokenCustodyError> for HandlerError {
                 "The provider did not accept that token",
                 RefusalCode::ProviderAccountTokenNotAccepted,
             )),
+            TokenCustodyError::NotTokenAccount => Self::Refused(DomainError::new(
+                "The provider account takes no pasted token",
+                RefusalCode::ProviderAccountNotFound,
+            )),
             TokenCustodyError::StatusRead(failure) => failure.into(),
             TokenCustodyError::Registry(failure) => failure.into(),
             error @ (TokenCustodyError::NoStatusRead
             | TokenCustodyError::Sweep(_)
             | TokenCustodyError::Unsealing(_)
-            | TokenCustodyError::NotSealed) => Self::Internal(Box::new(error)),
+            | TokenCustodyError::NotSealed
+            | TokenCustodyError::Handing(_)) => Self::Internal(Box::new(error)),
         }
     }
 }
@@ -180,10 +194,16 @@ impl ProviderTokenCustody {
 
     /// Replaces `account_id`'s sealed token with `token` once the status read in `folders`
     /// accepts it, destroying the prior one, and raises the account's generation with that
-    /// reading. Fails with [`TokenCustodyError::NotAccepted`] when the provider reports no
-    /// signed-in mode, leaving the prior token and the row as they were, with
-    /// [`TokenCustodyError::Sealing`] when the keychain refuses, and when the account is not
-    /// registered or cannot be read or written.
+    /// reading; a token account whose sealed token was lost takes the new one. The new token is
+    /// then handed to the account's processes running on the prior one. Fails with
+    /// [`TokenCustodyError::NotTokenAccount`] for an account whose sign-in is no pasted token or
+    /// key, before any read, so a re-supply never turns a sign-in into a token under the services
+    /// that run on it; with [`TokenCustodyError::NotAccepted`]
+    /// when the provider reports no signed-in mode, leaving the prior token and the row as they
+    /// were; with [`TokenCustodyError::Sealing`] when the keychain refuses; when the account
+    /// is not registered or cannot be read or written; and with [`TokenCustodyError::Handing`]
+    /// when a running process could not be handed the new token, which stays sealed with the
+    /// generation raised, so a re-supply of it again hands it again.
     pub async fn replace(
         &self,
         account_id: ProviderAccountId,
@@ -191,6 +211,9 @@ impl ProviderTokenCustody {
         token: &SecretString,
     ) -> Result<RegisteredAccount, TokenCustodyError> {
         let account = self.registry.read(account_id).await?;
+        if !account.has_pasted_credential() {
+            return Err(TokenCustodyError::NotTokenAccount);
+        }
         let status_legs = self.status_legs(&account.provider)?;
         let (health, observed_auth_mode) =
             read_token_status(status_legs, &account.account_id, folders, token).await?;
@@ -198,10 +221,15 @@ impl ProviderTokenCustody {
             .write_verified(account.account_id.as_str(), token)
             .await
             .map_err(TokenCustodyError::Sealing)?;
-        Ok(self
+        let replaced = self
             .registry
             .record_token_replacement(account.account_id, &health, observed_auth_mode)
-            .await?)
+            .await?;
+        status_legs
+            .hand_resupplied_token(&replaced.account_id, folders, token)
+            .await
+            .map_err(TokenCustodyError::Handing)?;
+        Ok(replaced)
     }
 
     /// The token sealed for `account_id`, which only the provider's own child is handed. Fails

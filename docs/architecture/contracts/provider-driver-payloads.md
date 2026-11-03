@@ -819,6 +819,11 @@ interface ProviderUsageLimitResetBoundary {
 // with no reset instant to report, but never without a cause.
 interface ProviderUsageLimitSignal {
   cause: ProviderUsageLimitCause;
+  // The account whose allowance is spent: the one the conversation ran on.
+  providerAccountId: ProviderAccountId;
+  // The account's generation when the limit was met, so a signal from before a sign-in again
+  // reads as stale.
+  credentialGeneration: CredentialGeneration;
   resetBoundary?: ProviderUsageLimitResetBoundary;
 }
 

@@ -40,7 +40,7 @@ use tokio_util::task::TaskTracker;
 #[cfg(test)]
 pub(crate) use self::stand_in::{
     CODEX_HOME_NAME, CONFIG_READ_REPLY_NAME, HANG_UP_IGNORED_NAME, LAUNCH_ARGUMENTS_FILE,
-    REQUEST_RECORD_NAME, StandInLaunches,
+    ProgramPerHome, REQUEST_RECORD_NAME, StandInLaunches, read_tree, request_record,
 };
 pub use self::stand_in::{
     CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, RESUMED_TURN_NAME,
@@ -238,6 +238,7 @@ pub(crate) fn test_codex_service_dependencies(
         wrapper_program: command_wrapper_program_path(&link_folder),
         askpass_program: command_askpass_program_path(&link_folder),
     });
+    let provider_accounts = Arc::new(PortRegistration::new("provider accounts"));
     Arc::new(CodexServiceDependencies {
         spawner,
         provider_services: Arc::new(ProviderServiceProcesses::default()),
@@ -256,9 +257,8 @@ pub(crate) fn test_codex_service_dependencies(
         drains: LastingServiceDrains::default(),
         tasks: TaskTracker::new(),
         exec_relay,
-        switching: Arc::new(CodexSwitchingAccount::new(Arc::new(PortRegistration::new(
-            "provider accounts",
-        )))),
+        switching: Arc::new(CodexSwitchingAccount::new(Arc::clone(&provider_accounts))),
+        provider_accounts,
     })
 }
 
@@ -315,6 +315,20 @@ pub(crate) fn start_scripted_account_service_for(
 ) -> ScriptedCodexService {
     start_scripted_codex_service_on(
         CodexHomeKind::Account(provider_account_id),
+        CodexServiceKind::Account,
+        Arc::new(UnstartedProgram),
+        Arc::new(UnheardEvents),
+    )
+}
+
+/// Starts the key service on the home of `provider_account_id`, an account signed in with a pasted
+/// API key, whose connection the test scripts. Must be called within a runtime.
+#[cfg(test)]
+pub(crate) fn start_scripted_api_key_service_for(
+    provider_account_id: ProviderAccountId,
+) -> ScriptedCodexService {
+    start_scripted_codex_service_on(
+        CodexHomeKind::ApiKeyAccount(provider_account_id),
         CodexServiceKind::Account,
         Arc::new(UnstartedProgram),
         Arc::new(UnheardEvents),
@@ -390,9 +404,11 @@ fn start_scripted_codex_service_on(
     let codex_home = match home_kind {
         CodexHomeKind::Switching => switching_home(&dependencies.data_folder),
         CodexHomeKind::Account(_)
+        | CodexHomeKind::ApiKeyAccount(_)
         | CodexHomeKind::PersonalFolder
         | CodexHomeKind::CapabilityRead
-        | CodexHomeKind::McpSignIn => folder.path().join("home"),
+        | CodexHomeKind::McpSignIn
+        | CodexHomeKind::TokenStatusRead => folder.path().join("home"),
     };
     let (service, script) = script_codex_service(
         CodexServiceHome {
@@ -561,7 +577,8 @@ pub(crate) struct StandInReplies {
 /// server its config switches on or sends reports ready, and each listed server is connected with
 /// [`PROBE_TOOL_NAME`]. A config read is answered with `replies`' where one is given, and where a
 /// resumed turn is given, a resume is answered on the conversation it names, under the profile it
-/// asks for, and that conversation's turns are listed as that one turn.
+/// asks for, and that conversation's turns are listed as that one turn. Once the connection is
+/// handed an API key, its account read names an API-key sign-in; before, it answers nothing.
 pub(crate) async fn answer_as_codex_service(
     stream: impl AsyncRead + AsyncWrite + Unpin,
     replies: StandInReplies,
@@ -581,6 +598,7 @@ pub(crate) async fn answer_as_codex_service(
     let Ok(mut socket) = tokio_tungstenite::accept_async(stream).await else {
         return;
     };
+    let mut is_key_handed = false;
     while let Some(Ok(message)) = socket.next().await {
         let Message::Text(text) = message else {
             continue;
@@ -591,6 +609,9 @@ pub(crate) async fn answer_as_codex_service(
         }
         let id = &request["id"];
         on_request(&request);
+        if request["method"] == "account/login/start" && request["params"]["type"] == "apiKey" {
+            is_key_handed = true;
+        }
         let mut notices = Vec::new();
         let reply = match request["method"].as_str() {
             Some("thread/start") if request["params"]["ephemeral"] == json!(true) => {
@@ -620,6 +641,9 @@ pub(crate) async fn answer_as_codex_service(
                 "result": {"userAgent": "ai-sidekicks-daemon/0.130.0 (test)"}}),
             Some("hooks/list") => json!({"id": id, "result": {"data": [{"hooks": hooks}]}}),
             Some("thread/loaded/list") => json!({"id": id, "result": {"data": []}}),
+            Some("account/read") if is_key_handed => {
+                json!({"id": id, "result": {"account": {"type": "apiKey"}}})
+            }
             _ => json!({"id": id, "result": {}}),
         };
         for message in std::iter::once(reply).chain(notices) {

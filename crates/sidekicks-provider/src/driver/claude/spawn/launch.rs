@@ -85,6 +85,9 @@ pub(crate) enum ClaudeLaunchError {
         /// What it did not answer.
         what: String,
     },
+    /// The `initialize` reply named its account in a shape that could not be read.
+    #[error("Claude Code's initialize reply could not be read")]
+    InitializeUnreadable(#[source] serde_json::Error),
     /// The build the command names could not be resolved, or its version not read.
     #[error(transparent)]
     Build(#[from] DriverError),
@@ -106,7 +109,8 @@ impl From<ClaudeLaunchError> for DriverError {
             | ClaudeLaunchError::MessageUnwritten(_)
             | ClaudeLaunchError::TurnErrored { .. }
             | ClaudeLaunchError::TurnStopped
-            | ClaudeLaunchError::Unanswered { .. }) => Self::Internal(Box::new(error)),
+            | ClaudeLaunchError::Unanswered { .. }
+            | ClaudeLaunchError::InitializeUnreadable(_)) => Self::Internal(Box::new(error)),
         }
     }
 }
@@ -168,7 +172,9 @@ impl ClaudeProcessLauncher {
         if launch.token.is_none()
             && let Some(provider_account_id) = launch.account.read()
         {
-            launch.token = self.read_token_account_token(&provider_account_id).await?;
+            launch.token = read_token_account_token(&self.provider_accounts, &provider_account_id)
+                .await
+                .map_err(ClaudeLaunchError::SealedToken)?;
         }
         let process = Arc::new(
             ClaudeCodeProcess::start(
@@ -195,34 +201,6 @@ impl ClaudeProcessLauncher {
             return Err(ClaudeLaunchError::Stopping);
         }
         Ok(process)
-    }
-
-    // The token sealed for `provider_account_id`'s account where it signs in with a pasted token;
-    // `None` for any other account, whose start never reads the keychain. A token account with no
-    // token sealed fails, since its process could sign in as no one.
-    async fn read_token_account_token(
-        &self,
-        provider_account_id: &ProviderAccountId,
-    ) -> Result<Option<SecretString>, ClaudeLaunchError> {
-        let accounts = self
-            .provider_accounts
-            .require_port()
-            .map_err(|error| ClaudeLaunchError::SealedToken(Box::new(error)))?;
-        let mode = accounts
-            .read_observed_auth_mode(provider_account_id.clone())
-            .await
-            .map_err(ClaudeLaunchError::SealedToken)?;
-        if mode != Some(ProviderAuthMode::OauthToken) {
-            return Ok(None);
-        }
-        accounts
-            .read_sealed_token(provider_account_id.clone())
-            .await
-            .map_err(ClaudeLaunchError::SealedToken)?
-            .map(Some)
-            .ok_or_else(|| {
-                ClaudeLaunchError::SealedToken("no token is sealed for the token account".into())
-            })
     }
 
     /// Stops every live process together, each given the daemon's stop drain to exit on its own,
@@ -255,6 +233,29 @@ impl ClaudeProcessLauncher {
 
 fn drain() -> Duration {
     Duration::from_millis(DAEMON_STOP_TERMINAL_DRAIN_MS)
+}
+
+/// The token sealed for `provider_account_id`'s account where it signs in with a pasted token, as
+/// the account's processes are handed it on their descriptor; `None` for any other account, whose
+/// read never reaches the keychain. Fails where the accounts reader is not registered or cannot
+/// read the account, and for a token account with no token sealed, whose process could sign in as
+/// no one.
+pub(crate) async fn read_token_account_token(
+    provider_accounts: &PortRegistration<Arc<dyn ProviderAccountReader>>,
+    provider_account_id: &ProviderAccountId,
+) -> Result<Option<SecretString>, Box<dyn Error + Send + Sync>> {
+    let accounts = provider_accounts.require_port()?;
+    let mode = accounts
+        .read_observed_auth_mode(provider_account_id.clone())
+        .await?;
+    if mode != Some(ProviderAuthMode::OauthToken) {
+        return Ok(None);
+    }
+    accounts
+        .read_sealed_token(provider_account_id.clone())
+        .await?
+        .map(Some)
+        .ok_or_else(|| "no token is sealed for the token account".into())
 }
 
 #[cfg(test)]

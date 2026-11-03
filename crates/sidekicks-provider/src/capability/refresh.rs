@@ -290,7 +290,7 @@ mod tests {
     use crate::driver::registry::ProviderRegistry;
     use crate::driver::schema::schema_parts;
     use crate::driver::test_registry::test_driver_services;
-    use crate::driver::{DriverServices, PROVIDERS, ProviderRegistration};
+    use crate::driver::{DriverServices, PROVIDER_REGISTRATIONS, ProviderRegistration};
 
     // A permit for each capability read the driver starts.
     static READS_STARTED: Semaphore = Semaphore::const_new(0);
@@ -335,9 +335,9 @@ mod tests {
     async fn a_dropped_caller_loses_no_trigger_a_queued_caller_waits_and_the_stop_ends_the_pass() {
         let services = test_driver_services();
         let table = [ProviderRegistration {
-            descriptor: PROVIDERS[0],
             build: gated_driver,
             stop_recorded_services: None,
+            ..PROVIDER_REGISTRATIONS[0]
         }];
         let database = TestDatabase::new(schema_parts());
         let (refresher, refreshing) = CapabilityRefresher::start(

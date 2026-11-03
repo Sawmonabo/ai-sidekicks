@@ -15,6 +15,7 @@ use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::keychain::KeychainRefusalCause;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
+use crate::provider::account::record::ProviderAccountId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::integer::SafeInt;
 use crate::wire::text::FreeFormText;
@@ -179,6 +180,44 @@ pub struct DaemonDataStoreUnavailableDetails {
     pub cause: KeychainRefusalCause,
 }
 
+/// Why the erase left an account signed in with its provider: no registered provider runs its
+/// sign-out (`noProvider`), the provider's own sign-out failed or was refused (`refused`), or it
+/// did not end within its bound (`timedOut`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum DataEraseSignOutFailure {
+    /// No registered provider runs the account's sign-out.
+    NoProvider,
+    /// The provider's own sign-out failed or was refused.
+    Refused,
+    /// The sign-out did not end within its bound.
+    TimedOut,
+}
+
+/// An account the erase could not sign out, which stays signed in with its provider once its home
+/// is deleted.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct DataEraseSignedInAccount {
+    /// The account.
+    pub account_id: ProviderAccountId,
+    /// Why it was not signed out.
+    pub cause: DataEraseSignOutFailure,
+}
+
+/// The erase's answer, sent once every account's sign-out has ended and before the work stops;
+/// the rest of the erase follows it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct DaemonDataEraseResponse {
+    /// Each account left signed in with its provider, with why; empty when every one signed out.
+    pub signed_in_accounts: Vec<DataEraseSignedInAccount>,
+    /// Whether the accounts could not be read, so none was signed out.
+    pub is_account_list_unread: bool,
+}
+
 methods! {
     /// The data methods. The export stream's acknowledgment is the subscription, and each
     /// emission is the job's progress as it changes.
@@ -213,7 +252,7 @@ methods! {
         DaemonDataErase = mutation "daemon.data.erase" {
             mutating: true,
             params: EmptyPayload,
-            result: EmptyPayload,
+            result: DaemonDataEraseResponse,
             refusals: [DaemonDataStoreUnavailable, DaemonDataEraseRunning],
         },
     ];
@@ -234,6 +273,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DaemonDataExportDestinationNotWritableDetails>().checked(),
         Definition::read::<DataExportProgress>().checked(),
         Definition::read::<DaemonDataStoreUnavailableDetails>().checked(),
+        Definition::read::<DataEraseSignOutFailure>(),
+        Definition::read::<DataEraseSignedInAccount>().checked(),
+        Definition::read::<DaemonDataEraseResponse>().checked(),
     ],
     constants: TS_CONSTANTS,
     method_tables: &[&DAEMON_DATA_METHOD_DESCRIPTORS],

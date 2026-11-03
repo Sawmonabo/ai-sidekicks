@@ -31,7 +31,8 @@ use crate::driver::codex::event_normalizer::{
 };
 use crate::driver::codex::lifecycle::views::CodexConversationView;
 use crate::driver::codex::service::command::run_codex_command;
-use crate::driver::codex::service::home::CodexServiceKind;
+use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceKind};
+use crate::driver::codex::service::registry::home_exec_switches;
 use crate::driver::codex::service::supervisor::start::compose_codex_native_launch;
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceDependencies};
 use crate::driver::codex::session::detached_conversation::{
@@ -568,6 +569,7 @@ async fn name_in_one_shot(
     let server_names = list_mcp_server_names(
         dependencies,
         &executable,
+        &service.home().kind,
         time_left().min(CODEX_SERVER_LIST_DEADLINE),
     )
     .await?;
@@ -589,7 +591,8 @@ async fn name_in_one_shot(
             Value::String(effort.to_owned()),
         )
     }));
-    let mut arguments = lockdown::write_exec_overrides(overrides);
+    let mut arguments = home_exec_switches(&service.home().kind);
+    arguments.extend(lockdown::write_exec_overrides(overrides));
     arguments.extend([
         "exec".to_owned(),
         "--ephemeral".to_owned(),
@@ -631,19 +634,19 @@ async fn name_in_one_shot(
     }
 }
 
-/// The MCP servers `codex mcp list --json` names on the home `executable` runs for, within
-/// `deadline`. Fails with `CodexError::Transport` when the list cannot be run or read.
+/// The MCP servers `codex mcp list --json` names on the home of `home_kind` `executable` runs
+/// for, with that home's own switches, within `deadline`. Fails with `CodexError::Transport` when
+/// the list cannot be run or read.
 pub(crate) async fn list_mcp_server_names(
     dependencies: &CodexServiceDependencies,
     executable: &ResolvedProviderExecutable,
+    home_kind: &CodexHomeKind,
     deadline: Duration,
 ) -> Result<Vec<String>, CodexError> {
-    let launch = compose_codex_native_launch(
-        &dependencies.data_folder,
-        executable,
-        vec!["mcp".to_owned(), "list".to_owned(), "--json".to_owned()],
-    )
-    .await?;
+    let mut arguments = home_exec_switches(home_kind);
+    arguments.extend(["mcp".to_owned(), "list".to_owned(), "--json".to_owned()]);
+    let launch =
+        compose_codex_native_launch(&dependencies.data_folder, executable, arguments).await?;
     let listing = run_codex_command(&dependencies.spawner, launch, deadline)
         .await
         .map_err(|error| CodexError::Transport {
