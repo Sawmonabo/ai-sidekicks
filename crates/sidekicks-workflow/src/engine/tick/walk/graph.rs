@@ -2,8 +2,10 @@
 //! for each main output, the slots it feeds. Tool edges are left out, since a node wired into a
 //! `tool` input runs only when its agent calls it.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
+use petgraph::algo::tarjan_scc;
+use petgraph::graph::{DiGraph, NodeIndex};
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowEdge, WorkflowNode, WorkflowNodeId,
@@ -119,6 +121,7 @@ impl RunGraph {
             .collect();
         let mut node_handles: Vec<WorkflowNodeHandles> = Vec::with_capacity(sorted.len());
         let mut graph_nodes = Vec::with_capacity(sorted.len());
+        let mut is_loop = Vec::with_capacity(sorted.len());
         for node in &sorted {
             let rules = kinds
                 .kind_rules(node)
@@ -140,13 +143,13 @@ impl RunGraph {
                 .collect();
             main_inputs.sort_unstable();
             let is_disabled = node.disabled == Some(true);
+            let kind = kinds.kind_of(node);
+            is_loop.push(kind.is_some_and(|kind| kind.is_loop));
             graph_nodes.push(RunGraphNode {
                 id: node.id.clone(),
                 is_disabled,
                 readies_on_first_input: !is_disabled
-                    && kinds
-                        .kind_of(node)
-                        .is_some_and(|kind| kind.executor.readies_on_first_input(node)),
+                    && kind.is_some_and(|kind| kind.executor.readies_on_first_input(node)),
                 input_count: rules.handles.inputs.len(),
                 slots: main_inputs
                     .iter()
@@ -203,7 +206,7 @@ impl RunGraph {
         let trigger = *places
             .get(trigger)
             .expect("a run's trigger is a node of its pinned version");
-        let forward_feeders = forward_feeders(&graph_nodes, trigger);
+        let forward_feeders = forward_feeders(&graph_nodes, &is_loop);
         let words_per_node = graph_nodes.len().div_ceil(WORD_BITS);
         let ancestor_bits = forward_ancestor_bits(&forward_feeders, words_per_node);
         Ok(Self {
@@ -263,66 +266,73 @@ impl RunGraph {
     }
 }
 
-/// Where a node stands in the depth-first walk that sorts the edges into forward and back ones.
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// Each of `nodes`' feeders along forward main edges, by place, each once: every main edge but
+/// the back edges that close a loop, `is_loop` telling which places hold the loop kind. Each group
+/// of nodes that all reach one another holds a loop; its back edges are those from inside it into
+/// its loop nodes fed from outside it, or into all its loop nodes where none is, and the group is
+/// searched again without them for a loop inside the body. No order of nodes or edges decides
+/// which edge closes a loop.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-enum WalkMark {
-    /// The walk has not reached it.
-    Unreached,
-    /// It is on the walk's current path, so an edge into it closes a loop.
-    OnPath,
-    /// The walk has left it.
-    Left,
-}
-
-/// Each of `nodes`' feeders along forward main edges, by place, each once. A depth-first walk from
-/// `trigger`, then from each node it has not reached in place order, following each node's targets
-/// in output order, takes every edge but those that close a loop, its back edges.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-fn forward_feeders(nodes: &[RunGraphNode], trigger: usize) -> Vec<Vec<usize>> {
-    let node_count = nodes.len();
-    let targets: Vec<Vec<usize>> = nodes
-        .iter()
-        .map(|node| {
-            node.outputs
-                .iter()
-                .flatten()
-                .map(|target| target.node)
-                .collect()
-        })
-        .collect();
-    let mut marks = vec![WalkMark::Unreached; node_count];
-    let mut forward_feeders: Vec<Vec<usize>> = vec![Vec::new(); node_count];
-    for start in std::iter::once(trigger).chain(0..node_count) {
-        if marks[start] != WalkMark::Unreached {
-            continue;
+fn forward_feeders(nodes: &[RunGraphNode], is_loop: &[bool]) -> Vec<Vec<usize>> {
+    let mut feeders: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
+    for (place, node) in nodes.iter().enumerate() {
+        for target in node.outputs.iter().flatten() {
+            feeders[target.node].push(place);
         }
-        marks[start] = WalkMark::OnPath;
-        let mut path = vec![(start, 0)];
-        while let Some(top) = path.last_mut() {
-            let node = top.0;
-            let Some(&target) = targets[node].get(top.1) else {
-                marks[node] = WalkMark::Left;
-                path.pop();
-                continue;
-            };
-            top.1 += 1;
-            match marks[target] {
-                WalkMark::OnPath => {}
-                WalkMark::Unreached => {
-                    forward_feeders[target].push(node);
-                    marks[target] = WalkMark::OnPath;
-                    path.push((target, 0));
+    }
+    for node_feeders in &mut feeders {
+        node_feeders.sort_unstable();
+        node_feeders.dedup();
+    }
+    let mut groups = vec![(0..nodes.len()).collect::<Vec<usize>>()];
+    while let Some(members) = groups.pop() {
+        let mut group: DiGraph<usize, ()> = DiGraph::with_capacity(members.len(), members.len());
+        let indices: HashMap<usize, NodeIndex> = members
+            .iter()
+            .map(|&place| (place, group.add_node(place)))
+            .collect();
+        for &target in &members {
+            for feeder in &feeders[target] {
+                if let Some(&feeder_index) = indices.get(feeder) {
+                    group.add_edge(feeder_index, indices[&target], ());
                 }
-                WalkMark::Left => forward_feeders[target].push(node),
             }
         }
+        for component in tarjan_scc(&group) {
+            if component.len() < 2 {
+                continue;
+            }
+            let inside: BTreeSet<usize> = component.iter().map(|&index| group[index]).collect();
+            // A group holding no loop node, which the save refuses, is cut at every node, so the
+            // search ends whatever graph it is handed.
+            let loops: Vec<usize> = inside
+                .iter()
+                .copied()
+                .filter(|&place| is_loop[place])
+                .collect();
+            let candidates = if loops.is_empty() {
+                inside.iter().copied().collect()
+            } else {
+                loops
+            };
+            let entered: Vec<usize> = candidates
+                .iter()
+                .copied()
+                .filter(|&place| feeders[place].iter().any(|feeder| !inside.contains(feeder)))
+                .collect();
+            let headers = if entered.is_empty() {
+                candidates
+            } else {
+                entered
+            };
+            // Each member is fed from inside, so every pass cuts at least one edge and ends.
+            for header in headers {
+                feeders[header].retain(|feeder| !inside.contains(feeder));
+            }
+            groups.push(inside.into_iter().collect());
+        }
     }
-    for feeders in &mut forward_feeders {
-        feeders.sort_unstable();
-        feeders.dedup();
-    }
-    forward_feeders
+    feeders
 }
 
 /// Each node's ancestors along `forward_feeders` as `words_per_node` words of one bit per place,

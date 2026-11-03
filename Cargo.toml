@@ -275,6 +275,7 @@ lz4_flex.default-features = false
 lz4_flex.features = ["safe-decode", "safe-encode"]
 memchr = "2.8.3"
 pdfium-render = "0.9.4"
+petgraph = { version = "0.8.3", default-features = false, features = ["std"] }
 # A PNG's header read with its text and color-profile chunks skipped: `image`'s PNG decoder reads
 # both.
 png = "0.18.1"
