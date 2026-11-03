@@ -316,7 +316,7 @@ fn describe_status(response: &DaemonStatusReadResponse, clock: &LocalClock) -> S
         .join("\n")
 }
 
-/// The service's own lines: its state, start, uptime and version, then each fact on a labelled
+/// The service's own lines: its state, start, uptime and version, then each fact on a labeled
 /// row, its readings with their times, and its recovery.
 fn describe_service(response: &DaemonStatusReadResponse, clock: &LocalClock) -> Vec<String> {
     let state = match response.process_state {
