@@ -588,8 +588,9 @@ impl RunningCommandPublisher for RunningCommandSets {
         let mut sessions = self.lock();
         let commands = sessions.entry(start.session_id).or_default();
         if let Some(index) = commands.index(&start.command_id) {
-            // A row the background list showed first takes what only the start names, so its
-            // wrapper can pair with it; the set is sent again only when the row changed.
+            // A row the background list showed first takes what only the start names: its line
+            // and process, so its wrapper can pair with it, and its call, which its ending names.
+            // The set is sent again only when the row changed.
             let mut row = commands.rows.remove(index);
             let is_filled = (row.start.line.is_none() && start.line.is_some())
                 || (row.start.process_id.is_none() && start.process_id.is_some());
