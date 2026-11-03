@@ -562,7 +562,7 @@ async fn only_a_persons_close_stops_the_surviving_tasks(#[case] cause: SessionCl
         .expect("the session closes");
     settle().await;
 
-    assert!(stopped_tasks(&channel).is_empty());
+    assert_eq!(stopped_tasks(&channel), Vec::<String>::new());
     assert_eq!(
         closed_calls(&fixture),
         [
