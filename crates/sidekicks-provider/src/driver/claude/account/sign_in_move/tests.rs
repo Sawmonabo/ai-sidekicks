@@ -141,6 +141,7 @@ async fn the_helper_mode_names_each_claude_code_sign_in_and_no_codex_one() {
     assert_eq!(named, expected);
 
     let session_environment = test_account_legs(&fixture.services, Weak::new())
+        .sources
         .compose_environment_on(
             ClaudeProcessHome::Account {
                 folders: &ClaudeAccountFolders::from(&credential_home_folders(
