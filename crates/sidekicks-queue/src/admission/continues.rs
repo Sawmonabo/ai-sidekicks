@@ -32,6 +32,7 @@ impl QueueAdmission {
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<(), QueueError> {
+        let pending = self.pending_reservation(run_id);
         let (provider, provider_account_id, driver) =
             self.read_run_driver(session_id, run_id).await?;
         if !self
@@ -53,7 +54,7 @@ impl QueueAdmission {
             .await?;
         // Taken under the lock, so a removal either lands first or finds the opening taken.
         let (opening, own_run_id) = {
-            let hold = self.deps.session_lock.hold_session(session_id).await;
+            let hold = self.hold_session_for_opening(session_id).await;
             let is_interrupted = read_run_through::<QueueError>(&self.deps.pool, run_id)
                 .await?
                 .is_some_and(|run| run.state == RunState::Interrupted);
@@ -69,10 +70,7 @@ impl QueueAdmission {
             let (messages, own_run_items): (Vec<_>, Vec<_>) = lead_waiting
                 .into_iter()
                 .partition(|item| item.body.as_message().is_some());
-            let head = messages.into_iter().next();
-            if let Some(head) = &head {
-                self.deps.openings.insert(run_id, head.clone());
-            }
+            let head = self.take_opening(pending, &messages);
             let own_run_id = if head.is_none() && !own_run_items.is_empty() {
                 Some(
                     self.queue_own_run_items(&hold, &own_run_items, provider_account_id)

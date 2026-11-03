@@ -1,5 +1,5 @@
-//! A Codex command's row as a live session's task keeps it, and the person's stop of a command the
-//! relay does not hold.
+//! A Codex command's row as a live session's task keeps it, the call its ending names, and the
+//! person's stop of a command the relay does not hold.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -7,12 +7,16 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use sidekicks_contracts::command::CommandId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
+use sidekicks_contracts::session::id::SessionId;
 
 use super::{LiveCodexSession, TEST_TURN};
-use crate::command::running_set::unbound_running_command_sets;
+use crate::command::running_set::{RunningCommandSets, unbound_running_command_sets};
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, turn_completed};
 use crate::driver::contract::error::DriverError;
+use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
 use crate::port::running_command_publisher::RunningCommandParams;
+use crate::run::delivery::LateAppendableRow;
 
 const CALL: &str = "call-1";
 
@@ -118,4 +122,57 @@ async fn a_commands_row_outlives_its_turn_and_service_and_its_stop_reaches_codex
             "processId": "7", "exitCode": 143 }),
     ));
     wait_until(|| !sets.has_running_commands(session_id)).await;
+}
+
+// A command's ending names the tool call its item is, under the item's id, so a turn an undo cut
+// takes its late ending with it. Killed by the driver starting the row with no call
+// (`tool_call_id: None` in `publish_command_started`).
+#[tokio::test]
+async fn a_commands_ending_names_its_items_call() {
+    let session = LiveCodexSession::start(&[]).await;
+    let engine = Arc::new(RecordingRunEngine::default());
+    let sets = Arc::new(RunningCommandSets::new(
+        Arc::new(|_session: &SessionId| None),
+        Arc::<RecordingRunEngine>::clone(&engine),
+    ));
+    assert!(
+        session
+            .driver
+            .ports
+            .command_output
+            .register(Arc::clone(&sets) as _)
+            .is_ok()
+    );
+    let item = json!({ "type": "commandExecution", "id": CALL, "command": "true" });
+
+    session
+        .scripted
+        .script
+        .send(&command_frame("item/started", &item));
+    wait_until(|| sets.has_running_commands(session.session_id)).await;
+    session.scripted.script.send(&command_frame(
+        "item/completed",
+        &json!({ "type": "commandExecution", "id": CALL, "command": "true", "exitCode": 0 }),
+    ));
+    let ending = tokio::time::timeout(
+        Duration::from_secs(10),
+        engine.wait_until(|calls| {
+            calls.iter().find_map(|call| {
+                if let EngineCall::Deliver(delivery) = call
+                    && let Some(LateAppendableRow::AgentCommandEnded(ending)) = &delivery.row
+                {
+                    Some(ending.clone())
+                } else {
+                    None
+                }
+            })
+        }),
+    )
+    .await
+    .expect("the command's ending is appended");
+
+    assert_eq!(
+        ending.tool_call_id.as_ref().map(ToolCallId::as_str),
+        Some(CALL)
+    );
 }

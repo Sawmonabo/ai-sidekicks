@@ -7,3 +7,5 @@ sidekicks: turn-boundary snapshot
 Skipped-Embedded-Repositories: ["vendor/😀","vendor/～","vendor/�"]
 
 Sparse-Boundary-Paths: ["vendor/ï½","vendor/ð","vendor/ÿ"]
+
+Left-Out-Paths: ["vendor/ï½","vendor/ð","vendor/ÿ"]

@@ -66,16 +66,9 @@ pub(crate) enum DeliveryAttribution {
 
 /// An undo's cut, confirmed by the provider. In place, the binding stays and its deliveries after
 /// the fence open the new epoch at `point`; by a fork and restart, the old binding freezes whole
-/// and `new_binding` opens the new epoch at `point`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the provider's event delivery fences each cut the provider confirms"
-    )
-)]
+/// and `new_binding_id`, on the same run, provider and account, opens the new epoch at `point`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ConfirmedCut {
+pub enum ConfirmedCut {
     /// The provider rewound the binding's own conversation.
     InPlace {
         /// The binding cut.
@@ -90,8 +83,17 @@ pub(crate) enum ConfirmedCut {
         /// The turn the new epoch opens at.
         point: SourcePosition,
         /// The binding that carries the new epoch.
-        new_binding: EpochBinding,
+        new_binding_id: RuntimeBindingId,
     },
+}
+
+impl ConfirmedCut {
+    /// The turn the new epoch opens at.
+    pub fn point(&self) -> SourcePosition {
+        match self {
+            Self::InPlace { point, .. } | Self::ForkRestart { point, .. } => *point,
+        }
+    }
 }
 
 /// Why a cursor call was refused: the caller named a binding in the wrong state for it.
@@ -276,13 +278,6 @@ impl ExecutionEpochs {
     /// Sets the fence of a confirmed cut. Fails with [`EpochCursorError::NotOpen`] for a binding
     /// with no cursor open, [`EpochCursorError::Frozen`] for one frozen, and, by a fork and
     /// restart, [`EpochCursorError::AlreadyOpen`] when the new binding has a cursor.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the provider's event delivery fences each cut the provider confirms"
-        )
-    )]
     pub(crate) fn fence_cut(&mut self, cut: ConfirmedCut) -> Result<(), EpochCursorError> {
         match cut {
             ConfirmedCut::InPlace { binding_id, point } => {
@@ -295,9 +290,14 @@ impl ExecutionEpochs {
             ConfirmedCut::ForkRestart {
                 binding_id,
                 point,
-                new_binding,
+                new_binding_id,
             } => {
-                let current = self.unfrozen_cursor_mut(&binding_id)?.current;
+                let cursor = self.unfrozen_cursor_mut(&binding_id)?;
+                let current = cursor.current;
+                let new_binding = EpochBinding {
+                    id: new_binding_id,
+                    ..cursor.binding.clone()
+                };
                 self.open_binding(new_binding, next_generation(current, point))?;
                 self.cursors
                     .get_mut(&binding_id)
@@ -558,7 +558,7 @@ mod tests {
                     .fence_cut(ConfirmedCut::ForkRestart {
                         binding_id: old.clone(),
                         point: pair(0, point).position,
-                        new_binding: binding("new"),
+                        new_binding_id: binding_id("new"),
                     })
                     .expect("the binding's cursor is open and not frozen"),
             }

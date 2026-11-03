@@ -556,7 +556,7 @@ interface WorkflowVersionDiffReadResponse {
 }
 
 // WorkflowRunDelete — workflow.run.delete. Deletes one run's record, its steps and their data, and
-// its capture folder with the run's snapshot points and their base pins; it is not undoable. A run
+// its capture folder, which holds the run's snapshot points; it is not undoable. A run
 // that is `new`, `running` or `waiting`, a failed run parked on its failed step, and a chain's
 // first run while a later run of its chain is one of those, is refused with
 // `workflow.run.notDeletable`, which reads "Cancel it first.", and nothing is deleted. The write

@@ -403,6 +403,7 @@ fn vcs_refusal(error: &GitError) -> RepoRefusal {
         | GitError::Read(_)
         | GitError::Exited { .. }
         | GitError::PathText(_)
+        | GitError::UnreadableVersion
         | GitError::NotStartable => RepoMountRootResolutionReason::VcsError,
     };
     root_resolution_refusal(reason, None)

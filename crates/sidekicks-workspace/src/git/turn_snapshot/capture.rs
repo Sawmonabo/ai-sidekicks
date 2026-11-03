@@ -1,18 +1,49 @@
-//! What a snapshot capture needs besides the service: the commit's message, trailers and identity,
-//! the listings it reads from the index, and the object format of the repository it writes to.
+//! What every capture shares besides its steps: the commit's subjects, trailers and identity, the
+//! listings it reads from the index, the size bound past which a file is left out, the once-only
+//! reports of a git too old, and the object format of the repository it writes to.
 
 use std::borrow::Cow;
+use std::collections::HashSet;
+use std::io;
+use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use jiff::Timestamp;
 use sidekicks_contracts::app_identity::APP_DISPLAY_NAME;
+use sidekicks_contracts::place::Place;
+use sidekicks_std::mutex_lock::lock;
 
-/// Outside the worktree, so scratch indexes never show up in `ls-files -o` or `git status`.
-pub(crate) const SNAPSHOT_INDEX_SEGMENT: &str = ".snapshot-indexes";
+use crate::git::process::version::{GitFeature, GitVersion};
+use crate::git::turn_snapshot::diagnostics::CaptureDiagnostic;
 
-/// The same bytes for every snapshot: the message is an object id input, so identity content would
-/// make identical state hash differently. Trailers derived from project state keep that property.
-pub(crate) const SNAPSHOT_COMMIT_MESSAGE: &str = "sidekicks: turn-boundary snapshot";
+/// Set on every git call that reads or writes an index outside the repository: a split index
+/// would put its shared part in the repository's git folder and could expire one the live index
+/// still uses, and a file-system monitor would answer for the live index, not this one.
+pub(crate) const INDEX_COPY_GUARDS: [&str; 6] = [
+    "-c",
+    "core.splitIndex=false",
+    "-c",
+    "splitIndex.sharedIndexExpire=never",
+    "-c",
+    "core.fsmonitor=false",
+];
+
+/// Every capture write flushes its objects and its ref to disk before git answers, whatever the
+/// host sets, so a crash after the answer loses no capture.
+pub(crate) const CORE_FSYNC_PIN: [&str; 2] = ["-c", "core.fsync=objects,reference"];
+
+/// The same bytes for every turn snapshot: the message is an object id input, so identity content
+/// would make identical state hash differently. Trailers derived from project state keep that
+/// property.
+pub(crate) const TURN_SNAPSHOT_SUBJECT: &str = "sidekicks: turn-boundary snapshot";
+
+/// The subject of each of a command's two captures, the same bytes every time for the same reason.
+pub(crate) const COMMAND_CAPTURE_SUBJECT: &str = "sidekicks: command capture";
+
+/// A file larger than this, in bytes, is never hashed into a capture: it is left out of the
+/// capture's tree and named in its `Left-Out-Paths:` trailer.
+pub const LARGE_FILE_BYTES: u64 = 10 * 1024 * 1024;
 
 /// Names the embedded repositories the capture could not record. A skipped one is absent from the
 /// tree, so a restore would delete it and its `.git` as untracked. Written only when non-empty,
@@ -26,6 +57,12 @@ pub(crate) const SKIPPED_EMBEDDED_REPOSITORIES_TRAILER: &str = "Skipped-Embedded
 /// written as the one character of the same number. A trailing slash marks a directory git did not
 /// descend into (a restore exempts everything beneath it).
 pub(crate) const SPARSE_BOUNDARY_PATHS_TRAILER: &str = "Sparse-Boundary-Paths:";
+
+/// Names the listed paths the tree lacks because the capture left them out: a file over
+/// [`LARGE_FILE_BYTES`], or one whose size could not be read. A restore would otherwise delete an
+/// untracked one or put back an older blob of a tracked one. Written only when non-empty, JSON and
+/// sorted by bytes, each byte of a path written as the one character of the same number.
+pub(crate) const LEFT_OUT_PATHS_TRAILER: &str = "Left-Out-Paths:";
 
 /// An explicit identity: without one `commit-tree` fails in a container with no passwd entry, and
 /// elsewhere stamps the system user.
@@ -47,6 +84,76 @@ pub(crate) const SPARSE_SEED_INDEX_LOCK_ATTEMPTS: u32 = 4;
 
 /// The wait between the lock attempts.
 pub(crate) const SPARSE_SEED_INDEX_LOCK_RETRY_DELAY: Duration = Duration::from_millis(25);
+
+/// A listed file over [`LARGE_FILE_BYTES`], left out of a capture.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LargeFile {
+    /// The file's path within the checkout, as git listed it.
+    pub path: PathBuf,
+    /// Its size in bytes when the capture read it.
+    pub size: u64,
+}
+
+/// A listed path whose size could not be read, so the capture left it out rather than hash a file
+/// that may be over the bound.
+#[derive(Debug)]
+pub struct UnreadPath {
+    /// The path within the checkout, as git listed it, read as UTF-8 with any other byte replaced
+    /// where this system cannot name it.
+    pub path: PathBuf,
+    /// Why its size could not be read.
+    pub error: io::Error,
+}
+
+/// A listing split by size: what is staged, and what is left out and why.
+#[derive(Debug)]
+pub(crate) struct SizePartition {
+    /// The entries to stage, as one NUL-terminated listing, each as the listing held it.
+    pub(crate) staged_listing: Vec<u8>,
+    /// The regular files over [`LARGE_FILE_BYTES`].
+    pub(crate) large_files: Vec<LargeFile>,
+    /// The paths whose size could not be read.
+    pub(crate) unread_paths: Vec<UnreadPath>,
+    /// The large files' entries as the listing held them, in the order of `large_files`.
+    pub(crate) large_entries: Vec<Vec<u8>>,
+    /// Every left-out entry's bytes as the listing held them, for the `Left-Out-Paths:` trailer.
+    pub(crate) left_out_entries: Vec<Vec<u8>>,
+}
+
+/// The places and features whose git was reported too old in this daemon run, so each is logged
+/// once.
+#[derive(Debug)]
+pub(crate) struct GitFloorReports {
+    /// The place and the feature of each report made.
+    reported: Mutex<HashSet<(Option<Place>, GitFeature)>>,
+}
+
+impl GitFloorReports {
+    /// No report made yet.
+    pub(crate) fn new() -> Self {
+        Self {
+            reported: Mutex::new(HashSet::new()),
+        }
+    }
+
+    /// Logs that the git at `place`, `git_version`, lacks `feature`, the first time this daemon run
+    /// meets that place and feature.
+    pub(crate) fn report_once(
+        &self,
+        place: Option<&Place>,
+        git_version: GitVersion,
+        feature: GitFeature,
+    ) {
+        if lock(&self.reported).insert((place.cloned(), feature)) {
+            CaptureDiagnostic::GitBelowFloor {
+                place: place.cloned(),
+                git_version,
+                feature,
+            }
+            .warn();
+        }
+    }
+}
 
 /// A repository's object format, as `rev-parse --show-object-format` names it. A valid id can be
 /// un-insertable in a repository of the other width.
@@ -70,12 +177,21 @@ impl ObjectFormat {
     /// The format `rev-parse --show-object-format` printed in `stdout`. Fails with
     /// `UnrecognizedObjectFormat` for any name but `sha1` and `sha256`.
     pub(crate) fn from_show_object_format(stdout: &[u8]) -> Result<Self, UnrecognizedObjectFormat> {
-        match String::from_utf8_lossy(stdout).trim() {
-            "sha1" => Ok(Self::Sha1),
-            "sha256" => Ok(Self::Sha256),
-            reported => Err(UnrecognizedObjectFormat {
+        let reported = String::from_utf8_lossy(stdout);
+        let reported = reported.trim();
+        [Self::Sha1, Self::Sha256]
+            .into_iter()
+            .find(|format| format.name() == reported)
+            .ok_or_else(|| UnrecognizedObjectFormat {
                 reported: reported.to_owned(),
-            }),
+            })
+    }
+
+    /// The format's name as `--object-format` takes it.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Sha1 => "sha1",
+            Self::Sha256 => "sha256",
         }
     }
 

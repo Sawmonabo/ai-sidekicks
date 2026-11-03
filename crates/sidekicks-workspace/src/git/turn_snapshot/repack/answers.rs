@@ -1,0 +1,160 @@
+//! Readers of git's answers to the packing's questions: how many loose objects and packs a folder
+//! holds, which captures its refs name, whether each base is a commit the repository holds, and
+//! whether a ref reaches it. Each refuses an answer in any other form, so no unreadable answer
+//! passes for a count, a capture or a reach.
+
+use sidekicks_contracts::repo::git_reads::GitObjectId;
+
+use super::{PackingError, SnapshotPoint};
+
+/// What `count-objects -v` reports of a folder.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ObjectCounts {
+    /// Loose objects (`count:`).
+    pub(super) loose: u64,
+    /// Packs (`packs:`).
+    pub(super) packs: u64,
+}
+
+/// Whether a base names a commit the repository holds, as `cat-file --batch-check` answers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum BasePresence {
+    /// A commit.
+    Commit,
+    /// The repository lacks the object.
+    Missing,
+    /// Another kind of object, named; a tree would read as reached to `rev-list`.
+    NotACommit(String),
+}
+
+/// The counts in `count-objects -v`'s answer `stdout`: `count:` and `packs:`, each once and in
+/// decimal, any other line ignored. Fails with `UnreadableAnswer` otherwise.
+pub(super) fn read_object_counts(stdout: &[u8]) -> Result<ObjectCounts, PackingError> {
+    let unreadable = |reason| PackingError::UnreadableAnswer {
+        command: "count-objects",
+        reason,
+    };
+    let (mut loose, mut packs): (Option<u64>, Option<u64>) = (None, None);
+    for line in String::from_utf8_lossy(stdout).lines() {
+        let Some((key, value)) = line.split_once(": ") else {
+            continue;
+        };
+        let slot = match key {
+            "count" => &mut loose,
+            "packs" => &mut packs,
+            _ => continue,
+        };
+        if slot.is_some() {
+            return Err(unreadable("a count is repeated"));
+        }
+        let is_decimal = !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit());
+        let number = value
+            .parse()
+            .ok()
+            .filter(|_| is_decimal)
+            .ok_or_else(|| unreadable("a count is not a decimal number"))?;
+        *slot = Some(number);
+    }
+    Ok(ObjectCounts {
+        loose: loose.ok_or_else(|| unreadable("the loose count is missing"))?,
+        packs: packs.ok_or_else(|| unreadable("the pack count is missing"))?,
+    })
+}
+
+/// The captures in `for-each-ref --format='%(refname) %(objectname) %(tree) %(parent)'`'s answer
+/// `stdout`, and every line that does not read as one: exactly four fields, the first three
+/// non-empty and the last three ids of one length, the parent empty for a capture with no base. A
+/// tree, a tag or a commit with two parents does not read.
+pub(super) fn read_points(stdout: &[u8]) -> (Vec<SnapshotPoint>, Vec<String>) {
+    let mut points = Vec::new();
+    let mut unreadable = Vec::new();
+    for line in String::from_utf8_lossy(stdout).lines() {
+        if line.is_empty() {
+            continue;
+        }
+        match read_point(line) {
+            Some(point) => points.push(point),
+            None => unreadable.push(line.to_owned()),
+        }
+    }
+    (points, unreadable)
+}
+
+// One capture's line, `None` when it does not read as one.
+fn read_point(line: &str) -> Option<SnapshotPoint> {
+    let fields: Vec<&str> = line.split(' ').collect();
+    let [ref_name, commit, tree, parent] = fields.as_slice() else {
+        return None;
+    };
+    if ref_name.is_empty() {
+        return None;
+    }
+    let commit = GitObjectId::new((*commit).to_owned())?;
+    let tree = GitObjectId::new((*tree).to_owned())?;
+    let base = if parent.is_empty() {
+        None
+    } else {
+        let base = GitObjectId::new((*parent).to_owned())?;
+        if base.as_str().len() != commit.as_str().len() {
+            return None;
+        }
+        Some(base)
+    };
+    (tree.as_str().len() == commit.as_str().len()).then_some(SnapshotPoint { tree, base })
+}
+
+/// Whether each of `bases` is a commit, from `cat-file --batch-check`'s answer `stdout` to them in
+/// order: `<id> commit <size>`, `<id> missing`, or another type. Fails with `UnreadableAnswer` on a
+/// line for another id, a line in another form, or a line too few or too many.
+pub(super) fn read_bases_present(
+    stdout: &[u8],
+    bases: &[&GitObjectId],
+) -> Result<Vec<BasePresence>, PackingError> {
+    let unreadable = |reason| PackingError::UnreadableAnswer {
+        command: "cat-file",
+        reason,
+    };
+    let text = String::from_utf8_lossy(stdout);
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() != bases.len() {
+        return Err(unreadable("it answers a different number of objects"));
+    }
+    lines
+        .iter()
+        .zip(bases)
+        .map(|(line, base)| {
+            let fields: Vec<&str> = line.split(' ').collect();
+            match fields.as_slice() {
+                [id, "missing"] if *id == base.as_str() => Ok(BasePresence::Missing),
+                [id, object_type, size]
+                    if *id == base.as_str()
+                        && !size.is_empty()
+                        && size.bytes().all(|byte| byte.is_ascii_digit()) =>
+                {
+                    Ok(match *object_type {
+                        "commit" => BasePresence::Commit,
+                        other => BasePresence::NotACommit(other.to_owned()),
+                    })
+                }
+                _ => Err(unreadable("a line does not answer the base asked")),
+            }
+        })
+        .collect()
+}
+
+/// Whether a ref of the repository reaches `base`, from `rev-list -n1 <base> --not --all`'s answer
+/// `stdout`: nothing printed when one does, the base when none does. Fails with `UnreadableAnswer`
+/// on anything else.
+pub(super) fn read_reach(stdout: &[u8], base: &GitObjectId) -> Result<bool, PackingError> {
+    match String::from_utf8_lossy(stdout).trim() {
+        "" => Ok(true),
+        printed if printed == base.as_str() => Ok(false),
+        _ => Err(PackingError::UnreadableAnswer {
+            command: "rev-list",
+            reason: "it printed an object other than the base",
+        }),
+    }
+}
+
+#[cfg(test)]
+mod tests;

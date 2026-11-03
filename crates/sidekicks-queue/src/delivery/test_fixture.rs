@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::process_identity::ProcessStandIn;
@@ -19,12 +20,16 @@ use crate::delivery::{
 use crate::recorder::{QueueRecorder, QueueRecorderDeps};
 use crate::session_lock::QueueSessionLock;
 
-/// No run is being started, so no waiting message opens one.
+/// No run is being started, so no waiting message opens one and none is reserved.
 struct NoOpenings;
 
 impl OpeningMessages for NoOpenings {
     fn is_opening(&self, _item: &QueueItemRecord) -> bool {
         false
+    }
+
+    fn take_reserved(&self, _run_id: RunId) -> Option<QueueItemId> {
+        None
     }
 }
 

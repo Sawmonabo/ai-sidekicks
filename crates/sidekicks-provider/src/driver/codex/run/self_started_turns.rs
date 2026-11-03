@@ -172,7 +172,8 @@ async fn open_run(
             "the conversations a Codex session left were not recorded on its first run's binding"
         );
     }
-    route_accepted_turn(&runs.run_routes, record, run_id, turn_id);
+    // A turn Codex started by itself opened with no message the daemon queued.
+    route_accepted_turn(&runs.run_routes, record, run_id, turn_id, None);
     Ok(())
 }
 
@@ -252,10 +253,10 @@ mod tests {
         let script = &mut session.scripted.script;
         let flow = async {
             task.handle(started).await;
-            let run_id = task
-                .record
-                .active_turn_run("turn-1")
-                .expect("the turn's run opened before its frame went on");
+            assert!(
+                task.record.active_turn_run("turn-1").is_some(),
+                "the turn's run opened before its frame went on"
+            );
             task.handle(fork_call).await;
             let has_forked = waiting_fork
                 .await
@@ -270,7 +271,6 @@ mod tests {
                 task.handle_next(),
                 answer_fork(script, "thread-2", &settings)
             );
-            run_id
         };
         tokio::time::timeout(DEADLOCK_BOUND, flow)
             .await

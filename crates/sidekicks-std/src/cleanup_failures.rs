@@ -1,6 +1,7 @@
 //! What a failed operation returns once cleaning up after it failed too.
 
 use std::fmt::{self, Display};
+use std::io;
 
 use crate::settle_all::DescribeEach;
 
@@ -43,6 +44,17 @@ impl<Original, Cleanup> CleanupFailures<Original, Cleanup> {
     /// The original, and the cleanups' failures with the operation they cleaned up after.
     pub fn into_parts(self) -> (Original, Vec<Cleanup>, &'static str) {
         (self.original, self.failures, self.operation)
+    }
+}
+
+impl CleanupFailures<io::Error> {
+    /// The original alone when every cleanup succeeded, else an error of the original's kind that
+    /// carries both, so a caller answering `io::Result` keeps the kind it matches on.
+    pub fn into_io_error(self) -> io::Error {
+        if self.failures.is_empty() {
+            return self.original;
+        }
+        io::Error::new(self.original.kind(), self)
     }
 }
 

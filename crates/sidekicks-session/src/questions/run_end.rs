@@ -23,7 +23,7 @@ use crate::run::engine::errors::RunEngineError;
 use crate::run::provider_choice::held::HeldChoiceAnswers;
 use crate::run::provider_choice::run_end::read_open_choice_settlements;
 use crate::run::read::RunStateReader;
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 /// Adds to `companions`, the write of `change`, a run's end, the settle of every held question,
 /// holding plan `plan_holds` reads and unsettled choice of the run but the choices the companions
@@ -34,7 +34,7 @@ pub(crate) async fn settle_held_requests_at_run_end(
     plan_holds: &Arc<dyn PlanHolds>,
     held_answers: &HeldChoiceAnswers,
     change: &RunStateChange,
-    companions: &mut RunStateChangeCompanions,
+    companions: &mut RunWriteCompanions,
 ) -> Result<(), RunEngineError> {
     let run_id = change.run_id;
     let end = RunState::from(change.entry.state());

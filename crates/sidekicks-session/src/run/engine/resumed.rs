@@ -22,14 +22,15 @@ use crate::console_state::read_session_max_steps_per_turn;
 use crate::run::engine::RunEngine;
 use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::settle::daemon_restart_outcome;
-use crate::run::engine::turns::{StepCount, turn_holds_no_end_sql};
+use crate::run::engine::turns::StepCount;
+use crate::run::engine::turns::guards::turn_holds_no_end_sql;
 use crate::run::read::{LiveRun, RunRead};
 use crate::run::refusals::RunRefusal;
 use crate::run::restart::{
     RestartTurnEnd, ResumedRunMove, decide_resumed_move, decide_turn_gone_settlement,
     read_has_own_stop, read_owed_limit, read_turn_cuts,
 };
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 // The run's newest open turn, with the tool calls of the run that ended after its start, each a
 // step, and whether the step limit was reached after its start. A step is counted at its tool
@@ -209,7 +210,7 @@ impl RunEngine {
         match self
             .change_with_turn_end(
                 change,
-                RunStateChangeCompanions::default(),
+                RunWriteCompanions::default(),
                 &run.run,
                 turn_end,
                 hold,

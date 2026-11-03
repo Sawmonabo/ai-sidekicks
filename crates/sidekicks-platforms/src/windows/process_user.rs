@@ -159,8 +159,20 @@ impl UserOnlyDescriptor {
     /// Reads this user's id from the process token and builds the descriptor from its SDDL. Fails
     /// with the system's error.
     pub(crate) fn new() -> io::Result<Self> {
-        let user = read_user_sid_text()?;
-        let mut sddl = wide_text(OsStr::new(&format!("D:P(A;;GA;;;{user})")))?;
+        Self::from_sddl(&format!("D:P(A;;GA;;;{})", read_user_sid_text()?))
+    }
+
+    /// The descriptor for a new folder of the user whose id, as SDDL text, is `user_sid`: a
+    /// protected access list, so nothing the folder's parent passes down is added, whose one entry
+    /// grants that user full file access and passes to everything the folder holds. Fails with the
+    /// system's error.
+    pub(crate) fn for_folder(user_sid: &str) -> io::Result<Self> {
+        Self::from_sddl(&format!("D:P(A;OICI;FA;;;{user_sid})"))
+    }
+
+    // The descriptor the SDDL text `sddl` writes.
+    fn from_sddl(sddl: &str) -> io::Result<Self> {
+        let mut sddl = wide_text(OsStr::new(sddl))?;
         sddl.push(0);
         let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
         // SAFETY: the SDDL is a live NUL-ended UTF-16 string, and the call writes a descriptor

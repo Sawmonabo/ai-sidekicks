@@ -16,6 +16,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
+use sidekicks_platforms::{VolumeIdentity, read_volume_identity, real_path};
 use sidekicks_std::scheduler::Scheduler;
 use walkdir::WalkDir;
 
@@ -125,20 +126,14 @@ fn folder_bytes(folder: &Path) -> io::Result<u64> {
     Ok(total)
 }
 
-// Whether `folder`, or the nearest folder above it that exists, sits on the volume holding
-// `data_folder`; an entry's identity text leads with its volume.
+// Whether `folder`, or the nearest folder above it that exists, sits on the disk holding
+// `data_folder`: the same volume, or the same network share where the volume has no id.
 fn is_on_same_volume(folder: &Path, data_folder: &Path) -> io::Result<bool> {
-    let volume_of = |path: &Path| -> io::Result<String> {
+    let identity_of = |path: &Path| -> io::Result<VolumeIdentity> {
         let mut existing: PathBuf = path.to_path_buf();
         loop {
-            match sidekicks_platforms::entry_identity(&existing) {
-                Ok(entry) => {
-                    let identity = entry.identity.to_string();
-                    let (volume, _file) = identity
-                        .split_once(':')
-                        .expect("an entry identity's text is `<volume>:<file>`");
-                    return Ok(volume.to_owned());
-                }
+            match real_path(&existing).and_then(|real| read_volume_identity(&real)) {
+                Ok(identity) => return Ok(identity),
                 Err(failure) if failure.kind() == io::ErrorKind::NotFound => {
                     if !existing.pop() {
                         return Err(failure);
@@ -148,5 +143,5 @@ fn is_on_same_volume(folder: &Path, data_folder: &Path) -> io::Result<bool> {
             }
         }
     };
-    Ok(volume_of(folder)? == volume_of(data_folder)?)
+    Ok(identity_of(folder)? == identity_of(data_folder)?)
 }

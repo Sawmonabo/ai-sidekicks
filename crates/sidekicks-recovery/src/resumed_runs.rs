@@ -34,7 +34,7 @@ use sidekicks_session::run::engine::errors::RunEngineError;
 use sidekicks_session::run::read::RunStateReader;
 use sidekicks_session::run::refusals::RunRefusal;
 use sidekicks_session::run::restart::ResumedRunMove;
-use sidekicks_session::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use sidekicks_session::run::state_change::{RunStateChange, RunWriteCompanions};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -252,7 +252,7 @@ impl ResumedRunsIngress for ResumedRunsFinalize {
                                 },
                             )
                         },
-                        RunStateChangeCompanions::default(),
+                        RunWriteCompanions::default(),
                     )
                     .await;
                 match moved {

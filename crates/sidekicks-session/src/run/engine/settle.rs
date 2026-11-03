@@ -43,7 +43,7 @@ use crate::run::restart::{
     no_pending_interrupt_statement, no_waiting_item_statement, read_restart_facts, read_run_stops,
     settlement_by_stops,
 };
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeError};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions, RunWriteError};
 use crate::run::transitions::RUN_TERMINAL_EVENT_TYPES_SQL;
 
 // The position among an interrupt end's companions of its guard that the run has not ended since
@@ -89,7 +89,7 @@ impl RunEngine {
         accepted_run_version: i64,
         limit: Option<RunLimit>,
         cut_turn: Option<SafeInt<1>>,
-        verdict: RunStateChangeCompanions,
+        verdict: RunWriteCompanions,
     ) -> Result<bool, RunEngineError> {
         let mut companions = verdict;
         companions.statements.insert(
@@ -134,7 +134,7 @@ impl RunEngine {
             Ok(_run) => Ok(true),
             Err(
                 RunEngineError::Refused(RunRefusal::AlreadyEnded { .. })
-                | RunEngineError::Change(RunStateChangeError::CompanionRefused {
+                | RunEngineError::Change(RunWriteError::CompanionRefused {
                     companion_index: INTERRUPT_END_SINCE_GUARD_COMPANION_INDEX,
                     ..
                 }),
@@ -313,7 +313,7 @@ impl RunEngine {
             {
                 // An interrupt moved or asked for since the read: read the run and its stops
                 // again, once.
-                Err(RunEngineError::Change(RunStateChangeError::CompanionRefused { .. }))
+                Err(RunEngineError::Change(RunWriteError::CompanionRefused { .. }))
                     if !is_read_again =>
                 {
                     is_read_again = true;
@@ -378,7 +378,7 @@ impl RunEngine {
                 .settle_run_from_facts(&read, &facts, decide(&read, &facts), failure_detail, hold)
                 .await
             {
-                Err(RunEngineError::Change(RunStateChangeError::CompanionRefused { .. }))
+                Err(RunEngineError::Change(RunWriteError::CompanionRefused { .. }))
                     if !is_read_again =>
                 {
                     is_read_again = true;
@@ -462,7 +462,7 @@ impl RunEngine {
             .await
         {
             // A message queued for the run since its facts were read starts it, so it is left.
-            Err(RunEngineError::Change(RunStateChangeError::CompanionRefused {
+            Err(RunEngineError::Change(RunWriteError::CompanionRefused {
                 companion_index: QUEUED_RUN_WAITING_ITEM_GUARD_COMPANION_INDEX,
                 ..
             })) if is_queued => Ok(run.run.clone()),

@@ -1,7 +1,7 @@
 //! What one Codex session's deliveries remember between frames: each turn's run epoch for the
-//! session's terminal gate and the turn its run opened, the runs whose turn is starting, a turn's
-//! last error, the reviewer's and the reroute's pending halves, the helpers' child runs, the prose
-//! being streamed, and the reorder buffer rows pass.
+//! session's terminal gate, the turn its run opened and the message that opened it, the runs whose
+//! turn is starting, a turn's last error, the reviewer's and the reroute's pending halves, the
+//! helpers' child runs, the prose being streamed, and the reorder buffer rows pass.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
@@ -11,6 +11,7 @@ use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
@@ -117,6 +118,16 @@ pub(crate) struct CodexStreamedProse {
     pub(crate) method: &'static str,
 }
 
+/// A run whose `turn/start` is on the wire, with the queue item whose message opens its turn,
+/// the first message the start carries; `None` for a start that carries no queued message.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CodexStartingTurn {
+    /// The run.
+    pub(crate) run_id: RunId,
+    /// The queue item whose message opens the turn.
+    pub(crate) opening: Option<QueueItemId>,
+}
+
 /// One session's delivery memory; replaced with the session record on every establishment.
 pub(crate) struct CodexDeliveryMemory {
     /// Each routed turn's epoch, the gate's run version; it leaves with the turn's terminal.
@@ -125,7 +136,11 @@ pub(crate) struct CodexDeliveryMemory {
     /// flag about the whole turn points at. Each leaves with its turn's terminal.
     pub(crate) started_turn_by_turn_id: HashMap<String, StartedTurn>,
     /// Runs whose `turn/start` is on the wire, oldest first: Codex accepts them in send order.
-    pub(crate) starting_turn_run_ids: VecDeque<RunId>,
+    pub(crate) starting_turns: VecDeque<CodexStartingTurn>,
+    /// The queue item whose message opened each turn a `turn/start` started, by turn id, carried
+    /// from the start whichever of Codex's answer and `turn/started` came first; each leaves with
+    /// its turn's terminal.
+    pub(crate) turn_opening_by_turn_id: HashMap<String, QueueItemId>,
     /// The last error per turn Codex will not retry, by turn id.
     pub(crate) final_error_by_turn_id: HashMap<String, CodexTurnErrorReading>,
     /// Turns Codex retried after an error, so a final error on one means its retries ran out.
@@ -186,7 +201,8 @@ impl CodexDeliveryMemory {
         Self {
             turn_epoch_by_turn_id: HashMap::new(),
             started_turn_by_turn_id: HashMap::new(),
-            starting_turn_run_ids: VecDeque::new(),
+            starting_turns: VecDeque::new(),
+            turn_opening_by_turn_id: HashMap::new(),
             final_error_by_turn_id: HashMap::new(),
             retried_turn_ids: HashSet::new(),
             retried_run_id_by_turn_id: HashMap::new(),
@@ -246,6 +262,7 @@ impl CodexDeliveryMemory {
     pub(crate) fn forget_turn(&mut self, turn_id: &str) {
         self.turn_epoch_by_turn_id.remove(turn_id);
         self.started_turn_by_turn_id.remove(turn_id);
+        self.turn_opening_by_turn_id.remove(turn_id);
         self.final_error_by_turn_id.remove(turn_id);
         self.retried_turn_ids.remove(turn_id);
         self.retried_run_id_by_turn_id.remove(turn_id);

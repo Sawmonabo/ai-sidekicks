@@ -13,7 +13,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::run_control::InterruptPendingChoice;
 
-use crate::run::state_change::RunStateChangeCompanions;
+use crate::run::state_change::RunWriteCompanions;
 
 /// A failure of the run queue's part in an interrupt, kept whole.
 pub type InterruptQueueError = Box<dyn Error + Send + Sync>;
@@ -53,7 +53,7 @@ pub struct InterruptEnd {
     /// handed message not among them stays with the provider.
     pub canceled: Vec<QueueItemId>,
     /// The interrupt's row move and its event, which the run's end commits.
-    pub verdict: RunStateChangeCompanions,
+    pub verdict: RunWriteCompanions,
 }
 
 /// A person's `Send now` of a waiting message, on a run whose provider reads a priority message.

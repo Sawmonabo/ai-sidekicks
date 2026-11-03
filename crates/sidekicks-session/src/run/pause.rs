@@ -40,12 +40,12 @@ use crate::driver_resolution::{LiveRunDriverError, resolve_live_run_driver};
 use crate::interventions::store::run_at_version_statement;
 use crate::run::engine::RunEngine;
 use crate::run::engine::errors::{RunEngineError, RunResumeError};
-use crate::run::engine::turns::TURN_END_TYPES_SQL;
+use crate::run::engine::turns::guards::TURN_END_TYPES_SQL;
 use crate::run::read::{
     RunRead, RunStateReader, read_run_provider, read_run_through, safe_run_version,
 };
 use crate::run::refusals::{RunRefusal, require_expected_version};
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeError};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions, RunWriteError};
 
 #[cfg(test)]
 mod tests;
@@ -163,6 +163,7 @@ impl From<RunEngineError> for RunPauseError {
             | RunEngineError::Append(_)
             | RunEngineError::Read(_)
             | RunEngineError::Pool(_)
+            | RunEngineError::Standing(_)
             | RunEngineError::Several(_)) => Self::Change(other),
         }
     }
@@ -533,7 +534,7 @@ impl RunPauseControl {
         error: RunEngineError,
     ) -> RunPauseError {
         let RunEngineError::Change(
-            refused @ RunStateChangeError::CompanionRefused {
+            refused @ RunWriteError::CompanionRefused {
                 companion_index: VERSION_GUARD_COMPANION_INDEX,
                 ..
             },
@@ -569,7 +570,7 @@ impl RunPauseControl {
         };
         match self
             .engine
-            .transition(back_to_running, RunStateChangeCompanions::default())
+            .transition(back_to_running, RunWriteCompanions::default())
             .await
         {
             Ok(_running) => RunPauseError::Driver(driver_error),
@@ -588,13 +589,13 @@ impl RunPauseControl {
 
 // The version guard of a move the caller read the run at `expected_run_version` for, as the move's
 // one companion.
-fn version_guard(run_id: RunId, expected_run_version: SafeInt<0>) -> RunStateChangeCompanions {
-    RunStateChangeCompanions {
+fn version_guard(run_id: RunId, expected_run_version: SafeInt<0>) -> RunWriteCompanions {
+    RunWriteCompanions {
         statements: vec![run_at_version_statement(
             &run_id,
             i64::from(expected_run_version) + 1,
         )],
-        ..RunStateChangeCompanions::default()
+        ..RunWriteCompanions::default()
     }
 }
 

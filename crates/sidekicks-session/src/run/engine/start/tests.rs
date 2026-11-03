@@ -29,7 +29,7 @@ use crate::run::engine::tests::{
 };
 use crate::run::refusals::RunRefusal;
 use crate::run::start_request::RunStartRequest;
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 // Killed by recording a driver's refused start as a provider failure, which drops the refusal's
 // model and sentence, or by reading only the driver's error and missing the refusal it carries.
@@ -224,7 +224,7 @@ async fn a_run_that_ended_during_its_gate_lets_go_its_resolved_posture() {
                         },
                     )
                 },
-                RunStateChangeCompanions::default(),
+                RunWriteCompanions::default(),
             )
             .await
             .expect("the run's end is written");

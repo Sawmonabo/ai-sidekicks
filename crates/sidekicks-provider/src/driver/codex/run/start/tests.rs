@@ -22,6 +22,7 @@ use crate::driver::codex::session::test_fixture::{
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{RunOpening, RunOpeningItem, StartRunParams};
 use crate::driver::test_registry::new_run_id;
+use crate::port::run_host::test_host::EngineCall;
 
 /// How long a test waits before it counts a hold on the session's task as a deadlock.
 const DEADLOCK_BOUND: Duration = Duration::from_secs(10);
@@ -44,8 +45,10 @@ fn turn_request() -> CodexTurnRequest {
 
 // Kills: the starting run left among the runs whose turn is starting after Codex answered (the
 // reply-first order), the open of a turn Codex started by itself taking a turn a run's start
-// claims (the frame-first order), and a fork the conversation owes making a start wait out a turn
-// Codex started by itself rather than refusing it at once.
+// claims (the frame-first order), the turn opened without the queue item of the first message its
+// start carried in either order (the opening lost when the answer comes before `turn/started`),
+// and a fork the conversation owes making a start wait out a turn Codex started by itself rather
+// than refusing it at once.
 #[tokio::test]
 async fn a_turn_codex_starts_while_a_run_starts_is_that_runs_in_either_order() {
     for is_frame_first in [true, false] {
@@ -66,11 +69,16 @@ async fn a_turn_codex_starts_while_a_run_starts_is_that_runs_in_either_order() {
         let run_start = Arc::clone(&session.run_start);
         let inbound = session.task.record.inbound.clone();
         let deadline = CodexTurnEndDeadline::new(CODEX_TURN_START_TIMEOUT);
+        let opening =
+            QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id");
         let start = run_start.start_turn(
             &inbound,
             run_id,
             binding_id,
-            turn_request(),
+            CodexTurnRequest {
+                client_message_ids: vec![opening.to_string()],
+                ..turn_request()
+            },
             None,
             &deadline,
         );
@@ -105,7 +113,7 @@ async fn a_turn_codex_starts_while_a_run_starts_is_that_runs_in_either_order() {
             "the turn is the starting run's (frame first: {is_frame_first})"
         );
         assert!(
-            record.delivery.starting_turn_run_ids.is_empty(),
+            record.delivery.starting_turns.is_empty(),
             "no run waits as starting once Codex answered (frame first: {is_frame_first})"
         );
         assert!(
@@ -115,6 +123,13 @@ async fn a_turn_codex_starts_while_a_run_starts_is_that_runs_in_either_order() {
         assert!(
             session.engine.first_daemon_turn_run().is_none(),
             "the run engine started no run of the session's own (frame first: {is_frame_first})"
+        );
+        assert!(
+            session
+                .engine
+                .calls()
+                .contains(&EngineCall::StartTurn(run_id, Some(opening))),
+            "the turn opens with its start's first message (frame first: {is_frame_first})"
         );
 
         let record = &mut session.task.record;

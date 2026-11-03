@@ -15,5 +15,6 @@ pub(crate) mod recovery;
 pub(crate) mod restart;
 pub(crate) mod review_note;
 pub(crate) mod search;
+pub(crate) mod snapshots;
 pub(crate) mod tags;
 pub(crate) mod working_folder;

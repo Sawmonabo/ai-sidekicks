@@ -8,10 +8,8 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 
 use rusqlite::types::Value;
-use rusqlite::{Connection, OptionalExtension as _, named_params};
+use rusqlite::{Connection, named_params};
 use sidekicks_artifact::payload_store::{ContentHash, NotAContentHash};
-use sidekicks_contracts::place::Place;
-use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::PlanMessageKind;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
@@ -32,11 +30,10 @@ use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::events::projection::SessionProjection as _;
 use sidekicks_workflow::runs::deletion::workflow_run_deletion_statements;
 use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
-use sidekicks_workspace::git::turn_snapshot::retention::RunContextKey;
 use sidekicks_workspace::repo::mount::service::managed_mount_deletion_statements;
 
 /// The statements the purge's reads prepare, counted into the read pool's statement capacity.
-pub(crate) const SESSION_PURGE_STATEMENT_CAPACITY: usize = 9;
+pub(crate) const SESSION_PURGE_STATEMENT_CAPACITY: usize = 7;
 
 /// The position of the guard that no hand-off of a plan the session made waits on its seed, in the
 /// mark's write.
@@ -79,36 +76,13 @@ impl PurgeCaller {
     }
 }
 
-/// A run whose snapshot refs the purge prunes: its key and the git folder its context recorded.
-pub(super) struct PurgedRunContext {
-    /// The run's context key, an agent run's or a workflow run's.
-    pub(super) run_key: RunContextKey,
-    /// The repository's common git folder.
-    pub(super) git_common_dir: PathBuf,
-}
-
-/// What the purge reads before it deletes a file: where the session ran, its runs' git folders,
-/// its workflow runs, and the payloads its manifests name.
+/// What the purge reads before it deletes a file: the session's workflow runs and the payloads its
+/// manifests name.
 pub(super) struct PurgeTargets {
-    /// Where the session runs; `None` on macOS and Linux.
-    pub(super) place: Option<Place>,
-    /// Every run context of the session, its workflow runs' among them.
-    pub(super) run_contexts: Vec<PurgedRunContext>,
     /// The session's workflow runs.
     pub(super) workflow_run_ids: Vec<WorkflowRunId>,
     /// The payloads the session's manifests name.
     pub(super) payload_hashes: Vec<ContentHash>,
-}
-
-/// A stored value of the purge's reads that does not read as its type.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum PurgeStoredValueError {
-    /// A stored payload key is no content hash.
-    #[error(transparent)]
-    ContentHash(#[from] NotAContentHash),
-    /// A stored place is not a place's JSON.
-    #[error("the session's stored place is not a place")]
-    Place(#[from] serde_json::Error),
 }
 
 // No hand-off names the session as its planning session while the fresh session's seed has no
@@ -135,18 +109,6 @@ static MARK_SQL: LazyLock<String> = LazyLock::new(|| {
         <&'static str>::from(SessionState::PurgeRequested)
     )
 });
-
-const SESSION_PLACE_SQL: &str = "SELECT place FROM sessions WHERE id = @sessionId";
-
-// Every run context of the session: its agent runs', those on its workspaces, and its workflow
-// runs', each told by whether a workflow run carries its key.
-const RUN_CONTEXTS_SQL: &str = "
-  SELECT ctx.run_id, ctx.git_common_dir,
-         EXISTS (SELECT 1 FROM workflow_runs WHERE id = ctx.run_id)
-    FROM run_execution_contexts AS ctx
-   WHERE ctx.session_id = @sessionId
-      OR ctx.workspace_id IN (SELECT id FROM workspaces WHERE session_id = @sessionId)
-      OR ctx.run_id IN (SELECT id FROM workflow_runs WHERE session_id = @sessionId)";
 
 const WORKFLOW_RUN_IDS_SQL: &str = "SELECT id FROM workflow_runs WHERE session_id = @sessionId";
 
@@ -210,12 +172,14 @@ const RUN_KEYED_DELETES: [&str; 4] = [
 // snapshot and a recovery checkpoint name the event they reflect, an ask goes after its answer and
 // after the gate answers found through it, a plan before the artifact that keeps its text, and an
 // artifact after the reference to its payload. The orphaned answers of a card or a question go
-// beside the asks they answer, the person's words with them. The agent tree goes in one statement,
-// each node with the children that name it. The attention rows go after the machine's attention
-// count is raised, so its readers drop the session's entries, and an entry's delivery before the
-// entry it is found through. The messaging rows go at either end of a pair, a message held from the
-// session or a wait on it among them.
-const DELETES_THROUGH_SESSION_ROW: [&str; 36] = [
+// beside the asks they answer, the person's words with them. A checkpoint's versions go first, then
+// a window's links to the shadows it stood on, then the windows, then the checkpoints, then the
+// shadows, which a version or a link names. The agent tree goes in one statement, each node with
+// the children that name it. The attention rows go after the machine's attention count is raised,
+// so its readers drop the session's entries, and an entry's delivery before the entry it is found
+// through. The messaging rows go at either end of a pair, a message held from the session or a wait
+// on it among them.
+const DELETES_THROUGH_SESSION_ROW: [&str; 43] = [
     "DELETE FROM session_snapshots WHERE session_id = @sessionId",
     "DELETE FROM recovery_checkpoints WHERE session_id = @sessionId",
     "DELETE FROM session_events WHERE session_id = @sessionId",
@@ -235,6 +199,16 @@ const DELETES_THROUGH_SESSION_ROW: [&str; 36] = [
     "DELETE FROM artifact_payload_refs WHERE manifest_id IN
        (SELECT id FROM artifact_manifests WHERE session_id = @sessionId)",
     "DELETE FROM artifact_manifests WHERE session_id = @sessionId",
+    "DELETE FROM session_restores WHERE session_id = @sessionId",
+    "DELETE FROM checkpoint_versions WHERE checkpoint_id IN
+       (SELECT checkpoint_id FROM session_checkpoints WHERE session_id = @sessionId)",
+    "DELETE FROM checkpoint_window_shadows WHERE shadow_id IN
+       (SELECT shadow_id FROM checkpoint_shadows WHERE session_id = @sessionId)",
+    "DELETE FROM checkpoint_commands WHERE checkpoint_id IN
+       (SELECT checkpoint_id FROM session_checkpoints WHERE session_id = @sessionId)",
+    "DELETE FROM session_checkpoints WHERE session_id = @sessionId",
+    "DELETE FROM checkpoint_shadows WHERE session_id = @sessionId",
+    "DELETE FROM checkpoint_volume_folders WHERE session_id = @sessionId",
     "DELETE FROM agent_tree_nodes WHERE session_id = @sessionId",
     "DELETE FROM agents WHERE session_id = @sessionId",
     "DELETE FROM session_budgets WHERE session_id = @sessionId",
@@ -326,29 +300,6 @@ pub(super) fn read_purge_targets(
 ) -> Result<PurgeTargets, PurgeReadError> {
     let session_text = session_id.to_string();
     let session = named_params! { "@sessionId": session_text };
-    let place = connection
-        .prepare_cached(SESSION_PLACE_SQL)?
-        .query_row(session, |row| row.get::<_, Option<String>>(0))
-        .optional()?
-        .flatten()
-        .map(|place| serde_json::from_str::<Place>(&place))
-        .transpose()
-        .map_err(PurgeStoredValueError::from)?;
-    let run_contexts = connection
-        .prepare_cached(RUN_CONTEXTS_SQL)?
-        .query_map(session, |row| {
-            let is_workflow_run: bool = row.get(2)?;
-            let run_key = if is_workflow_run {
-                RunContextKey::from(text_column(row, 0, |text| WorkflowRunId::new(&text))?)
-            } else {
-                RunContextKey::from(text_column(row, 0, |text| RunId::new(&text))?)
-            };
-            Ok(PurgedRunContext {
-                run_key,
-                git_common_dir: PathBuf::from(row.get::<_, String>(1)?),
-            })
-        })?
-        .collect::<rusqlite::Result<_>>()?;
     let workflow_run_ids = connection
         .prepare_cached(WORKFLOW_RUN_IDS_SQL)?
         .query_map(session, |row| {
@@ -358,11 +309,9 @@ pub(super) fn read_purge_targets(
     let payload_hashes = connection
         .prepare_cached(PAYLOAD_HASHES_SQL)?
         .query_map(session, |row| row.get::<_, String>(0))?
-        .map(|stored| Ok(ContentHash::from_stored(stored?).map_err(PurgeStoredValueError::from)?))
+        .map(|stored| Ok(ContentHash::from_stored(stored?)?))
         .collect::<Result<_, PurgeReadError>>()?;
     Ok(PurgeTargets {
-        place,
-        run_contexts,
         workflow_run_ids,
         payload_hashes,
     })
@@ -374,9 +323,9 @@ pub(crate) enum PurgeReadError {
     /// SQLite refused the read.
     #[error("a read of the purged session's rows failed")]
     Database(#[from] rusqlite::Error),
-    /// A stored value does not read as its type.
+    /// A stored payload key is no content hash.
     #[error(transparent)]
-    StoredValue(#[from] PurgeStoredValueError),
+    ContentHash(#[from] NotAContentHash),
 }
 
 /// A session's event rows' first and last sequence, `None` when it has none, and the sessions it is

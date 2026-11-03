@@ -490,7 +490,8 @@ impl CodexSessionEstablishment {
         // the acceptance answers a speed only for a turn already over.
         let (_, input) = apply_run_turn_acceptance(record, run.run_id, &turn_id, run_turn);
         let run_routes = &self.dependencies.run_routes;
-        if route_accepted_turn(run_routes, record, run.run_id, &turn_id) {
+        // The continuation carries the daemon's words, not a queued message, so nothing opened it.
+        if route_accepted_turn(run_routes, record, run.run_id, &turn_id, None) {
             record.turn_input_by_turn_id.insert(turn_id, input);
         }
         run_routes.bind_run_delivery(run.run_id, binding.clone());

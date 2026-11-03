@@ -59,6 +59,7 @@ use sidekicks_session::run::inbound::RunInboundDispatch;
 use sidekicks_session::run::pause::RunPauseControl;
 use sidekicks_session::run::provider_choice::ProviderChoiceResolver;
 use sidekicks_session::run::provider_choice::held::HeldChoiceAnswers;
+use sidekicks_session::run::turn_capture::TurnCapture;
 use sidekicks_session::search::files::service::FileSearchService;
 use sidekicks_session::service::SessionService;
 use sidekicks_session::tags::SessionTagService;
@@ -76,6 +77,7 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_store::machine::local::LocalMachine;
 use sidekicks_terminal::{CommandLine, Terminals};
 use sidekicks_workspace::git::process::GitRunner;
+use sidekicks_workspace::git::turn_snapshot::service::TurnSnapshotService;
 use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 use sidekicks_workspace::managed::service::ManagedWorkspaceService;
 use sidekicks_workspace::managed::write_watcher::{ManagedWorkspaceReport, ManagedWritesWatermark};
@@ -137,6 +139,8 @@ pub(crate) struct SessionServiceStart {
     pub(crate) working_folders: Arc<WorkingFolderWatcher>,
     /// The daemon's git, which lists a working folder for the `@` file search.
     pub(crate) git: GitRunner,
+    /// The turn snapshots, which each turn end's capture records through.
+    pub(crate) snapshots: Arc<TurnSnapshotService>,
     /// The session list's feed.
     pub(crate) list_feed: Arc<SessionListFeed>,
     /// The plan store's holds, the same the list feed was built over, which ending a run reads.
@@ -232,6 +236,8 @@ pub(crate) struct SessionServices {
     pub(crate) changes: Arc<SessionChanges>,
     /// The sessions' self-naming.
     pub(crate) auto_title: Arc<SessionAutoTitle>,
+    /// Records the checkout at each turn end; the start starts it and the stop waits for it.
+    pub(crate) turn_capture: Arc<TurnCapture>,
     /// The questions an agent asks the person.
     pub(crate) questions: Arc<QuestionsService>,
     /// The plans an agent hands over.
@@ -302,6 +308,7 @@ pub(crate) fn build_session_services(
         data_folder,
         working_folders,
         git,
+        snapshots,
         list_feed,
         plan_holds,
         payloads,
@@ -329,6 +336,12 @@ pub(crate) fn build_session_services(
     let appender = Arc::new(SessionEventAppender::new(
         Arc::clone(&event_log),
         SESSION_EVENT_VERSION.clone(),
+    ));
+    let turn_capture = Arc::new(TurnCapture::new(
+        Arc::clone(&reads),
+        Arc::clone(&read_damaged_from_sequence),
+        snapshots,
+        data_folder.clone(),
     ));
     // Taken before the watch moves on; the file search opens it with how each folder is followed.
     let folder_changes = working_folders.folder_change_feed();
@@ -358,6 +371,7 @@ pub(crate) fn build_session_services(
         let mut built = RunEngine::new(
             RunEngineDeps {
                 pool: Arc::clone(&reads),
+                read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
                 event_log: Arc::clone(&event_log),
                 execution_postures: Arc::clone(&execution_postures),
                 providers: Arc::clone(&providers),
@@ -556,6 +570,7 @@ pub(crate) fn build_session_services(
             Arc::clone(&changes),
             providers,
         )),
+        turn_capture,
         changes,
         questions,
         plans: Arc::new(PlansService::new(publisher, Arc::clone(&appender), reads)),

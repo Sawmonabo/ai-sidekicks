@@ -15,7 +15,7 @@ use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::live::{EndingWrite, LiveRuns, settle};
 use crate::run::engine::{RunEngine, settled};
 use crate::run::read::RunRead;
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 impl RunEngine {
     /// Writes `change`, under `hold` where the caller holds the run's session. A terminal is kept
@@ -27,7 +27,7 @@ impl RunEngine {
     pub(super) async fn change(
         &self,
         change: RunStateChange,
-        companions: RunStateChangeCompanions,
+        companions: RunWriteCompanions,
         hold: Option<&SessionAppendHold>,
     ) -> Result<RunRead, RunEngineError> {
         let run_id = change.run_id;

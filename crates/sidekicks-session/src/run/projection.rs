@@ -1,7 +1,7 @@
-//! The `runs` row each run event writes in its own write, so the row always equals a rebuild from
-//! the log and every later write can guard against it; the rebuild folds the log through the same
-//! statements. A range the session skipped past as damaged still moves each live run's version past
-//! every version the range stored, so no later change reuses one.
+//! The `runs` row each run event and each rollback writes in its own write, so the row always
+//! equals a rebuild from the log and every later write can guard against it; the rebuild folds the
+//! log through the same statements. A range the session skipped past as damaged still moves each
+//! live run's version past every version the range stored, so no later change reuses one.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -12,6 +12,7 @@ use rusqlite::types::Value;
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::run::control::AgentRunRolledBackEvent;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionType;
@@ -56,6 +57,13 @@ const SWAP_RUN_STATE_SQL: &str = "UPDATE runs
     AND state = @previous_state
     AND run_version = @run_version - 1";
 
+// Matches only a row one version behind the rollback's, whatever its state.
+const ROLLED_BACK_RUN_VERSION_SQL: &str = "UPDATE runs
+    SET run_version = @run_version
+  WHERE run_id = @run_id
+    AND session_id = @session_id
+    AND run_version = @run_version - 1";
+
 // An ended run keeps its version: nothing moves a run past its end event.
 static ADVANCE_RUN_VERSION_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -87,14 +95,15 @@ static ADVANCE_PAST_SKIPPED_VERSIONS_SQL: LazyLock<String> = LazyLock::new(|| {
 
 const DELETE_SESSION_RUNS_SQL: &str = "DELETE FROM runs WHERE session_id = ?";
 
-// Every type the runs fold reads: a run's creation, a skipped range, an intervention's verdict and
-// each state change.
+// Every type the runs fold reads: a run's creation, a skipped range, an intervention's verdict, a
+// rollback and each state change.
 static RUNS_EVENT_TYPES: LazyLock<Vec<SessionEventType>> = LazyLock::new(|| {
     [
         SessionEventType::AgentRunQueued,
         DAMAGED_EVENTS_SKIPPED_TYPE,
         SessionEventType::AgentInterventionApplied,
         SessionEventType::AgentInterventionDegraded,
+        SessionEventType::AgentRunRolledBack,
     ]
     .into_iter()
     .chain(
@@ -182,6 +191,26 @@ pub(crate) fn advance_run_version_statement(
         bindings: StatementBindings::Named(vec![
             text_binding("@run_id", run_id.text().as_str()),
             text_binding("@session_id", session_id.text().as_str()),
+        ]),
+        expected_row_count: Some(1),
+    }
+}
+
+/// The statement that advances a run to a rollback's version with its state left as it is. It
+/// refuses the write unless the row is one version behind, so a rollback decided from a read the
+/// run has since moved past does not commit.
+pub(crate) fn rolled_back_run_version_statement(
+    rollback: &AgentRunRolledBackEvent,
+) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(ROLLED_BACK_RUN_VERSION_SQL),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@run_id", rollback.run_id.text().as_str()),
+            text_binding("@session_id", rollback.session_id.text().as_str()),
+            (
+                Cow::Borrowed("@run_version"),
+                Value::Integer(i64::from(rollback.run_version)),
+            ),
         ]),
         expected_row_count: Some(1),
     }
@@ -283,6 +312,10 @@ impl SessionProjectionFold for RunsFold {
                 ]),
                 expected_row_count: None,
             });
+            return Ok(());
+        }
+        if let SessionEvent::AgentRunRolledBack(rollback) = event {
+            statements.push(rolled_back_run_version_statement(rollback));
             return Ok(());
         }
         // An interrupt's verdict ends its run in the same write, which the run's own end event
