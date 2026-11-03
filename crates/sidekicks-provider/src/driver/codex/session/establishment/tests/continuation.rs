@@ -24,7 +24,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::codex::session::establishment::CodexEstablishedSession;
 use crate::driver::codex::session::test_fixture::TestCodexSession;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
-use crate::driver::session_control::continuation::HeldRunContinue;
+use crate::driver::session_control::held_run_continue::HeldRunContinue;
 use crate::driver::session_control::{
     DriverResumeResult, LiveRunResume, OpenTurnResume, ProviderTurnAnswer,
 };
@@ -165,7 +165,7 @@ pub(super) async fn adopt(
     live_runs: Vec<LiveRunResume>,
     answers: AdoptionScript,
 ) -> Adoption {
-    adopt_continuing(session, live_runs, None, answers).await
+    Box::pin(adopt_continuing(session, live_runs, None, answers)).await
 }
 
 // Adopts as `adopt` does, the resume carrying `held_run_continue`.

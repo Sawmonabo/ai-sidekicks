@@ -21,7 +21,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::codex::session::establishment::continuation::CODEX_CONTINUATION_TEXT;
 use crate::driver::codex::session::test_fixture::TestCodexSession;
 use crate::driver::session_control::ProviderTurnAnswer;
-use crate::driver::session_control::continuation::{
+use crate::driver::session_control::held_run_continue::{
     ContinueAnswer, ContinueEntry, HeldRunContinue,
 };
 use crate::driver::test_registry::new_run_id;

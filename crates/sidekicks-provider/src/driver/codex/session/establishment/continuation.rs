@@ -47,7 +47,7 @@ use crate::driver::codex::thread::view::{CodexThreadStatus, TURN_START_METHOD, r
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::driver::contract::error::DriverError;
-use crate::driver::session_control::continuation::{
+use crate::driver::session_control::held_run_continue::{
     ContinueAnswer, HeldRunContinue, compose_continuation_text,
 };
 use crate::driver::session_control::{

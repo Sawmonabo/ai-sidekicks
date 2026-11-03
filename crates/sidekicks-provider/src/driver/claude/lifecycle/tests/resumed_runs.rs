@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use rstest::rstest;
 use serde_json::json;
-use sidekicks_contracts::approval::ApprovalDecision;
+use sidekicks_contracts::approval::{ApprovalDecision, ApprovalRequestId};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
@@ -412,6 +412,8 @@ async fn a_held_lead_s_continue_carries_the_answers_to_its_process() {
         run_id: helper,
         subagent_id: Some(SubagentId::new("helper-1".to_owned()).expect("a helper id fits")),
         answer: ContinueAnswer::Approval {
+            approval_request_id: ApprovalRequestId::try_from(mint_uuid_v7())
+                .expect("a minted UUID is an ask's id"),
             subject: "rm -rf build".to_owned(),
             tool_name: Some("Bash".to_owned()),
             decision: ApprovalDecision::Approved,

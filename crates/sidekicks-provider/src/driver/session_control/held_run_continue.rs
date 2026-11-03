@@ -193,8 +193,12 @@ fn one_line(text: &str) -> String {
 mod tests {
     use jiff::{SignedDuration, Timestamp};
     use sidekicks_contracts::run::subagent::SubagentId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-    use super::{ContinueAnswer, ContinueEntry, HeldRunContinue, compose_continuation_text};
+    use super::{
+        ApprovalRequestId, ContinueAnswer, ContinueEntry, HeldRunContinue, QuestionId,
+        compose_continuation_text,
+    };
     use crate::driver::idle_sleep::KeptSchedule;
     use crate::driver::test_registry::new_run_id;
 
@@ -215,6 +219,8 @@ mod tests {
                 run_id: lead,
                 subagent_id: None,
                 answer: ContinueAnswer::Question {
+                    question_id: QuestionId::try_from(mint_uuid_v7())
+                        .expect("a minted UUID is a question's id"),
                     question: "Which branch?".to_owned(),
                     answer: "main".to_owned(),
                 },
@@ -223,6 +229,8 @@ mod tests {
                 run_id: new_run_id(),
                 subagent_id: Some(helper),
                 answer: ContinueAnswer::Approval {
+                    approval_request_id: ApprovalRequestId::try_from(mint_uuid_v7())
+                        .expect("a minted UUID is an ask's id"),
                     subject: "rm -rf build".to_owned(),
                     tool_name: Some("Bash".to_owned()),
                     decision: sidekicks_contracts::approval::ApprovalDecision::Rejected,
