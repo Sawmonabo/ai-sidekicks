@@ -20,6 +20,7 @@ import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./free-form-string.js";
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
 import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import { Sha256HexSchema } from "./release-manifest.js";
 import { RunIdSchema, type RunId } from "./run/id.js";
 import { NodeIdSchema, type NodeId } from "./runtime-node/id.js";
 import { SessionIdSchema, type SessionId } from "./session/id.js";
@@ -504,8 +505,9 @@ export const ApprovalDenialOverrideResponseSchema: z.ZodType<ApprovalDenialOverr
  * client can, so an answer reaches the right ask after a restart when several are
  * open on one run. `toolCallId` names the tool call the ask holds, Claude Code's
  * `tool_use_id` or Codex's `itemId`, so that call's row draws its held mark and
- * `Declined`. The ask's tool name and the provider's prompt text ride
- * `resourceDescriptor`.
+ * `Declined`. `inputDigest` is the SHA-256 of the asked call's tool name and
+ * input, by which a call made again after a restart finds the card. The ask's
+ * tool name and the provider's prompt text ride `resourceDescriptor`.
  */
 export type ApprovalRequestedPayload = {
   sessionId: SessionId;
@@ -517,6 +519,7 @@ export type ApprovalRequestedPayload = {
   resourceDescriptor: Record<string, unknown>;
   askId?: string | undefined;
   toolCallId?: string | undefined;
+  inputDigest?: string | undefined;
 };
 /** Parses an {@link ApprovalRequestedPayload}. */
 export const ApprovalRequestedPayloadSchema: z.ZodType<ApprovalRequestedPayload> = z
@@ -534,6 +537,7 @@ export const ApprovalRequestedPayloadSchema: z.ZodType<ApprovalRequestedPayload>
       EVENT_FIELD_MAX_LEN,
       "ApprovalRequestedPayload.toolCallId",
     ).optional(),
+    inputDigest: Sha256HexSchema.optional(),
   })
   .strict();
 
