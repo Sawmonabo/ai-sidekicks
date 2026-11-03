@@ -15,6 +15,7 @@ use crate::agent::definition::AgentDefinitionId;
 use crate::project::ProjectId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::text::is_ecmascript_whitespace;
 use crate::workflow::definition::document::WorkflowToolBinding;
 use crate::workflow::definition::expression_template::{
     TemplateError, TemplatePart, TemplateText, read_template,
@@ -61,8 +62,8 @@ pub struct WorkflowNodeParamsCheckInput {
 /// Checks one node's parameters against its kind's parameter list, walking into collections, and
 /// returns every value refused: a reference that is not one (a secret outside the `secret://`
 /// form, an id that is not one, a tool binding carrying a nested node or a policy), a `secret://`
-/// value in a parameter the kind does not mark sensitive, and an expression naming `secret://`. A
-/// parameter left out and an id the kind does not list are not checked here.
+/// value in a parameter the kind does not mark sensitive, an expression naming `secret://`, a
+/// required parameter left empty while it is drawn, and a member the kind does not list.
 pub fn check_workflow_node_params(
     params: &Map<String, Value>,
     specs: &[WorkflowParamSpec],
@@ -81,18 +82,81 @@ fn check_field_list(
     for spec in specs {
         match spec {
             WorkflowParamSpec::Leaf(leaf) => {
-                if let Some(value) = values.get(leaf.id.0.as_str()) {
-                    let place = format!("{path_prefix}{}", leaf.id.0.as_str());
+                let place = format!("{path_prefix}{}", leaf.id.0.as_str());
+                let value = values.get(leaf.id.0.as_str());
+                if leaf.required == Some(true)
+                    && is_drawn(leaf, values, specs)
+                    && is_left_empty(value.or(leaf.default.as_ref().map(|default| &default.0)))
+                {
+                    issues.push(WorkflowParamIssue {
+                        path: place.clone(),
+                        message: "A required parameter is left empty.".to_owned(),
+                        rule: Some(WorkflowDefinitionRule::ParamMissing),
+                    });
+                }
+                if let Some(value) = value {
                     check_leaf(leaf, value, &place, issues);
                 }
             }
             WorkflowParamSpec::Collection(collection) => {
-                if let Some(value) = values.get(collection.id.0.as_str()) {
-                    let place = format!("{path_prefix}{}", collection.id.0.as_str());
-                    check_collection(collection, value, &place, issues);
-                }
+                let place = format!("{path_prefix}{}", collection.id.0.as_str());
+                check_collection(
+                    collection,
+                    values.get(collection.id.0.as_str()),
+                    &place,
+                    issues,
+                );
             }
         }
+    }
+    for key in values.keys() {
+        if !specs.iter().any(|spec| param_id(spec) == key) {
+            issues.push(WorkflowParamIssue {
+                path: format!("{path_prefix}{key}"),
+                message: "The node's kind lists no such parameter.".to_owned(),
+                rule: Some(WorkflowDefinitionRule::UnknownKey),
+            });
+        }
+    }
+}
+
+fn param_id(spec: &WorkflowParamSpec) -> &str {
+    match spec {
+        WorkflowParamSpec::Leaf(leaf) => leaf.id.0.as_str(),
+        WorkflowParamSpec::Collection(collection) => collection.id.0.as_str(),
+    }
+}
+
+// A parameter is drawn unless its `showWhen` names a sibling whose value, or its default where the
+// node holds none, is none of the values listed for it.
+fn is_drawn(
+    leaf: &WorkflowLeafParamSpec,
+    values: &Map<String, Value>,
+    siblings: &[WorkflowParamSpec],
+) -> bool {
+    let Some(show_when) = &leaf.show_when else {
+        return true;
+    };
+    show_when.as_map().iter().all(|(sibling_id, listed)| {
+        let sibling_value = values.get(sibling_id).or_else(|| {
+            siblings.iter().find_map(|sibling| match sibling {
+                WorkflowParamSpec::Leaf(sibling) if sibling.id.0.as_str() == sibling_id => {
+                    sibling.default.as_ref().map(|default| &default.0)
+                }
+                WorkflowParamSpec::Leaf(_) | WorkflowParamSpec::Collection(_) => None,
+            })
+        });
+        sibling_value.is_some_and(|value| listed.iter().any(|listed| listed.0 == *value))
+    })
+}
+
+// Empty as a form reads it: absent, `null`, blank text or an empty list; `false` is an answer.
+fn is_left_empty(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null) => true,
+        Some(Value::String(text)) => text.chars().all(is_ecmascript_whitespace),
+        Some(Value::Array(entries)) => entries.is_empty(),
+        Some(Value::Bool(_) | Value::Number(_) | Value::Object(_)) => false,
     }
 }
 
@@ -302,24 +366,30 @@ fn in_expression_issue(place: &str) -> WorkflowParamIssue {
     }
 }
 
-// A repeating collection holds a list of records and a single one a record; any other value holds
-// no reference to check.
+// A repeating collection holds a list of records and a single one a record, which an absent value
+// holds empty so its required fields are still found; any other value holds nothing to check.
 fn check_collection(
     spec: &WorkflowCollectionParamSpec,
-    value: &Value,
+    value: Option<&Value>,
     place: &str,
     issues: &mut Vec<WorkflowParamIssue>,
 ) {
     if spec.multiple == Some(true) {
-        if let Value::Array(entries) = value {
+        if let Some(Value::Array(entries)) = value {
             for (index, entry) in entries.iter().enumerate() {
                 if let Value::Object(fields) = entry {
                     check_field_list(fields, &spec.fields, &format!("{place}.{index}."), issues);
                 }
             }
         }
-    } else if let Value::Object(fields) = value {
-        check_field_list(fields, &spec.fields, &format!("{place}."), issues);
+    } else {
+        match value {
+            Some(Value::Object(fields)) => {
+                check_field_list(fields, &spec.fields, &format!("{place}."), issues);
+            }
+            None => check_field_list(&Map::new(), &spec.fields, &format!("{place}."), issues),
+            Some(_) => {}
+        }
     }
 }
 
@@ -432,6 +502,94 @@ mod tests {
                 message: "No expression resolves a secret.".to_owned(),
                 rule: Some(WorkflowDefinitionRule::SecretInExpression),
             }]
+        );
+    }
+
+    fn rule_issues(
+        params: &Value,
+        specs: &[WorkflowParamSpec],
+    ) -> Vec<(String, WorkflowDefinitionRule)> {
+        let params = params.as_object().expect("the params are an object");
+        check_workflow_node_params(params, specs)
+            .into_iter()
+            .filter_map(|issue| issue.rule.map(|rule| (issue.path, rule)))
+            .collect()
+    }
+
+    // A required parameter is refused when it is drawn and left empty, its default filling one the
+    // node leaves out, a field a `showWhen` hides passing, and a single collection's required field
+    // found even when the node leaves the collection out. Mutations: drop the required check; skip
+    // the `showWhen` read; read the default as no value; read blank text as filled; skip an absent
+    // collection.
+    #[rstest]
+    #[case::left_out(json!({ "mode": "plain", "auth": { "user": "a" } }), &["target"])]
+    #[case::blank(
+        json!({ "mode": "plain", "target": " \t", "auth": { "user": "a" } }),
+        &["target"]
+    )]
+    #[case::an_empty_list(
+        json!({ "mode": "plain", "target": [], "auth": { "user": "a" } }),
+        &["target"]
+    )]
+    #[case::filled(
+        json!({ "mode": "plain", "target": "=$json.path", "auth": { "user": "a" } }),
+        &[]
+    )]
+    #[case::hidden(json!({ "mode": "advanced", "auth": { "user": "a" } }), &[])]
+    #[case::shown_by_its_siblings_default(json!({ "auth": { "user": "a" } }), &["target"])]
+    #[case::a_collection_left_out(json!({ "mode": "plain", "target": "a" }), &["auth.user"])]
+    fn a_required_param_left_empty_is_refused(#[case] params: Value, #[case] missing: &[&str]) {
+        let specs: Vec<WorkflowParamSpec> = serde_json::from_value(json!([
+            {
+                "id": "mode", "label": "Mode", "type": "select", "default": "plain",
+                "options": [
+                    { "value": "plain", "label": "Plain" },
+                    { "value": "advanced", "label": "Advanced" },
+                ],
+            },
+            {
+                "id": "target", "label": "Target", "type": "string", "required": true,
+                "showWhen": { "mode": ["plain"] },
+            },
+            {
+                "id": "retries", "label": "Retries", "type": "number", "required": true,
+                "default": 3,
+            },
+            {
+                "id": "auth", "label": "Auth", "type": "collection",
+                "fields": [{ "id": "user", "label": "User", "type": "string", "required": true }],
+            },
+        ]))
+        .expect("the specs read");
+        let expected: Vec<_> = missing
+            .iter()
+            .map(|path| ((*path).to_owned(), WorkflowDefinitionRule::ParamMissing))
+            .collect();
+        assert_eq!(rule_issues(&params, &specs), expected);
+    }
+
+    // A member the kind does not list is refused at its place, at the top and inside a
+    // collection's entry, while every listed one passes. Mutations: drop the unknown-key walk;
+    // walk only the top.
+    #[test]
+    fn a_member_the_kind_does_not_list_is_refused() {
+        let params = json!({
+            "prompt": "a",
+            "approvalMode": "never",
+            "headers": [{ "name": "a" }, { "name": "b", "policy": "allow" }],
+        });
+        assert_eq!(
+            rule_issues(&params, &specs()),
+            vec![
+                (
+                    "headers.1.policy".to_owned(),
+                    WorkflowDefinitionRule::UnknownKey
+                ),
+                (
+                    "approvalMode".to_owned(),
+                    WorkflowDefinitionRule::UnknownKey
+                ),
+            ]
         );
     }
 
