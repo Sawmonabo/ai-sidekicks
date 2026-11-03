@@ -44,8 +44,8 @@ use sidekicks_provider::runtime_binding::test_store::bind_resumable;
 use sidekicks_queue::delivery::test_fixture::test_delivery;
 use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
 use sidekicks_queue::provider_session::test_opening::{
-    KeptAnswersStandIn, RecordedProcessFollowing, test_execution_postures, test_git_folder_reader,
-    test_opening_composer,
+    OrphanedAnswersStandIn, RecordedProcessFollowing, test_execution_postures,
+    test_git_folder_reader, test_opening_composer,
 };
 use sidekicks_queue::provider_session::{ProviderSessions, ProviderSessionsDeps};
 use sidekicks_session::interventions::service::test_fixture::test_intervention_service;
@@ -711,8 +711,8 @@ fn resuming_provider_sessions(
         process_follower: Arc::new(RecordedProcessFollowing::default()),
         execution_postures: test_execution_postures(),
         resumed_runs: Arc::new(resumed_runs),
-        kept_approvals: Arc::new(KeptAnswersStandIn::<ApprovalRequestId>::default()),
-        kept_questions: Arc::new(KeptAnswersStandIn::<QuestionId>::default()),
+        orphaned_approvals: Arc::new(OrphanedAnswersStandIn::<ApprovalRequestId>::default()),
+        orphaned_questions: Arc::new(OrphanedAnswersStandIn::<QuestionId>::default()),
     }))
 }
 
