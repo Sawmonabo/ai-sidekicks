@@ -230,6 +230,7 @@ impl SeamFixture {
             .resolve(&request, device())
             .await
             .expect("the card is answered")
+            .response
     }
 
     /// The check of a command step at Ask on the fixture's run.
