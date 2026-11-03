@@ -233,8 +233,9 @@ async fn an_applied_cut_lands_with_its_companions() {
     assert_eq!(landed, [(scene.run_id, 2, position(TARGET_TURN - 1))]);
     assert_eq!(cut_message_text.as_deref(), Some("Look again"));
     assert_eq!(
-        fixture.event_types()[..4],
+        fixture.event_types(),
         [
+            "session.created",
             "agent.run.queued",
             "user.message.sent",
             "agent.run.recovery.resolved",

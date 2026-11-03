@@ -364,8 +364,8 @@ mod tests {
     async fn fixture() -> Fixture {
         let database = TestDatabase::new(schema_parts());
         let session_id = test_session_id();
-        insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
         let log = open_log(&database, None).await;
+        insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
         let pool = Arc::new(DatabaseReadPool::new(
             database.path(),
             READINGS_STATEMENT_CAPACITY,

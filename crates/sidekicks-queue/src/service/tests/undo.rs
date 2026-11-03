@@ -25,8 +25,10 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::rewind::RewindConversationResult;
-use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
-use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
+use sidekicks_provider::runtime_binding::store::CreateRuntimeBindingInput;
+use sidekicks_provider::runtime_binding::test_store::{
+    binding_input, spawn_config_on, spawned_build, test_provider_account_id,
+};
 use sidekicks_session::checkpoints::store::{Checkpoint, insert_checkpoint_statement};
 use sidekicks_session::run::engine::test_fixture::{append, stored_run_state};
 
@@ -38,8 +40,9 @@ const TARGET_TURN: u64 = 2;
 /// What the stand-in provider answers a conversation cut with.
 type RewindAnswer = Arc<dyn Fn() -> Result<RewindConversationResult, DriverError> + Send + Sync>;
 
-/// A session whose lead run runs on the stand-in driver, bound, its cursor open, with the person's
-/// message that opened its turn 2 sent through the queue and checkpointed: the undo's target.
+/// A session whose lead run runs on the stand-in driver, bound on the session's conversation, its
+/// cursor open, with the person's message that opened its turn 2 sent through the queue and
+/// checkpointed: the undo's target.
 struct Scene {
     fixture: Fixture,
     calls: Arc<DriverCalls>,
@@ -78,8 +81,7 @@ async fn scene(answer: RewindAnswer) -> Scene {
     let target = fixture
         .insert_checkpoint(run_id, message_sequence, SourceEpoch(SafeInt::ZERO))
         .await;
-    let binding_id = bind_run_to_first_provider(&fixture.database, run_id);
-    fixture.open_cursor(run_id, binding_id).await;
+    fixture.bind_on_conversation(run_id).await;
     Scene {
         fixture,
         calls,
@@ -141,6 +143,27 @@ impl Fixture {
             .await
             .expect("the test writes the checkpoint");
         SessionRestoreTarget::Snapshot { snapshot_id }
+    }
+
+    /// Binds `run_id` on the session's conversation and opens its epoch cursor, as the opening of
+    /// the process a running lead stands in records its leg, so a run the session opens later
+    /// binds on that conversation.
+    async fn bind_on_conversation(&self, run_id: RunId) {
+        self.queue
+            .provider_sessions
+            .binding_cursors()
+            .create(
+                self.session_id,
+                CreateRuntimeBindingInput {
+                    run_id,
+                    ..binding_input(
+                        spawn_config_on(test_provider_account_id()),
+                        spawned_build("1.0.0", "/opt/provider/bin"),
+                    )
+                },
+            )
+            .await
+            .expect("the run's binding is recorded");
     }
 
     /// Opens the epoch cursor of `binding_id` on `run_id`, so the session runs on it now.

@@ -100,11 +100,46 @@ fn epoch_position(epoch: u64, position: u64) -> EpochPosition {
     }
 }
 
+// Lists the session's checkpoints, asserting each reads back by its snapshot and by its message,
+// and answers each one's message sequence and turn.
+fn listed_checkpoints(
+    database: &TestDatabase,
+    session_id: SessionId,
+    run_id: RunId,
+) -> Vec<(SafeInt<0>, EpochPosition)> {
+    let reader = database.reader();
+    let stored = list_checkpoints(&reader, |_| None, session_id).expect("the checkpoints read");
+    for row in &stored {
+        let checkpoint = &row.checkpoint;
+        assert_eq!(checkpoint.run_id, run_id);
+        let anchor_cursor = encode_event_cursor(i64::from(checkpoint.message_sequence))
+            .expect("a stored sequence is a cursor");
+        for target in [
+            SessionRestoreTarget::Snapshot {
+                snapshot_id: checkpoint.checkpoint_id.clone(),
+            },
+            SessionRestoreTarget::Message { anchor_cursor },
+        ] {
+            assert_eq!(
+                read_checkpoint(&reader, |_| None, session_id, &target)
+                    .expect("the checkpoint reads"),
+                Some(row.clone()),
+                "{target:?}"
+            );
+        }
+    }
+    stored
+        .iter()
+        .map(|row| (row.checkpoint.message_sequence, row.checkpoint.turn))
+        .collect()
+}
+
 // Killed by a row keyed on the turn's number or the start's own sequence, by the standing read
-// without this start applied (every position one short), by the
-// epoch not read (the third row in epoch 0), by a second row for P2 or a plain insert refusing the
-// start that names it again, by a row for a turn with no opening, and by a row written apart from
-// its start (one for the ended run's start).
+// without this start applied (every position one short), by the epoch not read (the row after
+// the rollback in epoch 0), by a second row for P2 or a plain insert refusing the start that names
+// it again, by a row for a turn with no opening, and by a row written apart from its start (one
+// for the ended run's start). The rollback cuts the epoch's first rows away, so the list reads
+// them before it and only the new epoch's row after.
 #[tokio::test]
 async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_start() {
     let database = TestDatabase::new(schema_parts());
@@ -134,6 +169,13 @@ async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_star
     for turn_number in 2..=4 {
         end(&engine, run_id, turn_number).await;
     }
+    assert_eq!(
+        listed_checkpoints(&database, session_id, run_id),
+        vec![
+            (first_sequence, epoch_position(0, 1)),
+            (second_sequence, epoch_position(0, 2)),
+        ]
+    );
     let hold = SESSION_APPEND_LOCK.acquire(session_id).await;
     engine
         .roll_back(
@@ -154,36 +196,8 @@ async fn each_opened_turn_writes_one_checkpoint_before_its_message_with_its_star
     send(&appender, session_id, run_id, fourth).await;
     assert_eq!(start(&engine, run_id, Some(fourth)).await, None);
 
-    let reader = database.reader();
-    let stored = list_checkpoints(&reader, |_| None, session_id).expect("the checkpoints read");
     assert_eq!(
-        stored
-            .iter()
-            .map(|row| (row.checkpoint.message_sequence, row.checkpoint.turn))
-            .collect::<Vec<_>>(),
-        vec![
-            (first_sequence, epoch_position(0, 1)),
-            (second_sequence, epoch_position(0, 2)),
-            (third_sequence, epoch_position(1, 1)),
-        ]
+        listed_checkpoints(&database, session_id, run_id),
+        vec![(third_sequence, epoch_position(1, 1))]
     );
-    for row in &stored {
-        let checkpoint = &row.checkpoint;
-        assert_eq!(checkpoint.run_id, run_id);
-        let anchor_cursor = encode_event_cursor(i64::from(checkpoint.message_sequence))
-            .expect("a stored sequence is a cursor");
-        for target in [
-            SessionRestoreTarget::Snapshot {
-                snapshot_id: checkpoint.checkpoint_id.clone(),
-            },
-            SessionRestoreTarget::Message { anchor_cursor },
-        ] {
-            assert_eq!(
-                read_checkpoint(&reader, |_| None, session_id, &target)
-                    .expect("the checkpoint reads"),
-                Some(row.clone()),
-                "{target:?}"
-            );
-        }
-    }
 }
