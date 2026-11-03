@@ -1,8 +1,10 @@
 //! Which turns of a run an undo superseded, read from the log. Undone turns stay in the log, and
 //! every accepted `agent.run.rolledBack` of the run adds its cut (`add_superseding_cut`).
 
+use std::borrow::Cow;
 use std::sync::LazyLock;
 
+use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, named_params};
 use serde::Deserialize as _;
 use serde_json::{Map, Value};
@@ -11,6 +13,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::row::TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE;
 use sidekicks_contracts::transcript::turn_attribution::{SupersededTurns, add_superseding_cut};
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::json_object_column;
 use sidekicks_store::events::session::read::{readable_event_sql, session_read_bound};
 
@@ -57,16 +60,20 @@ pub fn parse_stored_rollback(
     })
 }
 
-// Seeks the run's readable rollbacks through the event log's run-and-type index.
+// Seeks the run's readable rollbacks past `@after_sequence` through the event log's run-and-type
+// index: the read takes every one, and a write's guard expects none past the last the read took.
 static SELECT_RUN_ROLLBACKS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT sequence, payload FROM session_events AS event
       WHERE session_id = @session_id AND type = @type AND run_id = @run_id
-        AND {}
+        AND sequence > @after_sequence AND {}
       ORDER BY sequence",
         readable_event_sql("event")
     )
 });
+
+// The sequence below every event's, so a read past it takes the whole log.
+const BEFORE_EVERY_SEQUENCE: i64 = -1;
 
 /// A run's superseded turns from every rollback of it the log can read on `reader`, none past a
 /// damaged session's last good point (`read_damaged_from_sequence`, `None` for a session that
@@ -78,22 +85,65 @@ pub(crate) fn read_superseded_turns(
     session_id: &SessionId,
     run_id: &RunId,
 ) -> Result<SupersededTurns, SupersededTurnsReadError> {
+    let read_bound = session_read_bound(read_damaged_from_sequence, session_id, None);
+    read_run_rollbacks(reader, session_id, run_id, read_bound).map(|(turns, _)| turns)
+}
+
+/// A run's superseded turns as [`read_superseded_turns`] reads them, with the guard that refuses
+/// a write once a rollback of the run the read did not take is in the log, so what the turns
+/// decide holds in the write they decide. Fails as [`read_superseded_turns`] does.
+pub(crate) fn read_superseded_turns_guarded(
+    reader: &Connection,
+    read_damaged_from_sequence: impl Fn(&SessionId) -> Option<i64>,
+    session_id: &SessionId,
+    run_id: &RunId,
+) -> Result<(SupersededTurns, WriteStatement), SupersededTurnsReadError> {
+    let read_bound = session_read_bound(read_damaged_from_sequence, session_id, None);
+    let (turns, last_sequence) = read_run_rollbacks(reader, session_id, run_id, read_bound)?;
+    let guard = WriteStatement {
+        sql: Cow::Borrowed(SELECT_RUN_ROLLBACKS_SQL.as_str()),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@session_id", session_id.text().as_str()),
+            text_binding("@type", TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE),
+            text_binding("@run_id", run_id.text().as_str()),
+            (
+                Cow::Borrowed("@after_sequence"),
+                SqlValue::Integer(last_sequence),
+            ),
+            (Cow::Borrowed("@read_bound"), SqlValue::Integer(read_bound)),
+        ]),
+        expected_row_count: Some(0),
+    };
+    Ok((turns, guard))
+}
+
+// The run's superseded turns from its readable rollbacks before `read_bound`, with the sequence
+// of the last one, or the sequence below every event's when it has none.
+fn read_run_rollbacks(
+    reader: &Connection,
+    session_id: &SessionId,
+    run_id: &RunId,
+    read_bound: i64,
+) -> Result<(SupersededTurns, i64), SupersededTurnsReadError> {
     let mut statement = reader.prepare_cached(SELECT_RUN_ROLLBACKS_SQL.as_str())?;
     let mut rows = statement.query(named_params! {
         "@session_id": session_id.text().as_str(),
         "@type": TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
         "@run_id": run_id.text().as_str(),
-        "@read_bound": session_read_bound(read_damaged_from_sequence, session_id, None),
+        "@after_sequence": BEFORE_EVERY_SEQUENCE,
+        "@read_bound": read_bound,
     })?;
     let mut turns = SupersededTurns {
         run_id: *run_id,
         cuts: Vec::new(),
     };
+    let mut last_sequence = BEFORE_EVERY_SEQUENCE;
     while let Some(row) = rows.next()? {
         let sequence: i64 = row.get(0)?;
         let payload = json_object_column(row, 1)?;
         let rollback = parse_stored_rollback(&payload, session_id, sequence)?;
         turns = add_superseding_cut(&turns, rollback.target_position);
+        last_sequence = sequence;
     }
-    Ok(turns)
+    Ok((turns, last_sequence))
 }

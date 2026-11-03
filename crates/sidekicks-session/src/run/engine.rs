@@ -80,7 +80,7 @@ use crate::run::read::{RunRead, RunStateReader, read_run_through, safe_run_versi
 use crate::run::refusals::{RunRefusal, ended_run_refusal};
 use crate::run::session_posture::SessionPostureSource;
 use crate::run::state_change::{RunStateChange, RunWriteCompanions, RunWriter};
-use crate::run::superseded::read_superseded_turns;
+use crate::run::superseded::read_superseded_turns_guarded;
 use crate::transcript::turn_attribution::{RunTurnReads, TurnAttributionError};
 
 /// The statements the engine's reads prepare on a pooled connection: the run's row, the live
@@ -677,43 +677,47 @@ impl RunEngine {
             .await
     }
 
-    /// Where `run_id`'s latest tool call `tool_call_id` in `session_id`'s log opened, with the
-    /// binding `binding_id` its late row arrived on, when an undo superseded that turn; `None` for
-    /// a call that opened in a kept turn or has no opening in the log, and for a binding with no
+    /// Whether `run_id`'s latest tool call `tool_call_id` in `session_id`'s log opened in a turn
+    /// an undo superseded, its late row arriving on the binding `binding_id`. A call that opened
+    /// in a kept turn or has no opening in the log is kept, and so is one whose binding has no
     /// row, which only a purged session leaves. Fails as the reads do.
-    pub(crate) async fn read_superseded_opening(
+    pub(crate) async fn read_tool_call_opening_turn(
         &self,
         session_id: SessionId,
         run_id: RunId,
         tool_call_id: String,
         binding_id: RuntimeBindingId,
-    ) -> Result<Option<(EpochBinding, EpochPosition)>, RunEngineError> {
+    ) -> Result<ToolCallOpeningTurn, RunEngineError> {
         let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
         self.pool
             .read(ReadLength::Short, move |reader| {
-                let log_end = session_read_bound(&*read_damaged_from_sequence, &session_id, None);
-                let Some(opening) = RunTurnReads::new(reader, &*read_damaged_from_sequence)
-                    .read_tool_call_opening_before(&session_id, &run_id, &tool_call_id, log_end)?
-                else {
-                    return Ok(None);
-                };
-                let turns = read_superseded_turns(
+                let (turns, no_newer_rollback) = read_superseded_turns_guarded(
                     reader,
                     &*read_damaged_from_sequence,
                     &session_id,
                     &run_id,
                 )
                 .map_err(TurnAttributionError::from)?;
+                let kept = ToolCallOpeningTurn::Kept { no_newer_rollback };
+                let log_end = session_read_bound(&*read_damaged_from_sequence, &session_id, None);
+                let Some(opening) = RunTurnReads::new(reader, &*read_damaged_from_sequence)
+                    .read_tool_call_opening_before(&session_id, &run_id, &tool_call_id, log_end)?
+                else {
+                    return Ok(kept);
+                };
                 if transcript_run_stamp_at(&turns, opening)
                     .superseded
                     .is_none()
                 {
-                    return Ok(None);
+                    return Ok(kept);
                 }
-                Ok::<_, RunEngineError>(
-                    read_binding(reader, &binding_id)?
-                        .map(|binding| (epoch_binding_of(&binding), opening)),
-                )
+                Ok::<_, RunEngineError>(match read_binding(reader, &binding_id)? {
+                    Some(binding) => ToolCallOpeningTurn::Cut {
+                        binding: epoch_binding_of(&binding),
+                        source: opening,
+                    },
+                    None => kept,
+                })
             })
             .await
     }
@@ -725,6 +729,25 @@ impl RunEngine {
             .await?
             .ok_or(RunEngineError::Refused(RunRefusal::NotFound { run_id }))
     }
+}
+
+/// Where a run's late row's tool call opened, read from the log.
+pub(crate) enum ToolCallOpeningTurn {
+    /// In a turn an undo superseded: the row is absorbed as from before the cut, at `source` on
+    /// the `binding` it arrived on.
+    Cut {
+        /// The binding the row arrived on.
+        binding: EpochBinding,
+        /// Where the call opened.
+        source: EpochPosition,
+    },
+    /// In a kept turn, or nowhere the log shows: the row is appended, with `no_newer_rollback` in
+    /// its write, which refuses it once a rollback of the run the read did not take is in the
+    /// log, so the read decides again.
+    Kept {
+        /// The guard the row's append carries.
+        no_newer_rollback: WriteStatement,
+    },
 }
 
 // A step's failure with the failures of the cleanups that ran after it, every one kept: the step's
