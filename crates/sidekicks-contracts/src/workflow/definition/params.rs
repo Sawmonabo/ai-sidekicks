@@ -29,15 +29,15 @@ use crate::workflow::secret::WorkflowSecretReference;
 /// What every secret reference starts with.
 const SECRET_SCHEME: &str = "secret://";
 
-/// One parameter value the check refused. `path` is the value's dotted place, its parameter's id
-/// first (`headers.0.token` inside a repeating collection, `tool.approvalMode` for a member a tool
-/// binding does not take), `message` names the fault and never quotes the value, and `rule` the
-/// finding the save raises for it, where one does.
+/// One parameter value the check refused. `path` is the value's place, its parameter's id first
+/// (`["headers", 0, "token"]` inside a repeating collection, `["tool", "approvalMode"]` for a member
+/// a tool binding does not take), `message` names the fault and never quotes the value, and `rule`
+/// the finding the save raises for it, where one does.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowParamIssue {
-    /// The value's dotted place.
-    pub path: String,
+    /// The value's place, one step per member or index, so an id holding a dot stays one step.
+    pub path: Vec<IssuePathSegment>,
     /// The fault.
     pub message: String,
     /// The finding the save raises for the value: a secret outside a sensitive parameter or
@@ -70,20 +70,29 @@ pub fn check_workflow_node_params(
     specs: &[WorkflowParamSpec],
 ) -> Vec<WorkflowParamIssue> {
     let mut issues = Vec::new();
-    check_field_list(params, specs, "", &mut issues);
+    check_field_list(params, specs, &[], &mut issues);
     issues
+}
+
+// `place` with `step` added at its end.
+fn step_into(place: &[IssuePathSegment], step: IssuePathSegment) -> Vec<IssuePathSegment> {
+    place.iter().cloned().chain([step]).collect()
+}
+
+fn member(name: &str) -> IssuePathSegment {
+    IssuePathSegment::Member(name.to_owned())
 }
 
 fn check_field_list(
     values: &Map<String, Value>,
     specs: &[WorkflowParamSpec],
-    path_prefix: &str,
+    path_prefix: &[IssuePathSegment],
     issues: &mut Vec<WorkflowParamIssue>,
 ) {
     for spec in specs {
         match spec {
             WorkflowParamSpec::Leaf(leaf) => {
-                let place = format!("{path_prefix}{}", leaf.id.0.as_str());
+                let place = step_into(path_prefix, member(leaf.id.0.as_str()));
                 let value = values.get(leaf.id.0.as_str());
                 if leaf.required == Some(true)
                     && is_drawn(leaf, values, specs)
@@ -100,7 +109,7 @@ fn check_field_list(
                 }
             }
             WorkflowParamSpec::Collection(collection) => {
-                let place = format!("{path_prefix}{}", collection.id.0.as_str());
+                let place = step_into(path_prefix, member(collection.id.0.as_str()));
                 check_collection(
                     collection,
                     values.get(collection.id.0.as_str()),
@@ -113,7 +122,7 @@ fn check_field_list(
     for key in values.keys() {
         if !specs.iter().any(|spec| param_id(spec) == key) {
             issues.push(WorkflowParamIssue {
-                path: format!("{path_prefix}{key}"),
+                path: step_into(path_prefix, member(key)),
                 message: "The node's kind lists no such parameter.".to_owned(),
                 rule: Some(WorkflowDefinitionRule::UnknownKey),
             });
@@ -164,7 +173,7 @@ fn is_left_empty(value: Option<&Value>) -> bool {
 fn check_leaf(
     spec: &WorkflowLeafParamSpec,
     value: &Value,
-    place: &str,
+    place: &[IssuePathSegment],
     issues: &mut Vec<WorkflowParamIssue>,
 ) {
     let is_sensitive = spec.sensitive == Some(true);
@@ -233,7 +242,7 @@ fn check_leaf(
 fn check_reference<Reference: DeserializeOwned>(
     value: &Value,
     not_text_message: &str,
-    place: &str,
+    place: &[IssuePathSegment],
     issues: &mut Vec<WorkflowParamIssue>,
 ) {
     let message = if value.is_string() {
@@ -245,7 +254,7 @@ fn check_reference<Reference: DeserializeOwned>(
         not_text_message.to_owned()
     };
     issues.push(WorkflowParamIssue {
-        path: place.to_owned(),
+        path: place.to_vec(),
         message,
         rule: None,
     });
@@ -255,18 +264,18 @@ fn check_reference<Reference: DeserializeOwned>(
 // or a policy is refused at its key. A refused read is named by its place alone, never by serde's
 // message, which quotes the value and could leak a pasted secret; a member left out is named at
 // the binding's place.
-fn check_tool_binding(value: &Value, place: &str, issues: &mut Vec<WorkflowParamIssue>) {
+fn check_tool_binding(
+    value: &Value,
+    place: &[IssuePathSegment],
+    issues: &mut Vec<WorkflowParamIssue>,
+) {
     if let Err(error) = serde_path_to_error::deserialize::<_, WorkflowToolBinding>(value) {
-        let mut path = place.to_owned();
-        for segment in reader_issue_path(error.path()) {
-            path.push('.');
-            match segment {
-                IssuePathSegment::Member(name) => path.push_str(&name),
-                IssuePathSegment::Index(index) => path.push_str(&index.get().to_string()),
-            }
-        }
         issues.push(WorkflowParamIssue {
-            path,
+            path: place
+                .iter()
+                .cloned()
+                .chain(reader_issue_path(error.path()))
+                .collect(),
             message: "expected a tool binding: its server binding and its tool name, and no \
                       other member"
                 .to_owned(),
@@ -281,7 +290,7 @@ fn check_tool_binding(value: &Value, place: &str, issues: &mut Vec<WorkflowParam
 fn check_secret_text(
     value: &Value,
     is_sensitive: bool,
-    place: &str,
+    place: &[IssuePathSegment],
     issues: &mut Vec<WorkflowParamIssue>,
 ) {
     match value {
@@ -310,12 +319,13 @@ fn check_secret_text(
         }
         Value::Array(entries) => {
             for (index, entry) in entries.iter().enumerate() {
-                check_secret_text(entry, is_sensitive, &format!("{place}.{index}"), issues);
+                let entry_place = step_into(place, IssuePathSegment::index(index));
+                check_secret_text(entry, is_sensitive, &entry_place, issues);
             }
         }
         Value::Object(members) => {
             for (key, entry) in members {
-                check_secret_text(entry, is_sensitive, &format!("{place}.{key}"), issues);
+                check_secret_text(entry, is_sensitive, &step_into(place, member(key)), issues);
             }
         }
         Value::Null | Value::Bool(_) | Value::Number(_) => {}
@@ -327,7 +337,7 @@ fn check_secret_text(
 fn check_secret_literal(
     literal: &str,
     is_sensitive: bool,
-    place: &str,
+    place: &[IssuePathSegment],
     issues: &mut Vec<WorkflowParamIssue>,
 ) {
     if !literal.starts_with(SECRET_SCHEME) {
@@ -337,25 +347,25 @@ fn check_secret_literal(
         issues.push(outside_sensitive_issue(place));
     } else if let Err(error) = literal.parse::<WorkflowSecretReference>() {
         issues.push(WorkflowParamIssue {
-            path: place.to_owned(),
+            path: place.to_vec(),
             message: error.to_string(),
             rule: None,
         });
     }
 }
 
-fn outside_sensitive_issue(place: &str) -> WorkflowParamIssue {
+fn outside_sensitive_issue(place: &[IssuePathSegment]) -> WorkflowParamIssue {
     WorkflowParamIssue {
-        path: place.to_owned(),
+        path: place.to_vec(),
         message: "A secret:// reference stands only in a parameter its kind marks sensitive."
             .to_owned(),
         rule: Some(WorkflowDefinitionRule::SecretOutsideSensitiveField),
     }
 }
 
-fn in_expression_issue(place: &str) -> WorkflowParamIssue {
+fn in_expression_issue(place: &[IssuePathSegment]) -> WorkflowParamIssue {
     WorkflowParamIssue {
-        path: place.to_owned(),
+        path: place.to_vec(),
         message: "No expression resolves a secret.".to_owned(),
         rule: Some(WorkflowDefinitionRule::SecretInExpression),
     }
@@ -366,23 +376,24 @@ fn in_expression_issue(place: &str) -> WorkflowParamIssue {
 fn check_collection(
     spec: &WorkflowCollectionParamSpec,
     value: Option<&Value>,
-    place: &str,
+    place: &[IssuePathSegment],
     issues: &mut Vec<WorkflowParamIssue>,
 ) {
     if spec.multiple == Some(true) {
         if let Some(Value::Array(entries)) = value {
             for (index, entry) in entries.iter().enumerate() {
                 if let Value::Object(fields) = entry {
-                    check_field_list(fields, &spec.fields, &format!("{place}.{index}."), issues);
+                    let entry_place = step_into(place, IssuePathSegment::index(index));
+                    check_field_list(fields, &spec.fields, &entry_place, issues);
                 }
             }
         }
     } else {
         match value {
             Some(Value::Object(fields)) => {
-                check_field_list(fields, &spec.fields, &format!("{place}."), issues);
+                check_field_list(fields, &spec.fields, place, issues);
             }
-            None => check_field_list(&Map::new(), &spec.fields, &format!("{place}."), issues),
+            None => check_field_list(&Map::new(), &spec.fields, place, issues),
             Some(_) => {}
         }
     }
@@ -432,16 +443,16 @@ mod tests {
     #[rstest]
     #[case::a_secret_outside_a_sensitive_param(
         json!({ "prompt": "secret://shared/mail" }),
-        &[("prompt", "marks sensitive")],
+        &[(json!(["prompt"]), "marks sensitive")],
     )]
     #[case::an_expression_naming_a_secret(
         json!({ "prompt": "={{ \"secret://shared/mail\" }}" }),
-        &[("prompt", "No expression resolves a secret.")],
+        &[(json!(["prompt"]), "No expression resolves a secret.")],
     )]
     // A part after literal text still makes the value a template.
     #[case::a_secret_in_a_part_after_text(
         json!({ "prompt": "=Bearer {{ \"secret://shared/mail\" }}" }),
-        &[("prompt", "No expression resolves a secret.")],
+        &[(json!(["prompt"]), "No expression resolves a secret.")],
     )]
     #[case::a_whole_reference_in_a_sensitive_param(
         json!({ "headers": [{ "value": "secret://shared/mail" }] }),
@@ -449,7 +460,7 @@ mod tests {
     )]
     #[case::a_plain_value_in_a_nested_collection_secret(
         json!({ "headers": [{ "name": "Authorization", "token": "ghp_inline-token-value" }] }),
-        &[("headers.0.token", "secret://shared/<name>")],
+        &[(json!(["headers", 0, "token"]), "secret://shared/<name>")],
     )]
     #[case::the_shortest_expression_skips_the_reference_read(
         json!({ "definition": "={{}}" }),
@@ -457,17 +468,17 @@ mod tests {
     )]
     #[case::one_brace_short_is_read_as_a_reference(
         json!({ "definition": "={{}" }),
-        &[("definition", "the id is not an RFC 9562 UUID text form")],
+        &[(json!(["definition"]), "the id is not an RFC 9562 UUID text form")],
     )]
     fn the_params_check_refuses_what_could_leak_a_secret(
         #[case] params: Value,
-        #[case] expected: &[(&str, &str)],
+        #[case] expected: &[(Value, &str)],
     ) {
         let params = params.as_object().expect("the params are an object");
         let issues = check_workflow_node_params(params, &specs());
         assert_eq!(issues.len(), expected.len(), "{issues:?}");
         for (issue, (path, message)) in issues.iter().zip(expected) {
-            assert_eq!(issue.path, *path, "{issue:?}");
+            assert_eq!(path_of(issue), *path, "{issue:?}");
             assert!(issue.message.contains(message), "{issue:?}");
         }
     }
@@ -479,35 +490,40 @@ mod tests {
     #[rstest]
     #[case::a_sensitive_text_param(
         json!({ "headers": [{ "value": "=secret://shared/x" }] }),
-        "headers.0.value"
+        json!(["headers", 0, "value"])
     )]
     #[case::a_secret_param(
         json!({ "headers": [{ "token": "=secret://shared/x" }] }),
-        "headers.0.token"
+        json!(["headers", 0, "token"])
     )]
     fn an_equals_form_naming_a_secret_is_refused_in_a_sensitive_param(
         #[case] params: Value,
-        #[case] path: &str,
+        #[case] path: Value,
     ) {
         let params = params.as_object().expect("the params are an object");
         assert_eq!(
             check_workflow_node_params(params, &specs()),
             vec![WorkflowParamIssue {
-                path: path.to_owned(),
+                path: serde_json::from_value(path).expect("the path reads"),
                 message: "No expression resolves a secret.".to_owned(),
                 rule: Some(WorkflowDefinitionRule::SecretInExpression),
             }]
         );
     }
 
+    // An issue's path as JSON, one item per step.
+    fn path_of(issue: &WorkflowParamIssue) -> Value {
+        serde_json::to_value(&issue.path).expect("a path writes as JSON")
+    }
+
     fn rule_issues(
         params: &Value,
         specs: &[WorkflowParamSpec],
-    ) -> Vec<(String, WorkflowDefinitionRule)> {
+    ) -> Vec<(Value, WorkflowDefinitionRule)> {
         let params = params.as_object().expect("the params are an object");
         check_workflow_node_params(params, specs)
-            .into_iter()
-            .filter_map(|issue| issue.rule.map(|rule| (issue.path, rule)))
+            .iter()
+            .filter_map(|issue| issue.rule.map(|rule| (path_of(issue), rule)))
             .collect()
     }
 
@@ -517,23 +533,29 @@ mod tests {
     // the `showWhen` read; read the default as no value; read blank text as filled; skip an absent
     // collection.
     #[rstest]
-    #[case::left_out(json!({ "mode": "plain", "auth": { "user": "a" } }), &["target"])]
+    #[case::left_out(json!({ "mode": "plain", "auth": { "user": "a" } }), json!([["target"]]))]
     #[case::blank(
         json!({ "mode": "plain", "target": " \t", "auth": { "user": "a" } }),
-        &["target"]
+        json!([["target"]])
     )]
     #[case::an_empty_list(
         json!({ "mode": "plain", "target": [], "auth": { "user": "a" } }),
-        &["target"]
+        json!([["target"]])
     )]
     #[case::filled(
         json!({ "mode": "plain", "target": "=$json.path", "auth": { "user": "a" } }),
-        &[]
+        json!([])
     )]
-    #[case::hidden(json!({ "mode": "advanced", "auth": { "user": "a" } }), &[])]
-    #[case::shown_by_its_siblings_default(json!({ "auth": { "user": "a" } }), &["target"])]
-    #[case::a_collection_left_out(json!({ "mode": "plain", "target": "a" }), &["auth.user"])]
-    fn a_required_param_left_empty_is_refused(#[case] params: Value, #[case] missing: &[&str]) {
+    #[case::hidden(json!({ "mode": "advanced", "auth": { "user": "a" } }), json!([]))]
+    #[case::shown_by_its_siblings_default(
+        json!({ "auth": { "user": "a" } }),
+        json!([["target"]])
+    )]
+    #[case::a_collection_left_out(
+        json!({ "mode": "plain", "target": "a" }),
+        json!([["auth", "user"]])
+    )]
+    fn a_required_param_left_empty_is_refused(#[case] params: Value, #[case] missing: Value) {
         let specs: Vec<WorkflowParamSpec> = serde_json::from_value(json!([
             {
                 "id": "mode", "label": "Mode", "type": "select", "default": "plain",
@@ -557,8 +579,10 @@ mod tests {
         ]))
         .expect("the specs read");
         let expected: Vec<_> = missing
+            .as_array()
+            .expect("the missing paths are a list")
             .iter()
-            .map(|path| ((*path).to_owned(), WorkflowDefinitionRule::ParamMissing))
+            .map(|path| (path.clone(), WorkflowDefinitionRule::ParamMissing))
             .collect();
         assert_eq!(rule_issues(&params, &specs), expected);
     }
@@ -577,13 +601,10 @@ mod tests {
             rule_issues(&params, &specs()),
             vec![
                 (
-                    "headers.1.policy".to_owned(),
+                    json!(["headers", 1, "policy"]),
                     WorkflowDefinitionRule::UnknownKey
                 ),
-                (
-                    "approvalMode".to_owned(),
-                    WorkflowDefinitionRule::UnknownKey
-                ),
+                (json!(["approvalMode"]), WorkflowDefinitionRule::UnknownKey),
             ]
         );
     }
@@ -597,7 +618,7 @@ mod tests {
         let issues = check_workflow_node_params(params, &specs());
         assert_eq!(issues.len(), 1, "{issues:?}");
         let issue = &issues[0];
-        assert_eq!(issue.path, "headers.0.token");
+        assert_eq!(path_of(issue), json!(["headers", 0, "token"]));
         assert!(
             !issue
                 .message
@@ -612,7 +633,7 @@ mod tests {
     #[rstest]
     #[case::text_where_the_binding_belongs(
         json!({ "tool": "ghp_inline-token-value" }),
-        "tool",
+        json!(["tool"]),
         "ghp_inline-token-value"
     )]
     #[case::a_number_as_the_tool_name(
@@ -622,12 +643,12 @@ mod tests {
                 "toolName": 48_213_377,
             },
         }),
-        "tool.toolName",
+        json!(["tool", "toolName"]),
         "48213377"
     )]
     fn a_tool_binding_that_does_not_read_is_refused_without_its_value(
         #[case] params: Value,
-        #[case] path: &str,
+        #[case] path: Value,
         #[case] value_text: &str,
     ) {
         let specs: Vec<WorkflowParamSpec> = serde_json::from_value(json!([
@@ -638,7 +659,7 @@ mod tests {
         let issues = check_workflow_node_params(params, &specs);
         assert_eq!(issues.len(), 1, "{issues:?}");
         let issue = &issues[0];
-        assert_eq!(issue.path, path, "{issue:?}");
+        assert_eq!(path_of(issue), path, "{issue:?}");
         assert_eq!(issue.rule, None, "{issue:?}");
         assert!(!issue.message.contains(value_text), "{issue:?}");
     }

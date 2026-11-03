@@ -50,7 +50,8 @@ pub fn check_workflow_connection_json(input: &str) -> Result<String, JsError> {
 }
 
 /// Runs the parameter check over `{params, specs}` and answers the refused values as a JSON array
-/// of `{path, message}`, empty when every value is accepted; throws when the input does not read.
+/// of `{path, message, rule?}`, empty when every value is accepted; throws when the input does not
+/// read.
 #[wasm_bindgen(js_name = checkWorkflowNodeParams)]
 pub fn check_workflow_node_params_json(input: &str) -> Result<String, JsError> {
     let input: WorkflowNodeParamsCheckInput = serde_json::from_str(input)?;
@@ -127,8 +128,9 @@ mod tests {
             "specs": [{ "id": "prompt", "label": "Prompt", "type": "text" }],
         }),
         json!([{
-            "path": "prompt",
+            "path": ["prompt"],
             "message": "A secret:// reference stands only in a parameter its kind marks sensitive.",
+            "rule": "secretOutsideSensitiveField",
         }]),
     )]
     fn each_export_answers_its_checks_findings_as_json(

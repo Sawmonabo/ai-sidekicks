@@ -93,7 +93,8 @@ async fn open_stores(
 }
 
 /// The step `http.call` at version 1, whose `token` param the kind marks sensitive and whose
-/// `url` param it does not, and whose `tool` param is a tool binding.
+/// `url` param it does not, and whose `tool` and `tool.backup` params are tool bindings, the
+/// second's id holding a dot.
 fn call_kind() -> NodeKind {
     test_kind(
         json!({
@@ -104,6 +105,7 @@ fn call_kind() -> NodeKind {
                 { "id": "token", "label": "Token", "type": "string", "sensitive": true },
                 { "id": "url", "label": "Address", "type": "string" },
                 { "id": "tool", "label": "Tool", "type": "mcpTool" },
+                { "id": "tool.backup", "label": "Backup tool", "type": "mcpTool" },
             ],
             "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
             "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
@@ -559,13 +561,18 @@ async fn a_save_refuses_a_secret_its_params_cannot_resolve(
 }
 
 /// A save refuses a tool binding carrying a policy as the request's own read refuses an unknown
-/// member, naming the field at its place in the request, and writes no workflow; the binding
-/// without it saves. Mutation: let a binding no finding names pass the save.
+/// member, naming the field at its place in the request, a param id holding a dot as one step, and
+/// writes no workflow; the binding without it saves. Mutations: let a binding no finding names pass
+/// the save; split the check's path at each dot.
 #[rstest]
-#[case::carrying_a_policy(Some("allow"))]
-#[case::a_reference_only(None)]
+#[case::carrying_a_policy("tool", Some("allow"))]
+#[case::a_reference_only("tool", None)]
+#[case::under_a_dotted_param_id("tool.backup", Some("allow"))]
 #[tokio::test]
-async fn a_save_refuses_a_tool_binding_carrying_a_policy(#[case] approval_mode: Option<&str>) {
+async fn a_save_refuses_a_tool_binding_carrying_a_policy(
+    #[case] param_id: &str,
+    #[case] approval_mode: Option<&str>,
+) {
     let database = TestDatabase::new(schema_parts());
     let (store, _drafts) = open_stores(&database, SHELL_LINE_LIMIT).await;
     let mut tool = json!({
@@ -578,7 +585,7 @@ async fn a_save_refuses_a_tool_binding_carrying_a_policy(#[case] approval_mode: 
     let mut document = document("Calls", "notes.md");
     document["nodes"][0] = json!({
         "id": "call", "kind": "http.call", "kindVersion": 1, "name": "Call",
-        "order": 0, "params": { "tool": tool },
+        "order": 0, "params": { param_id: tool },
     });
     document["edges"][0]["target"] = json!("call");
 
@@ -606,7 +613,7 @@ async fn a_save_refuses_a_tool_binding_carrying_a_policy(#[case] approval_mode: 
     };
     assert_eq!(
         serde_json::to_value(&issue.path).expect("a path writes as JSON"),
-        json!(["document", "nodes", 0, "params", "tool", "approvalMode"])
+        json!(["document", "nodes", 0, "params", param_id, "approvalMode"])
     );
     assert!(
         issue.message.starts_with("breaks the schema's"),
