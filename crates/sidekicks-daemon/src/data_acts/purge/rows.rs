@@ -209,12 +209,12 @@ const RUN_KEYED_DELETES: [&str; 4] = [
 // The session's own deletes after its run-keyed ones, up to its row, in foreign-key order: a
 // snapshot and a recovery checkpoint name the event they reflect, an ask goes after its answer and
 // after the gate answers found through it, a plan before the artifact that keeps its text, and an
-// artifact after the reference to its payload. The answers kept for a card or a question no
-// request held go beside the asks they answer, the person's words with them. The agent tree goes
-// in one statement, each node with the children that name it. The attention rows go after the machine's attention count is raised,
-// so its readers drop the session's entries, and an entry's delivery before the entry it is found
-// through. The messaging rows go at either end of a pair, a message held from the session or a wait
-// on it among them.
+// artifact after the reference to its payload. The orphaned answers of a card or a question go
+// beside the asks they answer, the person's words with them. The agent tree goes in one statement,
+// each node with the children that name it. The attention rows go after the machine's attention
+// count is raised, so its readers drop the session's entries, and an entry's delivery before the
+// entry it is found through. The messaging rows go at either end of a pair, a message held from the
+// session or a wait on it among them.
 const DELETES_THROUGH_SESSION_ROW: [&str; 36] = [
     "DELETE FROM session_snapshots WHERE session_id = @sessionId",
     "DELETE FROM recovery_checkpoints WHERE session_id = @sessionId",
@@ -469,7 +469,8 @@ pub(super) async fn gone_worktree_ids(
 /// still marked, and no event of it lies past `last_sequence` (its receipt's range, `None` for a
 /// session with no event). The workflow runs go first with every row hanging off them, then the
 /// rows keyed by the session's runs, then its questions and the queued answers paired with them,
-/// then the session's own, its plans and its hand-off row among them, the chat's managed mount last.
+/// then the session's own, its plans and its hand-off row among them, the chat's managed mount
+/// last.
 pub(super) fn session_deletion_statements(
     session_id: SessionId,
     last_sequence: Option<i64>,

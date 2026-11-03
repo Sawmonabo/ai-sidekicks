@@ -178,13 +178,21 @@ pub(super) async fn take_kept_service(
     Ok(None)
 }
 
-/// Where the service a former daemon kept on `service`'s home listens, read from its record and
-/// touching nothing: that service draining or not, while its process still runs; `None` where no
-/// record is kept, its process ended, or it never answered on a socket. Fails as the record's
-/// name, lock or read, or the process table's read, does.
-pub(crate) async fn read_kept_service_socket(
+/// A service the record of a home keeps running: the daemon's own, or one a former daemon kept.
+pub(crate) struct RunningKeptService {
+    /// Its process's id.
+    pub(crate) process_id: u32,
+    /// Where its record says its socket really is.
+    pub(crate) physical_socket: PathBuf,
+}
+
+/// The service the record of `service`'s home keeps, read from that record and touching nothing:
+/// draining or not, while its process still runs; `None` where no record is kept, its process
+/// ended, or it never answered on a socket. Fails as the record's name, lock or read, or the
+/// process table's read, does.
+pub(crate) async fn read_running_kept_service(
     service: &CodexService,
-) -> Result<Option<PathBuf>, CodexError> {
+) -> Result<Option<RunningKeptService>, CodexError> {
     let read = async {
         let record_file = LastingServiceRecordFile::of_socket(
             &service.dependencies().data_folder,
@@ -199,8 +207,12 @@ pub(crate) async fn read_kept_service_socket(
         let Some(physical_socket) = record.physical_socket else {
             return Ok(None);
         };
+        let process_id = record.process.id();
         let running = repin(record.process).await?;
-        Ok::<_, StartFailure>(running.map(|_running| physical_socket))
+        Ok::<_, StartFailure>(running.map(|_running| RunningKeptService {
+            process_id,
+            physical_socket,
+        }))
     };
     read.await.map_err(|failure| failure.error)
 }

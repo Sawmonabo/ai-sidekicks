@@ -5,8 +5,8 @@
 //! written in each event's own write and rebuilt from the log. A record's pages stay in its
 //! `question.asked` event, read from there when an answer is checked, and a secret answer is never
 //! written anywhere. Beside them, the orphaned answers: an answer given while no provider request
-//! held its question, kept so the question asked again and the run's continue each take it once; a
-//! record answered with a secret is kept in memory only.
+//! held its question, stored so the question asked again and the run's continue each take it once;
+//! a record answered with a secret is held in memory only.
 
 use serde::Deserialize;
 use sidekicks_store::database::schema::{SchemaPart, SchemaParts};

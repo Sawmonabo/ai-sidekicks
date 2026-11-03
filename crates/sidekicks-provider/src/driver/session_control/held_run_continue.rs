@@ -33,8 +33,9 @@ pub struct MissedFire {
 
 impl HeldRunContinue {
     /// The continue of `lead_run_id` with `entries`, naming each of the session's
-    /// `kept_schedules` whose fire, as the provider stated it, is already past at `now`; a
-    /// recurring job the provider named no time for has no run known to have come due.
+    /// `kept_schedules` whose fire, as the provider stated it, is already past at `now` while the
+    /// provider still kept it; a recurring job the provider named no time for has no run known to
+    /// have come due, and one due at or past its expiry was deleted before it could run.
     pub fn new(
         lead_run_id: RunId,
         entries: Vec<ContinueEntry>,
@@ -44,7 +45,9 @@ impl HeldRunContinue {
         let missed_fires = kept_schedules
             .iter()
             .filter_map(|schedule| {
-                let due_at = schedule.stated_fire_at().filter(|fire| *fire <= now)?;
+                let due_at = schedule
+                    .stated_fire_at()
+                    .filter(|fire| *fire <= now && schedule.is_kept_at(*fire))?;
                 let cron = match schedule {
                     KeptSchedule::Once { .. } => None,
                     KeptSchedule::Recurring { cron, .. } => Some(cron.clone()),
@@ -142,21 +145,25 @@ pub fn compose_continuation_text(
                         |reason| format!("declined it: {}", one_line(reason)),
                     ),
                 };
-                format!("{asker} asked to approve {asked}. The person {answered}.")
+                format!(
+                    "{asker} asked to approve {} The person {}",
+                    sentence(&asked),
+                    sentence(&answered)
+                )
             }
             ContinueAnswer::Question {
                 question, answer, ..
             } => format!(
-                "{asker} asked: {}. The person answered: {}.",
-                one_line(question),
-                one_line(answer)
+                "{asker} asked: {} The person answered: {}",
+                sentence(question),
+                sentence(answer)
             ),
             ContinueAnswer::HelperContinued { words } => words.as_ref().map_or_else(
                 || format!("{asker} was paused, and the person continued it."),
                 |words| {
                     format!(
-                        "{asker} was paused, and the person continued it with: {}.",
-                        one_line(words)
+                        "{asker} was paused, and the person continued it with: {}",
+                        sentence(words)
                     )
                 },
             ),
@@ -189,6 +196,16 @@ fn one_line(text: &str) -> String {
         .join("; ")
 }
 
+// `text` on one line closed as a sentence: a period added unless it already ends in one, a
+// question mark or an exclamation mark.
+fn sentence(text: &str) -> String {
+    let mut sentence = one_line(text);
+    if !sentence.ends_with(['.', '?', '!']) {
+        sentence.push('.');
+    }
+    sentence
+}
+
 #[cfg(test)]
 mod tests {
     use jiff::{SignedDuration, Timestamp};
@@ -202,9 +219,11 @@ mod tests {
     use crate::driver::idle_sleep::KeptSchedule;
     use crate::driver::test_registry::new_run_id;
 
-    // The text names each answer and each fire whose stated time passed, and no fire still ahead
-    // or with no stated time. Killed by the past test flipped (the future fire named, the past
-    // ones not) and by a fire with no stated time counted missed.
+    // The text names each answer and each fire whose stated time passed, and no fire still ahead,
+    // with no stated time, or due at or past its job's expiry; words that end a sentence take no
+    // second period. Killed by the past test flipped (the future fire named, the past ones not),
+    // by a fire with no stated time counted missed, by the expiry not read (the expired job's fire
+    // named), and by the period added always (`Which branch?.`).
     #[test]
     fn the_text_names_the_answers_and_only_the_fires_already_past() {
         let now = Timestamp::from_second(1_800_000_000).expect("a time in range");
@@ -252,6 +271,11 @@ mod tests {
                 next_fire_at: None,
                 expires_at: ahead,
             },
+            KeptSchedule::Recurring {
+                cron: "30 8 * * *".to_owned(),
+                next_fire_at: Some(past),
+                expires_at: past,
+            },
         ];
 
         let held_run_continue = HeldRunContinue::new(lead, entries, &schedules, now);
@@ -263,7 +287,7 @@ mod tests {
             text,
             format!(
                 "While the app restarted, the person answered what you were waiting on:\n\
-                 You asked: Which branch?. The person answered: main.\n\
+                 You asked: Which branch? The person answered: main.\n\
                  Your helper helper-1 asked to approve Bash: rm -rf build. The person declined \
                  it: keep it. Message helper-1.\n\
                  A scheduled run due at {past} did not run while you waited.\n\

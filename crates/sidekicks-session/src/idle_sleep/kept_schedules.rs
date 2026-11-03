@@ -76,11 +76,9 @@ fn next_fire(schedule: &KeptSchedule, now: Timestamp, zone: &TimeZone) -> Option
     let stated = schedule.stated_fire_at().filter(|fire| *fire > now);
     match schedule {
         KeptSchedule::Once { .. } => stated,
-        KeptSchedule::Recurring {
-            cron, expires_at, ..
-        } => stated
+        KeptSchedule::Recurring { cron, .. } => stated
             .or_else(|| next_match(cron, now, zone))
-            .filter(|fire| fire < expires_at),
+            .filter(|fire| schedule.is_kept_at(*fire)),
     }
 }
 
