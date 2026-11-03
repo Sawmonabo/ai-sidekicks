@@ -562,7 +562,7 @@ mod tests {
             DAEMON_CONFIGURATION_STATEMENT_CAPACITY,
         ));
         let configuration = Arc::new(
-            ConfigurationStore::open(Arc::clone(&log.writer), &reads)
+            ConfigurationStore::open(Arc::clone(&log.writer), Arc::clone(&reads))
                 .await
                 .expect("the configuration store opens"),
         );
