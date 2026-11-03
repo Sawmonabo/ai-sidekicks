@@ -196,8 +196,8 @@ async fn a_planning_sessions_purge_waits_for_the_seed_and_takes_only_its_own_row
     let file = store_file(&fixture, fresh);
     reader
         .execute(
-            "INSERT INTO queue_items (id, session_id, payload, position) \
-             VALUES (?1, ?2, '{}', 0)",
+            "INSERT INTO queue_items (id, session_id, payload, position, created_at, updated_at) \
+             VALUES (?1, ?2, '{}', 0, '2026-10-21T09:00:00.000Z', '2026-10-21T09:00:00.000Z')",
             params![mint_uuid_v7().to_string(), fresh.text().as_str()],
         )
         .expect("the test queues an item that is no plan message");

@@ -274,6 +274,9 @@ mod tests {
         let root = tempfile::tempdir().expect("a scratch folder is made");
         let data = root.path().join("data");
         let homes = ["account-1", "account-2"].map(|account| data.join("accounts").join(account));
+        tokio::fs::create_dir_all(&data)
+            .await
+            .expect("the data folder is made");
         let connection = open_database(
             &data.join(DAEMON_DATABASE_FILE_NAME),
             &schema_parts().into_schema(),
