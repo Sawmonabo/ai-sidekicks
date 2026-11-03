@@ -22,7 +22,7 @@ use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::socket_link::is_listening;
 use crate::driver::codex::service::supervisor::CodexService;
-use crate::driver::codex::service::supervisor::start::kept_records::read_kept_service_socket;
+use crate::driver::codex::service::supervisor::start::kept_records::read_running_kept_service;
 use crate::driver::codex::session::detached_conversation::{
     CODEX_DETACHED_INTERRUPT_DEADLINE, CodexDetachedFrames,
 };
@@ -168,21 +168,26 @@ async fn connect_kept_service(
     }
 }
 
-/// A connection on `service` for the turns a restart kept, by `deadline`: the daemon's own while
-/// it is up, else one of its own on the service a former daemon kept running, draining or not,
-/// which is joined and never started. `None` where no running service is kept, none listens where
-/// its record says, or the join was cut while the service's process ended, since the turns ended
-/// with it. Fails as the record's read, the probe or a join cut while the service still runs does.
+/// A connection on `service` for the turns a restart kept, by `deadline`, chosen by its home's
+/// record, read first: the daemon's own while the record names the daemon's own process, else one
+/// of its own on the running service the record keeps, draining or not, which is joined and never
+/// started. `None` where no running service is kept, none listens where its record says, or the
+/// join was cut while the service's process ended, since the turns ended with it. Fails as the
+/// record's read, the probe or a join cut while the service still runs does.
 pub(super) async fn join_kept_service(
     service: &CodexService,
     deadline: Instant,
 ) -> Result<Option<Arc<CodexAppServerConnection>>, CodexError> {
-    if let Ok(connection) = service.connection() {
-        return Ok(Some(connection));
-    }
-    let Some(kept_socket) = read_kept_service_socket(service).await? else {
+    let Some(kept) = read_running_kept_service(service).await? else {
         return Ok(None);
     };
+    let is_daemons_own = service
+        .process_identity()
+        .is_some_and(|own| own.process_id == kept.process_id);
+    if is_daemons_own && let Ok(connection) = service.connection() {
+        return Ok(Some(connection));
+    }
+    let kept_socket = kept.physical_socket;
     let is_kept_listening =
         is_listening(&kept_socket)
             .await
@@ -239,8 +244,8 @@ pub(super) async fn read_end_after_close(
 // record by `deadline`; `false` where it still runs, and where the read failed, which is logged,
 // or ran past `deadline`.
 async fn has_kept_service_ended(service: &CodexService, deadline: Instant) -> bool {
-    match tokio::time::timeout_at(deadline, read_kept_service_socket(service)).await {
-        Ok(Ok(kept_socket)) => kept_socket.is_none(),
+    match tokio::time::timeout_at(deadline, read_running_kept_service(service)).await {
+        Ok(Ok(kept)) => kept.is_none(),
         Ok(Err(error)) => {
             tracing::warn!(
                 error = &error as &(dyn Error + 'static),
