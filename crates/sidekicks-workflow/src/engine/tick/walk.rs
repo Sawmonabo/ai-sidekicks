@@ -619,7 +619,7 @@ impl RunWalk {
             self.reached_places
                 .entry((place, winning_slot))
                 .or_insert_with(|| {
-                    let mut is_reached = is_losing.to_vec();
+                    let mut is_reached = vec![false; is_losing.len()];
                     is_reached[place] = true;
                     first_to_arrive::mark_ancestors(
                         graph,
@@ -627,6 +627,11 @@ impl RunWalk {
                         |ancestor| !graph.is_in_loop_body(place, ancestor),
                         &mut is_reached,
                     );
+                    // Losing places join after the walk, so it passes through them to the places
+                    // that lead into the node only through a losing one.
+                    for (reached, &losing) in is_reached.iter_mut().zip(is_losing.iter()) {
+                        *reached |= losing;
+                    }
                     is_reached.into()
                 }),
         )
