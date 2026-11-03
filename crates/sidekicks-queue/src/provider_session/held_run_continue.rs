@@ -120,13 +120,13 @@ impl OrphanedAnswerSource<QuestionId> for QuestionsService {
             let owed = QuestionsService::owed_continues(self, session_id).await?;
             Ok(owed
                 .into_iter()
-                .map(|kept| OwedAnswer {
-                    id: kept.question_id,
-                    run_id: kept.run_id,
+                .map(|orphaned| OwedAnswer {
+                    id: orphaned.question_id,
+                    run_id: orphaned.run_id,
                     answer: ContinueAnswer::Question {
-                        question_id: kept.question_id,
-                        question: kept.question,
-                        answer: kept.answer,
+                        question_id: orphaned.question_id,
+                        question: orphaned.question,
+                        answer: orphaned.answer,
                     },
                 })
                 .collect())

@@ -112,9 +112,9 @@ pub enum ProviderSessionError {
         #[source]
         cause: Box<dyn Error + Send + Sync>,
     },
-    /// The answers kept for the session's held lead could not be read, or a continue mark of one
-    /// could not be claimed.
-    #[error("the answers kept for session {session_id}'s continue could not be read or claimed")]
+    /// The orphaned answers of the session's held lead could not be read, or a continue mark of
+    /// one could not be claimed.
+    #[error("session {session_id}'s orphaned answers could not be read or claimed")]
     OrphanedAnswers {
         /// The session.
         session_id: SessionId,
