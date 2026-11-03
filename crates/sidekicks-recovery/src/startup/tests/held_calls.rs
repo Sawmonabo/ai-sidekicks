@@ -11,7 +11,7 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::writer::test_file::test_run_id;
 use tokio_util::sync::CancellationToken;
 
-use super::resume::resumed_on;
+use super::resume::{resumed_on, still_running};
 use crate::test_pass::{PassFixture, insert_runs};
 
 // Each session the driver was asked to settle the held calls of, with whether it read closed.
@@ -73,7 +73,7 @@ async fn a_session_holding_a_background_call_is_settled_before_any_resume() {
             let mut settled_before = lock(&settled).clone();
             settled_before.sort();
             lock(&resumes).push((params.session_id, settled_before));
-            let resumed = resumed_on(&params, params.binding_id.clone());
+            let resumed = resumed_on(&params, params.binding_id.clone(), still_running);
             async move { Ok(resumed) }.boxed()
         }
     });

@@ -304,7 +304,7 @@ async fn a_session_whose_runs_all_wait_or_stop_starts_no_process(
     #[case] is_stopping: bool,
 ) {
     let fixture = ScriptedDriver::new();
-    let session_id = closed_session(&fixture).await;
+    let session_id = fixture.closed_session().await;
     let lead = new_run_id();
     let mut live_runs = vec![LiveRunResume {
         is_stopping,

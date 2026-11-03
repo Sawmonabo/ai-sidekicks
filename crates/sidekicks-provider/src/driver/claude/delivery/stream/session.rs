@@ -74,6 +74,10 @@ impl ClaudeSessionStream {
     /// `permission_mode`, the process's record the live session shares, reading the goal of
     /// `goal`'s lead from its conversation file, and reading its background calls' kept files from
     /// `kept_calls`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the account, the bound and each part of the process the stream reads and shares"
+    )]
     pub(crate) fn new(
         provider_account_id: ProviderAccountId,
         step_bound: Option<SafeInt<1>>,

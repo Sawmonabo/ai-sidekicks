@@ -3,7 +3,7 @@
 //! The frames are untrusted, so each is read into structs that name only the members read, each
 //! member read leniently, and a block that reads as nothing known is left out.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use jiff::Timestamp;

@@ -78,7 +78,7 @@ pub(super) fn resumed_on(
 }
 
 // Every run a resume names still holds its turn.
-fn still_running(_run_id: RunId) -> ProviderTurnAnswer {
+pub(super) fn still_running(_run_id: RunId) -> ProviderTurnAnswer {
     ProviderTurnAnswer::StillRunning
 }
 
