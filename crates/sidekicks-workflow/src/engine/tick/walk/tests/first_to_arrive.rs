@@ -706,6 +706,50 @@ fn a_win_overtakes_its_losing_branches_and_what_leads_into_its_node() {
     assert_eq!(describe(&walk.flush()), ["canceled F exec 4"]);
 }
 
+/// A loop node on a losing branch of a win is a loser like any other: a feed into it from a step
+/// the win reached readies its round, which is canceled, and never starts its next pass. The
+/// trigger feeds A, L and W; A and W feed M's first main slot, L's loop output feeds B, which feeds
+/// M's second and wires back into L, and W also feeds L. A wins M while L and W are live, so L
+/// loses; W's feed into L is canceled. Mutation: clear the wins L's body holds from the feed in
+/// `fill` rather than from L's step in `ready`, so W's feed readies L's next pass.
+#[test]
+fn a_loop_on_a_losing_branch_is_canceled_when_a_step_the_win_reached_feeds_it() {
+    let (mut walk, start_turn) = start(
+        vec![
+            node("trigger", "test.trigger", 0, false),
+            node("A", "test.step", 1, false),
+            node("L", "test.loop", 2, false),
+            node("W", "test.step", 3, false),
+            node("B", "test.step", 4, false),
+            node("M", "test.first", 5, false),
+        ],
+        &[
+            edge("trigger", 0, "A", 0),
+            edge("trigger", 0, "L", 0),
+            edge("trigger", 0, "W", 0),
+            edge("A", 0, "M", 0),
+            edge("W", 0, "M", 0),
+            edge("W", 0, "L", 0),
+            edge("L", 1, "B", 0),
+            edge("B", 0, "M", 1),
+            edge("B", 0, "L", 0),
+        ],
+    );
+    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
+    assert_eq!(
+        describe(&walk.settle(&readied(&trigger_turn, "A"), &[1])),
+        [
+            "ready M run 0 exec 4 from A:0@1 - -",
+            "win M exec 4 losers [L@2]"
+        ]
+    );
+    walk.drop_step(&readied(&trigger_turn, "L"));
+    assert_eq!(
+        describe(&walk.settle(&readied(&trigger_turn, "W"), &[1])),
+        ["canceled L exec 5"]
+    );
+}
+
 /// A win reaches only the steps of its own loop pass: the loop node L feeds A and Y, A feeds M's
 /// first main slot, Y feeds B, which feeds M's second, and wires back into L. Y settles before A,
 /// so L's next pass starts and readies A again before pass 0's win; that win cancels pass 0's B
