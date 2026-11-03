@@ -234,8 +234,8 @@ impl CommandLineFills {
     /// where delayed expansion would read them, and an author's `%…%` reference to a variable
     /// `environment` defines is written so the command gets the value the author's line gives it;
     /// `environment` is the launch's names and values, which only cmd.exe reads, its names
-    /// compared as Windows does, ignoring case. Fails with the first fill the reading refuses. Runs inside one read of the
-    /// reading bound.
+    /// compared as Windows does, ignoring case. Fails with the first fill the reading refuses.
+    /// Runs inside one read of the reading bound.
     pub fn fill_for_launch(
         &self,
         reader: &mut ShellLineReader,
@@ -708,10 +708,11 @@ mod tests {
     // as the line's own text: as written where delayed expansion leaves that value whole, as an
     // unquoted `C:\a^b` that cmd.exe's second phase reads as `C:\ab`, a value opening quotes or
     // a target without a `!`; in its delayed form, escaped outside quotes for the second phase so
-    // it stays one word, where the value reads as plain text in one piece read again; else as the value the second
-    // phase reads, behind the carets delayed expansion removes. An undefined one stays as
-    // written, and the first phase goes on from after its first `%`, so a defined name can start
-    // at its second; a piece holding a variable whose value has a `!` is read again.
+    // it stays one word, where the value reads as plain text in one piece read again; else as the
+    // value the second phase reads, behind the carets delayed expansion removes. An undefined one
+    // stays as written, and the first phase goes on from after its first `%`, so a defined name
+    // can start at its second; a piece holding a variable whose value has a `!` is read again, and
+    // an escape caret before a reference escapes its value's first character.
     #[rstest]
     #[case::a_defined_name(
         "copy {{ x }} \"%TARGET%\"",
@@ -752,6 +753,14 @@ mod tests {
     #[case::a_value_opening_quotes(
         "type %Q% & echo \"^a\" {{ x }}",
         "type %Q% & echo \"^a\" \"!SIDEKICKS_VALUE_1!\""
+    )]
+    #[case::an_escape_caret_before_a_name(
+        "copy {{ x }} ^%TARGET%",
+        "copy \"!SIDEKICKS_VALUE_1!\" ^%TARGET%"
+    )]
+    #[case::an_escape_caret_before_a_value_opening_quotes(
+        "copy {{ x }} ^%Q% \"^a\"",
+        "copy \"!SIDEKICKS_VALUE_1!\" ^%Q% \"^^a\""
     )]
     #[case::a_target_not_read_again(
         "copy {{ x }} b > \"%TARGET%\"",
