@@ -395,22 +395,22 @@ fn check_collection(
                     }
                 }
             }
+            None | Some(Value::Null) => {}
             Some(_) => issues.push(WorkflowParamIssue {
                 path: place.to_vec(),
                 message: "expected a list of the collection's entries".to_owned(),
                 rule: None,
             }),
-            None | Some(Value::Null) => {}
         }
     } else {
         match value {
             Some(Value::Object(fields)) => {
                 check_field_list(fields, &spec.fields, place, issues);
             }
-            Some(_) => issues.push(not_a_record_issue(place.to_vec())),
             None | Some(Value::Null) => {
                 check_field_list(&Map::new(), &spec.fields, place, issues);
             }
+            Some(_) => issues.push(not_a_record_issue(place.to_vec())),
         }
     }
 }
