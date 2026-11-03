@@ -68,9 +68,9 @@ pub mod test_opening;
 #[cfg(test)]
 mod tests;
 
-/// The statements the provider sessions' reads prepare: a session's state, its runs, their
-/// bindings, its mode, its level and its kept schedules.
-pub const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 6;
+/// The statements the provider sessions' reads prepare: a session's state, its live runs and their
+/// open turns, their bindings, its mode, its level and its kept schedules.
+pub const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 7;
 
 /// What a session's provider session opens with, composed from the session's lead as its log
 /// stands now.
