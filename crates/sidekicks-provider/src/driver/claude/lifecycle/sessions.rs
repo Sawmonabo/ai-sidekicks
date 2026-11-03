@@ -13,6 +13,7 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::settle_all::settle_all;
 
 use super::{ClaudeDriver, internal};
+use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeHeldCallSettle;
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
 use crate::driver::claude::session::conversation_file::{
     conversation_file_of, find_claude_taken_messages,
@@ -24,7 +25,9 @@ use crate::driver::claude::session::naming::{
 };
 use crate::driver::claude::session::purge::{ClaudePurgePlace, purge_claude_conversations};
 use crate::driver::claude::session::restart::ClaudeSessionStanding;
-use crate::driver::claude::session::restart::ended_process::ClaudeEndedConversation;
+use crate::driver::claude::session::restart::ended_process::{
+    ClaudeEndedConversation, ended_conversation_of,
+};
 use crate::driver::claude::session::slots::ClaudeCloseStart;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SessionProcessState;
@@ -132,15 +135,21 @@ impl ClaudeDriver {
     /// Closes the session: a restart waiting for it, its idle sleep, its inbox, its controls and
     /// its reviewer's blocks go, then its process is disposed of, after any transition in flight
     /// settles, each run it still held ends as the daemon's intended close, and the `Allow once`
-    /// presses its bindings held are let go; last its command channel is removed.
+    /// presses its bindings held are let go. Its held tool-server calls still open then end as the
+    /// close ends them, unless the daemon stops; last its command channel is removed.
     pub(crate) async fn close_session(
         &self,
         params: CloseSessionParams,
     ) -> Result<(), DriverError> {
+        let session_id = params.session_id;
         let Some(parts) = self.composed_parts() else {
+            // No process ran here, but the log may hold calls from before a restart of the daemon.
+            self.settle_held_calls_at_rest(session_id, None, ClaudeHeldCallSettle::SessionClose)
+                .await;
             return Ok(());
         };
-        let session_id = params.session_id;
+        // Read before the restarts forget it: the conversation of a process that ended here.
+        let mut conversation = parts.restarts.ended_conversation(session_id);
         parts.restarts.forget_session(session_id);
         let task_services = &parts.establishment.task_services;
         task_services.idle_sleep.forget_session(session_id);
@@ -160,6 +169,7 @@ impl ClaudeDriver {
                         stream.signal_intended_close();
                     }
                     let session = close.session();
+                    conversation = Some(ended_conversation_of(session));
                     close.close_channel().await;
                     // Read once the session's task has ended, so a turn Claude Code started by
                     // itself while the close drained it is ended too.
@@ -189,6 +199,15 @@ impl ClaudeDriver {
                     break;
                 }
             }
+        }
+        // Once the process's own exit settled what it held, so only what that left open is read.
+        if !parts.restarts.is_stopped() {
+            self.settle_held_calls_at_rest(
+                session_id,
+                conversation,
+                ClaudeHeldCallSettle::SessionClose,
+            )
+            .await;
         }
         // Again once the slot is gone, for a bring-up that bound the inbox after the first release.
         task_services.inboxes.release(session_id);
