@@ -442,7 +442,13 @@ impl<'s> PlaceWalk<'s> {
     /// builtin's is refused as a name word, and so is a name word of a builtin that reads one. A
     /// fill in the command's name or a wrapper's own words is a named residual.
     fn pass_command(&self, command: Node<'s>, child: Node<'s>) -> Result<(), FillRefusal> {
-        let Some(name) = command.child_by_field_name("name") else {
+        // The name's own word, which the parser wraps in `command_name`, so its quotes are read;
+        // a name it supplied for a missing token names no program.
+        let Some(name) = command
+            .child_by_field_name("name")
+            .and_then(|name| name.named_child(0))
+            .filter(|name| !name.is_missing())
+        else {
             return Ok(());
         };
         let mut cursor = command.walk();
