@@ -4,7 +4,6 @@
 //! that settle each entry on every exit path.
 
 use std::collections::{HashMap, HashSet};
-use std::hash::Hash;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -139,26 +138,26 @@ pub(super) struct LiveRuns {
     /// Each live helper's own run by the binding its readings come on and its provider's id, from
     /// its first usage report until the run ends.
     pub(super) helper_runs: HashMap<(RuntimeBindingId, SubagentId), RunId>,
-    /// The newest undo's rollback write in progress on each session, until that write ends.
-    pub(super) undo_writes: HashMap<SessionId, Arc<UndoWrite>>,
+    /// Each session's undo rollback writes in progress, oldest first, each until it ends.
+    pub(super) undo_writes: HashMap<SessionId, Vec<Arc<UndoWrite>>>,
     /// The identity the next limit stop's cut takes.
     pub(super) next_stop_id: AtomicU64,
 }
 
 impl LiveRuns {
-    /// Removes `own` from `map` only while it is still the entry for `key`: a start, continue or
-    /// write that settled leaves its own entry only, so a newer one for the same run or session is
-    /// never removed by an older one.
-    pub(super) fn remove_own<Key: Eq + Hash, Entry>(
-        map: &mut HashMap<Key, Arc<Entry>>,
-        key: &Key,
+    /// Removes `own` from `map` only while it is still the entry for `run_id`: a start, continue
+    /// or write that settled leaves its own entry only, so a newer one for the same run is never
+    /// removed by an older one.
+    pub(super) fn remove_own<Entry>(
+        map: &mut HashMap<RunId, Arc<Entry>>,
+        run_id: &RunId,
         own: &Arc<Entry>,
     ) {
         if map
-            .get(key)
+            .get(run_id)
             .is_some_and(|current| Arc::ptr_eq(current, own))
         {
-            map.remove(key);
+            map.remove(run_id);
         }
     }
 

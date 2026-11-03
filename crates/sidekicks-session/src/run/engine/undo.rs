@@ -129,11 +129,15 @@ pub struct UndoWriteMark<'engine> {
 
 impl Drop for UndoWriteMark<'_> {
     fn drop(&mut self) {
-        LiveRuns::remove_own(
-            &mut lock(self.live).undo_writes,
-            &self.session_id,
-            &self.write,
-        );
+        {
+            let mut live = lock(self.live);
+            if let Some(writes) = live.undo_writes.get_mut(&self.session_id) {
+                writes.retain(|write| !Arc::ptr_eq(write, &self.write));
+                if writes.is_empty() {
+                    live.undo_writes.remove(&self.session_id);
+                }
+            }
+        }
         settle(&self.write.ended, ());
     }
 }
@@ -148,7 +152,9 @@ impl RunEngine {
         });
         lock(&self.live)
             .undo_writes
-            .insert(session_id, Arc::clone(&write));
+            .entry(session_id)
+            .or_default()
+            .push(Arc::clone(&write));
         UndoWriteMark {
             live: &self.live,
             session_id,
@@ -156,10 +162,14 @@ impl RunEngine {
         }
     }
 
-    /// Waits until the undo's rollback write in progress on `session_id` has ended, answering
-    /// whether there was one, so the caller reads its run again.
+    /// Waits until the oldest undo's rollback write in progress on `session_id` has ended,
+    /// answering whether there was one, so the caller reads its run again and waits out the next.
     pub(super) async fn wait_out_undo_write(&self, session_id: &SessionId) -> bool {
-        let write = lock(&self.live).undo_writes.get(session_id).cloned();
+        let write = lock(&self.live)
+            .undo_writes
+            .get(session_id)
+            .and_then(|writes| writes.first())
+            .cloned();
         let Some(write) = write else {
             return false;
         };
