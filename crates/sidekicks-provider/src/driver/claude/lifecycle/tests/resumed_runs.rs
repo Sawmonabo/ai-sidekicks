@@ -7,6 +7,7 @@ use std::time::Duration;
 use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::approval::{ApprovalDecision, ApprovalRequestId};
+use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
@@ -471,6 +472,8 @@ async fn a_live_process_is_sent_a_held_lead_s_answers_as_its_next_message() {
         run_id: lead,
         subagent_id: None,
         answer: ContinueAnswer::Question {
+            question_id: QuestionId::try_from(mint_uuid_v7())
+                .expect("a minted UUID is a question's id"),
             question: "Which branch?".to_owned(),
             answer: "main".to_owned(),
         },

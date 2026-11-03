@@ -55,9 +55,10 @@ fn new_card() -> ApprovalRequestId {
 
 // A running lead whose turn a died service cut, or whose continuation a joined service already
 // ended as the daemon's, is continued once the person answered in one turn holding Codex's
-// continuation words, then the answer, and answers still running. Killed by the member dropped
-// (the turn holds the words alone), and by the joined arm left out (no turn is sent and the lead
-// reads gone).
+// continuation words, then the answer, and answers still running, so the queue keeps the answer
+// taken. Killed by the member dropped (the turn holds the words alone), by the joined arm left out
+// (no turn is sent and the lead reads gone), and by the lead answered not still running (the queue
+// gives the answer back and the next relaunch sends it again).
 #[rstest]
 #[case::died_service(false, true)]
 #[case::joined_service_after_its_continuation_ended(true, false)]
@@ -107,8 +108,10 @@ async fn a_died_service_continues_a_lead_with_the_persons_answer(
 
 // A running lead whose continuation Codex still runs on a joined service is sent no turn: the
 // continuation is held, so its end leaves the lead live, and the adoption owes it a steer of the
-// answer under the answered card's id. Killed by the key minted afresh, and by the hold left off
-// (the continuation's end would end the run before the answer reached it).
+// answer under the answered card's id, the lead answered still running. Killed by the key minted
+// afresh, by the hold left off (the continuation's end would end the run before the answer
+// reached it), and by the lead answered not still running (the queue gives the answer back while
+// the steer carries it, so it goes twice).
 #[tokio::test(start_paused = true)]
 async fn an_answer_reaches_a_running_continuation_as_a_keyed_steer() {
     let mut session = TestCodexSession::start_on(start_scripted_joined_service()).await;
