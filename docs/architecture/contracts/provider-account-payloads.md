@@ -573,7 +573,10 @@ type ProviderAccountUsageListResponse =
 // reports as `signInCodeRequested` and the person answers with
 // `provider.account.signInCode.submit`. A sign-in on an account registered with a pasted key or
 // token is refused `provider.account.signInUnsupported` on either arm: pasting a new one replaces
-// it. A provider arm emitting neither cannot be brokered and is refused
+// it. A start the provider itself refuses, such as Codex's device code on a server that has not
+// turned it on, is refused `provider.unavailable` with the provider's words as
+// `providerFailureDetail`, which the person reads under `Sign-in did not finish.`. A provider arm
+// emitting neither cannot be brokered and is refused
 // `provider.account.signInUnsupported` rather than spawning a flow the person cannot finish. A
 // second start against an account with one in flight is refused
 // `provider.account.signInInFlight` — at least one pinned provider holds exactly ONE active login
@@ -651,8 +654,10 @@ type ProviderAccountNotification =
   // it is NOT itself a reading that the account is authenticated. The daemon takes an ordinary
   // health observation next and publishes the result as `accountChanged`; a client that treats
   // this notification as the authentication verdict will render an account as ready that a spawn
-  // would refuse. `failureReason` is message text shown to the person and carries NO credential
-  // material, no provider error body verbatim, and no home path. `expired` carries none: the
+  // would refuse. `failureReason` is message text shown to the person under `Sign-in did not
+  // finish.`: the provider's own reason where its flow reported one (Codex's completion `error`),
+  // cut to the cap, else the daemon's; it carries NO credential material and no home path.
+  // `expired` carries none: the
   // provider's code or the attempt's own bound ran out, and the sign-in card reads
   // `Code expired · Sign in again`.
   // The fifth field the broker may emit (Spec-025 §Brokered interactive sign-in): the provider is

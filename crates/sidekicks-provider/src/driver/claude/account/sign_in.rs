@@ -305,7 +305,12 @@ async fn start_flow(
         is_browser_opened_by_provider: arm == ProviderSignInArm::Browser,
         code_prompts: Box::pin(code_prompts),
         input: Box::new(ClaudeSignInInput { inputs }),
-        completion: async move { completion.await.unwrap_or(ProviderSignInEnd::Failed) }.boxed(),
+        completion: async move {
+            completion
+                .await
+                .unwrap_or(ProviderSignInEnd::Failed { reason: None })
+        }
+        .boxed(),
     })
 }
 
@@ -563,7 +568,7 @@ impl Flow {
             Ok(status) if status.success() => ProviderSignInEnd::Finished,
             // A flow a cancel was asked of ended unfinished: it is canceled.
             Ok(_) | Err(_) if !unanswered_cancels.is_empty() => ProviderSignInEnd::Canceled,
-            Ok(_) | Err(_) => ProviderSignInEnd::Failed,
+            Ok(_) | Err(_) => ProviderSignInEnd::Failed { reason: None },
         });
         let canceled = if end == ProviderSignInEnd::Canceled {
             ProviderSignInCancelStatus::Canceled

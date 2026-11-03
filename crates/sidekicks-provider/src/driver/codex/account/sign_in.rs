@@ -39,7 +39,7 @@ use crate::driver::contract::account::{
     ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInObservation,
     read_sign_in_address,
 };
-use crate::driver::contract::error::DriverError;
+use crate::driver::contract::error::{DriverError, bound_provider_words};
 
 /// The request that cancels a sign-in by its id.
 const LOGIN_CANCEL_METHOD: &str = "account/login/cancel";
@@ -134,6 +134,8 @@ struct LoginCompleted {
     #[serde(default)]
     login_id: Option<String>,
     success: bool,
+    #[serde(default)]
+    error: Option<String>,
 }
 
 /// Starts Codex's own sign-in for `provider_account_id`'s `home` on the service of that home,
@@ -190,7 +192,12 @@ pub(super) async fn start_codex_sign_in(
         is_browser_opened_by_provider: false,
         code_prompts: Box::pin(futures::stream::empty()),
         input: Box::new(CodexSignInInput { inputs }),
-        completion: async move { completion.await.unwrap_or(ProviderSignInEnd::Failed) }.boxed(),
+        completion: async move {
+            completion
+                .await
+                .unwrap_or(ProviderSignInEnd::Failed { reason: None })
+        }
+        .boxed(),
     })
 }
 
@@ -289,7 +296,8 @@ async fn start_login(
 }
 
 // Codex's refusal of a start: its callback port held, the machine's one sign-in in use, answers
-// as such; any other as Codex's error.
+// as such; any other, such as device code not turned on, answers `provider.unavailable` with
+// Codex's words as its failure detail, which the person reads under the failure.
 fn read_start_refusal(error: CodexError) -> DriverError {
     if let CodexError::ProviderRequest { message, .. } = &error
         && message.contains(CALLBACK_PORT_IN_USE)
@@ -300,7 +308,12 @@ fn read_start_refusal(error: CodexError) -> DriverError {
         )
         .into();
     }
-    error.into()
+    error
+        .refused_as(
+            RefusalCode::ProviderUnavailable,
+            "Codex refused to start the sign-in",
+        )
+        .into()
 }
 
 // What the start answered, checked: the address on Codex's own host and the code as text.
@@ -404,10 +417,15 @@ impl Login {
                         } else if self.started_at.elapsed() >= ceiling {
                             ProviderSignInEnd::Expired
                         } else {
-                            ProviderSignInEnd::Failed
+                            // Codex's own words for why, which the person reads under the failure.
+                            ProviderSignInEnd::Failed {
+                                reason: completed.error.as_deref().and_then(bound_provider_words),
+                            }
                         };
                     }
-                    Some(LoginNotice::Closed(_)) | None => break ProviderSignInEnd::Failed,
+                    Some(LoginNotice::Closed(_)) | None => {
+                        break ProviderSignInEnd::Failed { reason: None };
+                    }
                 },
                 input = self.inputs.recv(), if is_input_open => match input {
                     Some(CancelInput(answer)) => {

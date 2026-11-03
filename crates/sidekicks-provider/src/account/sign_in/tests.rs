@@ -46,6 +46,7 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
 
 mod machine_slot;
+mod pasted_credential;
 mod stop;
 
 /// The provider's own prompt, which only a broker forwarding raw text would let out.
@@ -59,6 +60,9 @@ const NOTIFICATION_WAIT: Duration = Duration::from_secs(5);
 
 /// How long the test tries for the home before it reads as held.
 const HELD_HOME_WAIT: Duration = Duration::from_millis(50);
+
+/// The provider's own words for why a scripted flow failed.
+const PROVIDER_FAILURE_REASON: &str = "device auth failed with status 403";
 
 /// The kind of sign-in the scripted status read reports.
 const OBSERVED_AUTH_MODE: ProviderAuthMode = ProviderAuthMode::OauthSubscription;
@@ -179,7 +183,11 @@ impl ProviderSignInLegs for ScriptedLegs {
                 end: end_sender,
                 written,
             }),
-            completion: async move { end.await.unwrap_or(ProviderSignInEnd::Failed) }.boxed(),
+            completion: async move {
+                end.await
+                    .unwrap_or(ProviderSignInEnd::Failed { reason: None })
+            }
+            .boxed(),
         };
         async move { Ok(handle) }.boxed()
     }
@@ -285,6 +293,13 @@ async fn register_with_kind(
         .expect("the account is admitted")
 }
 
+// A failed end giving `reason` in the provider's own words, or none.
+fn failed(reason: Option<&str>) -> ProviderSignInEnd {
+    ProviderSignInEnd::Failed {
+        reason: reason.map(|text| FreeFormText::new(text.to_owned()).expect("a test reason")),
+    }
+}
+
 fn code(text: &str) -> Code {
     Code::new(text.to_owned()).expect("a test code")
 }
@@ -312,7 +327,8 @@ fn refusal_of(error: ProviderSignInError) -> (RefusalCode, Option<serde_json::Va
 // as that end leaves it, a new account and a re-signed registered one with the kind of sign-in its
 // status read reported. No published notification carries the prompt or the code, and no session
 // event is appended. Killed by a row inserted at the start, by a raw line forwarded as the failure
-// text, by a code written before the prompt or twice, by a failed new account keeping its home, by
+// text, by the provider's own reason for a failed flow dropped, by a code written before the
+// prompt or twice, by a failed new account keeping its home, by
 // the home held across the flow or after it, by a written row not published, and by the reported
 // kind not written or an earlier kind kept over it, a registered account's included.
 #[rstest]
@@ -326,16 +342,16 @@ fn refusal_of(error: ProviderSignInError) -> (RefusalCode, Option<serde_json::Va
     ProviderSignInEnd::Finished,
     Some(ProviderSignInOutcome::Failed)
 )]
-#[case::new_failed(false, Status::Read { is_account_named: true }, ProviderSignInEnd::Failed,
-    Some(ProviderSignInOutcome::Failed))]
+#[case::new_failed(false, Status::Read { is_account_named: true },
+    failed(Some(PROVIDER_FAILURE_REASON)), Some(ProviderSignInOutcome::Failed))]
 #[case::new_expired(false, Status::Read { is_account_named: true }, ProviderSignInEnd::Expired,
     Some(ProviderSignInOutcome::Expired))]
 #[case::new_canceled(false, Status::Read { is_account_named: true }, ProviderSignInEnd::Canceled,
     Some(ProviderSignInOutcome::Canceled))]
-#[case::new_unsupported(false, Status::Unsupported, ProviderSignInEnd::Failed, None)]
+#[case::new_unsupported(false, Status::Unsupported, failed(None), None)]
 #[case::registered_named(true, Status::Read { is_account_named: true },
     ProviderSignInEnd::Finished, Some(ProviderSignInOutcome::Succeeded))]
-#[case::registered_failed(true, Status::Read { is_account_named: true }, ProviderSignInEnd::Failed,
+#[case::registered_failed(true, Status::Read { is_account_named: true }, failed(None),
     Some(ProviderSignInOutcome::Failed))]
 #[case::registered_canceled(true, Status::Read { is_account_named: true },
     ProviderSignInEnd::Canceled, Some(ProviderSignInOutcome::Canceled))]
@@ -475,7 +491,7 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
         let canceled = broker.cancel(&attempt_id).await.expect("a cancel");
         assert_eq!(canceled, ProviderSignInCancelStatus::Canceled);
     } else {
-        flow.finish(end);
+        flow.finish(end.clone());
     }
     // A row the attempt wrote goes out as the account it now is, before the attempt's end.
     let is_row_written = end == ProviderSignInEnd::Finished
@@ -504,6 +520,13 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
         failure_reason.is_some(),
         outcome == ProviderSignInOutcome::Failed
     );
+    // A failed flow's own words are the failure's reason.
+    if let ProviderSignInEnd::Failed {
+        reason: Some(reason),
+    } = &end
+    {
+        assert_eq!(failure_reason.as_ref(), Some(reason));
+    }
     // The home is free once the attempt has settled.
     drop(
         tokio::time::timeout(NOTIFICATION_WAIT, home_lock.hold(flow.account_id.clone()))
@@ -585,87 +608,6 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
     }
     assert_eq!(session_event_count(&database.path()), events_before);
     assert!(published.try_recv().is_err(), "nothing more is published");
-}
-
-// A sign-in on an account with a pasted key or token is refused unsupported on either arm before
-// anything is reserved or started: refused so even while a switch holds the account, no flow
-// starts, and no attempt is left open, so another account's browser sign-in, which holds the
-// machine's one slot, starts. Killed by the check after the reservation (the start is refused as
-// in flight) and by only the browser arm refused.
-#[rstest]
-#[case::api_key_browser(ProviderAuthMode::ApiKey, ProviderSignInArm::Browser)]
-#[case::api_key_device_code(ProviderAuthMode::ApiKey, ProviderSignInArm::DeviceCode)]
-#[case::token_browser(ProviderAuthMode::OauthToken, ProviderSignInArm::Browser)]
-#[case::token_device_code(ProviderAuthMode::OauthToken, ProviderSignInArm::DeviceCode)]
-#[tokio::test]
-async fn a_sign_in_on_a_pasted_credential_account_is_refused_before_anything_starts(
-    #[case] kind: ProviderAuthMode,
-    #[case] arm: ProviderSignInArm,
-) {
-    let database = TestDatabase::new(schema_parts());
-    let data_folder = tempfile::tempdir().expect("a data folder");
-    let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
-    let registry = Arc::new(registry);
-    let pasted = register_with_kind(&registry, kind).await;
-    let signed_in = register(&registry, "claude").await;
-    let (flow_sender, mut flows) = mpsc::unbounded();
-    let legs = Arc::new(ScriptedLegs {
-        status: Status::Read {
-            is_account_named: true,
-        },
-        flows: flow_sender,
-        homes: Mutex::new(Vec::new()),
-        holds_machine_slot: true,
-    });
-    let (published_sender, _published) = mpsc::unbounded();
-    let accounts_in_flight = Arc::new(AccountsInFlight::default());
-    let broker = ProviderSignInBroker::new(
-        Arc::clone(&registry),
-        HashMap::from([(
-            provider("claude"),
-            Arc::clone(&legs) as Arc<dyn ProviderSignInLegs>,
-        )]),
-        Arc::new(RecordingPublisher(published_sender)),
-        Arc::new(RecordingWatcher::default()),
-        Arc::default(),
-        Arc::clone(&accounts_in_flight),
-    );
-    let switch = accounts_in_flight
-        .begin(pasted.account_id.clone())
-        .expect("the pasted account is free");
-
-    let refused = broker
-        .start(
-            ProviderAccountSignInRequest::Registered(RegisteredAccountSignIn {
-                account_id: pasted.account_id.clone(),
-                arm: Some(arm),
-            }),
-            SignInOrigin::ThisMachine,
-        )
-        .await
-        .expect_err("a sign-in on a pasted-credential account is refused");
-    drop(switch);
-
-    assert!(
-        matches!(refused, ProviderSignInError::PastedCredential),
-        "{refused:?}"
-    );
-    assert_eq!(
-        refusal_of(refused),
-        (RefusalCode::ProviderAccountSignInUnsupported, None)
-    );
-    assert!(lock(&legs.homes).is_empty(), "no flow started");
-    broker
-        .start(
-            ProviderAccountSignInRequest::Registered(RegisteredAccountSignIn {
-                account_id: signed_in.account_id.clone(),
-                arm: Some(ProviderSignInArm::Browser),
-            }),
-            SignInOrigin::ThisMachine,
-        )
-        .await
-        .expect("another account's browser sign-in starts");
-    flows.next().await.expect("its flow started");
 }
 
 // A registered account's home reset while its sign-in runs fails the attempt and stores nothing:

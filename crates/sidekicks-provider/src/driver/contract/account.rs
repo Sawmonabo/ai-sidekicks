@@ -13,8 +13,9 @@ use secrecy::SecretString;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::{
     PROVIDER_ACCOUNT_EMAIL_MAX_LEN, PROVIDER_ACCOUNT_ORG_ID_MAX_LEN,
-    PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN, PROVIDER_ACCOUNT_PLAN_MAX_LEN, ProviderAccountHealthState,
-    ProviderAccountId, ProviderAuthMode,
+    PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN, PROVIDER_ACCOUNT_PLAN_MAX_LEN,
+    PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN, ProviderAccountHealthState, ProviderAccountId,
+    ProviderAuthMode,
 };
 use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, PROVIDER_SIGN_IN_USER_CODE_MAX_LEN,
@@ -175,12 +176,16 @@ pub trait ProviderSignInInput: Send + Sync {
 }
 
 /// How the provider's own sign-in flow ended, before any observation of the account.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProviderSignInEnd {
     /// The provider reported its flow finished.
     Finished,
     /// The flow failed or its process ended without finishing.
-    Failed,
+    Failed {
+        /// Why, in the provider's own words where it reported any, bounded; `None` where it
+        /// reported none.
+        reason: Option<FreeFormText<PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN>>,
+    },
     /// The attempt outlived its bound.
     Expired,
     /// The flow was canceled.

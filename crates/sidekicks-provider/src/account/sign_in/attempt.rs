@@ -18,7 +18,7 @@ use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot;
 
 use super::{
-    AttemptId, AttemptServices, AttemptStage, InFlightGuard, ProviderSignInError,
+    AttemptId, AttemptServices, AttemptStage, FailureReason, InFlightGuard, ProviderSignInError,
     failure_reason_text,
 };
 use crate::account::credential_home::CredentialHome;
@@ -227,7 +227,7 @@ impl Attempt {
             attempt_id,
             account_id,
             outcome,
-            failure_reason: failure_reason.map(failure_reason_text),
+            failure_reason,
         }
     }
 
@@ -258,17 +258,21 @@ impl Attempt {
     }
 
     // Takes the status read after a finished flow and writes what it found; a new account that
-    // ends any other way loses its minted home.
+    // ends any other way loses its minted home. A failed flow's reason is the provider's own words
+    // where it gave any.
     async fn settle(
         &mut self,
         legs: &dyn ProviderSignInLegs,
         end: ProviderSignInEnd,
-    ) -> (ProviderSignInOutcome, Option<&'static str>) {
+    ) -> (ProviderSignInOutcome, Option<FailureReason>) {
         let settled = match end {
-            ProviderSignInEnd::Finished => self.observe(legs).await,
-            ProviderSignInEnd::Failed => (
+            ProviderSignInEnd::Finished => {
+                let (outcome, reason) = self.observe(legs).await;
+                (outcome, reason.map(failure_reason_text))
+            }
+            ProviderSignInEnd::Failed { reason } => (
                 ProviderSignInOutcome::Failed,
-                Some("The sign-in did not finish"),
+                Some(reason.unwrap_or_else(|| failure_reason_text("The sign-in did not finish"))),
             ),
             ProviderSignInEnd::Expired => (ProviderSignInOutcome::Expired, None),
             ProviderSignInEnd::Canceled => (ProviderSignInOutcome::Canceled, None),
