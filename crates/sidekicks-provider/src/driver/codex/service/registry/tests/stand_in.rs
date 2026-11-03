@@ -111,9 +111,9 @@ pub(super) fn account_stand_in_services() -> StandInServices {
     services_on(home, folder, |program| Arc::new(program))
 }
 
-// The services of one test on `home` in `folder`, which they own, the stand-in resolved through
-// what `program` makes of it.
-fn services_on(
+/// The services of one test on `home` in `folder`, which they own, the stand-in resolved through
+/// what `program` makes of it.
+pub(super) fn services_on(
     home: CodexServiceHome,
     folder: TempDir,
     program: impl FnOnce(TestCodexProgram) -> Arc<dyn CodexProgramResolver>,

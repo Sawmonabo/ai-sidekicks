@@ -16,9 +16,12 @@ use std::sync::Mutex;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use rusqlite::params;
+use secrecy::SecretString;
 use serde_json::{Map, Value};
 use sidekicks_contracts::artifacts::id::ArtifactId;
-use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
+use sidekicks_contracts::provider::account::record::{
+    CredentialGeneration, ProviderAccountId, ProviderAuthMode,
+};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
@@ -48,9 +51,9 @@ use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::{AttachmentResolver, ProviderAttachment};
 use crate::driver::child_records::UnrecordedChildren;
 pub use crate::driver::codex::{
-    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, ScriptedCodexService,
-    serve_as_codex_service_stand_in, stand_in_codex_service, start_scripted_codex_service,
-    write_codex_service_script,
+    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, RESUMED_TURN_NAME,
+    ScriptedCodexService, serve_as_codex_service_stand_in, stand_in_codex_service,
+    start_scripted_codex_service, write_codex_service_script,
 };
 use crate::driver::contract::ProviderDriver;
 use crate::driver::ports::DriverPorts;
@@ -101,6 +104,14 @@ impl RuntimeBindingWriter for NothingServed {
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         async { Err(NotServedInTest("runtime binding").into()) }.boxed()
     }
+
+    fn move_account(
+        &self,
+        _binding_id: RuntimeBindingId,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async { Err(NotServedInTest("runtime binding").into()) }.boxed()
+    }
 }
 
 impl AttachmentResolver for NothingServed {
@@ -138,6 +149,21 @@ impl ProviderAccountReader for TestProviderAccounts {
         _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>> {
         async { Err(NotServedInTest("credential generation").into()) }.boxed()
+    }
+
+    fn read_observed_auth_mode(
+        &self,
+
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
+    }
+
+    fn read_sealed_token(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
     }
 }
 

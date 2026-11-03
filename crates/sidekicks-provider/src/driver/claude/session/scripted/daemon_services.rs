@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -45,7 +46,12 @@ use crate::port::permission_ask::{
 };
 use crate::port::repository_reader::{RepositoryReader, RepositoryReading};
 use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
-use crate::port::usage_sink::{MeteredUsage, ProviderQuotaWindow, UsageSink};
+use crate::port::session_message_reading_publisher::{
+    SessionMessageReading, SessionMessageReadingPublisher,
+};
+use crate::port::usage_sink::{
+    MeteredUsage, PricedRequest, ProviderQuotaWindow, RecordedUsage, UsageSink,
+};
 use crate::runtime_binding::store::RuntimeBindingRebind;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::usage_delta_accountant::UsageAxisCounts;
@@ -65,11 +71,13 @@ pub(crate) enum PortCall {
     ProcessGone(SessionId),
 }
 
-/// Approval ports and the queue's intake of taken messages, each recording what reaches it.
+/// Approval ports, the queue's intake of taken messages and the session message readings, each
+/// recording what reaches it.
 #[derive(Default)]
 pub(crate) struct RecordingPorts {
     calls: Mutex<Vec<PortCall>>,
     taken: Mutex<Vec<(String, RunId)>>,
+    message_readings: Mutex<Vec<SessionMessageReading>>,
 }
 
 impl RecordingPorts {
@@ -81,6 +89,11 @@ impl RecordingPorts {
     /// The messages reported taken so far, with the run each was reported under.
     pub(crate) fn taken(&self) -> Vec<(String, RunId)> {
         lock(&self.taken).clone()
+    }
+
+    /// The session message readings published so far, in order.
+    pub(crate) fn message_readings(&self) -> Vec<SessionMessageReading> {
+        lock(&self.message_readings).clone()
     }
 
     fn record(&self, call: PortCall) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
@@ -130,8 +143,15 @@ impl MessageTakenListener for RecordingPorts {
     }
 }
 
-/// Registers what a scripted driver composes over: `recording` as the approval ports and the
-/// queue's intake, every daemon turn on one binding, and a machine with no repositories.
+impl SessionMessageReadingPublisher for RecordingPorts {
+    fn publish(&self, reading: SessionMessageReading) {
+        lock(&self.message_readings).push(reading);
+    }
+}
+
+/// Registers what a scripted driver composes over: `recording` as the approval ports, the queue's
+/// intake and the session message readings, every daemon turn on one binding, and a machine with
+/// no repositories.
 pub(super) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<RecordingPorts>) {
     ports
         .daemon_turn_bindings
@@ -153,6 +173,10 @@ pub(super) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<Recor
         .message_taken
         .register(recording.clone())
         .expect("the intake registers once");
+    ports
+        .session_message_readings
+        .register(recording.clone())
+        .expect("the message readings register once");
 }
 
 /// A usage record that keeps each metered delta and each set of quota windows, and answers one set
@@ -170,7 +194,7 @@ impl RecordingUsage {
         *lock(&self.reported) = reported;
     }
 
-    /// Every set of quota windows taken so far, with its account, in order.
+    /// Every set of quota windows taken so far, a push or a whole set, with its account, in order.
     pub(crate) fn quota_windows(&self) -> Vec<(ProviderAccountId, Vec<ProviderQuotaWindow>)> {
         lock(&self.quota_windows).clone()
     }
@@ -185,9 +209,16 @@ impl UsageSink for RecordingUsage {
     fn record_metered(
         &self,
         metered: MeteredUsage,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<Option<RecordedUsage>, Box<dyn Error + Send + Sync>>> {
         lock(&self.metered).push(metered);
-        ready(Ok(())).boxed()
+        ready(Ok(None)).boxed()
+    }
+
+    fn record_cost(
+        &self,
+        _request: PricedRequest,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        ready(Err("the scripted usage record prices no request".into())).boxed()
     }
 
     fn read_prior_emitted(
@@ -206,6 +237,15 @@ impl UsageSink for RecordingUsage {
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         lock(&self.quota_windows).push((provider_account_id, windows));
         ready(Ok(())).boxed()
+    }
+
+    fn record_whole_quota_windows(
+        &self,
+        provider: ProviderId,
+        provider_account_id: ProviderAccountId,
+        windows: Vec<ProviderQuotaWindow>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        self.record_quota_windows(provider, provider_account_id, windows)
     }
 }
 
@@ -338,7 +378,13 @@ impl CallbackToolExecutor for NoCallbackTools {
         &self,
         _invocation: CallbackToolInvocation,
     ) -> BoxFuture<'_, Result<CallbackToolResult, CallbackToolPortError>> {
-        async { Ok(CallbackToolResult::Completed { output: None }) }.boxed()
+        async {
+            Ok(CallbackToolResult::Completed {
+                output: None,
+                session_links: Vec::new(),
+            })
+        }
+        .boxed()
     }
 }
 
@@ -351,8 +397,56 @@ impl CallbackToolActivitySink for NoCallbackTools {
     }
 }
 
-/// A binding store that takes every write, so a rewind's fork is adopted.
-pub(crate) struct TakenBindingWrites;
+/// One write a binding store took: an account move or the recovery data kept.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum TakenBindingWrite {
+    /// The binding moved onto the account.
+    Move(RuntimeBindingId, ProviderAccountId),
+    /// The binding holds this recovery data now.
+    RecoveryData(RuntimeBindingId, Map<String, Value>),
+}
+
+/// A binding store that takes every write, so a rewind's fork is adopted, and keeps each account
+/// move and each recovery data kept, in the order made; a test can have it refuse every move.
+#[derive(Default)]
+pub(crate) struct TakenBindingWrites {
+    writes: Mutex<Vec<TakenBindingWrite>>,
+    is_refusing_moves: AtomicBool,
+}
+
+impl TakenBindingWrites {
+    /// Every write so far, in the order made.
+    pub(crate) fn writes(&self) -> Vec<TakenBindingWrite> {
+        lock(&self.writes).clone()
+    }
+
+    /// Every account move so far: the binding, and the account it moved onto.
+    pub(crate) fn moves(&self) -> Vec<(RuntimeBindingId, ProviderAccountId)> {
+        self.writes()
+            .into_iter()
+            .filter_map(|write| match write {
+                TakenBindingWrite::Move(binding_id, account) => Some((binding_id, account)),
+                TakenBindingWrite::RecoveryData(..) => None,
+            })
+            .collect()
+    }
+
+    /// Every recovery data kept so far: the binding, and the data it holds now.
+    pub(crate) fn recovery_data(&self) -> Vec<(RuntimeBindingId, Map<String, Value>)> {
+        self.writes()
+            .into_iter()
+            .filter_map(|write| match write {
+                TakenBindingWrite::RecoveryData(binding_id, data) => Some((binding_id, data)),
+                TakenBindingWrite::Move(..) => None,
+            })
+            .collect()
+    }
+
+    /// Refuses every account move from now on, writing none.
+    pub(crate) fn refuse_moves(&self) {
+        self.is_refusing_moves.store(true, Ordering::SeqCst);
+    }
+}
 
 impl RuntimeBindingWriter for TakenBindingWrites {
     fn rebind(
@@ -364,9 +458,25 @@ impl RuntimeBindingWriter for TakenBindingWrites {
 
     fn keep_recovery_data(
         &self,
-        _binding_id: RuntimeBindingId,
-        _runtime_metadata: Map<String, Value>,
+        binding_id: RuntimeBindingId,
+        runtime_metadata: Map<String, Value>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        lock(&self.writes).push(TakenBindingWrite::RecoveryData(
+            binding_id,
+            runtime_metadata,
+        ));
+        ready(Ok(())).boxed()
+    }
+
+    fn move_account(
+        &self,
+        binding_id: RuntimeBindingId,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        if self.is_refusing_moves.load(Ordering::SeqCst) {
+            return ready(Err("the test refuses every binding move".into())).boxed();
+        }
+        lock(&self.writes).push(TakenBindingWrite::Move(binding_id, provider_account_id));
         ready(Ok(())).boxed()
     }
 }

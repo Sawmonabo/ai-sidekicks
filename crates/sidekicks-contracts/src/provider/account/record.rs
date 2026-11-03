@@ -280,9 +280,18 @@ pub enum MemoryImportOutcomeKind {
 }
 
 /// How the account's one memory import went: `imported` counts what was copied and when,
-/// `nothingToImport` found nothing. The outcome is kept, so a repeat answers it again.
+/// `nothingToImport` found nothing. The outcome is kept on the account, and a repeat is refused.
 #[derive(
-    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate, VariantNames,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    garde::Validate,
+    VariantNames,
+    IntoStaticStr,
 )]
 #[serde(
     tag = "outcome",
@@ -496,6 +505,11 @@ macro_rules! either_arm {
 }
 
 impl ProviderAccount {
+    /// The account's id.
+    pub fn account_id(&self) -> &ProviderAccountId {
+        either_arm!(self, |account| &account.account_id)
+    }
+
     /// Whether this is the provider's default account.
     pub fn is_default(&self) -> bool {
         either_arm!(self, |account| account.is_default)
@@ -642,6 +656,12 @@ pub enum ProviderAccountNotification {
         /// The account.
         account_id: ProviderAccountId,
     },
+    /// A brokered sign-in waits for the code its sign-in page shows, read from the provider's
+    /// prompt and never its text; `provider.account.signInCode.submit` answers it.
+    SignInCodeRequested {
+        /// The attempt.
+        attempt_id: FreeFormText<PROVIDER_SIGN_IN_ATTEMPT_ID_MAX_LEN>,
+    },
     /// A brokered sign-in ended. `succeeded` means only that the provider's flow finished; the
     /// account's health follows as `accountChanged`.
     SignInCompleted {
@@ -694,6 +714,7 @@ fn window_names_routed_account(
         ProviderAccountNotification::UsageWindowUpdated { .. }
         | ProviderAccountNotification::AccountChanged { .. }
         | ProviderAccountNotification::AccountRemoved { .. }
+        | ProviderAccountNotification::SignInCodeRequested { .. }
         | ProviderAccountNotification::SignInCompleted { .. } => Ok(()),
     }
 }

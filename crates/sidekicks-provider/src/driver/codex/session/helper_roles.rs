@@ -148,7 +148,9 @@ pub(crate) async fn remove_codex_helper_roles(
     session_id: SessionId,
 ) -> Result<(), DriverError> {
     let session_folder = roles_folder.join(session_id.to_string());
-    run_blocking(move || sidekicks_platforms::remove_tree(&session_folder)).await
+    sidekicks_platforms::remove_tree_awaited(&session_folder)
+        .await
+        .map_err(|error| DriverError::Internal(Box::new(error)))
 }
 
 // The role file's TOML for one helper; a blank prompt or description, which Codex refuses, fails

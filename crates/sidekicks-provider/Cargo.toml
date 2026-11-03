@@ -7,14 +7,6 @@ description = "The driver interface, the run ports, shared provider code and eve
 license.workspace = true
 publish.workspace = true
 
-[package.metadata.cargo-shear]
-ignored = [
-  # The token prices read from what the providers report.
-  "opentelemetry-proto",
-  # Editing the providers' and tool servers' TOML settings in place.
-  "toml_edit",
-]
-
 [lib]
 doctest = false
 
@@ -42,6 +34,8 @@ mockall = { workspace = true, optional = true }
 notify.workspace = true
 opentelemetry-proto.workspace = true
 process-wrap.workspace = true
+# Decodes the providers' OTLP exports and encodes the receiver's answers.
+prost.workspace = true
 regex.workspace = true
 regex-lite.workspace = true
 # The claude.ai connector list a connector's organization mark is read from.
@@ -63,6 +57,7 @@ sidekicks-store.workspace = true
 sidekicks-workspace.workspace = true
 starlark.workspace = true
 strum.workspace = true
+subtle.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
@@ -75,6 +70,7 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, optional = true }
 unicode-normalization.workspace = true
 url.workspace = true
+uuid.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]

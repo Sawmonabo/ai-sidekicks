@@ -38,6 +38,7 @@ use crate::driver::codex::event_normalizer::{
     CODEX_THREAD_TOKEN_USAGE_METHOD, CODEX_TURN_COMPLETED_METHOD,
 };
 use crate::driver::codex::lifecycle::CodexDriverParts;
+use crate::driver::codex::lifecycle::account_move::CodexBindingMove;
 use crate::driver::codex::notification_routing::{
     CodexContextWindowReading, CodexRoutedFrames, CodexSessionRouting,
 };
@@ -61,7 +62,7 @@ use crate::driver::codex::session::controls::{
 };
 use crate::driver::codex::session::fork::config_change::CodexConfigForks;
 use crate::driver::codex::session::inbound::{
-    CodexSessionCall, CodexSessionInboundHandler, CodexSessionInboundReceiver,
+    CodexAccountMove, CodexSessionCall, CodexSessionInboundHandler, CodexSessionInboundReceiver,
     drain_codex_session_inbound,
 };
 use crate::driver::codex::session::lifecycle_call::{
@@ -102,9 +103,17 @@ pub(crate) struct CodexSessionIntake {
     waiters: CodexTurnEndWaiters,
     parts: Arc<CodexDriverParts>,
     context_readings: CodexSessionContextReadings,
-    // The session's one usage recorder, fed in metering order; opened at the first spend metered
-    // once the usage service registered, and ended when the session's task ends.
-    usage_recorder: Option<mpsc::Sender<Vec<MeteredUsage>>>,
+    // The session's one usage recorder, fed in metering order with the account moves between the
+    // spends; opened at the first spend metered once the usage service registered, and ended when
+    // the session's task ends.
+    usage_recorder: Option<mpsc::Sender<UsageRecorderItem>>,
+}
+
+// What the session's usage recorder takes, in metering order: spend, or a move of the session's
+// bindings onto another account, made once the spend before it is recorded.
+enum UsageRecorderItem {
+    Usage(Vec<MeteredUsage>),
+    AccountMove(CodexBindingMove),
 }
 
 impl CodexSessionIntake {
@@ -195,13 +204,22 @@ impl CodexSessionIntake {
             let Some(sink) = self.parts.ports.usage.port().map(Arc::clone) else {
                 return;
             };
-            let (sender, mut batches) = mpsc::channel::<Vec<MeteredUsage>>(USAGE_RECORDER_QUEUE);
+            let (sender, mut items) = mpsc::channel::<UsageRecorderItem>(USAGE_RECORDER_QUEUE);
             let report = report.clone();
+            let bindings = Arc::clone(&self.parts.runtime_bindings);
+            let account_moves = Arc::clone(&self.parts.ports.session_account_moves);
             self.parts.tasks.spawn(async move {
-                while let Some(batch) = batches.recv().await {
-                    for metered in batch {
-                        if let Err(error) = sink.record_metered(metered).await {
-                            report(error);
+                while let Some(item) = items.recv().await {
+                    match item {
+                        UsageRecorderItem::Usage(batch) => {
+                            for metered in batch {
+                                if let Err(error) = sink.record_metered(metered).await {
+                                    report(error);
+                                }
+                            }
+                        }
+                        UsageRecorderItem::AccountMove(binding_move) => {
+                            binding_move.land(&*bindings, &account_moves).await;
                         }
                     }
                 }
@@ -211,10 +229,40 @@ impl CodexSessionIntake {
         let Some(recorder) = &self.usage_recorder else {
             return;
         };
-        if let Err(refused) = recorder.send(usage).await {
-            report(Box::new(UsageRecorderEnded {
-                lost: refused.0.len(),
-            }));
+        if let Err(refused) = recorder.send(UsageRecorderItem::Usage(usage)).await {
+            let lost = match refused.0 {
+                UsageRecorderItem::Usage(batch) => batch.len(),
+                UsageRecorderItem::AccountMove(_) => 0,
+            };
+            report(Box::new(UsageRecorderEnded { lost }));
+        }
+    }
+
+    // Moves the session onto `account_move`'s account at this place among its frames: its record
+    // at once, and its bindings, the lead's and the record's own, once every spend metered before
+    // is recorded, so that spend stays on the account it left.
+    async fn move_account(&mut self, account_move: CodexAccountMove) {
+        let record = self
+            .record
+            .as_mut()
+            .map(|record| (&mut record.provider_account_id, record.binding_id.as_ref()));
+        let item = UsageRecorderItem::AccountMove(CodexBindingMove::plan(
+            self.session_id,
+            record,
+            account_move,
+        ));
+        let unsent = match &self.usage_recorder {
+            Some(recorder) => recorder.send(item).await.err().map(|refused| refused.0),
+            None => Some(item),
+        };
+        // No recorder runs, so no spend waits before the move.
+        if let Some(UsageRecorderItem::AccountMove(binding_move)) = unsent {
+            binding_move
+                .land(
+                    &*self.parts.runtime_bindings,
+                    &self.parts.ports.session_account_moves,
+                )
+                .await;
         }
     }
 
@@ -448,6 +496,10 @@ impl CodexSessionInboundHandler for CodexSessionIntake {
             self.settle();
         }
         .boxed()
+    }
+
+    fn account_moved(&mut self, account_move: CodexAccountMove) -> BoxFuture<'_, ()> {
+        self.move_account(account_move).boxed()
     }
 
     fn next_deadline(&self) -> Option<Instant> {

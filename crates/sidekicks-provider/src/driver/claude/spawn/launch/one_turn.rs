@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio_util::sync::CancellationToken;
@@ -18,6 +19,7 @@ use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::driver::claude::delivery::system::read_claude_refusal_without_fallback;
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::driver::claude::hooks::callbacks::answer_claude_request;
+use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{ClaudeCodeProcess, ClaudeStreamFrame};
 use crate::driver::claude::session::tool_server_calls::{
     ClaudeToolServerCallContext, ClaudeToolServerCalls,
@@ -52,6 +54,8 @@ const CLAUDE_ONE_TURN_ASK_DENIAL: &str =
 pub(crate) struct ClaudeOneTurnRequest<'a> {
     /// What the session's processes are spawned from.
     pub(crate) spawn: ClaudeSessionSpawn<'a>,
+    /// The account the turn runs on.
+    pub(crate) provider_account_id: ProviderAccountId,
     /// The conversation copied; `None` starts from an empty one.
     pub(crate) resume_handle: Option<String>,
     /// The mode the turn runs in in place of its level's own; `None` keeps the level's.
@@ -69,6 +73,8 @@ struct OneTurnReading {
     provider_message_id: Option<String>,
     // The last refusal.
     refusal: Option<RunFailureCause>,
+    // The text of the last compaction summary.
+    compaction_summary: Option<String>,
 }
 
 /// The reply of one unkept turn.
@@ -82,6 +88,44 @@ pub(crate) struct ClaudeOneTurnReply {
     pub(crate) refusal: Option<RunFailureCause>,
     /// The cumulative usage the `result` reports, where it carries any.
     pub(crate) usage: Option<ClaudeCumulativeUsageObservation>,
+    /// The text of the summary a compaction in the turn wrote, where one did.
+    pub(crate) compaction_summary: Option<String>,
+}
+
+// The members of a lead `user` frame a compaction summary is read from: Claude Code marks the
+// summary's echo `isReplay: false`, a person's message's `true`, and a tool result's not at all.
+#[derive(Deserialize)]
+struct UserFrame {
+    #[serde(rename = "isReplay", default, deserialize_with = "read_lenient")]
+    is_replay: Option<bool>,
+    #[serde(default)]
+    message: Option<UserFrameMessage>,
+}
+
+#[derive(Deserialize)]
+struct UserFrameMessage {
+    #[serde(default)]
+    content: Value,
+}
+
+// The text of a compaction summary's echo: its content as one string, else its text blocks joined.
+fn read_compaction_summary(frame_text: &str) -> Option<String> {
+    let frame = serde_json::from_str::<UserFrame>(frame_text).ok()?;
+    if frame.is_replay != Some(false) {
+        return None;
+    }
+    match frame.message?.content {
+        Value::String(text) => Some(text),
+        Value::Array(blocks) => Some(
+            blocks
+                .iter()
+                .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+                .filter_map(|block| block.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::Object(_) => None,
+    }
 }
 
 // The members of a lead `result` frame the reply reads.
@@ -105,7 +149,7 @@ pub(crate) async fn run_claude_one_turn(
 ) -> Result<ClaudeOneTurnReply, ClaudeLaunchError> {
     let session_id = request.spawn.legs.session_id;
     let servers = request.spawn.in_process_servers.cloned();
-    let provider_account_id = request.spawn.provider_account_id.clone();
+    let provider_account_id = request.provider_account_id;
     let command_channel = request.spawn.legs.command_channel.clone();
     let apart_run = command_channel
         .as_deref()
@@ -117,6 +161,7 @@ pub(crate) async fn run_claude_one_turn(
         ClaudeBringUpRequest {
             spawn: request.spawn,
             provider_session_id: mint_uuid_v7().to_string(),
+            account: ClaudeProcessAccount::new(Some(provider_account_id.clone())),
             conversation: ClaudeConversationStart::Unkept {
                 resume_handle: request.resume_handle,
             },
@@ -229,6 +274,11 @@ fn read_lead_frame(frame: &ClaudeStreamFrame, reading: &mut OneTurnReading) {
         return;
     }
     match frame_kind {
+        "user" => {
+            if let Some(summary) = read_compaction_summary(&frame.text) {
+                reading.compaction_summary = Some(summary);
+            }
+        }
         "assistant" => {
             let Ok(message) = serde_json::from_str::<ClaudeMessageFrame>(&frame.text) else {
                 return;
@@ -252,7 +302,7 @@ fn read_lead_frame(frame: &ClaudeStreamFrame, reading: &mut OneTurnReading) {
 /// The answer of a process no one watches to a request it holds: a tool ask is denied, since no one
 /// can approve it, and every other request passes; a process that names no tool server sends no
 /// message for one.
-pub(super) fn compose_unwatched_answer(body: &ClaudeInboundRequestBody) -> Value {
+pub(crate) fn compose_unwatched_answer(body: &ClaudeInboundRequestBody) -> Value {
     match body {
         ClaudeInboundRequestBody::CanUseTool(_) => {
             json!({"behavior": "deny", "message": CLAUDE_ONE_TURN_ASK_DENIAL})
@@ -282,6 +332,7 @@ fn read_reply(
         provider_message_id: reading.provider_message_id,
         refusal: reading.refusal,
         usage: frame.observation.cumulative_usage.clone(),
+        compaction_summary: reading.compaction_summary,
     })
 }
 

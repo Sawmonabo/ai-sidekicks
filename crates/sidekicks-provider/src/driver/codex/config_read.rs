@@ -2,7 +2,8 @@
 //! reads asks Codex itself through `config/read`: the effective config Codex merged from its layers
 //! for a folder, the layer that set each key, and on request each layer as it stands. A reader
 //! with no service to ask, the person's own Codex folder among the homes it reads, reads a layer's
-//! `config.toml` itself through [`read_codex_config_file`].
+//! `config.toml` itself through [`read_codex_config_file`]. The service's processing region is read
+//! here too, from the host of the base URL its model provider sends requests to.
 
 use std::collections::HashMap;
 use std::io;
@@ -11,6 +12,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use url::Url;
 
 use crate::driver::codex::app_server_protocol::ConfigReadParams;
 use crate::driver::codex::session::errors::CodexError;
@@ -163,4 +165,212 @@ pub(crate) async fn read_codex_config<Config: DeserializeOwned>(
         detail: format!("Codex's \"{CONFIG_READ_METHOD}\" reply could not be read."),
         cause: None,
     })
+}
+
+/// Where a Codex service's model requests are processed, by the host of its model provider's base
+/// URL.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Codex's pricing reads each service's region through it"
+    )
+)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum CodexProcessingRegion {
+    /// The API's own host, `api.openai.com`, set or by default: no regional processing.
+    NoRegion,
+    /// A data-residency host of the API, by its domain prefix (`eu` for `eu.api.openai.com`).
+    Region(String),
+    /// Any other host, or a base URL that does not parse, whose region is unknown.
+    UnknownHost,
+}
+
+/// The API's own host, which processes requests with no regional processing.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Codex's pricing reads each service's region through it"
+    )
+)]
+const OPENAI_API_HOST: &str = "api.openai.com";
+
+/// The API's data-residency domain prefixes, each labeling a host `<prefix>.api.openai.com`.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Codex's pricing reads each service's region through it"
+    )
+)]
+const OPENAI_REGION_PREFIXES: [&str; 10] =
+    ["us", "eu", "ae", "au", "ca", "jp", "in", "sg", "kr", "gb"];
+
+/// Codex's built-in model provider, whose base URL is `openai_base_url`.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Codex's pricing reads each service's region through it"
+    )
+)]
+const OPENAI_PROVIDER_ID: &str = "openai";
+
+// The effective config's keys that name where model requests go: the provider, the built-in
+// provider's base URL and each other provider's.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Codex's pricing reads each service's region through it"
+    )
+)]
+#[derive(Deserialize)]
+struct CodexEndpointConfig {
+    #[serde(default)]
+    model_provider: Option<String>,
+    #[serde(default)]
+    openai_base_url: Option<String>,
+    #[serde(default)]
+    model_providers: HashMap<String, CodexModelProviderEndpoint>,
+}
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Codex's pricing reads each service's region through it"
+    )
+)]
+#[derive(Deserialize)]
+struct CodexModelProviderEndpoint {
+    #[serde(default)]
+    base_url: Option<String>,
+}
+
+/// The processing region of the Codex service `connection` reaches, read from its settings for
+/// `cwd`. Fails as [`read_codex_config`] does.
+#[expect(
+    dead_code,
+    reason = "Codex's pricing reads each service's region through it"
+)]
+pub(crate) async fn read_codex_processing_region(
+    connection: &CodexAppServerConnection,
+    cwd: &Path,
+) -> Result<CodexProcessingRegion, CodexError> {
+    let read = read_codex_config::<CodexEndpointConfig>(connection, cwd, false).await?;
+    Ok(processing_region_of(&read.config))
+}
+
+// The region of the base URL `config`'s model provider sends to: the built-in provider's own
+// setting, unset or empty meaning OpenAI's host as Codex reads it, or another provider's entry,
+// which has no default host.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Codex's pricing reads each service's region through it"
+    )
+)]
+fn processing_region_of(config: &CodexEndpointConfig) -> CodexProcessingRegion {
+    let base_url = match config.model_provider.as_deref() {
+        None | Some(OPENAI_PROVIDER_ID) => {
+            let Some(base_url) = config
+                .openai_base_url
+                .as_deref()
+                .filter(|base_url| !base_url.is_empty())
+            else {
+                return CodexProcessingRegion::NoRegion;
+            };
+            base_url
+        }
+        Some(provider_id) => {
+            let Some(base_url) = config
+                .model_providers
+                .get(provider_id)
+                .and_then(|provider| provider.base_url.as_deref())
+            else {
+                return CodexProcessingRegion::UnknownHost;
+            };
+            base_url
+        }
+    };
+    let Ok(url) = Url::parse(base_url) else {
+        return CodexProcessingRegion::UnknownHost;
+    };
+    let Some(host) = url.host_str() else {
+        return CodexProcessingRegion::UnknownHost;
+    };
+    if host == OPENAI_API_HOST {
+        return CodexProcessingRegion::NoRegion;
+    }
+    match host
+        .strip_suffix(OPENAI_API_HOST)
+        .and_then(|prefix| prefix.strip_suffix('.'))
+    {
+        Some(prefix) if OPENAI_REGION_PREFIXES.contains(&prefix) => {
+            CodexProcessingRegion::Region(prefix.to_owned())
+        }
+        Some(_) | None => CodexProcessingRegion::UnknownHost,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use serde_json::json;
+
+    use super::{CodexEndpointConfig, CodexProcessingRegion, processing_region_of};
+
+    // OpenAI's host or no or an empty base URL is no region, a data-residency host its prefix,
+    // and any other host, an unlisted prefix or a custom provider unknown. Killed by a suffix or
+    // substring host match, ignoring `model_provider` (a custom provider read as OpenAI), ignoring
+    // a custom provider's `base_url`, labeling an unlisted prefix, and parsing an empty base URL
+    // (an unknown host).
+    #[rstest]
+    #[case::default_host(json!({}), "none")]
+    #[case::empty_base_url(json!({ "openai_base_url": "" }), "none")]
+    #[case::openai_host(json!({ "openai_base_url": "https://api.openai.com/v1" }), "none")]
+    #[case::regional_host(json!({ "openai_base_url": "https://eu.api.openai.com/v1" }), "eu")]
+    #[case::residency_provider(
+        json!({
+            "model_provider": "openaidr",
+            "model_providers": { "openaidr": { "base_url": "https://ae.api.openai.com/v1" } }
+        }),
+        "ae"
+    )]
+    #[case::host_suffix(
+        json!({ "openai_base_url": "https://us.api.openai.com.evil.com/v1" }),
+        "unknown"
+    )]
+    #[case::user_info(
+        json!({ "openai_base_url": "https://us.api.openai.com@evil.com/v1" }),
+        "unknown"
+    )]
+    #[case::unlisted_prefix(
+        json!({ "openai_base_url": "https://xx.api.openai.com/v1" }),
+        "unknown"
+    )]
+    #[case::proxy(
+        json!({
+            "model_provider": "proxy",
+            "openai_base_url": "https://eu.api.openai.com/v1",
+            "model_providers": { "proxy": { "base_url": "http://proxy.example.com" } }
+        }),
+        "unknown"
+    )]
+    #[case::local_provider(json!({ "model_provider": "ollama" }), "unknown")]
+    fn reads_the_region_from_the_model_providers_host(
+        #[case] config: serde_json::Value,
+        #[case] region: &str,
+    ) {
+        let config: CodexEndpointConfig = serde_json::from_value(config).expect("the config reads");
+        let read = match processing_region_of(&config) {
+            CodexProcessingRegion::NoRegion => "none".to_owned(),
+            CodexProcessingRegion::Region(prefix) => prefix,
+            CodexProcessingRegion::UnknownHost => "unknown".to_owned(),
+        };
+        assert_eq!(read, region);
+    }
 }

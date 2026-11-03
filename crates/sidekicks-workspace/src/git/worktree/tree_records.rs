@@ -13,7 +13,6 @@ use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 
 use crate::git::worktree::folder_names::read_folder_names;
 use crate::git::worktree::reads::{LINKED_RECORDS_FOLDER_NAME, read_record_git_file};
-use crate::git::worktree::service::remove_folder;
 use crate::trust_envelope::is_contained_within;
 
 // Held on a repository's resolved git common folder, however each caller spells it.
@@ -93,7 +92,9 @@ pub(crate) async fn remove_records_naming(
                 continue;
             }
         };
-        if is_tree_record && let Err(source) = remove_folder(&record_folder).await {
+        if is_tree_record
+            && let Err(source) = sidekicks_platforms::remove_tree_awaited(&record_folder).await
+        {
             failures.push(TreeRecordRemovalError {
                 path: record_folder,
                 source,

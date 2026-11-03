@@ -595,6 +595,7 @@ checksum = "31b698c5f9a010f6573133b09e0de5408834d0c82f8d7475a89fc1867a71cd90"
 dependencies = [
  "axum-core",
  "bytes",
+ "form_urlencoded",
  "futures-util",
  "http",
  "http-body",
@@ -610,6 +611,7 @@ dependencies = [
  "serde_core",
  "serde_json",
  "serde_path_to_error",
+ "serde_urlencoded",
  "sync_wrapper",
  "tokio",
  "tower",
@@ -5843,6 +5845,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "oauth2"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "getrandom 0.2.17",
+ "http",
+ "rand 0.8.8",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "sha2 0.10.9",
+ "thiserror 1.0.69",
+ "url",
+]
+
+[[package]]
 name = "objc2"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6460,6 +6481,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
+name = "plist"
+version = "1.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "327a4cb2ad49dc48adfdc9da89e22c64d488b508c67a044d71ba729e4521a285"
+dependencies = [
+ "base64 0.23.1",
+ "indexmap 2.14.2",
+ "quick-xml",
+ "serde",
+ "time",
+]
+
+[[package]]
 name = "png"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6857,6 +6891,15 @@ name = "quick-error"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a993555f31e5a609f617c12db6250dedcac1b0a85076912c436e6fc9b2c8e6a3"
+
+[[package]]
+name = "quick-xml"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "quick_cache"
@@ -7314,9 +7357,9 @@ dependencies = [
 
 [[package]]
 name = "rmcp"
-version = "3.7.0"
+version = "3.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ece64e19631fc38758181e637c15509a2c2709ee53bfde1e1d58f9dc991f919e"
+checksum = "f8be15815186873ea063bf005011d16c356804973489e40c39116ae3a2878d1f"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -7328,10 +7371,12 @@ dependencies = [
  "http-body-util",
  "indexmap 2.14.2",
  "libc",
+ "oauth2",
  "pastey",
  "pin-project-lite",
  "process-wrap",
  "rand 0.10.3",
+ "reqwest",
  "rmcp-macros",
  "schemars 1.2.3",
  "serde",
@@ -7343,14 +7388,15 @@ dependencies = [
  "tokio-util",
  "tower-service",
  "tracing",
+ "url",
  "uuid",
 ]
 
 [[package]]
 name = "rmcp-macros"
-version = "3.7.0"
+version = "3.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "967fa7f7935d7d6217d593df0e8e5c9307bcaf256974a5a9ee64476c97735389"
+checksum = "8b0748e054a5f5598b3213cf72099ae6b2745ba4d996c59ccf455150a7dbb839"
 dependencies = [
  "darling 0.24.1",
  "proc-macro2",
@@ -8345,6 +8391,18 @@ dependencies = [
 [[package]]
 name = "sidekicks-agent"
 version = "0.0.0"
+dependencies = [
+ "garde",
+ "jiff",
+ "jsonschema",
+ "rstest",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "sidekicks-contracts",
+ "sidekicks-provider",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "sidekicks-approval"
@@ -8513,6 +8571,7 @@ dependencies = [
  "rstest",
  "ryu-js",
  "schemars 1.2.3",
+ "secrecy",
  "serde",
  "serde_json",
  "serde_json_canonicalizer",
@@ -8520,6 +8579,7 @@ dependencies = [
  "serde_with",
  "sha2 0.11.1",
  "strum 0.28.0",
+ "subtle",
  "thiserror 2.0.21",
  "tokio-util",
  "url",
@@ -8681,18 +8741,29 @@ dependencies = [
 name = "sidekicks-mcp"
 version = "0.0.0"
 dependencies = [
+ "async-trait",
  "axum",
+ "base16ct 1.0.0",
+ "base64 0.23.1",
  "blake3",
  "bytes",
  "futures",
+ "getrandom 0.4.3",
+ "http",
+ "hyper",
+ "hyper-util",
  "jwt-simple",
+ "oauth2",
  "p256 0.14.0",
  "process-wrap",
  "reqwest",
  "rmcp",
  "rstest",
  "rusqlite",
+ "secrecy",
+ "serde",
  "serde_json",
+ "sha2 0.11.1",
  "sidekicks-contracts",
  "sidekicks-ipc",
  "sidekicks-platforms",
@@ -8702,10 +8773,13 @@ dependencies = [
  "sidekicks-workspace",
  "sse-stream 0.3.0",
  "strum 0.28.0",
+ "subtle",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",
  "tracing",
+ "url",
  "uuid",
 ]
 
@@ -8716,6 +8790,7 @@ dependencies = [
  "alacritty_terminal",
  "apple-native-keyring-store",
  "async-io",
+ "base16ct 1.0.0",
  "base64 0.23.1",
  "block2",
  "command-fds",
@@ -8739,6 +8814,7 @@ dependencies = [
  "objc2-io-kit",
  "objc2-security",
  "objc2-service-management",
+ "plist",
  "polling",
  "process-wrap",
  "regex",
@@ -8748,8 +8824,10 @@ dependencies = [
  "security-framework",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "sidekicks-contracts",
  "signal-hook",
+ "subtle",
  "sysinfo",
  "tempfile",
  "thiserror 2.0.21",
@@ -8811,6 +8889,7 @@ dependencies = [
  "opentelemetry-proto",
  "process-wrap",
  "proptest",
+ "prost",
  "regex",
  "regex-lite",
  "reqwest",
@@ -8833,6 +8912,7 @@ dependencies = [
  "sidekicks-workspace",
  "starlark",
  "strum 0.28.0",
+ "subtle",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -8845,6 +8925,7 @@ dependencies = [
  "typify",
  "unicode-normalization",
  "url",
+ "uuid",
  "zeroize",
  "zstd",
 ]

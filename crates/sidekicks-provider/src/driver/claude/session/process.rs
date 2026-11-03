@@ -3,6 +3,7 @@
 //! and reads its exit once both its exit and its error output have ended. The exit closes the
 //! control table and the input, then reaches the session's listener last, after every frame.
 
+pub(crate) mod account;
 mod stdin;
 mod stdout;
 
@@ -16,14 +17,14 @@ use std::time::Duration;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use process_wrap::tokio::ChildWrapper;
+use secrecy::SecretString;
 use serde::Serialize;
 use serde_json::value::RawValue;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::{
-    ChildEnd, ChildExit, ProgramStart, Spawner, ask_child_to_stop, read_child_exit,
+    ChildEnd, ChildExit, ProgramStart, Spawner, ask_child_to_stop, read_child_exit, secret_pipe,
 };
 use sidekicks_std::output_tail::{OutputTail, read_output_chunks};
 use tokio::io::AsyncRead;
@@ -31,14 +32,16 @@ use tokio::process::Command;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
+use self::account::ClaudeProcessAccount;
 use self::stdin::ClaudeInputWriter;
-pub(crate) use self::stdout::CLAUDE_OUTPUT_LINE_MAX_BYTES;
-use self::stdout::ClaudeOutputReader;
+pub(crate) use self::stdout::{CLAUDE_OUTPUT_LINE_MAX_BYTES, ClaudeOutputReader};
 use crate::driver::child_records::{
-    ChildRecord, DaemonChildRecords, RecordedChild, spawn_recorded_child,
+    ChildRecord, ChildSecret, DaemonChildRecords, RecordedChild, spawn_recorded_child,
 };
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
-use crate::driver::claude::session::control_requests::ClaudeControlRequests;
+use crate::driver::claude::session::control_requests::{
+    ClaudeAccountMoveMarker, ClaudeControlRequests,
+};
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
 use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
@@ -47,12 +50,12 @@ use crate::driver::claude::session::transport::control::{
 };
 use crate::driver::claude::session::transport::declarations;
 use crate::driver::claude::session::transport::inbound::{
-    ClaudeControlAnswer, ClaudeControlFrameReader, ClaudeInboundRequestEvent,
+    ClaudeControlAnswer, ClaudeInboundRequestEvent,
 };
 use crate::driver::claude::session::transport::user_message::{
     ClaudeUserFrame, ClaudeWriteAttempt,
 };
-use crate::driver::diagnostics::OnceReportedDiagnostics;
+use crate::driver::claude::spawn::environment::CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE;
 use crate::process_exit::compose_process_exit;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::process_registry::ProviderProcessRegistry;
@@ -81,9 +84,13 @@ pub(crate) struct ClaudeProcessLaunch {
     pub(crate) working_folder: PathBuf,
     /// The provider session the process runs, named in its diagnostics.
     pub(crate) provider_session_id: String,
-    /// The account whose home it runs on, named in its diagnostics; `None` for a short read that
-    /// names no account.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    /// The account whose home it runs on, named in its diagnostics as it is now, a session's
+    /// shared with its stream; empty for a short read that names no account.
+    pub(crate) account: ClaudeProcessAccount,
+    /// The pasted token the process signs in with, handed on the pipe its environment names and
+    /// never as a variable; the launcher reads the one sealed for a pasted token's account where
+    /// this is `None`.
+    pub(crate) token: Option<SecretString>,
 }
 
 /// One stream frame the process wrote, with the facts it is routed by.
@@ -148,8 +155,10 @@ pub(crate) struct ClaudeCodeProcess {
 impl ClaudeCodeProcess {
     /// Starts the process on `spawner`'s thread, recorded in `child_records` until its reap and
     /// its spawn counted in `registry`, with its reader handing what it writes to `listener` and
-    /// releasing `turn_holds`' turn at a turn-ending lead `result`. Fails with the record's error,
-    /// the spawn's, or the spawner's when its thread has ended.
+    /// releasing `turn_holds`' turn at a turn-ending lead `result`; the launch's token is handed on
+    /// a pipe the process alone inherits. Fails with the record's error, the spawn's, the
+    /// spawner's when its thread has ended, and as `Unsupported` for a token on a system with no
+    /// such pipe.
     pub(crate) async fn start(
         spawner: &Spawner,
         child_records: &Arc<dyn DaemonChildRecords>,
@@ -168,8 +177,24 @@ impl ClaudeCodeProcess {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        let secret = launch
+            .token
+            .map(|token| {
+                let pipe = secret_pipe().ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "this system has no pipe to hand Claude Code its token on",
+                    )
+                })?;
+                Ok::<_, io::Error>(ChildSecret {
+                    pipe,
+                    variable: CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE,
+                    secret: token,
+                })
+            })
+            .transpose()?;
         let RecordedChild { mut child, record } =
-            spawn_recorded_child(spawner, child_records, command).await?;
+            spawn_recorded_child(spawner, child_records, command, secret).await?;
         let identity = ProviderProcessIdentity {
             process_id: child
                 .id()
@@ -196,20 +221,15 @@ impl ClaudeCodeProcess {
         let (ends_sender, ends) = watch::channel(None);
         let ends_sender = Arc::new(ClaudeChildEnds(ends_sender));
         let (startup_hooks_sender, startup_hooks) = watch::channel(0);
-        let reader = ClaudeOutputReader {
-            requests: requests.clone(),
-            control_frames: ClaudeControlFrameReader::new(
-                launch.provider_account_id.clone(),
-                launch.provider_session_id.clone(),
-            ),
-            listener: Arc::clone(&listener),
+        let reader = ClaudeOutputReader::new(
+            requests.clone(),
+            Arc::clone(&listener),
             turn_holds,
-            startup_hooks: startup_hooks_sender,
-            ends: Arc::downgrade(&ends_sender),
-            unmapped_lines: OnceReportedDiagnostics::default(),
-            provider_session_id: launch.provider_session_id,
-            provider_account_id: launch.provider_account_id,
-        };
+            startup_hooks_sender,
+            Arc::downgrade(&ends_sender),
+            launch.provider_session_id,
+            launch.account,
+        );
         let reading = tokio::spawn(reader.read(standard_output));
         let (end_sender, end) = watch::channel(None);
         tokio::spawn(own_child(
@@ -242,7 +262,8 @@ impl ClaudeCodeProcess {
         &self,
         request: ClaudeControlRequest,
     ) -> Result<ClaudeControlAnswer, ClaudeSessionError> {
-        let answer = self.send_control_request_within(request, CLAUDE_INITIALIZE_TOTAL_DEADLINE);
+        let answer =
+            self.send_control_request_within(request, CLAUDE_INITIALIZE_TOTAL_DEADLINE, None);
         tokio::select! {
             answered = answer => answered,
             () = wait_out_startup_deadline(self.startup_hooks.clone()) => {
@@ -302,14 +323,20 @@ impl ClaudeCodeProcess {
         self.end.borrow().is_some()
     }
 
-    /// Sends one control request and settles on its answer within `deadline`, failing as
-    /// `send_control_request` does.
+    /// Sends one control request, carrying `account_move` where given, and settles on its answer
+    /// within `deadline`, failing as `send_control_request` does.
     async fn send_control_request_within(
         &self,
         request: ClaudeControlRequest,
         deadline: Duration,
+        account_move: Option<ClaudeAccountMoveMarker>,
     ) -> Result<ClaudeControlAnswer, ClaudeSessionError> {
-        let pending = self.requests.open(request.subtype())?;
+        let pending = match account_move {
+            None => self.requests.open(request.subtype())?,
+            Some(account_move) => self
+                .requests
+                .open_account_move(request.subtype(), account_move)?,
+        };
         let line = compose_line(&ControlRequestLine {
             frame_type: "control_request",
             request_id: &pending.request_id(),
@@ -325,7 +352,16 @@ impl ClaudeProcessChannel for ClaudeCodeProcess {
         &self,
         request: ClaudeControlRequest,
     ) -> BoxFuture<'_, Result<ClaudeControlAnswer, ClaudeSessionError>> {
-        self.send_control_request_within(request, CLAUDE_REQUEST_DEADLINE)
+        self.send_control_request_within(request, CLAUDE_REQUEST_DEADLINE, None)
+            .boxed()
+    }
+
+    fn send_account_move(
+        &self,
+        request: ClaudeControlRequest,
+        account_move: ClaudeAccountMoveMarker,
+    ) -> BoxFuture<'_, Result<ClaudeControlAnswer, ClaudeSessionError>> {
+        self.send_control_request_within(request, CLAUDE_REQUEST_DEADLINE, Some(account_move))
             .boxed()
     }
 
@@ -585,15 +621,12 @@ mod tests {
     use tokio::sync::watch;
 
     use super::{
-        ClaudeCodeProcess, ClaudeOutputReader, ClaudeProcessEnd, ClaudeProcessLaunch,
-        ClaudeProcessListener, ClaudeStreamFrame, wait_out_startup_deadline,
+        ClaudeCodeProcess, ClaudeOutputReader, ClaudeProcessAccount, ClaudeProcessEnd,
+        ClaudeProcessLaunch, ClaudeProcessListener, ClaudeStreamFrame, wait_out_startup_deadline,
     };
     use crate::driver::child_records::{DaemonChildRecords, SPAWN_NONCE_ENVIRONMENT_NAME};
     use crate::driver::claude::session::control_requests::ClaudeControlRequests;
-    use crate::driver::claude::session::transport::inbound::{
-        ClaudeControlFrameReader, ClaudeInboundRequestEvent,
-    };
-    use crate::driver::diagnostics::OnceReportedDiagnostics;
+    use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
     use crate::process_registry::ProviderProcessRegistry;
 
     /// The nonce the recording records hand every child.
@@ -663,7 +696,8 @@ mod tests {
             environment: Vec::new(),
             working_folder: folder.path().to_owned(),
             provider_session_id: "conversation".to_owned(),
-            provider_account_id: None,
+            account: ClaudeProcessAccount::default(),
+            token: None,
         };
 
         let process = ClaudeCodeProcess::start(
@@ -721,17 +755,15 @@ mod tests {
     async fn initialize_waits_its_deadline_only_outside_the_startup_hooks() {
         let (startup_hooks, running_hooks) = watch::channel(0);
         let (mut provider, output) = tokio::io::duplex(4096);
-        let reader = ClaudeOutputReader {
-            requests: ClaudeControlRequests::new(Arc::new(|_request_id: &str| {})),
-            control_frames: ClaudeControlFrameReader::new(None, "conversation".to_owned()),
-            listener: Arc::new(NoSession),
-            turn_holds: None,
+        let reader = ClaudeOutputReader::new(
+            ClaudeControlRequests::new(Arc::new(|_request_id: &str| {})),
+            Arc::new(NoSession),
+            None,
             startup_hooks,
-            ends: Weak::new(),
-            unmapped_lines: OnceReportedDiagnostics::default(),
-            provider_session_id: "conversation".to_owned(),
-            provider_account_id: None,
-        };
+            Weak::new(),
+            "conversation".to_owned(),
+            ClaudeProcessAccount::default(),
+        );
         let reading = tokio::spawn(reader.read(output));
         let deadline = tokio::spawn(wait_out_startup_deadline(running_hooks.clone()));
         settle_tasks().await;

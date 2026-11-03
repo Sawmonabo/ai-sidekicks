@@ -1,0 +1,25 @@
+//! Provider accounts, naming no provider: the registry of the accounts this machine runs providers
+//! on, with each account's minted identity, its current-account mark, its generation and stored
+//! health, the credential home the daemon makes for each under its data folder and its reset, the
+//! folders in every home that a backup keeps and the diagnostic expiry sweeps, each provider's
+//! readiness derived from those rows, the one resolver of a provider's current account and of an
+//! account's folders before a spawn, the broker of each provider's own sign-in, the custody of
+//! each pasted token, the usage turns the daemon keeps per account, the lock every act in an
+//! account's home takes, the one-time import of the person's own memory into an account's home,
+//! the background observer that reads each account's limits, and the machine's wake helper it
+//! books each window reset's wake on.
+
+pub mod credential_home;
+pub mod errors;
+pub mod home_lock;
+pub mod homes;
+pub mod memory_import;
+pub mod observer;
+pub mod readiness;
+pub mod registry;
+pub mod resolver;
+pub mod sign_in;
+
+pub mod token_custody;
+pub mod usage_turns;
+pub mod wake_helper;

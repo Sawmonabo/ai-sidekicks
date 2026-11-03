@@ -31,7 +31,6 @@ use crate::git::worktree::path_holds::PathHolds;
 use crate::git::worktree::reads::{
     RECORD_GITDIR_FILE_NAME, common_folder_of_record, read_record_git_file, read_record_named_by,
 };
-use crate::git::worktree::service::remove_folder;
 
 /// What a stale record's removal reads before it removes anything: what live trees and put-backs
 /// hold, and the names in use.
@@ -113,7 +112,7 @@ pub(crate) async fn remove_stale_tree_record(
         put_record_back(&removing_folder, record_folder).await?;
         return Ok(false);
     }
-    remove_folder(&removing_folder)
+    sidekicks_platforms::remove_tree_awaited(&removing_folder)
         .await
         .map_err(at(&removing_folder))?;
     Ok(true)
@@ -159,7 +158,7 @@ pub(crate) async fn remove_stale_record_and_refs(
         .map_err(StaleRecordError::RefStore)?;
     if let Some(payload) = settings.ref_store_payload(common_folder) {
         let refs_folder = payload.tree_refs_folder(record_name);
-        remove_folder(&refs_folder)
+        sidekicks_platforms::remove_tree_awaited(&refs_folder)
             .await
             .map_err(at(&refs_folder))?;
     }
@@ -238,7 +237,9 @@ async fn finish_record_removals_cut_short(
         if is_tree_live {
             put_record_back(&leftover, record_folder).await?;
         } else {
-            remove_folder(&leftover).await.map_err(at(&leftover))?;
+            sidekicks_platforms::remove_tree_awaited(&leftover)
+                .await
+                .map_err(at(&leftover))?;
         }
     }
     Ok(())
@@ -257,7 +258,7 @@ async fn put_record_back(
     let aside_git_file = read_named_git_file(aside_folder).await?;
     let taken_git_file = read_named_git_file(record_folder).await?;
     if is_same_git_file(aside_git_file.as_deref(), taken_git_file.as_deref()).await? {
-        remove_folder(aside_folder)
+        sidekicks_platforms::remove_tree_awaited(aside_folder)
             .await
             .map_err(at(aside_folder))?;
         return Ok(());

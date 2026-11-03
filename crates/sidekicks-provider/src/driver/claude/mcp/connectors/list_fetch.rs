@@ -9,7 +9,7 @@ use serde_json::Value;
 use serde_json::value::RawValue;
 use sidekicks_platforms::PathRules;
 
-use crate::driver::claude::account_credentials::{API_KEY_VARIABLE, OAUTH_TOKEN_VARIABLE};
+use crate::driver::claude::account::credentials::{API_KEY_VARIABLE, OAUTH_TOKEN_VARIABLE};
 use crate::driver::claude::spawn::environment::{
     CLAUDE_GATEWAY_SWITCH_VARIABLE, CLAUDE_PROVIDER_SWITCH_VARIABLES, claude_text_variable,
 };

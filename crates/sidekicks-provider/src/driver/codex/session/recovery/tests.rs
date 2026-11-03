@@ -17,7 +17,9 @@ use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::run::turn_end_waiters::CodexRecordExit;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
-use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service_whose_start_waits;
+use crate::driver::codex::service::supervisor::test_service::{
+    start_scripted_codex_service, start_scripted_codex_service_whose_start_waits,
+};
 use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::session::test_fixture::relaunches::{
@@ -28,6 +30,7 @@ use crate::driver::codex::session::test_fixture::{
 };
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
+use crate::driver::diagnostics::RecordedEvents;
 use crate::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
 use crate::driver::session_control::ProviderBuildChange;
 use crate::driver::test_registry::new_run_id;
@@ -775,5 +778,29 @@ async fn refuse_resumes(mut script: ScriptedService) {
             Some("account/rateLimits/read") => script.answer(&sent, &json!({"rateLimits": null})),
             _ => script.answer(&sent, &json!({})),
         }
+    }
+}
+
+// Fails when a restart's diagnostic names the service's home, a folder in the person's data, in
+// its details or anywhere else it is logged.
+#[tokio::test]
+async fn a_restart_diagnostic_names_no_home() {
+    let scripted = start_scripted_codex_service();
+    let home = scripted.service.home().codex_home.display().to_string();
+    let recorded = RecordedEvents::default();
+    let _recording = recorded.record_until_dropped();
+
+    super::report_restarted(
+        &scripted.service,
+        CodexServiceRecoveryCause::Crash,
+        None,
+        &[],
+    );
+
+    let texts = recorded.texts();
+    assert!(!texts.is_empty(), "the restart was not reported");
+    for text in texts {
+        assert!(!text.contains("codexHome"), "a home key reached {text}");
+        assert!(!text.contains(&home), "the home reached {text}");
     }
 }

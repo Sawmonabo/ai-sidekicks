@@ -1,19 +1,25 @@
-//! Which process is at the other end of a local connection, and a process's parent, on Windows:
-//! the peer of an `AF_UNIX` connection is read from the socket, while the daemon's named pipe, the
-//! listener of a socket path and a process's parent are not read yet.
+//! Which process is at the other end of a local connection, a process's parent and the program a
+//! process runs, on Windows: the peer of an `AF_UNIX` connection is read from the socket and a
+//! pinned process's program through its handle, while the daemon's named pipe, the listener of a
+//! socket path and a process's parent are not read yet.
 
+use std::ffi::OsString;
 use std::io::{self, ErrorKind};
-use std::path::Path;
+use std::os::windows::ffi::OsStringExt as _;
+use std::os::windows::io::AsRawHandle as _;
+use std::path::{Path, PathBuf};
 use std::ptr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use interprocess::local_socket::tokio::Stream;
-use windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER;
+use windows_sys::Win32::Foundation::{ERROR_INVALID_PARAMETER, FALSE};
 use windows_sys::Win32::Networking::WinSock::{
     SIO_AF_UNIX_GETPEERPID, SOCKET, SOCKET_ERROR, WSAGetLastError, WSAIoctl,
 };
 use windows_sys::Win32::System::Threading::{
-    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+    PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+    QueryFullProcessImageNameW,
 };
 
 use crate::caller_process::ParentProcess;
@@ -94,4 +100,34 @@ pub fn read_parent_process(_process: &PinnedProcess) -> io::Result<ParentProcess
         ErrorKind::Unsupported,
         "Windows reads no process's parent yet",
     ))
+}
+
+/// The most UTF-16 units a program's path can take, its ending NUL included.
+const LONGEST_PROGRAM_PATH: usize = 32_768;
+
+/// The path of the program `process` runs, as the system names it through the pinned handle,
+/// taken only once `process` is read still running after it; `None` once `process` has ended.
+/// Fails with the system's error.
+pub fn read_program_path(process: &PinnedProcess) -> io::Result<Option<PathBuf>> {
+    let mut path = vec![0_u16; LONGEST_PROGRAM_PATH];
+    let mut length = u32::try_from(path.len()).expect("the path buffer's length fits a u32");
+    // SAFETY: the handle is open with the right to query the process for the call; `path` is a
+    // live buffer of `length` units, which the call fills, writing back the units it wrote
+    // without the ending NUL.
+    let status = unsafe {
+        QueryFullProcessImageNameW(
+            process.handle().as_raw_handle(),
+            PROCESS_NAME_WIN32,
+            path.as_mut_ptr(),
+            &raw mut length,
+        )
+    };
+    if status == FALSE {
+        return Err(io::Error::last_os_error());
+    }
+    if process.wait_for_exit(Duration::ZERO)? {
+        return Ok(None);
+    }
+    path.truncate(usize::try_from(length).expect("a u32 fits a usize"));
+    Ok(Some(PathBuf::from(OsString::from_wide(&path))))
 }

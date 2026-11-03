@@ -176,7 +176,6 @@ lenient_object!(StreamEventFrame, StreamEvent, StreamDelta, AbandonedBlocks);
 
 /// The blocks one session's process is streaming, from their first piece to their turn's end.
 pub(crate) struct ClaudeStreamedBlocks {
-    provider_account_id: ProviderAccountId,
     text: StreamedText<ClaudeStreamedBlockKey>,
     // The row each streamed block's pieces are written as, by its key.
     prose_rows: HashMap<ClaudeStreamedBlockKey, ProseRow>,
@@ -189,10 +188,9 @@ pub(crate) struct ClaudeStreamedBlocks {
 }
 
 impl ClaudeStreamedBlocks {
-    /// The blocks of a process running on `provider_account_id`'s home.
-    pub(crate) fn new(provider_account_id: ProviderAccountId) -> Self {
+    /// No block streamed yet.
+    pub(crate) fn new() -> Self {
         Self {
-            provider_account_id,
             text: StreamedText::default(),
             prose_rows: HashMap::new(),
             streaming_block_by_message: HashMap::new(),
@@ -201,12 +199,14 @@ impl ClaudeStreamedBlocks {
         }
     }
 
-    /// Takes one `stream_event` frame's text of the run's turn at `now`; answers the deadline a
-    /// piece it began waiting goes out by, for the session's one timer.
+    /// Takes one `stream_event` frame's text of the run's turn at `now`, on the process running on
+    /// `provider_account_id`'s account; answers the deadline a piece it began waiting goes out by,
+    /// for the session's one timer.
     pub(crate) fn observe(
         &mut self,
         frame: &str,
         run: ClaudeStreamedRun,
+        provider_account_id: &ProviderAccountId,
         now: Instant,
     ) -> Option<Instant> {
         match read_stream_event(frame)? {
@@ -262,7 +262,12 @@ impl ClaudeStreamedBlocks {
                 message_id,
                 abandoned_from_index,
             } => {
-                self.drop_abandoned(run.session_id, &message_id, abandoned_from_index);
+                self.drop_abandoned(
+                    run.session_id,
+                    provider_account_id,
+                    &message_id,
+                    abandoned_from_index,
+                );
                 None
             }
         }
@@ -282,11 +287,12 @@ impl ClaudeStreamedBlocks {
     /// Finishes, with an assistant frame's text or thinking `rows`, the block it was streamed as:
     /// answers the pieces that carry what the streamed ones did not, and the frame's rows that
     /// streamed as no block. A final text that does not begin with what streamed is recorded, the
-    /// streamed pieces standing.
+    /// streamed pieces standing, under `provider_account_id`'s account.
     pub(crate) fn finish(
         &mut self,
         frame: &ClaudeMessageFrame,
         rows: Vec<ClaudeMessageRow>,
+        provider_account_id: &ProviderAccountId,
     ) -> (Vec<ClaudeStreamedPiece>, Vec<ClaudeMessageRow>) {
         let streamed = frame.provider_message_id().and_then(|message_id| {
             self.streaming_block_by_message
@@ -318,7 +324,8 @@ impl ClaudeStreamedBlocks {
             let last_piece = match self.text.complete(&key, final_text) {
                 StreamedTextCompletion::Completed { last_piece } => last_piece,
                 StreamedTextCompletion::Diverged { last_piece } => {
-                    self.report(
+                    report(
+                        provider_account_id,
                         DriverDiagnosticKind::StreamedTextDiverged,
                         "assistant",
                         "the assistant frame's text does not begin with what streamed of its \
@@ -387,7 +394,13 @@ impl ClaudeStreamedBlocks {
             .collect()
     }
 
-    fn drop_abandoned(&mut self, session_id: SessionId, message_id: &str, from: Option<u64>) {
+    fn drop_abandoned(
+        &mut self,
+        session_id: SessionId,
+        provider_account_id: &ProviderAccountId,
+        message_id: &str,
+        from: Option<u64>,
+    ) {
         let (Some(from), Some(unfinished)) =
             (from, self.unfinished_blocks_by_message.get_mut(message_id))
         else {
@@ -408,7 +421,8 @@ impl ClaudeStreamedBlocks {
                 self.text.discard(&key)
             })
             .count();
-        self.report(
+        report(
+            provider_account_id,
             DriverDiagnosticKind::StreamedBlocksAbandoned,
             "stream_event",
             "Claude Code stopped reading a response and will never finish these blocks, so what \
@@ -424,23 +438,23 @@ impl ClaudeStreamedBlocks {
             ]),
         );
     }
+}
 
-    fn report(
-        &self,
-        kind: DriverDiagnosticKind,
-        raw_wire_type: &str,
-        disposition_reason: &str,
-        details: Map<String, Value>,
-    ) {
-        emit_driver_diagnostic(&DriverDiagnosticRecord {
-            provider: DESCRIPTOR.provider_id(),
-            provider_account_id: Some(self.provider_account_id.clone()),
-            kind,
-            raw_wire_type: Some(raw_wire_type.to_owned()),
-            disposition_reason: disposition_reason.to_owned(),
-            details,
-        });
-    }
+fn report(
+    provider_account_id: &ProviderAccountId,
+    kind: DriverDiagnosticKind,
+    raw_wire_type: &str,
+    disposition_reason: &str,
+    details: Map<String, Value>,
+) {
+    emit_driver_diagnostic(&DriverDiagnosticRecord {
+        provider: DESCRIPTOR.provider_id(),
+        provider_account_id: Some(provider_account_id.clone()),
+        kind,
+        raw_wire_type: Some(raw_wire_type.to_owned()),
+        disposition_reason: disposition_reason.to_owned(),
+        details,
+    });
 }
 
 fn read_stream_event(frame: &str) -> Option<ClaudeStreamEvent> {

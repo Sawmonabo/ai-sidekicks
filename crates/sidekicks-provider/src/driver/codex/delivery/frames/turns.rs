@@ -324,7 +324,13 @@ impl CodexFrameDelivery {
                 .assign_turn_epoch(turn_id, || self.mint_turn_epoch()),
             turn_number,
             route: frame.route.clone(),
-            failure_cause: read_codex_turn_failure_cause(record, turn_id, error_kind.as_deref()),
+            failure_cause: read_codex_turn_failure_cause(
+                record,
+                turn_id,
+                error_kind.as_deref(),
+                &self.dependencies.provider_accounts,
+            )
+            .await,
             fallback_detail: final_error.and_then(|error| provider_words(&error.message)),
         };
         let Some(terminal) = compose_codex_turn_terminal(input, gate, &mut self.lock_diagnostics())

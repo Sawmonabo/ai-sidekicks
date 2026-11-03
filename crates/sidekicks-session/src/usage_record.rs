@@ -1,12 +1,15 @@
 //! The daemon's usage record, the drivers' usage sink: each metered delta becomes one
 //! `usage.tokenCount.recorded` row on the run the reading belongs to, or on the session for a side
-//! question's, and each quota window a provider pushed one `usage.rateLimit.updated` row under the
-//! machine's sentinel session, both stamped with the account's credential generation read at the
-//! write. A row the provider attributes to one of its turns is stamped with the turn that opened,
-//! so it ranks there wherever it arrives. Each run's reports are taken one at a time against a
-//! tally the engine keeps from the run's first report, seeded once from the log, so a restart
-//! never counts a run from zero and no report reads the run's rows again. A run past its token
-//! limit is stopped on a task of its own, so a report never waits on a driver.
+//! question's, and each quota window a provider pushed or an account's own limits read answered
+//! one `usage.rateLimit.updated` row under the machine's sentinel session, both stamped with the
+//! account's credential generation read at the write. A row the provider attributes to one of its
+//! turns is stamped with the turn that opened, so it ranks there wherever it arrives. A priced
+//! request becomes one `usage.cost.updated` per account its rows were charged to, on the session
+//! with no binding, so a request priced after its run ended is recorded all the same. Each run's
+//! reports are taken one at a time against a tally the engine keeps from the run's first report,
+//! seeded once from the log, so a restart never counts a run from zero and no report reads the
+//! run's rows again. A run past its token limit is stopped on a task of its own, so a report never
+//! waits on a driver.
 
 mod reads;
 #[cfg(test)]
@@ -18,25 +21,31 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::event::usage::{
-    UsageRateLimitUpdatedPayload, UsageTokenCountRecordedPayload,
+    DEFAULT_RATE_LIMIT_ID, UsageCostSource, UsageCostUpdatedPayload, UsagePricedEvent,
+    UsageRateLimitUpdatedPayload, UsageRateLimitWindowKey, UsageTokenCountRecordedPayload,
 };
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentId;
+use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::{SafeInt, SafeSignedInt};
+use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::number::Number;
-use sidekicks_contracts::wire::text::BoundedText;
+use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_provider::driver::run_control::HelperTokenLimitParams;
 use sidekicks_provider::port::usage_sink::{
-    MeteredUsage, MeteredUsageOwner, ProviderQuotaWindow, UsageSink,
+    MeteredUsage, MeteredUsageOwner, PricedRequest, PricedUsageRow, ProviderQuotaWindow,
+    RecordedUsage, UsageSink,
 };
 use sidekicks_provider::run::delivery::{
-    DeliveryBinding, InboundDelivery, LateAppendableRow, MachineScopedRow, SessionScopedRow,
+    DeliveryBinding, InboundDelivery, InboundOutcome, LateAppendableRow, MachineScopedRow,
+    SessionScopedRow,
 };
 use sidekicks_provider::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts};
 use sidekicks_store::database::connection::read_pool::{
@@ -51,15 +60,18 @@ use crate::run::engine::usage_tallies::{RunUsageTally, RunUsageTallySlot, TokenL
 use crate::run::inbound::{InboundDispatchError, RunInboundDispatch};
 use crate::transcript::turn_attribution::TurnAttributionError;
 use crate::usage_record::reads::{
-    MeteredTarget, read_credential_generation, read_metered_target, read_prior_emitted,
-    read_tally_seed, read_turn_opening,
+    MeteredTarget, StoredQuotaWindow, read_credential_generation, read_metered_target,
+    read_prior_emitted, read_stored_windows, read_tally_seed, read_turn_opening,
 };
 
 /// The statements the usage record prepares on the shared read pool: a binding, an account's
-/// credential generation, a helper's run, a run's state, its admitted token limit and its token
-/// count, the turn a provider's turn id opened with the run's rollbacks and turns before it, and a
-/// thread's prior counts.
-pub const USAGE_RECORD_STATEMENT_CAPACITY: usize = 10;
+/// credential generation and its stored quota windows, a helper's run, a run's state, its admitted
+/// token limit and its token count, the turn a provider's turn id opened with the run's rollbacks
+/// and turns before it, and a thread's prior counts.
+pub const USAGE_RECORD_STATEMENT_CAPACITY: usize = 11;
+
+// The windows of an account's whole set, as each window's row carries them.
+type UsageRateLimitWholeSet = BoundedVec<UsageRateLimitWindowKey, 1, { usize::MAX }>;
 
 /// Why a usage reading or a quota window was not recorded.
 #[derive(Debug, thiserror::Error)]
@@ -141,8 +153,12 @@ impl UsageRecord {
         self.stops.wait().await;
     }
 
-    // Records one metered reading and holds its run to its token limit.
-    async fn record(&self, metered: MeteredUsage) -> Result<(), UsageRecordError> {
+    // Records one metered reading and holds its run to its token limit, answering the row written
+    // and where it was charged; `None` where the dispatch wrote nothing.
+    async fn record(
+        &self,
+        metered: MeteredUsage,
+    ) -> Result<Option<RecordedUsage>, UsageRecordError> {
         let MeteredUsage {
             session_id,
             binding_id,
@@ -187,12 +203,13 @@ impl UsageRecord {
         let mut payload = usage_row(session_id, &target, helper.clone(), &delta)?;
         let Some(run_id) = target.run_id else {
             // A side question's usage belongs to the session, counted toward no run.
-            self.dispatch
+            let outcome = self
+                .dispatch
                 .dispatch(InboundDelivery::SessionEvent {
-                    row: SessionScopedRow::UsageTokenCountRecorded(payload),
+                    row: SessionScopedRow::UsageTokenCountRecorded(Box::new(payload)),
                 })
                 .await?;
-            return Ok(());
+            return Ok(recorded_usage(&outcome, target, helper));
         };
         let slot = self.engine.run_usage_tally(run_id);
         let mut tally = slot.lock().await;
@@ -217,22 +234,61 @@ impl UsageRecord {
             }
         }
         let row_tokens = row_token_count(&payload);
-        self.dispatch
+        let outcome = self
+            .dispatch
             .dispatch(InboundDelivery::SessionRow {
                 binding: DeliveryBinding {
                     binding_id,
                     operation: None,
                 },
-                row: LateAppendableRow::UsageTokenCountRecorded(payload),
+                row: LateAppendableRow::UsageTokenCountRecorded(Box::new(payload)),
                 content: None,
             })
             .await?;
+        let recorded = recorded_usage(&outcome, target, helper.clone());
         // A run that has ended is stopped by no limit.
         let Some(tally) = tally.as_mut() else {
-            return Ok(());
+            return Ok(recorded);
         };
         tally.token_count = tally.token_count.saturating_add(row_tokens);
         self.hold_to_token_limit(tally, &slot, session_id, run_id, helper);
+        Ok(recorded)
+    }
+
+    // Writes one `usage.cost.updated` per account `request`'s rows name, in the order the accounts
+    // first appear, on the session with no binding, all in one write, so a failure keeps none.
+    async fn record_request_cost(&self, request: PricedRequest) -> Result<(), UsageRecordError> {
+        let PricedRequest {
+            session_id,
+            model_id,
+            cost_source,
+            rows,
+        } = request;
+        let mut accounts: Vec<(ProviderAccountId, Vec<PricedUsageRow>)> = Vec::new();
+        for row in rows {
+            let account_id = &row.row.provider_account_id;
+            match accounts
+                .iter_mut()
+                .find(|(account, _)| account == account_id)
+            {
+                Some((_, account_rows)) => account_rows.push(row),
+                None => accounts.push((account_id.clone(), vec![row])),
+            }
+        }
+        let payloads = accounts
+            .into_iter()
+            .map(|(_, account_rows)| {
+                cost_row(session_id, model_id.clone(), cost_source, account_rows)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let Some(costs) = BoundedVec::new(payloads) else {
+            return Ok(());
+        };
+        self.dispatch
+            .dispatch(InboundDelivery::SessionEvent {
+                row: SessionScopedRow::UsageCostUpdated(costs),
+            })
+            .await?;
         Ok(())
     }
 
@@ -328,27 +384,55 @@ impl UsageRecord {
     }
 
     // Files each window as one row under the machine's sentinel session, stamped with the
-    // account's credential generation read now.
+    // account's credential generation read now, each marked with every window of the set where
+    // the set is the account's whole one. A whole set that says nothing the stored windows do not
+    // files nothing, so a read every few minutes grows the log only when a figure moved.
     async fn record_windows(
         &self,
         provider: ProviderId,
         provider_account_id: ProviderAccountId,
         windows: Vec<ProviderQuotaWindow>,
+        is_whole_set: bool,
     ) -> Result<(), UsageRecordError> {
+        if windows.is_empty() {
+            return Ok(());
+        }
+        let whole_set = if is_whole_set {
+            Some(whole_set_keys(&windows)?)
+        } else {
+            None
+        };
         let read_account_id = provider_account_id.clone();
-        let credential_generation = self
+        let (credential_generation, stored) = self
             .pool
             .read(ReadLength::Short, move |reader| {
-                read_credential_generation(reader, read_account_id)
+                let stored = if is_whole_set {
+                    Some(read_stored_windows(reader, &read_account_id)?)
+                } else {
+                    None
+                };
+                Ok::<_, UsageRecordError>((
+                    read_credential_generation(reader, read_account_id)?,
+                    stored,
+                ))
             })
             .await?;
-        for window in windows {
-            let row = quota_window_row(
-                window,
-                provider.clone(),
-                provider_account_id.clone(),
-                credential_generation,
-            )?;
+        let rows = windows
+            .into_iter()
+            .map(|window| {
+                quota_window_row(
+                    window,
+                    provider.clone(),
+                    provider_account_id.clone(),
+                    credential_generation,
+                    whole_set.clone(),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if stored.is_some_and(|stored| is_stored_set(&rows, &stored)) {
+            return Ok(());
+        }
+        for row in rows {
             self.dispatch
                 .dispatch(InboundDelivery::MachineEvent {
                     row: MachineScopedRow::UsageRateLimitUpdated(row),
@@ -363,8 +447,15 @@ impl UsageSink for UsageRecord {
     fn record_metered(
         &self,
         metered: MeteredUsage,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<Option<RecordedUsage>, Box<dyn Error + Send + Sync>>> {
         async move { self.record(metered).await.map_err(Into::into) }.boxed()
+    }
+
+    fn record_cost(
+        &self,
+        request: PricedRequest,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async move { self.record_request_cost(request).await.map_err(Into::into) }.boxed()
     }
 
     fn record_quota_windows(
@@ -374,7 +465,21 @@ impl UsageSink for UsageRecord {
         windows: Vec<ProviderQuotaWindow>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         async move {
-            self.record_windows(provider, provider_account_id, windows)
+            self.record_windows(provider, provider_account_id, windows, false)
+                .await
+                .map_err(Into::into)
+        }
+        .boxed()
+    }
+
+    fn record_whole_quota_windows(
+        &self,
+        provider: ProviderId,
+        provider_account_id: ProviderAccountId,
+        windows: Vec<ProviderQuotaWindow>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async move {
+            self.record_windows(provider, provider_account_id, windows, true)
                 .await
                 .map_err(Into::into)
         }
@@ -419,6 +524,79 @@ fn usage_row(
         credential_generation: target.credential_generation,
         model_id: None,
         subagent_id: helper,
+        request_key: None,
+        speed: None,
+        processing_region: None,
+        cache_write_extended_tokens: None,
+        web_search_requests: None,
+        thread_speed: None,
+        source_epoch: None,
+        source_position: None,
+    })
+}
+
+// What `outcome` wrote of a row on `target`, attributed to `helper` where one is named; `None`
+// where nothing was written.
+fn recorded_usage(
+    outcome: &InboundOutcome,
+    target: MeteredTarget,
+    helper: Option<SubagentId>,
+) -> Option<RecordedUsage> {
+    outcome.event_id().map(|event_id| RecordedUsage {
+        event_id: event_id.clone(),
+        run_id: target.run_id,
+        provider_account_id: target.provider_account_id,
+        subagent_id: helper,
+    })
+}
+
+// One account's `usage.cost.updated` of a request: each of `rows`' events with its share, their
+// sum, and the run and the helper every row was charged to, each `None` where the rows disagree.
+// Unstamped, since each token row carries its own stamp.
+fn cost_row(
+    session_id: SessionId,
+    model_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    cost_source: UsageCostSource,
+    rows: Vec<PricedUsageRow>,
+) -> Result<UsageCostUpdatedPayload, UsageRecordError> {
+    let mut charged_to: Option<(Option<RunId>, Option<SubagentId>)> = None;
+    let mut total: u64 = 0;
+    let mut priced_events = Vec::with_capacity(rows.len());
+    for PricedUsageRow {
+        row,
+        cost_usd_micros,
+    } in rows
+    {
+        total = total
+            .checked_add(cost_usd_micros.0.get())
+            .ok_or(UsageRecordError::FigureOutOfRange)?;
+        match &mut charged_to {
+            None => charged_to = Some((row.run_id, row.subagent_id)),
+            Some((run_id, subagent_id)) => {
+                if *run_id != row.run_id {
+                    *run_id = None;
+                }
+                if *subagent_id != row.subagent_id {
+                    *subagent_id = None;
+                }
+            }
+        }
+        priced_events.push(UsagePricedEvent {
+            event_id: row.event_id,
+            cost_usd_micros,
+        });
+    }
+    let (run_id, subagent_id) =
+        charged_to.expect("each account's rows hold the row that named the account");
+    Ok(UsageCostUpdatedPayload {
+        session_id,
+        run_id,
+        cost_usd_micros: UsdMicros(SafeInt::new(total).ok_or(UsageRecordError::FigureOutOfRange)?),
+        model_id: Some(model_id),
+        subagent_id,
+        cost_source,
+        priced_events: BoundedVec::new(priced_events)
+            .expect("each account's rows hold the row that named the account"),
         source_epoch: None,
         source_position: None,
     })
@@ -446,12 +624,52 @@ fn normalized_figure(
     axis_figure(axis.map(|_| normalized))
 }
 
+// Every window of a non-empty set, by its limit and length, as each of its rows names the set.
+fn whole_set_keys(
+    windows: &[ProviderQuotaWindow],
+) -> Result<UsageRateLimitWholeSet, UsageRecordError> {
+    let keys = windows
+        .iter()
+        .map(|window| {
+            let unfit = || UsageRecordError::QuotaWindowUnfit {
+                limit_id: window.limit_id.clone(),
+            };
+            Ok(UsageRateLimitWindowKey {
+                limit_id: Some(BoundedText::new(window.limit_id.clone()).ok_or_else(unfit)?),
+                window_mins: SafeSignedInt::new(window.window_mins).ok_or_else(unfit)?,
+            })
+        })
+        .collect::<Result<Vec<_>, UsageRecordError>>()?;
+    Ok(BoundedVec::new(keys).expect("the caller hands a set of at least one window"))
+}
+
+// Whether `rows`, an account's whole set, are the stored windows as they stand: the same windows,
+// each with the same share used, reset and generation.
+fn is_stored_set(rows: &[UsageRateLimitUpdatedPayload], stored: &[StoredQuotaWindow]) -> bool {
+    rows.len() == stored.len()
+        && rows.iter().all(|row| {
+            let limit_id = row
+                .limit_id
+                .as_ref()
+                .map_or(DEFAULT_RATE_LIMIT_ID, BoundedText::as_str);
+            stored.iter().any(|window| {
+                window.limit_id == limit_id
+                    && window.window_mins == row.window_mins.get()
+                    && window.used_percent.to_bits() == row.used_percent.get().to_bits()
+                    && window.resets_at.as_deref()
+                        == row.resets_at.as_ref().map(WireInstant::as_str)
+                    && window.credential_generation == row.credential_generation
+            })
+        })
+}
+
 // One window's `usage.rateLimit.updated` row.
 fn quota_window_row(
     window: ProviderQuotaWindow,
     provider: ProviderId,
     provider_account_id: ProviderAccountId,
     credential_generation: CredentialGeneration,
+    whole_set: Option<UsageRateLimitWholeSet>,
 ) -> Result<UsageRateLimitUpdatedPayload, UsageRecordError> {
     let ProviderQuotaWindow {
         limit_id,
@@ -474,5 +692,6 @@ fn quota_window_row(
         used_percent: Number::new(used_percent).ok_or_else(unfit)?,
         resets_at,
         limit_id: Some(BoundedText::new(limit_id.clone()).ok_or_else(unfit)?),
+        whole_set,
     })
 }

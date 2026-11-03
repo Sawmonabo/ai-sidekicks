@@ -33,12 +33,10 @@ use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_workspace::git::exclude::{ExcludeError, add_repository_exclude};
 
-use crate::driver::claude::session::ignored_settings::{
-    read_claude_managed_settings, refuse_unread_settings,
-};
 use crate::driver::claude::session::settings_file::{
     ClaudeSettingsFileError, delete_settings_file, edit_settings_object, hold_settings_file,
-    hold_settings_files, read_settings_file, write_settings_file,
+    hold_settings_files, read_claude_managed_settings, read_settings_file, refuse_unread_settings,
+    write_settings_file,
 };
 use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
 use crate::project_rule_folders::write_into_project_folders;

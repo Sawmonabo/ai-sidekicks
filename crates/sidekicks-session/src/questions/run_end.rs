@@ -11,11 +11,12 @@
 use std::sync::Arc;
 
 use sidekicks_contracts::plan::PlanHoldEndedReason;
-use sidekicks_contracts::question::{QuestionCanceledReason, QuestionSettledState};
+use sidekicks_contracts::question::QuestionCanceledReason;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 
 use crate::plan_holds::PlanHolds;
+use crate::questions::QuestionSettledState;
 use crate::questions::service::canceled_event;
 use crate::questions::store::{read_unsettled_held_questions, settle_question_statement};
 use crate::run::engine::errors::RunEngineError;

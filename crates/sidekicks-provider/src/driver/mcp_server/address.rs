@@ -3,6 +3,7 @@
 
 use std::fmt;
 
+use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_ipc::redaction::{scrub_credentials, strip_url_queries};
 use url::{Position, Url};
 
@@ -61,6 +62,17 @@ pub(crate) fn read_server_address(address: &str) -> ServerAddressReading {
         query_param_names,
         identity: Some(ServerAddressIdentity(identity)),
     }
+}
+
+/// Whether `written`, a remote server's address as a config or a saved sign-in writes it, names
+/// the server at `address`: both fold to one identity. An address that does not parse names no
+/// server, so two such addresses never match.
+pub(crate) fn names_server_at(written: &str, address: &McpServerAddress) -> bool {
+    read_server_address(written)
+        .identity
+        .is_some_and(|identity| {
+            read_server_address(address.as_str()).identity.as_ref() == Some(&identity)
+        })
 }
 
 // `address`, which parses as a web address with a host, as the config writes it with its user name,

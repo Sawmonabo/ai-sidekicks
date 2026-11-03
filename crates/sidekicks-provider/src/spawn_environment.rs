@@ -327,6 +327,7 @@ impl EnvironmentByName {
 mod tests {
     use rstest::rstest;
     use sidekicks_contracts::machine::settings::{APP_SET_ENVIRONMENT_NAMES, EnvironmentRow};
+    use sidekicks_contracts::mcp::server::config::McpTransport;
     use sidekicks_contracts::wire::text::{BoundedText, NulFreeText};
     use sidekicks_platforms::{PathRules, PerSystem, SystemFolders};
 
@@ -339,6 +340,7 @@ mod tests {
         BackgroundWork, CommandSandboxNeeds, ProviderCommand, ProviderDescriptor,
         ProviderMemoryEstimates,
     };
+    use crate::tool_server_name::McpServerNameRule;
 
     /// A provider that sets, withholds and reserves names of its own.
     const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
@@ -378,14 +380,21 @@ mod tests {
         withheld_environment_names: &["APP_WITHHELD"],
         screen_reader_environment_names: &[],
         voice_kinds: &[],
-        mcp_transports: &[],
+        mcp_transports: &[McpTransport::Stdio],
         mcp_config_members: &[],
+        mcp_server_names: McpServerNameRule::new(|_| true, "any character", |_| None, &[], &[]),
+        is_mcp_local_scope_emulated: false,
         skill_name_max_length: None,
         background_work: None,
         callback_tools_asked: false,
+        can_mcp_sign_in_return_to_daemon_receiver: false,
         account_home_diagnostic_folders: &[],
         account_home_conversation_folders: &[],
+        account_home_memory_folder: None,
+        switching_home_folder: None,
+        account_home_credential_store_folder: &[],
         shell_prefix_command: None,
+        token_limits_read_by_turn: false,
     };
 
     /// A second registered provider, whose credential home no row may set either, and whose

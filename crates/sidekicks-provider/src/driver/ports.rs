@@ -15,6 +15,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::writer::DatabaseWriter;
 
+use crate::account::registry::ProviderAccountRegistry;
 use crate::callback_tools::host::CallbackToolHost;
 use crate::command::running_set::RunningCommandSets;
 use crate::driver::run_control::DaemonTurnBindingResolver;
@@ -30,8 +31,10 @@ use crate::port::repository_reader::RepositoryReader;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
 use crate::port::run_pause::{ContinuedMessages, RunPauses};
+use crate::port::session_account_move::SessionAccountMoveRecorder;
 use crate::port::session_advisor_store::SessionAdvisorStore;
 use crate::port::session_level_follower::SessionLevelFollower;
+use crate::port::session_message_reading_publisher::SessionMessageReadingPublisher;
 use crate::port::session_resume_reader::SessionResumeReader;
 use crate::port::session_rules::SessionRulePort;
 use crate::port::session_wake::SessionWaker;
@@ -133,6 +136,9 @@ pub struct DriverPorts {
     /// The reads of the accounts a provider runs on, their folders and credential generations; a
     /// driver that reads an account before it is registered fails that read.
     pub provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+    /// The account registry, which a driver's account legs read an account's row from and keep
+    /// what a read observed in; a leg that reads it before it is registered fails its act.
+    pub provider_account_registry: Arc<PortRegistration<Arc<ProviderAccountRegistry>>>,
     /// The run engine.
     pub run_engine: Arc<PortRegistration<Arc<dyn RunHost>>>,
     /// The run engine's dispatch of what a provider delivers.
@@ -165,6 +171,9 @@ pub struct DriverPorts {
     /// The context reading each session's ring and `Context` section read; a reading made before
     /// it is registered is dropped.
     pub context_readings: Arc<PortRegistration<Arc<dyn ContextReadingPublisher>>>,
+    /// What became of each message between sessions, as a provider tells it; a reading made before
+    /// it is registered is dropped.
+    pub session_message_readings: Arc<PortRegistration<Arc<dyn SessionMessageReadingPublisher>>>,
     /// The idle sleep's wake of a sleeping session for a message its inbox received; a driver that
     /// finds it unregistered refuses the message.
     pub session_wakes: Arc<PortRegistration<Arc<dyn SessionWaker>>>,
@@ -199,6 +208,9 @@ pub struct DriverPorts {
     pub run_pauses: Arc<PortRegistration<Arc<dyn RunPauses>>>,
     /// The messages waiting for paused runs, as the run queue holds them.
     pub continued_messages: Arc<PortRegistration<Arc<dyn ContinuedMessages>>>,
+    /// The record of each session a driver moved onto another account with no switch waiting on
+    /// the move; a move made before it is registered is logged and goes unrecorded.
+    pub session_account_moves: Arc<PortRegistration<Arc<dyn SessionAccountMoveRecorder>>>,
 }
 
 impl Default for DriverPorts {
@@ -213,6 +225,7 @@ impl DriverPorts {
         Self {
             spawn_contexts: Arc::new(PortRegistration::new("spawn contexts")),
             provider_accounts: Arc::new(PortRegistration::new("provider accounts")),
+            provider_account_registry: Arc::new(PortRegistration::new("provider account registry")),
             run_engine: Arc::new(PortRegistration::new("run engine")),
             inbound_dispatch: Arc::new(PortRegistration::new("inbound dispatch")),
             daemon_turn_bindings: Arc::new(PortRegistration::new("daemon turn bindings")),
@@ -226,6 +239,7 @@ impl DriverPorts {
             command_output: Arc::new(PortRegistration::new("command output")),
             turn_readings: Arc::new(PortRegistration::new("turn readings")),
             context_readings: Arc::new(PortRegistration::new("context readings")),
+            session_message_readings: Arc::new(PortRegistration::new("session message readings")),
             session_wakes: Arc::new(PortRegistration::new("session wakes")),
             session_resumes: Arc::new(PortRegistration::new("session resumes")),
             database_writer: Arc::new(PortRegistration::new("database writer")),
@@ -242,6 +256,7 @@ impl DriverPorts {
             session_level_followers: Arc::new(PortRegistration::new("session level followers")),
             run_pauses: Arc::new(PortRegistration::new("run pauses")),
             continued_messages: Arc::new(PortRegistration::new("continued messages")),
+            session_account_moves: Arc::new(PortRegistration::new("session account moves")),
         }
     }
 }

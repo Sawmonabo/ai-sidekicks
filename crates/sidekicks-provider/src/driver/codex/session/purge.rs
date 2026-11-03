@@ -1,6 +1,7 @@
-//! Deleting Codex's own copy of a session's conversations, each on the service of the account home
-//! it ran in, and the session's helper role files. Codex refuses to delete a conversation a fork
-//! still builds on, so they go newest first, as the daemon lists them.
+//! Deleting Codex's own copy of a session's conversations, each on the service of the home that
+//! holds it, the switching home or its account's, and the session's helper role files. Codex
+//! refuses to delete a conversation a fork still builds on, so they go newest first, as the daemon
+//! lists them.
 
 use std::path::Path;
 use std::time::Duration;
@@ -8,10 +9,11 @@ use std::time::Duration;
 use sidekicks_std::error_description::describe_error;
 
 use crate::driver::codex::app_server_protocol::ThreadDeleteParams;
+use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::session::helper_roles::remove_codex_helper_roles;
 use crate::driver::contract::error::DriverError;
-use crate::driver::session_control::{PurgeSessionParams, PurgedConversation};
+use crate::driver::session_control::{PurgeSessionParams, SessionConversation};
 
 /// Codex's request that deletes a stored conversation.
 const CODEX_THREAD_DELETE_METHOD: &str = "thread/delete";
@@ -30,8 +32,9 @@ pub(crate) struct CodexPurgeFailed {
 }
 
 /// Deletes every conversation the session opened with `thread/delete`, newest first, on the
-/// service of its account's home, started within `start_bound` where it is not running, and the
-/// session's role files under `roles_folder`. Fails with every step that failed.
+/// service of the home its binding's recovery data names, started within `start_bound` where it
+/// is not running, and the session's role files under `roles_folder`. Fails with every step that
+/// failed.
 pub(crate) async fn purge_codex_conversations(
     services: &CodexServiceRegistry,
     roles_folder: &Path,
@@ -57,10 +60,13 @@ pub(crate) async fn purge_codex_conversations(
 async fn delete_conversation(
     services: &CodexServiceRegistry,
     start_bound: Duration,
-    conversation: &PurgedConversation,
+    conversation: &SessionConversation,
 ) -> Result<(), DriverError> {
     let service = services
-        .service_for(&conversation.provider_account_id)
+        .service_for_conversation(
+            &conversation.provider_account_id,
+            CodexConversationHome::read(&conversation.runtime_metadata),
+        )
         .await?;
     service.ensure_started(start_bound).await?;
     service

@@ -1,7 +1,10 @@
 //! Every process start answered by a script instead of a Claude Code program: a session's process
 //! is the next scripted channel, declaring the next scripted `initialize` reply; a one-turn process
 //! answers the next scripted reply; a catalog or figures read answers the next scripted reading;
-//! an account read's process and the MCP server probe's process are the next scripted channels.
+//! an account read's process and the MCP server probe's process are the next scripted channels;
+//! an MCP sign-in's process is the next scripted channel, the next scripted saved sign-ins kept
+//! where it was scripted to keep them: its credential folder's file, or the keychain item named
+//! for that folder.
 //! Each start is recorded with what it asked for.
 
 use std::collections::{HashSet, VecDeque};
@@ -9,16 +12,24 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use secrecy::SecretString;
 use serde_json::Value;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_platforms::CredentialStore;
 use tokio::sync::{Notify, mpsc, oneshot};
 
 use super::channel::{ScriptedAnswer, ScriptedChannel};
-use crate::driver::claude::mcp::connectors::ClaudeAccountServersReadRequest;
-use crate::driver::claude::mcp::machine_probe::{
-    ClaudeMcpProbeProcess, ClaudeMcpProbeProcessRequest,
+use crate::driver::claude::account::credentials::{
+    CLAUDE_CREDENTIALS_FILE, SECURE_STORAGE_FOLDER_VARIABLE, claude_keychain_account,
+    claude_keychain_service,
 };
+use crate::driver::claude::mcp::ClaudeMcpProcess;
+use crate::driver::claude::mcp::connectors::ClaudeAccountServersReadRequest;
+use crate::driver::claude::mcp::machine_probe::ClaudeMcpProbeProcessRequest;
+use crate::driver::claude::mcp::sign_in::ClaudeMcpSignInStart;
 use crate::driver::claude::session::answered_commands::ClaudeAttachedAdvisor;
 use crate::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
+use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{ClaudeProcessListener, ClaudeStreamFrame};
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
@@ -52,6 +63,8 @@ pub(crate) struct ScriptedStartRecord {
     pub(crate) conversation: ClaudeConversationStart,
     /// Where its frames, requests and exit go.
     pub(crate) listener: Arc<dyn ClaudeProcessListener>,
+    /// The account its readers would name, as the launch hands it to them.
+    pub(crate) account: ClaudeProcessAccount,
     /// The advisor it starts with.
     pub(crate) advisor: ClaudeSessionAdvisor,
     /// The step bound it starts with.
@@ -71,6 +84,8 @@ pub(crate) struct ScriptedOneTurnRecord {
     pub(crate) resume_handle: Option<String>,
     /// The mode it runs in in place of its level's own.
     pub(crate) permission_mode: Option<ClaudePermissionMode>,
+    /// The one message it is sent.
+    pub(crate) text: String,
 }
 
 #[derive(Default)]
@@ -89,17 +104,66 @@ struct ScriptedStartTables {
     account_server_channels: VecDeque<Arc<ScriptedChannel>>,
     account_server_holds: VecDeque<oneshot::Receiver<()>>,
     account_server_reads: usize,
+    sign_ins: VecDeque<ScriptedSignIn>,
+    sign_in_starts: Vec<ScriptedSignInStart>,
     mcp_probes: VecDeque<(Arc<ScriptedChannel>, Vec<Value>)>,
     mcp_probe_starts: Vec<ClaudeMcpProbeProcessRequest>,
     started: Vec<ScriptedStartRecord>,
     next_process_id: u32,
 }
 
+// One scripted MCP sign-in's process: its channel, the stored credentials it keeps and where, and
+// what it writes once its `initialize` is answered.
+struct ScriptedSignIn {
+    channel: Arc<ScriptedChannel>,
+    credentials: Value,
+    place: ScriptedSignInPlace,
+    writes: Vec<ScriptedProcessWrite>,
+}
+
+/// One thing a scripted MCP sign-in's process writes once its `initialize` is answered, in order.
+pub(crate) enum ScriptedProcessWrite {
+    /// A frame, read as the reader reads one.
+    Frame(Value),
+    /// Its exit.
+    Exit,
+}
+
+/// Where a scripted MCP sign-in's process keeps the sign-ins it saves.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ScriptedSignInPlace {
+    /// Its credential folder's `.credentials.json`.
+    File,
+    /// The keychain item named for its credential folder, in the starts' keychain.
+    Keychain,
+}
+
+/// One MCP sign-in's process the driver asked for.
+pub(crate) struct ScriptedSignInStart {
+    /// Its whole environment.
+    pub(crate) environment: Vec<(String, String)>,
+    /// The servers file it was handed, as read when it started.
+    pub(crate) servers: Value,
+    /// Whether it was told to load only the servers that file declares.
+    pub(crate) loads_only_its_servers: bool,
+}
+
 /// Every start answered as scripted; a start with nothing scripted fails as a spawn would.
-#[derive(Default)]
 pub(crate) struct ScriptedStarts {
     tables: Mutex<ScriptedStartTables>,
     started: Notify,
+    /// The keychain a scripted sign-in saves into, which the driver a test builds reads.
+    pub(crate) keychain: CredentialStore,
+}
+
+impl Default for ScriptedStarts {
+    fn default() -> Self {
+        Self {
+            tables: Mutex::default(),
+            started: Notify::new(),
+            keychain: CredentialStore::in_memory(),
+        }
+    }
 }
 
 impl ScriptedStarts {
@@ -166,6 +230,29 @@ impl ScriptedStarts {
         let (release, held) = oneshot::channel();
         self.lock().account_server_holds.push_back(held);
         release
+    }
+
+    /// Scripts the next MCP sign-in's process to be `channel`, keeping `credentials` as Claude
+    /// Code's stored credentials in `place` once it starts and writing `writes` once its
+    /// `initialize` is answered.
+    pub(crate) fn script_mcp_sign_in(
+        &self,
+        channel: Arc<ScriptedChannel>,
+        credentials: Value,
+        place: ScriptedSignInPlace,
+        writes: Vec<ScriptedProcessWrite>,
+    ) {
+        self.lock().sign_ins.push_back(ScriptedSignIn {
+            channel,
+            credentials,
+            place,
+            writes,
+        });
+    }
+
+    /// Takes each MCP sign-in's process start so far.
+    pub(crate) fn take_sign_in_starts(&self) -> Vec<ScriptedSignInStart> {
+        std::mem::take(&mut self.lock().sign_in_starts)
     }
 
     /// Takes the count of account reads so far, each one process.
@@ -243,6 +330,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 tables.started.push(ScriptedStartRecord {
                     conversation: request.conversation,
                     listener: request.listener,
+                    account: request.account,
                     advisor: request.spawn.legs.advisor.clone(),
                     step_bound: request.spawn.step_bound,
                     permission_mode: request.permission_mode,
@@ -313,6 +401,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 model: request.spawn.legs.model.clone(),
                 resume_handle: request.resume_handle,
                 permission_mode: request.permission_mode,
+                text: request.text.text.clone(),
             });
             tables
                 .one_turn_environments
@@ -325,6 +414,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
     fn probe_sign_in(
         &self,
         _environment: Vec<(String, String)>,
+        _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<String, ClaudeLaunchError>> {
         async { Err(spawn_failure("no sign-in scripted")) }.boxed()
     }
@@ -332,6 +422,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
     fn read_model_catalog(
         &self,
         environment: Vec<(String, String)>,
+        _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<ClaudeModelCatalogReading, ClaudeLaunchError>> {
         let initialize = {
             let mut tables = self.lock();
@@ -384,10 +475,64 @@ impl ClaudeProcessStarts for ScriptedStarts {
         .boxed()
     }
 
+    fn start_mcp_sign_in(
+        &self,
+        start: ClaudeMcpSignInStart,
+    ) -> BoxFuture<'_, Result<ClaudeMcpProcess, ClaudeLaunchError>> {
+        let scripted = self.lock().sign_ins.pop_front();
+        async move {
+            let servers = tokio::fs::read(&start.servers_file)
+                .await
+                .map_err(ClaudeLaunchError::Spawn)?;
+            self.lock().sign_in_starts.push(ScriptedSignInStart {
+                environment: start.environment.clone(),
+                servers: serde_json::from_slice(&servers)
+                    .map_err(|error| ClaudeLaunchError::Spawn(std::io::Error::other(error)))?,
+                loads_only_its_servers: start.loads_only_its_servers,
+            });
+            let ScriptedSignIn {
+                channel,
+                credentials,
+                place,
+                writes,
+            } = scripted.ok_or_else(|| spawn_failure("no sign-in process scripted"))?;
+            match place {
+                ScriptedSignInPlace::File => {
+                    let credential_folder = start
+                        .environment
+                        .iter()
+                        .find(|(name, _value)| name == SECURE_STORAGE_FOLDER_VARIABLE)
+                        .map(|(_name, value)| value.clone())
+                        .ok_or_else(|| spawn_failure("no credential folder in the environment"))?;
+                    tokio::fs::write(
+                        std::path::Path::new(&credential_folder).join(CLAUDE_CREDENTIALS_FILE),
+                        credentials.to_string(),
+                    )
+                    .await
+                    .map_err(ClaudeLaunchError::Spawn)?;
+                }
+                ScriptedSignInPlace::Keychain => self
+                    .keychain
+                    .write(
+                        &claude_keychain_service(&start.environment),
+                        &claude_keychain_account(&start.environment),
+                        &SecretString::from(credentials.to_string()),
+                    )
+                    .map_err(|error| ClaudeLaunchError::Spawn(std::io::Error::other(error)))?,
+            }
+            let channel: Arc<dyn ClaudeProcessChannel> = channel;
+            Ok(ClaudeMcpProcess {
+                channel,
+                arrivals: scripted_arrivals(writes),
+            })
+        }
+        .boxed()
+    }
+
     fn start_mcp_probe(
         &self,
         request: ClaudeMcpProbeProcessRequest,
-    ) -> BoxFuture<'_, Result<ClaudeMcpProbeProcess, ClaudeLaunchError>> {
+    ) -> BoxFuture<'_, Result<ClaudeMcpProcess, ClaudeLaunchError>> {
         let probe = {
             let mut tables = self.lock();
             tables.mcp_probe_starts.push(request);
@@ -395,20 +540,11 @@ impl ClaudeProcessStarts for ScriptedStarts {
         };
         async move {
             let (channel, frames) = probe.ok_or_else(|| spawn_failure("no probe scripted"))?;
-            let (sender, arrivals) = mpsc::unbounded_channel();
-            for frame in frames {
-                let text = frame.to_string();
-                let observation = ClaudeStreamFrameRead::read(&text)
-                    .expect("a test frame is an object")
-                    .into_observation();
-                sender
-                    .send(ClaudeShortProcessArrival::Frame(Box::new(
-                        ClaudeStreamFrame { text, observation },
-                    )))
-                    .expect("the arrivals are held");
-            }
             let channel: Arc<dyn ClaudeProcessChannel> = channel;
-            Ok(ClaudeMcpProbeProcess { channel, arrivals })
+            Ok(ClaudeMcpProcess {
+                channel,
+                arrivals: scripted_arrivals(frames.into_iter().map(ScriptedProcessWrite::Frame)),
+            })
         }
         .boxed()
     }
@@ -416,6 +552,28 @@ impl ClaudeProcessStarts for ScriptedStarts {
     fn stop_every_process(&self) -> BoxFuture<'_, ()> {
         async {}.boxed()
     }
+}
+
+// What a scripted process writes: each of `writes`, a frame read as the reader reads one, and then
+// nothing more.
+fn scripted_arrivals(
+    writes: impl IntoIterator<Item = ScriptedProcessWrite>,
+) -> mpsc::UnboundedReceiver<ClaudeShortProcessArrival> {
+    let (sender, arrivals) = mpsc::unbounded_channel();
+    for write in writes {
+        let arrival = match write {
+            ScriptedProcessWrite::Frame(frame) => {
+                let text = frame.to_string();
+                let observation = ClaudeStreamFrameRead::read(&text)
+                    .expect("a test frame is an object")
+                    .into_observation();
+                ClaudeShortProcessArrival::Frame(Box::new(ClaudeStreamFrame { text, observation }))
+            }
+            ScriptedProcessWrite::Exit => ClaudeShortProcessArrival::Exit,
+        };
+        sender.send(arrival).expect("the arrivals are held");
+    }
+    arrivals
 }
 
 // A start that fails as a spawn the system refused.
