@@ -31,9 +31,9 @@ use crate::workflow::secret::WorkflowSecretReference;
 const SECRET_SCHEME: &str = "secret://";
 
 /// One parameter value the check refused. `path` is the value's place, its parameter's id first
-/// (`["headers", 0, "token"]` inside a repeating collection, `["tool", "approvalMode"]` for a member
-/// a tool binding does not take), `message` names the fault and never quotes the value, and `rule`
-/// the finding the save raises for it, where one does.
+/// (`["headers", 0, "token"]` inside a repeating collection, `["tool", "approvalMode"]` for a
+/// member a tool binding does not take), `message` names the fault and never quotes the value, and
+/// `rule` the finding the save raises for it, where one does.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowParamIssue {
