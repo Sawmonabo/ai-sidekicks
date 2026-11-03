@@ -11,6 +11,9 @@
 //! A stream holds back at most the longest form's length less one byte, plus up to three bytes of
 //! a split character: a merged range reaching the cut is masked up to it at once and goes on into
 //! the next push as the same mask, so a run of matches never grows the carry.
+//!
+//! In a JSON value a number is read as its text, so a digit-only secret such as a PIN is masked
+//! there too: a number whose text holds a secret becomes that text masked, a string.
 
 use std::borrow::Cow;
 use std::ops::Range;
@@ -95,7 +98,8 @@ impl RunRedaction {
         )
     }
 
-    /// Scrubs every string `value` holds in place, at any depth, member names included.
+    /// Scrubs every string `value` holds in place, at any depth, member names included; a number
+    /// whose text holds a secret becomes the masked text.
     pub fn scrub_json(&self, value: &mut serde_json::Value) {
         match value {
             serde_json::Value::String(text) => {
@@ -125,8 +129,12 @@ impl RunRedaction {
                     self.scrub_json(member);
                 }
             }
-            serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+            serde_json::Value::Number(number) => {
+                if let Cow::Owned(scrubbed) = self.scrub(&number.to_string()) {
+                    *value = serde_json::Value::String(scrubbed);
+                }
             }
+            serde_json::Value::Null | serde_json::Value::Bool(_) => {}
         }
     }
 
@@ -357,6 +365,27 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A digit-only secret is masked in a JSON number as in a string, and a number holding none
+    /// stays a number. Mutation: pass numbers through.
+    #[test]
+    fn a_json_value_is_masked_in_its_numbers_too() {
+        let redaction = redaction_of(&["4821"]);
+        let mut value =
+            serde_json::json!({ "pin": 4821, "code": 948217, "count": 3, "note": "4821" });
+
+        redaction.scrub_json(&mut value);
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "pin": CREDENTIAL_REDACTION,
+                "code": format!("9{CREDENTIAL_REDACTION}7"),
+                "count": 3,
+                "note": CREDENTIAL_REDACTION,
+            })
+        );
     }
 
     #[test]
