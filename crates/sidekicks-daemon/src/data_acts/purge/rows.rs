@@ -1,5 +1,6 @@
-//! What a session's purge reads and writes in the database: the mark, the reads of what its files
-//! and its receipt need, and the one write that deletes every row naming the session.
+//! What a session's purge reads and writes in the database: the mark and its hand-off guard, the
+//! reads of what its files and its receipt need, and the one write that deletes every row naming
+//! the session.
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -11,6 +12,7 @@ use rusqlite::{Connection, OptionalExtension as _, named_params};
 use sidekicks_artifact::payload_store::{ContentHash, NotAContentHash};
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::PlanMessageKind;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -21,6 +23,7 @@ use sidekicks_session::messaging::exchanges::DELETE_SESSION_EXCHANGES_SQL;
 use sidekicks_session::messaging::paused_queue::DELETE_SESSION_PAUSED_MESSAGES_SQL;
 use sidekicks_session::messaging::reminders::DELETE_SESSION_REMINDERS_SQL;
 use sidekicks_session::messaging::waits::DELETE_SESSION_WAITS_SQL;
+use sidekicks_session::queue_store::plan_message::plan_message_item_sql;
 use sidekicks_session::run::ids::SESSION_RUN_IDS_SQL;
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
@@ -32,6 +35,13 @@ use sidekicks_workspace::repo::mount::service::managed_mount_deletion_statements
 
 /// The statements the purge's reads prepare, counted into the read pool's statement capacity.
 pub(crate) const SESSION_PURGE_STATEMENT_CAPACITY: usize = 9;
+
+/// The position of the guard that no hand-off of a plan the session made waits on its seed, in the
+/// mark's write.
+pub(super) const HAND_OFF_GUARD_INDEX: usize = 0;
+
+/// The position of the mark itself, in the mark's write.
+pub(super) const MARK_INDEX: usize = 1;
 
 /// The position of the guard that the session is still marked for purging, in the delete's write.
 pub(super) const MARKED_GUARD_INDEX: usize = 0;
@@ -98,6 +108,24 @@ pub(crate) enum PurgeStoredValueError {
     #[error("the session's stored place is not a place")]
     Place(#[from] serde_json::Error),
 }
+
+// No hand-off names the session as its planning session while the fresh session's seed has no
+// queue item, so the planning session stands until the seed's transcript and manifest are written.
+static HAND_OFF_GUARD_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT 1 WHERE NOT EXISTS (
+     SELECT 1 FROM session_hand_offs AS hand_off
+      WHERE hand_off.planning_session_id = @sessionId
+        AND NOT EXISTS (
+          SELECT 1 FROM queue_items AS item
+           WHERE item.session_id = hand_off.session_id AND {}))",
+        plan_message_item_sql(
+            "item",
+            "hand_off.plan_id",
+            &format!("'{}'", <&'static str>::from(PlanMessageKind::Seed)),
+        )
+    )
+});
 
 static MARK_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -178,12 +206,13 @@ const RUN_KEYED_DELETES: [&str; 4] = [
 
 // The session's own deletes after its run-keyed ones, up to its row, in foreign-key order: a
 // snapshot and a recovery checkpoint name the event they reflect, an ask goes after its answer and
-// after the gate answers found through it, and an artifact after the reference to its payload. The
-// agent tree goes in one statement, each node with the children that name it. The attention rows
-// go after the machine's attention count is raised, so its readers drop the session's entries, and
-// an entry's delivery before the entry it is found through. The messaging rows go at either end
-// of a pair, a message held from the session or a wait on it among them.
-const DELETES_THROUGH_SESSION_ROW: [&str; 33] = [
+// after the gate answers found through it, a plan before the artifact that keeps its text, and an
+// artifact after the reference to its payload. The agent tree goes in one statement, each node with
+// the children that name it. The attention rows go after the machine's attention count is raised,
+// so its readers drop the session's entries, and an entry's delivery before the entry it is found
+// through. The messaging rows go at either end of a pair, a message held from the session or a wait
+// on it among them.
+const DELETES_THROUGH_SESSION_ROW: [&str; 34] = [
     "DELETE FROM session_snapshots WHERE session_id = @sessionId",
     "DELETE FROM recovery_checkpoints WHERE session_id = @sessionId",
     "DELETE FROM session_events WHERE session_id = @sessionId",
@@ -197,6 +226,7 @@ const DELETES_THROUGH_SESSION_ROW: [&str; 33] = [
     "DELETE FROM approval_requests WHERE session_id = @sessionId",
     "DELETE FROM approval_correction_uses WHERE session_id = @sessionId",
     "DELETE FROM reviewer_denials WHERE session_id = @sessionId",
+    "DELETE FROM plans WHERE session_id = @sessionId",
     "DELETE FROM artifact_payload_refs WHERE manifest_id IN
        (SELECT id FROM artifact_manifests WHERE session_id = @sessionId)",
     "DELETE FROM artifact_manifests WHERE session_id = @sessionId",
@@ -228,9 +258,11 @@ const DELETES_THROUGH_SESSION_ROW: [&str; 33] = [
 ];
 
 // The deletes after the group the session leaves empty, which is found through the session's
-// workspaces: every row naming a workspace goes before the workspace.
-const DELETES_BEFORE_WORKTREES: [&str; 6] = [
+// workspaces: every row naming a workspace goes before the workspace. A hand-off row goes with its
+// fresh session; one naming the session as its planning session is the fresh session's and stays.
+const DELETES_BEFORE_WORKTREES: [&str; 7] = [
     "DELETE FROM session_create_requests WHERE session_id = @sessionId",
+    "DELETE FROM session_hand_offs WHERE session_id = @sessionId",
     "DELETE FROM session_convert_requests WHERE session_id = @sessionId",
     "DELETE FROM session_convert_files WHERE session_id = @sessionId",
     "DELETE FROM queue_items WHERE session_id = @sessionId",
@@ -250,23 +282,35 @@ static GONE_WORKTREES_DELETE_SQL: LazyLock<String> = LazyLock::new(|| {
 
 const WORKSPACES_DELETE_SQL: &str = "DELETE FROM workspaces WHERE session_id = @sessionId";
 
-/// The mark: the session moves to `purgeRequested` from one of the states `caller` purges, one row
-/// expected, so a session in any other state, or none, refuses the write.
-pub(super) fn mark_statement(session_id: SessionId, caller: PurgeCaller) -> WriteStatement {
+/// The mark's write: its hand-off guard, refused while a hand-off of a plan the session made has no
+/// queue item for its seed, then the mark, which moves the session to `purgeRequested` from one of
+/// the states `caller` purges, one row expected, so a session in any other state, or none, refuses
+/// the write.
+pub(super) fn mark_statements(session_id: SessionId, caller: PurgeCaller) -> Vec<WriteStatement> {
     let from_states = sql_list_of(
         caller
             .markable_states()
             .iter()
             .map(|state| <&'static str>::from(*state)),
     );
-    WriteStatement {
-        sql: Cow::Owned(format!("{} ({from_states})", *MARK_SQL)),
-        bindings: StatementBindings::Named(vec![
-            text_binding("@sessionId", session_id.text().as_str()),
-            text_binding("@now", WireInstant::now().as_str()),
-        ]),
-        expected_row_count: Some(1),
-    }
+    vec![
+        WriteStatement {
+            sql: Cow::Borrowed(HAND_OFF_GUARD_SQL.as_str()),
+            bindings: StatementBindings::Named(vec![text_binding(
+                "@sessionId",
+                session_id.text().as_str(),
+            )]),
+            expected_row_count: Some(1),
+        },
+        WriteStatement {
+            sql: Cow::Owned(format!("{} ({from_states})", *MARK_SQL)),
+            bindings: StatementBindings::Named(vec![
+                text_binding("@sessionId", session_id.text().as_str()),
+                text_binding("@now", WireInstant::now().as_str()),
+            ]),
+            expected_row_count: Some(1),
+        },
+    ]
 }
 
 /// What the purge's files and its receipt need, read once the session is marked. Fails when SQLite
@@ -419,7 +463,8 @@ pub(super) async fn gone_worktree_ids(
 /// The one write that deletes every row naming the session, led by its two guards: the session is
 /// still marked, and no event of it lies past `last_sequence` (its receipt's range, `None` for a
 /// session with no event). The workflow runs go first with every row hanging off them, then the
-/// rows keyed by the session's runs, then the session's own, the chat's managed mount last.
+/// rows keyed by the session's runs, then the session's own, its plans and its hand-off row among
+/// them, the chat's managed mount last.
 pub(super) fn session_deletion_statements(
     session_id: SessionId,
     last_sequence: Option<i64>,

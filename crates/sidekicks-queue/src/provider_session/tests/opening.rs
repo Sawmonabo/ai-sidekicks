@@ -1,12 +1,14 @@
 //! A session's provider session opened: a resume, a restart or a create records the binding
 //! its process runs under with its cursor open, a resume answered on the leg's own binding records
-//! nothing, and a process whose binding's row fails is closed.
+//! nothing, a process whose binding's row fails is closed, and a create whose provider is missing
+//! posts the session's `providerMissing` notice.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt as _;
 use rstest::rstest;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::session_control::ProviderSessionHandle;
@@ -15,8 +17,9 @@ use sidekicks_provider::runtime_binding::test_store::spawned_build;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::timeout;
 
-use super::{Opening, WAIT, take_row};
+use super::{Opening, WAIT, take_row, unregistered_provider, unresolvable_provider};
 use crate::provider_session::errors::ProviderSessionError;
+use crate::provider_session::test_opening::{first_provider, read_provider_missing_notices};
 
 // Opening a session whose conversation an earlier daemon left resumes it, and a restart of its
 // process brings it back the same way: each records the binding it minted on its predecessor's run,
@@ -245,4 +248,93 @@ async fn a_process_whose_binding_row_fails_is_closed(#[case] is_create: bool) {
         "{opened:?}"
     );
     assert_eq!(opening.closes.load(Ordering::SeqCst), 1);
+}
+
+// Why a create's provider fails it: no driver answers the provider, the driver finds no installed
+// build of the bare command name, or the path the person typed does not run.
+#[derive(Clone, Copy, Debug)]
+enum CreateFailure {
+    NoDriver,
+    NotInstalled,
+    TypedPathNotRunnable,
+}
+
+// A create whose provider no driver answers, or whose driver finds it not installed, posts one
+// `providerMissing` notice naming the provider and the session's place, and still fails as it
+// failed; a typed path that does not run is no missing provider and posts none. Killed by the
+// notice posted twice for one start, by the place left out, by the start's own failure swallowed,
+// and by the typed path posting.
+#[rstest]
+#[case::no_driver(CreateFailure::NoDriver)]
+#[case::not_installed(CreateFailure::NotInstalled)]
+#[case::typed_path(CreateFailure::TypedPathNotRunnable)]
+#[tokio::test]
+async fn a_create_whose_provider_is_missing_posts_one_notice_and_fails_as_it_failed(
+    #[case] failure: CreateFailure,
+) {
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |driver, _| {
+        driver.expect_create_session().returning(move |_params| {
+            let is_typed_path = matches!(failure, CreateFailure::TypedPathNotRunnable);
+            async move { Err(unresolvable_provider(is_typed_path)) }.boxed()
+        });
+    })
+    .await;
+    opening
+        .database
+        .reader()
+        .execute("DELETE FROM runtime_bindings", [])
+        .expect("the session is left with no conversation");
+    if matches!(failure, CreateFailure::NoDriver) {
+        *lock(&opening.provider) = Some(unregistered_provider());
+    }
+
+    let opened = opening
+        .sessions
+        .open(opening.session_id, opening.run_id)
+        .await;
+
+    let notices = read_provider_missing_notices(&opening.database.reader());
+    match failure {
+        CreateFailure::NoDriver => {
+            assert!(
+                matches!(
+                    &opened,
+                    Err(ProviderSessionError::Provider(refusal))
+                        if refusal.code == RefusalCode::ProviderNotFound
+                ),
+                "{opened:?}"
+            );
+            assert_eq!(
+                notices,
+                vec![opening.provider_missing_notice(unregistered_provider())]
+            );
+        }
+        CreateFailure::NotInstalled => {
+            assert!(
+                matches!(
+                    &opened,
+                    Err(ProviderSessionError::Driver(
+                        DriverError::ExecutableUnresolvable(_)
+                    ))
+                ),
+                "{opened:?}"
+            );
+            assert_eq!(
+                notices,
+                vec![opening.provider_missing_notice(first_provider())]
+            );
+        }
+        CreateFailure::TypedPathNotRunnable => {
+            assert!(
+                matches!(
+                    &opened,
+                    Err(ProviderSessionError::Driver(
+                        DriverError::ExecutableUnresolvable(_)
+                    ))
+                ),
+                "{opened:?}"
+            );
+            assert_eq!(notices, Vec::new());
+        }
+    }
 }

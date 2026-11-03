@@ -26,6 +26,7 @@ use sidekicks_session::permission_level::{
 };
 use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_store::database::connection::read_pool::ReadLength;
+use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::log_service::EventAppendError;
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventDraft, SessionEventEmitError, SessionEventLinkage,
@@ -44,10 +45,10 @@ pub struct SideQuestionSource {
     pub resume: ResumeSessionParams,
 }
 
-/// Why a level or mode move was not stored with the notice that tells every client of it; nothing
-/// of its write is kept. Both failures are boxed, so the session errors that carry it stay small.
+/// Why a session notice, with any change it tells of, was not stored; nothing of its write is kept.
+/// Both failures are boxed, so the session errors that carry it stay small.
 #[derive(Debug, thiserror::Error)]
-pub enum MoveRecordError {
+pub enum NoticeWriteError {
     /// The session took no write: `session.notFound` for one gone meanwhile, or its history's own
     /// refusal while it is rebuilt or damaged.
     #[error(transparent)]
@@ -57,13 +58,13 @@ pub enum MoveRecordError {
     Emit(Box<SessionEventEmitError>),
 }
 
-impl From<DomainError> for MoveRecordError {
+impl From<DomainError> for NoticeWriteError {
     fn from(refusal: DomainError) -> Self {
         Self::Refused(Box::new(refusal))
     }
 }
 
-impl From<SessionEventEmitError> for MoveRecordError {
+impl From<SessionEventEmitError> for NoticeWriteError {
     fn from(failure: SessionEventEmitError) -> Self {
         Self::Emit(Box::new(failure))
     }
@@ -385,16 +386,15 @@ impl ProviderSessions {
         level: PermissionLevel,
         session_mode: SessionMode,
         moved: MovedControls,
-    ) -> Result<(), MoveRecordError> {
-        // The existence check first, so its refusal reads as the session gone.
-        let mut transactional_prelude = vec![session_exists_statement(&session_id)];
+    ) -> Result<(), NoticeWriteError> {
+        let mut changes = Vec::new();
         if matches!(moved, MovedControls::Level | MovedControls::Both) {
-            transactional_prelude.push(permission_level_change_statement(&session_id, level));
+            changes.push(permission_level_change_statement(&session_id, level));
         }
         let mut occurred_at = None;
         if matches!(moved, MovedControls::Mode | MovedControls::Both) {
             let moved_at = WireInstant::now();
-            transactional_prelude.push(session_mode_change_statement(
+            changes.push(session_mode_change_statement(
                 &session_id,
                 session_mode,
                 moved_at.as_str(),
@@ -406,6 +406,25 @@ impl ProviderSessions {
             level,
             session_mode,
         };
+        self.append_notice(session_id, notice, changes, occurred_at)
+            .await
+    }
+
+    /// Posts `notice` on the session with `changes`, the writes it tells of, in one write kept
+    /// only while the session has a directory row, recorded at `occurred_at` or the clock's
+    /// instant. Fails with [`NoticeWriteError::Refused`], `session.notFound`, for a session gone,
+    /// or its history's own refusal, and with [`NoticeWriteError::Emit`] when the notice was not
+    /// drafted or its write not kept.
+    pub(super) async fn append_notice(
+        &self,
+        session_id: SessionId,
+        notice: SessionNotice,
+        changes: Vec<WriteStatement>,
+        occurred_at: Option<WireInstant>,
+    ) -> Result<(), NoticeWriteError> {
+        // The existence check first, so its refusal reads as the session gone.
+        let mut transactional_prelude = vec![session_exists_statement(&session_id)];
+        transactional_prelude.extend(changes);
         let draft = SessionEventDraft::of_session(
             session_id,
             &SessionEvent::SessionNoticePosted(SessionNoticePostedPayload::Notice(notice)),

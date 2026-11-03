@@ -1,10 +1,11 @@
 //! The machine's settings file and the three service methods that read, write and stream it.
 //!
 //! The file is `<home>/.ai-sidekicks/machine-settings.json`. The background service is its only
-//! writer: every client hands a change to `machine.settings.update` and reads it through
-//! `machine.settings.read` and `machine.settings.subscribe`. The desktop's main process
-//! alone may read the file directly, and only before the service first answers. One schema
-//! describes the file for every reader, so a missing key reads as its default wherever it is read.
+//! writer: every client hands a change to `machine.settings.update`, or to `provider.update` for
+//! the provider members, and reads it through `machine.settings.read` and
+//! `machine.settings.subscribe`. The desktop's main process alone may read the file directly, and
+//! only before the service first answers. One schema describes the file for every reader, so a
+//! missing key reads as its default wherever it is read.
 //!
 //! The environment-name rule lives here too: the service checks a row's name against it before
 //! saving, beside the names each provider's driver declares it sets.
@@ -28,9 +29,6 @@ use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::place::PlacedPath;
 use crate::project::ProjectId;
-use crate::provider::declaration::{
-    ProviderDeclarationId, ProviderPlaceSwitches, ProviderValueText,
-};
 use crate::provider::id::ProviderId;
 use crate::repo::mount::ExecutionMode;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -39,6 +37,13 @@ use crate::wire::integer::Port;
 use crate::wire::record::Record;
 use crate::wire::text::{BoundedText, FreeFormText, NonEmptyText, NulFreeText, pattern_text};
 use crate::wire::{NullableSchema, nullable};
+
+mod provider;
+
+pub use provider::{
+    ProviderCommandPath, ProviderCommandPathValues, ProviderCommandPaths, ProviderKnobValues,
+    ProviderKnobs, ProviderRowValue, ProviderRowValues, ProviderSettingValues,
+};
 
 ts_constants! {
     /// Where the file sits, relative to the person's home folder.
@@ -430,30 +435,11 @@ pub struct CommitTextModel {
     pub model_id: ProviderToken,
 }
 
-/// One declared Settings row's value set in the app, split by the row's shape.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(untagged)]
-pub enum ProviderRowValue {
-    /// A switch's entry for each place it was set in, keyed by place; a place left out follows the
-    /// provider's own value there.
-    Places(ProviderPlaceSwitches),
-    /// A choice's option or `null` for its none, or a text setting's text or `null` for none.
-    Value(#[schemars(with = "NullableSchema<ProviderValueText>")] Option<ProviderValueText>),
-}
-
-/// One provider's values of the Settings rows its driver declares, by row. A row left out follows
-/// the provider's own value. A row id never reads `__proto__`, which its pattern excludes, and the
-/// schema refuses it too.
-pub type ProviderRowValues = Record<ProviderDeclarationId, ProviderRowValue>;
-
-/// Each provider's values of its declared Settings rows, by provider; a provider left out follows
-/// its own values on every row. A provider id never reads `__proto__`, which its pattern excludes,
-/// and the schema refuses it too.
-pub type ProviderSettingValues = Record<ProviderId, ProviderRowValues>;
-
-/// Every value the machine's settings file holds.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// Every value the machine's settings file holds; its check refuses two entries for one place in
+/// a provider's command paths or a declared switch row.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 #[expect(
     clippy::struct_excessive_bools,
     reason = "the wire carries each switch as its own boolean member"
@@ -470,7 +456,15 @@ pub struct MachineSettings {
     /// The values set in the app on the Settings rows each provider's driver declares, written by
     /// `provider.update` and passed to the app's own sessions; empty until one is set, while each
     /// provider's own values are followed.
+    #[garde(dive)]
     pub provider_settings: ProviderSettingValues,
+    /// Each provider's `Command` path per place, written by `provider.update`; a place without one
+    /// auto-detects.
+    #[garde(dive)]
+    pub provider_command_paths: ProviderCommandPathValues,
+    /// Each provider's availability, helper limit and compaction threshold, written by
+    /// `provider.update`; a knob unset reads as its default.
+    pub provider_knobs: ProviderKnobValues,
     /// `Commit and pull request text`; `null` is `Automatic`, the session's provider and its
     /// lowest-priced model.
     #[serde(deserialize_with = "nullable")]
@@ -526,6 +520,8 @@ impl Default for MachineSettings {
             keep_crash_reports: true,
             editor_id: None,
             provider_settings: Record::default(),
+            provider_command_paths: Record::default(),
+            provider_knobs: Record::default(),
             commit_text_model: None,
             default_checkout: ExecutionMode::ProvisionedWorktree,
             new_session_carries_last_model: true,
@@ -585,18 +581,34 @@ fn over_defaults(defaults: &mut Map<String, Value>, stored: Map<String, Value>) 
     }
 }
 
-/// Reads the file's parsed JSON as settings: a missing key takes its default, and an unknown key
-/// or a value out of shape refuses the whole file, which the service then reads as the defaults
-/// and repairs.
-pub fn parse_machine_settings_file(file: Value) -> Result<MachineSettings, serde_json::Error> {
-    let Value::Object(stored) = file else {
-        return serde_json::from_value(file);
+/// Why the machine's settings file was refused whole.
+#[derive(Debug, thiserror::Error)]
+pub enum MachineSettingsFileFault {
+    /// Its JSON does not match the file's shape: an unknown key or a value out of shape.
+    #[error("the machine settings file does not match its shape")]
+    Shape(#[from] serde_json::Error),
+    /// A value breaks a rule its shape cannot hold, such as two entries for one place.
+    #[error("the machine settings file breaks a rule its shape cannot hold")]
+    Rules(#[from] garde::Report),
+}
+
+/// Reads the file's parsed JSON as settings: a missing key takes its default, and an unknown key,
+/// a value out of shape or a broken rule refuses the whole file with [`MachineSettingsFileFault`],
+/// which the service then reads as the defaults and repairs.
+pub fn parse_machine_settings_file(
+    file: Value,
+) -> Result<MachineSettings, MachineSettingsFileFault> {
+    let settings: MachineSettings = if let Value::Object(stored) = file {
+        let mut merged = serde_json::to_value(MachineSettings::default())?;
+        if let Value::Object(defaults) = &mut merged {
+            over_defaults(defaults, stored);
+        }
+        serde_json::from_value(merged)?
+    } else {
+        serde_json::from_value(file)?
     };
-    let mut merged = serde_json::to_value(MachineSettings::default())?;
-    if let Value::Object(defaults) = &mut merged {
-        over_defaults(defaults, stored);
-    }
-    serde_json::from_value(merged)
+    garde::Validate::validate(&settings)?;
+    Ok(settings)
 }
 
 /// One change to the file: exactly one top-level member, with its whole value. A group such as
@@ -780,6 +792,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<LastLeadModel>(),
         Definition::read::<CommitTextModel>(),
         Definition::read::<ProviderRowValue>(),
+        Definition::read::<ProviderCommandPath>(),
+        Definition::read::<ProviderKnobs>(),
         Definition::read::<MachineSettings>().checked(),
         Definition::read::<MachineSettingsChange>().checked(),
         Definition::read::<SettingsFileRepairCause>(),

@@ -2,6 +2,8 @@
 //! failure text it carries.
 
 use std::error::Error;
+use std::io;
+use std::sync::Arc;
 
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -77,6 +79,52 @@ pub enum DriverError {
 
 // The large payloads are boxed so every `Result` carrying the error stays small.
 const _: () = assert!(size_of::<DriverError>() <= 64);
+
+impl DriverError {
+    /// `failure`, which several waiters share, as one of them answers it: a refusal, a request
+    /// with no answer and a command that names no runnable build under their own code, words and
+    /// detail, any other failure as the driver's own, each with the shared failure underneath.
+    pub(crate) fn shared(failure: &Arc<DriverError>) -> Self {
+        let underneath = || -> Box<dyn Error + Send + Sync> {
+            Box::new(SharedDriverFailure(Arc::clone(failure)))
+        };
+        match &**failure {
+            Self::Refused(refusal) => Self::from(copy_refusal(refusal).with_source(underneath())),
+            Self::Unanswered(unanswered) => Self::from(RequestUnanswered {
+                refusal: copy_refusal(&unanswered.refusal).with_source(underneath()),
+            }),
+            Self::ExecutableUnresolvable(unresolvable) => Self::from(ExecutableUnresolvable {
+                provider: unresolvable.provider.clone(),
+                requested_command: unresolvable.requested_command.clone(),
+                is_typed_path: unresolvable.is_typed_path,
+                is_build_found: unresolvable.is_build_found,
+                cause: io::Error::new(unresolvable.cause.kind(), underneath()),
+            }),
+            Self::SteerTurnEnded(_)
+            | Self::RunRefused(_)
+            | Self::CapabilityProbe(_)
+            | Self::ModelCatalogUnreadable(_)
+            | Self::ProviderAxisInvalid(_)
+            | Self::RuleNotKept(_)
+            | Self::SkillNotListed(_)
+            | Self::NoPersonServerEntry(_)
+            | Self::SignInFailed(_)
+            | Self::Internal(_) => Self::Internal(underneath()),
+        }
+    }
+}
+
+// One failure several waiters share, under each waiter's own answer.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+struct SharedDriverFailure(Arc<DriverError>);
+
+// `refusal`'s words, code and detail, with no failure underneath.
+fn copy_refusal(refusal: &DomainError) -> DomainError {
+    let mut copy = DomainError::new(refusal.message.clone(), refusal.code);
+    copy.detail.clone_from(&refusal.detail);
+    copy
+}
 
 impl From<DomainError> for DriverError {
     fn from(refusal: DomainError) -> Self {

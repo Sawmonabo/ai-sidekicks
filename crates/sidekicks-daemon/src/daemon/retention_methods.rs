@@ -421,7 +421,7 @@ mod tests {
             live_runs: _,
             recovery: _,
             _shells: shells,
-            _home: home,
+            home,
         } = fixture;
         let reads = Arc::new(DatabaseReadPool::new(
             database.path(),

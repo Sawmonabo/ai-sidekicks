@@ -2,6 +2,7 @@
 //! driver's own, one run on a live turn, and the run engine's and the run queue's intake recorded;
 //! and a driver on a Codex folder of a test's own, with a service of the test's listening there.
 
+mod at_rest;
 mod caller_check;
 mod capability_read;
 mod commands;
@@ -12,7 +13,6 @@ mod questions;
 mod resume;
 mod rule_revoke;
 mod sessions;
-mod skill_picks;
 mod status_legs;
 mod terminal_reach;
 mod usage;

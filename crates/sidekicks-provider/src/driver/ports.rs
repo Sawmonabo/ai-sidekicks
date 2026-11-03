@@ -4,6 +4,7 @@
 //! the places the daemon runs sessions in.
 
 use std::error::Error;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
@@ -18,6 +19,7 @@ use sidekicks_store::database::writer::DatabaseWriter;
 use crate::account::registry::ProviderAccountRegistry;
 use crate::callback_tools::host::CallbackToolHost;
 use crate::command::running_set::RunningCommandSets;
+use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::DaemonTurnBindingResolver;
 use crate::driver::session_control::DriverResumeResult;
 use crate::driver::{ProviderAccountReader, SessionSpawnContextResolver};
@@ -259,4 +261,18 @@ impl DriverPorts {
             session_account_moves: Arc::new(PortRegistration::new("session account moves")),
         }
     }
+}
+
+/// The folder `session_id`'s runs work in, read through the registered spawn contexts. Fails as
+/// [`DriverError::Internal`] while the port is unregistered and as the resolution fails.
+pub(crate) async fn resolve_run_folder(
+    spawn_contexts: &PortRegistration<Arc<dyn SessionSpawnContextResolver>>,
+    session_id: SessionId,
+) -> Result<PathBuf, DriverError> {
+    spawn_contexts
+        .require_port()
+        .map_err(|error| DriverError::Internal(Box::new(error)))?
+        .resolve_run_folder(session_id)
+        .await
+        .map_err(DriverError::Internal)
 }

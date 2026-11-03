@@ -1,18 +1,22 @@
 //! What each live Claude session declared, and what is read from it: the provider's command and
 //! skill surface from `system/init`, and its output-speed state from the `initialize` reply,
 //! replaced by each later `system/init` that reports one and settled once per run when the run's
-//! own handshake arrives.
+//! own handshake arrives. A session at rest has its command list read afresh, concurrent reads of
+//! one session on one account sharing one process and nothing kept once it settles.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
+use futures::FutureExt;
+use futures::future::{BoxFuture, Shared};
 use serde_json::{Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::commands::{
     ProviderCommandBinding, ProviderCommandBindingGroup, ProviderCommandEntry,
 };
 use sidekicks_contracts::provider::driver::length_limits::{
-    PROVIDER_COMMAND_NAME_MAX_LEN, PROVIDER_DECLARED_TOKEN_MAX_LEN,
+    PROVIDER_COMMAND_DESCRIPTION_MAX_LEN, PROVIDER_COMMAND_NAME_MAX_LEN,
+    PROVIDER_DECLARED_TOKEN_MAX_LEN, PROVIDER_MCP_SERVER_NAME_MAX_LEN,
 };
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::run::id::RunId;
@@ -27,12 +31,31 @@ use crate::driver::claude::session::state::{ClaudeHeldHandshake, LiveClaudeSessi
 use crate::driver::claude::session::transport::declarations::{
     ClaudeFastModeDeclaration, ClaudeHandshakeDeclaration,
 };
+use crate::driver::claude::spawn::launch::ClaudeLaunchError;
+use crate::driver::claude::spawn::launch::initialize_reply::ClaudeListedCommand;
+use crate::driver::contract::error::DriverError;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 
 // The scope a command Claude Code runs only in its own terminal screen is listed with.
 const TERMINAL_COMMAND_SCOPE: &str = "terminal";
+
+// The end of the name Claude Code lists a tool server's prompt under, as `server:prompt (MCP)`.
+const CLAUDE_PROMPT_NAME_SUFFIX: &str = " (MCP)";
+
+// One resting command read as it starts, before it is shared.
+type ClaudeRestingCommandStart =
+    BoxFuture<'static, Result<Vec<ClaudeListedCommand>, ClaudeLaunchError>>;
+
+// One read of a resting session's command list, which every concurrent read of the session
+// awaits; its failure, answered as a start's, is shared, so it is held behind an `Arc`.
+type ClaudeRestingCommandRead =
+    Shared<BoxFuture<'static, Result<Vec<ClaudeListedCommand>, Arc<DriverError>>>>;
+
+// The session and the account one resting command read runs on, since each account lists its own
+// user-level commands.
+type ClaudeRestingReadKey = (SessionId, ProviderAccountId);
 
 /// A run whose output speed settled on its process's handshake, with the state the process declared
 /// it runs at; the run engine compares it with the level the run carried.
@@ -71,6 +94,8 @@ struct ClaudeSessionDeclarations {
 #[derive(Default)]
 pub(crate) struct ClaudeHandshakeRegister {
     sessions: Mutex<HashMap<SessionId, ClaudeSessionDeclarations>>,
+    // Each resting session's command read in flight on each account, gone once it settles.
+    resting_reads: Arc<Mutex<HashMap<ClaudeRestingReadKey, ClaudeRestingCommandRead>>>,
 }
 
 impl ClaudeHandshakeRegister {
@@ -231,6 +256,40 @@ impl ClaudeHandshakeRegister {
         });
     }
 
+    /// The command read of resting `session_id` on `provider_account_id`'s account in flight,
+    /// else the one `start` begins. The read runs to its end whoever still waits on it, so a
+    /// dropped caller leaves no process behind, and it is forgotten as it settles, so the next
+    /// read starts afresh. Fails, for every waiter, as a session's start fails for the same
+    /// failure.
+    pub(crate) fn join_resting_command_read(
+        &self,
+        session_id: SessionId,
+        provider_account_id: ProviderAccountId,
+        start: impl FnOnce() -> ClaudeRestingCommandStart,
+    ) -> impl Future<Output = Result<Vec<ClaudeListedCommand>, DriverError>> {
+        let key = (session_id, provider_account_id);
+        let mut reads = lock(&self.resting_reads);
+        let read = if let Some(read) = reads.get(&key) {
+            read.clone()
+        } else {
+            let held = Arc::clone(&self.resting_reads);
+            let held_key = key.clone();
+            let read = start()
+                .map(move |listed| {
+                    // The key's only entry until this removes it: a read is begun only where none
+                    // is held.
+                    lock(&held).remove(&held_key);
+                    listed.map_err(|error| Arc::new(DriverError::from(error)))
+                })
+                .boxed()
+                .shared();
+            reads.insert(key, read.clone());
+            drop(tokio::spawn(read.clone()));
+            read
+        };
+        read.map(|listed| listed.map_err(|failure| DriverError::shared(&failure)))
+    }
+
     /// The command and skill entries one live session declared, all of them, stamped with
     /// `binding`'s provider and the account the session was admitted against, in one group with
     /// `run_id`; before the handshake, which rides a turn the person may not have made, it answers
@@ -298,10 +357,7 @@ fn resolve_stamped_account(
     })
 }
 
-// Composed at read time so the held declaration stays what the provider said. Each name is bounded
-// by the entry's own checked text (a provider-supplied name may be blank, hold a NUL or run over
-// the cap); a refused entry is dropped alone, with a diagnostic, so one bad name cannot empty the
-// palette.
+// Composed at read time so the held declaration stays what the provider said.
 fn compose_provider_command_entries(
     session_id: SessionId,
     declaration: &ClaudeHandshakeDeclaration,
@@ -327,68 +383,168 @@ fn compose_provider_command_entries(
         .chain(skills)
         .chain(terminal_commands)
         .filter_map(|(name, kind, scope)| {
-            let Ok(checked_name) = FreeFormText::<PROVIDER_COMMAND_NAME_MAX_LEN>::new(name.clone())
-            else {
-                report_rejected_entry(session_id, binding, kind, scope.is_some(), name);
-                return None;
-            };
-            let binding = binding.clone();
-            let scope = scope.cloned();
-            Some(match kind {
-                ClaudeCommandKind::Command => ProviderCommandEntry::Command {
-                    name: checked_name,
-                    description: None,
-                    argument_hint: None,
-                    scope,
-                    enabled: None,
-                    binding,
-                    server: None,
-                    title: None,
-                },
-                ClaudeCommandKind::Skill => ProviderCommandEntry::Skill {
-                    name: checked_name,
-                    description: None,
-                    argument_hint: None,
-                    scope,
-                    enabled: None,
-                    binding,
-                    server: None,
-                    title: None,
-                },
-            })
+            compose_command_entry(session_id, binding, kind, scope, name, None, None)
         })
         .collect()
 }
 
-// Which kind of entry a declared name becomes.
-#[derive(Clone, Copy)]
-enum ClaudeCommandKind {
-    Command,
-    Skill,
+/// The entries of a resting session's command list as `rows` lists them, in order, each stamped
+/// with `binding`: a row named `server:prompt (MCP)` is that server's prompt, and every other row
+/// a command, since the list does not say which rows are skills. A row whose name or server the
+/// entry's bounds refuse is dropped alone, with a diagnostic.
+pub(crate) fn compose_resting_command_entries(
+    session_id: SessionId,
+    binding: &ProviderCommandBinding,
+    rows: &[ClaudeListedCommand],
+) -> Vec<ProviderCommandEntry> {
+    rows.iter()
+        .filter_map(|row| {
+            let (kind, name) = match read_prompt_name(&row.name) {
+                Some((server, prompt)) => (ClaudeCommandKind::Prompt { server }, prompt),
+                None => (ClaudeCommandKind::Command, row.name.as_str()),
+            };
+            compose_command_entry(
+                session_id,
+                binding,
+                kind,
+                None,
+                name,
+                row.description.as_deref(),
+                row.argument_hint.as_deref(),
+            )
+        })
+        .collect()
 }
 
-// Records an entry dropped for a name the entry's bounds refuse: the field and its length in code
-// points, never the untrusted name.
+// The server and prompt of a name Claude Code lists as `server:prompt (MCP)`; `None` for any other.
+fn read_prompt_name(name: &str) -> Option<(&str, &str)> {
+    let (server, prompt) = name
+        .strip_suffix(CLAUDE_PROMPT_NAME_SUFFIX)?
+        .split_once(':')?;
+    (!server.is_empty() && !prompt.is_empty()).then_some((server, prompt))
+}
+
+// One entry, each field bounded by the entry's own checked text, since what the provider supplies
+// may be blank, hold a NUL or run over the cap. A refused name or server drops the entry alone, so
+// one bad row cannot empty the palette; a refused description or hint reads absent, the entry
+// kept. Each refusal is recorded.
+fn compose_command_entry(
+    session_id: SessionId,
+    binding: &ProviderCommandBinding,
+    kind: ClaudeCommandKind<'_>,
+    scope: Option<&FreeFormText<PROVIDER_DECLARED_TOKEN_MAX_LEN>>,
+    name: &str,
+    description: Option<&str>,
+    argument_hint: Option<&str>,
+) -> Option<ProviderCommandEntry> {
+    let rejected = |field: &'static str, value: Option<&str>| {
+        report_rejected_entry(
+            session_id,
+            binding,
+            kind,
+            scope.is_some(),
+            field,
+            name,
+            value,
+        );
+    };
+    let Ok(checked_name) = FreeFormText::<PROVIDER_COMMAND_NAME_MAX_LEN>::new(name.to_owned())
+    else {
+        rejected("name", None);
+        return None;
+    };
+    let optional = |field: &'static str, text: Option<&str>| {
+        let text = text?;
+        let checked = FreeFormText::<PROVIDER_COMMAND_DESCRIPTION_MAX_LEN>::new(text.to_owned());
+        if checked.is_err() {
+            rejected(field, Some(text));
+        }
+        checked.ok()
+    };
+    let description = optional("description", description);
+    let argument_hint = optional("argumentHint", argument_hint);
+    let binding = binding.clone();
+    let scope = scope.cloned();
+    Some(match kind {
+        ClaudeCommandKind::Command => ProviderCommandEntry::Command {
+            name: checked_name,
+            description,
+            argument_hint,
+            scope,
+            enabled: None,
+            binding,
+            server: None,
+            title: None,
+        },
+        ClaudeCommandKind::Skill => ProviderCommandEntry::Skill {
+            name: checked_name,
+            description,
+            argument_hint,
+            scope,
+            enabled: None,
+            binding,
+            server: None,
+            title: None,
+        },
+        ClaudeCommandKind::Prompt { server } => {
+            let Ok(server) =
+                FreeFormText::<PROVIDER_MCP_SERVER_NAME_MAX_LEN>::new(server.to_owned())
+            else {
+                rejected("server", Some(server));
+                return None;
+            };
+            ProviderCommandEntry::Prompt {
+                name: checked_name,
+                description,
+                argument_hint,
+                scope,
+                enabled: None,
+                binding,
+                server,
+                title: None,
+            }
+        }
+    })
+}
+
+// Which kind of entry a listed name becomes; a prompt names the server that publishes it.
+#[derive(Clone, Copy)]
+enum ClaudeCommandKind<'a> {
+    Command,
+    Skill,
+    Prompt { server: &'a str },
+}
+
+// Records a field the entry's bounds refuse, and whether the entry was dropped for it: the field
+// and the lengths in code points of the name and of the refused value, never the untrusted text.
 fn report_rejected_entry(
     session_id: SessionId,
     binding: &ProviderCommandBinding,
-    kind: ClaudeCommandKind,
+    kind: ClaudeCommandKind<'_>,
     is_terminal: bool,
+    field: &'static str,
     name: &str,
+    value: Option<&str>,
 ) {
     let entry_kind = match kind {
         ClaudeCommandKind::Command => "command",
         ClaudeCommandKind::Skill => "skill",
+        ClaudeCommandKind::Prompt { .. } => "prompt",
+    };
+    let is_dropped = matches!(field, "name" | "server");
+    let disposition_reason = if is_dropped {
+        "the provider published a command, skill or prompt entry the contract's own bounds \
+         refuse; it is dropped from this reply and its siblings are unaffected"
+    } else {
+        "the provider published a command, skill or prompt field the contract's own bounds \
+         refuse; the entry is kept and the field reads absent"
     };
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
         provider_account_id: Some(binding.provider_account_id.clone()),
         kind: DriverDiagnosticKind::ProviderCommandEntryRejected,
         raw_wire_type: None,
-        disposition_reason: "the provider published a command or skill entry the contract's own \
-                             bounds refuse; it is dropped from this reply and its siblings are \
-                             unaffected"
-            .to_owned(),
+        disposition_reason: disposition_reason.to_owned(),
         details: [
             ("sessionId", json!(session_id)),
             ("entryKind", json!(entry_kind)),
@@ -396,11 +552,123 @@ fn report_rejected_entry(
                 "entryScope",
                 json!(is_terminal.then_some(TERMINAL_COMMAND_SCOPE)),
             ),
-            ("rejectedField", json!("name")),
+            ("rejectedField", json!(field)),
+            ("dropped", json!(is_dropped)),
             ("nameLength", json!(name.chars().count())),
+            (
+                "rejectedValueLength",
+                json!(value.map(|value| value.chars().count())),
+            ),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_owned(), value))
         .collect(),
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use futures::FutureExt;
+    use rstest::rstest;
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::provider::account::record::ProviderAccountId;
+
+    use super::{ClaudeHandshakeRegister, ClaudeRestingCommandStart};
+    use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
+    use crate::driver::claude::session::transport::control::ClaudeControlSubtype;
+    use crate::driver::claude::spawn::launch::ClaudeLaunchError;
+    use crate::driver::contract::error::DriverError;
+    use crate::driver::test_registry::new_session_id;
+
+    fn sign_in_refused() -> ClaudeLaunchError {
+        ClaudeLaunchError::Session(ClaudeSessionError::AuthenticationRequired {
+            detail: "Not logged in".to_owned(),
+        })
+    }
+
+    fn initialize_unanswered() -> ClaudeLaunchError {
+        ClaudeLaunchError::Session(ClaudeSessionError::Unanswered {
+            subtype: ClaudeControlSubtype::Initialize,
+            cause: ClaudeUnansweredCause::Deadline,
+        })
+    }
+
+    fn account(account_id: &str) -> ProviderAccountId {
+        ProviderAccountId::new(account_id.to_owned()).expect("an account id fits")
+    }
+
+    fn spawn_failed() -> ClaudeLaunchError {
+        ClaudeLaunchError::Spawn(std::io::Error::other("no such program"))
+    }
+
+    // How a waiter's failure answers: its kind, and the code a client reads.
+    fn answer_of(error: &DriverError) -> (&'static str, Option<RefusalCode>) {
+        if let DriverError::Refused(refusal) = error {
+            ("refused", Some(refusal.code))
+        } else if let DriverError::Unanswered(unanswered) = error {
+            ("unanswered", Some(unanswered.refusal.code))
+        } else if let DriverError::Internal(_) = error {
+            ("internal", None)
+        } else {
+            ("other", None)
+        }
+    }
+
+    // Killed by a failed read answered as internal, for the read's own waiter or one that joined
+    // it, and by a failure that keeps its kind but not its code.
+    #[rstest]
+    #[case::a_refused_sign_in(
+        sign_in_refused,
+        ("refused", Some(RefusalCode::ProviderAccountNotAuthenticated))
+    )]
+    #[case::no_answer_in_time(
+        initialize_unanswered,
+        ("unanswered", Some(RefusalCode::ProviderTimeout))
+    )]
+    #[case::a_failed_start(spawn_failed, ("internal", None))]
+    #[tokio::test]
+    async fn every_waiter_on_a_failed_resting_read_gets_a_start_s_answer(
+        #[case] failure: fn() -> ClaudeLaunchError,
+        #[case] expected: (&'static str, Option<RefusalCode>),
+    ) {
+        let register = ClaudeHandshakeRegister::default();
+        let session_id = new_session_id();
+
+        let first = register.join_resting_command_read(session_id, account("account-1"), || {
+            async move { Err(failure()) }.boxed()
+        });
+        let second = register.join_resting_command_read(
+            session_id,
+            account("account-1"),
+            || -> ClaudeRestingCommandStart {
+                unreachable!("a second read joins the one in flight")
+            },
+        );
+
+        for answer in [first.await, second.await] {
+            let error = answer.expect_err("the read failed");
+            assert_eq!(answer_of(&error), expected);
+        }
+    }
+
+    // Killed by a key without the account: the second account's read joins the first's failed
+    // one and answers its sign-in refusal instead of its own list.
+    #[tokio::test]
+    async fn a_resting_read_on_another_account_starts_its_own_process() {
+        let register = ClaudeHandshakeRegister::default();
+        let session_id = new_session_id();
+
+        let first = register.join_resting_command_read(session_id, account("account-1"), || {
+            async move { Err(sign_in_refused()) }.boxed()
+        });
+        let second = register.join_resting_command_read(session_id, account("account-2"), || {
+            async move { Ok(Vec::new()) }.boxed()
+        });
+
+        first.await.expect_err("the first account's read failed");
+        assert_eq!(
+            second.await.expect("the second account's read is its own"),
+            Vec::new()
+        );
+    }
 }

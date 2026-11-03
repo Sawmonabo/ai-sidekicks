@@ -23,6 +23,7 @@ mod hand_over;
 mod level_moves;
 mod naming;
 mod restarts;
+mod resting_commands;
 mod resumed_runs;
 mod session_controls;
 mod settings_reads;

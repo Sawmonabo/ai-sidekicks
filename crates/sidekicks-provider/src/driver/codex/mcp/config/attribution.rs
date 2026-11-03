@@ -13,7 +13,7 @@ use sidekicks_contracts::place::PlacedPath;
 use sidekicks_platforms::PathRules;
 
 use crate::driver::codex::DESCRIPTOR;
-use crate::driver::codex::config_read::CodexConfigLayer;
+use crate::driver::codex::config_read::{CODEX_CONFIG_FILE_NAME, CodexConfigLayer};
 use crate::driver::codex::mcp::config::server_entry::{
     CodexServerTransport, has_transport, is_switched_off, read_codex_server_entry,
     read_codex_server_transport, read_switch, sets_other_members,
@@ -24,8 +24,6 @@ use crate::driver::codex::mcp::config::{
 use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
 use crate::driver::mcp_server::read::{McpRootReading, McpServerDeclaration, McpServerPolicy};
 
-/// The file a project's `.codex` folder holds its config in.
-pub(super) const PROJECT_CONFIG_FILE_NAME: &str = "config.toml";
 /// The config table of the plugins' switches and their servers' overrides.
 pub(crate) const PLUGINS_KEY: &str = "plugins";
 /// The member of the plugins' table holding the switch every plugin without its own takes.
@@ -290,7 +288,7 @@ fn rank_layer<'read>(
                 PathRules::NATIVE
             };
             let folder = folder.trim_end_matches(|character| rules.is_separator(character));
-            let path = format!("{folder}{}{PROJECT_CONFIG_FILE_NAME}", rules.separator());
+            let path = format!("{folder}{}{CODEX_CONFIG_FILE_NAME}", rules.separator());
             Some(PlacedPath {
                 path: FilesystemPath::new(path).ok()?,
                 place,

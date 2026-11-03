@@ -23,7 +23,7 @@ use sidekicks_session::run::binding_cursors::RunBindingCursorError;
 use sidekicks_std::port_registration::PortRegistrationError;
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 
-use crate::provider_session::controls::MoveRecordError;
+use crate::provider_session::controls::NoticeWriteError;
 
 /// Why a session's provider session was not opened, a run's binding not recorded, or a level or
 /// mode not moved; nothing of an opening that failed is left live.
@@ -131,6 +131,21 @@ pub enum ProviderSessionError {
         #[source]
         closed: DriverError,
     },
+    /// A start failed because the session's provider is missing, and the notice that says so could
+    /// not be posted.
+    #[error(
+        "the start of session {session_id} failed ({start}), and its provider-missing notice was \
+             not posted"
+    )]
+    ProviderMissingNotPosted {
+        /// The session.
+        session_id: SessionId,
+        /// Why the start failed: no driver answers the provider, or it is not installed.
+        start: Box<ProviderSessionError>,
+        /// Why the notice was not posted.
+        #[source]
+        posted: Box<dyn Error + Send + Sync>,
+    },
     /// The session's leg could not be read.
     #[error(transparent)]
     Store(#[from] RuntimeBindingStoreError),
@@ -161,7 +176,7 @@ pub enum ProviderSessionError {
         /// Why the store failed: a refusal for a session gone meanwhile or whose history takes no
         /// write, else a fault.
         #[source]
-        cause: MoveRecordError,
+        cause: NoticeWriteError,
     },
     /// The level was not stored, and the process could not move back to the one stored.
     #[error(
@@ -172,7 +187,7 @@ pub enum ProviderSessionError {
         /// The session.
         session_id: SessionId,
         /// Why the store failed.
-        stored: MoveRecordError,
+        stored: NoticeWriteError,
         /// Why the move back failed.
         #[source]
         moved_back: DriverError,
@@ -185,7 +200,7 @@ pub enum ProviderSessionError {
         /// Why the store failed: a refusal for a session gone meanwhile or whose history takes no
         /// write, else a fault.
         #[source]
-        cause: MoveRecordError,
+        cause: NoticeWriteError,
     },
     /// The mode was not stored, and the process could not move back to the one stored.
     #[error(
@@ -196,7 +211,7 @@ pub enum ProviderSessionError {
         /// The session.
         session_id: SessionId,
         /// Why the store failed.
-        stored: MoveRecordError,
+        stored: NoticeWriteError,
         /// Why the move back failed.
         #[source]
         moved_back: DriverError,
@@ -220,11 +235,11 @@ impl From<ProviderSessionError> for HandlerError {
         match error {
             ProviderSessionError::Provider(refusal) => Self::Refused(refusal),
             ProviderSessionError::LevelNotStored {
-                cause: MoveRecordError::Refused(refusal),
+                cause: NoticeWriteError::Refused(refusal),
                 ..
             }
             | ProviderSessionError::ModeNotStored {
-                cause: MoveRecordError::Refused(refusal),
+                cause: NoticeWriteError::Refused(refusal),
                 ..
             } => Self::Refused(*refusal),
             ProviderSessionError::Driver(driver) => driver.into(),
@@ -250,14 +265,15 @@ impl From<ProviderSessionError> for HandlerError {
             | ProviderSessionError::ResumedRuns { .. }
             | ProviderSessionError::Port(_)
             | ProviderSessionError::UnrecordedNotClosed { .. }
+            | ProviderSessionError::ProviderMissingNotPosted { .. }
             | ProviderSessionError::Store(_)
             | ProviderSessionError::LevelNotStored {
-                cause: MoveRecordError::Emit(_),
+                cause: NoticeWriteError::Emit(_),
                 ..
             }
             | ProviderSessionError::LevelNotMovedBack { .. }
             | ProviderSessionError::ModeNotStored {
-                cause: MoveRecordError::Emit(_),
+                cause: NoticeWriteError::Emit(_),
                 ..
             }
             | ProviderSessionError::ModeNotMovedBack { .. }

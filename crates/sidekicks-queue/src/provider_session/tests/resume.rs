@@ -1,7 +1,8 @@
 //! A session's conversation resumed: the live runs it names to the provider, the provider's answer
 //! for them handed on before the binding is recorded, a run bound on it after the resume, the idle
 //! sleep's wake of a session no process holds, and a resume the provider deferred, which opens
-//! nothing.
+//! nothing; a resume or restart whose provider is missing posts the session's `providerMissing`
+//! notice.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -34,9 +35,11 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use tokio::time::timeout;
 
-use super::{Opening, READ_STATEMENT_CAPACITY, WAIT};
+use super::{Opening, READ_STATEMENT_CAPACITY, WAIT, unregistered_provider};
+use crate::provider_session::errors::ProviderSessionError;
 use crate::provider_session::resume::ResumedSession;
 use crate::provider_session::resumed_runs::ResumedRuns;
+use crate::provider_session::test_opening::{first_provider, read_provider_missing_notices};
 
 /// The recurring job the wake's test stores for the session.
 const CRON: &str = "0 9 * * 1";
@@ -525,4 +528,65 @@ async fn a_deferred_relaunch_opens_nothing(#[case] relaunching: Relaunching) {
         opening.following.followed().is_empty(),
         "no opening is followed awake"
     );
+}
+
+// A resume or a restart whose stored leg names a provider no driver answers, or whose driver finds
+// the provider not installed, posts one `providerMissing` notice naming that provider and the
+// session's place, fails, forgets every binding it minted and keeps no process opened. Killed by
+// the resume or the restart left without the post (the lookup, the capability check or the
+// driver's failure), and by a minted binding's cursor kept.
+#[rstest]
+#[case::resume_not_installed(false, false)]
+#[case::resume_no_driver(false, true)]
+#[case::restart_not_installed(true, false)]
+#[case::restart_no_driver(true, true)]
+#[tokio::test]
+async fn a_resume_or_a_restart_whose_provider_is_missing_posts_one_notice(
+    #[case] is_restart: bool,
+    #[case] is_driverless: bool,
+) {
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |_, _| {}).await;
+    let provider = if is_driverless {
+        opening
+            .database
+            .reader()
+            .execute(
+                "UPDATE runtime_bindings SET provider_name = ?1",
+                [unregistered_provider().as_str()],
+            )
+            .expect("the leg names a provider no driver answers");
+        unregistered_provider()
+    } else {
+        opening.is_provider_missing.store(true, Ordering::SeqCst);
+        first_provider()
+    };
+
+    let relaunched = if is_restart {
+        opening.sessions.restart(opening.session_id).await
+    } else {
+        opening
+            .sessions
+            .open(opening.session_id, opening.run_id)
+            .await
+    };
+
+    assert!(
+        matches!(
+            &relaunched,
+            Err(ProviderSessionError::Provider(_) | ProviderSessionError::Driver(_))
+        ),
+        "{relaunched:?}"
+    );
+    assert_eq!(
+        read_provider_missing_notices(&opening.database.reader()),
+        vec![opening.provider_missing_notice(provider)]
+    );
+    let epochs = lock(&opening.epochs);
+    assert!(
+        lock(&opening.handed_ids)
+            .iter()
+            .all(|minted_id| epochs.binding(minted_id).is_err()),
+        "every binding the relaunch minted is forgotten"
+    );
+    assert_eq!(opening.following.followed(), Vec::new());
 }

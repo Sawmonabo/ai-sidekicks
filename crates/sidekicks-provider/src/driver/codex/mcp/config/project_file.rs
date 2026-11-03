@@ -20,7 +20,7 @@ use tokio::task::JoinError;
 use toml_edit::ser::ValueSerializer;
 use toml_edit::{DocumentMut, Item, Table};
 
-use crate::driver::codex::mcp::config::attribution::PROJECT_CONFIG_FILE_NAME;
+use crate::driver::codex::config_read::CODEX_CONFIG_FILE_NAME;
 use crate::driver::codex::rules::CODEX_PROJECT_SETTINGS_FOLDER;
 use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
 
@@ -183,7 +183,7 @@ impl CodexProjectFile {
 
 // Reads the config in `folder` on the calling thread.
 fn read_project_file(folder: PathBuf) -> Result<CodexProjectFile, CodexProjectFileError> {
-    let named = folder.join(PROJECT_CONFIG_FILE_NAME);
+    let named = folder.join(CODEX_CONFIG_FILE_NAME);
     let path = match real_path(&named) {
         Ok(path) => path,
         Err(absent) if absent.kind() == io::ErrorKind::NotFound => {
