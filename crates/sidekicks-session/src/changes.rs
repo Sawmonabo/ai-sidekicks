@@ -237,15 +237,8 @@ impl SessionChanges {
         session_id: SessionId,
         name: &str,
     ) -> Result<bool, SessionChangeError> {
-        let trimmed = name.trim_matches(is_ecmascript_whitespace);
-        let cut = cut_to_code_points(trimmed, SESSION_NAME_MAX_LEN)
-            .trim_end_matches(is_ecmascript_whitespace);
-        let name = match FreeFormText::<SESSION_NAME_MAX_LEN>::new(cut.to_owned()) {
-            Ok(name) => name,
-            Err(TextError::Blank) => return Ok(false),
-            Err(error @ (TextError::HoldsNul | TextError::OverCap { .. })) => {
-                return Err(SessionChangeError::Name(error));
-            }
+        let Some(name) = session_name_of(name).map_err(SessionChangeError::Name)? else {
+            return Ok(false);
         };
         let is_written = self
             .change(session_id, None, |facts| {
@@ -642,7 +635,23 @@ fn lifecycle_event(
     })
 }
 
-fn renamed_event(
+/// `text` as a session's name: trimmed of whitespace and cut to the name bound, `None` when
+/// nothing is left. Fails with the text's own error for a name holding a NUL.
+pub(crate) fn session_name_of(
+    text: &str,
+) -> Result<Option<FreeFormText<SESSION_NAME_MAX_LEN>>, TextError> {
+    let trimmed = text.trim_matches(is_ecmascript_whitespace);
+    let cut = cut_to_code_points(trimmed, SESSION_NAME_MAX_LEN)
+        .trim_end_matches(is_ecmascript_whitespace);
+    match FreeFormText::new(cut.to_owned()) {
+        Ok(name) => Ok(Some(name)),
+        Err(TextError::Blank) => Ok(None),
+        Err(error @ (TextError::HoldsNul | TextError::OverCap { .. })) => Err(error),
+    }
+}
+
+/// `session.renamed` for `session_id`, from `previous_name` to `name`, as `origin` named it.
+pub(crate) fn renamed_event(
     session_id: SessionId,
     name: Option<FreeFormText<SESSION_NAME_MAX_LEN>>,
     previous_name: Option<FreeFormText<SESSION_NAME_MAX_LEN>>,

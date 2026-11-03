@@ -4,6 +4,7 @@
 //! the places the daemon runs sessions in.
 
 use std::error::Error;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
@@ -18,6 +19,7 @@ use sidekicks_store::database::writer::DatabaseWriter;
 use crate::account::registry::ProviderAccountRegistry;
 use crate::callback_tools::host::CallbackToolHost;
 use crate::command::running_set::RunningCommandSets;
+use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::DaemonTurnBindingResolver;
 use crate::driver::session_control::DriverResumeResult;
 use crate::driver::{ProviderAccountReader, SessionSpawnContextResolver};
@@ -35,6 +37,7 @@ use crate::port::run_pause::{ContinuedMessages, RunPauses};
 use crate::port::session_account_move::SessionAccountMoveRecorder;
 use crate::port::session_advisor_store::SessionAdvisorStore;
 use crate::port::session_level_follower::SessionLevelFollower;
+use crate::port::session_message_reading_publisher::SessionMessageReadingPublisher;
 use crate::port::session_resume_reader::SessionResumeReader;
 use crate::port::session_rules::SessionRulePort;
 use crate::port::session_wake::SessionWaker;
@@ -172,6 +175,9 @@ pub struct DriverPorts {
     /// The context reading each session's ring and `Context` section read; a reading made before
     /// it is registered is dropped.
     pub context_readings: Arc<PortRegistration<Arc<dyn ContextReadingPublisher>>>,
+    /// What became of each message between sessions, as a provider tells it; a reading made before
+    /// it is registered is dropped.
+    pub session_message_readings: Arc<PortRegistration<Arc<dyn SessionMessageReadingPublisher>>>,
     /// The idle sleep's wake of a sleeping session for a message its inbox received; a driver that
     /// finds it unregistered refuses the message.
     pub session_wakes: Arc<PortRegistration<Arc<dyn SessionWaker>>>,
@@ -244,6 +250,7 @@ impl DriverPorts {
             command_output: Arc::new(PortRegistration::new("command output")),
             turn_readings: Arc::new(PortRegistration::new("turn readings")),
             context_readings: Arc::new(PortRegistration::new("context readings")),
+            session_message_readings: Arc::new(PortRegistration::new("session message readings")),
             session_wakes: Arc::new(PortRegistration::new("session wakes")),
             session_resumes: Arc::new(PortRegistration::new("session resumes")),
             database_writer: Arc::new(PortRegistration::new("database writer")),
@@ -265,4 +272,18 @@ impl DriverPorts {
             held_tool_calls: Arc::new(PortRegistration::new("held tool calls")),
         }
     }
+}
+
+/// The folder `session_id`'s runs work in, read through the registered spawn contexts. Fails as
+/// [`DriverError::Internal`] while the port is unregistered and as the resolution fails.
+pub(crate) async fn resolve_run_folder(
+    spawn_contexts: &PortRegistration<Arc<dyn SessionSpawnContextResolver>>,
+    session_id: SessionId,
+) -> Result<PathBuf, DriverError> {
+    spawn_contexts
+        .require_port()
+        .map_err(|error| DriverError::Internal(Box::new(error)))?
+        .resolve_run_folder(session_id)
+        .await
+        .map_err(DriverError::Internal)
 }

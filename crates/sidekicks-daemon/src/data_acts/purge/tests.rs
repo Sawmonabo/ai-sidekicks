@@ -65,6 +65,7 @@ use super::{SessionPurge, SessionPurgeDeps, SessionPurgeOutcome};
 use crate::daemon::schema::schema_parts;
 
 mod erasure;
+mod hand_offs;
 mod races_and_failures;
 
 // Text no row of the daemon writes on its own, and shorter than a body the log stores compressed.
@@ -81,7 +82,8 @@ pub(crate) struct PurgeFixture {
     /// The recovery state the purge clears a removed session from.
     pub(crate) recovery: Arc<RecoveryStatusTracker>,
     pub(crate) _shells: TableFixture,
-    pub(crate) _home: TempDir,
+    /// The data folder the purge removes a session's storage folder from.
+    pub(crate) home: TempDir,
 }
 
 /// A purge over a fresh database; a provider driver it calls fails the test.
@@ -103,7 +105,7 @@ pub(crate) async fn purge_fixture() -> PurgeFixture {
         live_runs,
         recovery,
         _shells: shells,
-        _home: home,
+        home,
     }
 }
 

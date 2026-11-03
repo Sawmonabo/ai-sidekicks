@@ -3,8 +3,8 @@
 //! the turn's opening, its markers, its message and tool rows, the text and thinking Claude Code
 //! streams as stored pieces of their message, the provider's status, warnings and model switches,
 //! a helper's child run, the turn's end, the session's running commands, the usage each thread
-//! spent, and what the working line and the context ring read. A frame of a turn no daemon run
-//! holds is recorded and dropped.
+//! spent, what the working line and the context ring read, and each message another session sent.
+//! A frame of a turn no daemon run holds is recorded and dropped, a peer message published first.
 
 mod backgrounded;
 mod body;
@@ -48,6 +48,7 @@ use crate::driver::claude::delivery::messages::{
     ClaudeMessageFrame, ClaudeMessageRow, ClaudeMessageRowKind, read_claude_assistant_rows,
     read_claude_user_rows,
 };
+use crate::driver::claude::delivery::peer_arrival::{publish_peer_arrival, read_peer_arrival};
 use crate::driver::claude::delivery::reviewer::ClaudeReviewerCapture;
 use crate::driver::claude::delivery::run_readings::{ClaudeMessageKey, ClaudeRowDelivery};
 use crate::driver::claude::delivery::streamed_blocks::ClaudeStreamedRun;
@@ -75,6 +76,7 @@ use crate::driver::diagnostics::{
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
 use crate::port::running_command_publisher::RunningCommandPublisher as _;
+use crate::port::session_message_reading_publisher::SessionMessageReadingPublisher;
 use crate::port::tool_call_status_publisher::ToolCallStatusPublisher;
 use crate::port::turn_reading_publisher::TurnReadingPublisher;
 use crate::port::usage_sink::UsageSink;
@@ -115,6 +117,9 @@ pub(crate) struct ClaudeStreamDependencies {
     pub(crate) context: Arc<ClaudeContextReadings>,
     /// Where a held tool-server call's status line goes once registered.
     pub(crate) tool_call_statuses: Arc<PortRegistration<Arc<dyn ToolCallStatusPublisher>>>,
+    /// Where the messages other sessions sent, and a refused one, are published once registered.
+    pub(crate) session_message_readings:
+        Arc<PortRegistration<Arc<dyn SessionMessageReadingPublisher>>>,
 }
 
 /// What a frame left for the session's task to do beyond its deliveries.
@@ -274,6 +279,13 @@ impl ClaudeDeliveryStream {
             if kind == ClaudeWireFrameKind::SystemInit {
                 after.context_read = Some(None);
             }
+            // A peer message replayed before its turn's `system/init`, which that turn starts with.
+            if kind == ClaudeWireFrameKind::User
+                && let Some(message) = &message
+            {
+                let arrival = read_peer_arrival(message, session.session_id, None, true);
+                publish_peer_arrival(&self.dependencies.session_message_readings, arrival);
+            }
             record_unmapped(
                 session,
                 &session.unheld_reports,
@@ -338,6 +350,7 @@ impl ClaudeDeliveryStream {
         match kind {
             ClaudeWireFrameKind::SystemInit => {
                 after.context_read = Some(None);
+                session.lock().has_turn_message = false;
                 self.mark_initialized(session, &lead, read_non_empty_string(&members, "model"))
                     .await;
             }
@@ -599,6 +612,7 @@ impl ClaudeDeliveryStream {
         let provider_account_id = session.provider_account_id();
         let (pieces, rows, counts_step, tasks) = {
             let mut readings = session.lock();
+            readings.has_turn_message = true;
             readings.command_tasks.observe_calls(frame);
             let tasks = readings.turn_readings.observe_calls(frame);
             // As Claude Code reads a turn, its last refused message is the turn's refusal.
@@ -654,9 +668,14 @@ impl ClaudeDeliveryStream {
         lead: &ClaudeBoundRun,
         frame: &ClaudeMessageFrame,
     ) {
-        let (rows, tasks, stand_ins) = {
+        let (rows, tasks, stand_ins, arrival) = {
             let mut guard = session.lock();
             let readings = &mut *guard;
+            let is_turn_start = !readings.has_turn_message;
+            let arrival =
+                read_peer_arrival(frame, session.session_id, Some(lead.run_id), is_turn_start);
+            // Whatever the frame, a message after it joins the turn it started or joined.
+            readings.has_turn_message = true;
             let reading = read_claude_user_rows(
                 frame,
                 session.session_id,
@@ -674,7 +693,7 @@ impl ClaudeDeliveryStream {
                 .into_iter()
                 .map(|row| ClaudeRowDelivery::of_message(&lead.binding_id, row, key.clone()))
                 .collect::<Vec<_>>();
-            (rows, tasks, reading.held_stand_ins)
+            (rows, tasks, reading.held_stand_ins, arrival)
         };
         if let Some(tasks) = tasks {
             self.publish_turn_tasks(session, tasks);
@@ -685,6 +704,7 @@ impl ClaudeDeliveryStream {
         {
             self.report_taken(session, uuid);
         }
+        publish_peer_arrival(&self.dependencies.session_message_readings, arrival);
         self.admit_rows(session, rows, "user").await;
         self.send_backgrounded(session, stand_ins).await;
     }

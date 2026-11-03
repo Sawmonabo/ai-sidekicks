@@ -716,22 +716,24 @@ interface ProviderAccountUsageWindow {
 
 ```ts
 // provider.standingRule.list — one row per rule, in the provider's own words, read from every
-// account home and every attached project: on Codex the `.rules` files under each account home and
-// each trusted project's `.codex/rules/` (loaded only once the project is trusted); on Claude Code
-// the `permissions` of its user-level, project and project-local settings files. A provider holding
-// none answers an empty list, which the page reads as saying so. Its request is `ProviderRequest`,
-// the provider whose rules are listed.
+// account home and every attached project: on Codex the `.rules` files of the system rule folder,
+// under each account home and in each trusted project's `.codex/rules/` (loaded only once the
+// project is trusted); on Claude Code the `permissions` of the administrator's managed settings and
+// of its user-level, project and project-local settings files. A rule of the system folder or the
+// managed settings holds for every account and project, so it is listed once with no scope. A
+// provider holding none answers an empty list, which the page reads as saying so. Its request is
+// `ProviderRequest`, the provider whose rules are listed.
 interface ProviderStandingRuleListResponse {
+  provider: ProviderId;
   rules: Array<{
-    ruleId: string; // daemon-minted from the rule's place, its file and its text, so one file path in two places names two rules
-    provider: ProviderId;
-    text: string; // the rule as the provider's file spells it
-    effect: "allow" | "deny";
-    scope:
+    ruleId: string; // daemon-minted from the rule's place, its file, its scope, its decision and its text, so one file path in two places names two rules
+    scope?: // absent for a rule of the system folder or the managed settings
       | { kind: "accountHome"; accountId: ProviderAccountId }
-      | { kind: "project"; projectId: ProjectId };
+      | { kind: "project"; repoMountId: RepoMountId };
     place?: Place; // where the file is, its path in that place's form; absent on a computer without a WSL 2 distribution
     sourcePath: string; // the file it came from; display-only data, never a capability
+    decision: string; // the provider's own word for what the rule does: the name of Claude Code's list (`allow`, `deny` or `ask`), or the word a Codex rule file writes, such as `allow`, `prompt` or `forbidden`
+    text: string; // the rule as the provider's file spells it
   }>;
 }
 
@@ -739,12 +741,16 @@ interface ProviderStandingRuleListResponse {
 // follows the change as it does on its own: Claude Code from its next tool call, and Codex in each
 // conversation it loads after the change, a loaded Codex conversation keeping the rules it loaded
 // with, which is Codex's own behavior. The daemon adds nothing over the provider's rules: no copy,
-// no hash, no check.
+// no hash. A rule the daemon never edits, the administrator's managed settings or the system rule
+// folder, is refused `provider.standingRule.uneditable`; a removal that would leave the file one the
+// provider refuses to load, or one still making the rule, is refused
+// `provider.standingRule.revokeRefused`; both write nothing.
 interface ProviderStandingRuleRevokeRequest {
+  provider: ProviderId;
   ruleId: string;
 }
 interface ProviderStandingRuleRevokeResponse {
   ruleId: string;
-  revoked: true;
+  outcome: "revoked" | "alreadyAbsent"; // alreadyAbsent: the file no longer held it
 }
 ```

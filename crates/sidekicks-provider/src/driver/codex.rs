@@ -43,6 +43,9 @@ use crate::driver::contract::params_and_results::{
     ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
     ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
+use crate::driver::contract::plan_verdict::{
+    AnswerPlanParams, PlanVerdictAnswer, answer_plan_holding_no_request,
+};
 use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::error_causes::ProviderAxisInvalid;
@@ -97,15 +100,18 @@ mod input_limit;
 mod intervention;
 mod lifecycle;
 mod mcp;
+mod messages;
 mod model_windows;
 mod native_program;
 mod notification_routing;
 mod output_speed;
 mod permission_level;
+mod privacy;
 mod rate_limits;
 mod release_notes;
 mod rules;
 mod run;
+mod self_update;
 mod server_requests;
 mod service;
 mod session;
@@ -119,6 +125,7 @@ mod usage_limit_signal;
 #[cfg(test)]
 mod vendored_schema;
 mod version;
+mod written_names;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use service::supervisor::test_service::{
@@ -239,8 +246,19 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         McpDeclaredConfigMember::OauthScopes,
         McpDeclaredConfigMember::OauthResource,
     ],
+    mcp_server_names: mcp::server_name::CODEX_MCP_SERVER_NAMES,
+    // It has no `local` scope: a project's `local` server is a user entry, off, switched on in the
+    // sessions of that project alone.
+    is_mcp_local_scope_emulated: true,
     // Codex's own limit on a skill's name.
     skill_name_max_length: Some(64),
+    written_name_forms: &written_names::CODEX_WRITTEN_NAME_FORMS,
+    permission_identifiers: &[
+        "sandbox_permissions",
+        "sandbox_mode",
+        "request_user_input",
+        "<proposed_plan>",
+    ],
     background_work: None,
     callback_tools_asked: false,
     // Its login runs its own loopback listener for the browser's return.
@@ -352,6 +370,14 @@ impl ProviderDriver for CodexDriver {
         params: RespondToRequestParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
         self.respond_to_request(params).boxed()
+    }
+
+    fn answer_plan(
+        &self,
+        params: AnswerPlanParams,
+    ) -> BoxFuture<'_, Result<PlanVerdictAnswer, DriverError>> {
+        // Codex holds no request for a plan.
+        answer_plan_holding_no_request(self, params).boxed()
     }
 
     fn override_denial(

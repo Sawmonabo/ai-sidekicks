@@ -150,8 +150,8 @@ CREATE TABLE agent_tree_nodes (
 CREATE TABLE session_exchanges (
   session_id        TEXT NOT NULL,   -- the pair, held as ONE row with the two ids in ascending order
   peer_session_id   TEXT NOT NULL,   -- so the count below is one count for one exchange. Two rows for one pair would be two answers to "how many since the person last wrote", and each session's own row in the sessions list reads the peer it is not
-  messages_since_user_wrote INTEGER NOT NULL DEFAULT 0
-                    CHECK (messages_since_user_wrote >= 0),  -- what the exchange line on each session's row states, `talking to builder · 14`. Reset to zero when the person writes in either session; it is a fact on the row and never a limit, nothing of this runtime bounding how many messages two sessions trade
+  messages_since_user_wrote INTEGER NOT NULL
+                    CHECK (messages_since_user_wrote >= 1),  -- what the exchange line on each session's row states, `talking to builder · 14`. The row is made at the pair's first message, counting one, and deleted when the person writes in either session, so the next message starts a new count; it is a fact on the row and never a limit, nothing of this runtime bounding how many messages two sessions trade
   started_at        TEXT NOT NULL,
   updated_at        TEXT NOT NULL,
   PRIMARY KEY (session_id, peer_session_id),

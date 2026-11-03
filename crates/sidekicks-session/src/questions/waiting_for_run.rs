@@ -6,7 +6,6 @@
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::question::{
     QuestionAskedState, QuestionCanceledReason, QuestionId, QuestionOpenedPayload,
-    QuestionSettledState,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
@@ -15,6 +14,7 @@ use sidekicks_provider::port::question::{ProviderQuestion, WaitingQuestionOpenin
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventLinkage};
 
+use crate::questions::QuestionSettledState;
 use crate::questions::schema::QuestionState;
 use crate::questions::service::{
     HeldRequestAnswerer, QuestionError, QuestionRecording, QuestionsService, canceled_event,

@@ -45,7 +45,9 @@ use sidekicks_provider::driver::error_causes::session_process_unavailable;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::process_identity::ProviderProcessIds;
 use sidekicks_provider::run::state_entry::RunStateEntry;
-use sidekicks_session::driver_resolution::{read_session_driver, resolve_admitted_account};
+use sidekicks_session::driver_resolution::{
+    read_session_driver, read_session_provider, resolve_admitted_account, resolve_session_driver,
+};
 use sidekicks_session::queue_store::{
     QueueItemBody, QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
 };
@@ -710,20 +712,37 @@ impl QueueAdmission {
 
     /// The provider `session_id`'s lead runs on, the account a new run of it is admitted against
     /// and the provider's driver: the account the session is bound to, else the provider's current
-    /// account, resolved before any driver call. Refuses `provider.account.notRegistered` or
-    /// `provider.account.current.notSet` for a provider with no account to run on, and fails as
-    /// the reads do.
+    /// account, resolved before any driver call. Refuses `provider.notFound` for a provider no
+    /// driver answers, once the session's `providerMissing` notice is posted, and
+    /// `provider.account.notRegistered` or `provider.account.current.notSet` for a provider with no
+    /// account to run on; fails as the reads and the notice's post do.
     pub(crate) async fn admit_session_account(
         &self,
         session_id: SessionId,
     ) -> Result<(ProviderId, ProviderAccountId, Arc<dyn ProviderDriver>), QueueError> {
-        let (provider, bound, driver) = read_session_driver::<QueueError>(
+        let (provider, bound) = read_session_provider::<QueueError>(
             &self.deps.pool,
-            &self.deps.providers,
             self.deps.read_damaged_from_sequence.as_ref(),
             session_id,
         )
-        .await?;
+        .await?
+        .unzip();
+        let (provider, driver) =
+            match resolve_session_driver(&self.deps.providers, &session_id, provider.clone()) {
+                Ok(resolved) => resolved,
+                Err(refusal) => {
+                    let Some(provider) = provider else {
+                        return Err(refusal.into());
+                    };
+                    return Err(self
+                        .deps
+                        .provider_sessions
+                        .answer_failed_start(session_id, &provider, refusal.into())
+                        .await
+                        .into());
+                }
+            };
+        let bound = bound.flatten();
         let provider_account_id =
             resolve_admitted_account(&self.deps.provider_accounts, &provider, bound).await?;
         Ok((provider, provider_account_id, driver))

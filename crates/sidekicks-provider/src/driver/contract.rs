@@ -31,6 +31,7 @@ use crate::driver::contract::params_and_results::{
     ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
     ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
+use crate::driver::contract::plan_verdict::{AnswerPlanParams, PlanVerdictAnswer};
 use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
@@ -60,6 +61,7 @@ use crate::port::session_inbox_address::SessionInboxAddresser;
 pub mod account;
 pub mod error;
 pub mod params_and_results;
+pub mod plan_verdict;
 pub mod sign_in;
 
 /// The operations every provider driver carries out for the daemon. Each refusal comes back as
@@ -119,6 +121,15 @@ pub trait ProviderDriver: Send + Sync {
         &self,
         params: RespondToRequestParams,
     ) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// Answers the person's verdict on a plan: a request the provider holds open for it is
+    /// answered with the verdict, `NotHeld` once it was answered or withdrawn; a plan holding no
+    /// request moves the session to Build for a build and answers its follow-up message. Fails as
+    /// the answer's write or the mode move fails.
+    fn answer_plan(
+        &self,
+        params: AnswerPlanParams,
+    ) -> BoxFuture<'_, Result<PlanVerdictAnswer, DriverError>>;
 
     /// `Allow once` on a block the provider's own reviewer made, carried by the provider's own
     /// means: it reaches a running turn at once and starts a turn when none runs, and retries
@@ -361,9 +372,10 @@ pub trait ProviderDriver: Send + Sync {
         params: CompactContextParams,
     ) -> BoxFuture<'_, Result<AgentRunContextCompactResponse, DriverError>>;
 
-    /// A live read of the provider's own commands and skills for the bound session (gated on
-    /// `providerCommands`), held with the session and never stored: one group carrying the
-    /// params' run and binding, every entry stamped with that binding.
+    /// The provider's own commands and skills for the bound session (gated on `providerCommands`):
+    /// one group carrying the params' run and binding, every entry stamped with that binding. A
+    /// live session's list is held with it; a driver that can read the list with no live process
+    /// reads it afresh and holds nothing.
     fn list_provider_commands(
         &self,
         params: ListProviderCommandsParams,

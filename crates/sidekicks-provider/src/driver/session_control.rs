@@ -3,8 +3,8 @@
 //! resume, close and naming, the helper policy and tool servers it opens with, the level and mode a
 //! new session starts at, the live permission-level and mode moves, a revoked rule's removal, the
 //! session's goal, the commands the daemon answers itself, the side question and the review, the
-//! hand-over brief's summary, the live command list, the move onto a fork or a new provider build, the sign-in probe, and the
-//! purge of the provider's own copy of its conversations.
+//! hand-over brief's summary, the live command list, the move onto a fork or a new provider build,
+//! the sign-in probe, and the purge of the provider's own copy of its conversations.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -449,7 +449,7 @@ pub struct ProviderBuildChange {
 /// ran on, and the recovery data its binding kept, which names the home holding it where the
 /// provider keeps that apart from the account's.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PurgedConversation {
+pub struct SessionConversation {
     /// The handle the conversation was resumed from.
     pub resume_handle: String,
     /// The account it ran on.
@@ -466,7 +466,7 @@ pub struct PurgeSessionParams {
     /// The session.
     pub session_id: SessionId,
     /// Its conversations, newest first.
-    pub conversations: Vec<PurgedConversation>,
+    pub conversations: Vec<SessionConversation>,
 }
 
 /// Params of `update_session_mode`: Build or Plan, applied by the provider from the next turn.

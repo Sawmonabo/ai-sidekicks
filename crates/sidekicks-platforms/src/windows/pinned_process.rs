@@ -184,8 +184,9 @@ impl PinnedProcess {
         }
     }
 
-    // Waits up to `bound` for the process's handle to signal its exit; answers whether it did.
-    fn wait_for_exit(&self, bound: Duration) -> io::Result<bool> {
+    /// Waits up to `bound` for the process's handle to signal its exit; answers whether it did.
+    /// Fails with the system's error.
+    pub(crate) fn wait_for_exit(&self, bound: Duration) -> io::Result<bool> {
         // `INFINITE` is the largest count; a longer bound waits one millisecond less than it.
         let milliseconds = u32::try_from(bound.as_millis())
             .unwrap_or(u32::MAX)

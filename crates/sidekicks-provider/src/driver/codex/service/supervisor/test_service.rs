@@ -246,6 +246,7 @@ pub(crate) fn test_codex_service_dependencies(
         program,
         data_folder: folder.join("data"),
         logs_folder: folder.join("logs"),
+        personal_home: folder.join("personal"),
         additional_config_overrides: Vec::new(),
         startup_timeout: CODEX_SERVICE_STARTUP_TIMEOUT,
         dispatches_hook_mode: TEST_DISPATCHES_HOOK_MODE,

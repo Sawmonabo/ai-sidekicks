@@ -63,6 +63,7 @@ use crate::provider_session::resumed_runs::ResumedRunsIngress;
 
 pub mod controls;
 pub mod errors;
+mod provider_missing;
 pub mod resume;
 pub mod resumed_runs;
 #[cfg(any(test, feature = "test-support"))]
@@ -71,8 +72,8 @@ pub mod test_opening;
 mod tests;
 
 /// The statements the provider sessions' reads prepare: a session's state, its runs, their
-/// bindings, its mode, its level and its kept schedules.
-pub const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 6;
+/// bindings, its mode, its level, its kept schedules and its place.
+pub const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 7;
 
 /// What a session's provider session opens with, composed from the session's lead as its log
 /// stands now.
@@ -233,7 +234,8 @@ impl ProviderSessions {
     /// [`ProviderSessionError::BeingDeleted`] for a closed session, with nothing spawned, with
     /// [`ProviderSessionError::ResumeRefused`] for a resume the provider refused, and as the
     /// composition, the driver or a binding's write fails, with no binding left for a create that
-    /// failed.
+    /// failed. A start whose provider no driver answers, or is not installed where the session
+    /// runs, posts the session's `providerMissing` notice before it fails.
     pub(crate) async fn open(
         &self,
         session_id: SessionId,
@@ -391,7 +393,14 @@ impl ProviderSessions {
         } = opening;
         // A mode moved before the first process is the one it opens in.
         create_params.mode = self.read_mode(session_id).await?;
-        let driver = self.deps.providers.lookup(&provider)?;
+        let driver = match self.deps.providers.lookup(&provider) {
+            Ok(driver) => driver,
+            Err(refusal) => {
+                return Err(self
+                    .answer_failed_start(session_id, &provider, refusal.into())
+                    .await);
+            }
+        };
         let contract_version = self
             .deps
             .providers
@@ -418,7 +427,9 @@ impl ProviderSessions {
             // A run whose session never opened keeps no binding.
             Err(create) => {
                 self.deps.binding_cursors.forget_binding(&binding_id);
-                return Err(create.into());
+                return Err(self
+                    .answer_failed_start(session_id, &provider, create.into())
+                    .await);
             }
         };
         let recorded = self
@@ -596,6 +607,7 @@ impl StoredSessionPosture for ProviderSessions {
                 | ProviderSessionError::ResumedRuns { .. }
                 | ProviderSessionError::Port(_)
                 | ProviderSessionError::UnrecordedNotClosed { .. }
+                | ProviderSessionError::ProviderMissingNotPosted { .. }
                 | ProviderSessionError::Store(_)
                 | ProviderSessionError::GitFolder { .. }
                 | ProviderSessionError::LevelNotStored { .. }
