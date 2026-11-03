@@ -22,16 +22,27 @@ enum RemovalRefusal {
 }
 
 // One place's items by service and account, with the one account whose removal it refuses and
-// how.
+// how, and the one account whose write it refuses.
 #[derive(Clone, Default)]
 struct PlaceItems {
     items: Arc<Mutex<BTreeMap<(&'static str, String), String>>>,
     refused_removal: Option<(&'static str, RemovalRefusal)>,
+    refused_write: Option<&'static str>,
 }
 
 impl PlaceItems {
     fn values(&self) -> BTreeMap<(&'static str, String), String> {
         self.items.lock().expect("the items are readable").clone()
+    }
+
+    // The place holding `value-<account>` for each of `accounts` under `service`.
+    fn holding(&self, service: &'static str, accounts: &[&str]) -> &Self {
+        let mut items = self.items.lock().expect("the items are readable");
+        for account in accounts {
+            items.insert((service, (*account).to_owned()), format!("value-{account}"));
+        }
+        drop(items);
+        self
     }
 
     fn keychain(&self, service: KeychainService) -> Box<dyn SecretKeychain> {
@@ -60,6 +71,13 @@ impl SecretKeychain for ServiceItems {
         account: &'call str,
         value: &'call SecretString,
     ) -> BoxFuture<'call, Result<(), KeychainRefusal>> {
+        if self.place.refused_write == Some(account) {
+            return Box::pin(async {
+                Err(KeychainRefusal::of_test_keychain(
+                    KeychainRefusalCause::Unavailable,
+                ))
+            });
+        }
         let key = (self.service, account.to_owned());
         self.items().insert(key, value.expose_secret().to_owned());
         Box::pin(async { Ok(()) })
@@ -130,14 +148,7 @@ async fn a_move_refused_partway_is_put_back_at_its_start(#[case] removal_refusal
         ..PlaceItems::default()
     };
     let service = KeychainService::WorkflowSecrets.as_str();
-    for account in ["first", "second"] {
-        keychain
-            .items
-            .lock()
-            .expect("the items are readable")
-            .insert((service, account.to_owned()), format!("value-{account}"));
-    }
-    let before = keychain.values();
+    let before = keychain.holding(service, &["first", "second"]).values();
     let files = PlaceItems::default();
     let from = |service| Ok(keychain.keychain(service));
     let to = |service| Ok(files.keychain(service));
@@ -157,5 +168,50 @@ async fn a_move_refused_partway_is_put_back_at_its_start(#[case] removal_refusal
         !stopped.refusal.reason().contains("put back"),
         "{}",
         stopped.refusal.reason()
+    );
+}
+
+// The same move whose first item, deleted from the keychain, cannot be written back there: its
+// copy in the files, the only one left, stays, and the record still names the move, which the next
+// start finishes. Killed by the copy of an item not written back deleted all the same.
+#[tokio::test]
+async fn a_copy_whose_item_cannot_be_written_back_stays_with_the_move_recorded() {
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let path = record_path(folder.path());
+    let start = PlaceRecord::settled(SecretsPlace::OperatingSystem);
+    write_record(&path, &start)
+        .await
+        .expect("the test writes the record");
+    let keychain = PlaceItems {
+        refused_removal: Some(("second", RemovalRefusal::BeforeDelete)),
+        refused_write: Some("first"),
+        ..PlaceItems::default()
+    };
+    let service = KeychainService::WorkflowSecrets.as_str();
+    keychain.holding(service, &["first", "second"]);
+    let files = PlaceItems::default();
+    let from = |service| Ok(keychain.keychain(service));
+    let to = |service| Ok(files.keychain(service));
+
+    let stopped = move_items(&path, start, SecretsPlace::LoggedOutServiceFile, &from, &to)
+        .await
+        .expect_err("the refused delete stops the move");
+
+    let moving = PlaceRecord::moving(
+        SecretsPlace::OperatingSystem,
+        SecretsPlace::LoggedOutServiceFile,
+    );
+    assert_eq!(stopped.record, moving);
+    assert_eq!(
+        read_place_record(&path).expect("the record reads"),
+        Some(moving)
+    );
+    assert_eq!(
+        files.values().into_keys().collect::<Vec<_>>(),
+        [(service, "first".to_owned())]
+    );
+    assert_eq!(
+        keychain.values().into_keys().collect::<Vec<_>>(),
+        [(service, "second".to_owned())]
     );
 }
