@@ -168,8 +168,9 @@ pub(crate) enum ClaudeSpawnLegsError {
 /// Builds the legs every spawn path starts a process from, offering no callback tools and
 /// installing no registry: the account home's retention set, git kept from asking on a terminal,
 /// a command channel's variables where one opened, and the keys that continue an interrupted turn,
-/// with the request's words where it gives them, where the request asks it. Fails when the retention cannot be written, the curated credential
-/// list cannot be resolved or the environment cannot be built.
+/// with the request's words where it gives them, where the request asks it. Fails when the
+/// retention cannot be written, the curated credential list cannot be resolved or the environment
+/// cannot be built.
 pub(crate) async fn build_claude_spawn_bound_legs(
     request: ClaudeSpawnLegsRequest,
     services: &ClaudeSpawnLegServices<'_>,

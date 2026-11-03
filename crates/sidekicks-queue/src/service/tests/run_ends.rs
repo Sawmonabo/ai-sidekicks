@@ -4,7 +4,8 @@
 //! queue's stop waiting for a start a run's end made meanwhile and the hand that start's drain made
 //! after it; a lead running before its session's process opened, which is handed nothing; a lead's
 //! messages withheld only while it waits on an ask of its own, and handed when it runs again; and
-//! a lead whose continue after an orphaned answer failed, moved back to its wait.
+//! a lead whose continue after an orphaned answer failed, moved back to its wait, or left running
+//! where only the hand after it failed.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -416,6 +417,52 @@ async fn a_lead_whose_continue_failed_waits_again() {
         .expect("the continue's task ends");
 
     assert_eq!(fixture.run_state(run_id), "waitingForApproval");
+    let halted = lock(&fixture.halted_runs.0).clone();
+    assert_eq!(
+        halted,
+        [(
+            fixture.session_id,
+            DaemonRecoveryHaltedRun {
+                run_id,
+                recovery_condition: RecoveryCondition::RecoveryNeeded,
+                failure_category: Some(RunFailureCategory::LocalPersistenceFailure),
+            }
+        )]
+    );
+}
+
+// A lead whose continue resumed, but whose waiting messages could not be handed after, stays
+// running as the provider runs it, and is halted in the recovery status as the daemon's own
+// failure. Killed by the failed hand moving the lead back to its wait, and by its halt dropped.
+#[tokio::test]
+async fn a_lead_whose_hand_failed_after_its_continue_stays_running() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let run_id = fixture.insert_run("waitingForApproval");
+    fixture.set_run_state(run_id, "running");
+    let binding_id = bind_run_to_first_provider(&fixture.database, run_id);
+    let reader = fixture.database.reader();
+    reader
+        .execute(
+            "UPDATE runtime_bindings SET resume_handle = 'conversation-1' WHERE id = ?1",
+            [binding_id.as_str()],
+        )
+        .expect("the test gives the run's binding a conversation");
+    // The hand reads the waiting messages first, so with their table gone it fails.
+    reader
+        .execute_batch("DROP TABLE queue_items")
+        .expect("the test drops the waiting messages' table");
+
+    fixture.queue.continue_after_answer(
+        fixture.session_id,
+        run_id,
+        RunStateEntry::WaitingForApproval,
+    );
+    timeout(WAIT, fixture.queue.stop())
+        .await
+        .expect("the continue's task ends");
+
+    assert_eq!(fixture.run_state(run_id), "running");
     let halted = lock(&fixture.halted_runs.0).clone();
     assert_eq!(
         halted,
