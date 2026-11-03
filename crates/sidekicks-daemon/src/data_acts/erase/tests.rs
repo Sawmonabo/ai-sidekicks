@@ -5,6 +5,9 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use secrecy::SecretString;
+use sidekicks_contracts::daemon::data::{
+    DaemonDataEraseResponse, DataEraseSignOutFailure, DataEraseSignedInAccount,
+};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::CredentialStore;
 use sidekicks_provider::account::credential_home::HomeSignOutError;
@@ -25,19 +28,24 @@ fn record(calls: &CallLog, call: String) {
     lock(calls).push(call);
 }
 
+fn signed_in_account() -> ProviderAccountId {
+    ProviderAccountId::new("account-1".to_owned()).expect("a test account id")
+}
+
 fn write_file(path: &Path) {
     fs::create_dir_all(path.parent().expect("the file has a folder")).expect("folder made");
     fs::write(path, "kept").expect("the file is written");
 }
 
-// The erase runs in its order: the work stops while the data folder is whole, the provider
-// accounts sign out in their homes while the folder and the keychain are whole, each provider's
-// services end, the keychain's items go before the data folder closes, and the process ends
-// last; the data folder goes but for an earlier backup, and a project folder is untouched. An
-// account that does not sign out stops nothing. A second erase sent while it stops the work is
-// refused and starts nothing. Killed by a delete before the stop, by the sign-out not handed to
-// the work stop or run after the services end or the folder goes, by an erase that stops on an
-// account left signed in, by items deleted after the folder, by a provider service ended as for a
+// The erase runs in its order: the provider accounts sign out in their homes while the folder
+// and the keychain are whole, and only then does the erase answer, naming the account left
+// signed in; then the work stops while the data folder is whole, each provider's services end,
+// the keychain's items go before the data folder closes, and the process ends last; the data
+// folder goes but for an earlier backup, and a project folder is untouched. An account that does
+// not sign out stops nothing. A second erase sent while the accounts sign out is refused and
+// starts nothing. Killed by the sign-out moved after the answer or after the work stops, by the
+// account left signed in missing from the answer, by an erase that stops on that account, by a
+// delete before the stop, by items deleted after the folder, by a provider service ended as for a
 // restart, by a project folder or a backup deleted, by a second erase let run beside the first,
 // and by a second erase answered as the first.
 #[tokio::test]
@@ -92,25 +100,18 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     );
     let (stop_data, sign_out_data, end_signal) = (data.clone(), data.clone(), Arc::clone(&ended));
     let sign_out_credentials = credentials.clone();
-    // The work stops only once the gate opens, so a second erase arrives while the first runs.
+    let sign_out_signal = Arc::new(Notify::new());
+    let sign_out_started = Arc::clone(&sign_out_signal);
+    // The sign-outs end only once the gate opens, so a second erase arrives while the first runs.
     let (gate, gate_open) = watch::channel(false);
     let erase = Arc::new(DataErase::new(DataEraseDeps {
         data_folder: data.clone(),
         secret_items,
         providers,
-        // The step given runs where the stop runs it, before the drivers' services end.
-        stop_work: Arc::new(move |before_drivers_end| {
+        stop_work: Arc::new(move || {
             let whole = stop_data.join("daemon.db").exists();
             record(&stop_calls, format!("work stops (folder whole: {whole})"));
-            let mut gate_open = gate_open.clone();
-            async move {
-                gate_open
-                    .wait_for(|is_open| *is_open)
-                    .await
-                    .expect("the gate stays while the test runs");
-                before_drivers_end().await;
-            }
-            .boxed()
+            async {}.boxed()
         }),
         sign_out_accounts: Arc::new(move || {
             let whole = sign_out_data.join("accounts").exists();
@@ -122,9 +123,16 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
                 &sign_out_calls,
                 format!("accounts sign out (folder whole: {whole}, item held: {held})"),
             );
-            let unsigned =
-                ProviderAccountId::new("account-1".to_owned()).expect("a test account id");
-            async move { Ok(vec![(unsigned, HomeSignOutError::Overran)]) }.boxed()
+            sign_out_started.notify_one();
+            let mut gate_open = gate_open.clone();
+            async move {
+                gate_open
+                    .wait_for(|is_open| *is_open)
+                    .await
+                    .expect("the gate stays while the test runs");
+                Ok(vec![(signed_in_account(), HomeSignOutError::Overran)])
+            }
+            .boxed()
         }),
         close_data_folder: Arc::new(move || {
             let held = credentials
@@ -140,13 +148,39 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
         }),
     }));
 
-    erase.begin().await.expect("the keychain can be emptied");
-    tokio::task::yield_now().await;
+    let first = tokio::spawn({
+        let erase = Arc::clone(&erase);
+        async move { erase.begin().await }
+    });
+    sign_out_signal.notified().await;
     assert!(matches!(
         erase.begin().await,
         Err(DataEraseRefusal::Running)
     ));
+    assert!(
+        !first.is_finished(),
+        "the erase answers once the sign-outs end"
+    );
+    assert_eq!(
+        lock(&calls).len(),
+        1,
+        "nothing but the sign-outs runs before the answer"
+    );
     gate.send_replace(true);
+    let answer = first
+        .await
+        .expect("the erase's call ends")
+        .expect("the keychain can be emptied");
+    assert_eq!(
+        answer,
+        DaemonDataEraseResponse {
+            signed_in_accounts: vec![DataEraseSignedInAccount {
+                account_id: signed_in_account(),
+                cause: DataEraseSignOutFailure::TimedOut,
+            }],
+            is_account_list_unread: false,
+        }
+    );
     tokio::time::timeout(Duration::from_secs(10), ended.notified())
         .await
         .expect("the erase ends the process");
@@ -154,8 +188,8 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     assert_eq!(
         *lock(&calls),
         [
-            "work stops (folder whole: true)".to_owned(),
             "accounts sign out (folder whole: true, item held: true)".to_owned(),
+            "work stops (folder whole: true)".to_owned(),
             format!("provider services end ({:?})", DaemonStopIntent::Stop),
             "folder closes (item held: false)".to_owned(),
             "process ends".to_owned(),

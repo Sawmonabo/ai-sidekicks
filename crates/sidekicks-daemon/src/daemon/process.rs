@@ -755,13 +755,8 @@ impl DaemonProcess {
     // Releases what a failed start took, in the stop's order, keeping each failure beside `error`.
     async fn release(mut self, error: DaemonStartError) -> DaemonStartFailure {
         let release_started = Instant::now();
-        let mut failures = stop_work(
-            &mut self,
-            DaemonStopIntent::Stop,
-            DAEMON_STOP_DRAIN_BOUND,
-            None,
-        )
-        .await;
+        let mut failures =
+            stop_work(&mut self, DaemonStopIntent::Stop, DAEMON_STOP_DRAIN_BOUND).await;
         failures.extend(close_data_folder(&mut self).await);
         DaemonStartFailure {
             failures: Box::new(CleanupFailures::new(error, failures, START_OPERATION)),

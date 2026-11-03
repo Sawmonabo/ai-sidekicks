@@ -1,7 +1,8 @@
 //! The data verbs Settings › Runtime and the command line send: `daemon.dataExport.start`,
-//! `.subscribe` and `.cancel` over the service's exports, and `daemon.data.erase`, refused with
-//! `daemon.data.storeUnavailable` before anything is erased when the keychain cannot be emptied
-//! and with `daemon.data.eraseRunning` while an erase runs.
+//! `.subscribe` and `.cancel` over the service's exports, and `daemon.data.erase`, which answers
+//! naming each provider account it left signed in, refused with `daemon.data.storeUnavailable`
+//! before anything is erased when the keychain cannot be emptied and with
+//! `daemon.data.eraseRunning` while an erase runs.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -86,11 +87,7 @@ pub(crate) fn register_data_methods(
     let erase = deps.erase;
     registry.register::<DaemonDataErase, _>(move |_: EmptyPayload, _context: HandlerContext| {
         let erase = Arc::clone(&erase);
-        async move {
-            erase.begin().await.map_err(erase_refusal)?;
-            Ok(EmptyPayload {})
-        }
-        .boxed()
+        async move { erase.begin().await.map_err(erase_refusal) }.boxed()
     })
 }
 
@@ -205,11 +202,11 @@ mod tests {
     const UNKNOWN_JOB: &str = "0192f0c1-7a3b-7c00-8000-0000000000ff";
 
     // The data verbs over an empty store, with a keychain the record names that does not open,
-    // and whether the erase's first step ran.
+    // and whether the erase signed an account out or stopped the work.
     struct DataVerbs {
         registry: MethodRegistry,
         data_folder: TempDir,
-        has_work_stopped: Arc<AtomicBool>,
+        has_erase_acted: Arc<AtomicBool>,
         _database: TestDatabase,
     }
 
@@ -244,19 +241,22 @@ mod tests {
             call_timeout: Duration::from_secs(5),
         })
         .expect("the system gives random bytes");
-        let has_work_stopped = Arc::new(AtomicBool::new(false));
-        let stopped = Arc::clone(&has_work_stopped);
+        let has_erase_acted = Arc::new(AtomicBool::new(false));
+        let (stopped, signed_out) = (Arc::clone(&has_erase_acted), Arc::clone(&has_erase_acted));
         let erase = Arc::new(DataErase::new(DataEraseDeps {
             data_folder: data,
             secret_items,
             providers: Arc::new(registry_of_first_provider(Arc::new(
                 MockProviderDriver::new(),
             ))),
-            stop_work: Arc::new(move |_| {
+            stop_work: Arc::new(move || {
                 stopped.store(true, Ordering::SeqCst);
                 async {}.boxed()
             }),
-            sign_out_accounts: Arc::new(|| async { Ok(Vec::new()) }.boxed()),
+            sign_out_accounts: Arc::new(move || {
+                signed_out.store(true, Ordering::SeqCst);
+                async { Ok(Vec::new()) }.boxed()
+            }),
             close_data_folder: Arc::new(|| async {}.boxed()),
             end_process: Arc::new(|| {}),
         }));
@@ -266,7 +266,7 @@ mod tests {
         DataVerbs {
             registry: builder.freeze(),
             data_folder,
-            has_work_stopped,
+            has_erase_acted,
             _database: database,
         }
     }
@@ -279,8 +279,9 @@ mod tests {
     }
 
     // An erase the keychain cannot carry out is refused with `daemon.data.storeUnavailable`,
-    // naming its cause, before anything stops or goes. Killed by an erase that starts before the
-    // keychain check, and by the refusal answered under another code.
+    // naming its cause, before any account signs out and before anything stops or goes. Killed by
+    // an erase or a sign-out that starts before the keychain check, and by the refusal answered
+    // under another code.
     #[tokio::test]
     async fn an_erase_the_keychain_refuses_answers_store_unavailable_and_erases_nothing() {
         let verbs = data_verbs().await;
@@ -298,7 +299,7 @@ mod tests {
             "unavailable"
         );
         tokio::task::yield_now().await;
-        assert!(!verbs.has_work_stopped.load(Ordering::SeqCst));
+        assert!(!verbs.has_erase_acted.load(Ordering::SeqCst));
         assert!(verbs.data_folder.path().join("daemon.db").is_file());
     }
 
