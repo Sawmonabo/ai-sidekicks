@@ -64,10 +64,10 @@ pub(super) async fn sign_out_claude_home(
         )
         .await?;
     let working_folder = compose_claude_scratch_folder(
-        &sources.data_folder.to_string_lossy(),
+        &sources.0.data_folder.to_string_lossy(),
         &folders.configuration_folder,
     );
-    run_sign_out(&sources.spawner, executable, working_folder)
+    run_sign_out(&sources.0.spawner, executable, working_folder)
         .await
         .map_err(|error| DriverError::Internal(Box::new(error)))
 }

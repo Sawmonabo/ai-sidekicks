@@ -15,7 +15,6 @@ mod window_start;
 mod memory;
 
 use std::io;
-use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, Weak};
 
 use futures::FutureExt;
@@ -25,12 +24,11 @@ use sidekicks_contracts::provider::account::record::{ProviderAccountId, Provider
 use sidekicks_contracts::provider::account::sign_in::ProviderSignInArm;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_platforms::{PathRules, Spawner};
+use sidekicks_platforms::PathRules;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
 use crate::account::credential_home::CredentialHome;
 use crate::account::registry::ProviderAccountRegistry;
-use crate::command_search::ProviderCommandSearch;
 use crate::driver::claude::rate_limit_windows::ClaudeUsageProbeModels;
 use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
 use crate::driver::claude::spawn::environment::{
@@ -50,35 +48,16 @@ use crate::driver::{
     DriverServices, HelperModeServices, ProviderAccountFolders, helper_mode_services_over,
 };
 use crate::runtime_binding::writer::RuntimeBindingWriter;
-use crate::spawn_environment::{ReservedEnvironmentNames, SessionEnvironment};
+use crate::spawn_environment::SessionEnvironment;
 use crate::spawned_version::ResolvedProviderExecutable;
 
 /// What every Claude Code process on an account's home starts from, which the running daemon's
-/// account legs and a helper mode's both hold: the spawner, the installed build, found as a
-/// session's is, and what the process's environment is composed over.
-struct ClaudeAccountProcessSources {
-    spawner: Spawner,
-    command_search: Arc<ProviderCommandSearch>,
-    home_folder: PathBuf,
-    data_folder: PathBuf,
-    base_environment: Arc<[(String, String)]>,
-    reserved_names: Arc<ReservedEnvironmentNames>,
-}
+/// account legs and a helper mode's both hold: a helper mode's bundle, which a driver's services
+/// also build, with the spawner, the installed build's search, found as a session's is, and what
+/// the process's environment is composed over.
+struct ClaudeAccountProcessSources(HelperModeServices);
 
 impl ClaudeAccountProcessSources {
-    // The sources over a helper mode's bundle, which a driver's services also build; they hold
-    // handles and do no I/O.
-    fn new(services: &HelperModeServices) -> Self {
-        Self {
-            spawner: services.spawner.clone(),
-            command_search: Arc::clone(&services.command_search),
-            home_folder: services.home_folder.clone(),
-            data_folder: services.data_folder.clone(),
-            base_environment: Arc::clone(&services.base_environment),
-            reserved_names: Arc::clone(&services.reserved_names),
-        }
-    }
-
     // The environment a process on `home` starts with, `deny_env_vars` removed, and the build it
     // names. Fails as the environment cannot be composed or the build resolved.
     async fn resolve_build_on(
@@ -87,7 +66,7 @@ impl ClaudeAccountProcessSources {
         deny_env_vars: &[&str],
     ) -> Result<ResolvedProviderExecutable, DriverError> {
         let environment = self.compose_environment_on(home, deny_env_vars)?;
-        resolve_claude_build(&self.command_search, &self.home_folder, environment).await
+        resolve_claude_build(&self.0.command_search, &self.0.home_folder, environment).await
     }
 
     // The environment a process on `home` starts with over the base environment, with no
@@ -97,14 +76,14 @@ impl ClaudeAccountProcessSources {
         home: ClaudeProcessHome<'_>,
         deny_env_vars: &[&str],
     ) -> Result<Vec<(String, String)>, DriverError> {
-        let data_folder = self.data_folder.to_string_lossy();
+        let data_folder = self.0.data_folder.to_string_lossy();
         compose_claude_process_environment(
             ClaudeProcessEnvironmentRequest {
                 session: SessionEnvironment {
-                    base: &self.base_environment,
+                    base: &self.0.base_environment,
                     every_project_rows: &[],
                     project_rows: &[],
-                    reserved_names: &self.reserved_names,
+                    reserved_names: &self.0.reserved_names,
                     rules: PathRules::NATIVE,
                 },
                 deny_env_vars,
@@ -142,7 +121,7 @@ impl ClaudeAccountLegs {
         usage_probe_models: Arc<ClaudeUsageProbeModels>,
     ) -> Self {
         Self {
-            sources: ClaudeAccountProcessSources::new(&helper_mode_services_over(services)),
+            sources: ClaudeAccountProcessSources(helper_mode_services_over(services)),
             launcher,
             usage_probe_models,
             sessions: OnceLock::new(),

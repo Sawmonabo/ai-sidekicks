@@ -510,7 +510,9 @@ pub use shell_line_command::{
 };
 pub use shell_start::{DOES_SHELL_MODE_KEEP_ITS_FOLDER, SHELL_START_CONFIRMATION};
 pub use shell_start::{ShellLaunch, ShellStart, ShellStartError, describe_start_failure};
-pub use sign_in_move::{KeychainItemRefusal, KeychainSignIn, SIGN_IN_MOVE_STEPS, SignInMoveError};
+pub use sign_in_move::{
+    CopyLeftCause, KeychainItemRefusal, KeychainSignIn, SIGN_IN_MOVE_STEPS, SignInMoveError,
+};
 #[cfg(not(target_os = "macos"))]
 pub use sign_in_move::{SignInMove, sign_in_move};
 pub use socket::connection::found_no_listener;

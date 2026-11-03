@@ -23,6 +23,7 @@ use std::time::Duration;
 
 use anyhow::Context as _;
 use sidekicks_client::daemon_ending::{DaemonEnd, DaemonEndingVerb};
+use sidekicks_client::error::ClientError;
 use sidekicks_contracts::daemon::data::DAEMON_DATA_FOLDER_NAME;
 use sidekicks_contracts::daemon::secrets_place::{
     PlaceRecord, SECRETS_MOVE_MODE, SecretsMoveDestination,
@@ -467,13 +468,21 @@ impl Takeover {
             secrets_move_arguments(SecretsMoveDestination::LoggedOutServiceFile),
         )
         .await;
-        if let Err(refusal) = moved {
-            // A refused move puts back every sign-in it moved before it answers, so only the
-            // stopped agent is started again.
-            return Err(join_put_back(
-                refusal,
-                self.restore_agent(is_service_left_stopped).await,
-            ));
+        if let Err(failure) = moved {
+            // A refused move puts back every sign-in and item it moved, and the place record,
+            // before it answers, so only the stopped agent is started again. A move that ended
+            // with no answer may have left them in the files with the record naming the move, so
+            // the move back into the login keychain finishes that move and then puts each back.
+            let is_refused_by_mode = matches!(
+                failure.downcast_ref::<ClientError>(),
+                Some(ClientError::Remote(_))
+            );
+            let put_back = if is_refused_by_mode {
+                self.restore_agent(is_service_left_stopped).await
+            } else {
+                self.put_back(is_service_left_stopped).await
+            };
+            return Err(join_put_back(failure, put_back));
         }
         if self.owner != ServiceOwner::None {
             let registration = self.registration;

@@ -26,7 +26,7 @@ pub(super) async fn read_claude_token_status(
     token: &SecretString,
 ) -> Result<Option<ProviderAuthMode>, DriverError> {
     run_in_read_folder(
-        &legs.sources.data_folder,
+        &legs.sources.0.data_folder,
         &CLAUDE_TOKEN_STATUS_FOLDER,
         async |folder| {
             let folders = ClaudeAccountFolders::from(folders);
