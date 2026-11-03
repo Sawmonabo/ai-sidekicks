@@ -231,10 +231,10 @@ impl CommandLineFills {
     /// variable's reference in that shell's form for the fill's place: the bash reading places it
     /// for a POSIX shell and cmd.exe, the PowerShell reading for PowerShell and the csh scan for
     /// csh, and fish takes `"$V"` everywhere; under cmd.exe the author's `^` and `!` are escaped
-    /// where delayed expansion would read them, and there an author's `%…%` reference to a
-    /// variable `environment` defines is written in its delayed form `!…!`; `environment` is the
-    /// launch's names and values, which only cmd.exe reads, its names compared as Windows does,
-    /// ignoring case. Fails with the first fill the reading refuses. Runs inside one read of the
+    /// where delayed expansion would read them, and an author's `%…%` reference to a variable
+    /// `environment` defines is written so the command gets the value the author's line gives it;
+    /// `environment` is the launch's names and values, which only cmd.exe reads, its names
+    /// compared as Windows does, ignoring case. Fails with the first fill the reading refuses. Runs inside one read of the
     /// reading bound.
     pub fn fill_for_launch(
         &self,
@@ -420,8 +420,14 @@ mod tests {
     const LIMIT: usize = 4_096;
 
     // A cmd launch's environment: names spelled in another case than the lines spell them, a
-    // value holding a `^`, one holding a `!` and one a lone `"`.
-    const CMD_ENVIRONMENT: &[(&str, &str)] = &[("Target", "C:\\a^b"), ("Bang", "a!b"), ("q", "\"")];
+    // value holding a `^`, one holding a `!`, one a lone `"` and one whose `^^` and `!` cmd.exe's
+    // second phase reads as a `^` and a `!`.
+    const CMD_ENVIRONMENT: &[(&str, &str)] = &[
+        ("Target", "C:\\a^b"),
+        ("Bang", "a!b"),
+        ("q", "\""),
+        ("Carets", "a^^b!"),
+    ];
 
     // The fills of a command step's line, written as its param holds it after the `=`.
     fn fills_of(line: &str) -> CommandLineFills {
@@ -697,14 +703,15 @@ mod tests {
         );
     }
 
-    // In a piece delayed expansion reads again, a `%…%` reference to a variable the launch's
-    // environment defines, its substring and substitution forms included, is written in its
-    // delayed form, escaped outside quotes for the second phase, so its value keeps its `^` and
-    // `!`; an undefined one stays as written, and the first reading goes on from after its first
-    // `%`, so a defined name can start at its second. A value is read as the line's own text, so
-    // one that cmd.exe reads as an escape or a quote keeps its reference as written, and a piece
-    // holding a variable whose value has a `!` is read again; a redirection's target without a `!`
-    // keeps a defined name as written.
+    // A `%…%` reference to a variable the launch's environment defines, its substring and
+    // substitution forms included, hands the command the value the author's line gives it, read
+    // as the line's own text: as written where delayed expansion leaves that value whole, as an
+    // unquoted `C:\a^b` that cmd.exe's second phase reads as `C:\ab`, a value opening quotes or
+    // a target without a `!`; in its delayed form, escaped outside quotes for the second phase,
+    // where the value reads as plain text in one piece read again; else as the value the second
+    // phase reads, behind the carets delayed expansion removes. An undefined one stays as
+    // written, and the first phase goes on from after its first `%`, so a defined name can start
+    // at its second; a piece holding a variable whose value has a `!` is read again.
     #[rstest]
     #[case::a_defined_name(
         "copy {{ x }} \"%TARGET%\"",
@@ -718,13 +725,21 @@ mod tests {
         "copy {{ x }} %SOURCE%TARGET%",
         "copy \"!SIDEKICKS_VALUE_1!\" %SOURCE%TARGET%"
     )]
+    #[case::an_unquoted_name_whose_value_loses_its_caret(
+        "copy {{ x }} %TARGET%",
+        "copy \"!SIDEKICKS_VALUE_1!\" %TARGET%"
+    )]
+    #[case::a_value_keeping_a_caret_after_an_undefined_name(
+        "copy {{ x }} %SOURCE%CARETS%",
+        "copy \"!SIDEKICKS_VALUE_1!\" %SOURCEa^^^^b^^!"
+    )]
     #[case::a_substring_form(
-        "copy {{ x }} \"%TARGET:~0,4%\"",
-        "copy \"!SIDEKICKS_VALUE_1!\" \"!TARGET:~0,4!\""
+        "copy {{ x }} \"%TARGET:~0,5%\"",
+        "copy \"!SIDEKICKS_VALUE_1!\" \"!TARGET:~0,5!\""
     )]
     #[case::a_substitution_form_outside_quotes(
-        "copy {{ x }} %TARGET:^=+%",
-        "copy \"!SIDEKICKS_VALUE_1!\" !TARGET:^^=+!"
+        "copy {{ x }} %BANG:^=+%",
+        "copy \"!SIDEKICKS_VALUE_1!\" !BANG:^^=+!"
     )]
     #[case::a_value_holding_a_mark(
         "echo {{ x }} & echo \"^a\" %BANG%",

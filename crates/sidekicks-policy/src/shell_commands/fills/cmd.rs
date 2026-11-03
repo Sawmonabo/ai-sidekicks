@@ -135,10 +135,8 @@ enum Segment<'line> {
 /// written, since delayed expansion skips it. The ranges in `references`, the fills' `!V!`
 /// references in line order, stay as they are. An author's `%…%` reference to a variable
 /// `environment` defines, its `~` substring and `=` substitution forms included, is read as the
-/// value the first phase sets in; in a piece read again it is written in its delayed form `!…!`
-/// where that value reads as plain text in one piece, so delayed expansion hands it over
-/// unscanned, and as written where a delayed form would change how the second phase reads the
-/// line.
+/// value the first phase sets in, and written so the command gets the value the author's line
+/// gives it.
 pub(super) fn keep_through_delayed_expansion(
     line: &str,
     references: &[Range<usize>],
@@ -413,28 +411,44 @@ fn delayed_escape(read: &ReadCharacter) -> &'static str {
 }
 
 /// Pushes `written`, an author's reference to a defined variable whose value the second phase
-/// reads as `value`: in a piece delayed expansion reads again, in its delayed form where the value
-/// reads as plain text in that one piece, so delayed expansion hands it over unscanned; as written
-/// elsewhere, since a delayed form would change how the second phase reads the line.
+/// reads as `value`, so the command gets the value the author's line gives it: as written where
+/// delayed expansion removes no `^` and pairs no `!` of the value; else in its delayed form `!…!`
+/// where the value reads as plain text in one piece, which delayed expansion hands over
+/// unscanned; else as the value itself, behind the carets that keep it through delayed
+/// expansion. A value holding a `%` or a line break, which the first phase would read again,
+/// stays as written.
 fn push_variable(
     kept: &mut String,
     written: &str,
     value: &[&ReadCharacter],
     reading: &LineReading,
 ) {
+    if value
+        .iter()
+        .all(|read| !reading.is_read_again(read) || delayed_escape(read).is_empty())
+    {
+        kept.push_str(written);
+        return;
+    }
     let piece = value.first().and_then(|read| read.piece);
-    let is_one_plain_piece = value
-        .first()
-        .is_some_and(|read| reading.is_read_again(read))
-        && value
-            .iter()
-            .all(|read| read.is_plain && read.piece == piece);
     let is_quoted = value
         .first()
         .is_some_and(|read| read.reading == CharacterReading::Quoted);
-    match delayed_form(written, is_quoted) {
-        Some(delayed) if is_one_plain_piece => kept.push_str(&delayed),
-        Some(_) | None => kept.push_str(written),
+    if value
+        .iter()
+        .all(|read| read.is_plain && read.piece == piece)
+        && let Some(delayed) = delayed_form(written, is_quoted)
+    {
+        kept.push_str(&delayed);
+    } else if value
+        .iter()
+        .any(|read| matches!(read.character, '%' | '\n' | '\r'))
+    {
+        kept.push_str(written);
+    } else {
+        for read in value {
+            push_kept(kept, read, reading);
+        }
     }
 }
 
