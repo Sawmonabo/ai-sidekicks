@@ -17,8 +17,8 @@ pub enum CloneOpenFileError {
     /// clones.
     #[error("the clone was refused: {0}")]
     Refused(CloneRefusal),
-    /// The clone failed for any other reason, an entry already at the path, a missing folder or a
-    /// source that is not a regular file among them.
+    /// The clone failed for any other reason, an entry already at the path or a missing folder
+    /// among them.
     #[error("the clone failed")]
     Failed(#[source] io::Error),
 }
@@ -32,6 +32,8 @@ const CLONING: &str = "cloning the file";
 /// another volume or the volume makes no clones, else with [`CloneOpenFileError::Failed`] holding
 /// the clone's error, of its own kind, wrapping the removal's failure too when the clone was made
 /// (as before setting its permissions failed) and could not be removed, a refused clone among them.
+/// `source` is a regular file: on Linux and Windows the clone answers any other kind of source
+/// with `InvalidInput`, which hides an entry already at the path, so that entry would be removed.
 pub fn clone_open_file(source: &File, destination: &Path) -> Result<(), CloneOpenFileError> {
     reflink_copy::reflink_file_to_path(source, destination).map_err(|error| {
         // The entry already there is another's, so it stays.
