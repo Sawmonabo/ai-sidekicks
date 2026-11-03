@@ -34,6 +34,7 @@ use sidekicks_provider::runtime_binding::store::{
     RuntimeBindingStore, RuntimeBindingStoreError,
 };
 use sidekicks_provider::runtime_binding::writer::RuntimeBindingWriter;
+use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -82,6 +83,10 @@ pub enum RunBindingCursorError {
         /// The session.
         session_id: SessionId,
     },
+    /// The run's read after its binding's row was written failed, and removing that row failed
+    /// too, so the row stays with no cursor.
+    #[error(transparent)]
+    RowNotRemoved(Box<CleanupFailures<RunBindingCursorError, RuntimeBindingStoreError>>),
 }
 
 // One session's bindings with a cursor open, the ended runs whose cursors wait to drop, and the
@@ -200,10 +205,11 @@ impl RunBindingCursors {
 
     /// Records a binding of a run of `session_id` in the store and opens its cursor where the run
     /// stands at its log's end once the row is written, dropping the cursors of the session's runs
-    /// that have ended. Fails with [`RunBindingCursorError::RunNotHeld`] for a run no session
-    /// holds, recording nothing,
-    /// [`RunBindingCursorError::SessionClosed`] for a session that closed meanwhile, its row
-    /// recorded and no cursor opened, and with the store's or the read's failure.
+    /// that have ended. Fails with [`RunBindingCursorError::RunNotHeld`] for a run no session holds
+    /// and with the store's or the read's failure, recording nothing (a row written before the
+    /// read failed is removed, or [`RunBindingCursorError::RowNotRemoved`] says it stays), and
+    /// with [`RunBindingCursorError::SessionClosed`] for a session that closed meanwhile, its row
+    /// recorded and no cursor opened.
     pub async fn create(
         &self,
         session_id: SessionId,
@@ -214,8 +220,18 @@ impl RunBindingCursors {
         self.read_held_run(run_id).await?;
         let binding = self.store.create(input).await?;
         // Read after the write, so a rollback committed while the row was written moves the
-        // cursor into the epoch it opened.
-        let (_, standing) = self.read_held_run(run_id).await?;
+        // cursor into the epoch it opened; a failed read removes the row it would have opened on.
+        let standing = match self.read_held_run(run_id).await {
+            Ok((_, standing)) => standing,
+            Err(failure) => {
+                return Err(match self.store.delete(&binding.id).await {
+                    Ok(_) => failure,
+                    Err(removal) => RunBindingCursorError::RowNotRemoved(Box::new(
+                        CleanupFailures::new(failure, vec![removal], "recording a binding"),
+                    )),
+                });
+            }
+        };
         self.open_held(session_id, epoch_binding_of(&binding), standing)?;
         Ok(binding)
     }
