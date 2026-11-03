@@ -1,9 +1,11 @@
 //! The process at the other end of a local connection on Linux, pinned by a process descriptor the
-//! kernel recorded at the connect, and a pinned process's parent, pinned the same way, each read
-//! checked against the pinned process's descriptor, so a reused process id is never read.
+//! kernel recorded at the connect, and a pinned process's parent, pinned the same way, and the
+//! program it runs, each read checked against the pinned process's descriptor, so a reused process
+//! id is never read.
 
 use std::io::{self, ErrorKind};
 use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use interprocess::local_socket::tokio::Stream;
@@ -86,6 +88,23 @@ pub fn read_parent_process(process: &PinnedProcess) -> io::Result<ParentProcess>
     Err(io::Error::other(
         "the process's parent kept changing while it was read",
     ))
+}
+
+/// The path of the program `process` runs, read from its `exe` link, every link resolved and a
+/// program whose file was since removed or replaced marked ` (deleted)`, taken only once its
+/// descriptor still names a live process after it; `None` once `process` has ended. Fails with the
+/// system's error.
+pub fn read_program_path(process: &PinnedProcess) -> io::Result<Option<PathBuf>> {
+    let path = match std::fs::read_link(format!("/proc/{}/exe", process.id)) {
+        Ok(path) => path,
+        // An ended process, reaped or not, has no program link left.
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if descriptor_process_id(process.descriptor.as_raw_fd())?.is_none() {
+        return Ok(None);
+    }
+    Ok(Some(path))
 }
 
 /// `process`'s parent's id from its stat file, `None` once it has been reaped. The read names

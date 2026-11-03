@@ -1,9 +1,11 @@
 //! What the daemon reads of the process at the other end of a local connection, pinned so a later
-//! read names the same process: the parent and the responsible process of any pinned process, so
-//! the daemon can tell whether it, or a provider service it reaches, started that process, and
-//! whether a process is the desktop's signed client.
+//! read names the same process: the parent, the responsible process and the program of any pinned
+//! process, so the daemon can tell whether it, or a provider service it reaches, started that
+//! process, whether a process is the daemon's own program running a provider's hook, and whether a
+//! process is the desktop's signed client.
 
 use std::io;
+use std::path::PathBuf;
 
 use futures::future::BoxFuture;
 use interprocess::local_socket::tokio::Stream;
@@ -35,6 +37,13 @@ pub trait CallerProcessReader: Send + Sync {
         &self,
         process: PinnedProcess,
     ) -> BoxFuture<'_, io::Result<ResponsibleProcess>>;
+
+    /// The path of the program `process` runs, as the system names it, read only while `process`
+    /// still runs; `None` once it has ended. An error when the system cannot say.
+    fn read_program_path(
+        &self,
+        process: PinnedProcess,
+    ) -> BoxFuture<'_, io::Result<Option<PathBuf>>>;
 
     /// Whether `caller` runs the desktop's signed client helper and `responsible`, the process
     /// responsible for it, the signed app, with the status that said why not; `None` on a daemon

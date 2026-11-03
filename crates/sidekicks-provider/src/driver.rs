@@ -11,7 +11,9 @@ use secrecy::SecretString;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::EnvironmentRow;
-use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
+use sidekicks_contracts::mcp::server::config::{
+    McpDeclaredConfigMember, McpTransport, ProviderMcpDeclaration,
+};
 use sidekicks_contracts::provider::account::record::{
     CredentialGeneration, ProviderAccountId, ProviderAuthMode,
 };
@@ -19,6 +21,7 @@ use sidekicks_contracts::provider::id::{ProviderId, is_provider_id};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::voice::VoiceKind;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_ipc::domain_error::DomainError;
@@ -44,6 +47,7 @@ use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::spawn_environment::ReservedEnvironmentNames;
+use crate::tool_server_name::McpServerNameRule;
 
 pub mod attachments;
 pub mod callback_tool;
@@ -69,6 +73,8 @@ pub(crate) mod rewind;
 pub mod run_control;
 pub mod schema;
 pub mod session_control;
+pub mod session_inspector;
+pub mod session_messages;
 pub(crate) mod streamed_text;
 pub mod task_list;
 #[cfg(any(test, feature = "test-support"))]
@@ -77,6 +83,10 @@ pub(crate) mod unified_diff;
 
 /// The fixed facts a provider's driver declares about itself, the same for every installed build,
 /// account, model and session; what depends on those comes from the driver's methods.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is one independent fact a provider states about itself"
+)]
 pub struct ProviderDescriptor {
     /// The provider's id: a lowercase letter, then up to 31 lowercase letters, digits or hyphens.
     pub id: &'static str,
@@ -126,12 +136,15 @@ pub struct ProviderDescriptor {
     /// The voice kinds the provider offers, each at most once.
     #[expect(dead_code, reason = "the provider list's section reads it")]
     pub(crate) voice_kinds: &'static [VoiceKind],
-    /// The transports its tool servers are reached over.
-    #[expect(dead_code, reason = "the provider list's section reads it")]
+    /// The transports its tool servers are reached over, at least one, each once.
     pub(crate) mcp_transports: &'static [McpTransport],
-    /// The tool-server declaration members it reads beyond the shared ones.
-    #[expect(dead_code, reason = "the provider list's section reads it")]
+    /// The tool-server declaration members it reads beyond the shared ones, each once.
     pub(crate) mcp_config_members: &'static [McpDeclaredConfigMember],
+    /// Which tool-server names a person may write for it, and which it and the daemon keep.
+    pub mcp_server_names: McpServerNameRule,
+    /// Whether a project's `local` server is an entry in the person's user file that the daemon
+    /// switches on per project, since the provider keeps no servers of its own per project.
+    pub is_mcp_local_scope_emulated: bool,
     /// The most characters it takes in a skill's name, where it sets a limit of its own.
     #[expect(dead_code, reason = "the provider list's section reads it")]
     pub(crate) skill_name_max_length: Option<u64>,
@@ -211,6 +224,17 @@ impl ProviderDescriptor {
     /// The variables a Terminal pane's shell is given while `Simplify for a screen reader` is on.
     pub fn screen_reader_environment_names(&self) -> &'static [&'static str] {
         self.screen_reader_environment_names
+    }
+
+    /// The transports and declaration members the provider takes for a tool server, which a
+    /// submitted declaration is checked against.
+    pub fn mcp_declaration(&self) -> ProviderMcpDeclaration {
+        ProviderMcpDeclaration {
+            transports: UniqueList::new(self.mcp_transports.to_vec())
+                .expect("a descriptor lists at least one transport"),
+            config_members: UniqueList::new(self.mcp_config_members.to_vec())
+                .expect("a descriptor's members fit an unbounded list"),
+        }
     }
 
     /// The provider's id as the wire carries it; the table's build check holds its pattern.

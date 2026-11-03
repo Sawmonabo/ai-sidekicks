@@ -16,7 +16,9 @@ use crate::command_receipts::{CommandAcceptance, CommandOutcome};
 /// A governance mutation's receipt status: written `pending` before the provider is touched, and
 /// `committed` with the saved response in the same write as the mutation's own rows. Stored by its
 /// camelCase name.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::IntoStaticStr, strum::VariantArray)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, strum::EnumString, strum::IntoStaticStr, strum::VariantArray,
+)]
 #[strum(serialize_all = "camelCase")]
 pub(crate) enum McpMutationReceiptStatus {
     /// The intent is recorded and the mutation has not finished.
@@ -184,6 +186,22 @@ CREATE TABLE mcp_mutation_receipts (
   client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
   -- The mcp.* method the key was spent on.
   operation               TEXT NOT NULL,
+  -- The binding the mutation writes, keyed as its row is. No foreign key: a first add's row does
+  -- not exist when the receipt begins, and a committed remove's receipt outlives its binding.
+  provider                TEXT NOT NULL,
+  scope                   TEXT NOT NULL CHECK(scope IN ({scopes})),
+  scope_ref               TEXT NOT NULL DEFAULT '',
+  scope_place             TEXT NOT NULL DEFAULT '',
+  server_name             TEXT NOT NULL,
+  -- The keyed digest of the idempotency key and the request; NULL only on a row committed when
+  -- the receipt key was lost.
+  request_digest          BLOB CHECK(request_digest IS NULL OR length(request_digest) = 32),
+  -- The keyed digest of the binding's declaration before the write; NULL where it had none.
+  before_digest           BLOB CHECK(before_digest IS NULL OR length(before_digest) = 32),
+  -- The keyed digest of the declaration the write leaves; NULL for a remove.
+  after_digest            BLOB CHECK(after_digest IS NULL OR length(after_digest) = 32),
+  -- A switch's wanted state; NULL for every other mutation.
+  wanted_enabled          INTEGER CHECK(wanted_enabled IS NULL OR wanted_enabled IN (0, 1)),
   status                  TEXT NOT NULL CHECK(status IN ({receipt_statuses})),
   -- The response a retry with the same key gets back; NULL while pending. A sign-in's is saved
   -- without its sign-in address.
@@ -191,7 +209,10 @@ CREATE TABLE mcp_mutation_receipts (
   -- Committed rows older than a day are pruned on later mutation writes; a pending one is settled
   -- at start.
   created_at              TEXT NOT NULL,
-  CHECK((status = '{committed}') = (response_json IS NOT NULL))
+  CHECK((status = '{committed}') = (response_json IS NOT NULL)),
+  CHECK(request_digest IS NOT NULL OR status = '{committed}'),
+  CHECK((scope IN ({scopes_without_ref})) = (scope_ref = '')),
+  CHECK(scope IN ({scopes_with_place}) OR scope_place = '')
 ) STRICT;
 
 -- ---------------------------------------------------------------------------
@@ -333,9 +354,11 @@ mod tests {
             };
             connection
                 .execute(
-                    "INSERT INTO mcp_mutation_receipts
-                       (client_idempotency_key, operation, status, response_json, created_at)
-                     VALUES (?1, 'mcp.server.upsert', ?1, ?2, 't')",
+                    "INSERT INTO mcp_mutation_receipts (client_idempotency_key, operation,
+                       provider, scope, server_name, request_digest, status, response_json,
+                       created_at)
+                     VALUES (?1, 'mcp.server.upsert', 'provider-a', 'user', 'server',
+                       zeroblob(32), ?1, ?2, 't')",
                     params![word, response],
                 )
                 .unwrap_or_else(|error| panic!("receipt status {word} is stored: {error}"));
@@ -371,8 +394,15 @@ mod tests {
          VALUES ('provider-a', 'user', 'server', 'tool', 'manualReconcileOnly', 't', 't')"
     )]
     #[case::outsider_receipt_status(
-        "INSERT INTO mcp_mutation_receipts (client_idempotency_key, operation, status, created_at)
-         VALUES ('key-1', 'mcp.server.upsert', 'expired', 't')"
+        "INSERT INTO mcp_mutation_receipts (client_idempotency_key, operation, provider, scope,
+           server_name, request_digest, status, created_at)
+         VALUES ('key-1', 'mcp.server.upsert', 'provider-a', 'user', 'server', zeroblob(32),
+           'expired', 't')"
+    )]
+    #[case::pending_without_request_digest(
+        "INSERT INTO mcp_mutation_receipts (client_idempotency_key, operation, provider, scope,
+           server_name, status, created_at)
+         VALUES ('key-1', 'mcp.server.upsert', 'provider-a', 'user', 'server', 'pending', 't')"
     )]
     #[case::outsider_switch_scope(
         "INSERT INTO mcp_project_server_switches (provider, scope, scope_ref, server_name,

@@ -4,12 +4,14 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use rstest::rstest;
 use serde_json::json;
+use sidekicks_contracts::daemon::lifecycle::DaemonPing;
 use sidekicks_contracts::jsonrpc::negotiation::{
     CONNECTION_INITIALIZE_METHOD, CURRENT_PROTOCOL_VERSION, ConnectionInitializeResponse,
     NegotiationIncompatibleReason,
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::method::{Method, MethodDescriptor, ProcedureType};
+use sidekicks_contracts::provider::hook::PROVIDER_HOOK_CALL_METHOD;
 use sidekicks_contracts::schema::received_check;
 use sidekicks_contracts::typescript::TypeName;
 use sidekicks_contracts::wire::attachment::check_received;
@@ -57,6 +59,30 @@ impl<const IS_MUTATING: bool> Method for Probe<IS_MUTATING> {
     };
 }
 
+/// The hook method a provider's hook calls, standing in for its handler.
+struct HookProbe;
+
+impl Method for HookProbe {
+    type Params = Nothing;
+    type Result = Nothing;
+    const DESCRIPTOR: MethodDescriptor = MethodDescriptor {
+        method: PROVIDER_HOOK_CALL_METHOD,
+        ..Probe::<true>::DESCRIPTOR
+    };
+}
+
+/// The ping a quiet link's client sends, standing in for its handler.
+struct PingProbe;
+
+impl Method for PingProbe {
+    type Params = Nothing;
+    type Result = Nothing;
+    const DESCRIPTOR: MethodDescriptor = MethodDescriptor {
+        method: DaemonPing::DESCRIPTOR.method,
+        ..Probe::<false>::DESCRIPTOR
+    };
+}
+
 /// One call on the connection.
 #[derive(Clone, Copy, Debug)]
 enum Call {
@@ -64,6 +90,10 @@ enum Call {
     Handshake(Option<&'static str>, &'static str),
     Read,
     Write,
+    /// The hook method a provider's hook calls.
+    Hook,
+    /// The ping a quiet link's client sends.
+    Ping,
 }
 
 /// What the call answers.
@@ -87,6 +117,8 @@ fn request_of(call: Call) -> Request {
         }
         Call::Read => ("test.read", json!({})),
         Call::Write => ("test.write", json!({})),
+        Call::Hook => (PROVIDER_HOOK_CALL_METHOD, json!({})),
+        Call::Ping => (DaemonPing::DESCRIPTOR.method, json!({})),
     };
     request(method, Some(&params))
 }
@@ -99,7 +131,8 @@ fn admitting(admission: CallerAdmission) -> CallerAdmissionCheck {
 }
 
 /// The negotiation gate over a registry serving the handshake, or the repairing service's one when
-/// `is_repairing`, a read and a write, its callers checked by `admit_caller`.
+/// `is_repairing`, a read, a write, the hook method and the ping, its callers checked by
+/// `admit_caller`.
 fn gate_over(admit_caller: CallerAdmissionCheck, is_repairing: bool) -> NegotiationGate {
     let negotiator = ProtocolNegotiator::new(
         TOKEN.expect("the start has a token").to_owned(),
@@ -121,6 +154,12 @@ fn gate_over(admit_caller: CallerAdmissionCheck, is_repairing: bool) -> Negotiat
     builder
         .register::<Probe<true>, _>(|nothing, _context| async move { Ok(nothing) }.boxed())
         .expect("the write registers");
+    builder
+        .register::<HookProbe, _>(|nothing, _context| async move { Ok(nothing) }.boxed())
+        .expect("the hook method registers");
+    builder
+        .register::<PingProbe, _>(|nothing, _context| async move { Ok(nothing) }.boxed())
+        .expect("the ping registers");
     let registry = Arc::new(builder.freeze());
     negotiator.gate(Arc::clone(&registry) as Arc<dyn Dispatch>, registry)
 }
@@ -226,6 +265,23 @@ async fn expect_answers(gate: &NegotiationGate, is_caller_named: bool, calls: &[
     (Call::Handshake(None, CURRENT_PROTOCOL_VERSION),
         Answer::Refused(RefusalCode::AuthTokenInvalid)),
     (Call::Read, Answer::Refused(RefusalCode::AuthTokenInvalid)),
+])]
+// A provider's hook is admitted whatever token its client reads, and served its hook method and
+// the ping alone: killed by a gate that lets another call through, or that refuses the hook method
+// or the ping.
+#[case::provider_hook_with_the_token(true, CallerAdmission::ProviderHook, &[
+    (Call::Handshake(TOKEN, CURRENT_PROTOCOL_VERSION), Answer::Ack(true, None)),
+    (Call::Read, Answer::Refused(RefusalCode::AuthCallerRefused)),
+    (Call::Write, Answer::Refused(RefusalCode::AuthCallerRefused)),
+    (Call::Handshake(TOKEN, CURRENT_PROTOCOL_VERSION),
+        Answer::Refused(RefusalCode::AuthCallerRefused)),
+    (Call::Hook, Answer::Served),
+    (Call::Ping, Answer::Served),
+])]
+#[case::provider_hook_without_a_token(true, CallerAdmission::ProviderHook, &[
+    (Call::Handshake(None, CURRENT_PROTOCOL_VERSION), Answer::Ack(true, None)),
+    (Call::Read, Answer::Refused(RefusalCode::AuthCallerRefused)),
+    (Call::Hook, Answer::Served),
 ])]
 #[tokio::test]
 async fn the_gate_and_the_handshake_answer_each_connection_state(

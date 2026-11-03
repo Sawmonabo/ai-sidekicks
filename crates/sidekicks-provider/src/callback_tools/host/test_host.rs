@@ -64,7 +64,7 @@ impl TestCallbackToolHost {
 
     /// Answers `invocation` through the host's dispatch, as the spawn's provider's call is.
     pub async fn call(&self, invocation: CallbackToolInvocation) -> CallbackToolResult {
-        (self.binding.dispatcher)(invocation).await
+        (self.binding.dispatcher())(invocation).await
     }
 
     /// How many calls the executor has run.
@@ -84,7 +84,13 @@ impl CallbackToolExecutor for CountingExecutor {
         _invocation: CallbackToolInvocation,
     ) -> BoxFuture<'_, Result<CallbackToolResult, CallbackToolPortError>> {
         self.count.fetch_add(1, Ordering::SeqCst);
-        async { Ok(CallbackToolResult::Completed { output: None }) }.boxed()
+        async {
+            Ok(CallbackToolResult::Completed {
+                output: None,
+                session_links: Vec::new(),
+            })
+        }
+        .boxed()
     }
 }
 
