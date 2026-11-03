@@ -17,7 +17,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::run::state_entry::RunStateEntry;
-use sidekicks_session::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use sidekicks_session::run::state_change::{RunStateChange, RunWriteCompanions};
 
 use super::RunQueue;
 use crate::error::QueueError;
@@ -124,7 +124,7 @@ impl RunQueue {
                     expected_state: Some(RunState::Running),
                     ..RunStateChange::new(run_id, waiting)
                 },
-                RunStateChangeCompanions::default(),
+                RunWriteCompanions::default(),
             )
             .await;
         if let Err(error) = restored {
