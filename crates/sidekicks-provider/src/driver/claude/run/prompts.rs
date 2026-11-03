@@ -24,7 +24,9 @@ pub(crate) struct ClaudeSentPrompts {
     unreported: HashMap<String, UnreportedPrompt>,
     // Reported or dropped while this process lives, so a later signal for one reports nothing.
     settled_by_session: HashMap<SessionId, HashSet<String>>,
-    newest_by_session: HashMap<SessionId, String>,
+    // Each session's messages, oldest first, from the newest one taken to the newest written, so
+    // the one before a dropped newest is still known.
+    written_by_session: HashMap<SessionId, Vec<String>>,
     // Each session's messages that are no steer written since its last turn opened, oldest first:
     // a steer lands in the turn running, and Claude Code takes every message waiting into its next
     // turn, so the oldest of them opens it, as the first of a start's messages does on Codex.
@@ -41,8 +43,10 @@ impl ClaudeSentPrompts {
         message_uuid: &str,
         is_steer: bool,
     ) {
-        self.newest_by_session
-            .insert(session_id, message_uuid.to_owned());
+        self.written_by_session
+            .entry(session_id)
+            .or_default()
+            .push(message_uuid.to_owned());
         if !is_steer {
             self.unopened_by_session
                 .entry(session_id)
@@ -72,6 +76,12 @@ impl ClaudeSentPrompts {
         if !settled.insert(message_uuid.to_owned()) {
             return None;
         }
+        // Claude Code takes messages in order, so none written before this one is left to drop.
+        if let Some(written) = self.written_by_session.get_mut(&session_id)
+            && let Some(taken_at) = written.iter().position(|uuid| uuid == message_uuid)
+        {
+            written.drain(..taken_at);
+        }
         self.unreported
             .remove(message_uuid)
             .map(|prompt| prompt.run_id)
@@ -84,27 +94,23 @@ impl ClaudeSentPrompts {
         self.settle_untaken(session_id, message_uuid);
     }
 
-    /// Takes back a message Claude Code had not taken, the newest no more, settled with no report;
-    /// answers the run it was a steer into, if any.
+    /// Takes back a message Claude Code had not taken, settled with no report; answers the run it
+    /// was a steer into, if any.
     pub(crate) fn withdraw(&mut self, session_id: SessionId, message_uuid: &str) -> Option<RunId> {
-        if self
-            .newest_by_session
-            .get(&session_id)
-            .is_some_and(|newest| newest == message_uuid)
-        {
-            self.newest_by_session.remove(&session_id);
-        }
         self.settle_untaken(session_id, message_uuid)
             .and_then(|prompt| prompt.is_steer.then_some(prompt.run_id))
     }
 
-    // Settles a message Claude Code never took, so no later signal reports it and no turn opens
-    // on it; answers what was recorded at its write.
+    // Settles a message Claude Code never took, so no later signal reports it, no turn opens on it
+    // and it is never named newest; answers what was recorded at its write.
     fn settle_untaken(
         &mut self,
         session_id: SessionId,
         message_uuid: &str,
     ) -> Option<UnreportedPrompt> {
+        if let Some(written) = self.written_by_session.get_mut(&session_id) {
+            written.retain(|uuid| uuid != message_uuid);
+        }
         if let Some(unopened) = self.unopened_by_session.get_mut(&session_id) {
             unopened.retain(|uuid| uuid != message_uuid);
         }
@@ -134,13 +140,16 @@ impl ClaudeSentPrompts {
 
     /// The newest message sent to the session's process, if one is known.
     pub(crate) fn newest_for(&self, session_id: SessionId) -> Option<&str> {
-        self.newest_by_session.get(&session_id).map(String::as_str)
+        self.written_by_session
+            .get(&session_id)
+            .and_then(|written| written.last())
+            .map(String::as_str)
     }
 
     /// Forgets the session's messages, its process gone; the session's conversation file decides
     /// which of them were taken.
     pub(crate) fn forget_session(&mut self, session_id: SessionId) {
-        self.newest_by_session.remove(&session_id);
+        self.written_by_session.remove(&session_id);
         self.unopened_by_session.remove(&session_id);
         self.settled_by_session.remove(&session_id);
         self.unreported
@@ -298,5 +307,19 @@ mod tests {
             prompts.take_turn_opening(session_id).as_deref(),
             Some("real")
         );
+    }
+
+    // Kills: a dropped newest message still named newest, so a conversation cut names a message
+    // Claude Code never took as the last one it saw.
+    #[test]
+    fn a_dropped_newest_message_leaves_the_one_before_it_newest() {
+        let session_id = session();
+        let run_id = run();
+        let mut prompts = ClaudeSentPrompts::default();
+        prompts.record_written(session_id, run_id, "first", false);
+        prompts.record_written(session_id, run_id, "second", false);
+        prompts.record_dropped(session_id, "second");
+
+        assert_eq!(prompts.newest_for(session_id), Some("first"));
     }
 }
