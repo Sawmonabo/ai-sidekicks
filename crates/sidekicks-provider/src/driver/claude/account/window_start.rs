@@ -12,10 +12,10 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::mpsc;
 
+use crate::account::read_folder::run_in_read_folder;
 use crate::driver::ProviderAccountFolders;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::ClaudeAccountLegs;
-use crate::driver::claude::account::read_folder::run_in_read_folder;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::mcp::organization::has_readable_managed_mcp_file;
 use crate::driver::claude::rate_limit_windows::{
@@ -29,8 +29,8 @@ use crate::driver::claude::spawn::launch::control_only::{
     ClaudeShortProcess, ClaudeShortProcessArrival,
 };
 use crate::driver::contract::account::{
-    ProviderAccountFigures, ProviderObservation, ProviderWindowTurnLegs, TokenLimitsReading,
-    WindowTurnAnswer, WindowTurnSpend,
+    ProviderAccountFigures, ProviderObservation, ProviderTokenLimitsLegs, ProviderWindowTurnLegs,
+    TokenLimitsReading, WindowTurnAnswer, WindowTurnSpend,
 };
 use crate::driver::contract::error::DriverError;
 use crate::lenient_json::read_lenient;
@@ -74,7 +74,9 @@ impl ProviderWindowTurnLegs for ClaudeAccountLegs {
     ) -> BoxFuture<'_, Result<WindowTurnAnswer, DriverError>> {
         start_claude_window(self, provider_account_id, folders).boxed()
     }
+}
 
+impl ProviderTokenLimitsLegs for ClaudeAccountLegs {
     fn read_token_limits<'call>(
         &'call self,
         provider_account_id: &'call ProviderAccountId,
@@ -185,10 +187,13 @@ async fn run_claude_smallest_turn(
         async |folder| {
             let folders = ClaudeAccountFolders::from(folders);
             let mut executable = legs
-                .resolve_build_on(ClaudeProcessHome::AccountStore {
-                    folder,
-                    credential_store_folder: &folders.credential_store_folder,
-                })
+                .resolve_build_on(
+                    ClaudeProcessHome::AccountStore {
+                        folder,
+                        credential_store_folder: &folders.credential_store_folder,
+                    },
+                    &[],
+                )
                 .await?;
             executable
                 .environment

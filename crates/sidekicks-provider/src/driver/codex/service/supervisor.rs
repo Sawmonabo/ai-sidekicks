@@ -12,6 +12,7 @@ pub(crate) mod drain;
 pub(crate) mod events;
 mod rate_limit_readings;
 mod reconnect;
+pub(crate) mod refusals;
 pub(crate) mod routing;
 mod runner;
 pub(crate) mod start;
@@ -34,19 +35,24 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_platforms::Spawner;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+use crate::driver::ProviderAccountReader;
 use crate::driver::child_records::DaemonChildRecords;
 use crate::driver::codex::exec_relay::{CodexExecRelay, CodexExecRelayDependencies};
-use crate::driver::codex::server_requests::CodexServerRequestResponder;
+use crate::driver::codex::server_requests::{CodexServerRequestResponder, CodexTokenRefresher};
 use crate::driver::codex::service::asks::CodexServiceAsks;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::record::LastingServiceRecordFile;
 use crate::driver::codex::service::supervisor::connection_events::ServiceConnectionEvents;
 use crate::driver::codex::service::supervisor::drain::LastingServiceDrains;
 use crate::driver::codex::service::supervisor::events::CodexServiceEvents;
+use crate::driver::codex::service::supervisor::refusals::{
+    crash_loop_refusal, shut_down_refusal, start_failure,
+};
 use crate::driver::codex::service::supervisor::routing::{
     CODEX_CONFIG_WARNING_METHOD, CodexServiceRouting,
 };
@@ -138,6 +144,8 @@ pub(crate) struct CodexServiceDependencies {
     pub(crate) exec_relay: Arc<CodexExecRelayDependencies>,
     /// The account the switching service carries and how its tokens are found and handed.
     pub(crate) switching: Arc<CodexSwitchingAccount>,
+    /// The accounts reader, which an API-key account's key is read through at each start.
+    pub(crate) provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
 }
 
 /// The socket one service listens on.
@@ -342,15 +350,17 @@ impl CodexService {
     }
 
     /// The account the service runs on: its home's, or the one the switching service carries;
-    /// `None` on the person's own folder, the capability read's, an MCP sign-in's, and a switching
-    /// service handed no account yet.
+    /// `None` on the person's own folder, the daemon's own folders for one read or sign-in, and a
+    /// switching service handed no account yet.
     pub(crate) fn provider_account_id(&self) -> Option<ProviderAccountId> {
         match &self.home.kind {
             CodexHomeKind::Switching => self.dependencies.switching.carried_account(),
             CodexHomeKind::Account(_)
+            | CodexHomeKind::ApiKeyAccount(_)
             | CodexHomeKind::PersonalFolder
             | CodexHomeKind::CapabilityRead
-            | CodexHomeKind::McpSignIn => self.home.provider_account_id().cloned(),
+            | CodexHomeKind::McpSignIn
+            | CodexHomeKind::TokenStatusRead => self.home.provider_account_id().cloned(),
         }
     }
 
@@ -397,10 +407,7 @@ impl CodexService {
                 match current {
                     CodexServiceAvailability::Up => return Ok(()),
                     CodexServiceAvailability::StartFailed(failure) => {
-                        return Err(CodexError::Transport {
-                            detail: "The Codex service could not be started.".to_owned(),
-                            cause: Some(Box::new(SharedCodexError(failure))),
-                        });
+                        return Err(start_failure(failure));
                     }
                     CodexServiceAvailability::CrashLoop => return Err(crash_loop_refusal()),
                     CodexServiceAvailability::ShutDown => return Err(shut_down_refusal()),
@@ -489,15 +496,44 @@ impl CodexService {
         let (connection, _reply) = open_codex_connection(
             sender,
             receiver,
-            CodexConnectionHandlers {
-                events,
-                responder: None,
-            },
+            self.detached_connection_handlers(events),
             CODEX_CLIENT_NAME,
             self.dependencies.startup_timeout,
         )
         .await?;
         Ok(connection)
+    }
+
+    /// The handlers of a connection on the service that belongs to no session: its notifications
+    /// and close to `events`, no ask routed, and the switching service's token refreshes answered
+    /// as on its main connection, since Codex sends one to every connection and takes the first
+    /// answer.
+    pub(crate) fn detached_connection_handlers(
+        &self,
+        events: Arc<dyn CodexConnectionEvents>,
+    ) -> CodexConnectionHandlers {
+        CodexConnectionHandlers {
+            events,
+            responder: None,
+            token_refresher: self.token_refresher(),
+        }
+    }
+
+    // The answer to the service's token refreshes: the switching account's renewer on the
+    // switching service, which runs on handed tokens; none elsewhere, where a refresh answers
+    // `-32601`.
+    fn token_refresher(&self) -> Option<Arc<dyn CodexTokenRefresher>> {
+        match &self.home.kind {
+            CodexHomeKind::Switching => {
+                Some(Arc::clone(&self.dependencies.switching) as Arc<dyn CodexTokenRefresher>)
+            }
+            CodexHomeKind::Account(_)
+            | CodexHomeKind::ApiKeyAccount(_)
+            | CodexHomeKind::PersonalFolder
+            | CodexHomeKind::CapabilityRead
+            | CodexHomeKind::McpSignIn
+            | CodexHomeKind::TokenStatusRead => None,
+        }
     }
 
     /// Whether the service is up or on its way back up: starting, reconnecting or restarting.
@@ -759,6 +795,7 @@ impl CodexService {
             }),
             responder: Some(Arc::new(CodexServiceAsks::new(Arc::downgrade(self)))
                 as Arc<dyn CodexServerRequestResponder>),
+            token_refresher: self.token_refresher(),
         }
     }
 
@@ -832,25 +869,5 @@ impl CodexService {
         let mut availability = self.availability.subscribe();
         // The sender lives in the service, which outlives this wait.
         let _reached = availability.wait_for(is_reached).await;
-    }
-}
-
-/// A start's failure shared by every caller that waited on it.
-#[derive(Debug, thiserror::Error)]
-#[error(transparent)]
-struct SharedCodexError(Arc<CodexError>);
-
-fn crash_loop_refusal() -> CodexError {
-    CodexError::Transport {
-        detail: "The Codex service ended too many times in a short window and was not restarted."
-            .to_owned(),
-        cause: None,
-    }
-}
-
-fn shut_down_refusal() -> CodexError {
-    CodexError::Transport {
-        detail: "The Codex service was shut down with the daemon.".to_owned(),
-        cause: None,
     }
 }

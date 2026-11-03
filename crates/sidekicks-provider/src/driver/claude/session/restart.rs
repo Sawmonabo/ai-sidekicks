@@ -551,8 +551,8 @@ impl ClaudeSessionRestarts {
         // binding it records copies the leg's.
         leg.move_to(provider_account_id.clone()).await?;
         live.move_admitted_account(provider_account_id);
-        // The relaunch resumes on the build installed now, so a build move that waited is done.
-        lock(&self.table).pending_build_moves.remove(&session_id);
+        // The relaunch resumes on the build installed now, so a build move that waited lands here.
+        let build_change = lock(&self.table).pending_build_moves.remove(&session_id);
         let Some(answer) = self.relaunch(live, true).await else {
             live.move_admitted_account(previous.clone());
             leg.move_to(previous).await?;
@@ -576,6 +576,11 @@ impl ClaudeSessionRestarts {
             }
         };
         self.record_relaunch(session_id, answer).await?;
+        if relaunched.is_ok()
+            && let Some(change) = &build_change
+        {
+            self.post_build_update(session_id, change).await;
+        }
         relaunched
     }
 
@@ -641,12 +646,18 @@ impl ClaudeSessionRestarts {
             self.report_gone(session_id);
         }
         self.record_relaunch(session_id, answer).await?;
-        if is_resumed
-            && let (Ok(from_version), Ok(to_version)) = (
-                FreeFormText::new(change.from_version.clone()),
-                FreeFormText::new(change.to_version.clone()),
-            )
-        {
+        if is_resumed {
+            self.post_build_update(session_id, change).await;
+        }
+        Ok(())
+    }
+
+    // Tells the person the session's process now runs on `change`'s new build.
+    async fn post_build_update(&self, session_id: SessionId, change: &ProviderBuildChange) {
+        if let (Ok(from_version), Ok(to_version)) = (
+            FreeFormText::new(change.from_version.clone()),
+            FreeFormText::new(change.to_version.clone()),
+        ) {
             self.post_notice(
                 session_id,
                 SessionNotice::ProviderUpdated {
@@ -658,7 +669,6 @@ impl ClaudeSessionRestarts {
             )
             .await;
         }
-        Ok(())
     }
 
     /// Starts `live`'s stop for the idle sleep and answers the resume that wakes it, which brings

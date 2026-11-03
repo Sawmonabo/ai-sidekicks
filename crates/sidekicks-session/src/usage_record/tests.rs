@@ -429,7 +429,7 @@ async fn a_run_stops_once_past_its_own_count_and_a_helper_stops_alone() {
 
     // A side question's 5,000 is the session's, counted toward no run.
     harness
-        .record(MeteredUsageOwner::SideQuestion, None, 4_000, 1_000, 0)
+        .record(MeteredUsageOwner::SessionCopy, None, 4_000, 1_000, 0)
         .await
         .expect("the side question's reading is recorded");
     assert_eq!(

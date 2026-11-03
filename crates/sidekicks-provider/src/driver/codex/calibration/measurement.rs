@@ -376,6 +376,7 @@ async fn ask_one_turn(
         CodexConnectionHandlers {
             events,
             responder: None,
+            token_refresher: None,
         },
         CODEX_CLIENT_NAME,
         dependencies.startup_timeout,

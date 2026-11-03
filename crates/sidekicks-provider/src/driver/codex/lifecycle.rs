@@ -235,6 +235,7 @@ impl CodexDriver {
             switching: Arc::new(CodexSwitchingAccount::new(Arc::clone(
                 &services.ports.provider_accounts,
             ))),
+            provider_accounts: Arc::clone(&services.ports.provider_accounts),
         });
         let registry = Arc::new(CodexServiceRegistry::new(
             Arc::clone(&homes) as _,
@@ -242,13 +243,14 @@ impl CodexDriver {
         ));
         // One filing, so the account legs' reads and the services' pushes share what was filed.
         let rate_limits = CodexRateLimitFiling::new(Arc::clone(&services.ports.usage));
-        let account_legs = Arc::new(CodexAccountLegs::new(
+        let account_legs = CodexAccountLegs::new(
             Arc::clone(&registry),
             dependencies,
             rate_limits.clone(),
             Arc::clone(&services.ports.provider_account_registry),
             Arc::clone(&services.runtime_bindings),
-        ));
+            Arc::clone(&services.ports.account_home_lock),
+        );
         let slots = Arc::new(CodexSessionSlots::new());
         let views = Arc::new(CodexSessionViews::default());
         let source_views = Arc::clone(&views);

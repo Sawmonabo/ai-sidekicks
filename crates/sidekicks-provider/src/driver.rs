@@ -40,6 +40,7 @@ use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::AttachmentResolver;
 use crate::driver::child_records::DaemonChildRecords;
 use crate::driver::contract::ProviderDriver;
+use crate::driver::contract::account::HelperModeAccountLegs;
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
 use crate::output_validation::is_canonical_semver;
@@ -85,10 +86,6 @@ pub mod written_name;
 
 /// The fixed facts a provider's driver declares about itself, the same for every installed build,
 /// account, model and session; what depends on those comes from the driver's methods.
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "each flag is one independent fact a provider states about itself"
-)]
 pub struct ProviderDescriptor {
     /// The provider's id: a lowercase letter, then up to 31 lowercase letters, digits or hyphens.
     pub id: &'static str,
@@ -189,9 +186,6 @@ pub struct ProviderDescriptor {
     /// handed over as the link's one argument; `None` where the provider starts its commands
     /// through the daemon's relay instead.
     pub(crate) shell_prefix_command: Option<ShellPrefixCommand>,
-    /// Whether a pasted token's limits are read by a turn, since the token's own scope cannot read
-    /// them; the turn's answer is the reading.
-    pub(crate) token_limits_read_by_turn: bool,
 }
 
 /// A provider's contract with the command wrapper's link when it prefixes every shell command it
@@ -487,10 +481,12 @@ pub const PROVIDER_REGISTRATIONS: &[ProviderRegistration] = &[
     ProviderRegistration {
         descriptor: &claude::DESCRIPTOR,
         build: claude::build,
+        helper_mode_account_legs: claude::helper_mode_account_legs,
     },
     ProviderRegistration {
         descriptor: &codex::DESCRIPTOR,
         build: codex::build,
+        helper_mode_account_legs: codex::helper_mode_account_legs,
     },
 ];
 
@@ -562,6 +558,17 @@ pub struct DriverServices {
     pub input_waits: Arc<dyn InputWaitReader>,
     /// The handles the daemon builds after the drivers, each registered by its start.
     pub ports: Arc<DriverPorts>,
+}
+
+/// What a provider's helper-mode account legs read, which the daemon program's helper modes build
+/// with no daemon serving and no database pool: only what those legs read, never a driver's.
+pub struct HelperModeServices {
+    /// The daemon's data folder.
+    pub data_folder: PathBuf,
+    /// The login shell's environment, every provider process's base.
+    pub base_environment: Arc<[(String, String)]>,
+    /// The names every provider sets on its processes, which no environment row may set.
+    pub reserved_names: Arc<ReservedEnvironmentNames>,
 }
 
 /// Where and as whom one session's provider process runs, and the settings the daemon keeps for the
@@ -643,16 +650,17 @@ pub trait ProviderAccountReader: Send + Sync {
     ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>>;
 
     /// How `provider_account_id`'s account signs in, as the provider last reported it; `None` where
-    /// no reading was stored. A pasted token's account reads `OauthToken`, and only that account
-    /// has a token sealed to read. Fails when the account is not registered or cannot be read.
+    /// no reading was stored. A pasted token's account reads `OauthToken` and a pasted API key's
+    /// `ApiKey`, and only those accounts have a credential sealed to read. Fails when the account
+    /// is not registered or cannot be read.
     fn read_observed_auth_mode(
         &self,
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>>;
 
-    /// The token sealed for `provider_account_id`'s account, which only the provider's own child
-    /// is handed; `None` where the account signs in through its home instead. Fails when the
-    /// keychain refuses the read.
+    /// The token or API key sealed for `provider_account_id`'s account, which only the provider's
+    /// own process is handed; `None` where the account signs in through its home instead. Fails
+    /// when the keychain refuses the read.
     fn read_sealed_token(
         &self,
         provider_account_id: ProviderAccountId,
@@ -739,13 +747,16 @@ pub async fn read_current_account(
         .into_required()
 }
 
-/// One registered provider: its descriptor and the function that builds its driver from the shared
-/// services, storing its handles without I/O.
+/// One registered provider: its descriptor, the function that builds its driver from the shared
+/// services, storing its handles without I/O, and the one that builds the account legs a helper
+/// mode runs with no driver.
 pub struct ProviderRegistration {
     /// The provider's fixed facts.
     pub descriptor: &'static ProviderDescriptor,
     /// Builds the driver.
     pub build: fn(&DriverServices) -> Arc<dyn ProviderDriver>,
+    /// Builds the account legs a helper mode runs, over a bundle with no pool; it does no I/O.
+    pub helper_mode_account_legs: fn(&HelperModeServices) -> Arc<dyn HelperModeAccountLegs>,
 }
 
 /// Whether every id in `table` matches the provider id pattern.

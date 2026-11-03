@@ -17,7 +17,7 @@ use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_workspace::clone::askpass::broker::AskpassBrokerError;
 use sidekicks_workspace::git::worktree::setup::WorktreeSetupError;
 use tokio::sync::oneshot;
-use tokio::task::JoinError;
+use tokio::task::{JoinError, JoinHandle};
 
 use crate::daemon::process::database::{DatabaseFileCloseFailure, close_database_file};
 use crate::daemon::process::providers::{ProvidersRegistrationStopFailure, shut_down_drivers};
@@ -47,6 +47,10 @@ pub(crate) enum DaemonStopFailure {
     /// The providers' registration did not end cleanly.
     #[error(transparent)]
     ProvidersRegistration(#[from] ProvidersRegistrationStopFailure),
+    /// Sign-ins were still settling when the drain bound ran out; the next start removes a new
+    /// account's home one left.
+    #[error("sign-ins were still settling when the stop's drain bound ran out")]
+    SignInsRunning,
     /// The scheduler's task ended abnormally.
     #[error("the scheduler ended abnormally")]
     Scheduler(#[source] JoinError),
@@ -82,6 +86,27 @@ pub(crate) struct TaskStopFailure {
     pub(crate) error: JoinError,
 }
 
+/// Waits within `bound` for each task the start began in the background, named by what it does,
+/// and ends one still running then. Answers each task that ended abnormally or ran past the bound.
+pub(crate) async fn end_start_tasks(
+    tasks: impl IntoIterator<Item = (&'static str, JoinHandle<()>)>,
+    bound: Duration,
+) -> Vec<DaemonStopFailure> {
+    let deadline = tokio::time::Instant::now() + bound;
+    let mut failures = Vec::new();
+    for (task, mut handle) in tasks {
+        match tokio::time::timeout_at(deadline, &mut handle).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => failures.push(TaskStopFailure { task, error }.into()),
+            Err(_elapsed) => {
+                handle.abort();
+                failures.push(DaemonStopFailure::StartTaskRunning(task));
+            }
+        }
+    }
+    failures
+}
+
 /// Why the crash monitor's end failed.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CrashMonitorEndFailure {
@@ -109,9 +134,10 @@ pub(crate) enum CrashMonitorEndFailure {
 /// broker, the worktrees' setup commands, the repository services' background work, the attention
 /// decisions, the session services' follows with the chats' write watch and file recount, whose
 /// watermark a clean end stores, the renames' name pushes, the highlighter, the terminals, the
-/// scheduler, the working-folder watch, the projects list, the search index, the drivers, the turn
-/// end captures under way, the git trees a failed call left and, last, the kept worktrees' reads.
-/// Answers each step's failure, every step having run.
+/// provider accounts' sign-ins, the start's sweep of new accounts' homes and the account observer,
+/// the scheduler, the working-folder watch, the projects list, the search index, the drivers, the
+/// turn end captures under way, the git trees a failed call left and, last, the kept worktrees'
+/// reads. Answers each step's failure, every step having run.
 pub(crate) async fn stop_work(
     process: &mut DaemonProcess,
     intent: DaemonStopIntent,
@@ -250,8 +276,15 @@ pub(crate) async fn stop_work(
         let drain = session.terminals.drain(remaining()).await;
         tracing::info!("{}", describe_drain(drain));
     }
-    // Before the scheduler, whose jobs and timers it holds.
     if let Some(provider_accounts) = &mut process.provider_accounts {
+        // Before the drivers, whose services the flows run on, and before the observer, which a
+        // finished sign-in hands its account.
+        if !provider_accounts.end_sign_ins(remaining()).await {
+            failures.push(DaemonStopFailure::SignInsRunning);
+        }
+        // Before the drivers, whose legs its sign-outs run through.
+        failures.extend(provider_accounts.end_minted_home_sweep(remaining()).await);
+        // Before the scheduler, whose jobs and timers it holds.
         provider_accounts.stop();
     }
     // Before the drivers, since a job it runs may still call into them.

@@ -353,6 +353,7 @@ mod tests {
             CodexConnectionHandlers {
                 events,
                 responder: None,
+                token_refresher: None,
             },
         );
 

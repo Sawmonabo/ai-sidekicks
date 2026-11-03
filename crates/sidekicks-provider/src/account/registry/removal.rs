@@ -1,7 +1,8 @@
 //! An account's removal: refused while a session runs on the account or a workflow step waits on
-//! it, naming the sessions or the workflow runs, then its intent marked, its sealed token destroyed, its row deleted with its quota readings
-//! and usage turns, and what each driver keeps in memory for it dropped. Its home stays on disk
-//! as it is. A crash between those writes leaves a marked row, which the start's sweep finishes.
+//! it, naming the sessions or the workflow runs, then its intent marked, its sealed token
+//! destroyed, its row deleted with its quota readings and usage turns, and what each driver keeps
+//! in memory for it dropped. Its home stays on disk as it is. A crash between those writes leaves a
+//! marked row, which the start's sweep finishes.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -23,6 +24,7 @@ use sidekicks_store::database::stored_column::text_column;
 
 use super::{ProviderAccountRegistry, StoredValueRefused, refusal_or_failure};
 use crate::account::errors::ProviderAccountRegistryError;
+use crate::account::home_lock::AccountHomeLock;
 use crate::account::observer::AccountLiveTurns;
 use crate::account::token_custody::{ProviderTokenCustody, TokenCustodyError};
 use crate::driver::registry::ProviderRegistry;
@@ -117,7 +119,8 @@ impl From<ProviderAccountRemovalError> for HandlerError {
 }
 
 impl ProviderAccountRegistry {
-    /// Removes `account_id`: refused while `live_turns` names a session on it, then its intent
+    /// Removes `account_id` holding its home in `home_lock` throughout, so no sign-in or renewal
+    /// writes there meanwhile: refused while `live_turns` names a session on it, then its intent
     /// marked, its token in `token_custody` destroyed, its row deleted with its quota readings and
     /// usage turns, and every driver in `drivers` told to forget it; its home is left as it is.
     /// Fails with [`ProviderAccountRemovalError::SessionsRunning`],
@@ -129,7 +132,9 @@ impl ProviderAccountRegistry {
         live_turns: &dyn AccountLiveTurns,
         token_custody: &ProviderTokenCustody,
         drivers: &ProviderRegistry,
+        home_lock: &AccountHomeLock,
     ) -> Result<(), ProviderAccountRemovalError> {
+        let _home = home_lock.hold(account_id.clone()).await;
         if let Some(sessions) = BoundedVec::new(live_turns.sessions_with_live_turns(account_id)) {
             return Err(ProviderAccountRemovalError::SessionsRunning(sessions));
         }

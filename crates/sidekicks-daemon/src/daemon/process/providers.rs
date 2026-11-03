@@ -20,6 +20,7 @@ use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_platforms::{PathRules, Spawner, current_user_id};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_provider::account::home_lock::AccountHomeLock;
 use sidekicks_provider::account::registry::ProviderAccountRegistry;
 use sidekicks_provider::background_work::BackgroundWorkForms;
 use sidekicks_provider::build_record::BuildRecordReaders;
@@ -334,6 +335,8 @@ pub(crate) struct DriverPortOwners {
     pub(crate) provider_sessions: Arc<ProviderSessions>,
     /// The record of each session a driver moves onto another account outside a switch.
     pub(crate) session_account_moves: Arc<dyn SessionAccountMoveRecorder>,
+    /// The one lock on account homes, which a driver's renewal in an account's home holds.
+    pub(crate) account_home_lock: Arc<AccountHomeLock>,
 }
 
 /// The places the daemon runs sessions in: this computer's own system alone, its login shell's
@@ -402,6 +405,7 @@ pub(crate) fn register_driver_ports(
     ports
         .session_account_moves
         .register(owners.session_account_moves)?;
+    ports.account_home_lock.register(owners.account_home_lock)?;
     ports.run_pauses.register(owners.run_pauses)
 }
 

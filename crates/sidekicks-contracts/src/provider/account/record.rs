@@ -209,6 +209,28 @@ branded_text! {
 #[serde(transparent)]
 pub struct CredentialGeneration(SafeInt<CREDENTIAL_GENERATION_MIN>);
 
+impl CredentialGeneration {
+    /// `value` when it lies in `CREDENTIAL_GENERATION_MIN..=2^53 − 1`, else `None`.
+    pub const fn new(value: u64) -> Option<Self> {
+        match SafeInt::new(value) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }
+    }
+
+    /// The counter's value.
+    pub const fn get(self) -> u64 {
+        self.0.get()
+    }
+}
+
+// Lossless: a generation is a safe integer, well inside `i64`.
+impl From<CredentialGeneration> for i64 {
+    fn from(generation: CredentialGeneration) -> Self {
+        Self::from(generation.0)
+    }
+}
+
 impl JsonSchema for CredentialGeneration {
     fn schema_name() -> Cow<'static, str> {
         "CredentialGeneration".into()
@@ -628,6 +650,9 @@ pub enum ProviderSignInOutcome {
     Succeeded,
     /// The flow failed.
     Failed,
+    /// The provider's code or the attempt's own bound ran out before the person finished; the
+    /// next act is a new sign-in.
+    Expired,
     /// The flow was canceled.
     Canceled,
 }

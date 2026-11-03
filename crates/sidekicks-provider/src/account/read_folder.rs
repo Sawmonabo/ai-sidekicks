@@ -1,6 +1,5 @@
-//! The folder an account read of Claude Code runs on: made under the daemon's data folder for the
-//! one read, as the throwaway configuration home over the account's own credential store, and
-//! removed once the read has answered or been dropped.
+//! The folder an account read of a provider runs on: made under the daemon's data folder for the
+//! one read and removed once the read has answered or been dropped.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -14,7 +13,7 @@ use crate::driver::contract::error::DriverError;
 /// folder, also when the read is dropped before it answers; the read's answer stands whether or
 /// not the folder goes, and a failed removal is logged. Fails as the folder cannot be made, or as
 /// `read` fails.
-pub(super) async fn run_in_read_folder<Answer>(
+pub(crate) async fn run_in_read_folder<Answer>(
     data_folder: &Path,
     reads_folder: &[&str],
     read: impl AsyncFnOnce(&Path) -> Result<Answer, DriverError>,
@@ -31,7 +30,7 @@ pub(super) async fn run_in_read_folder<Answer>(
 }
 
 /// The folder in `data_folder` that holds each read's own folder under `reads_folder`.
-pub(super) fn compose_reads_folder(data_folder: &Path, reads_folder: &[&str]) -> PathBuf {
+pub(crate) fn compose_reads_folder(data_folder: &Path, reads_folder: &[&str]) -> PathBuf {
     reads_folder
         .iter()
         .fold(data_folder.to_path_buf(), |folder, name| folder.join(name))
@@ -61,7 +60,7 @@ fn log_unremoved(removed: io::Result<()>) {
     if let Err(error) = removed {
         tracing::warn!(
             error = &error as &(dyn std::error::Error + 'static),
-            "a Claude Code account read's folder could not be removed"
+            "an account read's folder could not be removed"
         );
     }
 }

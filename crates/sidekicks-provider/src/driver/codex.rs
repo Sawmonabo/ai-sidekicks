@@ -36,7 +36,7 @@ use crate::driver::codex::service::registry::CODEX_SWITCHING_HOME_FOLDER;
 #[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::contract::ProviderDriver;
-use crate::driver::contract::account::ProviderAccountLegs;
+use crate::driver::contract::account::{HelperModeAccountLegs, ProviderAccountLegs};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
@@ -72,8 +72,8 @@ use crate::driver::session_control::{
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{
-    CommandSandboxNeeds, DriverServices, InstallFolder, InstallFolderBase, ProviderCommand,
-    ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
+    CommandSandboxNeeds, DriverServices, HelperModeServices, InstallFolder, InstallFolderBase,
+    ProviderCommand, ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
 };
 use crate::port::running_command_publisher::{
     RunningCommandParams, WriteCommandInputParams, command_act_unsupported,
@@ -232,7 +232,10 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     launch_environment_names: &["CODEX_APP_SERVER_BIN", "CODEX_DAEMON_SHUTDOWN_SOCKET"],
     // The account's own `CODEX_HOME`.
     credential_home_environment_names: &["CODEX_HOME"],
-    withheld_environment_names: &[],
+    withheld_environment_names: &[
+        // Sends the service's sign-in to another issuer than the one its login names.
+        "CODEX_APP_SERVER_LOGIN_ISSUER",
+    ],
     screen_reader_environment_names: &[],
     voice_kinds: &[VoiceKind::Call],
     // It reaches no server over server-sent events.
@@ -276,12 +279,18 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     // `auth.json` sits in the home `CODEX_HOME` names.
     account_home_credential_store_folder: &[],
     shell_prefix_command: None,
-    token_limits_read_by_turn: false,
 };
 
 /// Builds the Codex driver over the shared services; it stores handles and does no I/O.
 pub(super) fn build(services: &DriverServices) -> Arc<dyn ProviderDriver> {
     Arc::new(CodexDriver::new(services))
+}
+
+/// Builds Codex's helper-mode account legs, which hold nothing of `_services`.
+pub(super) fn helper_mode_account_legs(
+    _services: &HelperModeServices,
+) -> Arc<dyn HelperModeAccountLegs> {
+    Arc::new(account::helper_mode::CodexHelperModeLegs)
 }
 
 /// The service registry the next driver [`build_over_scripted_service`] builds holds.
@@ -748,9 +757,10 @@ impl ProviderDriver for CodexDriver {
         Arc::clone(&self.account_legs) as _
     }
 
-    // The account legs' count of dead renewals is all the driver keys by account.
+    // The account legs' count of dead renewals and the service on the account's home are all the
+    // driver keeps by account; the service stops on the driver's tracked tasks.
     fn forget_account(&self, provider_account_id: &ProviderAccountId) {
-        self.account_legs.forget_account(provider_account_id);
+        let _stopping = self.account_legs.forget_account(provider_account_id);
     }
 
     fn expire_account_home_diagnostics(

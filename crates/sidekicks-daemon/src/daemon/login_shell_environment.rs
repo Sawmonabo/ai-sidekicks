@@ -12,6 +12,7 @@ pub(crate) mod printing;
 use std::path::Path;
 use std::time::Duration;
 
+use memchr::memmem;
 use sidekicks_platforms::{
     BaseEnvironmentSource, PathRules, SessionCommand, Spawner, base_environment_source,
     name_as_login_shell, quote_powershell_literal, start_session_child, windows_drive_mounts,
@@ -367,7 +368,7 @@ async fn read_capture(
         // Only the bytes that could start the end marker across a chunk's edge are searched again.
         let searched_from = text.len().saturating_sub(end.len() - 1);
         text.extend_from_slice(&chunk[..read]);
-        if find(&text[searched_from..], end.as_bytes()).is_some()
+        if memmem::find(&text[searched_from..], end.as_bytes()).is_some()
             && let Some(pairs) = read_between_markers(&text, markers)
         {
             return CaptureOutcome::Captured(pairs);
@@ -383,9 +384,9 @@ async fn read_capture(
 // dropped.
 fn read_between_markers(text: &[u8], markers: &CaptureMarkers) -> Option<Vec<(String, String)>> {
     let begin = format!("{}\n", markers.begin_line);
-    let body_start = find(text, begin.as_bytes())? + begin.len();
+    let body_start = memmem::find(text, begin.as_bytes())? + begin.len();
     let end = format!("\n{}\n", markers.end_line);
-    let body_end = body_start + find(&text[body_start..], end.as_bytes())?;
+    let body_end = body_start + memmem::find(&text[body_start..], end.as_bytes())?;
     Some(
         text[body_start..body_end]
             .split(|byte| *byte == 0)
@@ -401,12 +402,6 @@ fn read_between_markers(text: &[u8], markers: &CaptureMarkers) -> Option<Vec<(St
             })
             .collect(),
     )
-}
-
-fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
 }
 
 // A Windows program reached under a drive mount inside WSL cannot run its Linux dependencies, so

@@ -23,7 +23,6 @@ use std::sync::{Arc, LazyLock};
 
 use rusqlite::ErrorCode;
 use rusqlite::types::{Type, Value};
-use serde_json::Value as JsonValue;
 use sidekicks_contracts::name_fold::fold_name;
 use sidekicks_contracts::provider::account::record::{
     BillingMode, CredentialGeneration, DisplayLabel, PROVIDER_ACCOUNT_DISPLAY_LABEL_MAX_LEN,
@@ -41,6 +40,7 @@ use sidekicks_store::database::statement::{
 };
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
+use crate::account::credential_home::minted::{clear_minted_mark, mark_minted};
 use crate::account::credential_home::{
     CredentialHome, create_credential_home, remove_credential_home,
 };
@@ -224,7 +224,7 @@ pub struct HealthObservation {
 /// generation, or the background observer, whose crossing never does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HealthObserver {
-    /// The probe verb, or a sign-in's or registration's status read.
+    /// The probe verb, the person's `Check now`, or a sign-in's status read.
     Probe,
     /// The background observer's cadence.
     Background,
@@ -305,6 +305,23 @@ pub struct RegisteredAccount {
     pub memory_import: Option<ProviderAccountMemoryImportOutcome>,
 }
 
+impl RegisteredAccount {
+    /// Whether the account signs in with a pasted token or API key, which cannot refresh itself
+    /// and is replaced only by pasting a new one; an unrecognized or unobserved mode is not.
+    pub fn has_pasted_credential(&self) -> bool {
+        match self.observed_auth_mode {
+            Some(ProviderAuthMode::OauthToken | ProviderAuthMode::ApiKey) => true,
+            Some(
+                ProviderAuthMode::OauthSubscription
+                | ProviderAuthMode::External
+                | ProviderAuthMode::None
+                | ProviderAuthMode::Unknown,
+            )
+            | None => false,
+        }
+    }
+}
+
 /// The registry of provider accounts, over the daemon's read connections and its one writer; it
 /// holds no write handle of its own.
 pub struct ProviderAccountRegistry {
@@ -328,8 +345,9 @@ impl ProviderAccountRegistry {
         }
     }
 
-    /// Mints a new `provider` account's id and makes its home, writing no row. Fails when the
-    /// system gives no random bytes or the home cannot be made.
+    /// Mints a new `provider` account's id, marks it as minted until a row takes it, and makes its
+    /// home, writing no row. Fails when the system gives no random bytes or the mark or the home
+    /// cannot be made.
     pub fn mint(
         &self,
         provider: ProviderId,
@@ -338,8 +356,18 @@ impl ProviderAccountRegistry {
             random_hex(ACCOUNT_ID_BYTES).map_err(ProviderAccountRegistryError::Mint)?,
         )
         .expect("a hexadecimal id of a fixed length is an account id");
-        let home = create_credential_home(&self.data_folder, &provider, &account_id)
+        // Marked before its home is made, so a stop at any point leaves no home the start's sweep
+        // cannot tell from a removed account's.
+        mark_minted(&self.data_folder, &account_id, &provider)
             .map_err(ProviderAccountRegistryError::CredentialHome)?;
+        let home = match create_credential_home(&self.data_folder, &provider, &account_id) {
+            Ok(home) => home,
+            Err(error) => {
+                clear_minted_mark(&self.data_folder, &account_id)
+                    .map_err(ProviderAccountRegistryError::CredentialHome)?;
+                return Err(ProviderAccountRegistryError::CredentialHome(error));
+            }
+        };
         Ok(MintedAccount {
             account_id,
             provider,
@@ -351,7 +379,8 @@ impl ProviderAccountRegistry {
     /// current account, and answers it. Fails with
     /// [`ProviderAccountRegistryError::DisplayLabelTaken`] for a name another account of the
     /// provider holds, and when the write is not kept, including for an account already
-    /// admitted; the minted home stays for the caller to abandon.
+    /// admitted; the minted home stays for the caller to abandon. A written row takes the account's
+    /// minted mark away.
     pub async fn admit(
         &self,
         minted: &MintedAccount,
@@ -394,6 +423,13 @@ impl ProviderAccountRegistry {
             }])
             .await
             .map_err(label_refusal_or_failure)?;
+        // The row names the home now, so a start's sweep keeps it with its mark or without.
+        if let Err(error) = clear_minted_mark(&self.data_folder, &minted.account_id) {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "an admitted account's home kept its minted mark; the next start clears it"
+            );
+        }
         self.read(minted.account_id.clone()).await
     }
 
@@ -402,14 +438,16 @@ impl ProviderAccountRegistry {
         &self.data_folder
     }
 
-    /// Removes the home of `minted`, an account no sign-in admitted. Fails when the home cannot
-    /// be removed.
+    /// Removes the home of `minted`, an account no sign-in admitted, then its mark. Fails when
+    /// either cannot be removed; a mark left makes the next start remove the home again.
     #[expect(
         clippy::needless_pass_by_value,
         reason = "abandoning consumes the minted account, so it cannot be admitted after"
     )]
     pub fn abandon(&self, minted: MintedAccount) -> Result<(), ProviderAccountRegistryError> {
-        remove_credential_home(&minted.home).map_err(ProviderAccountRegistryError::CredentialHome)
+        remove_credential_home(&minted.home)
+            .and_then(|()| clear_minted_mark(&self.data_folder, &minted.account_id))
+            .map_err(ProviderAccountRegistryError::CredentialHome)
     }
 
     /// Every registered account, or `provider`'s alone, oldest first. Fails when the accounts
@@ -785,15 +823,19 @@ fn switch_binding(name: &'static str, switch: Option<bool>) -> (Cow<'static, str
     )
 }
 
-/// The generation stored in the column at `index`, read through its wire form, which refuses one
-/// below 1 or past 2^53 − 1.
-pub(crate) fn credential_generation(
-    index: usize,
-    stored: i64,
-) -> rusqlite::Result<CredentialGeneration> {
-    serde_json::from_value(JsonValue::from(stored)).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(index, Type::Integer, Box::new(error))
-    })
+/// The generation `stored` in the column at `index`; one below 1 or past 2^53 − 1 is refused as
+/// a damaged row.
+pub fn credential_generation(index: usize, stored: i64) -> rusqlite::Result<CredentialGeneration> {
+    u64::try_from(stored)
+        .ok()
+        .and_then(CredentialGeneration::new)
+        .ok_or_else(|| {
+            rusqlite::Error::FromSqlConversionFailure(
+                index,
+                Type::Integer,
+                Box::new(StoredValueRefused("credential generation")),
+            )
+        })
 }
 
 /// A stored value its type refuses: a damaged row, never a caller's input.
@@ -802,9 +844,9 @@ pub(crate) fn credential_generation(
 pub(crate) struct StoredValueRefused(pub(crate) &'static str);
 
 /// A registry over the test `database` with homes minted under `data_folder`, and the writer it
-/// shares, for the account tests.
-#[cfg(test)]
-pub(crate) async fn open_test_registry(
+/// shares, for the account tests here and in the crates above.
+#[cfg(any(test, feature = "test-support"))]
+pub async fn open_test_registry(
     database: &sidekicks_store::database::writer::test_file::TestDatabase,
     data_folder: &std::path::Path,
 ) -> (ProviderAccountRegistry, Arc<DatabaseWriter>) {

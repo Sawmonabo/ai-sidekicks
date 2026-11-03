@@ -75,6 +75,26 @@ impl CodexRateLimitFiling {
         &self,
         service: &CodexService,
     ) -> Result<CodexRateLimitRead, CodexError> {
+        let read = self.request(service).await?;
+        self.file_reading(service, Filing::Record).await;
+        Ok(read)
+    }
+
+    /// Reads the account's rate limits whole on `service` for a caller that records the whole set
+    /// itself: the readings are kept as [`Self::read`] keeps them and count as recorded, so no
+    /// window of the read is recorded twice and a later push records only what moved since. Fails
+    /// as the read fails, the readings then left as they were.
+    pub(crate) async fn read_whole(
+        &self,
+        service: &CodexService,
+    ) -> Result<CodexRateLimitRead, CodexError> {
+        let read = self.request(service).await?;
+        self.file_reading(service, Filing::RecordedByCaller).await;
+        Ok(read)
+    }
+
+    // Sends the read on `service` and reads its reply, keeping its readings at the answer's place.
+    async fn request(&self, service: &CodexService) -> Result<CodexRateLimitRead, CodexError> {
         let reply = service
             .connection()?
             .request_ordered(
@@ -108,7 +128,6 @@ impl CodexRateLimitFiling {
                 .and_then(Value::as_u64)
                 .and_then(|count| u32::try_from(count).ok()),
         };
-        self.file(service).await;
         Ok(read)
     }
 
@@ -120,6 +139,12 @@ impl CodexRateLimitFiling {
     /// service on the person's own folder, names none, which the record requires, so its readings
     /// stay unrecorded, logged once; so do readings that come before the usage record registers.
     pub(crate) async fn file(&self, service: &CodexService) {
+        self.file_reading(service, Filing::Record).await;
+    }
+
+    // Files `service`'s readings as `filing` says: recorded here, or counted as recorded by the
+    // caller that records the whole set.
+    async fn file_reading(&self, service: &CodexService, filing: Filing) {
         let reading = service.rate_limit_reading();
         let Some(provider_account_id) = reading.provider_account_id else {
             if !mem::replace(&mut lock(&self.filed).is_unfiled_reading_logged, true) {
@@ -129,8 +154,12 @@ impl CodexRateLimitFiling {
             }
             return;
         };
-        let Some(usage) = self.usage.port().map(Arc::clone) else {
-            return;
+        let usage = match filing {
+            Filing::Record => match self.usage.port() {
+                Some(usage) => Some(Arc::clone(usage)),
+                None => return,
+            },
+            Filing::RecordedByCaller => None,
         };
         // Held through the recording, so a reading one clone is recording is not recorded again
         // by another, and one taken earlier is not recorded after it.
@@ -157,13 +186,18 @@ impl CodexRateLimitFiling {
         if changed.is_empty() {
             return;
         }
-        let recorded = usage
-            .record_quota_windows(
-                DESCRIPTOR.provider_id(),
-                provider_account_id.clone(),
-                changed,
-            )
-            .await;
+        let recorded = match usage {
+            Some(usage) => {
+                usage
+                    .record_quota_windows(
+                        DESCRIPTOR.provider_id(),
+                        provider_account_id.clone(),
+                        changed,
+                    )
+                    .await
+            }
+            None => Ok(()),
+        };
         if let Err(error) = &recorded {
             tracing::warn!(
                 error = &**error as &(dyn std::error::Error + 'static),
@@ -185,6 +219,15 @@ impl CodexRateLimitFiling {
             recorded.is_ok(),
         );
     }
+}
+
+/// Who records a read's windows.
+#[derive(Clone, Copy)]
+enum Filing {
+    /// The filing records the windows that moved.
+    Record,
+    /// The caller records the whole set, so the filing only counts them as recorded.
+    RecordedByCaller,
 }
 
 // Whether a reading at `arrival` is no newer than the one recorded at `filed`: arrivals compare

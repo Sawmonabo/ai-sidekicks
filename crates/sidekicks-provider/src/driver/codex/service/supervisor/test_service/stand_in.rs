@@ -1,16 +1,23 @@
 //! The stand-in Codex service a test program runs as itself: the `codex` script a service starts,
 //! which runs one of the test program's own tests, that test's body, which records its launch,
 //! listens and answers as Codex does, records each request and ends once the test program that
-//! wrote the script ends, what a test reads of those records, the guard that ends every launch a
-//! test leaves running, and the two kinds of service one daemon starts on it side by side.
+//! wrote the script ends, the resolver that runs it on each home with a record of its own, what a
+//! test reads of those records and of a home's whole tree, the guard that ends every launch a test
+//! leaves running, and the two kinds of service one daemon starts on it side by side.
 
+#[cfg(test)]
+use std::collections::BTreeMap;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[cfg(test)]
+use futures::future::BoxFuture;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use sidekicks_platforms::ProgramStart;
 use sidekicks_platforms::{
     CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, LeftoverSweep, ProcessRecord,
     bind_socket_listener, pin_running_process, replace_file_atomically, replace_socket_link,
@@ -28,8 +35,14 @@ use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
 use crate::driver::codex::service::registry::{
     CodexServiceRegistry, OneHome, capability_read_home, home_socket_path,
 };
+#[cfg(test)]
+use crate::driver::codex::service::supervisor::CodexProgramResolver;
+#[cfg(test)]
+use crate::driver::contract::error::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::runtime_binding::test_store::test_provider_account_id;
+#[cfg(test)]
+use crate::spawned_version::ResolvedProviderExecutable;
 
 /// The Codex home a stand-in service serves, as Codex reads it.
 pub(crate) const CODEX_HOME_NAME: &str = "CODEX_HOME";
@@ -239,6 +252,92 @@ fn record_request(record: &Path, request: &serde_json::Value) {
         .open(record)
         .and_then(|mut file| file.write_all(line.as_bytes()))
         .expect("the request is recorded");
+}
+
+/// The test's stand-in run with each home as its `CODEX_HOME`, as the daemon's own resolver runs
+/// Codex, recording each home's requests in a file of its own under `records_folder`.
+#[cfg(test)]
+pub(crate) struct ProgramPerHome {
+    /// The stand-in, run with its environment less its home.
+    pub(crate) program: TestCodexProgram,
+    /// The folder each home's record of requests is kept in.
+    pub(crate) records_folder: PathBuf,
+}
+
+#[cfg(test)]
+impl CodexProgramResolver for ProgramPerHome {
+    fn resolve<'call>(
+        &'call self,
+        home: &'call CodexServiceHome,
+    ) -> BoxFuture<'call, Result<ResolvedProviderExecutable, DriverError>> {
+        let mut environment: Vec<(String, String)> = self
+            .program
+            .environment
+            .iter()
+            .filter(|(name, _)| name != CODEX_HOME_NAME)
+            .cloned()
+            .collect();
+        environment.extend([
+            (
+                CODEX_HOME_NAME.to_owned(),
+                home.codex_home.display().to_string(),
+            ),
+            (
+                REQUEST_RECORD_NAME.to_owned(),
+                request_record(&self.records_folder, &home.codex_home)
+                    .display()
+                    .to_string(),
+            ),
+        ]);
+        let resolved = ResolvedProviderExecutable {
+            requested_command: "codex".to_owned(),
+            resolved_executable_path: self.program.program.clone(),
+            start: ProgramStart {
+                program: self.program.program.clone(),
+                leading_arguments: Vec::new(),
+            },
+            environment,
+        };
+        Box::pin(async move { Ok(resolved) })
+    }
+}
+
+/// The file the requests of the service on `codex_home` are recorded in under [`ProgramPerHome`],
+/// in `records_folder`.
+#[cfg(test)]
+pub(crate) fn request_record(records_folder: &Path, codex_home: &Path) -> PathBuf {
+    let name = codex_home
+        .file_name()
+        .expect("a home names a folder")
+        .to_string_lossy();
+    records_folder.join(format!("{name}-requests"))
+}
+
+/// Every entry under `folder`, by path, with a file's bytes; a socket, a link or a folder by its
+/// kind, so a tree read before and after an act compares whole. Panics where an entry cannot be
+/// read.
+#[cfg(test)]
+pub(crate) fn read_tree(folder: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+    let mut tree = BTreeMap::new();
+    let mut pending = vec![folder.to_owned()];
+    while let Some(next) = pending.pop() {
+        for entry in std::fs::read_dir(&next).expect("the folder lists") {
+            let path = entry.expect("the entry reads").path();
+            let file_type = std::fs::symlink_metadata(&path)
+                .expect("the entry reads")
+                .file_type();
+            let content = if file_type.is_dir() {
+                pending.push(path.clone());
+                b"folder".to_vec()
+            } else if file_type.is_file() {
+                std::fs::read(&path).expect("the file reads")
+            } else {
+                format!("{file_type:?}").into_bytes()
+            };
+            tree.insert(path, content);
+        }
+    }
+    tree
 }
 
 // Adds this process's launch on `codex_home` to the script's launches, in one write of a whole

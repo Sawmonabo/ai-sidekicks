@@ -1,39 +1,41 @@
 //! A pasted token's limits read by a turn: a token minted for inference alone cannot read its
-//! account's limits, but every answer to it carries them, so on a provider whose descriptor says
-//! so the observer's read of such an account sends the window-start turn in place of the limits
+//! account's limits, but every answer to it carries them, so on a provider that offers such a
+//! read the observer's read of such an account sends the window-start turn in place of the limits
 //! read, under the same single flight and home lock, and the turn's answer is the reading. The
 //! turn's spend is written as a usage row of its own and, since it also starts the account's closed
 //! windows, as the account's last window-start turn.
+
+use std::sync::Arc;
 
 use sidekicks_contracts::provider::account::record::ProviderAuthMode;
 
 use crate::account::observer::{ObserverShared, ProviderAccountObserverError, READ_BOUND};
 use crate::account::registry::RegisteredAccount;
-use crate::driver::contract::account::ProviderObservation;
-use crate::driver::{ProviderAccountFolders, descriptor_of};
-
-/// Whether `account`'s limits are read by a turn: a pasted token on a provider whose token cannot
-/// read them itself.
-pub(super) fn reads_limits_by_turn(account: &RegisteredAccount) -> bool {
-    account.observed_auth_mode == Some(ProviderAuthMode::OauthToken)
-        && descriptor_of(account.provider.as_str())
-            .is_some_and(|descriptor| descriptor.token_limits_read_by_turn)
-}
+use crate::driver::ProviderAccountFolders;
+use crate::driver::contract::account::{ProviderObservation, ProviderTokenLimitsLegs};
 
 impl ObserverShared {
-    /// Reads `account`'s limits by one turn in `folders` on its sealed token, bounded, and writes
-    /// the turn's spend; answers the turn's reading, `None` where the turn failed or took too
-    /// long. Fails when the provider has no such turn, the token cannot be read or the spend
-    /// cannot be written.
+    /// The provider's read of `account`'s limits by a turn where it is a pasted token on a
+    /// provider whose token cannot read them itself; `None` where its limits read is its own.
+    pub(super) fn token_limits_legs_of(
+        &self,
+        account: &RegisteredAccount,
+    ) -> Option<Arc<dyn ProviderTokenLimitsLegs>> {
+        if account.observed_auth_mode != Some(ProviderAuthMode::OauthToken) {
+            return None;
+        }
+        self.token_limits_legs.get(&account.provider).cloned()
+    }
+
+    /// Reads `account`'s limits by `legs`' turn in `folders` on its sealed token, bounded, and
+    /// writes the turn's spend; answers the turn's reading, `None` where the turn failed or took
+    /// too long. Fails when the token cannot be read or the spend cannot be written.
     pub(super) async fn read_token_limits(
         &self,
         account: &RegisteredAccount,
+        legs: Arc<dyn ProviderTokenLimitsLegs>,
         folders: ProviderAccountFolders,
     ) -> Result<Option<ProviderObservation>, ProviderAccountObserverError> {
-        let legs = self
-            .window_turn_legs
-            .get(&account.provider)
-            .ok_or(ProviderAccountObserverError::ProviderUnobserved)?;
         let token = self.token_custody.read_token(&account.account_id).await?;
         match tokio::time::timeout(
             READ_BOUND,
@@ -77,9 +79,10 @@ mod tests {
     use crate::driver::schema::schema_parts;
 
     // The five-minute read of a pasted Claude token sends a turn on the sealed token in place of
-    // the limits read, takes its answer as the reading and writes its spend as one row with no
-    // session. Killed by the limits read run on the token (a read counted, no token handed) and by
-    // the turn's spend dropped (no row).
+    // the limits read, takes its answer as the reading, records its windows as a partial set, and
+    // writes its spend as one row with no session. Killed by the limits read run on the token (a
+    // read counted, no token handed), by the turn's windows recorded as the whole set (which
+    // removes every window the turn did not name), and by the turn's spend dropped (no row).
     #[tokio::test(start_paused = true)]
     async fn a_pasted_token_is_read_by_a_turn_that_writes_a_sessionless_row() {
         let database = TestDatabase::new(schema_parts());
@@ -110,6 +113,11 @@ mod tests {
             Some(ProviderObservation::Figures(figures()))
         );
         assert_eq!(fixture.legs.reads(), 0);
+        assert_eq!(
+            fixture.usage.partial_sets(),
+            [(account.account_id.clone(), figures().windows)]
+        );
+        assert_eq!(fixture.usage.whole_sets(), Vec::new());
         assert_eq!(fixture.turns[&claude()].tokens_read(), ["pasted-token"]);
         assert_eq!(usage_rows(&database, &account), [(None::<String>, 1_i64)]);
     }
