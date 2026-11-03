@@ -1,8 +1,8 @@
 //! The conversation cut: refused or degraded cuts write nothing, a companion its check refuses is
 //! refused before the provider is asked, an applied one lands with its companions and keeps the
 //! hold, a fork moves the session to its binding, every later run rolls back in the same write, no
-//! cut is asked of the provider while a turn is open, and a turn the provider opens once it answered
-//! opens after the write.
+//! cut is asked of the provider while a turn is open, and a turn the provider opens once it
+//! answered opens after the write.
 
 use std::borrow::Cow;
 use std::sync::atomic::Ordering;
