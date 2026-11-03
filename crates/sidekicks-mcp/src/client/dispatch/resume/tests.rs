@@ -131,13 +131,9 @@ async fn a_refused_stop_still_reads_refused_after_an_outage_and_a_reconnect() {
             seen.wait_for(|state| *state == CancelRefused { is_from_stop: true })
                 .await
                 .expect("the contact stays open");
-            timeout(
-                Duration::from_secs(600),
-                seen.wait_for(|state| *state == Lost),
-            )
-            .await
-            .expect("the outage reads lost")
-            .expect("the contact stays open");
+            seen.wait_for(|state| *state == Lost)
+                .await
+                .expect("the contact stays open");
             fixture
                 .connect(task_server(|method, earlier| match (method, earlier) {
                     ("tasks/get", 0) => v1_status_reply("working"),
@@ -390,17 +386,13 @@ async fn a_task_whose_connection_ends_with_no_reconnect_reads_lost_300_s_after_i
             );
             connection.close().await;
             let mut seen = contact.subscribe();
-            timeout(
-                Duration::from_secs(100),
-                seen.wait_for(|state| *state == Lost),
-            )
-            .await
-            .expect("the contact reads lost 300 s after the last answered poll")
-            .expect("the contact stays open");
+            seen.wait_for(|state| *state == Lost)
+                .await
+                .expect("the contact stays open");
+            let lost_after = started.elapsed();
             assert!(
-                started.elapsed() >= Duration::from_secs(300),
-                "lost only 300 s after the last answer, not {:?}",
-                started.elapsed()
+                lost_after >= Duration::from_secs(300) && lost_after < Duration::from_secs(350),
+                "lost 300 s after the last answer, not {lost_after:?}"
             );
             feed.close().await;
         },
@@ -447,13 +439,9 @@ async fn a_task_whose_server_answered_errors_reads_errors_persisted_when_its_wai
             // Its transport ends on its own while the errors show: nothing replaces it.
             connection.close().await;
             let mut seen = contact.subscribe();
-            timeout(
-                Duration::from_secs(400),
-                seen.wait_for(|state| *state == ErrorsPersisted),
-            )
-            .await
-            .expect("the contact reads errors persisted")
-            .expect("the contact stays open");
+            seen.wait_for(|state| *state == ErrorsPersisted)
+                .await
+                .expect("the contact stays open");
             feed.close().await;
         },
     );

@@ -185,8 +185,7 @@ async fn a_resent_chunk_racing_its_original_is_written_once() {
         let ingest_id = ingest_id.clone();
         async move { write(&service, &ingest_id, 0, b"abc").await }
     });
-    // The paused clock moves only once no task can go on, so the wait ends with the resend as far
-    // as it can get.
+    // While the original is held, the resend does not finish.
     let resend_while_held = tokio::time::timeout(Duration::from_secs(1), &mut resend).await;
     assert!(
         resend_while_held.is_err(),
