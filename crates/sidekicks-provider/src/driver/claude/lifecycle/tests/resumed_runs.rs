@@ -320,17 +320,20 @@ async fn a_continued_turn_runs_on_its_run_and_ends_as_that_turn() {
     );
 }
 
-// A session whose runs in progress all wait on the person or stop starts no process: the resume is
-// deferred with each run's answer, a held run `Waiting` and a stopping one `Gone`, and the slot is
-// freed, so a later resume of a lead with work spawns. Killed by the spawn kept (a start recorded),
-// by a held lead continued (`StillRunning`), by a held helper answered `Gone`, by a stopping lead's
-// helper read as held (`Waiting` in the stopping case), and by the claim kept (the follow-up resume
-// waits on the slot past its timeout).
+// A session whose runs in progress all wait on the person or stop, or whose one run is a pausing
+// lead, starts no process: the resume is deferred with each run's answer, a held run `Waiting` and
+// a stopping run or a lone pausing lead `Gone`, and the slot is freed, so a later resume of a lead
+// with work spawns. Killed by the spawn kept (a start recorded), by a held lead continued
+// (`StillRunning`), by a held helper answered `Gone`, by a stopping lead's helper read as held
+// (`Waiting` in the stopping case), by a pausing lead taken as the run in progress (`StillRunning`)
+// or as a lead a process is owed for (a start recorded), and by the claim kept (the follow-up
+// resume waits on the slot past its timeout).
 #[rstest]
 #[case::lead_waits_on_an_ask(RunState::WaitingForApproval, None, false)]
 #[case::helper_waits_on_a_question(RunState::Running, Some(RunState::WaitingForInput), false)]
 #[case::helper_is_paused(RunState::Running, Some(RunState::Paused), false)]
 #[case::lead_and_helper_stop(RunState::Running, Some(RunState::Running), true)]
+#[case::lone_lead_pauses(RunState::Pausing, None, false)]
 #[tokio::test(start_paused = true)]
 async fn a_session_whose_runs_all_wait_or_stop_starts_no_process(
     #[case] lead_state: RunState,
@@ -367,7 +370,8 @@ async fn a_session_whose_runs_all_wait_or_stop_starts_no_process(
         .await
         .expect("the resume answers");
 
-    let held = if is_stopping {
+    // A lead's own pause is no hold, so its turn is gone with the process, as a stopping run's is.
+    let held = if is_stopping || lead_state == RunState::Pausing {
         ProviderTurnAnswer::Gone
     } else {
         ProviderTurnAnswer::Waiting
