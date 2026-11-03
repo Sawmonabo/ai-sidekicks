@@ -6,7 +6,7 @@
 //! bound, stops a run at a limit, records the markers a provider reports on a live run, tells a
 //! session when a run's provider does not run it at the fast output level it carried, and re-arms
 //! and finalizes the live runs a restart's resume found again, and records an undo's confirmed
-//! cut as the run's rollback.
+//! cut as the run's rollback, holding every turn opening back while an undo's write runs.
 
 mod ending;
 pub mod errors;
