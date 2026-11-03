@@ -5,7 +5,7 @@
 use std::collections::{BTreeSet, HashMap};
 
 use fixedbitset::FixedBitSet;
-use petgraph::algo::tarjan_scc;
+use petgraph::algo::kosaraju_scc;
 use petgraph::graph::{DiGraph, NodeIndex};
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::{
@@ -287,7 +287,8 @@ fn forward_feeders(nodes: &[RunGraphNode], is_loop: &[bool]) -> Vec<Vec<usize>> 
                 }
             }
         }
-        for component in tarjan_scc(&group) {
+        // Kosaraju's search walks with its own stack, so a long chain cannot exhaust the call stack.
+        for component in kosaraju_scc(&group) {
             if component.len() < 2 {
                 continue;
             }
