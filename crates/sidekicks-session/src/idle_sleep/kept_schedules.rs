@@ -23,18 +23,19 @@ use sidekicks_store::database::stored_column::{optional_text_column, text_column
 /// How long before a fire its session wakes, and how long after a one-shot fire it stays held.
 const FIRE_MARGIN: SignedDuration = SignedDuration::from_mins(2);
 
-const SELECT_KEPT_SCHEDULES_SQL: &str = "SELECT session_id, fires_at, cron, next_fire_at
+const SELECT_KEPT_SCHEDULES_SQL: &str = "SELECT session_id, fires_at, cron, next_fire_at,
+    expires_at
   FROM session_kept_schedules ORDER BY session_id, position";
 
-const SELECT_SESSION_KEPT_SCHEDULES_SQL: &str = "SELECT fires_at, cron, next_fire_at
+const SELECT_SESSION_KEPT_SCHEDULES_SQL: &str = "SELECT fires_at, cron, next_fire_at, expires_at
   FROM session_kept_schedules WHERE session_id = ?1 ORDER BY position";
 
 const DELETE_KEPT_SCHEDULES_SQL: &str =
     "DELETE FROM session_kept_schedules WHERE session_id = @sessionId";
 
 const INSERT_KEPT_SCHEDULE_SQL: &str = "INSERT INTO session_kept_schedules
-    (session_id, position, fires_at, cron, next_fire_at)
-  VALUES (@sessionId, @position, @firesAt, @cron, @nextFireAt)";
+    (session_id, position, fires_at, cron, next_fire_at, expires_at)
+  VALUES (@sessionId, @position, @firesAt, @cron, @nextFireAt, @expiresAt)";
 
 /// Whether `schedule` holds its session awake at `now`: a one-shot fire until two minutes after it
 /// fires, a recurring job from two minutes before its next run, so a sleep never lands on a run.
@@ -69,12 +70,17 @@ fn shifted(instant: Timestamp, margin: SignedDuration) -> Timestamp {
 }
 
 // The schedule's next fire after `now`: a one-shot fire not yet past, or a recurring job's next
-// run, the provider's own figure while it is ahead and its schedule's next match otherwise.
+// run before it expires, the provider's own figure while it is ahead and its schedule's next match
+// otherwise.
 fn next_fire(schedule: &KeptSchedule, now: Timestamp, zone: &TimeZone) -> Option<Timestamp> {
     let stated = schedule.stated_fire_at().filter(|fire| *fire > now);
     match schedule {
         KeptSchedule::Once { .. } => stated,
-        KeptSchedule::Recurring { cron, .. } => stated.or_else(|| next_match(cron, now, zone)),
+        KeptSchedule::Recurring {
+            cron, expires_at, ..
+        } => stated
+            .or_else(|| next_match(cron, now, zone))
+            .filter(|fire| fire < expires_at),
     }
 }
 
@@ -127,22 +133,26 @@ pub fn read_session_schedules(
 }
 
 // The schedule a row stores in its columns from `first` on: the one-shot fire, the cron and the
-// recurring job's next run.
+// recurring job's next run and expiry.
 fn stored_schedule(row: &rusqlite::Row<'_>, first: usize) -> rusqlite::Result<KeptSchedule> {
     let fires_at = optional_text_column(row, first, stored_instant)?;
     let cron: Option<String> = row.get(first + 1)?;
     let next_fire_at = optional_text_column(row, first + 2, stored_instant)?;
+    let expires_at = optional_text_column(row, first + 3, stored_instant)?;
     Ok(match (fires_at, cron) {
         (Some(fires_at), _) => KeptSchedule::Once { fires_at },
         (None, cron) => KeptSchedule::Recurring {
             cron: cron.expect("the table's check holds a cron where no fire is stored"),
             next_fire_at,
+            expires_at: expires_at
+                .expect("the table's check holds an expiry beside each recurring job's cron"),
         },
     })
 }
 
 /// The statements that replace `session_id`'s stored schedules with `schedules`, in one write. A
-/// fire before the year 0000, which no stored instant writes, is left out.
+/// fire or a recurring job's expiry before the year 0000, which no stored instant writes, is left
+/// out.
 pub(super) fn replace_schedules_statements(
     session_id: SessionId,
     schedules: &[KeptSchedule],
@@ -150,18 +160,28 @@ pub(super) fn replace_schedules_statements(
     let session_text = session_id.text();
     let mut statements = vec![delete_schedules_statement(session_id)];
     for (position, schedule) in schedules.iter().enumerate() {
-        let (fires_at, cron, next_fire_at) = match schedule {
+        let (fires_at, cron, next_fire_at, expires_at) = match schedule {
             KeptSchedule::Once { fires_at } => {
                 let Some(fires_at) = WireInstant::from_timestamp(*fires_at) else {
                     continue;
                 };
-                (Some(fires_at), None, None)
+                (Some(fires_at), None, None, None)
             }
-            KeptSchedule::Recurring { cron, next_fire_at } => (
-                None,
-                Some(cron.as_str()),
-                next_fire_at.and_then(WireInstant::from_timestamp),
-            ),
+            KeptSchedule::Recurring {
+                cron,
+                next_fire_at,
+                expires_at,
+            } => {
+                let Some(expires_at) = WireInstant::from_timestamp(*expires_at) else {
+                    continue;
+                };
+                (
+                    None,
+                    Some(cron.as_str()),
+                    next_fire_at.and_then(WireInstant::from_timestamp),
+                    Some(expires_at),
+                )
+            }
         };
         statements.push(WriteStatement {
             sql: Cow::Borrowed(INSERT_KEPT_SCHEDULE_SQL),
@@ -179,6 +199,7 @@ pub(super) fn replace_schedules_statements(
                     "@nextFireAt",
                     next_fire_at.as_ref().map(WireInstant::as_str),
                 ),
+                nullable_text_binding("@expiresAt", expires_at.as_ref().map(WireInstant::as_str)),
             ]),
             expected_row_count: Some(1),
         });

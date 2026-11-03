@@ -13,8 +13,10 @@ CREATE TABLE session_kept_schedules (
   fires_at      TEXT,          -- a one-shot fire's instant, RFC 3339 UTC, ms precision
   cron          TEXT,          -- a recurring job's five-field schedule, in local time
   next_fire_at  TEXT,          -- the recurring job's next run, where the provider said
+  expires_at    TEXT,          -- when the provider deletes the recurring job
   CHECK ((fires_at IS NULL) <> (cron IS NULL)),
   CHECK (cron IS NOT NULL OR next_fire_at IS NULL),
+  CHECK ((cron IS NULL) = (expires_at IS NULL)),
   PRIMARY KEY (session_id, position)
 ) STRICT;
 ";
