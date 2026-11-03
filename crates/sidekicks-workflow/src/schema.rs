@@ -281,9 +281,9 @@ CREATE INDEX idx_human_phase_form_state_step ON human_phase_form_state(workflow_
 -- workflow_steps: one row per step attempt, a projection over the events the
 -- run, approval and form pipelines emit.
 -- ---------------------------------------------------------------------------
--- Every column but wait_deadline_at can be rebuilt from the log. That one is
--- written when the step starts waiting, and the deadline timer is a cache over
--- it, re-armed from the row when the daemon starts.
+-- Every column can be rebuilt from the log, wait_deadline_at from the event
+-- that suspends the step; the deadline timer is a cache over that column,
+-- re-armed from the row when the daemon starts.
 CREATE TABLE workflow_steps (
   workflow_run_id   TEXT NOT NULL REFERENCES workflow_runs(id),
   node_id           TEXT NOT NULL,                 -- the node in the pinned version

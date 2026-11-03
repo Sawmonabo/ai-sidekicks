@@ -3,14 +3,6 @@
 //! describes what its step does; the engine acts on it, opening a wait or starting an agent run
 //! through its ports and producing the step's output from the answer.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the workflow definition store and the tick's dispatch, once the kinds register"
-    )
-)]
-
 pub(crate) mod step_context;
 
 use std::collections::HashMap;
@@ -36,9 +28,14 @@ use sidekicks_contracts::workflow::kind::{
 };
 
 use crate::engine::ports::{AgentStepRequest, StepScriptRuntime};
+use crate::engine::tick::node_settings::{main_input_count, main_output_count};
 use crate::kinds::step_context::StepContext;
 
 /// The param holding a command step's shell line.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the tick's dispatch of each kind")
+)]
 pub(crate) const COMMAND_PARAM: &str = "command";
 
 /// The label of the output a node that routes failures to its error output gains.
@@ -49,6 +46,10 @@ pub(crate) trait NodeExecutor: Send + Sync {
     /// Runs the step over `inputs`, one list of items per input handle in handle order. Its
     /// outputs come one list per main output, before any error output. Fails with
     /// [`StepFailure`] when the step fails or the person declines its action.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     fn execute<'step>(
         &'step self,
         context: &'step StepContext,
@@ -57,12 +58,20 @@ pub(crate) trait NodeExecutor: Send + Sync {
 
     /// What the step of `node` needs from the memory gate before it starts. The engine fills in
     /// the node's key and a quick step's input size, which a kind cannot know.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     fn admission_need(&self, _node: &WorkflowNode) -> StepAdmissionNeed {
         StepAdmissionNeed::Unweighed
     }
 
     /// Whether the step of `node` runs on the first main input that settles with items, the
     /// branches feeding its other inputs canceled; otherwise it waits for every main input.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     fn readies_on_first_input(&self, _node: &WorkflowNode) -> bool {
         false
     }
@@ -70,6 +79,10 @@ pub(crate) trait NodeExecutor: Send + Sync {
 
 /// What a step the memory gate weighs runs, as its kind declares it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the tick's dispatch of each kind")
+)]
 pub(crate) enum StepAdmissionShape {
     /// A script step, reserved at its node's learned peak, else its runtime's estimate.
     Script {
@@ -88,6 +101,10 @@ pub(crate) enum StepAdmissionShape {
 /// How a kind's step is admitted: at once, after a wait at the memory gate, or with the agent run
 /// it creates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the tick's dispatch of each kind")
+)]
 pub(crate) enum StepAdmissionNeed {
     /// The gate does not weigh the step, so it is admitted in the turn that readies it.
     Unweighed,
@@ -122,7 +139,7 @@ pub(crate) enum StepOutcome {
 pub(crate) struct PersonWait {
     /// What the person is asked.
     pub(crate) ask: PersonAsk,
-    /// How long the step waits for an answer, `None` until it is answered.
+    /// How long the step waits for an answer; `None` waits until it is answered.
     pub(crate) timeout: Option<Duration>,
 }
 
@@ -165,6 +182,9 @@ pub(crate) enum StepFailure {
     /// The step failed; its node's `onError` decides what follows. Boxed, so a result that may
     /// carry it stays small.
     Failed(Box<WorkflowStepError>),
+    /// The step failed on purpose to end its run, as `Stop and error` does: it is never retried,
+    /// its node's `onError` does not apply, and the run ends.
+    EndsRun(Box<WorkflowStepError>),
     /// The person declined the step's own card: the step fails and is never retried.
     Declined {
         /// The `why not` words, where the person typed any.
@@ -172,6 +192,20 @@ pub(crate) enum StepFailure {
         /// When the decline was recorded.
         at: WireInstant,
     },
+}
+
+impl StepFailure {
+    /// The failure's error, `None` for a decline, which carries words instead.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
+    pub(crate) fn error_mut(&mut self) -> Option<&mut WorkflowStepError> {
+        match self {
+            Self::Failed(error) | Self::EndsRun(error) => Some(error),
+            Self::Declined { .. } => None,
+        }
+    }
 }
 
 /// A step failure with no code of its own, saying `message`, its node and item left for the step's
@@ -214,6 +248,10 @@ pub(crate) struct NodeKind {
     /// The id of the param holding the kind's shell line; `None` for a kind that runs none.
     pub(crate) shell_line_param: Option<&'static str>,
     /// What runs the kind's step.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     pub(crate) executor: Box<dyn NodeExecutor>,
 }
 
@@ -229,6 +267,10 @@ pub(crate) struct WorkflowNodeKindRules {
 
 /// Why a table of kinds could not be built.
 #[derive(Debug, thiserror::Error)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the tick's dispatch of each kind")
+)]
 pub(crate) enum NodeKindTableError {
     /// Two entries list one kind at one version.
     #[error("the kind {} is listed twice at version {}", .kind.0.as_str(), .version.get())]
@@ -238,10 +280,10 @@ pub(crate) enum NodeKindTableError {
         /// The version.
         version: SafeInt<1>,
     },
-    /// A kind that runs once per item lists more than one main input, so no one input's items
-    /// say what to run over.
+    /// A kind that runs once per item lists any input but one main input, so no one input's items
+    /// say what to run over, or a call over one item would lose another input's place.
     #[error(
-        "the kind {} at version {} runs once per item but has more than one main input",
+        "the kind {} at version {} runs once per item but lists inputs other than one main input",
         .kind.0.as_str(),
         .version.get()
     )]
@@ -262,17 +304,17 @@ pub(crate) struct NodeKindTable {
 impl NodeKindTable {
     /// The table of `kinds`. Fails with [`NodeKindTableError::Repeated`] when two list one kind at
     /// one version, and with [`NodeKindTableError::PerItemInputs`] when a kind that runs once per
-    /// item lists more than one main input.
+    /// item lists any input but one main input, a tool input among them.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     pub(crate) fn new(kinds: Vec<NodeKind>) -> Result<Self, NodeKindTableError> {
         let mut table: HashMap<WorkflowNodeKindId, HashMap<SafeInt<1>, NodeKind>> = HashMap::new();
         for kind in kinds {
-            let main_inputs = kind
-                .spec
-                .inputs
-                .as_slice()
-                .iter()
-                .filter(|input| !input.is_tool());
-            if kind.spec.per_item == Some(true) && main_inputs.count() > 1 {
+            let is_one_main_input =
+                kind.spec.inputs.as_slice().len() == 1 && main_input_count(&kind.spec) == 1;
+            if kind.spec.per_item == Some(true) && !is_one_main_input {
                 return Err(NodeKindTableError::PerItemInputs {
                     kind: kind.spec.kind,
                     version: kind.spec.version,
@@ -307,7 +349,7 @@ impl NodeKindTable {
         let spec = &kind.spec;
         let mut outputs = spec.outputs.as_slice().to_vec();
         if node.on_error == Some(WorkflowNodeOnError::ContinueErrorOutput) {
-            let main_count = outputs.iter().filter(|output| !output.is_tool()).count();
+            let main_count = main_output_count(spec);
             outputs.push(WorkflowOutputHandleSpec::Main {
                 id: OutputMainHandleId::new(main_count as u64)
                     .expect("a kind's output count is far below the largest handle index"),
@@ -472,8 +514,8 @@ mod tests {
 
     /// Each version of a kind answers its own rules, an unlisted version none, a table listing one
     /// kind at one version twice is refused, and so is a kind run once per item with two main
-    /// inputs, a tool input not counted. Mutations: look a kind up by id alone; let a later entry
-    /// overwrite an earlier one; drop the per-item refusal.
+    /// inputs or a tool input beside its main one. Mutations: look a kind up by id alone; let a
+    /// later entry overwrite an earlier one; drop the per-item refusal; let a tool input pass.
     #[test]
     fn each_version_answers_its_own_rules() {
         let one_output = json!([{ "type": "main", "id": "outputs/main/0", "label": "Out" }]);
@@ -528,19 +570,24 @@ mod tests {
             NodeKindTable::new(vec![test_kind(spec, None, Box::new(PassThroughExecutor))])
         };
         assert!(
-            per_item_inputs(json!([
-                { "type": "main", "id": "inputs/main/0", "label": "In" },
-                { "type": "tool", "id": "inputs/tool/0", "label": "Tool" },
-            ]))
-            .is_ok()
+            per_item_inputs(json!([{ "type": "main", "id": "inputs/main/0", "label": "In" }]))
+                .is_ok()
         );
-        assert!(matches!(
-            per_item_inputs(json!([
+        for inputs in [
+            json!([
                 { "type": "main", "id": "inputs/main/0", "label": "A" },
                 { "type": "main", "id": "inputs/main/1", "label": "B" },
-            ])),
-            Err(NodeKindTableError::PerItemInputs { kind, version })
-                if kind.0.as_str() == "test.merge" && version.get() == 1
-        ));
+            ]),
+            json!([
+                { "type": "main", "id": "inputs/main/0", "label": "In" },
+                { "type": "tool", "id": "inputs/tool/0", "label": "Tool" },
+            ]),
+        ] {
+            assert!(matches!(
+                per_item_inputs(inputs),
+                Err(NodeKindTableError::PerItemInputs { kind, version })
+                    if kind.0.as_str() == "test.merge" && version.get() == 1
+            ));
+        }
     }
 }

@@ -165,6 +165,13 @@ pub struct WorkflowStepResolution {
         deserialize_with = "crate::wire::present"
     )]
     #[schemars(with = "NonEmptyText")]
+    #[garde(custom(|reason: &Option<NonEmptyText>, (): &()| {
+        if reason.is_none() || self.kind == WorkflowStepResolutionKind::Declined {
+            Ok(())
+        } else {
+            Err(garde::Error::new("a decline reason rides only a declined resolution"))
+        }
+    }))]
     pub decline_reason: Option<NonEmptyText>,
 }
 
@@ -766,4 +773,25 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 };
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use garde::Validate;
+    use serde_json::json;
+
+    use super::WorkflowStepResolution;
+
+    /// A decline reason is kept on a declined resolution and refused on any other. Mutations: drop
+    /// the check; refuse the reason on a declined resolution too.
+    #[test]
+    fn a_decline_reason_rides_only_a_declined_resolution() {
+        let resolution = |kind: &str| -> WorkflowStepResolution {
+            serde_json::from_value(json!({
+                "kind": kind,
+                "at": "2020-01-01T09:05:00.000Z",
+                "declineReason": "use the test database",
+            }))
+            .expect("the resolution reads")
+        };
+        assert!(resolution("declined").validate().is_ok());
+        assert!(resolution("approved").validate().is_err());
+    }
+}

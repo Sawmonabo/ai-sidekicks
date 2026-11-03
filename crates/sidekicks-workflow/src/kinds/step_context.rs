@@ -33,6 +33,10 @@ use crate::secrets::resolution::ResolvedStepSecret;
 
 /// Why a step's params could not be read or evaluated.
 #[derive(Debug, thiserror::Error)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the tick's dispatch of each kind")
+)]
 pub(crate) enum StepParamsError {
     /// A param's template opens a part it never closes, which the save check refuses before a run.
     #[error("the template at {path} is never closed")]
@@ -51,8 +55,16 @@ pub(crate) enum StepParamsError {
 /// sits, in the order its value comes back from the evaluator.
 pub(crate) struct StepParams {
     /// The params with each literal read, shared by every item when no template exists.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     base: Arc<Map<String, Value>>,
     /// Where each template sits, in walk order.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     template_paths: Vec<ParamPath>,
 }
 
@@ -61,6 +73,10 @@ impl StepParams {
     /// its read text (an `=` that opens no part dropped), and each template's path and template are
     /// returned in walk order, the order [`StepParams::fill`] takes their values in. Fails with
     /// [`StepParamsError::Unclosed`] for a template whose part never closes.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     pub(crate) fn read(params: &JsonRecord) -> Result<(Self, Vec<ParamTemplate>), StepParamsError> {
         let mut base: Map<String, Value> = params
             .as_map()
@@ -100,6 +116,10 @@ impl StepParams {
 
     /// The params with `values`, one per template in the order [`StepParams::read`] returned them,
     /// each put at its template's path.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     pub(crate) fn fill(&self, values: Vec<Value>) -> Map<String, Value> {
         let mut filled = Map::clone(&self.base);
         for (path, value) in self.template_paths.iter().zip(values) {
@@ -110,6 +130,10 @@ impl StepParams {
 }
 
 /// The value at `path` in `params`, a path the walk of these params gave.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the tick's dispatch of each kind")
+)]
 fn value_at<'params>(
     params: &'params mut Map<String, Value>,
     path: &ParamPath,
@@ -136,15 +160,35 @@ pub(crate) struct StepRunVariable {
     pub(crate) is_kept: bool,
 }
 
+/// The most log lines a step keeps, 10,000, so a step writing without end holds no more than
+/// that in memory; a line past it is counted, not kept, and the log's last line names the count.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the tick's dispatch of each kind")
+)]
+const STEP_LOG_LINE_CAP: usize = 10_000;
+
 /// What a step recorded since the step's driver last took its records, which it takes when woken
 /// and when the step ends.
 #[derive(Debug, Default)]
 pub(crate) struct StepRecords {
     /// The log lines, each scrubbed of the run's secrets.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     pub(crate) log_lines: Vec<String>,
     /// Whether the step reported progress.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     pub(crate) has_progressed: bool,
     /// The run variables the step set, by name, the latest value of each.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     pub(crate) run_variables: BTreeMap<String, StepRunVariable>,
 }
 
@@ -193,6 +237,8 @@ pub(crate) struct StepContext {
     /// The input item a per-item call's item 0 stands for, so its params evaluate over its own
     /// item; 0 for a step run once over all its items.
     item_call_offset: AtomicUsize,
+    /// The log lines the step wrote, kept or not, which [`STEP_LOG_LINE_CAP`] is held against.
+    log_lines_written: AtomicUsize,
     /// What the step recorded since the step's driver last took it.
     records: Mutex<StepRecords>,
     /// Woken when the step marks progress.
@@ -201,6 +247,10 @@ pub(crate) struct StepContext {
 
 /// What a step's context is built from: its public members, its node's params and its templates
 /// open on the expression thread.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the tick's dispatch of each kind")
+)]
 pub(crate) struct StepContextParts {
     /// The session the run lives in.
     pub(crate) session_id: SessionId,
@@ -245,6 +295,10 @@ pub(crate) struct StepContextParts {
 impl StepContext {
     /// The context built from `parts`, its redaction masking each of its secrets before any record
     /// the step makes.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     pub(crate) fn new(parts: StepContextParts) -> Self {
         let StepContextParts {
             session_id,
@@ -289,6 +343,7 @@ impl StepContext {
             params,
             expressions,
             item_call_offset: AtomicUsize::new(0),
+            log_lines_written: AtomicUsize::new(0),
             records: Mutex::default(),
             recorded: Notify::new(),
         }
@@ -296,6 +351,10 @@ impl StepContext {
 
     /// Starts the per-item call over the step's input item `item_index`, so the call's item 0 is
     /// that item when it reads its params.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     pub(crate) fn begin_item_call(&self, item_index: usize) {
         self.item_call_offset.store(item_index, Ordering::Relaxed);
     }
@@ -303,6 +362,10 @@ impl StepContext {
     /// The node's params for item `item_index` of the items the executor was handed: the one
     /// shared map when they hold no template, else each template evaluated for the item in one
     /// hop. Fails with [`StepParamsError::Expression`] when the evaluation does.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     pub(crate) async fn item_params(
         &self,
         item_index: usize,
@@ -315,13 +378,25 @@ impl StepContext {
         Ok(Arc::new(self.params.fill(values)))
     }
 
-    /// Records `line` in the step's log, scrubbed of the run's secrets.
+    /// Records `line` in the step's log, scrubbed of the run's secrets, while the step has written
+    /// fewer than [`STEP_LOG_LINE_CAP`] lines; past it the line is only counted.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     pub(crate) fn write_log(&self, line: &str) {
+        if self.log_lines_written.fetch_add(1, Ordering::Relaxed) >= STEP_LOG_LINE_CAP {
+            return;
+        }
         let line = self.redaction.scrub(line).into_owned();
         lock(&self.records).log_lines.push(line);
     }
 
     /// Records that the step made progress.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     pub(crate) fn mark_progress(&self) {
         lock(&self.records).has_progressed = true;
         self.recorded.notify_one();
@@ -329,6 +404,10 @@ impl StepContext {
 
     /// Sets the run variables `values`, which later runs keep too when `keep`; a name set again
     /// takes the later value and keep, so the last item wins.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     pub(crate) fn set_run_variables(&self, values: Map<String, Value>, keep: bool) {
         let mut records = lock(&self.records);
         for (name, value) in values {
@@ -343,13 +422,41 @@ impl StepContext {
     }
 
     /// Waits until the step marks progress; returns at once when it did since the last wait ended.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     pub(crate) async fn wait_for_records(&self) {
         self.recorded.notified().await;
     }
 
     /// Takes what the step recorded since the last take, leaving nothing recorded.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     pub(crate) fn take_records(&self) -> StepRecords {
         std::mem::take(&mut *lock(&self.records))
+    }
+
+    /// Takes the step's last records when it ends, as [`Self::take_records`] does, with a last log
+    /// line naming how many lines the step wrote past [`STEP_LOG_LINE_CAP`] when it did.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
+    pub(crate) fn finish_records(&self) -> StepRecords {
+        let mut records = self.take_records();
+        let dropped = self
+            .log_lines_written
+            .load(Ordering::Relaxed)
+            .saturating_sub(STEP_LOG_LINE_CAP);
+        if dropped > 0 {
+            records
+                .log_lines
+                .push(format!("{dropped} more log lines were not kept"));
+        }
+        records
     }
 }
 
@@ -408,7 +515,7 @@ mod tests {
     use sidekicks_contracts::wire::record::JsonRecord;
     use sidekicks_ipc::redaction::CREDENTIAL_REDACTION;
 
-    use super::{StepParams, StepParamsError, test_step_context};
+    use super::{STEP_LOG_LINE_CAP, StepParams, StepParamsError, test_step_context};
     use crate::expressions::param_strings::{ParamPath, ParamPathSegment};
     use crate::secrets::redaction::RunRedaction;
     use crate::secrets::resolution::ResolvedStepSecret;
@@ -475,6 +582,35 @@ mod tests {
         assert_eq!(
             context.take_records().log_lines,
             vec![format!("token {CREDENTIAL_REDACTION} sent")]
+        );
+    }
+
+    /// A step writing past the cap keeps the cap's lines across takes, and its last records end
+    /// with a line naming the lines it did not keep. Mutations: count per take, not per step; keep
+    /// lines past the cap; drop the count line or miscount it.
+    #[test]
+    fn a_steps_log_keeps_the_cap_and_names_what_it_dropped() {
+        let context = test_step_context(
+            &JsonRecord::default(),
+            Vec::new(),
+            Arc::new(RunRedaction::new(&[])),
+        );
+        for index in 0..STEP_LOG_LINE_CAP - 1 {
+            context.write_log(&format!("line {index}"));
+        }
+        assert_eq!(
+            context.take_records().log_lines.len(),
+            STEP_LOG_LINE_CAP - 1
+        );
+        for index in 0..4 {
+            context.write_log(&format!("late {index}"));
+        }
+        assert_eq!(
+            context.finish_records().log_lines,
+            vec![
+                "late 0".to_owned(),
+                "3 more log lines were not kept".to_owned()
+            ]
         );
     }
 }

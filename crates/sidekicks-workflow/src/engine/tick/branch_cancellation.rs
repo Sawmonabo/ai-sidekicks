@@ -1,15 +1,19 @@
 //! The wind-down of branches canceled together: a `firstToArrive` merge taking its winner, or a
 //! park or an end stopping the run's other branches. The running losers settle as one wave; a loser
-//! still in the entry line or held at the gate is canceled at once and settles on its own.
+//! still in the entry line or held at the gate is canceled at once and settles on its own. A
+//! member whose agent run settled on a spent account before its cancel landed hands that run back,
+//! since the cancel no longer reaches it.
 
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use tokio_util::sync::CancellationToken;
 
+use crate::engine::ports::AgentStepRun;
 use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
 
 /// Why a set of branches was canceled.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum BranchCancelReason {
     /// A `firstToArrive` merge took its first input; the run goes on.
     FirstToArrive,
@@ -18,6 +22,7 @@ pub(crate) enum BranchCancelReason {
 }
 
 /// A step on a losing branch, with its cancel.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct BranchLoser {
     /// The step.
     pub(crate) step: WorkflowStepKey,
@@ -28,6 +33,7 @@ pub(crate) struct BranchLoser {
 }
 
 /// The running losers of one cancel, which settle together once the last of them has settled.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct BranchWave {
     /// The step whose turn decided the cancel.
     deciding: WorkflowStepKey,
@@ -40,23 +46,28 @@ pub(crate) struct BranchWave {
 }
 
 /// What a wave answers for one report.
-#[expect(
-    clippy::large_enum_variant,
-    reason = "a passed report is moved straight back to the tick, never stored, so boxing it \
-              would only add an allocation per report"
-)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum WaveSettle {
     /// A member settled and others are still winding down.
-    Pending,
-    /// The last member settled: the wave's `BranchesCanceled` on the deciding step, then each
-    /// member's cancel in loser order.
-    Closed(Vec<StepReport>),
+    Pending {
+        /// The member's agent run, where it settled on a spent account, for the tick to stop.
+        run_to_stop: Option<Box<dyn AgentStepRun>>,
+    },
+    /// The last member settled.
+    Closed {
+        /// The wave's `BranchesCanceled` on the deciding step, then each member's cancel in loser
+        /// order.
+        reports: Vec<StepReport>,
+        /// The member's agent run, where it settled on a spent account, for the tick to stop.
+        run_to_stop: Option<Box<dyn AgentStepRun>>,
+    },
     /// The report is no member's settlement, handed back for the tick to write as it is.
     Passed(StepReport),
 }
 
 /// Cancels every loser of `deciding`'s turn for `reason`, answering a `Canceling` for each running
 /// loser, and the wave of the running losers when there is one.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn cancel_branches(
     deciding: WorkflowStepKey,
     reason: BranchCancelReason,
@@ -64,12 +75,13 @@ pub(crate) fn cancel_branches(
 ) -> (Vec<StepReport>, Option<BranchWave>) {
     let mut reports = Vec::new();
     let mut members = Vec::new();
+    let canceled_at = WireInstant::now();
     for loser in losers {
         loser.cancel.cancel();
         if loser.is_running {
             reports.push(StepReport {
                 step: loser.step.clone(),
-                at: WireInstant::now(),
+                at: canceled_at.clone(),
                 kind: StepReportKind::Canceling,
             });
             members.push(loser.step);
@@ -86,48 +98,67 @@ pub(crate) fn cancel_branches(
 
 impl BranchWave {
     /// Takes `report` into the wave. A member's settlement counts as canceled whatever it says, and
-    /// its outputs are dropped; every other report comes back as `Passed`.
+    /// its outputs are dropped, but an agent run kept on a spent account comes back to be stopped;
+    /// every other report comes back as `Passed`.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn settle(&mut self, report: StepReport) -> WaveSettle {
         let is_member_settlement = matches!(report.kind, StepReportKind::Settled(_))
             && self.members.contains(&report.step);
         if !is_member_settlement {
             return WaveSettle::Passed(report);
         }
+        let run_to_stop = if let StepReportKind::Settled(StepSettlement::AccountSpent {
+            run, ..
+        }) = report.kind
+        {
+            Some(run)
+        } else {
+            None
+        };
         self.unsettled -= 1;
         if self.unsettled > 0 {
-            return WaveSettle::Pending;
+            return WaveSettle::Pending { run_to_stop };
         }
         let is_sibling_failure = self.reason == BranchCancelReason::SiblingFailure;
+        let members = std::mem::take(&mut self.members);
         let branches_canceled = StepReport {
             step: self.deciding.clone(),
-            at: WireInstant::now(),
-            kind: StepReportKind::BranchesCanceled,
+            at: report.at.clone(),
+            kind: StepReportKind::BranchesCanceled {
+                reason: self.reason,
+                count: members.len(),
+            },
         };
-        let canceled = std::mem::take(&mut self.members)
-            .into_iter()
-            .map(|step| StepReport {
-                step,
-                at: WireInstant::now(),
-                kind: StepReportKind::Settled(StepSettlement::Canceled {
-                    hold_started_at: None,
-                    is_sibling_failure,
-                }),
-            });
-        WaveSettle::Closed(std::iter::once(branches_canceled).chain(canceled).collect())
+        let closed_at = report.at;
+        let canceled = members.into_iter().map(|step| StepReport {
+            step,
+            at: closed_at.clone(),
+            kind: StepReportKind::Settled(StepSettlement::Canceled {
+                hold_started_at: None,
+                is_sibling_failure,
+            }),
+        });
+        WaveSettle::Closed {
+            reports: std::iter::once(branches_canceled).chain(canceled).collect(),
+            run_to_stop,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::time::Duration;
 
     use rstest::rstest;
     use serde_json::{Value, json};
     use sidekicks_contracts::wire::instant::WireInstant;
     use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
+    use tokio::time::timeout;
     use tokio_util::sync::CancellationToken;
 
     use super::{BranchCancelReason, BranchLoser, WaveSettle, cancel_branches};
+    use crate::engine::ports::ScriptedAgentRunner;
     use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
 
     /// The first execution of node `node_id`.
@@ -144,7 +175,9 @@ mod tests {
         let kind = match &report.kind {
             StepReportKind::Progressed => json!("progressed"),
             StepReportKind::Canceling => json!("canceling"),
-            StepReportKind::BranchesCanceled => json!("branchesCanceled"),
+            StepReportKind::BranchesCanceled { reason, count } => {
+                json!({ "branchesCanceled": { "reason": format!("{reason:?}"), "count": count } })
+            }
             StepReportKind::Settled(StepSettlement::Canceled {
                 hold_started_at,
                 is_sibling_failure,
@@ -176,8 +209,10 @@ mod tests {
     /// Two running losers and one held between them wind down as one wave of the two running ones:
     /// each running one gets a `Canceling` at once, every token is canceled, the held one's own
     /// settlement and a member's progress pass through, the first settlement leaves the wave open,
-    /// and the last closes it with one `BranchesCanceled` and each member canceled in loser order,
-    /// the raced `Completed` included. Mutations: write `BranchesCanceled` per member; close the
+    /// and the last closes it with one `BranchesCanceled` carrying the wave's reason and size and
+    /// each member canceled in loser order, the raced `Completed` included, all at the closing
+    /// settlement's instant. Mutations: write `BranchesCanceled` per member, or with another reason
+    /// or count; stamp the closing reports with fresh clock reads; close the
     /// wave at its first settlement; write a raced `Completed` as completed; put the held loser in
     /// the wave or give it a `Canceling`; answer `Pending` for a report that is no member's
     /// settlement; set `siblingFailure` on a `firstToArrive` wave; order the members by settlement.
@@ -243,25 +278,84 @@ mod tests {
         });
         assert!(matches!(
             wave.settle(report("b", completed)),
-            WaveSettle::Pending
+            WaveSettle::Pending { run_to_stop: None }
         ));
         let a_canceled = StepReportKind::Settled(StepSettlement::Canceled {
             hold_started_at: None,
             is_sibling_failure: false,
         });
-        let WaveSettle::Closed(closing) = wave.settle(report("a", a_canceled)) else {
+        let last = report("a", a_canceled);
+        let closed_at = last.at.clone();
+        let WaveSettle::Closed {
+            reports: closing,
+            run_to_stop: None,
+        } = wave.settle(last)
+        else {
             panic!("the last member's settlement closes the wave");
         };
+        assert!(closing.iter().all(|closed| closed.at == closed_at));
         let canceled = json!({ "canceled": {
             "holdStartedAt": null, "isSiblingFailure": is_sibling_failure,
         } });
         assert_eq!(
             closing.iter().map(report_json).collect::<Vec<_>>(),
             vec![
-                json!(["merge", "branchesCanceled"]),
+                json!(["merge", { "branchesCanceled": {
+                    "reason": format!("{reason:?}"), "count": 2,
+                } }]),
                 json!(["a", canceled]),
                 json!(["b", canceled]),
             ]
         );
+    }
+
+    /// A member whose agent run settled on a spent account before its cancel landed counts as
+    /// canceled and hands its run back to be stopped, both while the wave stays open and when it
+    /// closes it. Mutation: drop a spent member's run with its settlement.
+    #[tokio::test]
+    async fn a_spent_members_run_comes_back_to_be_stopped() {
+        let runner = ScriptedAgentRunner::new(None, false);
+        let losers = ["a", "b"]
+            .into_iter()
+            .map(|node_id| BranchLoser {
+                step: step(node_id),
+                is_running: true,
+                cancel: CancellationToken::new(),
+            })
+            .collect();
+        let (_reports, wave) =
+            cancel_branches(step("merge"), BranchCancelReason::FirstToArrive, losers);
+        let mut wave = wave.expect("two running losers make a wave");
+        let spent = |node_id| {
+            report(
+                node_id,
+                StepReportKind::Settled(StepSettlement::AccountSpent {
+                    provider_account_id: serde_json::from_value(json!("account-a"))
+                        .expect("the test's account id reads"),
+                    run: runner.made_run(),
+                }),
+            )
+        };
+
+        let WaveSettle::Pending {
+            run_to_stop: Some(pending_run),
+        } = wave.settle(spent("a"))
+        else {
+            panic!("the first spent member's run comes back with the wave open");
+        };
+        let WaveSettle::Closed {
+            reports,
+            run_to_stop: Some(closing_run),
+        } = wave.settle(spent("b"))
+        else {
+            panic!("the last spent member's run comes back with the wave closed");
+        };
+        assert_eq!(reports.len(), 3);
+        for run in [pending_run, closing_run] {
+            run.cancel().await.expect("the run takes the stop");
+            timeout(Duration::from_secs(10), runner.wait_for_cancel())
+                .await
+                .expect("the stop reaches the member's run");
+        }
     }
 }

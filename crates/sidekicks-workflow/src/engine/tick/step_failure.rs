@@ -1,6 +1,6 @@
-//! What follows a failed step: a retry while tries are left, else its node's `onError`, which parks
-//! the run or passes the step's input on; and, on a park or an end, which of the run's other live
-//! steps stop.
+//! What follows a failed step: the end of its run for a failure that ends it, else a retry while
+//! tries are left, else its node's `onError`, which parks the run or passes the step's input on;
+//! and, on a park or an end, which of the run's other live steps stop.
 
 use std::time::Duration;
 
@@ -18,19 +18,20 @@ use crate::engine::tick::branch_cancellation::{
     BranchCancelReason, BranchLoser, BranchWave, cancel_branches,
 };
 use crate::engine::tick::dispatch::error_members;
-use crate::engine::tick::node_settings::{
-    index, main_inputs, main_output_count, place_on_first_output,
-};
+use crate::engine::tick::node_settings::{main_inputs, main_output_count, place_on_first_output};
 use crate::kinds::{StepFailure, uncoded_step_error};
 
 /// The most tries the engine gives a step, whatever its node's `retry.maxTries` asks.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) const RETRY_TRIES_CEILING: u64 = 5;
 
 /// The longest wait the engine leaves between two tries, whatever its node's `retry.waitMs` asks.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) const RETRY_WAIT_CEILING: Duration = Duration::from_millis(5_000);
 
 /// The tries a node's step gets and the wait between them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct StepRetry {
     /// The tries, counted from 1.
     pub(crate) max_tries: u64,
@@ -41,6 +42,7 @@ pub(crate) struct StepRetry {
 /// The tries `node`'s step gets: one with no wait when it sets no `retry`, else its `retry` held
 /// under [`RETRY_TRIES_CEILING`] and [`RETRY_WAIT_CEILING`]. The clamp is the engine's; the
 /// document's numbers are never trusted past it.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn step_retry(node: &WorkflowNode) -> StepRetry {
     match node.retry {
         None => StepRetry {
@@ -55,16 +57,17 @@ pub(crate) fn step_retry(node: &WorkflowNode) -> StepRetry {
 }
 
 /// What follows a failed step.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum StepFailureRoute {
-    /// The step runs again as a new attempt after `wait`.
+    /// The step runs again as its next attempt, which the walk's retry numbers, after `wait`.
     Retry {
-        /// The new attempt's number.
-        attempt: SafeInt<1>,
         /// The wait before it runs.
         wait: Duration,
     },
-    /// The run parks: nothing new starts.
+    /// The run parks: nothing new starts. Its siblings stop as [`RunStop::Park`].
     Park,
+    /// The run ends, as the step's failure asked. Its siblings stop as [`RunStop::End`].
+    End,
     /// The run goes on with the step's input passed on as its outputs.
     PassOn {
         /// The outputs, one list per main output, the error output last where the node has one.
@@ -73,9 +76,10 @@ pub(crate) enum StepFailureRoute {
 }
 
 /// What follows `step`'s `failure` on `node`, a node of the kind `spec`, over `inputs`, one list per
-/// input handle of `spec`: a retry while tries are left, never for a decline; else `stop` or an
-/// unset `onError` parks, `continue` passes the inputs' items on the first main output, and
-/// `continueErrorOutput` sends them down the error output, after the kind's main outputs.
+/// input handle of `spec`: the run's end for a failure that ends it; else a retry while tries are
+/// left, never for a decline; else what [`passed_on_outputs`] answers, or a park where `onError`
+/// goes on past nothing.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn route_step_failure(
     node: &WorkflowNode,
     spec: &WorkflowNodeKindSpec,
@@ -83,48 +87,65 @@ pub(crate) fn route_step_failure(
     failure: &StepFailure,
     inputs: &[Vec<WorkflowItem>],
 ) -> StepFailureRoute {
+    if matches!(failure, StepFailure::EndsRun(_)) {
+        return StepFailureRoute::End;
+    }
     let retry = step_retry(node);
     if matches!(failure, StepFailure::Failed(_)) && step.attempt.get() < retry.max_tries {
-        return StepFailureRoute::Retry {
-            attempt: SafeInt::new(step.attempt.get() + 1)
-                .expect("an attempt below the tries ceiling is far below 2^53"),
-            wait: retry.wait,
-        };
+        return StepFailureRoute::Retry { wait: retry.wait };
     }
+    match passed_on_outputs(node, spec, failure, inputs) {
+        Some(outputs) => StepFailureRoute::PassOn { outputs },
+        None => StepFailureRoute::Park,
+    }
+}
+
+/// The outputs `node`'s `onError` gives `failure` over `inputs`, one list per input handle of
+/// `spec`, when it goes on past it: `continue` passes the inputs' items on the first main output,
+/// and `continueErrorOutput` sends them down the error output, after the kind's main outputs.
+/// `None` for `stop` and an unset `onError`, which go on past nothing.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+pub(crate) fn passed_on_outputs(
+    node: &WorkflowNode,
+    spec: &WorkflowNodeKindSpec,
+    failure: &StepFailure,
+    inputs: &[Vec<WorkflowItem>],
+) -> Option<Vec<Vec<WorkflowItem>>> {
     let main_output_count = main_output_count(spec);
     match node.on_error {
-        None | Some(WorkflowNodeOnError::Stop) => StepFailureRoute::Park,
-        Some(WorkflowNodeOnError::Continue) => StepFailureRoute::PassOn {
-            outputs: place_on_first_output(
-                passed_on_items(spec, failure, inputs),
-                main_output_count,
-            ),
-        },
+        None | Some(WorkflowNodeOnError::Stop) => None,
+        Some(WorkflowNodeOnError::Continue) => Some(place_on_first_output(
+            passed_on_items(node, spec, failure, inputs),
+            main_output_count,
+        )),
         Some(WorkflowNodeOnError::ContinueErrorOutput) => {
             let mut outputs = vec![Vec::new(); main_output_count];
-            outputs.push(passed_on_items(spec, failure, inputs));
-            StepFailureRoute::PassOn { outputs }
+            outputs.push(passed_on_items(node, spec, failure, inputs));
+            Some(outputs)
         }
     }
 }
 
 /// Every main input's items, input by input, each pointing at the input item it is and carrying
-/// the step's error: on the one item of the first main input the error's item index names, the
-/// input a per-item kind runs over, or on every item when it names none. A decline's error names
-/// the decline and carries its words where the person typed any.
+/// the step's error on `node`: on the one item of the first main input the error's item index
+/// names, the input a per-item kind runs over, or on every item when it names none. A decline's
+/// error names the decline and carries its words where the person typed any.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn passed_on_items(
+    node: &WorkflowNode,
     spec: &WorkflowNodeKindSpec,
     failure: &StepFailure,
     inputs: &[Vec<WorkflowItem>],
 ) -> Vec<WorkflowItem> {
     let mut error = match failure {
-        StepFailure::Failed(error) => (**error).clone(),
+        StepFailure::Failed(error) | StepFailure::EndsRun(error) => (**error).clone(),
         StepFailure::Declined { words, .. } => uncoded_step_error(match words {
             Some(words) => format!("The step was declined: {}", words.as_str()),
             None => "The step was declined".to_owned(),
         }),
     };
-    let (_message, _node_id, item_index) = error_members(&mut error);
+    let (_message, node_id, item_index) = error_members(&mut error);
+    node_id.get_or_insert_with(|| node.id.clone());
     let failed_item = item_index.map(SafeInt::get);
     main_inputs(spec, inputs)
         .enumerate()
@@ -135,14 +156,15 @@ fn passed_on_items(
                 .map(move |(item_index, item)| (input_index, item_index, item))
         })
         .map(|(input_index, item_index, item)| {
-            let is_failed = failed_item
-                .is_none_or(|failed| input_index == 0 && index(item_index).get() == failed);
+            let is_failed = failed_item.is_none_or(|failed| {
+                input_index == 0 && SafeInt::from_usize(item_index).get() == failed
+            });
             WorkflowItem {
                 json: item.json.clone(),
                 binary: item.binary.clone(),
                 paired_item: Some(WorkflowPairedItems::One(WorkflowPairedItem {
-                    item: index(item_index),
-                    input: Some(index(input_index)),
+                    item: SafeInt::from_usize(item_index),
+                    input: Some(SafeInt::from_usize(input_index)),
                 })),
                 error: is_failed.then(|| error.clone()),
             }
@@ -152,6 +174,7 @@ fn passed_on_items(
 
 /// How a failure stops its run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum RunStop {
     /// The run parks and can be resumed.
     Park,
@@ -160,16 +183,18 @@ pub(crate) enum RunStop {
 }
 
 /// Where one of the run's other live steps stands when a failure stops the run.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum SiblingState {
     /// The step runs, with its cancel.
     Running(CancellationToken),
     /// The step is in the entry line or held at the memory gate, with its cancel.
     Held(CancellationToken),
-    /// The step waits on a person.
+    /// The step waits on a person or on its agent run's spent account.
     Waiting,
 }
 
 /// One of the run's other live steps.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunSibling {
     /// The step.
     pub(crate) step: WorkflowStepKey,
@@ -178,6 +203,7 @@ pub(crate) struct RunSibling {
 }
 
 /// What stopping a run's siblings answers.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct SiblingStop {
     /// A `Canceling` for each running sibling.
     pub(crate) reports: Vec<StepReport>,
@@ -192,6 +218,7 @@ pub(crate) struct SiblingStop {
 /// settles from its own driver, and a waiting one keeps waiting on a park and is canceled on an
 /// end. The commit writes each canceled wait's `workflow.step.canceled` and clears its live
 /// columns.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn stop_siblings(
     deciding: WorkflowStepKey,
     stop: RunStop,
@@ -319,28 +346,36 @@ mod tests {
     /// `route` as JSON, reading every member it carries.
     fn route_json(route: StepFailureRoute) -> Value {
         match route {
-            StepFailureRoute::Retry { attempt, wait } => json!({ "retry": {
-                "attempt": attempt.get(),
+            StepFailureRoute::Retry { wait } => json!({ "retry": {
                 "waitMs": u64::try_from(wait.as_millis()).expect("a clamped wait fits"),
             } }),
             StepFailureRoute::Park => json!("park"),
+            StepFailureRoute::End => json!("end"),
             StepFailureRoute::PassOn { outputs } => json!({ "passOn": outputs }),
         }
     }
 
-    /// A failed step retries while its clamped tries last and never on a decline, then its
-    /// `onError` parks, passes its two main inputs' items on its one main output, or sends them
-    /// down the error output after it, each item pointing at its input item and carrying the error
-    /// only on the item the error names. Mutations: retry a decline; drop either clamp; compare
-    /// attempts with `<=`; put a named item's error on every item; place the error output at
-    /// another index or count the tool output; drop the lineage or index the inputs with the tool
-    /// input counted.
+    /// A failure that ends its run ends it, past any retry or `onError`; any other failed step
+    /// retries while its clamped tries last and never on a decline, then its `onError` parks,
+    /// passes its two main inputs' items on its one main output, or sends them down the error
+    /// output after it, each item pointing at its input item and carrying the error, on its node,
+    /// only on the item the error names. Mutations: retry or pass on a failure that ends the run;
+    /// retry a decline; drop either clamp; compare attempts with `<=`; put a named item's error on
+    /// every item; leave a decline's error without its node; place the error output at another
+    /// index or count the tool output; drop the lineage or index the inputs with the tool input
+    /// counted.
     #[rstest]
+    #[case::ends_run(Some([3, 200]), Some("continue"), 1,
+        StepFailure::EndsRun(Box::new(
+            serde_json::from_value(json!({ "message": "stopped", "nodeId": "step" }))
+                .expect("the test's error reads"),
+        )),
+        json!("end"))]
     #[case::retry_left(Some([3, 200]), None, 1, failed(None),
-        json!({ "retry": { "attempt": 2, "waitMs": 200 } }))]
+        json!({ "retry": { "waitMs": 200 } }))]
     #[case::last_try(Some([3, 200]), Some("stop"), 3, failed(None), json!("park"))]
     #[case::clamped_retry(Some([9, 60_000]), None, 4, failed(None),
-        json!({ "retry": { "attempt": 5, "waitMs": 5_000 } }))]
+        json!({ "retry": { "waitMs": 5_000 } }))]
     #[case::clamped_last(Some([9, 60_000]), None, 5, failed(None), json!("park"))]
     #[case::declined(Some([3, 200]), Some("continue"), 1,
         StepFailure::Declined {
@@ -348,9 +383,15 @@ mod tests {
             at: WireInstant::now(),
         },
         json!({ "passOn": [[
-            passed("Ada", 0, 0, Some(&json!({ "message": "The step was declined: not now" }))),
-            passed("Bob", 1, 0, Some(&json!({ "message": "The step was declined: not now" }))),
-            passed("Cy", 0, 1, Some(&json!({ "message": "The step was declined: not now" }))),
+            passed("Ada", 0, 0, Some(&json!({
+                "message": "The step was declined: not now", "nodeId": "step",
+            }))),
+            passed("Bob", 1, 0, Some(&json!({
+                "message": "The step was declined: not now", "nodeId": "step",
+            }))),
+            passed("Cy", 0, 1, Some(&json!({
+                "message": "The step was declined: not now", "nodeId": "step",
+            }))),
         ]] }))]
     #[case::continue_whole(None, Some("continue"), 1, failed(None),
         json!({ "passOn": [[
@@ -451,7 +492,10 @@ mod tests {
                 is_sibling_failure: false,
             }),
         };
-        let WaveSettle::Closed(closing) = wave.settle(settled) else {
+        let WaveSettle::Closed {
+            reports: closing, ..
+        } = wave.settle(settled)
+        else {
             panic!("the one member's settlement closes the wave");
         };
         let closing: Vec<(String, Option<bool>)> = closing

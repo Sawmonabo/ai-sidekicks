@@ -1,3 +1,5 @@
+mod flush;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -9,8 +11,7 @@ use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowStepKey, WorkflowStepSource};
 
-use super::graph::RunGraph;
-use super::{RunWalk, WalkTurn, ready_inputs};
+use super::{RunGraph, RunWalk, WalkTurn};
 use crate::expressions::lineage::{StepKey, StepOutput, StepOutputs};
 use crate::kinds::step_context::StepContext;
 use crate::kinds::{
@@ -218,7 +219,14 @@ fn describe(turn: &WalkTurn) -> Vec<String> {
             losers.join(" ")
         )
     });
-    ready.chain(skipped).chain(wins).collect()
+    let canceled = turn.canceled.iter().map(|canceled| {
+        format!(
+            "canceled {} exec {}",
+            canceled.step.node_id.as_str(),
+            canceled.step.execution_index.get()
+        )
+    });
+    ready.chain(skipped).chain(wins).chain(canceled).collect()
 }
 
 /// The open rounds of every node, as `node:run index`, in visiting order.
@@ -512,7 +520,7 @@ fn first_to_arrive_wins_on_items_and_cancels_only_its_losing_branch() {
         },
     );
     assert_eq!(
-        ready_inputs(&walk.graph, &a_turn.ready[0], &outputs),
+        walk.ready_inputs(&a_turn.ready[0], &outputs),
         [Vec::new(), a_items, Vec::new(), Vec::new()]
     );
     assert_eq!(
@@ -552,137 +560,137 @@ fn first_to_arrive_wins_on_items_and_cancels_only_its_losing_branch() {
     );
 }
 
-/// The walk after the trigger feeds X, X settles empty into Y and Y would feed Z; Y always
-/// outputs data when `is_always_output`.
-fn empty_feed_walk(is_always_output: bool) -> RunWalk {
-    let y = if is_always_output {
-        always_output_node("Y", 2)
-    } else {
-        node("Y", "test.step", 2, false)
-    };
-    let (mut walk, start_turn) = start(
-        vec![
-            node("trigger", "test.trigger", 0, false),
-            node("X", "test.step", 1, false),
-            y,
-            node("Z", "test.step", 3, false),
-        ],
-        &[
-            edge("trigger", 0, "X", 0),
-            edge("X", 0, "Y", 0),
-            edge("Y", 0, "Z", 0),
-        ],
-    );
-    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
-    walk.settle(&readied(&trigger_turn, "X"), &[0]);
-    walk
-}
-
-/// A quiet walk whose Y was fed only an empty input.
-fn empty_feed_quiet_walk() -> RunWalk {
-    empty_feed_walk(false)
-}
-
-/// A quiet walk whose Y, marked to always output data, was fed only an empty input.
-fn always_output_quiet_walk() -> RunWalk {
-    empty_feed_walk(true)
-}
-
-/// A quiet walk whose M ran its round 0 on P and R, Q's feed waiting in round 1 for its slot 1.
-fn second_round_quiet_walk() -> RunWalk {
-    let (mut walk, start_turn) = start(
-        vec![
-            node("trigger", "test.trigger", 0, false),
-            node("P", "test.step", 1, false),
-            node("Q", "test.step", 2, false),
-            node("R", "test.step", 3, false),
-            node("M", "test.pair", 4, false),
-        ],
-        &[
-            edge("trigger", 0, "P", 0),
-            edge("trigger", 0, "Q", 0),
-            edge("trigger", 0, "R", 0),
-            edge("P", 0, "M", 0),
-            edge("Q", 0, "M", 0),
-            edge("R", 0, "M", 1),
-        ],
-    );
-    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
-    walk.settle(&readied(&trigger_turn, "P"), &[1]);
-    walk.settle(&readied(&trigger_turn, "Q"), &[1]);
-    let r_turn = walk.settle(&readied(&trigger_turn, "R"), &[1]);
-    walk.settle(&readied(&r_turn, "M"), &[1, 0]);
-    walk
-}
-
-/// A walk whose Y was fed only an empty input while W is still live.
-fn live_step_walk() -> RunWalk {
-    let (mut walk, start_turn) = start(
-        vec![
-            node("trigger", "test.trigger", 0, false),
-            node("X", "test.step", 1, false),
-            node("W", "test.step", 2, false),
-            node("Y", "test.step", 3, false),
-        ],
-        &[
-            edge("trigger", 0, "X", 0),
-            edge("trigger", 0, "W", 0),
-            edge("X", 0, "Y", 0),
-        ],
-    );
-    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
-    walk.settle(&readied(&trigger_turn, "X"), &[0]);
-    walk
-}
-
-/// A quiet walk whose first-to-arrive M won on A and ran, B dropped before it fed M.
-fn won_round_quiet_walk() -> RunWalk {
-    let (mut walk, start_turn) = start(
+/// The loop the won-round tests run: the trigger feeds A and B, A feeds M's first main slot and B
+/// its second, and M feeds C, which feeds A and B again.
+fn looping_first_to_arrive_walk() -> (RunWalk, WalkTurn) {
+    start(
         vec![
             node("trigger", "test.trigger", 0, false),
             node("A", "test.step", 1, false),
             node("B", "test.step", 2, false),
             node("M", "test.first", 3, false),
+            node("C", "test.step", 4, false),
         ],
         &[
             edge("trigger", 0, "A", 0),
             edge("trigger", 0, "B", 0),
             edge("A", 0, "M", 0),
             edge("B", 0, "M", 1),
+            edge("M", 0, "C", 0),
+            edge("C", 0, "A", 0),
+            edge("C", 0, "B", 0),
         ],
+    )
+}
+
+/// Inside a loop, a first-to-arrive round won on one pass takes only the late feeds of the steps
+/// live at its win: its own pass's straggler closes it, and the next pass's feed opens the next
+/// round and wins it. A loser readied earlier in the turn of its win is taken back from the turn's
+/// ready steps and canceled. Mutations: let a won round take any feed; let it take none; leave a
+/// same-turn loser ready.
+#[test]
+fn a_won_round_takes_only_its_own_pass_and_a_same_turn_loser_never_runs() {
+    let (mut walk, start_turn) = looping_first_to_arrive_walk();
+    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
+    let a_turn = walk.settle(&readied(&trigger_turn, "A"), &[1]);
+    assert_eq!(
+        describe(&a_turn),
+        [
+            "ready M run 0 exec 3 from A:0@1 - -",
+            "win M exec 3 losers []"
+        ]
     );
+    assert_eq!(
+        describe(&walk.settle(&readied(&trigger_turn, "B"), &[1])),
+        Vec::<String>::new()
+    );
+    assert_eq!(open_rounds(&walk, "M"), Vec::<u64>::new());
+
+    let (mut walk, start_turn) = looping_first_to_arrive_walk();
     let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
     let a_turn = walk.settle(&readied(&trigger_turn, "A"), &[1]);
     walk.drop_step(&readied(&trigger_turn, "B"));
-    walk.settle(&readied(&a_turn, "M"), &[1]);
-    walk
+    let m_turn = walk.settle(&readied(&a_turn, "M"), &[1]);
+    let c_turn = walk.settle(&readied(&m_turn, "C"), &[1]);
+    assert_eq!(
+        describe(&c_turn),
+        [
+            "ready A run 1 exec 5 from C:0@4",
+            "ready B run 1 exec 6 from C:0@4"
+        ]
+    );
+    assert_eq!(
+        describe(&walk.settle(&readied(&c_turn, "B"), &[1])),
+        [
+            "ready M run 1 exec 7 from - B:0@6 -",
+            "win M exec 7 losers []"
+        ]
+    );
+
+    let (mut walk, start_turn) = start(
+        vec![
+            node("trigger", "test.trigger", 0, false),
+            node("B", "test.step", 1, false),
+            node("M", "test.first", 2, false),
+        ],
+        &[
+            edge("trigger", 0, "M", 0),
+            edge("trigger", 0, "B", 0),
+            edge("B", 0, "M", 1),
+        ],
+    );
+    assert_eq!(
+        describe(&walk.settle(&readied(&start_turn, "trigger"), &[1])),
+        [
+            "ready M run 0 exec 2 from trigger:0@0 - -",
+            "win M exec 2 losers []",
+            "canceled B exec 1",
+        ]
+    );
+    assert_eq!(walk.live.keys().copied().collect::<Vec<_>>(), [2]);
 }
 
-/// The flush decides what waits only once the run is quiet: an empty-only round is skipped and
-/// feeds nothing whatever the node's settings, a waiting round with items runs with no source on
-/// its missing slot, and a won round is dropped unreadied. Mutations: flush while a step is live;
-/// let a `noItems` skip feed onward; let always-output data ready an unfed node; give a missing
-/// slot a source; ready a won round.
-#[rstest]
-#[case::an_empty_feed_is_skipped(empty_feed_quiet_walk, &[
-    "skipped Y NoItems run 0 exec 2 from X:0@1 outputs [0]",
-], &[])]
-#[case::always_output_data_does_not_run_an_unfed_node(always_output_quiet_walk, &[
-    "skipped Y NoItems run 0 exec 2 from X:0@1 outputs [0]",
-], &[])]
-#[case::a_waiting_round_runs_without_its_missing_slot(second_round_quiet_walk, &[
-    "ready M run 1 exec 5 from Q:0@2 -",
-], &[])]
-#[case::a_live_step_holds_the_flush(live_step_walk, &[], &["Y:0"])]
-#[case::a_won_round_is_dropped(won_round_quiet_walk, &[], &[])]
-fn a_quiet_run_flushes_what_waits_and_a_skip_feeds_nothing(
-    #[case] quiet_walk: fn() -> RunWalk,
-    #[case] expected: &[&str],
-    #[case] still_open: &[&str],
-) {
-    let mut walk = quiet_walk();
-    assert_eq!(describe(&walk.flush()), expected);
-    assert_eq!(every_open_round(&walk), still_open);
+/// A disabled node's successor reads the items the skip passed on, through a chain of disabled
+/// nodes, though no skip records outputs. Mutation: look a disabled skip up among the recorded
+/// outputs, which panics.
+#[test]
+fn a_disabled_skips_successor_reads_the_items_it_passed_on() {
+    let (mut walk, start_turn) = start(
+        vec![
+            node("trigger", "test.trigger", 0, false),
+            node("D1", "test.step", 1, true),
+            node("D2", "test.step", 2, true),
+            node("S", "test.step", 3, false),
+        ],
+        &[
+            edge("trigger", 0, "D1", 0),
+            edge("D1", 0, "D2", 0),
+            edge("D2", 0, "S", 0),
+        ],
+    );
+    let trigger_step = readied(&start_turn, "trigger");
+    let turn = walk.settle(&trigger_step, &[1]);
+    let s_ready = turn
+        .ready
+        .iter()
+        .find(|ready| ready.step.node_id.as_str() == "S")
+        .expect("the skips feed S");
+    let items: Vec<WorkflowItem> = vec![
+        serde_json::from_value(json!({ "json": { "number": 7 } })).expect("the test's item reads"),
+    ];
+    let mut outputs = StepOutputs::new([(trigger_step.node_id.clone(), "trigger".to_owned())]);
+    outputs.record(
+        StepKey {
+            node_id: trigger_step.node_id.clone(),
+            execution_index: 0,
+        },
+        StepOutput {
+            sources: Vec::new(),
+            outputs: vec![items.clone()],
+        },
+    );
+
+    assert_eq!(walk.ready_inputs(s_ready, &outputs), [items]);
 }
 
 /// A retry readies the next attempt under the next execution index with the run index and sources

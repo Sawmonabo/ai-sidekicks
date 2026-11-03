@@ -1,20 +1,14 @@
 //! The engine's tick: each turn of its loop walks what committed, admits and dispatches the
 //! steps the walk readied, and commits what they reported in one write.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the program's workflow engine, which runs the tick"
-    )
-)]
-
 mod admission;
 mod branch_cancellation;
 mod dispatch;
 pub(crate) mod node_settings;
 mod step_failure;
 mod walk;
+
+pub(crate) use self::branch_cancellation::BranchCancelReason;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -51,6 +45,7 @@ use crate::secrets::redaction::RunRedaction;
 
 /// What one run's steps share, built once by the run's start or its restart and held as an `Arc`
 /// by every step the run dispatches.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunScope {
     /// The session the run works in.
     pub(crate) session_id: SessionId,
@@ -134,6 +129,7 @@ pub(crate) fn test_run_scope(mode: WorkflowRunMode, nodes: Vec<WorkflowNode>) ->
 /// What a run's steps had recorded when the turn began, handed to each step that turn dispatches
 /// so every one reads the same fixed copy.
 #[derive(Clone)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunSnapshot {
     /// Each node's executions so far.
     pub(crate) outputs: Arc<StepOutputs>,
@@ -142,6 +138,7 @@ pub(crate) struct RunSnapshot {
 }
 
 /// A step the walk readied: its key, its loop's run index and its input.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct ReadyStep {
     /// The step.
     pub(crate) step: WorkflowStepKey,
@@ -158,6 +155,7 @@ pub(crate) struct ReadyStep {
 
 /// What one step reported to the tick, which the commit turns into events and rows. The commit
 /// writes `at` as the event's instant, so the live rows and the fold read the same instant.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct StepReport {
     /// The step that reported.
     pub(crate) step: WorkflowStepKey,
@@ -169,8 +167,10 @@ pub(crate) struct StepReport {
 
 /// What a step reports: where it stands at the memory gate, its start, its progress, its wind-down
 /// or its end. A step the dispatch admits has its `Admitted` in the dispatch's own answer, before
-/// any report from its driver; a step the gate weighs reports its hold and its admission from its
-/// driver.
+/// any report from its driver; a step the gate weighs, and an agent step, whose run joins the gate
+/// when it is made, reports its hold and its admission from its driver. An agent step whose run
+/// leaves the gate's line unadmitted reports no `Admitted` before it settles.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum StepReportKind {
     /// The memory gate holds the step; every report of one hold carries the instant of its first,
     /// so the first is the one whose `at` equals `hold_started_at`.
@@ -187,20 +187,27 @@ pub(crate) enum StepReportKind {
     Started {
         /// The input exactly as the pending row stored it.
         input_ref: WorkflowPayloadRef,
-        /// The level the step actually runs at, where its account runs another than the run's.
+        /// The level the step runs at, where its account runs it at another level than the run's.
         permission_level: Option<PermissionLevel>,
     },
     /// The step passed a turn end or a tool call.
     Progressed,
     /// The step was asked to stop and is winding down.
     Canceling,
-    /// The wave the step belongs to had its other branches canceled.
-    BranchesCanceled,
+    /// The step's turn canceled a wave of its run's other branches, and the last running one has
+    /// settled; the report sits on the deciding step.
+    BranchesCanceled {
+        /// Why the branches were canceled.
+        reason: BranchCancelReason,
+        /// How many running branches the wave canceled.
+        count: usize,
+    },
     /// The step ended.
     Settled(StepSettlement),
 }
 
 /// How a step ended.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum StepSettlement {
     /// The step finished with its outputs.
     Completed {
@@ -235,13 +242,6 @@ pub(crate) enum StepSettlement {
         /// The spent account.
         provider_account_id: ProviderAccountId,
         /// The step's agent run, kept to resume when the account is back.
-        #[cfg_attr(
-            test,
-            expect(
-                dead_code,
-                reason = "the account wait, which resumes the run when the account is back"
-            )
-        )]
         run: Box<dyn AgentStepRun>,
     },
     /// The step was canceled. A step canceled while the gate held it adds its hold to the step's

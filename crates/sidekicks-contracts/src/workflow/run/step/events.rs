@@ -489,4 +489,55 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 };
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use rstest::rstest;
+    use serde_json::{Value, json};
+
+    use super::WorkflowPhaseSuspendedPayload;
+
+    const SESSION: &str = "018f0000-0000-7000-8000-000000000001";
+    const WORKFLOW_RUN: &str = "018f0000-0000-7000-8000-000000000004";
+    const ACCOUNT: &str = "018f0000-0000-7000-8000-00000000000c";
+    const DEADLINE: &str = "2020-01-01T10:00:00.000Z";
+    const WAIT: &str = "018f0000-0000-7000-8000-00000000000d";
+
+    /// A step event's payload: the step it names, then `members`.
+    fn step_payload(members: Value) -> Value {
+        let mut payload = json!({
+            "sessionId": SESSION, "workflowRunId": WORKFLOW_RUN, "nodeId": "ask",
+            "attempt": 1, "executionIndex": 0,
+        });
+        if let (Some(payload), Value::Object(members)) = (payload.as_object_mut(), members) {
+            payload.extend(members);
+        }
+        payload
+    }
+
+    /// A deadline rides a wait on a person and is refused on any other wait. Mutations: refuse it on a
+    /// person's wait; keep it on an account or chain wait.
+    #[rstest]
+    #[case::approval(json!({"waitCause": "approval", "waitId": WAIT}), true)]
+    #[case::form(json!({"waitCause": "form", "waitId": WAIT}), true)]
+    #[case::reply(json!({"waitCause": "reply", "waitId": WAIT}), true)]
+    #[case::account(json!({"waitCause": "account", "providerAccountId": ACCOUNT}), false)]
+    #[case::chain(json!({"waitCause": "chain"}), false)]
+    fn phase_suspended_carries_a_deadline_only_on_a_wait_on_a_person(
+        #[case] wait: Value,
+        #[case] is_carried: bool,
+    ) {
+        let without_deadline = step_payload(wait.clone());
+        assert!(
+            serde_json::from_value::<WorkflowPhaseSuspendedPayload>(without_deadline).is_ok(),
+            "the wait reads without a deadline"
+        );
+        let mut with_deadline = wait;
+        if let Some(members) = with_deadline.as_object_mut() {
+            members.insert("waitDeadlineAt".into(), json!(DEADLINE));
+        }
+        let wire = step_payload(with_deadline);
+        let written = serde_json::from_value::<WorkflowPhaseSuspendedPayload>(wire.clone())
+            .ok()
+            .map(|read| serde_json::to_value(read).expect("a read payload writes"));
+        assert_eq!(written, is_carried.then_some(wire));
+    }
+}

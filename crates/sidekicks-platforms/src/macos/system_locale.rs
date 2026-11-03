@@ -1,18 +1,18 @@
 //! The person's Region setting on macOS, read through Core Foundation when the environment names
 //! no locale: the current locale's language, script and Numbers choice in the Region the person
-//! chose, and the hour cycle of its preferred-hour (`j`) time template, which follows their
+//! chose, and the hour field of its preferred-hour (`j`) time template, which follows their
 //! 24-hour switch.
 
 use std::io;
 
 use icu_locale_core::Locale;
 use icu_locale_core::extensions::unicode::{Value, key};
-use icu_locale_core::preferences::extensions::unicode::keywords::{HourCycle, NumberingSystem};
+use icu_locale_core::preferences::extensions::unicode::keywords::NumberingSystem;
 use icu_locale_core::subtags::Region;
 use objc2_core_foundation::{CFDateFormatter, CFLocale, CFString, kCFLocaleCountryCode};
 
 use crate::posix::system_locale::locale_from_name;
-use crate::system_locale::hour_cycle_in_pattern;
+use crate::system_locale::{HourField, hour_field_in_pattern};
 
 /// The locale of the person's Region setting: the current locale's language and script with the
 /// Region's country, which its identifier carries only as a keyword (`en_US@rg=dkzzzz` is `en-DK`),
@@ -59,9 +59,9 @@ fn numbering_system_in(identifier: &str) -> Option<NumberingSystem> {
     NumberingSystem::try_from(&value).ok()
 }
 
-/// The hour cycle of the person's Region setting, read from the time pattern its `j` template
+/// The hour field of the person's Region setting, read from the time pattern its `j` template
 /// gives. Fails when Core Foundation answers no locale or pattern, or the pattern names no hour.
-pub(crate) fn region_hour_cycle() -> io::Result<HourCycle> {
+pub(crate) fn region_hour_field() -> io::Result<HourField> {
     let locale = CFLocale::current()
         .ok_or_else(|| io::Error::other("Core Foundation names no current locale"))?;
     let template = CFString::from_static_str("j");
@@ -72,7 +72,7 @@ pub(crate) fn region_hour_cycle() -> io::Result<HourCycle> {
     }
     .ok_or_else(|| io::Error::other("Core Foundation answers no pattern for the `j` template"))?
     .to_string();
-    hour_cycle_in_pattern(&pattern).ok_or_else(|| {
+    hour_field_in_pattern(&pattern).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidData,
             format!("the Region setting's time pattern {pattern:?} names no hour"),

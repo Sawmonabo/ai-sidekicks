@@ -8,6 +8,7 @@ use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use tokio_util::sync::CancellationToken;
 
 use super::StepDispatch;
+use crate::engine::event_record::EngineFault;
 use crate::engine::ports::{StepAdmissionTicket, WorkflowNodeKey};
 use crate::engine::tick::node_settings::main_inputs;
 use crate::engine::tick::{ReadyStep, RunScope, RunSnapshot};
@@ -22,7 +23,9 @@ impl StepDispatch {
     /// its node's secrets, reads its params, opens its templates on the expression thread when it
     /// has any, and builds its context around `cancel` and its place at the memory gate,
     /// `admission`. Its inputs arrive already cut for an execute-once node. Reports nothing; fails
-    /// with [`StepFailure::Failed`] when a secret, a param or a template does.
+    /// with [`StepFailure::Failed`] when a secret, a param or a template does, recording a failed
+    /// keychain or secret read with its causes in the engine's record first.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) async fn launch(
         &self,
         scope: &RunScope,
@@ -36,15 +39,24 @@ impl StepDispatch {
             .nodes
             .get(&ready.step.node_id)
             .expect("the step's driver looked its node up in the run's nodes");
-        let secrets = resolve_node_secrets(
+        let resolved = resolve_node_secrets(
             &self.reads,
             &self.secrets,
             scope.project.as_ref(),
             &kind.spec,
             &node.params,
         )
-        .await
-        .map_err(|refusal| StepFailure::Failed(Box::new(refusal.into())))?;
+        .await;
+        let secrets = match resolved {
+            Ok(secrets) => secrets,
+            Err(refusal) => {
+                if refusal.has_failure_underneath() {
+                    self.record_fault(scope, &ready.step, EngineFault::SecretReadFailed, &refusal)
+                        .await;
+                }
+                return Err(StepFailure::Failed(Box::new(refusal.into())));
+            }
+        };
         let (params, templates) = StepParams::read(&node.params).map_err(|refusal| {
             StepFailure::Failed(Box::new(uncoded_step_error(refusal.to_string())))
         })?;
@@ -107,7 +119,7 @@ impl StepDispatch {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::sync::Arc;
 
     use rstest::rstest;
     use serde_json::{Map, Value, json};
@@ -117,15 +129,17 @@ mod tests {
     use tokio::time::timeout;
     use tokio_util::sync::CancellationToken;
 
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+
+    use super::super::tests::WAIT;
     use super::super::{test_dispatch, test_ready_step, test_run_snapshot};
-    use crate::engine::ports::WorkflowNodeKey;
+    use crate::engine::event_record::EngineRecorder;
+    use crate::engine::ports::{EngineRecordSink, KeptEngineRecords, WorkflowNodeKey};
     use crate::engine::tick::{RunScope, test_run_scope};
     use crate::kinds::step_context::StepContext;
     use crate::kinds::{NodeKind, PassThroughExecutor, StepFailure, test_kind};
     use crate::schema::schema_parts;
-
-    /// The longest a test waits on a launch or an evaluation.
-    const WAIT: Duration = Duration::from_secs(10);
+    use crate::secrets::resolution::STEP_SECRET_STATEMENT_CAPACITY;
 
     /// A kind whose inputs are a tool input, then a main one, and whose `token` param is
     /// sensitive.
@@ -250,6 +264,53 @@ mod tests {
         assert_eq!(
             serde_json::to_value(error).expect("a step failure writes"),
             expected
+        );
+    }
+
+    /// A secret whose record cannot be read fails the step, and the failure goes to the engine's
+    /// record with its causes, not its top message alone. Mutations: skip the record; record only
+    /// the top message.
+    #[tokio::test]
+    async fn a_failed_secret_read_goes_to_the_record_with_its_causes() {
+        const OPEN_FAILED: &str = "a read-only connection to the database could not be opened: ";
+        let database = TestDatabase::new(schema_parts());
+        let node = greet_node(&json!({ "token": "secret://shared/deploy-key" }));
+        let scope = test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]);
+        let ready = test_ready_step(&scope, &node, vec![Vec::new()]);
+        let (mut dispatch, _reports) = test_dispatch(&database, Vec::new());
+        let sink = Arc::new(KeptEngineRecords::default());
+        dispatch.recorder = Arc::new(EngineRecorder::new(
+            Arc::clone(&sink) as Arc<dyn EngineRecordSink>
+        ));
+        dispatch.reads = Arc::new(DatabaseReadPool::new(
+            database.path().with_file_name("missing.sqlite3"),
+            STEP_SECRET_STATEMENT_CAPACITY,
+        ));
+
+        let launched = timeout(
+            WAIT,
+            dispatch.launch(
+                &scope,
+                &test_run_snapshot(&node),
+                &ready,
+                &tool_then_main_kind(),
+                CancellationToken::new(),
+                None,
+            ),
+        )
+        .await
+        .expect("the launch answers in time");
+
+        assert!(matches!(launched, Err(StepFailure::Failed(_))));
+        let lines = sink.lines();
+        let [fault] = lines.as_slice() else {
+            panic!("one fault is recorded: {lines:?}");
+        };
+        assert_eq!(fault["record"], json!("secretReadFailed"));
+        let error = fault["error"].as_str().expect("the error is text");
+        assert!(
+            error.starts_with(OPEN_FAILED) && error.len() > OPEN_FAILED.len(),
+            "the record lacks the failure's causes: {error}"
         );
     }
 }

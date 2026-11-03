@@ -15,10 +15,12 @@ use crate::engine::ports::StepAdmissionOutcome;
 use crate::engine::tick::{StepReport, StepReportKind};
 
 /// How often a held step repeats its `workflow.phase.waitingOnPool` report while the hold lasts.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) const POOL_WAIT_REPEAT: Duration = Duration::from_secs(30);
 
 /// How a step's wait at the memory gate ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum GateWaitEnd {
     /// The gate admitted the step, and its `Admitted` report was sent.
     Admitted,
@@ -39,6 +41,7 @@ pub(crate) enum GateWaitEnd {
 /// Waits for the gate's answer on `admission` for `step`, reporting the hold on `reports`: a
 /// `WaitingOnPool` when it starts and every [`POOL_WAIT_REPEAT`] after, each carrying the first's
 /// instant, then `Admitted`. A step the gate already decided reports no hold.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) async fn wait_at_gate(
     step: WorkflowStepKey,
     mut admission: watch::Receiver<Option<StepAdmissionOutcome>>,
@@ -64,19 +67,16 @@ pub(crate) async fn wait_at_gate(
         None => {}
     }
     let hold_started_at = WireInstant::now();
-    let held = |hold_started_at: &WireInstant| StepReportKind::WaitingOnPool {
-        hold_started_at: hold_started_at.clone(),
-    };
-    if send(
+    if let Some(end) = send_hold(
         reports,
         &step,
         hold_started_at.clone(),
-        held(&hold_started_at),
+        &hold_started_at,
+        cancel,
     )
     .await
-    .is_err()
     {
-        return GateWaitEnd::ReportsClosed;
+        return end;
     }
     let repeat = tokio::time::sleep(POOL_WAIT_REPEAT);
     tokio::pin!(repeat);
@@ -108,8 +108,9 @@ pub(crate) async fn wait_at_gate(
                 }
             }
             () = &mut repeat => {
-                if send(reports, &step, WireInstant::now(), held(&hold_started_at)).await.is_err() {
-                    return GateWaitEnd::ReportsClosed;
+                let sent = send_hold(reports, &step, WireInstant::now(), &hold_started_at, cancel);
+                if let Some(end) = sent.await {
+                    return end;
                 }
                 let next = repeat.deadline() + POOL_WAIT_REPEAT;
                 repeat.as_mut().reset(next);
@@ -118,10 +119,34 @@ pub(crate) async fn wait_at_gate(
     }
 }
 
+// Sends `step`'s hold report made at `at`, unless `cancel` fires first, so a full channel never
+// keeps a canceled step waiting; `Some` is how the wait ends.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+async fn send_hold(
+    reports: &mpsc::Sender<StepReport>,
+    step: &WorkflowStepKey,
+    at: WireInstant,
+    hold_started_at: &WireInstant,
+    cancel: &CancellationToken,
+) -> Option<GateWaitEnd> {
+    let held = StepReportKind::WaitingOnPool {
+        hold_started_at: hold_started_at.clone(),
+    };
+    tokio::select! {
+        biased;
+        () = cancel.cancelled() => Some(GateWaitEnd::Canceled {
+            hold_started_at: Some(hold_started_at.clone()),
+        }),
+        sent = send(reports, step, at, held) => sent.err().map(|ReportsClosed| GateWaitEnd::ReportsClosed),
+    }
+}
+
 /// The tick's report channel is closed.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(super) struct ReportsClosed;
 
 /// Sends `kind` for `step`, made at `at`, on `reports`.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(super) async fn send(
     reports: &mpsc::Sender<StepReport>,
     step: &WorkflowStepKey,
@@ -138,6 +163,7 @@ pub(super) async fn send(
 
 /// Where the line of entries to the gate stands.
 #[derive(Debug, Default)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 struct GateEntryPlaces {
     /// The place the next turn takes.
     next: u64,
@@ -149,6 +175,7 @@ struct GateEntryPlaces {
 
 /// The line state and the signal that it moved, shared by the order and its turns.
 #[derive(Debug, Default)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 struct GateEntryLine {
     /// The places.
     places: Mutex<GateEntryPlaces>,
@@ -160,6 +187,7 @@ struct GateEntryLine {
 /// the order they became ready, siblings readied together taken in their `order`. Clones share one
 /// line.
 #[derive(Clone, Debug, Default)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct GateEntryOrder {
     /// The line its turns share.
     line: Arc<GateEntryLine>,
@@ -167,6 +195,7 @@ pub(crate) struct GateEntryOrder {
 
 impl GateEntryOrder {
     /// The next turn in the line, behind every turn taken before it.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn take_turn(&self) -> GateEntryTurn {
         let mut places = lock(&self.line.places);
         let place = places.next;
@@ -181,6 +210,7 @@ impl GateEntryOrder {
 /// One step's turn to enter the gate. Dropping it marks the place done, whether the step entered
 /// the gate or was abandoned, which releases the turn behind it.
 #[derive(Debug)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct GateEntryTurn {
     /// The line it belongs to.
     line: Arc<GateEntryLine>,
@@ -190,6 +220,7 @@ pub(crate) struct GateEntryTurn {
 
 impl GateEntryTurn {
     /// Returns once every turn taken before this one has been dropped.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) async fn wait(&self) {
         loop {
             let moved = self.line.moved.notified();
@@ -336,8 +367,8 @@ mod tests {
     }
 
     /// A step the gate already admitted reports no hold; a cancel or a closed gate ends a held
-    /// wait with the hold's first instant. Mutations: a hold written for a step the gate already
-    /// admitted; a cancel ignored while held.
+    /// wait at once with the hold's first instant. Mutations: a hold written for a step the gate
+    /// already admitted; a cancel ignored while held, which the timeout catches.
     #[rstest]
     #[case::already_admitted(Ending::AlreadyAdmitted)]
     #[case::canceled_while_held(Ending::Cancel)]
@@ -373,8 +404,45 @@ mod tests {
                 }
             }
         };
-        assert_eq!(wait.await.expect("the wait ends"), expected);
+        let end = tokio::time::timeout(Duration::from_secs(1), wait)
+            .await
+            .expect("the wait ends before a repeat")
+            .expect("the wait's task ends");
+        assert_eq!(end, expected);
         assert!(received.recv().await.is_none());
+    }
+
+    /// A step canceled while its hold report waits on a full channel ends `Canceled` at once.
+    /// Mutations: send the hold without watching the cancel.
+    #[tokio::test(start_paused = true)]
+    async fn a_hold_blocked_on_a_full_channel_still_ends_on_cancel() {
+        let (_gate, admission) = watch::channel(None);
+        let cancel = CancellationToken::new();
+        let (reports, _received) = mpsc::channel(1);
+        reports
+            .try_send(StepReport {
+                step: step(),
+                at: WireInstant::now(),
+                kind: StepReportKind::Progressed,
+            })
+            .expect("the channel takes one report");
+        let step_cancel = cancel.clone();
+        let wait =
+            tokio::spawn(
+                async move { wait_at_gate(step(), admission, &step_cancel, &reports).await },
+            );
+        tokio::task::yield_now().await;
+        cancel.cancel();
+        let end = tokio::time::timeout(Duration::from_secs(1), wait)
+            .await
+            .expect("the wait ends at once")
+            .expect("the wait's task ends");
+        assert!(matches!(
+            end,
+            GateWaitEnd::Canceled {
+                hold_started_at: Some(_)
+            }
+        ));
     }
 
     /// A turn waits for every earlier turn, not only the one just before it, and not for the

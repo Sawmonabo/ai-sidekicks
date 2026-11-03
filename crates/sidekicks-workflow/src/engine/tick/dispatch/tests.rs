@@ -1,3 +1,5 @@
+mod gate;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -6,7 +8,6 @@ use futures::future::BoxFuture;
 use rstest::rstest;
 use secrecy::SecretString;
 use serde_json::{Map, Value, json};
-use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::workflow::definition::document::WorkflowNode;
 use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowPinnedItem};
@@ -19,15 +20,12 @@ use tokio::sync::{Notify, mpsc};
 use tokio::time::timeout;
 
 use super::{test_dispatch, test_ready_step, test_run_snapshot};
-use crate::engine::ports::{
-    AgentStepRequest, ScriptedGate, StepAdmission, StepAdmissionOutcome, StepAdmissionWork,
-    StepScriptRuntime, WorkflowNodeKey,
-};
+use crate::engine::ports::{AgentStepRequest, ScriptedGate, StepAdmission};
 use crate::engine::tick::{RunScope, StepReport, StepReportKind, StepSettlement, test_run_scope};
 use crate::kinds::step_context::StepContext;
 use crate::kinds::{
-    NodeExecutor, NodeKind, StepAdmissionNeed, StepAdmissionShape, StepFailure, StepOutcome,
-    test_kind, uncoded_step_error,
+    NodeExecutor, NodeKind, StepAdmissionNeed, StepFailure, StepOutcome, test_kind,
+    uncoded_step_error,
 };
 use crate::schema::schema_parts;
 use crate::secrets::redaction::RunRedaction;
@@ -35,8 +33,11 @@ use crate::secrets::redaction::RunRedaction;
 /// The longest a test waits on a report or a signal.
 pub(super) const WAIT: Duration = Duration::from_secs(10);
 
-/// The run's secret, which a failure's message must never carry.
-const SECRET: &str = "hunter2secretXYZ";
+/// How long a test waits to see that nothing happens.
+pub(super) const QUIET: Duration = Duration::from_millis(50);
+
+/// The run's secret, which a failure and an output must never carry.
+pub(super) const SECRET: &str = "hunter2secretXYZ";
 
 /// What a test executor does.
 #[derive(Clone, Copy)]
@@ -51,10 +52,14 @@ pub(super) enum Script {
     },
     /// Waits for the test's release, marks progress, then waits for its cancel and flags it.
     AwaitCancel,
-    /// Fails with a coded failure whose message holds the run's secret.
+    /// Fails with a coded failure whose message and details hold the run's secret.
     FailWithSecret,
+    /// Gives one item holding the run's secret in its data, a member name and its failure.
+    OutputSecret,
     /// Asks for an agent run carrying the params of its item 0.
     AskAgentRun,
+    /// Waits for the test's release, then asks as [`Script::AskAgentRun`] does.
+    AwaitReleaseThenAskAgentRun,
 }
 
 /// What a test executor saw, and the signals between it and the test.
@@ -70,6 +75,13 @@ pub(super) struct ExecutorProbe {
     canceled: Notify,
     /// Whether the executor's step held its place at the memory gate.
     is_admitted: AtomicBool,
+}
+
+impl ExecutorProbe {
+    /// Lets one waiting executor go on; a release with no waiter is kept for the next.
+    pub(super) fn release(&self) {
+        self.release.notify_one();
+    }
 }
 
 /// A test executor following its script.
@@ -135,10 +147,15 @@ impl NodeExecutor for ScriptedExecutor {
                     serde_json::from_value(json!({
                         "message": format!("token {SECRET} refused"),
                         "code": "workflow.test.refused",
+                        "details": { "token": SECRET, "tried": [format!("Bearer {SECRET}")] },
                     }))
                     .expect("the test's failure reads"),
                 ))),
-                Script::AskAgentRun => {
+                Script::OutputSecret => Ok(StepOutcome::Outputs(vec![vec![secret_item()]])),
+                Script::AskAgentRun | Script::AwaitReleaseThenAskAgentRun => {
+                    if matches!(self.script, Script::AwaitReleaseThenAskAgentRun) {
+                        probe.release.notified().await;
+                    }
                     let params = context
                         .item_params(0)
                         .await
@@ -158,6 +175,33 @@ impl NodeExecutor for ScriptedExecutor {
     fn admission_need(&self, _node: &WorkflowNode) -> StepAdmissionNeed {
         self.need
     }
+}
+
+/// An item holding the run's secret in its data, nested and as a member name, and in its coded
+/// failure's message and details.
+pub(super) fn secret_item() -> WorkflowItem {
+    serde_json::from_value(json!({
+        "json": { "token": SECRET, "headers": [{ "auth": format!("Bearer {SECRET}") }], SECRET: 1 },
+        "error": {
+            "message": format!("{SECRET} expired"),
+            "code": "workflow.test.refused",
+            "details": { "token": SECRET },
+        },
+    }))
+    .expect("the test's item reads")
+}
+
+/// Asserts that `settlement`, as JSON, carries the mask and nowhere the run's secret.
+pub(super) fn assert_masked(settlement: &Value) {
+    let text = settlement.to_string();
+    assert!(
+        !text.contains(SECRET),
+        "the secret reached the tick: {text}"
+    );
+    assert!(
+        text.contains(CREDENTIAL_REDACTION),
+        "nothing was masked: {text}"
+    );
 }
 
 /// The kind `test.step` at version 1, one main input and output and a sensitive `token` param,
@@ -217,7 +261,7 @@ pub(super) fn report_json(report: &StepReport, step: &WorkflowStepKey) -> Value 
             permission_level,
         } => json!({ "started": { "inputRef": input_ref, "permissionLevel": permission_level } }),
         StepReportKind::Progressed => json!("progressed"),
-        StepReportKind::Canceling | StepReportKind::BranchesCanceled => {
+        StepReportKind::Canceling | StepReportKind::BranchesCanceled { .. } => {
             panic!("no dispatched step winds a branch down")
         }
         StepReportKind::Settled(settlement) => settlement_json(settlement),
@@ -249,6 +293,9 @@ fn settlement_json(settlement: &StepSettlement) -> Value {
             let failure = match failure {
                 StepFailure::Failed(error) => {
                     serde_json::to_value(error).expect("a step failure writes")
+                }
+                StepFailure::EndsRun(error) => {
+                    json!({ "endsRun": serde_json::to_value(error).expect("a step failure writes") })
                 }
                 StepFailure::Declined { words, at } => json!({ "words": words, "at": at }),
             };
@@ -366,29 +413,20 @@ fn failed(failure: &Value) -> Value {
 
 /// The dispatch admits a step at once; its driver sends `Started` with the step's input before
 /// the executor's progress, then `Completed` with the lineage filled and the run variable set. A
-/// node pinned in a manual run settles with its pinned items in the dispatch's own answer, without
-/// resolving a secret or running its executor, a trigger run ignores the pin, and an execute-once
-/// node runs over its first item. Mutations: send `Started` after the executor; resolve a pinned
-/// node's secrets; drop the records; skip the lineage fill; run a pinned node in a manual run;
-/// settle a pinned node from a task; skip the execute-once cut.
+/// trigger run ignores a node's pin, and an execute-once node runs over its first item. Mutations:
+/// send `Started` after the executor; drop the records; skip the lineage fill; honor a pin in a
+/// trigger run; skip the execute-once cut.
 #[rstest]
-#[case::unpinned(WorkflowRunMode::Manual, false, json!({}), 2, Some(2))]
-#[case::pinned_manual(
-    WorkflowRunMode::Manual,
-    true,
-    json!({ "params": { "token": "secret://shared/missing" } }),
-    2,
-    None
-)]
-#[case::pinned_trigger(WorkflowRunMode::Trigger, true, json!({}), 2, Some(2))]
-#[case::execute_once(WorkflowRunMode::Manual, false, json!({ "executeOnce": true }), 3, Some(1))]
+#[case::unpinned(WorkflowRunMode::Manual, false, json!({}), 2, 2)]
+#[case::pinned_trigger(WorkflowRunMode::Trigger, true, json!({}), 2, 2)]
+#[case::execute_once(WorkflowRunMode::Manual, false, json!({ "executeOnce": true }), 3, 1)]
 #[tokio::test]
 async fn a_step_reports_its_start_progress_and_outputs_in_order(
     #[case] mode: WorkflowRunMode,
     #[case] is_pinned: bool,
     #[case] settings: Value,
     #[case] input_count: usize,
-    #[case] executor_item_count: Option<usize>,
+    #[case] executor_item_count: usize,
 ) {
     let probe = Arc::new(ExecutorProbe::default());
     let node = test_node(&settings);
@@ -417,41 +455,38 @@ async fn a_step_reports_its_start_progress_and_outputs_in_order(
     )
     .await;
 
-    let (expected_answered, expected_sent) = match executor_item_count {
-        None => (pinned_settlement(), Vec::new()),
-        Some(item_count) => {
-            let outputs: Vec<Value> = names[..item_count]
-                .iter()
-                .zip(0..)
-                .map(|(name, item)| named_item(name, item))
-                .collect();
-            let sent = vec![
-                started(),
-                json!("progressed"),
-                completed(
-                    &json!([outputs]),
-                    &json!({ "answer": { "value": 42, "isKept": false } }),
-                ),
-            ];
-            (vec![json!({ "admitted": null })], sent)
-        }
-    };
-    assert_eq!(answered, expected_answered);
-    assert_eq!(sent, expected_sent);
-    let seen: Vec<Value> = executor_item_count
-        .map(|item_count| json!([item_count]))
-        .into_iter()
+    let outputs: Vec<Value> = names[..executor_item_count]
+        .iter()
+        .zip(0..)
+        .map(|(name, item)| named_item(name, item))
         .collect();
-    assert_eq!(*lock(&probe.seen), seen);
+    assert_eq!(answered, vec![json!({ "admitted": null })]);
+    assert_eq!(
+        sent,
+        vec![
+            started(),
+            json!("progressed"),
+            completed(
+                &json!([outputs]),
+                &json!({ "answer": { "value": 42, "isKept": false } }),
+            ),
+        ]
+    );
+    assert_eq!(*lock(&probe.seen), vec![json!([executor_item_count])]);
 }
 
 /// A per-item kind runs once per item, in order, each call reading its own item as item 0, and
 /// joins the calls' outputs in call order; a failing call settles the step there, carrying the
-/// call's index and the node's id. Mutations: leave the item cursor unmoved, so both calls read
-/// `Ada`; drop the call's index; run a call after a failure.
+/// call's index and the node's id, unless the node's `onError` goes on, when the call's item is
+/// passed on with the error naming it and the next call runs. Mutations: leave the item cursor
+/// unmoved, so both calls read `Ada`; drop the call's index; run a call after a failure the node
+/// does not go on past; stop at a failure it goes on past; leave the passed-on error naming the
+/// call's own item 0; put the passed-on item on the main output under `continueErrorOutput`.
 #[rstest]
 #[case::every_call(
     None,
+    None,
+    &["Ada", "Bob"],
     &["Ada", "Bob"],
     completed(
         &json!([[
@@ -462,18 +497,62 @@ async fn a_step_reports_its_start_progress_and_outputs_in_order(
     )
 )]
 #[case::failing_call(
+    None,
     Some("Bob"),
     &["Ada", "Bob", "Cy"],
+    &["Ada", "Bob"],
     failed(&json!({ "message": "no Bob", "nodeId": "step", "itemIndex": 1 }))
+)]
+#[case::continue_past_failing_call(
+    Some("continue"),
+    Some("Bob"),
+    &["Ada", "Bob", "Cy"],
+    &["Ada", "Bob", "Cy"],
+    completed(
+        &json!([[
+            { "json": { "seen": "Ada" }, "pairedItem": { "item": 0 } },
+            {
+                "json": { "name": "Bob" }, "pairedItem": { "item": 1, "input": 0 },
+                "error": { "message": "no Bob", "nodeId": "step", "itemIndex": 1 },
+            },
+            { "json": { "seen": "Cy" }, "pairedItem": { "item": 2 } },
+        ]]),
+        &json!({}),
+    )
+)]
+#[case::error_output_past_failing_call(
+    Some("continueErrorOutput"),
+    Some("Bob"),
+    &["Ada", "Bob", "Cy"],
+    &["Ada", "Bob", "Cy"],
+    completed(
+        &json!([
+            [
+                { "json": { "seen": "Ada" }, "pairedItem": { "item": 0 } },
+                { "json": { "seen": "Cy" }, "pairedItem": { "item": 2 } },
+            ],
+            [{
+                "json": { "name": "Bob" }, "pairedItem": { "item": 1, "input": 0 },
+                "error": { "message": "no Bob", "nodeId": "step", "itemIndex": 1 },
+            }],
+        ]),
+        &json!({}),
+    )
 )]
 #[tokio::test]
 async fn a_per_item_kind_runs_once_per_item_in_order(
+    #[case] on_error: Option<&'static str>,
     #[case] fails_on: Option<&'static str>,
     #[case] names: &[&str],
+    #[case] seen: &[&str],
     #[case] settlement: Value,
 ) {
     let probe = Arc::new(ExecutorProbe::default());
-    let node = test_node(&json!({ "params": { "name": "={{ $json.name }}" } }));
+    let mut settings = json!({ "params": { "name": "={{ $json.name }}" } });
+    if let Some(on_error) = on_error {
+        settings["onError"] = json!(on_error);
+    }
+    let node = test_node(&settings);
 
     let (answered, sent) = run_step(
         test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]),
@@ -492,7 +571,8 @@ async fn a_per_item_kind_runs_once_per_item_in_order(
 
     assert_eq!(answered, vec![json!({ "admitted": null })]);
     assert_eq!(sent, vec![started(), settlement]);
-    assert_eq!(*lock(&probe.seen), vec![json!("Ada"), json!("Bob")]);
+    let seen: Vec<Value> = seen.iter().map(|name| json!(name)).collect();
+    assert_eq!(*lock(&probe.seen), seen);
 }
 
 /// A canceled step settles `Canceled` only once its executor returns, and a step whose reports the
@@ -546,11 +626,11 @@ async fn a_canceled_step_settles_once_its_executor_returns(#[case] is_receiver_d
     assert_eq!(next_report(&mut received, &step).await, None);
 }
 
-/// A step that cannot run fails with its node's id and its message scrubbed of the run's secrets:
-/// an unclosed template before any `Started`, an unlisted kind version in the dispatch's own
-/// answer with no driver, an executor's coded failure after `Started`, and an executor asking for
-/// an agent run. Mutations: send `Started` before a launch failure; leave the secret in the
-/// message; accept the agent run.
+/// A step that cannot run fails with its node's id and its message and details scrubbed of the
+/// run's secrets: an unclosed template before any `Started`, an unlisted kind version in the
+/// dispatch's own answer with no driver, an executor's coded failure after `Started`, and an
+/// executor asking for an agent run. Mutations: send `Started` before a launch failure; leave the
+/// secret in the message; leave it in a coded failure's details; accept the agent run.
 #[rstest]
 #[case::unclosed_template(
     json!({ "params": { "bad": "={{ a" } }),
@@ -578,6 +658,10 @@ async fn a_canceled_step_settles_once_its_executor_returns(#[case] is_receiver_d
         failed(&json!({
             "message": format!("token {CREDENTIAL_REDACTION} refused"),
             "code": "workflow.test.refused",
+            "details": {
+                "token": CREDENTIAL_REDACTION,
+                "tried": [format!("Bearer {CREDENTIAL_REDACTION}")],
+            },
             "nodeId": "step",
         })),
     ]
@@ -620,191 +704,32 @@ async fn a_step_that_cannot_run_fails_with_its_node(
     assert_eq!(sent, expected_sent);
 }
 
-/// A step the memory gate weighs gets nothing in the dispatch's answer: it enters the gate with
-/// what it runs, a quick step's input measured, reports its hold where the gate holds it, then its
-/// admission, and launches holding its ticket, which is dropped once it settles. A node pinned in
-/// a manual run settles in the dispatch's answer without entering the gate. Mutations: run the
-/// executor before the admission; answer `Admitted` at dispatch for a gate step; launch without
-/// the ticket; leave the input unmeasured or zero; send a pinned step into the gate or settle it
-/// from a task.
-#[rstest]
-#[case::quick_code_held(
-    StepAdmissionShape::QuickCode { budget_bytes: 1024, output_max_bytes: 2048 },
-    None,
-    false
-)]
-#[case::script_admitted(
-    StepAdmissionShape::Script { runtime: StepScriptRuntime::Bun },
-    Some(StepAdmissionOutcome::Admitted),
-    false
-)]
-#[case::pinned_manual(
-    StepAdmissionShape::Script { runtime: StepScriptRuntime::Bun },
-    None,
-    true
-)]
+/// A step's output items reach the tick with the run's secret masked wherever they carry it: in
+/// their data at any depth, in a member name and in an item's failure. Mutation: settle the
+/// executor's outputs unscrubbed.
 #[tokio::test]
-async fn a_gate_step_waits_for_its_admission_before_it_launches(
-    #[case] shape: StepAdmissionShape,
-    #[case] initial: Option<StepAdmissionOutcome>,
-    #[case] is_pinned: bool,
-) {
+async fn a_steps_outputs_reach_the_tick_masked() {
     let probe = Arc::new(ExecutorProbe::default());
     let node = test_node(&json!({}));
     let mut scope = test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]);
-    if is_pinned {
-        scope.pin_data = Some(pin_data());
-    }
-    let inputs: Vec<Value> = ["Ada", "Bob"]
-        .iter()
-        .map(|name| json!({ "name": name }))
-        .collect();
-    let input_bytes =
-        json_utf8_byte_length(&test_ready_step(&scope, &node, vec![inputs.clone()]).inputs)
-            .expect("the test's inputs measure");
-    assert_ne!(input_bytes, 0);
-    let node_key = WorkflowNodeKey::new(scope.workflow_id, &node.id);
-    let gate = Arc::new(ScriptedGate::new(initial));
+    scope.redaction = Arc::new(RunRedaction::new(&[SecretString::from(SECRET)]));
 
-    let (answered, sent) = run_step(
+    let (_answered, sent) = run_step(
         scope,
         &node,
         scripted_kind(
-            Script::Progress,
-            StepAdmissionNeed::Gate(shape),
+            Script::OutputSecret,
+            StepAdmissionNeed::Unweighed,
             &probe,
             false,
         ),
-        inputs,
+        vec![json!({})],
         &probe,
-        Some(&gate),
+        None,
     )
     .await;
 
-    if is_pinned {
-        assert_eq!(answered, pinned_settlement());
-        assert_eq!(sent, Vec::<Value>::new());
-        assert_eq!(gate.enqueued(), Vec::new());
-        assert!(lock(&probe.seen).is_empty());
-        return;
-    }
-    assert_eq!(answered, Vec::<Value>::new());
-    let mut expected_sent = if initial.is_none() {
-        let hold = sent[0]["waitingOnPool"].clone();
-        assert!(
-            hold.is_string(),
-            "the first report is not a hold: {}",
-            sent[0]
-        );
-        vec![
-            json!({ "waitingOnPool": hold }),
-            json!({ "admitted": hold }),
-        ]
-    } else {
-        vec![json!({ "admitted": null })]
-    };
-    expected_sent.extend([
-        started(),
-        json!("progressed"),
-        completed(
-            &json!([[named_item("Ada", 0), named_item("Bob", 1)]]),
-            &json!({ "answer": { "value": 42, "isKept": false } }),
-        ),
-    ]);
-    assert_eq!(sent, expected_sent);
-    let expected_work = match shape {
-        StepAdmissionShape::QuickCode { .. } => StepAdmissionWork::QuickCode {
-            budget_bytes: 1024,
-            input_bytes: u64::try_from(input_bytes).expect("the test's length fits"),
-            output_max_bytes: 2048,
-            node_key,
-        },
-        StepAdmissionShape::Script { .. } => StepAdmissionWork::Script {
-            runtime: StepScriptRuntime::Bun,
-            node_key,
-        },
-    };
-    assert_eq!(gate.enqueued(), vec![expected_work]);
-    assert!(probe.is_admitted.load(Ordering::SeqCst));
-    assert_eq!(gate.dropped_tickets(), 1);
-}
-
-/// Where a gate step is when its cancel comes.
-#[derive(Clone, Copy)]
-enum CancelPoint {
-    /// Waiting for its turn in the entry line.
-    InLine,
-    /// Held at the gate.
-    AtGate,
-}
-
-/// A gate step enters the gate only once every turn taken before its own is dropped, and a cancel
-/// ends it in the line, before it enters, or at the gate, carrying its hold and dropping its
-/// ticket. Mutations: enter without waiting for the turn; ignore a cancel in the line; drop the
-/// hold's instant from the cancel; keep the ticket after the cancel.
-#[rstest]
-#[case::in_line(CancelPoint::InLine)]
-#[case::at_gate(CancelPoint::AtGate)]
-#[tokio::test]
-async fn a_gate_step_enters_in_its_turn_and_a_cancel_ends_it(#[case] point: CancelPoint) {
-    let probe = Arc::new(ExecutorProbe::default());
-    let node = test_node(&json!({}));
-    let database = TestDatabase::new(schema_parts());
-    let need = StepAdmissionNeed::Gate(StepAdmissionShape::QuickCode {
-        budget_bytes: 1024,
-        output_max_bytes: 2048,
-    });
-    let (mut dispatch, mut received) = test_dispatch(
-        &database,
-        vec![scripted_kind(Script::Progress, need, &probe, false)],
-    );
-    let gate = Arc::new(ScriptedGate::new(None));
-    dispatch.ports.admission = Arc::clone(&gate) as Arc<dyn StepAdmission>;
-    let scope = Arc::new(test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]));
-    let ready = test_ready_step(&scope, &node, vec![vec![json!({ "name": "Ada" })]]);
-    let step = ready.step.clone();
-    let earlier_turn = dispatch.gate_entries.take_turn();
-    let dispatched = dispatch.dispatch(&scope, &test_run_snapshot(&node), ready);
-    drop(dispatch);
-    assert!(dispatched.reports.is_empty());
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    assert_eq!(
-        gate.enqueued(),
-        Vec::new(),
-        "the step entered before its turn"
-    );
-    assert!(
-        received.try_recv().is_err(),
-        "the step reported before its turn"
-    );
-
-    let hold = match point {
-        CancelPoint::InLine => {
-            dispatched.cancel.cancel();
-            Value::Null
-        }
-        CancelPoint::AtGate => {
-            drop(earlier_turn);
-            timeout(WAIT, gate.wait_for_entry())
-                .await
-                .expect("the step enters once the earlier turn is dropped");
-            let held = next_report(&mut received, &step)
-                .await
-                .expect("the hold is reported");
-            let hold = held["waitingOnPool"].clone();
-            assert!(hold.is_string(), "the first report is not a hold: {held}");
-            dispatched.cancel.cancel();
-            hold
-        }
-    };
-    assert_eq!(
-        next_report(&mut received, &step).await,
-        Some(json!({ "canceled": { "holdStartedAt": hold, "isSiblingFailure": false } }))
-    );
-    assert_eq!(next_report(&mut received, &step).await, None);
-    let entry_count = usize::from(matches!(point, CancelPoint::AtGate));
-    assert_eq!(gate.enqueued().len(), entry_count);
-    assert_eq!(gate.dropped_tickets(), entry_count);
-    assert!(lock(&probe.seen).is_empty());
+    let settlement = sent.last().expect("the step settled");
+    assert!(settlement.get("completed").is_some(), "{settlement}");
+    assert_masked(settlement);
 }

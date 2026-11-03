@@ -76,6 +76,8 @@ pub struct EnginePorts {
     pub payloads: Arc<dyn StepPayloadArtifacts>,
     /// Decides a step's action before it runs.
     pub step_actions: Arc<dyn StepActionApproval>,
+    /// Takes the engine's own records, its faults among them.
+    pub records: Arc<dyn EngineRecordSink>,
 }
 
 /// What a step the memory gate weighs runs, which sets its reservation.
@@ -306,6 +308,13 @@ pub trait StepPayloadArtifacts: Send + Sync {
         &'call self,
         artifact_id: &'call ArtifactId,
     ) -> BoxFuture<'call, Result<Vec<u8>, PortError>>;
+
+    /// Deletes `artifact_id`, a stored payload no record will name. Fails when the artifact cannot
+    /// be removed.
+    fn delete<'call>(
+        &'call self,
+        artifact_id: &'call ArtifactId,
+    ) -> BoxFuture<'call, Result<(), PortError>>;
 }
 
 /// An approval card a workflow wait opens.
@@ -326,8 +335,9 @@ pub struct WorkflowApprovalCardRequest {
 /// Raises the durable approval cards workflow waits open; the approval service's workflow gate
 /// card implements it.
 pub trait ApprovalCardRaiser: Send + Sync {
-    /// Raises `request`'s card, returning once it is durable; the answer lands later. Fails when
-    /// the card cannot be written.
+    /// Raises `request`'s card, returning once it is durable; the answer lands later. Idempotent by
+    /// the request's wait id: the restart raises again for a stored wait whose card never landed,
+    /// and a second raise for one wait keeps its one card. Fails when the card cannot be written.
     fn raise(&self, request: WorkflowApprovalCardRequest) -> BoxFuture<'_, Result<(), PortError>>;
 }
 
@@ -362,13 +372,16 @@ pub struct ReplyQuestionRequest {
 /// Opens the questions steps waiting on a person ask; the session's workflow waits implement it
 /// over the question service.
 pub trait PersonWaitQuestions: Send + Sync {
-    /// Opens `request`'s form question. Fails when the question cannot be written.
+    /// Opens `request`'s form question. Idempotent by the request's wait id, as the restart opens
+    /// again a stored wait whose question never landed: a second open answers the first's
+    /// question. Fails when the question cannot be written.
     fn open_form(
         &self,
         request: FormQuestionRequest,
     ) -> BoxFuture<'_, Result<QuestionId, PortError>>;
 
-    /// Opens `request`'s chat-reply question. Fails when the question cannot be written.
+    /// Opens `request`'s chat-reply question. Idempotent by the request's wait id, as
+    /// [`Self::open_form`] is. Fails when the question cannot be written.
     fn open_reply(
         &self,
         request: ReplyQuestionRequest,
@@ -484,6 +497,34 @@ impl StepPayloadArtifacts for RefusingPorts {
         _artifact_id: &'call ArtifactId,
     ) -> BoxFuture<'call, Result<Vec<u8>, PortError>> {
         Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
+    }
+
+    fn delete<'call>(
+        &'call self,
+        _artifact_id: &'call ArtifactId,
+    ) -> BoxFuture<'call, Result<(), PortError>> {
+        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
+    }
+}
+
+/// An engine record sink for a test, keeping every line it is handed.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct KeptEngineRecords(std::sync::Mutex<Vec<Map<String, Value>>>);
+
+#[cfg(test)]
+impl KeptEngineRecords {
+    /// The lines kept so far.
+    pub(crate) fn lines(&self) -> Vec<Map<String, Value>> {
+        sidekicks_std::mutex_lock::lock(&self.0).clone()
+    }
+}
+
+#[cfg(test)]
+impl EngineRecordSink for KeptEngineRecords {
+    fn record(&self, entry: Map<String, Value>) -> BoxFuture<'_, ()> {
+        sidekicks_std::mutex_lock::lock(&self.0).push(entry);
+        Box::pin(async {})
     }
 }
 
@@ -603,6 +644,8 @@ struct ScriptedAgentRunControls {
     outcome: watch::Sender<Option<AgentStepOutcome>>,
     /// Woken at each run's `cancel()`; a wake with no waiter is kept for the next.
     canceled: tokio::sync::Notify,
+    /// Whether every run's `cancel()` fails.
+    is_stop_failing: std::sync::atomic::AtomicBool,
 }
 
 /// An agent step runner for a test: it records each request, holds each creation until the test
@@ -613,6 +656,8 @@ pub(crate) struct ScriptedAgentRunner {
     controls: Arc<ScriptedAgentRunControls>,
     /// The request each `run` was given, in order.
     requests: std::sync::Mutex<Vec<AgentStepRequest>>,
+    /// Woken at each `run`; a wake with no waiter is kept for the next.
+    requested: tokio::sync::Notify,
     /// Whether each creation waits for the test's release.
     is_holding_creations: bool,
     /// Lets a held creation go on; a release with no waiter is kept for the next.
@@ -631,8 +676,10 @@ impl ScriptedAgentRunner {
                 start: watch::Sender::new(None),
                 outcome: watch::Sender::new(None),
                 canceled: tokio::sync::Notify::new(),
+                is_stop_failing: std::sync::atomic::AtomicBool::new(false),
             }),
             requests: std::sync::Mutex::new(Vec::new()),
+            requested: tokio::sync::Notify::new(),
             is_holding_creations,
             creation_released: tokio::sync::Notify::new(),
         }
@@ -646,6 +693,18 @@ impl ScriptedAgentRunner {
     /// The requests made so far, in order.
     pub(crate) fn requests(&self) -> Vec<AgentStepRequest> {
         sidekicks_std::mutex_lock::lock(&self.requests).clone()
+    }
+
+    /// Returns once a run was asked for, at once when one was since the last return.
+    pub(crate) async fn wait_for_request(&self) {
+        self.requested.notified().await;
+    }
+
+    /// Fails every run's `cancel()` from now on.
+    pub(crate) fn fail_stops(&self) {
+        self.controls
+            .is_stop_failing
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Admits every run at the gate.
@@ -674,6 +733,13 @@ impl ScriptedAgentRunner {
     pub(crate) async fn wait_for_cancel(&self) {
         self.controls.canceled.notified().await;
     }
+
+    /// A run reading the controls, as each creation answers.
+    pub(crate) fn made_run(&self) -> Box<dyn AgentStepRun> {
+        Box::new(ScriptedAgentRun {
+            controls: Arc::clone(&self.controls),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -684,13 +750,11 @@ impl AgentStepRunner for ScriptedAgentRunner {
     ) -> BoxFuture<'_, Result<Box<dyn AgentStepRun>, PortError>> {
         Box::pin(async move {
             sidekicks_std::mutex_lock::lock(&self.requests).push(request);
+            self.requested.notify_one();
             if self.is_holding_creations {
                 self.creation_released.notified().await;
             }
-            let run: Box<dyn AgentStepRun> = Box::new(ScriptedAgentRun {
-                controls: Arc::clone(&self.controls),
-            });
-            Ok(run)
+            Ok(self.made_run())
         })
     }
 
@@ -739,11 +803,20 @@ impl AgentStepRun for ScriptedAgentRun {
 
     fn cancel(&self) -> BoxFuture<'_, Result<(), PortError>> {
         self.controls.canceled.notify_one();
-        Box::pin(async { Ok(()) })
+        let is_failing = self
+            .controls
+            .is_stop_failing
+            .load(std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async move {
+            if is_failing {
+                return Err("the run's process did not take the stop".into());
+            }
+            Ok(())
+        })
     }
 }
 
-/// An engine's ports for a test, each refusing every call.
+/// An engine's ports for a test, each refusing every call, with a record sink keeping every line.
 #[cfg(test)]
 pub(crate) fn refusing_engine_ports() -> EnginePorts {
     let ports = Arc::new(RefusingPorts);
@@ -753,5 +826,6 @@ pub(crate) fn refusing_engine_ports() -> EnginePorts {
         processes: Arc::clone(&ports) as Arc<dyn StepProcessLauncher>,
         payloads: Arc::clone(&ports) as Arc<dyn StepPayloadArtifacts>,
         step_actions: ports,
+        records: Arc::new(KeptEngineRecords::default()),
     }
 }

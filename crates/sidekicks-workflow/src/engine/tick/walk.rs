@@ -2,7 +2,7 @@
 //! settles in log order. Each settle feeds its outputs into the input slots of the nodes they
 //! enter, a node's slots fill in rounds by run index, and a full round with items is decided; a
 //! first-to-arrive node's round is decided by its first input with items. Once the run is quiet,
-//! the flush decides what still waits.
+//! the flush decides what still waits, a node only once none of its ancestors waits.
 
 mod first_to_arrive;
 mod graph;
@@ -19,12 +19,15 @@ use sidekicks_contracts::workflow::run::step::events::WorkflowStepSkipReason;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowStepKey, WorkflowStepSource};
 
 use self::first_to_arrive::FirstToArriveWin;
-use self::graph::{RunGraph, SlotTarget};
+pub(crate) use self::graph::RunGraph;
+use self::graph::SlotTarget;
 use crate::expressions::lineage::{StepKey, StepOutputs};
 
-/// What one walk turn answers: the steps it readied, the steps it skipped and the first-to-arrive
-/// wins it decided, each in the order it handed out their execution indices.
+/// What one walk turn answers: the steps it readied, the steps it skipped, the first-to-arrive
+/// wins it decided and the steps it readied that a later win of the turn canceled, each in the
+/// order it handed out their execution indices.
 #[derive(Default)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct WalkTurn {
     /// The steps readied to run.
     pub(crate) ready: Vec<WalkReady>,
@@ -32,9 +35,13 @@ pub(crate) struct WalkTurn {
     pub(crate) skipped: Vec<WalkSkip>,
     /// The first-to-arrive wins, whose losers are to be canceled.
     pub(crate) wins: Vec<FirstToArriveWin>,
+    /// The steps readied in this turn that a later win of it named losers: never dispatched, they
+    /// settle canceled.
+    pub(crate) canceled: Vec<WalkReady>,
 }
 
 /// A step the walk readied.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct WalkReady {
     /// The step at its own execution index: attempt 1, or a retry's next attempt.
     pub(crate) step: WorkflowStepKey,
@@ -45,6 +52,7 @@ pub(crate) struct WalkReady {
 }
 
 /// A step the walk skipped, settled as it is skipped.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct WalkSkip {
     /// The step: attempt 1 at its own execution index.
     pub(crate) step: WorkflowStepKey,
@@ -59,6 +67,7 @@ pub(crate) struct WalkSkip {
 }
 
 /// One main input slot of an open round.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 enum RoundSlot {
     /// Nothing has fed the slot yet.
     Unfilled,
@@ -72,16 +81,34 @@ enum RoundSlot {
 }
 
 /// One round of a node: the slots one execution of it reads, filled as feeds arrive.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 struct Round {
     /// The slots, slot k at index k.
     slots: Vec<RoundSlot>,
-    /// Whether a first-to-arrive node's step already ran on the round, which then takes its slots'
-    /// later feeds without a step until every slot has fed.
-    is_won: bool,
+    /// Where a first-to-arrive node's step already ran on the round, the execution indices of the
+    /// steps live when it won, its losers among them: the round then takes only their late feeds,
+    /// without a step, until every slot has fed, and a feed from a step readied after the win, a
+    /// loop's next pass among them, goes to a later round.
+    won_among: Option<BTreeSet<u64>>,
 }
 
 impl Round {
+    /// Whether a first-to-arrive node's step already ran on the round.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    fn is_won(&self) -> bool {
+        self.won_among.is_some()
+    }
+
+    /// Whether a feed from the step at `execution_index` may enter the round.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    fn admits(&self, execution_index: u64) -> bool {
+        self.won_among
+            .as_ref()
+            .is_none_or(|live_at_win| live_at_win.contains(&execution_index))
+    }
+
     /// Whether every slot is filled.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn is_full(&self) -> bool {
         self.slots
             .iter()
@@ -89,6 +116,7 @@ impl Round {
     }
 
     /// The lowest slot whose feed carries items, `None` when no slot's does.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn first_slot_with_items(&self) -> Option<usize> {
         self.slots
             .iter()
@@ -96,6 +124,7 @@ impl Round {
     }
 
     /// Whether every slot is filled and at least one holds items.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn is_full_with_items(&self) -> bool {
         let mut has_items = false;
         for slot in &self.slots {
@@ -108,6 +137,7 @@ impl Round {
     }
 
     /// Each slot's feed, `None` for one no feed filled.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn sources(&self) -> Vec<Option<WorkflowStepSource>> {
         self.slots
             .iter()
@@ -121,6 +151,7 @@ impl Round {
 
 /// For one wired slot of a node, the open rounds a feed may enter, by run index.
 #[derive(Default)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 struct SlotOpenings {
     /// The rounds whose slot nothing has fed.
     unfilled: BTreeSet<u64>,
@@ -130,6 +161,7 @@ struct SlotOpenings {
 
 /// One node's rounds: the open ones by run index and the run index the next one takes.
 #[derive(Default)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 struct NodeRounds {
     /// The open rounds by run index.
     open: BTreeMap<u64, Round>,
@@ -140,6 +172,7 @@ struct NodeRounds {
 }
 
 /// A step the walk readied and that has not settled.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 struct LiveStep {
     /// The step.
     step: WorkflowStepKey,
@@ -151,8 +184,9 @@ struct LiveStep {
     sources: Vec<Option<WorkflowStepSource>>,
 }
 
-/// The walk of one run over its graph: the steps live, each node's open rounds, and the next
-/// execution index.
+/// The walk of one run over its graph: the steps live, each node's open rounds, the feeds its
+/// disabled skips passed on, and the next execution index.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunWalk {
     /// The run's graph.
     graph: Arc<RunGraph>,
@@ -164,10 +198,14 @@ pub(crate) struct RunWalk {
     live: BTreeMap<u64, LiveStep>,
     /// Each node's rounds, by its place in the graph.
     rounds: Vec<NodeRounds>,
+    /// Each disabled skip that passed items on, by execution index: the feed of its first slot,
+    /// which its first output carries on, since a skip records no outputs of its own.
+    passed_on: BTreeMap<u64, Option<WorkflowStepSource>>,
 }
 
 impl RunWalk {
     /// The walk of `run_id` over `graph`, before any step.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn new(graph: Arc<RunGraph>, run_id: WorkflowRunId) -> Self {
         let rounds = (0..graph.node_count())
             .map(|place| NodeRounds {
@@ -186,10 +224,12 @@ impl RunWalk {
             next_execution_index: 0,
             live: BTreeMap::new(),
             rounds,
+            passed_on: BTreeMap::new(),
         }
     }
 
     /// Readies the trigger at execution index 0 and run index 0, with no sources.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn start(&mut self) -> WalkTurn {
         let trigger = self.graph.trigger();
         self.rounds[trigger].next_run_index = 1;
@@ -203,6 +243,7 @@ impl RunWalk {
     /// answers the steps that readies or skips. An output past the end of `output_lengths` reads
     /// as empty, as a completed step's unused error output does; an empty output still settles
     /// the slots it feeds.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn settle(&mut self, step: &WorkflowStepKey, output_lengths: &[usize]) -> WalkTurn {
         let execution_index = step.execution_index;
         let place = self
@@ -219,6 +260,7 @@ impl RunWalk {
     /// Readies the next attempt of the live `step` under the next execution index, with the same
     /// run index and sources, in its place among the live steps. A failed step's retry and a
     /// Resume both take it.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn retry(&mut self, step: &WorkflowStepKey) -> WalkReady {
         let live_step = self
             .live
@@ -246,43 +288,40 @@ impl RunWalk {
     }
 
     /// Removes the live `step`, canceled or ended with no outputs, so it feeds nothing.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn drop_step(&mut self, step: &WorkflowStepKey) {
         self.live
             .remove(&step.execution_index.get())
             .expect("a dropped step is one the walk readied and has not settled");
     }
 
-    /// Decides what waits once no step is live: each open round not won, by the node's
-    /// `(order, id)` and then run index, its unfilled slots read as settled empty with no source.
-    /// A round with items is readied, or skipped on a disabled node, which passes its first input
-    /// on; a round without is skipped, feeding nothing. The flush ends at the first step it
-    /// readies, since that step's outputs may still feed what waits after it; a flush that
-    /// readies nothing also drops the won rounds still open. Answers nothing while a step is live.
+    /// Decides what waits once no step is live: each open round not won, its unfilled slots read
+    /// as settled empty with no source, one at a time, lowest run index first, of the node first
+    /// by `(order, id)` among those none of whose ancestors along forward edges still has a round
+    /// waiting, so a feed still to come from an ancestor is never cut off. A round with items is
+    /// readied, or skipped on a disabled node, which passes its first input on; a round without is
+    /// skipped, feeding nothing. The flush ends at the first step it readies, since that step's
+    /// outputs may still feed what waits after it; a flush that readies nothing also drops the won
+    /// rounds still open. Answers nothing while a step is live.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn flush(&mut self) -> WalkTurn {
         let mut turn = WalkTurn::default();
         if !self.live.is_empty() {
             return turn;
         }
-        let mut has_decided = true;
-        while has_decided {
-            has_decided = false;
-            for place in 0..self.graph.node_count() {
-                while let Some(run_index) = self.first_waiting_round(place) {
-                    has_decided = true;
-                    let mut round = self.take_round(place, run_index);
-                    for slot in &mut round.slots {
-                        if matches!(slot, RoundSlot::Unfilled) {
-                            *slot = RoundSlot::Filled {
-                                source: None,
-                                count: 0,
-                            };
-                        }
-                    }
-                    self.decide_flushed(place, run_index, &round, &mut turn);
-                    if !turn.ready.is_empty() {
-                        return turn;
-                    }
+        while let Some((place, run_index)) = self.next_flushed_round() {
+            let mut round = self.take_round(place, run_index);
+            for slot in &mut round.slots {
+                if matches!(slot, RoundSlot::Unfilled) {
+                    *slot = RoundSlot::Filled {
+                        source: None,
+                        count: 0,
+                    };
                 }
+            }
+            self.decide_flushed(place, run_index, &round, &mut turn);
+            if !turn.ready.is_empty() {
+                return turn;
             }
         }
         for place in 0..self.graph.node_count() {
@@ -294,18 +333,35 @@ impl RunWalk {
         turn
     }
 
+    /// The round the flush decides next: of the first node by `(order, id)` that has a round no
+    /// win took while none of its ancestors does, that node's lowest such run index. A graph's
+    /// forward edges hold no loop, so while any node waits, one of them has no waiting ancestor.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    fn next_flushed_round(&self) -> Option<(usize, u64)> {
+        (0..self.graph.node_count())
+            .filter_map(|place| Some((place, self.first_waiting_round(place)?)))
+            .find(|&(place, _)| {
+                self.graph
+                    .ancestors(place)
+                    .iter()
+                    .all(|&ancestor| self.first_waiting_round(ancestor).is_none())
+            })
+    }
+
     /// The lowest run index of the node at `place`'s open rounds that no win took.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn first_waiting_round(&self, place: usize) -> Option<u64> {
         self.rounds[place]
             .open
             .iter()
-            .find(|(_, round)| !round.is_won)
+            .find(|(_, round)| !round.is_won())
             .map(|(&run_index, _)| run_index)
     }
 
     /// Decides a `round` the flush took, every slot filled: run as a full round when it holds
     /// items, else skipped with all outputs empty, `disabled` on a disabled node and `noItems`
     /// on any other.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn decide_flushed(&mut self, place: usize, run_index: u64, round: &Round, turn: &mut WalkTurn) {
         if round.first_slot_with_items().is_some() {
             self.run_round(place, run_index, round, turn);
@@ -329,6 +385,7 @@ impl RunWalk {
 
     /// Applies every feed of the step of `place` at `execution_index`: its outputs in order, each
     /// output's slots in the graph's order. Answers the rounds the feeds entered, in visiting order.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn feed(
         &mut self,
         place: usize,
@@ -342,10 +399,7 @@ impl RunWalk {
             let count = output_lengths.get(output_index).copied().unwrap_or(0);
             let source = WorkflowStepSource {
                 node_id: node.id.clone(),
-                output_index: SafeInt::new(
-                    u64::try_from(output_index).expect("an output index fits in 64 bits"),
-                )
-                .expect("a kind's output count is far below the largest safe integer"),
+                output_index: SafeInt::from_usize(output_index),
                 execution_index,
             };
             for &target in targets {
@@ -359,8 +413,10 @@ impl RunWalk {
 
     /// Puts one feed of `count` items from `source` into `target`'s slot and answers the run
     /// index of the round it entered, or `None` for an empty feed dropped while the node has an
-    /// open round. Items enter the lowest open round whose slot is unfilled or settled empty; an
-    /// empty feed the lowest whose slot is unfilled; with no such round the feed opens one.
+    /// open round. Items enter the lowest open round admitting the feed whose slot is unfilled or
+    /// settled empty; an empty feed the lowest admitting one whose slot is unfilled; with no such
+    /// round the feed opens one. A won round admits only the feeds of the steps live at its win.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn fill(
         &mut self,
         target: SlotTarget,
@@ -369,13 +425,23 @@ impl RunWalk {
     ) -> Option<u64> {
         let rounds = &mut self.rounds[target.node];
         let openings = &rounds.openings[target.slot];
+        let open = &rounds.open;
+        let first_admitting = |run_indices: &BTreeSet<u64>| {
+            run_indices.iter().copied().find(|run_index| {
+                open.get(run_index)
+                    .is_some_and(|round| round.admits(source.execution_index.get()))
+            })
+        };
         let fitting = if count > 0 {
-            match (openings.unfilled.first(), openings.empty.first()) {
-                (Some(&unfilled), Some(&empty)) => Some(unfilled.min(empty)),
-                (fitting, None) | (None, fitting) => fitting.copied(),
+            match (
+                first_admitting(&openings.unfilled),
+                first_admitting(&openings.empty),
+            ) {
+                (Some(unfilled), Some(empty)) => Some(unfilled.min(empty)),
+                (fitting, None) | (None, fitting) => fitting,
             }
         } else {
-            openings.unfilled.first().copied()
+            first_admitting(&openings.unfilled)
         };
         let run_index = match fitting {
             Some(run_index) => run_index,
@@ -402,6 +468,7 @@ impl RunWalk {
 
     /// Opens a round of the node at `place` under its next run index, its unwired slots settled
     /// empty, and answers that run index.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn open_round(&mut self, place: usize) -> u64 {
         let node = self.graph.node(place);
         let rounds = &mut self.rounds[place];
@@ -423,7 +490,7 @@ impl RunWalk {
             run_index,
             Round {
                 slots,
-                is_won: false,
+                won_among: None,
             },
         );
         run_index
@@ -431,6 +498,7 @@ impl RunWalk {
 
     /// Decides the `fed` rounds in visiting order: by the node's `(order, id)`, then lowest run
     /// index first.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn visit(&mut self, fed: BTreeSet<(usize, u64)>, turn: &mut WalkTurn) {
         for (place, run_index) in fed {
             self.decide_round(place, run_index, turn);
@@ -439,8 +507,11 @@ impl RunWalk {
 
     /// Decides the round of the node at `place` under `run_index`. A first-to-arrive node's round
     /// readies on its lowest slot with items, the other slots read as fed nothing, and stays open
-    /// until every slot has fed; any other node's round is run once every slot is filled and one
-    /// holds items. A round decided already, or whose filled slots are all empty, is left as it is.
+    /// for the late feeds of the steps live at its win until every slot has fed; a loser readied
+    /// earlier in this turn is taken back from its ready steps and canceled undispatched. Any other node's round is run
+    /// once every slot is filled and one holds items. A round decided already, or whose filled
+    /// slots are all empty, is left as it is.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn decide_round(&mut self, place: usize, run_index: u64, turn: &mut WalkTurn) {
         let graph = Arc::clone(&self.graph);
         let node = graph.node(place);
@@ -454,7 +525,7 @@ impl RunWalk {
             }
             return;
         }
-        if round.is_won {
+        if round.is_won() {
             if round.is_full() {
                 self.take_round(place, run_index);
             }
@@ -469,14 +540,28 @@ impl RunWalk {
             .enumerate()
             .map(|(slot, source)| source.filter(|_| slot == winning_slot))
             .collect();
-        round.is_won = true;
-        if round.is_full() {
+        let is_full = round.is_full();
+        let mut losers = first_to_arrive::losers(&graph, place, winning_slot, &self.live);
+        losers.retain(|loser| {
+            let Some(position) = turn.ready.iter().position(|ready| ready.step == *loser) else {
+                return true;
+            };
+            self.live.remove(&loser.execution_index.get());
+            turn.canceled.push(turn.ready.remove(position));
+            false
+        });
+        let round = self.rounds[place]
+            .open
+            .get_mut(&run_index)
+            .expect("the round being decided is open");
+        round.won_among = Some(self.live.keys().copied().collect());
+        if is_full {
             self.take_round(place, run_index);
         }
         let step = self.take_step(place);
         turn.wins.push(FirstToArriveWin {
             deciding: step.clone(),
-            losers: first_to_arrive::losers(&graph, place, winning_slot, &self.live),
+            losers,
         });
         self.ready(place, step, run_index, sources, turn);
     }
@@ -484,6 +569,7 @@ impl RunWalk {
     /// Runs a decided `round` of the node at `place`: a disabled node is skipped, passing its first
     /// slot on as its first output and feeding onward depth first when that carries items; any
     /// other is readied.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn run_round(&mut self, place: usize, run_index: u64, round: &Round, turn: &mut WalkTurn) {
         let step = self.take_step(place);
         let sources = round.sources();
@@ -501,6 +587,10 @@ impl RunWalk {
         }
         let execution_index = step.execution_index;
         let carries_items = output_lengths.iter().any(|&count| count > 0);
+        if carries_items {
+            let first_source = sources.first().cloned().flatten();
+            self.passed_on.insert(execution_index.get(), first_source);
+        }
         turn.skipped.push(WalkSkip {
             step,
             run_index,
@@ -516,6 +606,7 @@ impl RunWalk {
 
     /// Removes the open round of the node at `place` under `run_index` and every slot opening that
     /// names it, and answers it.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn take_round(&mut self, place: usize, run_index: u64) -> Round {
         let rounds = &mut self.rounds[place];
         for openings in &mut rounds.openings {
@@ -529,6 +620,7 @@ impl RunWalk {
     }
 
     /// Readies `step` of the node at `place`, making it live.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn ready(
         &mut self,
         place: usize,
@@ -554,6 +646,7 @@ impl RunWalk {
     }
 
     /// The key of the node at `place`'s next step: attempt 1 at the next execution index.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn take_step(&mut self, place: usize) -> WorkflowStepKey {
         WorkflowStepKey {
             workflow_run_id: self.run_id,
@@ -564,6 +657,7 @@ impl RunWalk {
     }
 
     /// The next execution index, which no other step of the run takes.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn take_execution_index(&mut self) -> SafeInt<0> {
         let execution_index = SafeInt::new(self.next_execution_index)
             .expect("a run's execution count is far below the largest safe integer");
@@ -572,31 +666,42 @@ impl RunWalk {
     }
 }
 
-/// The input lists the step `ready` runs on, one per input of its kind's spec in spec order: a main
-/// slot's list is its source output's items, cloned once, and a tool input's or an unfed slot's
-/// list is empty. Every source is a step `outputs` recorded.
-pub(crate) fn ready_inputs(
-    graph: &RunGraph,
-    ready: &WalkReady,
-    outputs: &StepOutputs,
-) -> Vec<Vec<WorkflowItem>> {
-    let node = graph.node(graph.place(&ready.step.node_id));
-    let mut inputs = vec![Vec::new(); node.input_count];
-    for (slot, source) in node.slots.iter().zip(&ready.sources) {
-        let Some(source) = source else {
-            continue;
-        };
-        let source_step = outputs
-            .step(&StepKey {
-                node_id: source.node_id.clone(),
-                execution_index: source.execution_index.get(),
-            })
-            .expect("a ready step's sources settled, and the run recorded their outputs");
-        let output_index = usize::try_from(source.output_index.get())
-            .expect("an output index fits in a pointer-sized integer");
-        if let Some(items) = source_step.outputs.get(output_index) {
-            inputs[slot.spec_position].clone_from(items);
+impl RunWalk {
+    /// The input lists the step `ready` runs on, one per input of its kind's spec in spec order: a
+    /// main slot's list is its source output's items, cloned once, and a tool input's or an unfed
+    /// slot's list is empty. A disabled skip's first output reads as the feed of its first slot,
+    /// through any chain of them, and its other outputs as empty; every other source is a step
+    /// `outputs` recorded.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(crate) fn ready_inputs(
+        &self,
+        ready: &WalkReady,
+        outputs: &StepOutputs,
+    ) -> Vec<Vec<WorkflowItem>> {
+        let node = self.graph.node(self.graph.place(&ready.step.node_id));
+        let mut inputs = vec![Vec::new(); node.input_count];
+        for (slot, source) in node.slots.iter().zip(&ready.sources) {
+            let mut source = source.as_ref();
+            while let Some((skip, passed)) = source
+                .and_then(|skip| Some((skip, self.passed_on.get(&skip.execution_index.get())?)))
+            {
+                source = passed.as_ref().filter(|_| skip.output_index.get() == 0);
+            }
+            let Some(source) = source else {
+                continue;
+            };
+            let source_step = outputs
+                .step(&StepKey {
+                    node_id: source.node_id.clone(),
+                    execution_index: source.execution_index.get(),
+                })
+                .expect("a ready step's sources settled, and the run recorded their outputs");
+            let output_index = usize::try_from(source.output_index.get())
+                .expect("an output index fits in a pointer-sized integer");
+            if let Some(items) = source_step.outputs.get(output_index) {
+                inputs[slot.spec_position].clone_from(items);
+            }
         }
+        inputs
     }
-    inputs
 }

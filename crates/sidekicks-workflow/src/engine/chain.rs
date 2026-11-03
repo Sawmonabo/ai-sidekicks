@@ -4,14 +4,6 @@
 //! answer's row in one write, and the steps held behind the question are read so the caller can
 //! resume each in that same write.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the engine's chain question and the approval side's Keep going"
-    )
-)]
-
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
@@ -31,7 +23,7 @@ use sidekicks_contracts::workflow::run::gate_resolution::WorkflowGateKind;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
-use sidekicks_platforms::HourCycle;
+use sidekicks_platforms::{HourCycle, HourField};
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::{safe_int_column, text_column};
 
@@ -41,6 +33,7 @@ use crate::runs::gate_resolution::{RunEventKeys, WorkflowGateAnswer, gate_resolu
 
 /// What a chain's question names, read from the chain's first run.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
 pub(crate) struct ChainQuestion {
     /// The chain's first run, which asks.
     pub(crate) root: WorkflowRunId,
@@ -56,6 +49,7 @@ pub(crate) struct ChainQuestion {
 
 /// A step held behind its chain's question, and the session its run lives in.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
 pub(crate) struct ChainHeldStep {
     /// The session of the step's run.
     pub(crate) session_id: SessionId,
@@ -66,10 +60,12 @@ pub(crate) struct ChainHeldStep {
 /// An answer that keeps its chain going: an approval of the chain's question on the chain's first
 /// run, the only answer [`keep_going_statements`] takes.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
 pub(crate) struct KeepGoingAnswer(WorkflowGateAnswer);
 
 /// Why an answer cannot keep its chain going.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
 pub(crate) enum KeepGoingRefusal {
     /// The answer stops the chain rather than keeping it going.
     #[error("the answer does not approve the chain's question")]
@@ -85,6 +81,7 @@ pub(crate) enum KeepGoingRefusal {
 impl KeepGoingAnswer {
     /// `answer` as the `Keep going` of the chain whose first run is `root`. Refused unless it is
     /// on `root`, answers the chain's question and approves it.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
     pub(crate) fn new(
         root: &WorkflowRunId,
         answer: WorkflowGateAnswer,
@@ -104,9 +101,11 @@ impl KeepGoingAnswer {
 
 /// Where the kept-going update sits among [`keep_going_statements`]; a refusal there means the
 /// chain has no question left to answer, which answers `workflow.step.notWaiting`.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
 pub(crate) const KEEP_GOING_STATEMENT_INDEX: usize = 0;
 
 // Only a first run holds a count, so another run's id matches nothing.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
 const CHAIN_QUESTION_SQL: &str = "SELECT run.session_id, version.definition_id,
     run.workflow_version_id, json_extract(version.definition_body, '$.name'),
     run.chain_run_count, run.started_at
@@ -115,10 +114,12 @@ const CHAIN_QUESTION_SQL: &str = "SELECT run.session_id, version.definition_id,
   WHERE run.id = @root AND run.chain_run_count IS NOT NULL";
 
 // A chain answered once is not answered again: the second answer matches no row.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
 const KEEP_GOING_SQL: &str = "UPDATE workflow_runs SET chain_kept_going = 1
   WHERE id = @root AND chain_run_count IS NOT NULL AND chain_kept_going = 0";
 
 // Execution indexes count per run, so the run's id breaks a tie between runs started together.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
 static CHAIN_HELD_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
     let waiting = <&'static str>::from(WorkflowStepStatus::Waiting);
     let chain = <&'static str>::from(WorkflowWaitCause::Chain);
@@ -135,12 +136,14 @@ static CHAIN_HELD_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
 
 /// The wait a chain's question is asked under: its first run's own id, so a card raised again
 /// after a restart is the same card.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
 pub(crate) fn chain_wait_id(root: &WorkflowRunId) -> UuidTextForm {
     UuidTextForm::new(root.text().as_str()).expect("a run id is a UUID in its text form")
 }
 
 /// What the question of the chain whose first run is `root` names; `None` when `root` is not a
 /// stored first run. Fails when the read fails or a stored value does not read as its type.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
 pub(crate) fn read_chain_question(
     connection: &Connection,
     root: &WorkflowRunId,
@@ -168,16 +171,18 @@ pub(crate) fn read_chain_question(
 /// A stored workflow name that is empty or longer than a name may be.
 #[derive(Debug, thiserror::Error)]
 #[error("a stored workflow name is empty or longer than a name may be")]
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
 struct StoredNameOutOfBounds;
 
 /// The question's words: the workflow's name, the runs counted with thousands separators and the
-/// first run's start in `time_zone`, written in `hour_cycle`, both the machine's.
+/// first run's start in `time_zone`, its hour written as `hour_field` says, both the machine's.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
 pub(crate) fn chain_question_prompt(
     question: &ChainQuestion,
     time_zone: &TimeZone,
-    hour_cycle: HourCycle,
+    hour_field: HourField,
 ) -> ComposedText {
-    let start = clock_time(&question.started_at.to_zoned(time_zone.clone()), hour_cycle);
+    let start = clock_time(&question.started_at.to_zoned(time_zone.clone()), hour_field);
     ComposedText::new(format!(
         "{name} has started {count} runs from its {start} start. Keep going?",
         name = question.workflow_name.as_str(),
@@ -186,26 +191,31 @@ pub(crate) fn chain_question_prompt(
     .expect("the question holds its fixed words")
 }
 
-// `time`'s hour and minute as `hour_cycle` writes them: `3:00 AM` on the 12-hour clock, `0:00 AM`
-// for the hour after midnight on its 0–11 form, and `03:00` on the 24-hour clock.
+// `time`'s hour and minute as `hour_field` writes them: `3:00 AM` on the 12-hour clock, `0:00 AM`
+// for the hour after midnight on its 0–11 form, and `3:00` on the 24-hour clock, each hour with a
+// leading zero when the field is padded (`03:00`).
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "the hour cycle is an open union, and a cycle added to it reads as the 12-hour clock"
 )]
-fn clock_time(time: &Zoned, hour_cycle: HourCycle) -> String {
-    match hour_cycle {
-        HourCycle::H23 | HourCycle::Clock24 => time.strftime("%H:%M").to_string(),
-        HourCycle::H11 => format!(
-            "{hour}:{minute:02} {period}",
-            hour = time.hour() % 12,
-            minute = time.minute(),
-            period = if time.hour() < 12 { "AM" } else { "PM" },
-        ),
-        _ => time.strftime("%-I:%M %p").to_string(),
-    }
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
+fn clock_time(time: &Zoned, hour_field: HourField) -> String {
+    let (hour, has_period) = match hour_field.cycle {
+        HourCycle::H23 | HourCycle::Clock24 => (time.hour(), false),
+        HourCycle::H11 => (time.hour() % 12, true),
+        _ => ((time.hour() + 11) % 12 + 1, true),
+    };
+    let width = if hour_field.is_padded { 2 } else { 1 };
+    let period = match (has_period, time.hour() < 12) {
+        (false, _) => "",
+        (true, true) => " AM",
+        (true, false) => " PM",
+    };
+    format!("{hour:0width$}:{minute:02}{period}", minute = time.minute())
 }
 
 // `count` with a comma between each group of three digits: 2,000.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
 fn grouped_thousands(count: u64) -> String {
     let digits = count.to_string();
     let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
@@ -220,6 +230,7 @@ fn grouped_thousands(count: u64) -> String {
 
 /// The card that asks `question` as `prompt`, raised on the chain's first run, in its session and
 /// under [`chain_wait_id`]; it names no step, since the question belongs to the run.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
 pub(crate) fn chain_card_request(
     question: &ChainQuestion,
     prompt: ComposedText,
@@ -236,6 +247,7 @@ pub(crate) fn chain_card_request(
 /// The statements of `Keep going`: the chain's first run, the run `answer` is on, reads kept going,
 /// and `answer`'s row is appended. The write is refused at [`KEEP_GOING_STATEMENT_INDEX`] when that
 /// run is no first run or its chain was already answered.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
 pub(crate) fn keep_going_statements(answer: &KeepGoingAnswer) -> Vec<WriteStatement> {
     let KeepGoingAnswer(answer) = answer;
     vec![
@@ -255,6 +267,7 @@ pub(crate) fn keep_going_statements(answer: &KeepGoingAnswer) -> Vec<WriteStatem
 /// and then their execution index, through the chain's index. The caller writes one
 /// `workflow.phase.resumed` per step, and the event of each run's new status, in the write that
 /// answers `Keep going`. Fails when the read fails or a stored value does not read as its type.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
 pub(crate) fn read_chain_held_steps(
     connection: &Connection,
     root: &WorkflowRunId,
@@ -286,7 +299,7 @@ mod tests {
         WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
     };
     use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
-    use sidekicks_platforms::HourCycle;
+    use sidekicks_platforms::{HourCycle, HourField};
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
 
@@ -513,19 +526,28 @@ mod tests {
         );
     }
 
-    /// Mutations: write the start in UTC, on one clock whatever the hour cycle, drop the thousands
-    /// separator, or ask under a wait id other than the first run's own.
+    /// Mutations: write the start in UTC, on one clock whatever the hour cycle, pad the hour
+    /// whatever the field says, drop the thousands separator, or ask under a wait id other than the
+    /// first run's own.
     #[rstest]
     #[case::twelve_hour(
         HourCycle::H12,
+        false,
         "Nightly sync has started 2,000 runs from its 3:00 AM start. Keep going?"
     )]
     #[case::twenty_four_hour(
         HourCycle::H23,
+        true,
         "Nightly sync has started 2,000 runs from its 03:00 start. Keep going?"
     )]
+    #[case::unpadded_twenty_four_hour(
+        HourCycle::H23,
+        false,
+        "Nightly sync has started 2,000 runs from its 3:00 start. Keep going?"
+    )]
     fn the_chain_question_names_the_first_run_and_its_start_in_the_machines_clock(
-        #[case] hour_cycle: HourCycle,
+        #[case] cycle: HourCycle,
+        #[case] is_padded: bool,
         #[case] expected_prompt: &str,
     ) {
         let rows = workflow_tables();
@@ -544,7 +566,7 @@ mod tests {
             .expect("the first run asks");
         let request = chain_card_request(
             &question,
-            chain_question_prompt(&question, &time_zone, hour_cycle),
+            chain_question_prompt(&question, &time_zone, HourField { cycle, is_padded }),
         );
 
         assert_eq!(request.prompt.as_str(), expected_prompt);

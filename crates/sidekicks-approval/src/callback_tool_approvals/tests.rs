@@ -38,7 +38,7 @@ use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate};
 use tokio::task::JoinHandle;
 
 use super::{
-    CANCELED_REFUSAL, CallbackToolApprovalError, CallbackToolApprovals, CallbackToolGate,
+    CANCELED_STEP_REFUSAL, CallbackToolApprovalError, CallbackToolApprovals, CallbackToolGate,
     UNGATED_TOOL_REFUSAL,
 };
 use crate::permission_asks::tests::{AsksFixture, device};
@@ -237,6 +237,7 @@ impl SeamFixture {
             level: PermissionLevel::Ask,
             action: StepAction::Command {
                 line: "cargo test".to_owned(),
+                shown_line: "cargo test".to_owned(),
             },
         }
     }
@@ -504,9 +505,10 @@ async fn the_host_decides_a_workflow_start_by_the_posture_its_session_moved_to()
 
 // A step's card settles the step as the person answered it: a decline, with words or with none,
 // reaches the step as a decline carrying the words typed and the instant the decline was
-// recorded, apart from a refusal, and a card that ended unanswered refuses the step. Killed by a
-// decline mapped to a refusal, by dropping its words or its instant, and by a cancel read as a
-// decline.
+// recorded, apart from a refusal, and a card that ended unanswered refuses the step in a step's
+// words. Killed by a decline mapped to a refusal, by dropping its words, here or where the
+// service settles the card's waiter, or its instant, and by a cancel read as a decline or worded
+// for an agent.
 #[tokio::test]
 async fn a_steps_card_settles_a_decline_apart_from_a_refusal() {
     let fixture = SeamFixture::new().await;
@@ -543,7 +545,7 @@ async fn a_steps_card_settles_a_decline_apart_from_a_refusal() {
     assert_eq!(
         settled(canceled).await.expect("the step's check decides"),
         StepActionVerdict::Refused {
-            reason: CANCELED_REFUSAL.to_owned(),
+            reason: CANCELED_STEP_REFUSAL.to_owned(),
         }
     );
 }
