@@ -14,9 +14,11 @@ use tokio_util::sync::CancellationToken;
 use super::resume::resumed_on;
 use crate::test_pass::{PassFixture, insert_runs};
 
-// Each session the driver was asked to settle the held calls of, with whether it read closed, in
-// the order asked.
-type SettledSessions = Arc<Mutex<Vec<(SessionId, bool)>>>;
+// Each session the driver was asked to settle the held calls of, with whether it read closed.
+type Settles = Vec<(SessionId, bool)>;
+
+// Each resumed session, in the order resumed, with the settles asked before its resume, sorted.
+type ResumesAfterSettles = Arc<Mutex<Vec<(SessionId, Settles)>>>;
 
 impl PassFixture {
     // Moves `run_id`'s call `tool_call_id` to the background in `session_id`, with no close after.
@@ -54,9 +56,8 @@ impl PassFixture {
 // resume), and by the closed state not read (it reads open).
 #[tokio::test]
 async fn a_session_holding_a_background_call_is_settled_before_any_resume() {
-    let settled: SettledSessions = Arc::default();
-    // Each resumed session, with the sessions settled by its resume.
-    let resumes: Arc<Mutex<Vec<(SessionId, Vec<(SessionId, bool)>)>>> = Arc::default();
+    let settled: Arc<Mutex<Settles>> = Arc::default();
+    let resumes: ResumesAfterSettles = Arc::default();
     let mut driver = MockProviderDriver::new();
     driver.expect_settle_held_tool_calls().times(4).returning({
         let settled = Arc::clone(&settled);
