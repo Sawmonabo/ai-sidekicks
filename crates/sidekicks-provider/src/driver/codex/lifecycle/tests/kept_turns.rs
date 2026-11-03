@@ -389,9 +389,8 @@ async fn no_service_is_started_where_none_kept_the_turns() {
 async fn a_draining_kept_service_is_joined_and_never_started() {
     let folder = short_socket_folder().expect("a scratch folder is made");
     let kept_socket = folder.path().join("kept.sock");
-    let Some(listener) = bind_test_listener(&kept_socket) else {
-        return;
-    };
+    let listener =
+        bind_test_listener(&kept_socket).expect("the system binds a local socket listener");
     let (requests, mut received) = mpsc::unbounded_channel();
     tokio::spawn(async move {
         while let Ok(stream) = listener.accept().await {
@@ -494,9 +493,8 @@ async fn a_join_cut_while_connecting_reads_whether_the_service_ended(
 ) {
     let folder = short_socket_folder().expect("a scratch folder is made");
     let kept_socket = folder.path().join("kept.sock");
-    let Some(listener) = bind_test_listener(&kept_socket) else {
-        return;
-    };
+    let listener =
+        bind_test_listener(&kept_socket).expect("the system binds a local socket listener");
     let starts = Arc::new(CountedStarts::default());
     let (_driver, service) = driver_with_unstarted_service(folder.path(), &starts);
     let kept = Arc::new(keep_former_service(&service, folder.path(), &kept_socket, true).await);
