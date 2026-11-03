@@ -19,6 +19,10 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::worktree::lifecycle::WorktreeState;
 use sidekicks_session::groups::store::remove_empty_groups_of_session_project_statement;
+use sidekicks_session::messaging::exchanges::DELETE_SESSION_EXCHANGES_SQL;
+use sidekicks_session::messaging::paused_queue::DELETE_SESSION_PAUSED_MESSAGES_SQL;
+use sidekicks_session::messaging::reminders::DELETE_SESSION_REMINDERS_SQL;
+use sidekicks_session::messaging::waits::DELETE_SESSION_WAITS_SQL;
 use sidekicks_session::queue_store::plan_message::plan_message_item_sql;
 use sidekicks_session::run::ids::SESSION_RUN_IDS_SQL;
 use sidekicks_store::database::sql_list::sql_list_of;
@@ -205,8 +209,9 @@ const RUN_KEYED_DELETES: [&str; 4] = [
 // after the gate answers found through it, a plan before the artifact that keeps its text, and an
 // artifact after the reference to its payload. The attention rows go after the machine's attention
 // count is raised, so its readers drop the session's entries, and an entry's delivery before the
-// entry it is found through.
-const DELETES_THROUGH_SESSION_ROW: [&str; 27] = [
+// entry it is found through. The messaging rows go at either end of a pair, a message held from
+// the session or a wait on it among them.
+const DELETES_THROUGH_SESSION_ROW: [&str; 31] = [
     "DELETE FROM session_snapshots WHERE session_id = @sessionId",
     "DELETE FROM recovery_checkpoints WHERE session_id = @sessionId",
     "DELETE FROM session_events WHERE session_id = @sessionId",
@@ -241,6 +246,10 @@ const DELETES_THROUGH_SESSION_ROW: [&str; 27] = [
     "DELETE FROM attention_entries WHERE session_id = @sessionId",
     "DELETE FROM attention_seen WHERE session_id = @sessionId",
     "DELETE FROM attention_versions WHERE scope_key = @sessionId",
+    DELETE_SESSION_EXCHANGES_SQL,
+    DELETE_SESSION_PAUSED_MESSAGES_SQL,
+    DELETE_SESSION_WAITS_SQL,
+    DELETE_SESSION_REMINDERS_SQL,
     "DELETE FROM sessions WHERE id = @sessionId",
 ];
 

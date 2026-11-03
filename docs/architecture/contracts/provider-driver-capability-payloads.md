@@ -256,17 +256,18 @@ interface DriverCapabilities {
 // (Spec-013 §In-Flight Receipts After A Restart).
 type IdempotencyClass = "idempotent" | "compensable" | "manualReconcileOnly";
 
-// Durable MCP Tasks recovery handle (Plan-003 T5.1). A task-augmented MCP call under MCP
-// 2025-11-25's experimental Tasks utility carries a receiver-generated `taskId` (from the
-// `CreateTaskResult` acceptance response). It is NOT a new RPC payload: the daemon persists it on
-// the receipt as the additive nullable `command_receipts.mcp_task_id` column (Plan-003 extends
-// Plan-002's table per cross-plan-dependencies.md; DDL in local-sqlite-schema.md §Queue and
-// Intervention Tables — bounded ≤256 code points + non-empty + NUL-reject: the id is untrusted
-// remote-peer output, and the write seam mirrors it), with `mcp_task_generation` (`v1` or `v2`)
-// beside it, set exactly when it is. That column is the durable handle Spec-013 recovery reads to
-// poll `tasks/get` to a terminal status, then read the result (`tasks/result` on 2025-11-25, inline
-// on 2026-07-28) instead of halting the run; NULL until the receiver accepts — a crash before that
-// leaves the halt intact (Spec-004 §Recovery Consequences).
+// The task handle a receipt keeps. A task-augmented MCP call carries a receiver-generated `taskId`
+// (from the `CreateTaskResult` acceptance). It is no RPC payload: the daemon stores it on the
+// receipt as `command_receipts.mcp_task_id` (bounded to 256 code points, non-empty, no NUL: the id
+// is untrusted peer output, and the recorder refuses what the CHECK cannot see), with
+// `mcp_task_generation` (`v1` or `v2`), `mcp_server_name` and `mcp_server_endpoint` (`stdio`, or
+// `address:` and the lowercase hex SHA-256 of the server's address) set exactly when it is, so a
+// resume reaches only the server that accepted the task. `backgrounded` marks a call moved to the
+// background, whose result is owed one delivery, and `delivered` marks that delivery done. After a
+// restart the handle is what resumes the call (Spec-013 recovery): `tasks/get` to a terminal
+// status, then the result (`tasks/result` on 2025-11-25, inline on 2026-07-28). A call with no
+// handle is never run again; its run goes on, told the outcome is unknown (DDL in
+// local-sqlite-schema.md §Queue and Intervention Tables).
 
 // One shape, `ProviderToolMetadata` in `crates/sidekicks-contracts/src/provider/driver/tools.rs`.
 // Its `idempotencyClass` takes a serde default, `manualReconcileOnly` (the conservative

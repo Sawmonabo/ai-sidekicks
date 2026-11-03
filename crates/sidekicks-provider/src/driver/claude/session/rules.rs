@@ -25,10 +25,9 @@ use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_workspace::git::exclude::{ExcludeError, add_repository_exclude};
 
-use crate::driver::claude::session::ignored_settings::list_managed_settings_files;
 use crate::driver::claude::session::settings_file::{
-    ClaudeSettingsFileError, edit_settings_object, hold_settings_file, read_claude_settings_file,
-    read_settings_file, write_settings_file,
+    ClaudeSettingsFileError, edit_settings_object, hold_settings_file, list_managed_settings_files,
+    read_claude_settings_file, read_settings_file, write_settings_file,
 };
 use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
 use crate::project_rule_folders::write_into_project_folders;

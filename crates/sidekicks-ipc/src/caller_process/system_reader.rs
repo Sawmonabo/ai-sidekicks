@@ -2,6 +2,7 @@
 //! the platforms crate's pinned reads.
 
 use std::io;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::FutureExt as _;
@@ -10,7 +11,8 @@ use interprocess::local_socket::tokio::Stream;
 use sidekicks_contracts::app_identity::APP_BUNDLE_IDENTIFIER;
 use sidekicks_platforms::{
     CodeSignatureError, DesktopClientRequirement, ParentProcess, PinnedProcess, ResponsibleProcess,
-    SignatureCheck, read_parent_process, read_peer_process, read_responsible_process,
+    SignatureCheck, read_parent_process, read_peer_process, read_program_path,
+    read_responsible_process,
 };
 
 use crate::caller_process::contract::{CallerProcessReader, PeerRead};
@@ -68,6 +70,18 @@ impl CallerProcessReader for ProcessTableReader {
     ) -> BoxFuture<'_, io::Result<ResponsibleProcess>> {
         async move {
             tokio::task::spawn_blocking(move || read_responsible_process(&process))
+                .await
+                .map_err(io::Error::other)?
+        }
+        .boxed()
+    }
+
+    fn read_program_path(
+        &self,
+        process: PinnedProcess,
+    ) -> BoxFuture<'_, io::Result<Option<PathBuf>>> {
+        async move {
+            tokio::task::spawn_blocking(move || read_program_path(&process))
                 .await
                 .map_err(io::Error::other)?
         }

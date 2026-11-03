@@ -657,6 +657,7 @@ pub(crate) async fn register_method_inputs(
         damaged_history: Arc::clone(&stored.damaged_history),
         restart_settle,
         provider_sessions: Arc::clone(&session.provider_sessions),
+        questions: Arc::clone(&session.questions),
         status: Arc::clone(&database.status),
         damage: Arc::clone(&database.damage),
         database_path: database.database_path.clone(),

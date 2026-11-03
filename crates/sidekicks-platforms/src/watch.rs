@@ -1,7 +1,7 @@
 //! A folder's arrival watch, which hands back the records renamed into it, on a runtime or, for a
 //! caller with no runtime, on the calling thread, and a file's append watch, which hands back the
-//! bytes appended to it. Each platform's module supplies the wake a change raises; the folder's
-//! listing and the file's reads are shared.
+//! bytes appended to it, and whether this system has them. Each platform's module supplies the
+//! wake a change raises; the folder's listing and the file's reads are shared.
 
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -19,6 +19,10 @@ use crate::linux::watch::{BlockingChangeWake, ChangeWake};
 use crate::macos::watch::{BlockingChangeWake, ChangeWake};
 #[cfg(target_os = "windows")]
 use crate::windows::watch::{BlockingChangeWake, ChangeWake};
+
+/// Whether this system has the folder arrival watch and the file append watch: macOS and Linux
+/// do, and on Windows each answers `Unsupported`.
+pub const WATCHES_ARRIVALS_AND_APPENDS: bool = !cfg!(target_os = "windows");
 
 // The most bytes one read of an appended file hands back, so a burst of output is read in bounded
 // pieces.

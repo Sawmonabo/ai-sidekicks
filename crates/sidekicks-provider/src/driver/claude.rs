@@ -91,6 +91,7 @@ mod hooks;
 pub(crate) mod inbox;
 mod intervention;
 mod lifecycle;
+mod live_sessions;
 mod mcp;
 mod output_speed;
 mod rate_limit_windows;
@@ -218,6 +219,9 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     voice_kinds: &[VoiceKind::Dictation],
     mcp_transports: &[McpTransport::Stdio, McpTransport::Http, McpTransport::Sse],
     mcp_config_members: &[],
+    mcp_server_names: mcp::server_name::CLAUDE_MCP_SERVER_NAMES,
+    // It keeps a project's `local` servers in its own config.
+    is_mcp_local_scope_emulated: false,
     skill_name_max_length: None,
     written_name_forms: &written_names::CLAUDE_WRITTEN_NAME_FORMS,
     permission_identifiers: &[

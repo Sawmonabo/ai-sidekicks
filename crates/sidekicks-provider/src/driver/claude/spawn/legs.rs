@@ -258,14 +258,14 @@ pub(crate) fn bind_claude_callback_tools(
                 .then(|| CLAUDE_IN_PROCESS_ROUTE_UNAVAILABLE_DETAIL.to_owned()),
         },
     );
-    let offered_tools = match &callback_tools.admission {
+    let offered_tools = match callback_tools.admission() {
         CallbackToolAdmission::Admitted { tools } if !tools.is_empty() => Some(tools.clone()),
         CallbackToolAdmission::Admitted { .. } | CallbackToolAdmission::Withheld { .. } => None,
     };
     let legs = ClaudeSpawnBoundLegs {
         on_callback_tool_call: offered_tools
             .is_some()
-            .then(|| Arc::clone(&callback_tools.dispatcher)),
+            .then(|| Arc::clone(callback_tools.dispatcher())),
         callback_tools: offered_tools,
         ..legs
     };

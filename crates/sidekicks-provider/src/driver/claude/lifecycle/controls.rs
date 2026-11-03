@@ -39,15 +39,17 @@ use crate::driver::claude::session::errors::{
 use crate::driver::claude::session::establishment::context::resolve_claude_spawn_context;
 use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
 use crate::driver::claude::session::permission_level::{
-    ClaudeStartingLevelSources, can_run_claude_level, is_offered_on_system, list_claude_modes,
-    move_claude_permission_level, read_claude_sandbox_support, read_claude_starting_level,
+    can_run_claude_level, is_offered_on_system, list_claude_modes, move_claude_permission_level,
+    read_claude_sandbox_support, read_claude_starting_level,
 };
 use crate::driver::claude::session::permissions::{
     ClaudeProjectRuleRemoval, read_claude_session_rules, resend_claude_permissions,
     revoke_claude_project_rule,
 };
 use crate::driver::claude::session::restart::ClaudeSessionStanding;
-use crate::driver::claude::session::settings_file::read_claude_settings_file;
+use crate::driver::claude::session::settings_file::{
+    ClaudeSettingsSources, read_claude_settings_file,
+};
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::readings::ClaudeSessionFolderReadRequest;
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
@@ -135,7 +137,7 @@ impl ClaudeDriver {
         let project_folder = claude_project_folder(&params.working_folder, repository.as_ref());
         let account_settings_file = account_config_folder(&environment).join(SETTINGS_FILE_NAME);
         let starting = read_claude_starting_level(
-            &ClaudeStartingLevelSources {
+            &ClaudeSettingsSources {
                 managed_settings_folder: managed_settings_folder.as_deref(),
                 project_folder: &project_folder,
                 home_folder: &self.sources.home_folder,

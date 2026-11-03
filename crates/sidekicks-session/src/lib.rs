@@ -1,9 +1,10 @@
 //! Sessions: creating, changing, naming, converting and searching them, reading a session's record
 //! and log, their groups, tags, drafts, staged files, review notes, inbox addresses and directory;
 //! the run engine and a session's runs; the transcript; questions, interventions and attention; the
-//! queue's store; the driver a run or session resolves to; the live sessions' folders; and
-//! deleting the provider conversations a session ran on. It sits over std, store, ipc,
-//! workspace, provider and mcp and is taken by approval, queue, artifact, recovery and the program.
+//! queue's store; what the daemon keeps while sessions talk to each other; the driver a run or
+//! session resolves to; the live sessions' folders; and deleting the provider conversations a
+//! session ran on. It sits over std, store, ipc, workspace, provider and mcp and is taken by
+//! approval, queue, artifact, recovery and the program.
 
 pub mod addresses;
 pub mod attention;
@@ -21,6 +22,7 @@ pub mod idle_sleep;
 pub mod interventions;
 pub mod links;
 pub mod live_folders;
+pub mod messaging;
 pub mod permission_level;
 pub mod plan_holds;
 pub(crate) mod projector;
