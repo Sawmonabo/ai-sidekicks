@@ -2,14 +2,18 @@
 //! continue, move them to the run before it, to the live run or to a next run; rest until a send
 //! when a limit ended it; a start that failed; a process gone for good after its restart; and the
 //! queue's stop waiting for a start a run's end made meanwhile and the hand that start's drain made
-//! after it; a lead running before its session's process opened, which is handed nothing; and a
-//! lead whose continue after a kept answer failed, moved back to its wait.
+//! after it; a lead running before its session's process opened, which is handed nothing; a lead's
+//! messages withheld only while it waits on an ask of its own, and handed when it runs again; and
+//! a lead whose continue after a kept answer failed, moved back to its wait.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use rstest::rstest;
+use rusqlite::params;
+use serde_json::json;
+use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
@@ -24,6 +28,8 @@ use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_provider::runtime_binding::test_store::spawned_build;
 use sidekicks_session::queue_store::RecordedQueueItemState;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::writer::test_file::test_envelope;
+use sidekicks_store::events::session::followers::CommittedEvent;
 use tokio::time::{sleep, timeout};
 
 use super::{DriverCalls, Fixture, HELD_WATCH, WAIT, fixture, recording_driver};
@@ -406,4 +412,115 @@ async fn a_lead_whose_continue_failed_waits_again() {
         .expect("the continue's task ends");
 
     assert_eq!(fixture.run_state(run_id), "waitingForApproval");
+}
+
+impl Fixture {
+    // Makes a helper's run beneath `lead` that waits on an ask the person has not answered.
+    fn insert_waiting_helper(&self, lead: RunId) -> RunId {
+        let helper = self.insert_run("waitingForApproval");
+        self.database
+            .reader()
+            .execute(
+                "UPDATE runs SET parent_run_id = ?1 WHERE run_id = ?2",
+                params![lead.text().as_str(), helper.text().as_str()],
+            )
+            .expect("the test makes the run a helper");
+        self.kept_approvals.set_open_ask(helper, true);
+        helper
+    }
+
+    // Has the lifecycle take `run_id`'s move from a wait to running, as the log's follow delivers
+    // it.
+    fn observe_running(&self, run_id: RunId) {
+        let running: SessionEvent = serde_json::from_value(json!({
+            "type": "agent.run.running",
+            "payload": {
+                "sessionId": self.session_id,
+                "runId": run_id,
+                "runVersion": 2,
+                "previousState": "waitingForApproval",
+                "newState": "running",
+            },
+        }))
+        .expect("the test's running event reads");
+        self.queue
+            .lifecycle
+            .observe(&CommittedEvent {
+                envelope: Arc::new(test_envelope(self.session_id, &running)),
+                sequence: SafeInt::new(1).expect("a sequence"),
+            })
+            .expect("the running event reads as its type");
+    }
+
+    // Reconciles the session and waits for its answer.
+    async fn reconcile(&self) {
+        timeout(WAIT, self.queue.lifecycle.reconcile(self.session_id))
+            .await
+            .expect("the reconcile answers")
+            .expect("the reconcile is heard")
+            .expect("the reconcile reads the session");
+    }
+}
+
+// A running lead whose helper waits on an ask is handed its message, both at its move to running
+// and at a reconcile; one with an open ask of its own beside the helper's is handed nothing on
+// either path. Killed by the helper's ask counted against the lead (the lead with only a helper's
+// ask is handed nothing), and by the lead's own ask not read (its message is steered).
+#[rstest]
+#[case::own_ask_beside_a_helpers(true)]
+#[case::only_a_helpers_ask(false)]
+#[tokio::test]
+async fn only_a_leads_own_open_ask_withholds_its_messages(#[case] has_own_ask: bool) {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let lead = fixture.insert_run("running");
+    bind_run_to_first_provider(&fixture.database, lead);
+    fixture.insert_waiting_helper(lead);
+    fixture.kept_approvals.set_open_ask(lead, has_own_ask);
+    let item_id = fixture.queue_message(lead).await;
+
+    fixture.observe_running(lead);
+    fixture.reconcile().await;
+
+    if has_own_ask {
+        assert_eq!(
+            fixture.stored_item(item_id).state,
+            RecordedQueueItemState::Queued
+        );
+        assert!(calls.steers().is_empty(), "the message was steered");
+    } else {
+        assert!(
+            calls.steers().contains(&(item_id, false)),
+            "the message was withheld"
+        );
+    }
+    assert!(calls.starts().is_empty(), "the message was started");
+}
+
+// A message withheld while the lead waits on its own ask is handed once the person answers and
+// the lead moves to running, with no reconcile behind it, in a live session as after a restart.
+// Killed by the withheld message never handed at the lead's move to running.
+#[tokio::test]
+async fn a_message_withheld_on_a_leads_own_ask_is_handed_when_it_runs_again() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let lead = fixture.insert_run("running");
+    bind_run_to_first_provider(&fixture.database, lead);
+    fixture.kept_approvals.set_open_ask(lead, true);
+    let item_id = fixture.queue_message(lead).await;
+    fixture.reconcile().await;
+    let steered_while_asking = calls.steers();
+
+    fixture.kept_approvals.set_open_ask(lead, false);
+    fixture.observe_running(lead);
+    timeout(WAIT, async {
+        while calls.steers().is_empty() {
+            sleep(HELD_WATCH).await;
+        }
+    })
+    .await
+    .expect("the withheld message is handed");
+
+    assert!(steered_while_asking.is_empty(), "the message was steered");
+    assert_eq!(calls.steers(), [(item_id, false)]);
 }

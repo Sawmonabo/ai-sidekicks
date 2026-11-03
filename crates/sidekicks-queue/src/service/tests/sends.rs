@@ -491,6 +491,7 @@ async fn a_send_repeated_after_its_account_was_removed_answers_the_saved_one() {
         MockProviderDriver::new(),
         Arc::clone(&fixture.process) as _,
         CurrentProviderAccount::NoneRegistered,
+        &fixture.kept_approvals,
     );
 
     let answer = queue
