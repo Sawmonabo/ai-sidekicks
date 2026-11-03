@@ -437,7 +437,9 @@ async fn a_held_lead_s_continue_carries_the_answers_to_its_process() {
 
 // A resume the session's live process answers sends a held lead's continue to that process as the
 // lead's next message, never ending it, and answers the lead still running so its answers stay
-// taken. Killed by the send dropped (no message reaches the process and the lead answers gone).
+// taken. The answers land in the turn continued, so the next message that is no steer opens the
+// next turn. Killed by the send dropped (no message reaches the process and the lead answers
+// gone), and by the answers written as no steer (they open the next turn in its place).
 #[tokio::test(start_paused = true)]
 async fn a_live_process_is_sent_a_held_lead_s_answers_as_its_next_message() {
     let fixture = ScriptedDriver::new();
@@ -496,6 +498,20 @@ async fn a_live_process_is_sent_a_held_lead_s_answers_as_its_next_message() {
             "While the app restarted, the person answered what you were waiting on:\n\
              You asked: Which branch?. The person answered: main."
         )]
+    );
+    let parts = fixture
+        .driver
+        .composed_parts()
+        .expect("the pieces are composed");
+    let mut prompts = parts
+        .run_start
+        .prompts
+        .lock()
+        .expect("the prompts' lock holds");
+    prompts.record_written(session_id, lead, "later", false);
+    assert_eq!(
+        prompts.take_turn_opening(session_id).as_deref(),
+        Some("later")
     );
 }
 
