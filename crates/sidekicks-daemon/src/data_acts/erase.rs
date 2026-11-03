@@ -69,18 +69,25 @@ pub(crate) struct DataEraseDeps {
     pub(crate) end_process: Arc<dyn Fn() + Send + Sync>,
 }
 
-/// Why an erase gave no answer: refused before it started, or ended before it answered.
+/// Why an erase did not start; nothing was erased by this call.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum DataEraseRefusal {
-    /// An erase already runs, and erases everything; nothing was erased by this call.
+    /// An erase already runs, and erases everything.
     #[error("an erase is already running")]
     Running,
-    /// The keychain the erase must empty is locked or cannot be used; nothing was erased by this
-    /// call.
+    /// The keychain the erase must empty is locked or cannot be used.
     #[error(transparent)]
     Keychain(#[from] KeychainRefusal),
-    /// The erase ended before it answered, as when a provider's sign-out panicked; another erase
-    /// may start.
+}
+
+/// Why an erase gave no answer.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum DataEraseFailure {
+    /// The erase did not start.
+    #[error(transparent)]
+    Refused(#[from] DataEraseRefusal),
+    /// The erase ended before it answered, as when a provider's sign-out panicked: a failure
+    /// inside the service, after which another erase may start.
     #[error("the erase ended before it answered")]
     Ended,
 }
@@ -105,19 +112,23 @@ impl DataErase {
     /// the reply is written while the erase stops the work; a locked store raises its unlock
     /// prompt while the person is at the screen. Fails with [`DataEraseRefusal::Running`] while
     /// an erase runs, and with [`DataEraseRefusal::Keychain`] when the store is locked or cannot
-    /// be used; this call then starts nothing. Fails with [`DataEraseRefusal::Ended`] when the
+    /// be used; this call then starts nothing. Fails with [`DataEraseFailure::Ended`] when the
     /// erase ends before it answers, and lets the next erase start. An erase once started runs to
     /// its end even when its caller stops waiting for the answer.
     pub(crate) async fn begin(
         self: &Arc<Self>,
-    ) -> Result<DaemonDataEraseResponse, DataEraseRefusal> {
+    ) -> Result<DaemonDataEraseResponse, DataEraseFailure> {
         if self.is_running.load(Ordering::Acquire) {
-            return Err(DataEraseRefusal::Running);
+            return Err(DataEraseRefusal::Running.into());
         }
-        self.deps.secret_items.check_for_erase().await?;
+        self.deps
+            .secret_items
+            .check_for_erase()
+            .await
+            .map_err(DataEraseRefusal::from)?;
         // Two erases sent together may both pass the check; only the first to get here starts.
         if self.is_running.swap(true, Ordering::AcqRel) {
-            return Err(DataEraseRefusal::Running);
+            return Err(DataEraseRefusal::Running.into());
         }
         let (answer, answered) = oneshot::channel();
         let erase = Arc::clone(self);
@@ -126,7 +137,7 @@ impl DataErase {
         // erased nothing and the next may run.
         answered.await.map_err(|_ended| {
             self.is_running.store(false, Ordering::Release);
-            DataEraseRefusal::Ended
+            DataEraseFailure::Ended
         })
     }
 

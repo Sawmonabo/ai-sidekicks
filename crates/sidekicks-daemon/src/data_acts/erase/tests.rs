@@ -22,7 +22,7 @@ use sidekicks_store::credential_store::os::TestStoreAccess;
 use sidekicks_store::credential_store::service::KeychainService;
 use tokio::sync::{Notify, watch};
 
-use super::{DataErase, DataEraseDeps, DataEraseRefusal};
+use super::{DataErase, DataEraseDeps, DataEraseFailure, DataEraseRefusal};
 
 type CallLog = Arc<Mutex<Vec<String>>>;
 
@@ -161,7 +161,7 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     sign_out_signal.notified().await;
     assert!(matches!(
         erase.begin().await,
-        Err(DataEraseRefusal::Running)
+        Err(DataEraseFailure::Refused(DataEraseRefusal::Running))
     ));
     assert!(
         !first.is_finished(),
@@ -245,8 +245,8 @@ async fn an_erase_that_ends_before_it_answers_fails_and_admits_the_next() {
         end_process: Arc::new(|| unreachable!("an erase that did not answer ends no process")),
     }));
 
-    assert!(matches!(erase.begin().await, Err(DataEraseRefusal::Ended)));
-    assert!(matches!(erase.begin().await, Err(DataEraseRefusal::Ended)));
+    assert!(matches!(erase.begin().await, Err(DataEraseFailure::Ended)));
+    assert!(matches!(erase.begin().await, Err(DataEraseFailure::Ended)));
     assert_eq!(
         *lock(&sign_outs),
         2,

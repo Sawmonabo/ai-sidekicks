@@ -27,7 +27,7 @@ use sidekicks_ipc::stream::feed::Feed;
 use sidekicks_ipc::stream::latest_value::{LatestValueFeed, LatestValueOutlet};
 use tokio::sync::watch;
 
-use crate::data_acts::erase::{DataErase, DataEraseRefusal};
+use crate::data_acts::erase::{DataErase, DataEraseFailure, DataEraseRefusal};
 use crate::data_acts::export::{DataExportStartRefusal, DataExports, is_finished};
 
 /// What the data verbs act on.
@@ -87,7 +87,7 @@ pub(crate) fn register_data_methods(
     let erase = deps.erase;
     registry.register::<DaemonDataErase, _>(move |_: EmptyPayload, _context: HandlerContext| {
         let erase = Arc::clone(&erase);
-        async move { erase.begin().await.map_err(erase_refusal) }.boxed()
+        async move { erase.begin().await.map_err(erase_failure) }.boxed()
     })
 }
 
@@ -141,6 +141,13 @@ fn unknown_export() -> HandlerError {
     .into()
 }
 
+fn erase_failure(failure: DataEraseFailure) -> HandlerError {
+    match failure {
+        DataEraseFailure::Refused(refusal) => erase_refusal(refusal),
+        ended @ DataEraseFailure::Ended => HandlerError::Internal(Box::new(ended)),
+    }
+}
+
 fn erase_refusal(refusal: DataEraseRefusal) -> HandlerError {
     match refusal {
         DataEraseRefusal::Running => DomainError::new(
@@ -154,7 +161,6 @@ fn erase_refusal(refusal: DataEraseRefusal) -> HandlerError {
             |cause| DaemonDataStoreUnavailableDetails { cause },
         )
         .into(),
-        ended @ DataEraseRefusal::Ended => HandlerError::Internal(Box::new(ended)),
     }
 }
 
