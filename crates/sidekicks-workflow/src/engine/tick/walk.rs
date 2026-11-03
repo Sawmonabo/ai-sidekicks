@@ -567,22 +567,29 @@ impl RunWalk {
         self.ready(place, step, run_index, sources, lineage, turn);
     }
 
-    /// Whether the won `round` of the node at `place` can take no more feeds: every slot not yet
-    /// fed is fed only from places on a losing branch of its win, whose steps the win cancels.
+    /// Whether the `round` of the node at `place` can take no more feeds: it was won or a win
+    /// overtook it, and every slot not yet fed is fed only from places on a losing branch of such a
+    /// win, whose steps of the round's pass that win cancels.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn is_spent(&self, place: usize, round: &Round) -> bool {
-        let Some(win) = round.won else {
-            return false;
-        };
-        let is_losing = &self.wins[win].is_losing;
-        round
-            .slots
+        let wins: Vec<&[bool]> = round
+            .won
             .iter()
-            .zip(&self.graph.node(place).slots)
-            .all(|(slot, input)| {
-                matches!(slot, RoundSlot::Filled { .. })
-                    || input.feeders.iter().all(|&feeder| is_losing[feeder])
-            })
+            .chain(&round.lineage.overtaken_by)
+            .map(|&win| &*self.wins[win].is_losing)
+            .collect();
+        !wins.is_empty()
+            && round
+                .slots
+                .iter()
+                .zip(&self.graph.node(place).slots)
+                .all(|(slot, input)| {
+                    matches!(slot, RoundSlot::Filled { .. })
+                        || input
+                            .feeders
+                            .iter()
+                            .all(|&feeder| wins.iter().any(|is_losing| is_losing[feeder]))
+                })
     }
 
     /// Whether the node at `place` is on a losing branch of one of the wins `overtaken_by`.
@@ -685,7 +692,7 @@ impl RunWalk {
     /// Readies `step` of the node at `place`, of `lineage`, making it live. A loop node's step
     /// belongs to the passes around its loop, not its own; it starts a new pass of what it leads
     /// to, so it drops the wins of the nodes it precedes that its round was pending at, whose
-    /// rounds of that pass are new, and closes the rounds the earlier passes' wins left open.
+    /// rounds of that pass are new, and closes the rounds of earlier passes nothing can fill.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn ready(
         &mut self,
@@ -721,24 +728,27 @@ impl RunWalk {
     }
 
     /// Closes the open rounds at the places the loop node at `loop_place` precedes that a win at
-    /// such a place won or overtook: they belong to an earlier pass, so none takes the new pass's
-    /// feeds and no won round outlives its pass.
+    /// such a place won or overtook and that nothing can fill any more: every slot still unfed
+    /// waits only on such a win's losers. A round still waiting on a live step of its own pass
+    /// stays open, and the pass check keeps the new pass's feeds out of it.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn close_passed_rounds(&mut self, loop_place: usize) {
-        let graph = &self.graph;
-        let is_passed = |win: usize| graph.is_ancestor(loop_place, self.wins[win].place);
+        let walk = &*self;
+        let graph = &walk.graph;
+        let is_passed = |win: usize| graph.is_ancestor(loop_place, walk.wins[win].place);
         let passed: Vec<(usize, u64)> = (0..graph.node_count())
             .filter(|&place| graph.is_ancestor(loop_place, place))
             .flat_map(|place| {
-                self.rounds[place]
+                walk.rounds[place]
                     .open
                     .iter()
-                    .filter(|(_, round)| {
+                    .filter(move |(_, round)| {
                         round
                             .won
                             .into_iter()
                             .chain(round.lineage.overtaken_by.iter().copied())
                             .any(is_passed)
+                            && walk.is_spent(place, round)
                     })
                     .map(move |(&run_index, _)| (place, run_index))
             })

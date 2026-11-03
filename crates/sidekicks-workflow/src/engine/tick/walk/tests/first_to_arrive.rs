@@ -349,14 +349,14 @@ fn a_loser_readied_in_a_later_turn_never_runs_and_the_winner_runs_once_a_pass() 
     );
 }
 
-/// A loop's next pass closes the rounds the last pass's win left open, so its feeds fill fresh
-/// rounds: the loop node L feeds A, Y and Q; A feeds M's first main slot, Y and Q feed the pair
-/// P2, which feeds M's second, and M feeds C, which wires back into L. On pass 0, Y fills half of
-/// P2's round before A wins and Q is canceled; on pass 1, Y and Q fill P2's next round, which
-/// runs and wins M. Mutation: keep the half-filled round open, so Q's feed fills it, it is
-/// canceled as the old win's loser, and M never runs on pass 1.
+/// A loop's next pass closes a round its last pass's win left open once nothing can fill it, and
+/// the next pass's feeds fill fresh rounds: the loop node L feeds A, Y and Q; A feeds M's first
+/// main slot, Y and Q feed the pair P2, which feeds M's second, and M feeds C, which wires back
+/// into L. On pass 0, Y fills half of P2's round before A wins and Q, the only feed of its other
+/// half, is canceled; on pass 1, Y and Q fill P2's next round, which runs and wins M. Mutation:
+/// keep the spent round open, so `every_open_round` still lists `P2:0` once the next pass starts.
 #[test]
-fn a_loops_next_pass_closes_the_rounds_its_last_pass_left_open() {
+fn a_loops_next_pass_closes_the_rounds_its_last_pass_left_spent() {
     let (mut walk, start_turn) = start(
         vec![
             node("trigger", "test.trigger", 0, false),
@@ -411,6 +411,64 @@ fn a_loops_next_pass_closes_the_rounds_its_last_pass_left_open() {
             "ready M run 1 exec 12 from - P2:0@11 -",
             "win M exec 12 losers [A@8]"
         ]
+    );
+}
+
+/// A loop's next pass leaves open a round its last pass's win overtook while a live step of that
+/// pass can still fill it: the loop node L feeds A, Y, R and S; A and the plain join J feed M's
+/// first main slot and Y its second; R and S feed J's two slots, and M feeds C, which wires back
+/// into L. R fills half of J's round, A wins M, and L's next pass is readied before S settles;
+/// S's feed then completes J's round, which runs on both R's and S's items. Mutation: close
+/// every round the win overtook when the next pass starts, so S's feed opens a new round and J
+/// never runs.
+#[test]
+fn a_loops_next_pass_keeps_a_round_a_live_step_of_its_last_pass_still_fills() {
+    let (mut walk, start_turn) = start(
+        vec![
+            node("trigger", "test.trigger", 0, false),
+            node("L", "test.loop", 1, false),
+            node("A", "test.step", 2, false),
+            node("Y", "test.step", 3, false),
+            node("R", "test.step", 4, false),
+            node("S", "test.step", 5, false),
+            node("J", "test.pair", 6, false),
+            node("M", "test.first", 7, false),
+            node("C", "test.step", 8, false),
+        ],
+        &[
+            edge("trigger", 0, "L", 0),
+            edge("L", 1, "A", 0),
+            edge("L", 1, "Y", 0),
+            edge("L", 1, "R", 0),
+            edge("L", 1, "S", 0),
+            edge("A", 0, "M", 0),
+            edge("Y", 0, "M", 1),
+            edge("R", 0, "J", 0),
+            edge("S", 0, "J", 1),
+            edge("J", 0, "M", 0),
+            edge("M", 0, "C", 0),
+            edge("C", 0, "L", 0),
+        ],
+    );
+    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
+    let l_turn = walk.settle(&readied(&trigger_turn, "L"), &[0, 1]);
+    walk.settle(&readied(&l_turn, "R"), &[1]);
+    let a_turn = walk.settle(&readied(&l_turn, "A"), &[1]);
+    assert_eq!(
+        describe(&a_turn),
+        [
+            "ready M run 0 exec 6 from A:0@2 - -",
+            "win M exec 6 losers [Y@3]"
+        ]
+    );
+    walk.drop_step(&readied(&l_turn, "Y"));
+    let m_turn = walk.settle(&readied(&a_turn, "M"), &[1]);
+    let c_turn = walk.settle(&readied(&m_turn, "C"), &[1]);
+    assert_eq!(describe(&c_turn), ["ready L run 1 exec 8 from C:0@7"]);
+    assert_eq!(every_open_round(&walk), ["J:0"]);
+    assert_eq!(
+        describe(&walk.settle(&readied(&l_turn, "S"), &[1])),
+        ["ready J run 0 exec 9 from R:0@4 S:0@5"]
     );
 }
 
