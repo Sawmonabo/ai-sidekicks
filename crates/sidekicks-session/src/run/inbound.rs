@@ -309,18 +309,20 @@ impl RunInboundDispatch {
             });
         }
         let draft = SessionEventDraft::of_session(session_id, &event)?;
-        let event_id = match self.appender.append(draft, linkage).await {
-            Ok(receipt) => receipt.id,
-            Err(error) if error.refused_statement_index() == Some(PIECE_RUN_LIVE_GUARD_INDEX) => {
-                let (Some(piece), Some(run_id)) = (piece_of, piece_run_id) else {
-                    return Err(error.into());
-                };
+        // Only a piece's write carries the live guard; another write's statement at its index
+        // is the caller's own.
+        let appended = self.appender.append(draft, linkage).await;
+        let event_id = match (appended, piece_of.zip(piece_run_id)) {
+            (Ok(receipt), _) => receipt.id,
+            (Err(error), Some((piece, run_id)))
+                if error.refused_statement_index() == Some(PIECE_RUN_LIVE_GUARD_INDEX) =>
+            {
                 self.engine.require_run(run_id).await?;
                 return self
                     .absorb_ended(&piece.binding, &piece.absorbed, piece.attribution)
                     .await;
             }
-            Err(error) => return Err(error.into()),
+            (Err(error), _) => return Err(error.into()),
         };
         Ok(match source {
             None => InboundOutcome::Appended { event_id },
