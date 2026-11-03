@@ -12,9 +12,9 @@ use crate::driver::run_control::{ResumeRunParams, WaitingMessage};
 use crate::driver::test_registry::new_message_id;
 
 // A continue owed its continuation starts the run's next turn with Codex's continuation words,
-// then the waiting message, under that message's id; the continue's answer settles the message,
-// so Codex's echo of the turn's input tells the queue nothing and its words, the continuation's
-// among them, reach no row: the person's message reads as the queue wrote it. Killed by the flag
+// then the waiting message, under that message's id; Codex's echo of the turn's input tells the
+// queue nothing and its words, the continuation's among them, reach no row: the person's message
+// reads as the queue wrote it. Killed by the flag
 // ignored (the turn holds the message alone), and by the echo's words written to the run (the
 // continuation reaches the engine).
 #[tokio::test]
