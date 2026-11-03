@@ -1,6 +1,7 @@
 //! The turns a restart kept, ended on the Codex service that runs them: each answer Codex gives
 //! read, a stopping run's refused turn followed once, each turn bounded, the session's slot held
-//! for the work, and the service a former daemon kept joined, draining or not, with none started.
+//! for the work, the service a former daemon kept joined, draining or not, with none started, and a
+//! close or a cut join read against whether that service ended.
 
 use std::path::Path;
 use std::pin::pin;
@@ -17,7 +18,9 @@ use sidekicks_platforms::short_socket_folder;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use super::super::kept_turns::{KeptTurnInterrupt, end_kept_turn};
+use super::super::kept_turns::{
+    KeptTurnInterrupt, end_kept_turn, join_kept_service, read_end_after_close,
+};
 use super::{driver_holding, driver_on_codex_folder};
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::lifecycle::CodexDriver;
@@ -25,7 +28,7 @@ use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, Codex
 use crate::driver::codex::service::registry::{CodexServiceRegistry, OneHome};
 use crate::driver::codex::service::supervisor::test_service::{
     StandInReplies, UnheardEvents, answer_as_codex_service, bind_test_listener,
-    keep_draining_service, start_scripted_codex_service, test_codex_service_dependencies,
+    keep_former_service, start_scripted_codex_service, test_codex_service_dependencies,
 };
 use crate::driver::codex::service::supervisor::{
     CodexProgramResolver, CodexService, CodexServiceSocket,
@@ -404,7 +407,7 @@ async fn a_draining_kept_service_is_joined_and_never_started() {
     });
     let starts = Arc::new(CountedStarts::default());
     let (driver, service) = driver_with_unstarted_service(folder.path(), &starts);
-    let kept = keep_draining_service(&service, folder.path(), &kept_socket).await;
+    let kept = keep_former_service(&service, folder.path(), &kept_socket, true).await;
 
     driver
         .end_kept_turns(kept_lead_turn(CancellationToken::new()))
@@ -426,4 +429,109 @@ async fn a_draining_kept_service_is_joined_and_never_started() {
     );
     assert_eq!(starts.0.load(Ordering::SeqCst), 0);
     assert!(service.connection().is_err());
+}
+
+// A connection that closed before Codex answered the interrupt reads the service's record again:
+// a process that has ended ended the turn with it, and one still running leaves the failure.
+// Killed by the record not read again (the ended case answers the failure).
+#[rstest]
+#[case::the_service_ended(true)]
+#[case::the_service_runs(false)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_close_after_the_interrupt_reads_the_turn_ended_with_its_service(
+    #[case] has_service_ended: bool,
+) {
+    let folder = short_socket_folder().expect("a scratch folder is made");
+    let starts = Arc::new(CountedStarts::default());
+    let (_driver, service) = driver_with_unstarted_service(folder.path(), &starts);
+    let kept_socket = folder.path().join("kept.sock");
+    let kept = keep_former_service(&service, folder.path(), &kept_socket, true).await;
+    if has_service_ended {
+        kept.kill().expect("the kept service is ended");
+        kept.wait_for_end()
+            .await
+            .expect("the kept service's end reads");
+    }
+    let closed = Err(CodexError::Unanswered {
+        method: "turn/interrupt".to_owned(),
+        cause: CodexUnansweredCause::ConnectionClosed {
+            reason: "the service disconnected every client".to_owned(),
+        },
+    });
+
+    let ended = read_end_after_close(&service, closed, kept_turn_deadline()).await;
+    // The stand-in outlives the test otherwise, so it ends before any assertion can fail.
+    kept.kill().expect("the kept service is ended");
+
+    if has_service_ended {
+        assert_eq!(
+            ended.expect("the turn's end is read"),
+            KeptTurnInterrupt::EndedWithService
+        );
+    } else {
+        assert!(
+            matches!(
+                ended,
+                Err(CodexError::Unanswered {
+                    cause: CodexUnansweredCause::ConnectionClosed { .. },
+                    ..
+                })
+            ),
+            "the close stands while the service runs: {ended:?}"
+        );
+    }
+}
+
+// A join cut while connecting reads the service's record again: a process that has ended leaves
+// no service to join and no failure, and one still running reports the cut. Killed by the record
+// not read again (the ended case answers the failure).
+#[rstest]
+#[case::the_service_ended(true)]
+#[case::the_service_runs(false)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_join_cut_while_connecting_reads_whether_the_service_ended(
+    #[case] has_service_ended: bool,
+) {
+    let folder = short_socket_folder().expect("a scratch folder is made");
+    let kept_socket = folder.path().join("kept.sock");
+    let Some(listener) = bind_test_listener(&kept_socket) else {
+        return;
+    };
+    let starts = Arc::new(CountedStarts::default());
+    let (_driver, service) = driver_with_unstarted_service(folder.path(), &starts);
+    let kept = Arc::new(keep_former_service(&service, folder.path(), &kept_socket, true).await);
+    let exiting = Arc::clone(&kept);
+    // The first connection is the probe; the service cuts the join's, ending first where it exits.
+    tokio::spawn(async move {
+        let mut accepted = 0;
+        while let Ok(stream) = listener.accept().await {
+            accepted += 1;
+            if accepted > 1 && has_service_ended {
+                exiting.kill().expect("the kept service is ended");
+                exiting
+                    .wait_for_end()
+                    .await
+                    .expect("the kept service's end reads");
+            }
+            drop(stream);
+        }
+    });
+
+    let joined = join_kept_service(&service, kept_turn_deadline()).await;
+    // The stand-in outlives the test otherwise, so it ends before any assertion can fail.
+    kept.kill().expect("the kept service is ended");
+
+    if has_service_ended {
+        assert!(
+            matches!(joined, Ok(None)),
+            "an ended service leaves nothing to join and no failure: {:?}",
+            joined.map(|connection| connection.is_some())
+        );
+    } else {
+        assert!(
+            joined.is_err(),
+            "the cut is reported while the service runs: {:?}",
+            joined.map(|connection| connection.is_some())
+        );
+    }
 }
