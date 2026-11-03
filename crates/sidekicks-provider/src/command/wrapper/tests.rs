@@ -402,14 +402,16 @@ async fn a_line_runs_uncovered_without_an_acknowledgment_and_never_once_stopped(
 }
 
 // Fails when the daemon's stop does not reach a line command once it runs, so an undo's stop of
-// the agent's commands before its cut leaves the command running and the wait for its end hangs.
-// Mutation: run the line's command with no requests followed (`run_child(.., None)`).
+// the agent's commands before its cut leaves the command running and the wait for its end hangs;
+// fails within 5 s. Mutation: run the line's command with no requests followed
+// (`run_child(.., None)`).
 #[tokio::test]
 async fn a_running_line_command_takes_the_daemon_s_stop() {
     let folder = tempfile::tempdir().expect("a folder");
     let channel = open_channel(folder.path());
     let mut watch = channel.watch().await.expect("the channel is watched");
-    let mut command = line_wrapper(&bash_line("echo ready; sleep 30", folder.path()));
+    // A ticking command dies on its closed output once the test drops its reader, on any path.
+    let mut command = line_wrapper(&bash_line(TICKING_COMMAND, folder.path()));
     with_channel(&mut command, &channel);
     let mut child = command.spawn().expect("the wrapper starts");
     let party = starting_party(&channel, &mut watch).await;
@@ -418,7 +420,14 @@ async fn a_running_line_command_takes_the_daemon_s_stop() {
         .await
         .expect("go is sent");
     let _output = read_until(&mut child, "ready");
-    stop_in_order(&channel, &mut watch, party).await;
+    let stopped = stop_in_order(&channel, &mut watch, party);
+    if tokio::time::timeout(Duration::from_secs(5), stopped)
+        .await
+        .is_err()
+    {
+        child.kill().expect("the wrapper is killed");
+        panic!("the stop left the running command going");
+    }
     assert_eq!(ended_by(&mut child).as_deref(), Some("SIGKILL"));
 }
 
