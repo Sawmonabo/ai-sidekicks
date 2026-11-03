@@ -324,8 +324,7 @@ async fn concurrent_starts_under_one_key_open_one_stream() {
         let request = start_request(&store, &key, 10);
         async move { service.start(request).await }
     });
-    // The paused clock moves only once no task can go on, the second start's reads included, so
-    // the wait ends with the second start as far as it can get.
+    // While the first start is held, the second does not finish.
     let second_while_held = tokio::time::timeout(Duration::from_secs(1), &mut second).await;
     assert!(
         second_while_held.is_err(),
