@@ -26,7 +26,9 @@ use sidekicks_platforms::{
     KeychainItemRefusal, KeychainSignIn, SignInMoveError, Spawner, sign_in_move,
 };
 use sidekicks_provider::account::homes::{AccountHome, query_account_homes};
-use sidekicks_provider::driver::{HelperModeServices, PROVIDER_REGISTRATIONS, ProviderDescriptor};
+use sidekicks_provider::driver::{
+    HelperModeServices, PROVIDER_REGISTRATIONS, PROVIDERS, ProviderDescriptor,
+};
 use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_store::credential_store::os::KEYCHAIN_CALL_TIMEOUT;
@@ -190,14 +192,10 @@ async fn helper_mode_services(
             .map_err(|failure| {
                 not_started("the providers' environment could not be read", &failure)
             })?;
-    let descriptors: Vec<&'static ProviderDescriptor> = PROVIDER_REGISTRATIONS
-        .iter()
-        .map(|registration| registration.descriptor)
-        .collect();
     Ok(HelperModeServices {
         data_folder: folders.data_folder.clone(),
         base_environment: Arc::from(base_environment),
-        reserved_names: Arc::new(ReservedEnvironmentNames::of_providers(&descriptors)),
+        reserved_names: Arc::new(ReservedEnvironmentNames::of_providers(PROVIDERS)),
     })
 }
 
