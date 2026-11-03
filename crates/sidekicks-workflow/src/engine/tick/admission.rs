@@ -31,7 +31,7 @@ pub(crate) enum GateWaitEnd {
     },
     /// The step was canceled while it waited.
     Canceled {
-        /// When the hold began, `None` when the gate never held the step.
+        /// When the hold began, `None` when no hold report went out before the cancel.
         hold_started_at: Option<WireInstant>,
     },
     /// The tick stopped taking reports, so the wait was given up.
@@ -72,6 +72,7 @@ pub(crate) async fn wait_at_gate(
         &step,
         hold_started_at.clone(),
         &hold_started_at,
+        false,
         cancel,
     )
     .await
@@ -108,7 +109,8 @@ pub(crate) async fn wait_at_gate(
                 }
             }
             () = &mut repeat => {
-                let sent = send_hold(reports, &step, WireInstant::now(), &hold_started_at, cancel);
+                let at = WireInstant::now();
+                let sent = send_hold(reports, &step, at, &hold_started_at, true, cancel);
                 if let Some(end) = sent.await {
                     return end;
                 }
@@ -120,13 +122,15 @@ pub(crate) async fn wait_at_gate(
 }
 
 // Sends `step`'s hold report made at `at`, unless `cancel` fires first, so a full channel never
-// keeps a canceled step waiting; `Some` is how the wait ends.
+// keeps a canceled step waiting; `Some` is how the wait ends. A cancel carries the hold's start
+// only when `is_hold_reported`, an earlier hold report having gone out.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 async fn send_hold(
     reports: &mpsc::Sender<StepReport>,
     step: &WorkflowStepKey,
     at: WireInstant,
     hold_started_at: &WireInstant,
+    is_hold_reported: bool,
     cancel: &CancellationToken,
 ) -> Option<GateWaitEnd> {
     let held = StepReportKind::WaitingOnPool {
@@ -135,7 +139,7 @@ async fn send_hold(
     tokio::select! {
         biased;
         () = cancel.cancelled() => Some(GateWaitEnd::Canceled {
-            hold_started_at: Some(hold_started_at.clone()),
+            hold_started_at: is_hold_reported.then(|| hold_started_at.clone()),
         }),
         sent = send(reports, step, at, held) => {
             sent.err().map(|ReportsClosed| GateWaitEnd::ReportsClosed)
