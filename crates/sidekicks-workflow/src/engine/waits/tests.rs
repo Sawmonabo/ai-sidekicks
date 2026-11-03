@@ -128,7 +128,7 @@ fn test_step(execution_index: u32) -> WorkflowStepKey {
         [],
     ])),
 )]
-fn an_answer_of_the_waits_kind_settles_it_before_its_deadline(
+fn an_answer_of_the_waits_kind_settles_the_wait_before_its_deadline(
     #[case] ask: PersonAsk,
     #[case] answer: PersonWaitAnswer,
     #[case] answered_at: &str,
