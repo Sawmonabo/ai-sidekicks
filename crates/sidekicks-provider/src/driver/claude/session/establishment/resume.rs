@@ -2,8 +2,10 @@
 //! session's live process, one a relaunch or the person's restart brought up, when that process
 //! runs the conversation and settings the resume asks for; one on other settings is ended and
 //! brought up again with the resume's own. A fresh process continues the turn of the run in
-//! progress where the resume names one, on that run and turn; where every run in progress waits on
-//! the person or stops, no process is started and the resume is deferred.
+//! progress where the resume names one, on that run and turn, and where that run is a lead the
+//! restart held on the person, with the person's answers as the words it continues with; where
+//! every run in progress waits on the person or stops, no process is started and the resume is
+//! deferred.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -13,6 +15,7 @@ use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -39,6 +42,7 @@ use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
+use crate::driver::session_control::held_run_continue::compose_continuation_text;
 use crate::driver::session_control::{
     DriverResumeResult, LiveRunResume, OpenTurnResume, ProviderTurnAnswer, ResumeSessionParams,
     ResumedRunAnswer, answer_every_run_gone,
@@ -53,15 +57,19 @@ pub(crate) struct ClaudeContinuedTurn {
     pub(crate) turn_number: SafeInt<1>,
     /// The id the turn's start recorded, where it recorded one.
     pub(crate) provider_turn_id: Option<ProviderTurnId>,
+    /// The words the turn continues with, naming the person's answers to a lead the restart held
+    /// on them; `None` keeps Claude Code's own.
+    pub(crate) prompt: Option<String>,
 }
 
 impl ClaudeSessionEstablishment {
     /// Resumes the conversation `params` names in a fresh process under the binding the caller
     /// minted into it, or answers the session's live process when it runs that conversation at the
     /// settings `params` asks for, on the binding the resume that brought it up answered, else on
-    /// the minted one; every failure answers the `Failed` arm, nothing left running, but a
-    /// service the daemon has not registered yet, which refuses `provider.unavailable` with its
-    /// words and leaves the session needing no recovery.
+    /// the minted one. A fresh process continuing the lead `params`' held continue names carries
+    /// the person's answers as the words it continues with. Every failure answers the `Failed`
+    /// arm, nothing left running, but a service the daemon has not registered yet, which refuses
+    /// `provider.unavailable` with its words and leaves the session needing no recovery.
     pub(crate) async fn resume(
         &self,
         mut params: ResumeSessionParams,
@@ -106,6 +114,13 @@ impl ClaudeSessionEstablishment {
             },
             turn_number: turn.turn_number,
             provider_turn_id: turn.provider_turn_id.clone(),
+            prompt: params
+                .held_run_continue
+                .as_ref()
+                .filter(|held_run_continue| held_run_continue.lead_run_id == run.run_id)
+                .map(|held_run_continue| {
+                    compose_continuation_text(held_run_continue, ask_helper_again)
+                }),
         });
         let runs = answer_fresh_process(&params.live_runs, continued_run_id);
         if params.larger_window.is_some() {
@@ -295,6 +310,16 @@ fn find_run_in_progress(live_runs: &[LiveRunResume]) -> Option<(&LiveRunResume, 
                 && !run.is_held(live_runs)
         })
         .find_map(|run| run.open_turns.last().map(|turn| (run, turn)))
+}
+
+// The sentence asking the lead to continue its helper `subagent_id` itself: the lead's own call to
+// it stays dropped from the continued turn, and a message to its id reaches that same helper with
+// everything it knew, where a new one would start empty.
+fn ask_helper_again(subagent_id: &SubagentId) -> String {
+    format!(
+        "Continue that helper with SendMessage to its id {}, not by starting a new one.",
+        subagent_id.as_str()
+    )
 }
 
 // What a fresh process holds of each run in `live_runs`: a run held on the person waits on its
