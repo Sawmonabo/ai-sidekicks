@@ -2,7 +2,9 @@
 
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::place::Place;
-use sidekicks_contracts::provider::settings::{ProviderStandingRuleId, ProviderStandingRuleScope};
+use sidekicks_contracts::provider::settings::rules::{
+    ProviderStandingRuleId, ProviderStandingRuleScope,
+};
 
 /// The id of the standing rule `text`, which the file `source_path` in `place` holds under `scope`
 /// with the provider's `decision` word: a blake3 hex digest of the parts, each length-prefixed so

@@ -20,9 +20,12 @@ use std::time::Duration;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::settings::rules::{
+    ProviderStandingRule, ProviderStandingRuleId, ProviderStandingRuleRevokeOutcome,
+    ProviderStandingRuleScope,
+};
 use sidekicks_contracts::provider::settings::{
-    PROVIDER_RULE_DECISION_MAX_LEN, PROVIDER_RULE_TEXT_MAX_LEN, ProviderStandingRule,
-    ProviderStandingRuleId, ProviderStandingRuleRevokeOutcome, ProviderStandingRuleScope,
+    PROVIDER_RULE_DECISION_MAX_LEN, PROVIDER_RULE_TEXT_MAX_LEN,
 };
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::wire::text::FreeFormText;

@@ -1,7 +1,7 @@
 use std::fs;
 
 use serde_json::json;
-use sidekicks_contracts::provider::settings::{
+use sidekicks_contracts::provider::settings::rules::{
     ProviderStandingRuleRevokeOutcome, ProviderStandingRuleScope,
 };
 

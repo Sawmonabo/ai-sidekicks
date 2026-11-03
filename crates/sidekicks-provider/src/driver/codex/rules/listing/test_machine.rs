@@ -6,8 +6,9 @@ use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::settings::{
-    PROVIDER_RULE_TEXT_MAX_LEN, ProviderStandingRule, ProviderStandingRuleScope,
+use sidekicks_contracts::provider::settings::PROVIDER_RULE_TEXT_MAX_LEN;
+use sidekicks_contracts::provider::settings::rules::{
+    ProviderStandingRule, ProviderStandingRuleScope,
 };
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::wire::text::FreeFormText;
