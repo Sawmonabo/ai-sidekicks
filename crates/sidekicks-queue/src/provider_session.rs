@@ -61,7 +61,7 @@ use sidekicks_store::database::schema::session_directory::read_session_state_thr
 use sidekicks_store::events::session::appender::SessionEventAppender;
 
 use crate::provider_session::errors::ProviderSessionError;
-use crate::provider_session::held_run_continue::KeptAnswerSource;
+use crate::provider_session::held_run_continue::{HandedContinue, KeptAnswerSource};
 use crate::provider_session::resumed_runs::ResumedRunsIngress;
 
 mod continue_refusal;
@@ -221,6 +221,7 @@ struct StoredConversation {
 pub struct ProviderSessions {
     deps: ProviderSessionsDeps,
     opened: Mutex<HashMap<SessionId, OpenedSession>>,
+    handed_continues: Mutex<HashMap<SessionId, HandedContinue>>,
 }
 
 impl ProviderSessions {
@@ -229,6 +230,7 @@ impl ProviderSessions {
         Self {
             deps,
             opened: Mutex::new(HashMap::new()),
+            handed_continues: Mutex::new(HashMap::new()),
         }
     }
 
@@ -318,6 +320,7 @@ impl ProviderSessions {
     /// posture service kept for it, and has the idle sleep forget it too.
     pub(crate) fn forget(&self, session_id: SessionId) {
         self.lock_opened().remove(&session_id);
+        lock(&self.handed_continues).remove(&session_id);
         self.deps.execution_postures.forget_session(&session_id);
         self.deps.process_follower.forget_closed(session_id);
     }

@@ -4,6 +4,7 @@
 //! service. A failed resume never becomes a new conversation: it answers the failure.
 
 mod adoption;
+pub(crate) mod answer_steer;
 pub(crate) mod continuation;
 pub(crate) mod helpers;
 mod settings;
@@ -45,7 +46,7 @@ use crate::driver::codex::session::calls::CodexSessionTask;
 use crate::driver::codex::session::context_reading::CodexFixedStart;
 use crate::driver::codex::session::controls::update_codex_session_mode;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::session::establishment::continuation::CodexAnswerSteer;
+use crate::driver::codex::session::establishment::answer_steer::CodexAnswerSteer;
 use crate::driver::codex::session::history::{
     CodexListedTurn, compose_codex_newest_turn_page, read_codex_resumed_newest_turn,
     read_codex_turns,
@@ -194,6 +195,8 @@ pub(crate) struct CodexInPlaceResume {
     pub(crate) outcome: CodexInPlaceOutcome,
     /// The conversation's turns, oldest first.
     pub(crate) listed_turns: Vec<CodexListedTurn>,
+    /// How Codex read the conversation at the resume, `None` when it failed.
+    pub(crate) status: Option<CodexThreadStatus>,
     /// The frames that waited for the conversation, delivered.
     pub(crate) routed: CodexRoutedFrames,
 }
@@ -508,6 +511,7 @@ impl CodexSessionEstablishment {
                         is_service_lost,
                     },
                     listed_turns: Vec::new(),
+                    status: None,
                     routed: CodexRoutedFrames::default(),
                 }
             }
@@ -576,6 +580,7 @@ impl CodexSessionEstablishment {
                 is_service_lost: false,
             },
             listed_turns: resumed.listed_turns,
+            status: resumed.status,
             routed,
         })
     }

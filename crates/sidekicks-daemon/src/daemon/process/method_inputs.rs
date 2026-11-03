@@ -506,6 +506,7 @@ pub(crate) async fn register_method_inputs(
             queue_admission: session.queue.admission(),
             queue_delivery: session.queue.delivery(),
             process_gone: session.queue.process_gone_listener(),
+            continue_given_back: session.queue.continue_given_back_listener(),
             permission_asks: Arc::clone(&session.approvals.asks),
             questions: Arc::clone(&session.questions),
             plans: Arc::clone(&session.plans),

@@ -69,6 +69,9 @@ use crate::driver::codex::service::switching::CodexSwitchingAccount;
 use crate::driver::codex::session::calls::CodexSessionCallDependencies;
 use crate::driver::codex::session::controls::CodexSessionControls;
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
+use crate::driver::codex::session::establishment::answer_steer::{
+    CodexAnswerSteerDependencies, CodexAnswerSteers,
+};
 use crate::driver::codex::session::establishment::{
     CodexOpenedSession, CodexSessionEstablishment, CodexSessionEstablishmentDependencies,
 };
@@ -165,6 +168,7 @@ pub(crate) struct CodexDriverParts {
     pub(crate) establishment: Arc<CodexSessionEstablishment>,
     pub(crate) recovery: Arc<CodexServiceRecovery>,
     pub(crate) run_start: Arc<CodexRunStart>,
+    pub(crate) answer_steers: Arc<CodexAnswerSteers>,
     pub(crate) run_control: Arc<CodexRunControl>,
     pub(crate) retries: Arc<CodexFasterModelRetries>,
     pub(crate) interventions: CodexInterventionDispatcher,
@@ -373,21 +377,6 @@ impl CodexDriver {
             },
         ));
         let rate_limits = self.rate_limits.clone();
-        let recovery = Arc::new(CodexServiceRecovery::new(
-            CodexServiceRecoveryDependencies {
-                slots: Arc::clone(&self.slots),
-                establishment: Arc::clone(&establishment),
-                services: Arc::clone(&self.registry),
-                release: Arc::clone(&self.release),
-                run_ends: Arc::clone(&engine),
-                dispatch: Arc::clone(&dispatch),
-                reviewer_denials: Arc::clone(&ports.reviewer_denials),
-                process_gone: Arc::clone(&ports.process_gone),
-                session_relaunched: Arc::clone(&ports.session_relaunched),
-                rate_limits: rate_limits.clone(),
-                tasks: self.tasks.clone(),
-            },
-        ));
         let run_start = Arc::new(CodexRunStart::new(CodexRunStartDependencies {
             slots: Arc::clone(&self.slots),
             config_forks: Arc::clone(&self.config_forks),
@@ -396,6 +385,29 @@ impl CodexDriver {
             attachments: Arc::clone(&self.attachments),
             dispatch: Arc::clone(&dispatch),
         }));
+        let answer_steers = Arc::new(CodexAnswerSteers::new(CodexAnswerSteerDependencies {
+            run_routes: Arc::clone(&self.run_routes),
+            run_start: Arc::clone(&run_start),
+            dispatch: Arc::clone(&dispatch),
+            continue_given_back: Arc::clone(&ports.continue_given_back),
+            tasks: self.tasks.clone(),
+        }));
+        let recovery = Arc::new(CodexServiceRecovery::new(
+            CodexServiceRecoveryDependencies {
+                slots: Arc::clone(&self.slots),
+                establishment: Arc::clone(&establishment),
+                services: Arc::clone(&self.registry),
+                release: Arc::clone(&self.release),
+                run_ends: Arc::clone(&engine),
+                dispatch: Arc::clone(&dispatch),
+                answer_steers: Arc::clone(&answer_steers),
+                reviewer_denials: Arc::clone(&ports.reviewer_denials),
+                process_gone: Arc::clone(&ports.process_gone),
+                session_relaunched: Arc::clone(&ports.session_relaunched),
+                rate_limits: rate_limits.clone(),
+                tasks: self.tasks.clone(),
+            },
+        ));
         let retries = Arc::new(CodexFasterModelRetries::new(
             CodexFasterModelRetryDependencies {
                 slots: Arc::clone(&self.slots),
@@ -477,6 +489,7 @@ impl CodexDriver {
             establishment,
             recovery,
             run_start,
+            answer_steers,
             run_control,
             retries,
             adoptions,

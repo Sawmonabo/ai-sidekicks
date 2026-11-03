@@ -74,6 +74,8 @@ async fn a_reconnect_reopens_bound_helpers_and_ends_the_finished_one() {
         binding_id: mint_runtime_binding_id(),
         function_legs: ResumeFunctionLegs::default(),
         writer_left: never_left(),
+        held_lead_continue: None,
+        answer_steers: session.answer_steers(),
     };
     let settings = session.task.record.thread_settings.clone();
     let mut helper_resumes: Vec<Value> = Vec::new();

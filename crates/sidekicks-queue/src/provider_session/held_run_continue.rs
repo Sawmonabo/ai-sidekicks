@@ -1,9 +1,11 @@
 //! The held lead's continue a relaunch carries: composed from the answers the person gave while
 //! the daemon's restart held the session's lead, the lead's own and those of the helpers beneath
 //! it, once no answer is still owed it, each answer's continue mark claimed before the driver is
-//! called and given back when the driver fails or defers, so the next relaunch carries it again.
+//! called and given back when the driver fails or defers, or later tells the queue it did not
+//! carry the continue, so the next relaunch carries it again.
 
 use std::error::Error;
+use std::sync::Weak;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -15,11 +17,14 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::driver::idle_sleep::KeptSchedule;
+use sidekicks_provider::driver::ports::ContinueGivenBackListener;
 use sidekicks_provider::driver::session_control::LiveRunResume;
 use sidekicks_provider::driver::session_control::held_run_continue::{
     ContinueAnswer, ContinueEntry, HeldRunContinue,
 };
 use sidekicks_session::questions::service::QuestionsService;
+use sidekicks_std::mutex_lock::lock;
+use tokio_util::task::TaskTracker;
 
 use crate::provider_session::ProviderSessions;
 use crate::provider_session::errors::ProviderSessionError;
@@ -132,7 +137,97 @@ pub(super) enum ClaimedMark {
     Question(QuestionId),
 }
 
+// The marks of the continue a relaunch handed its driver for the lead `lead_run_id`, kept until
+// the driver's answer settles them or the driver gives the continue back.
+pub(super) struct HandedContinue {
+    lead_run_id: RunId,
+    claims: Vec<ClaimedMark>,
+}
+
+/// The intake of a continue a driver gave back, as the drivers' port holds it: the provider
+/// sessions weakly, since the port outlives no queue, each give-back settled on a task of the
+/// queue's own.
+pub(crate) struct ContinueGivenBack {
+    /// The provider sessions, which hold each handed continue's marks.
+    pub(crate) sessions: Weak<ProviderSessions>,
+    /// The queue's tracked release tasks, which each give-back runs on.
+    pub(crate) releases: TaskTracker,
+}
+
+impl ContinueGivenBackListener for ContinueGivenBack {
+    fn continue_given_back(&self, session_id: SessionId, lead_run_id: RunId) {
+        let Some(sessions) = self.sessions.upgrade() else {
+            return;
+        };
+        self.releases.spawn(async move {
+            if let Err(released) = sessions.give_back_continue(session_id, lead_run_id).await {
+                tracing::error!(
+                    session_id = %session_id,
+                    run_id = %lead_run_id,
+                    error = &*released as &(dyn Error + 'static),
+                    "the person's answers a provider did not carry could not be given back"
+                );
+            }
+        });
+    }
+}
+
 impl ProviderSessions {
+    // Keeps the marks `claims` of the continue this relaunch hands `session_id`'s lead
+    // `lead_run_id` in place of any an earlier relaunch handed, so the driver's give-back finds
+    // them; a relaunch handing none keeps none.
+    pub(super) fn hand_continue(
+        &self,
+        session_id: SessionId,
+        lead_run_id: Option<RunId>,
+        claims: Vec<ClaimedMark>,
+    ) {
+        let mut handed = lock(&self.handed_continues);
+        match lead_run_id {
+            Some(lead_run_id) => {
+                handed.insert(
+                    session_id,
+                    HandedContinue {
+                        lead_run_id,
+                        claims,
+                    },
+                );
+            }
+            None => {
+                handed.remove(&session_id);
+            }
+        }
+    }
+
+    // Takes the marks of the continue handed `session_id`'s driver, none once it gave them back.
+    pub(super) fn take_handed_continue(&self, session_id: SessionId) -> Vec<ClaimedMark> {
+        lock(&self.handed_continues)
+            .remove(&session_id)
+            .map(|handed| handed.claims)
+            .unwrap_or_default()
+    }
+
+    /// Gives back each mark of the continue handed `session_id`'s lead `lead_run_id`, which its
+    /// driver did not carry, so the next relaunch carries the answers again; a continue already
+    /// settled or handed another lead is left. Fails with the first release that failed.
+    pub(crate) async fn give_back_continue(
+        &self,
+        session_id: SessionId,
+        lead_run_id: RunId,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let claims = {
+            let mut handed = lock(&self.handed_continues);
+            match handed.get(&session_id) {
+                Some(continue_handed) if continue_handed.lead_run_id == lead_run_id => handed
+                    .remove(&session_id)
+                    .map(|handed| handed.claims)
+                    .unwrap_or_default(),
+                Some(_) | None => return Ok(()),
+            }
+        };
+        self.release_marks(claims).await
+    }
+
     // The continue `live_runs`' lead is owed, every answer's mark claimed for this relaunch, beside
     // the marks claimed: none where no lead starts or runs, the lead is still held on the person,
     // or nothing is owed it. An answer of a run outside the lead and its helpers is left out, as is
