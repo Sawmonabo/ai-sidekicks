@@ -231,15 +231,16 @@ impl CommandLineFills {
     /// variable's reference in that shell's form for the fill's place: the bash reading places it
     /// for a POSIX shell and cmd.exe, the PowerShell reading for PowerShell and the csh scan for
     /// csh, and fish takes `"$V"` everywhere; under cmd.exe the author's `^` and `!` are escaped
-    /// where delayed expansion would read them, and there an author's `%NAME%` is written `!NAME!`
-    /// when `is_defined`, asked only for cmd.exe, answers that the launch's environment defines
-    /// `NAME`, comparing names as Windows does, ignoring case. Fails with the first fill the
-    /// reading refuses. Runs inside one read of the reading bound.
+    /// where delayed expansion would read them, and there an author's `%…%` reference to a
+    /// variable `environment` defines is written in its delayed form `!…!`; `environment` is the
+    /// launch's names and values, which only cmd.exe reads, its names compared as Windows does,
+    /// ignoring case. Fails with the first fill the reading refuses. Runs inside one read of the
+    /// reading bound.
     pub fn fill_for_launch(
         &self,
         reader: &mut ShellLineReader,
         shell: ShellGrammar,
-        is_defined: &dyn Fn(&str) -> bool,
+        environment: &[(&str, &str)],
     ) -> Result<String, RefusedFill> {
         let placings = match shell {
             ShellGrammar::Posix(_) => bash::place_fills(reader, self),
@@ -278,7 +279,7 @@ impl CommandLineFills {
         filled.push_str(&self.line[kept_from..]);
         Ok(match shell {
             ShellGrammar::Cmd => {
-                cmd::keep_through_delayed_expansion(&filled, &references, is_defined)
+                cmd::keep_through_delayed_expansion(&filled, &references, environment)
             }
             ShellGrammar::Posix(_)
             | ShellGrammar::Fish
@@ -418,6 +419,10 @@ mod tests {
     // Far past every line here, so only the limit case reaches a limit.
     const LIMIT: usize = 4_096;
 
+    // A cmd launch's environment: a name spelled in another case than the lines spell it, and a
+    // value holding a `^`.
+    const CMD_ENVIRONMENT: &[(&str, &str)] = &[("Target", "C:\\a^b")];
+
     // The fills of a command step's line, written as its param holds it after the `=`.
     fn fills_of(line: &str) -> CommandLineFills {
         let text = format!("={line}");
@@ -432,7 +437,7 @@ mod tests {
     }
 
     fn launch(line: &str, shell: ShellGrammar) -> Result<String, RefusedFill> {
-        fills_of(line).fill_for_launch(&mut ShellLineReader::new(LIMIT), shell, &|_| false)
+        fills_of(line).fill_for_launch(&mut ShellLineReader::new(LIMIT), shell, &[])
     }
 
     fn grammar(program: &str) -> ShellGrammar {
@@ -687,15 +692,17 @@ mod tests {
         let start = line.find(reference).expect("each line holds the reference");
         let range = start..start + reference.len();
         assert_eq!(
-            cmd::keep_through_delayed_expansion(line, std::slice::from_ref(&range), &|_| false),
+            cmd::keep_through_delayed_expansion(line, std::slice::from_ref(&range), &[]),
             kept
         );
     }
 
-    // In a piece delayed expansion reads again, a `%NAME%` the launch's environment defines is
-    // written `!NAME!`, so its value keeps its `^` and `!`; an undefined one stays as written, and
-    // the first reading goes on from after its first `%`, so a defined name can start at its
-    // second. A redirection's target without a `!` keeps a defined name as written.
+    // In a piece delayed expansion reads again, a `%…%` reference to a variable the launch's
+    // environment defines, its substring and substitution forms included, is written in its
+    // delayed form, escaped outside quotes for the second phase, so its value keeps its `^` and
+    // `!`; an undefined one stays as written, and the first reading goes on from after its first
+    // `%`, so a defined name can start at its second. A redirection's target without a `!` keeps
+    // a defined name as written.
     #[rstest]
     #[case::a_defined_name(
         "copy {{ x }} \"%TARGET%\"",
@@ -709,6 +716,14 @@ mod tests {
         "copy {{ x }} %SOURCE%TARGET%",
         "copy \"!SIDEKICKS_VALUE_1!\" %SOURCE!TARGET!"
     )]
+    #[case::a_substring_form(
+        "copy {{ x }} \"%TARGET:~0,4%\"",
+        "copy \"!SIDEKICKS_VALUE_1!\" \"!TARGET:~0,4!\""
+    )]
+    #[case::a_substitution_form_outside_quotes(
+        "copy {{ x }} %TARGET:^=+%",
+        "copy \"!SIDEKICKS_VALUE_1!\" !TARGET:^^=+!"
+    )]
     #[case::a_target_not_read_again(
         "copy {{ x }} b > \"%TARGET%\"",
         "copy \"!SIDEKICKS_VALUE_1!\" b > \"%TARGET%\""
@@ -717,10 +732,9 @@ mod tests {
         #[case] line: &str,
         #[case] filled: &str,
     ) {
-        let is_defined = |name: &str| name.eq_ignore_ascii_case("target");
         let mut reader = ShellLineReader::new(LIMIT);
         assert_eq!(
-            fills_of(line).fill_for_launch(&mut reader, ShellGrammar::Cmd, &is_defined),
+            fills_of(line).fill_for_launch(&mut reader, ShellGrammar::Cmd, CMD_ENVIRONMENT),
             Ok(filled.to_owned())
         );
     }

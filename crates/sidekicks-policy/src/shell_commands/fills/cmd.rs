@@ -41,6 +41,9 @@ enum CharacterReading {
     Quoted,
     /// Any other character outside double quotes.
     Unquoted,
+    /// A character of an author's `%…%` reference to a defined variable, which the first reading
+    /// replaces whole, and whether it stands inside double quotes.
+    Variable { is_quoted: bool },
 }
 
 /// Where in a command the scan stands.
@@ -97,14 +100,18 @@ const IF_OPERATORS: &[&str] = &["equ", "neq", "lss", "leq", "gtr", "geq"];
 /// the text the first reading leaves, in each piece of a command that holds a `!` and so is read
 /// again; a piece without one is left as written, since delayed expansion skips it. The ranges in
 /// `references`, the fills' `!V!` references in line order, stay as they are. In a piece read
-/// again the author's `%NAME%` is written `!NAME!` when `is_defined` answers that the launch's
-/// environment defines `NAME`, so delayed expansion hands its value over unscanned.
+/// again an author's `%…%` reference to a variable `environment` defines, its `~` substring and
+/// `=` substitution forms included, is written in its delayed form `!…!`, so delayed expansion
+/// hands its value over unscanned.
 pub(super) fn keep_through_delayed_expansion(
     line: &str,
     references: &[Range<usize>],
-    is_defined: &dyn Fn(&str) -> bool,
+    environment: &[(&str, &str)],
 ) -> String {
     let characters: Vec<(usize, char)> = line.char_indices().collect();
+    let variables = defined_variables(line, environment);
+    // Each reference reads as the delayed form a piece read again gets, one run of plain text.
+    let mut variables_ahead = variables.iter().peekable();
     let mut readings = Vec::with_capacity(characters.len());
     let mut pieces: Vec<bool> = Vec::new();
     let mut is_quoted = false;
@@ -121,8 +128,19 @@ pub(super) fn keep_through_delayed_expansion(
     for &(at, character) in &characters {
         let is_reference = references.iter().any(|reference| reference.contains(&at));
         let after_operator = std::mem::take(&mut is_operator_end);
+        while variables_ahead
+            .next_if(|variable| variable.end <= at)
+            .is_some()
+        {}
+        let is_in_variable = variables_ahead
+            .peek()
+            .is_some_and(|variable| variable.contains(&at));
         let reading = if is_reference {
             CharacterReading::Reference
+        } else if is_in_variable {
+            // An escape caret before the reference quotes the delayed form's opening `!`.
+            is_escaping = false;
+            CharacterReading::Variable { is_quoted }
         } else if std::mem::take(&mut is_escaping) {
             CharacterReading::Escaped
         } else if is_quoted {
@@ -196,7 +214,8 @@ pub(super) fn keep_through_delayed_expansion(
                 CharacterReading::Reference
                 | CharacterReading::Escaped
                 | CharacterReading::Quoted
-                | CharacterReading::Unquoted,
+                | CharacterReading::Unquoted
+                | CharacterReading::Variable { .. },
                 _,
             ) => {}
         }
@@ -279,7 +298,7 @@ pub(super) fn keep_through_delayed_expansion(
         }
         readings.push((reading, piece));
     }
-    let mut variables = defined_variables(line, is_defined).into_iter().peekable();
+    let mut variables = variables.into_iter().peekable();
     let mut kept = String::with_capacity(line.len());
     let mut kept_to = 0;
     for (&(at, character), &(reading, piece)) in characters.iter().zip(&readings) {
@@ -287,15 +306,16 @@ pub(super) fn keep_through_delayed_expansion(
             continue;
         }
         let is_read_again = piece.is_some_and(|piece| pieces[piece]);
-        let variable = variables.next_if(|variable| variable.start == at);
-        // The first reading sets `%NAME%`'s value in as text, whose `^` and `!` delayed expansion
-        // would then remove; `!NAME!` sets it in after that scan.
-        if let Some(variable) = variable
-            && is_read_again
+        // The first reading sets a reference's value in as text, whose `^` and `!` delayed
+        // expansion would then remove; the delayed form sets it in after that scan.
+        if let CharacterReading::Variable { is_quoted } = reading
+            && let Some(variable) = variables.next_if(|variable| variable.start == at)
         {
-            kept.push('!');
-            kept.push_str(&line[variable.start + 1..variable.end - 1]);
-            kept.push('!');
+            let written = &line[variable.clone()];
+            match delayed_form(written, is_quoted) {
+                Some(delayed) if is_read_again => kept.push_str(&delayed),
+                Some(_) | None => kept.push_str(written),
+            }
             kept_to = variable.end;
             continue;
         }
@@ -312,7 +332,8 @@ pub(super) fn keep_through_delayed_expansion(
                     | CharacterReading::EscapeCaret
                     | CharacterReading::Escaped
                     | CharacterReading::Quoted
-                    | CharacterReading::Unquoted,
+                    | CharacterReading::Unquoted
+                    | CharacterReading::Variable { .. },
                     _,
                 ) => "",
             });
@@ -322,33 +343,95 @@ pub(super) fn keep_through_delayed_expansion(
     kept
 }
 
-/// The `%NAME%` references in `line` whose value cmd.exe's first reading sets in, in line order:
-/// those whose name `is_defined` answers for. An undefined one stays as written and the scan goes
-/// on from the character after its first `%`; a defined `%NAME:…%` form is passed over whole.
-fn defined_variables(line: &str, is_defined: &dyn Fn(&str) -> bool) -> Vec<Range<usize>> {
+/// The author's `%…%` references in `line` that cmd.exe's first reading expands, in line order:
+/// a name `environment` defines, then `%`, or `:` and a `~` substring or `=` substitution form. An
+/// undefined name or a form that does not expand stays as written, and the scan goes on from the
+/// character after its first `%`.
+fn defined_variables(line: &str, environment: &[(&str, &str)]) -> Vec<Range<usize>> {
     let mut variables = Vec::new();
     let mut from = 0;
     while let Some(offset) = line[from..].find('%') {
         let start = from + offset;
-        let name_start = start + 1;
-        from = name_start;
-        let Some(name_end) = line[name_start..]
-            .find(['%', ':'])
-            .map(|end| name_start + end)
-        else {
+        from = start + 1;
+        let Some(name_end) = line[from..].find(['%', ':']).map(|end| from + end) else {
             continue;
         };
-        if !is_defined(&line[name_start..name_end]) {
+        if variable_value(environment, &line[from..name_end]).is_none() {
             continue;
         }
-        if line[name_end..].starts_with('%') {
-            variables.push(start..name_end + 1);
-            from = name_end + 1;
-        } else if let Some(form_end) = line[name_end..].find('%') {
-            from = name_end + form_end + 1;
-        }
+        let end = if line[name_end..].starts_with('%') {
+            name_end + 1
+        } else {
+            let form_start = name_end + 1;
+            let Some(form_end) = line[form_start..].find('%').map(|end| form_start + end) else {
+                continue;
+            };
+            if !is_expanding_form(&line[form_start..form_end]) {
+                continue;
+            }
+            form_end + 1
+        };
+        variables.push(start..end);
+        from = end;
     }
     variables
+}
+
+/// The value `environment` holds for `name`, names compared as Windows compares them, ignoring
+/// case.
+fn variable_value<'value>(environment: &[(&str, &'value str)], name: &str) -> Option<&'value str> {
+    let folded = |text: &str| {
+        text.chars()
+            .flat_map(char::to_uppercase)
+            .collect::<String>()
+    };
+    let name = folded(name);
+    environment
+        .iter()
+        .find(|(defined, _)| folded(defined) == name)
+        .map(|&(_, value)| value)
+}
+
+/// Whether cmd.exe's first reading expands `form`, the text between a defined name's `:` and the
+/// next `%`: a substring `~[integer][,[integer]]`, or a substitution `[*]search=[replace]` whose
+/// search is not empty.
+fn is_expanding_form(form: &str) -> bool {
+    let is_integer_or_empty = |text: &str| {
+        let digits = text.strip_prefix('-').unwrap_or(text);
+        text.is_empty() || (!digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()))
+    };
+    match form.strip_prefix('~') {
+        Some(bounds) => match bounds.split_once(',') {
+            Some((offset, length)) => is_integer_or_empty(offset) && is_integer_or_empty(length),
+            None => is_integer_or_empty(bounds),
+        },
+        None => form
+            .strip_prefix('*')
+            .unwrap_or(form)
+            .split_once('=')
+            .is_some_and(|(search, _)| !search.is_empty()),
+    }
+}
+
+/// `written`, an author's `%…%` reference, in its delayed form `!…!`, which cmd.exe's second
+/// phase reads before delayed expansion: inside double quotes as it stands, outside them with each
+/// `^`, `&`, `|`, `<`, `>` and `"` behind a `^`. `None` where no delayed form can hold it: text
+/// with a `!` or a line break, or a `"` inside double quotes.
+fn delayed_form(written: &str, is_quoted: bool) -> Option<String> {
+    let inner = &written[1..written.len() - 1];
+    if inner.contains(['!', '\n', '\r']) || (is_quoted && inner.contains('"')) {
+        return None;
+    }
+    let mut delayed = String::with_capacity(written.len() * 2);
+    delayed.push('!');
+    for character in inner.chars() {
+        if !is_quoted && matches!(character, '^' | '&' | '|' | '<' | '>' | '"') {
+            delayed.push('^');
+        }
+        delayed.push(character);
+    }
+    delayed.push('!');
+    Some(delayed)
 }
 
 /// The word of `line` that starts at `at`, up to the next character that ends a word unquoted.
