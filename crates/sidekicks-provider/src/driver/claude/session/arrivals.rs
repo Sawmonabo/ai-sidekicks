@@ -574,16 +574,21 @@ mod tests {
 
     impl ClaudeSessionArrivalHandler for MovingDispatcher {
         fn arrive(&mut self, _arrival: ClaudeSessionArrival) -> BoxFuture<'_, ()> {
-            self.account.move_to(self.moved_to.clone());
-            let delivery = deliver_in_session_order(
-                &RefusingDispatch,
-                &ClaudeSessionStreams::default(),
-                self.session_id,
-                InboundDelivery::TurnBoundary {
-                    binding_id: binding_id("binding"),
-                },
-            );
-            async move { assert!(delivery.await.is_none(), "the dispatch refuses") }.boxed()
+            // Inside the future, as the session's task handles an arrival: the place is the
+            // future's, entered as it is polled.
+            async move {
+                self.account.move_to(self.moved_to.clone());
+                let delivery = deliver_in_session_order(
+                    &RefusingDispatch,
+                    &ClaudeSessionStreams::default(),
+                    self.session_id,
+                    InboundDelivery::TurnBoundary {
+                        binding_id: binding_id("binding"),
+                    },
+                );
+                assert!(delivery.await.is_none(), "the dispatch refuses");
+            }
+            .boxed()
         }
 
         fn next_deadline(&self) -> Option<Instant> {

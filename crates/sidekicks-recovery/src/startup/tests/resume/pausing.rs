@@ -67,7 +67,7 @@ async fn a_lone_pausing_lead_opens_its_session(
     #[case] bindings: i64,
 ) {
     let fixture = PassFixture::over_drivers(vec![
-        Arc::new(resuming_driver(answer)) as Arc<dyn ProviderDriver>
+        Arc::new(resuming_driver(1, answer)) as Arc<dyn ProviderDriver>
     ])
     .await;
     fixture.end_seeded_run();
@@ -124,8 +124,9 @@ async fn a_lone_pausing_lead_opens_its_session(
 #[tokio::test]
 async fn a_pass_keeps_paused_runs_paused_and_opens_no_session_for_them() {
     let unopened = MockProviderDriver::new();
-    let mut resumed =
-        resuming_driver(|params| resumed_on(params, params.binding_id.clone(), still_running));
+    let mut resumed = resuming_driver(1, |params| {
+        resumed_on(params, params.binding_id.clone(), still_running)
+    });
     let (called, call) = oneshot::channel::<()>();
     let (release, released) = oneshot::channel::<()>();
     let held_call = Mutex::new(Some((called, released)));
@@ -169,6 +170,8 @@ async fn a_pass_keeps_paused_runs_paused_and_opens_no_session_for_them() {
         mixed_session,
         &[(paused_beside, "paused"), (pausing_beside, "pausing")],
     );
+    // Bound on the session's provider, which its limit's interrupt is handed to.
+    fixture.bind_resumable(pausing_beside, 1).await;
     fixture
         .append(
             mixed_session,

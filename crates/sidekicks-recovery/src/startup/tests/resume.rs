@@ -82,14 +82,15 @@ pub(super) fn still_running(_run_id: RunId) -> ProviderTurnAnswer {
     ProviderTurnAnswer::StillRunning
 }
 
-// A driver that resumes once, answering from the resume's params through `answer`.
+// A driver that resumes `resumes` sessions, answering from each resume's params through `answer`.
 fn resuming_driver(
+    resumes: usize,
     answer: impl Fn(&ResumeSessionParams) -> DriverResumeResult + Send + Sync + 'static,
 ) -> MockProviderDriver {
     let mut driver = MockProviderDriver::new();
     driver
         .expect_resume_session()
-        .times(1)
+        .times(resumes)
         .returning(move |params| {
             let answered = answer(&params);
             async move { Ok(answered) }.boxed()
@@ -304,7 +305,7 @@ impl PassFixture {
 #[tokio::test]
 async fn a_pass_resumes_each_session_with_work_in_progress_and_counts_it() {
     let kept_leg: Arc<Mutex<Option<RuntimeBindingId>>> = Arc::default();
-    let kept = resuming_driver({
+    let kept = resuming_driver(1, {
         let kept_leg = Arc::clone(&kept_leg);
         move |params| {
             let leg = lock(&kept_leg)
@@ -313,8 +314,9 @@ async fn a_pass_resumes_each_session_with_work_in_progress_and_counts_it() {
             resumed_on(params, leg, still_running)
         }
     });
-    let relaunched =
-        resuming_driver(|params| resumed_on(params, params.binding_id.clone(), still_running));
+    let relaunched = resuming_driver(1, |params| {
+        resumed_on(params, params.binding_id.clone(), still_running)
+    });
     let fixture = PassFixture::over_drivers(vec![
         Arc::new(kept) as Arc<dyn ProviderDriver>,
         Arc::new(relaunched),
@@ -387,7 +389,7 @@ async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interru
     let interrupted: Arc<Mutex<Vec<RunId>>> = Arc::default();
     let mut unopened = MockProviderDriver::new();
     let kept_ends = expect_kept_turns_ended(&mut unopened);
-    let mut resumed = resuming_driver({
+    let mut resumed = resuming_driver(2, {
         let answers = Arc::clone(&answers);
         let named = Arc::clone(&named);
         move |params| {
@@ -694,7 +696,7 @@ async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interru
 // every lead.
 #[tokio::test]
 async fn a_refused_resume_fails_its_run_and_lists_it_until_the_sessions_next_run() {
-    let mut refusing = resuming_driver(|_params| DriverResumeResult::Failed {
+    let mut refusing = resuming_driver(1, |_params| DriverResumeResult::Failed {
         recovery_condition: RecoveryCondition::RecoveryNeeded,
         provider_failure_detail: FreeFormText::new(REFUSED_DETAIL.to_owned())
             .expect("the refusal's words"),

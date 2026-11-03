@@ -576,7 +576,7 @@ async fn a_goal_met_just_before_the_result_reads_complete_and_no_unfinished_chec
         "attachment": {"type": "goal_status", "met": true, "condition": "ship it"},
     });
     std::fs::write(
-        project.join(format!("{SCRIPTED_PROVIDER_SESSION_ID}.jsonl")),
+        project.join(format!("{}.jsonl", session.live.provider_session_id)),
         format!("{record}\n"),
     )
     .expect("the conversation is written");
