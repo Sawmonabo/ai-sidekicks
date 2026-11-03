@@ -404,7 +404,7 @@ impl ClaudeCommandTasks {
                 return None;
             }
             task.tool_use_id = Some(frame.tool_use_id()?.to_owned());
-            task.start.tool_call_id = tool_call_id_of(frame);
+            task.start.tool_call_id = tool_call_id_of(frame, session_id);
             task.start.line = command.as_deref().map(bash_line_text);
             return Some(task.start.clone());
         }
@@ -413,7 +413,7 @@ impl ClaudeCommandTasks {
             session_id,
             command_id: CommandId::new(task_id.to_owned())?,
             run_id: run?.run_id,
-            tool_call_id: tool_call_id_of(frame),
+            tool_call_id: tool_call_id_of(frame, session_id),
             binding_id: run?.binding_id.clone(),
             name: command_name(frame.description.as_deref(), command.as_deref(), task_id)?,
             started_at: WireInstant::now(),
@@ -814,9 +814,20 @@ fn is_command_task(task_type: Option<&str>) -> bool {
     })
 }
 
-// The tool call a command task's `frame` names as its start, where it names one a row can carry.
-fn tool_call_id_of(frame: &ClaudeTaskFrame) -> Option<ToolCallId> {
-    ToolCallId::new(frame.tool_use_id()?.to_owned()).ok()
+// The tool call a command task's `frame` names as its start, where it names one a row can carry;
+// one it cannot carry is logged, as the row's ending then names no call.
+fn tool_call_id_of(frame: &ClaudeTaskFrame, session_id: SessionId) -> Option<ToolCallId> {
+    let tool_use_id = frame.tool_use_id()?;
+    ToolCallId::new(tool_use_id.to_owned())
+        .inspect_err(|_| {
+            tracing::warn!(
+                session_id = %session_id,
+                tool_use_id = %tool_use_id,
+                "a Claude Code command task's call id is not one a tool call can carry, so its \
+                 ending names no call"
+            );
+        })
+        .ok()
 }
 
 // A command's name on its row: Claude Code's description of it, else its line, else its id.

@@ -9,6 +9,7 @@ use sidekicks_contracts::command::{
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -650,7 +651,6 @@ async fn a_wrapper_pairs_only_with_a_row_of_its_own_channels_process() {
     fixture.sets.command_started(start("own", "git status"));
     let apart_start = |id: &str| CommandStart {
         run_id: apart_run,
-        tool_call_id: None,
         ..start(id, "git status")
     };
     fixture.sets.command_started(apart_start("review"));
@@ -692,11 +692,13 @@ async fn a_wrapper_pairs_only_with_a_row_of_its_own_channels_process() {
 }
 
 // Fails when a task the background list showed before its start keeps no line, so the wrapper
-// running it never pairs and its output, exit and prompts reach no row. Mutation: the early
-// return in `command_started` for a row it holds.
+// running it never pairs and its output, exit and prompts reach no row, or keeps no call, so its
+// ending names none and a cut turn's ending lands in the log. Mutations: the early return in
+// `command_started` for a row it holds; the row's call left as listed there; the ending built
+// with no call in `end_row`.
 #[tokio::test]
 async fn a_task_listed_before_its_start_pairs_with_its_wrapper_at_the_start() {
-    let fixture = fixture();
+    let mut fixture = fixture();
     let listed = CommandStart {
         line: None,
         is_backgrounded: true,
@@ -712,11 +714,20 @@ async fn a_task_listed_before_its_start_pairs_with_its_wrapper_at_the_start() {
         WrapperCommand::Line("npm test".to_owned()),
     );
     assert!(!*paired.borrow());
-    fixture.sets.command_started(start("task-1", "npm test"));
+    let call = ToolCallId::new("call-1".to_owned()).expect("a call id");
+    fixture.sets.command_started(CommandStart {
+        tool_call_id: Some(call.clone()),
+        ..start("task-1", "npm test")
+    });
     assert_eq!(
         fixture.sets.paired_wrapper(session(), &command("task-1")),
         Some(31)
     );
+    fixture
+        .sets
+        .command_ended(session(), command("task-1"), end(Some(0), None));
+    let (_, ending, _) = next_ending(&mut fixture).await;
+    assert_eq!(ending.tool_call_id, Some(call));
 }
 
 // Fails when a prompt after the person ended the command's input opens again, so each of ssh's

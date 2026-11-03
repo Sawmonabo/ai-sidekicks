@@ -45,12 +45,22 @@ impl CodexFrameDelivery {
             .service
             .exec_relay()
             .and_then(|relay| relay.relayed_command(record.session_id, &command_id));
+        // The command's item is its tool call, under the same id.
+        let tool_call_id = ToolCallId::new(item_id.to_owned())
+            .inspect_err(|_| {
+                tracing::warn!(
+                    session_id = %record.session_id,
+                    item_id = %item_id,
+                    "a Codex command's item id is not one a tool call can carry, so its ending \
+                     names no call"
+                );
+            })
+            .ok();
         publisher.command_started(CommandStart {
             session_id: record.session_id,
             command_id,
             run_id: run.run_id,
-            // The command's item is its tool call, under the same id.
-            tool_call_id: ToolCallId::new(item_id.to_owned()).ok(),
+            tool_call_id,
             binding_id: run.binding_id.clone(),
             name,
             started_at: instant_at(started_at_ms),
