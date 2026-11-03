@@ -8,6 +8,7 @@
 //! first, and one the provider does not give back reads not delivered and leaves the change. A send
 //! into a paused or pausing run resumes it once the lock is let go.
 
+pub mod answer_continue;
 mod interrupt;
 #[cfg(test)]
 mod tests;
@@ -58,6 +59,7 @@ use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEve
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use tokio_util::task::TaskTracker;
 
+use self::answer_continue::HaltedRunRecord;
 use crate::admission::{QUEUE_DELIVERY_TIMEOUT, QueueAdmission, QueueAdmissionDeps, RunOpenings};
 use crate::changes::QueueChangeSignals;
 use crate::delivery::{
@@ -126,6 +128,8 @@ pub struct RunQueueDeps {
     pub provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     /// Reads the token limit a new lead run is admitted with.
     pub token_limits: Arc<PortRegistration<Arc<dyn RunTokenLimitReader>>>,
+    /// Marks a run whose continue after a kept answer failed on the daemon's side as halted.
+    pub halted_runs: Arc<dyn HaltedRunRecord>,
 }
 
 /// The daemon's one run queue: the handlers' sends and changes, the interventions' interrupts, and
@@ -146,6 +150,10 @@ pub struct RunQueue {
     this: Weak<RunQueue>,
     // The releases settling once the session's hold is free.
     releases: TaskTracker,
+    // The continues the person's answers owe the leads a restart held.
+    continues: TaskTracker,
+    // Where a continue that failed on the daemon's side halts its run.
+    halted_runs: Arc<dyn HaltedRunRecord>,
     _following: FollowerAttachment,
 }
 
@@ -167,6 +175,7 @@ impl RunQueue {
             read_damaged_from_sequence,
             provider_accounts,
             token_limits,
+            halted_runs,
         } = deps;
         let recorder = Arc::new(QueueRecorder::new(QueueRecorderDeps {
             event_log,
@@ -244,6 +253,8 @@ impl RunQueue {
                 session_lock,
                 this: this.clone(),
                 releases: TaskTracker::new(),
+                continues: TaskTracker::new(),
+                halted_runs,
                 _following: following,
             }
         })
@@ -611,37 +622,26 @@ impl RunQueue {
         Ok(failures)
     }
 
-    /// Continues `session_id`'s lead with the answers the person gave while the daemon's restart
-    /// held it, once none is still owed it, then hands it the messages that waited while no
-    /// process held its session. Fails as the continue's resume fails, its answers then owed to
-    /// the next resume, or as the hand's read fails.
-    pub async fn continue_after_answer(&self, session_id: SessionId) -> Result<(), QueueError> {
-        self.provider_sessions
-            .resume_after_answer(session_id)
-            .await?;
-        match self.lifecycle.reconcile(session_id).await {
-            Ok(reconciled) => reconciled,
-            Err(_dropped) => Err(QueueError::DrainEnded),
-        }
-    }
-
-    /// Waits until no start, drain, release or hand of the queue runs, so a hand in flight
-    /// finishes or fails before it answers. Work keeps being taken meanwhile: each kind of work is
-    /// waited for in turn, again until all four are idle at once, since a drain may start a run, a
-    /// run's end a release and either a hand.
+    /// Waits until no continue, start, drain, release or hand of the queue runs, so a hand in
+    /// flight finishes or fails before it answers. Work keeps being taken meanwhile: each kind of
+    /// work is waited for in turn, again until all five are idle at once, since a continue may
+    /// drain, a drain may start a run, a run's end a release and either a hand.
     pub async fn stop(&self) {
+        self.continues.close();
         self.lifecycle.close();
         self.admission.close();
         self.releases.close();
         self.delivery.close();
-        // A drain may start a run, a run's end a release, and either a hand: each tracker is
-        // waited in that order until none holds work.
+        // A continue may drain, a drain may start a run, a run's end a release, and either a hand:
+        // each tracker is waited in that order until none holds work.
         loop {
+            self.continues.wait().await;
             self.lifecycle.wait().await;
             self.admission.wait().await;
             self.releases.wait().await;
             self.delivery.wait().await;
-            if self.lifecycle.is_idle()
+            if self.continues.is_empty()
+                && self.lifecycle.is_idle()
                 && self.admission.is_idle()
                 && self.releases.is_empty()
                 && self.delivery.is_idle()

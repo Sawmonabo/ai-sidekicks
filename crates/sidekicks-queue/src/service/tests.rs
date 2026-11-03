@@ -20,6 +20,7 @@ use rstest::rstest;
 use rusqlite::params;
 use serde_json::{Value, json};
 use sidekicks_contracts::approval::ApprovalRequestId;
+use sidekicks_contracts::daemon::recovery::DaemonRecoveryHaltedRun;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::question::QuestionId;
@@ -77,6 +78,7 @@ use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tempfile::TempDir;
 
+use super::answer_continue::HaltedRunRecord;
 use super::{EMPTIED_RUN_DETAIL, RunQueue, RunQueueDeps};
 use crate::changes::QueueChangeSignals;
 use crate::error::QueueError;
@@ -260,6 +262,17 @@ struct Fixture {
     // The engine's posture files.
     home: TempDir,
     process: Arc<ProcessStandIn>,
+    halted_runs: Arc<HaltedRunsStandIn>,
+}
+
+/// The runs the queue halted in the recovery status, each beside its session, in order.
+#[derive(Default)]
+struct HaltedRunsStandIn(Mutex<Vec<(SessionId, DaemonRecoveryHaltedRun)>>);
+
+impl HaltedRunRecord for HaltedRunsStandIn {
+    fn halt_run(&self, session_id: &SessionId, run: DaemonRecoveryHaltedRun) {
+        lock(&self.0).push((*session_id, run));
+    }
 }
 
 async fn fixture(driver: MockProviderDriver) -> Fixture {
@@ -270,6 +283,7 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
     insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
     insert_lead(&database, session_id, PROVIDERS[0].id);
     let process = Arc::new(ProcessStandIn::default());
+    let halted_runs = Arc::new(HaltedRunsStandIn::default());
     let queue = queue_over(
         &database,
         &log,
@@ -277,6 +291,7 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         driver,
         Arc::clone(&process) as _,
         CurrentProviderAccount::Current(test_provider_account_id()),
+        Arc::clone(&halted_runs) as _,
     );
     Fixture {
         database,
@@ -285,11 +300,13 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         session_id,
         home,
         process,
+        halted_runs,
     }
 }
 
 /// A run queue over `database` and its `log`, built as the daemon's start builds it, its lead's
-/// provider answered by `driver`, its process read from `processes` and its account by `account`.
+/// provider answered by `driver`, its process read from `processes`, its account by `account`,
+/// and the runs it halts recorded in `halted_runs`.
 fn queue_over(
     database: &TestDatabase,
     log: &TestLog,
@@ -297,6 +314,7 @@ fn queue_over(
     driver: MockProviderDriver,
     processes: Arc<dyn ProviderProcessIds>,
     account: CurrentProviderAccount,
+    halted_runs: Arc<dyn HaltedRunRecord>,
 ) -> Arc<RunQueue> {
     let pool = Arc::new(DatabaseReadPool::new(
         database.path(),
@@ -364,6 +382,7 @@ fn queue_over(
                 .expect("a new registration takes its port");
             Arc::new(token_limits)
         },
+        halted_runs,
     })
 }
 

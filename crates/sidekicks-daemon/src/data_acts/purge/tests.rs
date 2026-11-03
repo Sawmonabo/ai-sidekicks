@@ -29,10 +29,12 @@ use sidekicks_session::conversation_purge::{
 };
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::directory::run_activity::ProjectSessionActivityReader;
+use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::readings::context::ContextReadings;
 use sidekicks_session::readings::tool_call_status::ToolCallStatuses;
 use sidekicks_session::readings::turn::TurnReadings;
 use sidekicks_session::related::ranking::SessionRelatedRanking;
+use sidekicks_session::run::engine::test_fixture::test_engine;
 use sidekicks_session::run::live_count::test_log::counted_log;
 use sidekicks_session::service::SessionService;
 use sidekicks_shell::test_table::{TableFixture, table_fixture};
@@ -148,9 +150,10 @@ pub(crate) async fn test_purge(
         })
         .collect();
     let services = test_driver_services();
+    let providers = Arc::new(ProviderRegistry::register_from(&table, &services));
     let conversations = Arc::new(ConversationPurge::new(
         Arc::clone(&reads),
-        Arc::new(ProviderRegistry::register_from(&table, &services)),
+        Arc::clone(&providers),
     ));
 
     let list_feed = SessionListFeed::for_test(database, &log.followers);
@@ -171,12 +174,20 @@ pub(crate) async fn test_purge(
         list_feed.clone(),
         SystemTime::now(),
     ));
+    let appender = Arc::new(SessionEventAppender::new(
+        Arc::clone(&log.service),
+        SESSION_EVENT_VERSION.clone(),
+    ));
+    let questions = Arc::new(QuestionsService::new(
+        Arc::clone(&appender),
+        Arc::clone(&reads),
+        Arc::clone(&log.writer),
+        test_engine(database, Arc::clone(&log.service), home.path()),
+        providers,
+    ));
     let project_rules = Arc::new(ApprovalRules::new(
         Arc::clone(&reads),
-        Arc::new(SessionEventAppender::new(
-            Arc::clone(&log.service),
-            SESSION_EVENT_VERSION.clone(),
-        )),
+        appender,
         machine_id.clone(),
         Box::new(|_rule| async { Ok(()) }.boxed()),
         Arc::new(ShellLineReadingBound::new(1024)),
@@ -226,6 +237,7 @@ pub(crate) async fn test_purge(
             home.path(),
             home.path().join("daemon.token"),
         )),
+        questions,
     });
     TestPurge {
         purge,

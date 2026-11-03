@@ -46,10 +46,22 @@ use crate::provider_session::{
 pub(crate) fn read_provider_missing_notices(
     reader: &rusqlite::Connection,
 ) -> Vec<sidekicks_contracts::session::controls::events::SessionNotice> {
+    use sidekicks_contracts::session::controls::events::SessionNotice;
+
+    read_notices(reader)
+        .into_iter()
+        .filter(|notice| matches!(notice, SessionNotice::ProviderMissing { .. }))
+        .collect()
+}
+
+/// Each session notice of the common kinds posted in the database `reader` reads, in the order
+/// posted.
+#[cfg(test)]
+pub(crate) fn read_notices(
+    reader: &rusqlite::Connection,
+) -> Vec<sidekicks_contracts::session::controls::events::SessionNotice> {
     use sidekicks_contracts::event::registry::SessionEventType;
-    use sidekicks_contracts::session::controls::events::{
-        SessionNotice, SessionNoticePostedPayload,
-    };
+    use sidekicks_contracts::session::controls::events::SessionNoticePostedPayload;
 
     reader
         .prepare("SELECT payload FROM session_events WHERE type = ?1 ORDER BY sequence")
@@ -63,10 +75,7 @@ pub(crate) fn read_provider_missing_notices(
                 .expect("a stored notice parses")
         })
         .filter_map(|posted| {
-            if let SessionNoticePostedPayload::Notice(
-                notice @ SessionNotice::ProviderMissing { .. },
-            ) = posted
-            {
+            if let SessionNoticePostedPayload::Notice(notice) = posted {
                 Some(notice)
             } else {
                 None

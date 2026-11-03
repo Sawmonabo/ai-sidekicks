@@ -37,6 +37,7 @@ use sidekicks_queue::provider_session::{
     ProviderSessionsDeps,
 };
 use sidekicks_queue::run_token_limit::RunTokenLimitReader;
+use sidekicks_queue::service::answer_continue::HaltedRunRecord;
 use sidekicks_queue::service::{RunQueue, RunQueueDeps};
 use sidekicks_session::auto_title::{SessionAutoTitle, SessionAutoTitling};
 use sidekicks_session::changes::SessionChanges;
@@ -164,6 +165,8 @@ pub(crate) struct SessionServiceStart {
     pub(crate) provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     /// The daemon's `Tokens per run`, which run admission admits each new lead run with.
     pub(crate) token_limits: Arc<PortRegistration<Arc<dyn RunTokenLimitReader>>>,
+    /// The recovery status, where a lead whose continue failed on the daemon's side is halted.
+    pub(crate) halted_runs: Arc<dyn HaltedRunRecord>,
     /// The program's scheduler, which runs the idle sleep's check and each scheduled wake.
     pub(crate) scheduler: Arc<Scheduler>,
     /// The one keeper of every MCP server binding's status.
@@ -313,6 +316,7 @@ pub(crate) fn build_session_services(
         daemon_program,
         provider_accounts,
         token_limits,
+        halted_runs,
         scheduler,
         mcp_status,
         mcp_first_observations,
@@ -467,6 +471,7 @@ pub(crate) fn build_session_services(
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
         provider_accounts,
         token_limits,
+        halted_runs,
     });
     engine
         .set_interrupt_queue(Arc::downgrade(&queue) as Weak<_>)

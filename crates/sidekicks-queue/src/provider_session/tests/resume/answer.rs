@@ -8,7 +8,9 @@ use std::sync::{Arc, Mutex};
 use rusqlite::params;
 use sidekicks_contracts::approval::{ApprovalDecision, ApprovalRequestId};
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::controls::events::{ProviderWarningSource, SessionNotice};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::session_control::held_run_continue::{
     ContinueAnswer, ContinueEntry, HeldRunContinue,
 };
@@ -18,6 +20,7 @@ use tokio::time::timeout;
 use super::super::{Opening, WAIT};
 use crate::provider_session::errors::ProviderSessionError;
 use crate::provider_session::held_run_continue::OwedAnswer;
+use crate::provider_session::test_opening::read_notices;
 
 // The fixture with its later run ended, so the earlier one is the session's only lead, one card
 // answered on that lead owed to its continue, and every continue a resume or restart carried.
@@ -115,8 +118,10 @@ async fn a_kept_answer_continues_the_lead_once() {
     assert_eq!(held_run_continue.entries, [entry]);
 }
 
-// A continue the provider refused gives its answer back, so the next continue carries it again.
-// Killed by the refused arm keeping the claim (the second continue resumes nothing).
+// A continue the provider refused gives its answer back, so the next continue carries it again,
+// and posts the provider's refusal in its own words as the session's provider warning. Killed by
+// the refused arm keeping the claim (the second continue resumes nothing) and by the notice not
+// posted (no provider warning reads back).
 #[tokio::test]
 async fn a_refused_continue_owes_its_answer_to_the_next() {
     let (opening, carried, entry) = held_lead().await;
@@ -126,6 +131,16 @@ async fn a_refused_continue_owes_its_answer_to_the_next() {
     assert!(
         matches!(refused, Err(ProviderSessionError::ResumeRefused { .. })),
         "the refusal is answered: {refused:?}"
+    );
+    assert_eq!(
+        read_notices(&opening.database.reader()),
+        [SessionNotice::ProviderWarning {
+            session_id: opening.session_id,
+            source: ProviderWarningSource::Refusal,
+            text: FreeFormText::new("the conversation could not be read".to_owned())
+                .expect("a failure detail"),
+            details: None,
+        }]
     );
     opening.is_refused.store(false, Ordering::SeqCst);
     resume_after_answer(&opening)

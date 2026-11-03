@@ -37,6 +37,7 @@ use sidekicks_queue::memory_gate::{
 };
 use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
 use sidekicks_queue::run_token_limit::RunTokenLimitReader;
+use sidekicks_queue::service::answer_continue::HaltedRunRecord;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::projection_rebuild::ProjectionRebuildService;
 use sidekicks_recovery::restart_settle::{RestartSettle, RestartSettleDeps};
@@ -471,6 +472,7 @@ pub(crate) async fn register_method_inputs(
         daemon_program: daemon_program.to_path_buf(),
         provider_accounts: Arc::clone(&providers.ports.provider_accounts),
         token_limits: Arc::new(token_limits),
+        halted_runs: Arc::clone(&database.status) as Arc<dyn HaltedRunRecord>,
         scheduler: Arc::clone(&scheduler),
         mcp_status,
         mcp_first_observations: mcp_first_observations.boxed(),

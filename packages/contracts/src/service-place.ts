@@ -6,7 +6,7 @@
 // other.
 import { z } from "zod";
 
-import { ReleaseVersionSchema } from "./release-manifest.js";
+import { ReleaseVersionSchema, Sha256HexSchema } from "./release-manifest.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./free-form-string.js";
 
 /**
@@ -63,9 +63,7 @@ export const ServiceRecordSchema: z.ZodType<ServiceRecord, ServiceRecord> = z.un
     .object({
       place: WslPlaceSchema,
       runtimeVersion: ReleaseVersionSchema,
-      runtimeDigest: z
-        .string()
-        .regex(/^[0-9a-f]{64}$/u, { message: "runtimeDigest is 64 lowercase hex digits." }),
+      runtimeDigest: Sha256HexSchema,
       distroHome: wireFreeFormString(FILE_PATH_MAX_LEN, "ServiceRecord.distroHome"),
     })
     .strict(),
