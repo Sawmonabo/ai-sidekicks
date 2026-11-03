@@ -366,13 +366,12 @@ async fn a_pass_resumes_each_session_with_work_in_progress_and_counts_it() {
 // interrupted by the restart with its turn ended the same way, neither handed an interrupt.
 // Killed by the hand-again dropped (the still-running stopping runs stay live and the wait for
 // their ends runs out), by the pause arms tried first (`pausing` reads `paused` and `paused` is
-// left), by limit rows handed as a person's (a second call for the step-limit run), by the lead's
-// rows handed to a helper (a call for the helper), by `any` read for `all` (the first provider's
-// driver, which expects no resume, is called), by the all-stopping check dropped (the same), and
-// by the reopen check reading stops up to the lead (session C is not opened and its runs are not
-// named). Session A's kept turns are handed to its provider once, on its leg's conversation, for
-// both its runs, and none of session C's. Killed by the hand-off skipped or read after the settle
-// (no call).
+// left), by the lead's rows handed to a helper (a call for the helper), by `any` read for `all`
+// (the first provider's driver, which expects no resume, is called), by the all-stopping check
+// dropped (the same), and by the reopen check reading stops up to the lead (session C is not
+// opened and its runs are not named). Session A's kept turns are handed to its provider once, on
+// its leg's conversation, for both its runs, and none of session C's. Killed by the hand-off
+// skipped or read after the settle (no call).
 #[tokio::test]
 async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interrupt_again() {
     let answers: Arc<Mutex<HashMap<RunId, ProviderTurnAnswer>>> = Arc::default();
