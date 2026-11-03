@@ -81,7 +81,7 @@ fn answer(run_id: RunId, turn: ProviderTurnAnswer) -> ResumedRunAnswer {
 #[tokio::test(start_paused = true)]
 async fn a_resume_the_live_process_answers_holds_only_the_turn_it_runs() {
     let fixture = ScriptedDriver::new();
-    let session_id = fixture.closed_session().await;
+    let session_id = fixture.closed_session_resumed_on(Arc::default()).await;
     let params = resume_params(session_id);
     fixture
         .driver
@@ -160,7 +160,7 @@ async fn a_fresh_process_continues_only_the_turn_of_the_run_in_progress(
     #[case] is_in_progress: bool,
 ) {
     let fixture = ScriptedDriver::new();
-    let session_id = fixture.closed_session().await;
+    let session_id = fixture.closed_session_resumed_on(Arc::default()).await;
     let (lead, helper, other) = (new_run_id(), new_run_id(), new_run_id());
     let lead_turns = if is_in_progress {
         vec![open_turn(1), open_turn(2)]
@@ -212,7 +212,7 @@ async fn a_fresh_process_continues_only_the_turn_of_the_run_in_progress(
 #[tokio::test(start_paused = true)]
 async fn a_continued_turn_runs_on_its_run_and_ends_as_that_turn() {
     let fixture = ScriptedDriver::new();
-    let session_id = fixture.closed_session().await;
+    let session_id = fixture.closed_session_resumed_on(Arc::default()).await;
     let lead = new_run_id();
     let params = resume_params(session_id);
     let resumed_binding = params.binding_id.clone();
@@ -322,7 +322,7 @@ async fn a_session_whose_runs_all_wait_or_stop_starts_no_process(
     #[case] is_stopping: bool,
 ) {
     let fixture = ScriptedDriver::new();
-    let session_id = fixture.closed_session().await;
+    let session_id = fixture.closed_session_resumed_on(Arc::default()).await;
     let lead = new_run_id();
     let mut live_runs = vec![LiveRunResume {
         is_stopping,
@@ -399,7 +399,7 @@ async fn a_session_whose_runs_all_wait_or_stop_starts_no_process(
 #[tokio::test(start_paused = true)]
 async fn a_held_lead_s_continue_carries_the_answers_to_its_process() {
     let fixture = ScriptedDriver::new();
-    let session_id = fixture.closed_session().await;
+    let session_id = fixture.closed_session_resumed_on(Arc::default()).await;
     let (lead, helper) = (new_run_id(), new_run_id());
     let helper_answer = ContinueEntry {
         run_id: helper,
