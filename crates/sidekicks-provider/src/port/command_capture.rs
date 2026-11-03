@@ -68,9 +68,15 @@ pub struct CommandWindowOpenError(#[source] pub Box<dyn Error + Send + Sync>);
 /// channel's other records.
 pub trait CommandCapture: Send + Sync {
     /// Opens a window for `start`, once the wrapper's `Starting` is read; the wrapper is told to
-    /// go once this answers, either way. Fails with [`CommandWindowOpenError`] only once it
-    /// recorded the command as run uncovered, its capture failed, so the undo names it; the
-    /// command then runs with no window.
+    /// go once this answers, either way, and a command whose open failed runs with no window.
+    /// Answers the window opened where the session's capture can cover the command.
+    /// Fails with a [`CommandWindowOpenError`] that records nothing for a session with no
+    /// checkpoint or a run with no checkout, where there is no coverage to lose and nothing an
+    /// undo could put back.
+    /// Fails with a [`CommandWindowOpenError`] for a failed read or write of the capture once it
+    /// recorded the command as run uncovered, or, where that record cannot be written, marked the
+    /// session's capture failed until its next capture succeeds, which the undo's preview and
+    /// its list of uncovered commands show as a failed capture.
     fn open_window(
         &self,
         start: CommandWindowStart,
