@@ -58,8 +58,10 @@ static LATER_LEAD_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 /// One undo's hold on a session's lead, from [`RunQueue::hold_for_undo`]: the cut borrows it and
-/// [`RunQueue::release_undo_hold`] consumes it, so a hold is let go once. A hold dropped unreleased,
-/// its undo canceled or failed, is let go on a task of the queue's own, as a release with no edit.
+/// [`RunQueue::release_undo_hold`] consumes it, so a hold is let go once. A hold dropped
+/// unreleased, its undo canceled or failed, is let go on a task of the queue's own, as a release
+/// with no edit; dropped off the runtime, it is let go in place, without the session's lock, and
+/// opens nothing.
 #[must_use = "a session held for an undo is handed nothing until the hold is released"]
 #[derive(Debug)]
 pub struct UndoHold {
@@ -126,11 +128,13 @@ pub enum ConversationCut {
 }
 
 /// Why a conversation cut was not made or not recorded. Every refusal but [`Unrecorded`] and
-/// [`Fence`] is answered before the provider is asked, writing nothing and dropping the
-/// companions, whose own check is read then too.
+/// [`Fence`] writes nothing and drops the companions, and each is answered before the provider is
+/// asked, the companions' check among them, except a [`Queue`] that carries the provider's own
+/// failure of the cut.
 ///
 /// [`Unrecorded`]: ConversationCutError::Unrecorded
 /// [`Fence`]: ConversationCutError::Fence
+/// [`Queue`]: ConversationCutError::Queue
 #[derive(Debug, thiserror::Error)]
 pub enum ConversationCutError {
     /// The target names no checkpoint of the session, or a message cursor naming no place in its
@@ -226,7 +230,8 @@ impl RunQueue {
     /// fenced on the session's live binding; the hold stays. Refuses as [`ConversationCutError`]
     /// says before the provider is asked, an open turn among the runs it reaches and a companion
     /// its check refuses included; a provider's fallback or failure writes nothing, and a write
-    /// the store does not record once the provider cut answers [`ConversationCutError::Unrecorded`].
+    /// the store does not record once the provider cut answers
+    /// [`ConversationCutError::Unrecorded`].
     pub async fn cut_conversation(
         &self,
         hold: &UndoHold,
@@ -335,7 +340,8 @@ impl RunQueue {
         });
         match released.await {
             Ok(released) => released,
-            // The tracker never aborts its tasks, so only a panic ends one early.
+            // The tracker never aborts its tasks, and the runtime's shutdown drops this call with
+            // them, so only a panic ends one early.
             Err(error) => std::panic::resume_unwind(error.into_panic()),
         }
     }

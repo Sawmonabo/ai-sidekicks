@@ -363,7 +363,8 @@ impl RunQueue {
                 }
             };
             // Read under the lock, which an undo's hold and release both take, so a resume owed
-            // here goes either now or at the release, once.
+            // here goes either now or at the release, once; a hold dropped off the runtime lets
+            // go without the lock and opens nothing, so its owed resume waits for the next send.
             (written, self.delivery.is_held_for_undo(session_id))
         };
         if let Some((run_id, run)) = written.resumes
