@@ -239,8 +239,7 @@ impl RunBindingCursors {
     /// Opens the cursor of the binding `binding_id` the caller minted for `run_id`, a run of
     /// `session_id`, where the run stands at its log's end, before its row is written, so the
     /// provider can deliver under it at once, dropping the cursors of the session's runs that have
-    /// ended. Fails with
-    /// [`RunBindingCursorError::RunNotHeld`] for a run no session holds,
+    /// ended. Fails with [`RunBindingCursorError::RunNotHeld`] for a run no session holds,
     /// [`RunBindingCursorError::SessionClosed`] for a session that closed meanwhile and
     /// [`RunBindingCursorError::Cursor`] for a binding already open, and with the read's failure.
     pub async fn open_binding(
@@ -285,9 +284,9 @@ impl RunBindingCursors {
     /// Opens the cursor of `binding_id`, minted for a resume of `leg`'s conversation in a new
     /// process, on `leg`'s run, a run of `session_id`, where `leg`'s cursor stands, else where the
     /// run stands at its log's end. Fails with [`RunBindingCursorError::RunNotHeld`] for a leg
-    /// whose run no session holds,
-    /// [`RunBindingCursorError::SessionClosed`] for a session that closed meanwhile,
-    /// [`RunBindingCursorError::Cursor`] for a binding already open, and with the read's failure.
+    /// whose run no session holds, [`RunBindingCursorError::SessionClosed`] for a session that
+    /// closed meanwhile, [`RunBindingCursorError::Cursor`] for a binding already open, and with the
+    /// read's failure.
     pub async fn open_relaunch(
         &self,
         session_id: SessionId,
