@@ -788,9 +788,9 @@ pub(crate) async fn keep_former_service(
     .lock()
     .expect("the record is locked")
     .write(&LastingServiceRecord {
-        process: kept.record().clone(),
         physical_socket: Some(physical_socket.to_owned()),
         is_draining,
+        ..LastingServiceRecord::launched(kept.record().clone(), service.socket.home_socket.clone())
     })
     .expect("the record is written");
     kept
