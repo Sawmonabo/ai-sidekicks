@@ -296,6 +296,7 @@ impl ClaudeRunControls {
                 },
                 mint_uuid_v7().to_string(),
                 Vec::new(),
+                true,
             )
             .await;
         if written.is_err() {
