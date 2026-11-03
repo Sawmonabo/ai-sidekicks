@@ -397,8 +397,8 @@ impl RecordFollower {
 // Opens `start`'s capture window on a task of its own, which answers the wrapper `go` once the open
 // settled, opened or not, then makes the window's calls in the order they are sent, and closes it
 // untold where they end unclosed. Bounded by the wrapper's records: one `Began` and one close. The
-// open has no bound of its own: one that hangs holds the wrapper at its wait for `go` until the
-// provider's timeout on its call ends it, which closes the window unrun once the open settles.
+// open has no bound of its own: one that never settles holds the wrapper at its wait for `go`, and
+// this task, until the daemon stops.
 fn open_window(
     capture: Arc<dyn CommandCapture>,
     start: CommandWindowStart,
@@ -433,8 +433,8 @@ fn open_window(
     calls
 }
 
-// Sends `request` to `party`, logging a failure: a wrapper left waiting for its `go` runs once its
-// own wait or the provider's ends.
+// Sends `request` to `party`, logging a failure: a wrapper never sent its `go` runs uncovered once
+// its own wait ends, which after an acknowledgment is when its requests can no longer be read.
 async fn send_request(channel: &CommandChannel, party: PartyId, request: &DaemonRequest) {
     if let Err(error) = channel.send_request(party, request).await {
         tracing::warn!(

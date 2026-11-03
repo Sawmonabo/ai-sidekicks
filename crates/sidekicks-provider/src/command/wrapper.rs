@@ -434,8 +434,8 @@ enum GoWait {
 }
 
 /// Waits for the daemon's `go` in `requests`: up to [`GO_WAIT`] until its acknowledgment comes,
-/// then with no deadline, which the provider's own timeout on the call bounds. A request that
-/// cannot be read is told through `records` and the wait goes on.
+/// then with no deadline, until the requests can no longer be read. A request that cannot be read
+/// is told through `records` and the wait goes on.
 fn wait_for_go(requests: &mut PartyRequests, records: &Mutex<Option<PartyRecords>>) -> GoWait {
     let mut deadline = Some(Instant::now() + GO_WAIT);
     loop {
