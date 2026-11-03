@@ -46,8 +46,8 @@ enum LateRow {
 // the row lands after the run ended. Killed by the opening's turn not read, which appends the cut
 // turn's rows; by that read taken outside the append's write, which appends a cut turn's row when
 // the rollback lands in between; by an absorb of a kept turn's row; by a command ending that does
-// not find its call; by a dropped cursor failing `NotOpen`; by a stamp on an appended row; and by
-// a body dropped, or one written for a row that has none.
+// not find its call; by a read of the binding's cursor, which fails once it dropped; by a stamp
+// on an appended row; and by a body dropped, or one written for a row that has none.
 #[rstest]
 #[case::kept_turn_close(
     1,
