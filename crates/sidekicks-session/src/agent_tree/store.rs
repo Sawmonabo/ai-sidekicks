@@ -249,7 +249,7 @@ mod tests {
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::instant::WireInstant;
-    use sidekicks_store::database::statement::{StatementBindings, WriteStatement, named_bindings};
+    use sidekicks_store::database::statement::run_statement;
     use sidekicks_store::database::writer::test_file::{
         TestDatabase, test_run_id, test_session_id,
     };
@@ -265,16 +265,6 @@ mod tests {
         let database = TestDatabase::new(schema_parts());
         let connection = database.opener()().expect("the test opens its database");
         (database, connection)
-    }
-
-    fn run_statement(
-        connection: &Connection,
-        statement: &WriteStatement,
-    ) -> rusqlite::Result<usize> {
-        let StatementBindings::Named(values) = &statement.bindings else {
-            panic!("every agent tree statement binds by name");
-        };
-        connection.execute(&statement.sql, named_bindings(values).as_slice())
     }
 
     fn insert_run(connection: &Connection, session_id: SessionId) -> RunId {
@@ -338,7 +328,10 @@ mod tests {
             start_call_id: Some("call-1".to_owned()),
             ..new_node(session_id, own_run, "child")
         };
-        assert_eq!(run_statement(&connection, &insert_node(&node)), Ok(1));
+        assert_eq!(
+            run_statement(&connection, &insert_node(&node)).map(|ran| ran.row_count),
+            Ok(1)
+        );
 
         // The row holds the handle the node was given, never one the store minted.
         let expected = AgentTreeNode {

@@ -5,7 +5,7 @@ use sidekicks_contracts::place::{DistroName, Place, WindowsPlace, WslPlace};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::provider::settings::{ProviderInstallation, ProviderVersion};
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_store::database::statement::{StatementBindings, WriteStatement, named_bindings};
+use sidekicks_store::database::statement::{WriteStatement, run_statement};
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::{
@@ -22,14 +22,9 @@ fn database() -> (TestDatabase, Connection) {
 
 // Runs `statement` as the writer runs it, holding it to its expected row count.
 fn run(connection: &Connection, statement: &WriteStatement) {
-    let StatementBindings::Named(values) = &statement.bindings else {
-        unreachable!("the readings bind by name");
-    };
-    let row_count = connection
-        .execute(&statement.sql, named_bindings(values).as_slice())
-        .expect("the reading's statement runs");
+    let ran = run_statement(connection, statement).expect("the reading's statement runs");
     if let Some(expected) = statement.expected_row_count {
-        assert_eq!(row_count, expected);
+        assert_eq!(ran.row_count, expected);
     }
 }
 

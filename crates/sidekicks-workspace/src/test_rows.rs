@@ -1,7 +1,9 @@
 //! The workspace rows that worktree and run rows point at, for tests that keep foreign keys on: a
-//! project, its mount and a workspace on it.
+//! project, its mount and a workspace on it, and a chat's managed folder with its hold.
 
-use rusqlite::Connection;
+use std::path::Path;
+
+use rusqlite::{Connection, params};
 use sidekicks_contracts::project::ProjectState;
 use sidekicks_contracts::repo::mount::ExecutionMode;
 
@@ -53,4 +55,29 @@ pub(crate) fn insert_workspace_rows(connection: &Connection) {
             .execute_batch(row)
             .expect("a workspace row is admitted");
     }
+}
+
+/// Stores the managed mount `mount_id` of the folder `root`, made for session `session_id`, and
+/// that session's hold on it, as a chat's folder is admitted.
+pub fn insert_held_managed_mount(
+    connection: &Connection,
+    mount_id: &str,
+    root: &Path,
+    session_id: &str,
+) {
+    let root = root.to_string_lossy();
+    connection
+        .execute(
+            "INSERT INTO repo_mounts (id, machine_id, local_path, canonical_root, origin, \
+             managed_session_id, attached_at, updated_at) \
+             VALUES (?1, 'machine', ?2, ?2, 'managed', ?3, ?4, ?4)",
+            params![mount_id, root, session_id, PARENT_ROWS_AT],
+        )
+        .expect("the managed mount is admitted");
+    connection
+        .execute(
+            "INSERT INTO managed_folder_holds (repo_mount_id, session_id) VALUES (?1, ?2)",
+            params![mount_id, session_id],
+        )
+        .expect("the session's hold is admitted");
 }

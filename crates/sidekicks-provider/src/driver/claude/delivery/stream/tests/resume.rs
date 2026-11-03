@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use jiff::{SignedDuration, Timestamp};
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -21,7 +23,7 @@ use crate::driver::test_registry::new_run_id;
 #[tokio::test(start_paused = true)]
 async fn a_resume_rebuilds_the_held_calls_from_the_log_and_the_kept_files() {
     let fixture = ScriptedDriver::new();
-    let session_id = fixture.closed_session().await;
+    let session_id = fixture.closed_session_resumed_on(Arc::default()).await;
     let params = resume_params(session_id);
     let run = (new_run_id(), "binding-a");
     let invoked_at = Timestamp::now() - SignedDuration::from_secs(90);

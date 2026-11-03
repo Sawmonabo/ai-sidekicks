@@ -12,8 +12,7 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::question::{QuestionAnswer, QuestionAskedState};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
-use tokio::sync::{Notify, Semaphore};
-use tokio::time::{Duration, timeout};
+use tokio::sync::{Notify, Semaphore, watch};
 
 use crate::port::question::{
     ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, ToolServerAnswerDelivery,
@@ -51,6 +50,8 @@ pub struct QuestionCard {
     is_settle_failing: AtomicBool,
     /// The request id of every withdrawal taken, in order.
     withdrawals: Mutex<Vec<String>>,
+    /// Sent after every change to the records a wait reads.
+    changes: watch::Sender<()>,
 }
 
 impl QuestionCard {
@@ -82,6 +83,7 @@ impl QuestionCard {
             .push(question.clone());
         open.push((question, answer));
         self.asked.notify_waiters();
+        self.changes.send_replace(());
     }
 
     // Places `question` on the card as its record's write does, open when `may_open` and its run
@@ -103,6 +105,7 @@ impl QuestionCard {
                     .lock()
                     .expect("never poisoned")
                     .push((question, answer));
+                self.changes.send_replace(());
                 QuestionAskedState::WaitingForRun
             }
         };
@@ -118,54 +121,34 @@ impl QuestionCard {
         open.iter().any(|(held, _)| held.run_id == run_id)
     }
 
-    // Waits until `condition` holds, read every 10 ms; fails the test with `message` past 60 s.
-    async fn wait_until(&self, condition: impl Fn(&Self) -> bool, message: &str) {
-        let holds = async {
-            while !condition(self) {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        };
-        timeout(Duration::from_secs(60), holds)
-            .await
-            .expect(message);
+    // Waits until `condition` holds, read again after each change to the card's records.
+    async fn wait_until(&self, condition: impl Fn(&Self) -> bool) {
+        let mut changes = self.changes.subscribe();
+        while !condition(self) {
+            changes.changed().await.expect("the card holds its sender");
+        }
     }
 
-    /// Waits until no question is open, as once every one was answered or withdrawn; fails the
-    /// test past 60 s.
+    /// Waits until no question is open, as once every one was answered or withdrawn.
     pub async fn wait_until_none_open(&self) {
-        self.wait_until(
-            |card| card.open.lock().expect("never poisoned").is_empty(),
-            "every question is answered or withdrawn",
-        )
-        .await;
+        self.wait_until(|card| card.open.lock().expect("never poisoned").is_empty())
+            .await;
     }
 
-    /// Waits until the card took `count` questions; fails the test past 60 s.
+    /// Waits until the card took `count` questions.
     pub async fn wait_until_taken(&self, count: usize) {
-        self.wait_until(
-            |card| card.taken().len() >= count,
-            "the card takes the questions",
-        )
-        .await;
+        self.wait_until(|card| card.taken().len() >= count).await;
     }
 
-    /// Waits until `count` questions wait for their run on the card; fails the test past 60 s.
+    /// Waits until `count` questions wait for their run on the card.
     pub async fn wait_until_waiting(&self, count: usize) {
-        self.wait_until(
-            |card| card.waiting().len() >= count,
-            "the card holds the questions waiting for their run",
-        )
-        .await;
+        self.wait_until(|card| card.waiting().len() >= count).await;
     }
 
     /// Waits until no question waits for its run on the card, as once each was opened or
-    /// withdrawn; fails the test past 60 s.
+    /// withdrawn.
     pub async fn wait_until_none_waiting(&self) {
-        self.wait_until(
-            |card| card.waiting().is_empty(),
-            "no question waits for its run",
-        )
-        .await;
+        self.wait_until(|card| card.waiting().is_empty()).await;
     }
 
     /// Holds back the outcome of each later take until the returned gate is notified, the question
@@ -210,26 +193,24 @@ impl QuestionCard {
         self.is_settle_failing.store(true, Ordering::SeqCst);
     }
 
-    /// Waits until `count` record writes wait at the gate of [`Self::hold_records`]; fails the
-    /// test past 60 s.
+    /// Waits until `count` record writes wait at the gate of [`Self::hold_records`].
     #[cfg(test)]
     pub(crate) async fn wait_until_records_held(&self, count: usize) {
-        self.wait_until(
-            |card| *card.held_records.lock().expect("never poisoned") >= count,
-            "the record writes wait at the gate",
-        )
-        .await;
+        self.wait_until(|card| *card.held_records.lock().expect("never poisoned") >= count)
+            .await;
     }
 
-    /// Waits until the card took `count` withdrawals, of questions it held or not; fails the test
-    /// past 60 s.
+    /// Waits until the card took `count` withdrawals, of questions it held or not.
     #[cfg(test)]
     pub(crate) async fn wait_until_withdrawals(&self, count: usize) {
-        self.wait_until(
-            |card| card.withdrawals().len() >= count,
-            "the card takes the withdrawals",
-        )
-        .await;
+        self.wait_until(|card| card.withdrawals().len() >= count)
+            .await;
+    }
+
+    /// Waits until the card took a withdrawal of `request_id`.
+    pub async fn wait_until_withdrawn(&self, request_id: &str) {
+        self.wait_until(|card| card.withdrawals().iter().any(|taken| taken == request_id))
+            .await;
     }
 
     /// The request id of every withdrawal the card took, in order.
@@ -243,6 +224,14 @@ impl QuestionCard {
         let gate = Arc::new(Notify::new());
         *self.withdraw_gate.lock().expect("never poisoned") = Some(Arc::clone(&gate));
         gate
+    }
+
+    /// Lets every withdrawal held back by [`Self::hold_withdrawals`] through, and each later one
+    /// pass at once.
+    pub fn release_withdrawals(&self) {
+        if let Some(gate) = self.withdraw_gate.lock().expect("never poisoned").take() {
+            gate.notify_waiters();
+        }
     }
 
     /// Waits for an open question and answers the oldest with `answers` through its answerer: a
@@ -268,17 +257,20 @@ impl QuestionCard {
                 let mut open = self.open.lock().expect("never poisoned");
                 (!open.is_empty()).then(|| open.remove(0))
             };
+            self.changes.send_replace(());
             if let Some((question, answer)) = open {
                 let answer =
                     answer.expect("a question answered on the card has a tool server's answerer");
                 let delivery = answer.answer(answers).await;
                 match delivery {
                     Ok(ToolServerAnswerDelivery::Delivered) => self.closed.notify_waiters(),
-                    Ok(ToolServerAnswerDelivery::Kept) | Err(_) => self
-                        .open
-                        .lock()
-                        .expect("never poisoned")
-                        .insert(0, (question.clone(), Some(answer))),
+                    Ok(ToolServerAnswerDelivery::Kept) | Err(_) => {
+                        self.open
+                            .lock()
+                            .expect("never poisoned")
+                            .insert(0, (question.clone(), Some(answer)));
+                        self.changes.send_replace(());
+                    }
                 }
                 return delivery.map(|_| question);
             }
@@ -332,6 +324,7 @@ impl QuestionPort for QuestionCard {
         async move {
             if let Some(gate) = record_gate {
                 *self.held_records.lock().expect("never poisoned") += 1;
+                self.changes.send_replace(());
                 let landed = gate.acquire().await;
                 assert!(landed.is_err(), "the gate only ever closes");
             }
@@ -414,10 +407,17 @@ impl QuestionPort for QuestionCard {
         &self,
         withdrawal: ProviderQuestionWithdrawal,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        let gate = self.withdraw_gate.lock().expect("never poisoned").clone();
+        // Waiting from the call itself, so a release made before the future first runs still
+        // reaches it.
+        let held = self
+            .withdraw_gate
+            .lock()
+            .expect("never poisoned")
+            .clone()
+            .map(Notify::notified_owned);
         async move {
-            if let Some(gate) = gate {
-                gate.notified().await;
+            if let Some(held) = held {
+                held.await;
             }
             self.withdrawals
                 .lock()
@@ -432,6 +432,7 @@ impl QuestionPort for QuestionCard {
                 .expect("never poisoned")
                 .retain(|(held, _)| held.request_id != withdrawal.request_id);
             self.closed.notify_waiters();
+            self.changes.send_replace(());
             Ok(())
         }
         .boxed()
@@ -450,6 +451,7 @@ impl QuestionPort for QuestionCard {
             .expect("never poisoned")
             .retain(|(held, _)| held.request_id != request_id);
         self.closed.notify_waiters();
+        self.changes.send_replace(());
         async { Ok(()) }.boxed()
     }
 }

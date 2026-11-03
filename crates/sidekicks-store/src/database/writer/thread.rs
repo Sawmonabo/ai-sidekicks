@@ -7,10 +7,8 @@
 //! go.
 
 use rusqlite::config::DbConfig;
-use rusqlite::types::Value;
 use rusqlite::{
-    Connection, DropBehavior, ErrorCode, InterruptHandle, Params, Statement, Transaction,
-    TransactionBehavior, params_from_iter,
+    Connection, DropBehavior, ErrorCode, InterruptHandle, Transaction, TransactionBehavior,
 };
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::scheduler::budget::{Measured, ThreadProcessorTime};
@@ -19,9 +17,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::connection::writer_open::OPTIMIZE_SQL;
-use crate::database::statement::{
-    StatementBindings, StatementResult, WriteStatement, named_bindings,
-};
+use crate::database::statement::run_statement;
 use crate::database::writer::backup::{CopyOrder, LOCK_BOUND, ThreadServing, copy_database};
 use crate::database::writer::messages::{
     BatchAnswer, BatchFailure, CheckpointAnswer, CheckpointReport, CommittedBatch, FailedBatch,
@@ -599,49 +595,6 @@ fn run_job_work(
     Ok(WriteJobOutcome::Committed {
         statement_results,
         sequences,
-    })
-}
-
-/// Runs one statement through the connection's statement cache with its bindings.
-fn run_statement(
-    connection: &Connection,
-    statement: &WriteStatement,
-) -> rusqlite::Result<StatementResult> {
-    let mut prepared = connection.prepare_cached(&statement.sql)?;
-    match &statement.bindings {
-        StatementBindings::None => run_bound(&mut prepared, ()),
-        StatementBindings::Positional(values) => run_bound(&mut prepared, params_from_iter(values)),
-        StatementBindings::Named(values) => {
-            run_bound(&mut prepared, named_bindings(values).as_slice())
-        }
-    }
-}
-
-/// Runs `prepared` with `params`: a statement that returns columns has its rows collected and
-/// counted; any other reports the rows it changed.
-fn run_bound(
-    prepared: &mut Statement<'_>,
-    params: impl Params,
-) -> rusqlite::Result<StatementResult> {
-    let column_count = prepared.column_count();
-    if column_count == 0 {
-        return Ok(StatementResult {
-            row_count: prepared.execute(params)?,
-            ..StatementResult::default()
-        });
-    }
-    let mut rows = Vec::new();
-    let mut returned = prepared.query(params)?;
-    while let Some(row) = returned.next()? {
-        rows.push(
-            (0..column_count)
-                .map(|column| row.get::<_, Value>(column))
-                .collect::<rusqlite::Result<Vec<_>>>()?,
-        );
-    }
-    Ok(StatementResult {
-        row_count: rows.len(),
-        rows,
     })
 }
 

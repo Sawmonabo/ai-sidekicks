@@ -549,13 +549,6 @@ impl ScriptedDriver {
     }
 
     /// A session opened on a fresh process, which ran and was closed, with its next process
-    /// scripted, so a resume of it brings a fresh process up.
-    pub(crate) async fn closed_session(&self) -> SessionId {
-        self.closed_session_resumed_on(Arc::new(ScriptedChannel::default()))
-            .await
-    }
-
-    /// A session opened on a fresh process, which ran and was closed, with its next process
     /// scripted on `channel`, so a resume of it brings that process up.
     pub(crate) async fn closed_session_resumed_on(
         &self,

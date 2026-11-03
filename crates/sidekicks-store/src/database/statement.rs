@@ -3,6 +3,7 @@
 use std::borrow::Cow;
 
 use rusqlite::types::Value;
+use rusqlite::{Connection, Params, Statement, params_from_iter};
 use sidekicks_contracts::place::Place;
 
 // The form every stored time is written in, as a SQL literal.
@@ -90,4 +91,48 @@ pub struct StatementResult {
     pub row_count: usize,
     /// Each returned row's values, in the statement's column order.
     pub rows: Vec<Vec<Value>>,
+}
+
+/// Runs `statement` through `connection`'s statement cache with its bindings, as the writer runs
+/// each statement of a write, and answers what it did. Fails as SQLite does.
+pub fn run_statement(
+    connection: &Connection,
+    statement: &WriteStatement,
+) -> rusqlite::Result<StatementResult> {
+    let mut prepared = connection.prepare_cached(&statement.sql)?;
+    match &statement.bindings {
+        StatementBindings::None => run_bound(&mut prepared, ()),
+        StatementBindings::Positional(values) => run_bound(&mut prepared, params_from_iter(values)),
+        StatementBindings::Named(values) => {
+            run_bound(&mut prepared, named_bindings(values).as_slice())
+        }
+    }
+}
+
+/// Runs `prepared` with `params`: a statement that returns columns has its rows collected and
+/// counted; any other reports the rows it changed.
+fn run_bound(
+    prepared: &mut Statement<'_>,
+    params: impl Params,
+) -> rusqlite::Result<StatementResult> {
+    let column_count = prepared.column_count();
+    if column_count == 0 {
+        return Ok(StatementResult {
+            row_count: prepared.execute(params)?,
+            ..StatementResult::default()
+        });
+    }
+    let mut rows = Vec::new();
+    let mut returned = prepared.query(params)?;
+    while let Some(row) = returned.next()? {
+        rows.push(
+            (0..column_count)
+                .map(|column| row.get::<_, Value>(column))
+                .collect::<rusqlite::Result<Vec<_>>>()?,
+        );
+    }
+    Ok(StatementResult {
+        row_count: rows.len(),
+        rows,
+    })
 }

@@ -4,8 +4,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use rusqlite::Connection;
 use rusqlite::params;
+use rusqlite::{Connection, OpenFlags};
 use serde_json::json;
 use sidekicks_contracts::{
     agent::definition::AgentId, event::envelope::EventOccurredAt, event::session::SessionEvent,
@@ -61,9 +61,14 @@ impl TestDatabase {
         move || open_database(&path, &schema)
     }
 
-    /// A second connection on the file, for a test to read what the writer committed.
+    /// A second connection on the file, for a test to read what the writer committed. It never
+    /// creates the file, so a read before the opener has run fails rather than finding no tables.
     pub fn reader(&self) -> Connection {
-        Connection::open(self.path()).expect("the test opens a second connection on its file")
+        Connection::open_with_flags(
+            self.path(),
+            OpenFlags::default().difference(OpenFlags::SQLITE_OPEN_CREATE),
+        )
+        .expect("the test runs the opener before it reads the file")
     }
 }
 
@@ -168,4 +173,28 @@ pub fn insert_test_event(
         })
         .collect();
     (i64::from(sequences[0]), id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::schema::schema_parts;
+
+    // Killed by the reader opening with the default flags, which create an empty file.
+    #[test]
+    #[should_panic(expected = "unable to open database file")]
+    fn a_read_before_the_opener_fails() {
+        TestDatabase::new(schema_parts()).reader();
+    }
+
+    #[test]
+    fn a_read_after_the_opener_reads_its_tables() {
+        let database = TestDatabase::new(schema_parts());
+        drop(database.opener()().expect("the test creates its database"));
+        let count: i64 = database
+            .reader()
+            .query_row("SELECT count(*) FROM session_events", [], |row| row.get(0))
+            .expect("the reader finds the opener's tables");
+        assert_eq!(count, 0);
+    }
 }

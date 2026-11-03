@@ -110,8 +110,7 @@ impl Fixture {
 async fn a_reorder_is_read_only_for_a_movable_message_behind_another() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run("running");
-    bind_run_to_first_provider(&fixture.database, run_id);
+    let run_id = fixture.insert_run("running").await;
     let first = fixture.queue_message(run_id).await;
     let second = fixture.queue_message(run_id).await;
 
@@ -140,8 +139,10 @@ async fn send_now_hands_the_message_first_and_the_rest_in_order(
 ) {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run(state);
-    bind_run_to_first_provider(&fixture.database, run_id);
+    let run_id = fixture.insert_run(state).await;
+    if state != "running" {
+        bind_run_to_first_provider(&fixture.database, run_id);
+    }
     let first = fixture.queue_message(run_id).await;
     let sent_now = fixture.queue_message(run_id).await;
     let last = fixture.queue_message(run_id).await;
@@ -210,20 +211,21 @@ async fn send_now_keeps_the_message_first_for_a_run_that_takes_none_now(
     let fixture = fixture(recording_driver(&calls)).await;
     let (interrupted_run_id, run_id) = match not_taking {
         NotTaking::State(state) => {
-            let run_id = fixture.insert_run(state);
+            let run_id = fixture.insert_run(state).await;
+            bind_run_to_first_provider(&fixture.database, run_id);
             (run_id, run_id)
         }
         NotTaking::HeldForInterrupt => {
-            let run_id = fixture.insert_run("running");
+            let run_id = fixture.insert_run("running").await;
             (run_id, run_id)
         }
         NotTaking::OtherRun => {
-            let interrupted_run_id = fixture.insert_run("running");
-            bind_run_to_first_provider(&fixture.database, interrupted_run_id);
-            (interrupted_run_id, fixture.insert_run("queued"))
+            let interrupted_run_id = fixture.insert_run("running").await;
+            let run_id = fixture.insert_run("queued").await;
+            bind_run_to_first_provider(&fixture.database, run_id);
+            (interrupted_run_id, run_id)
         }
     };
-    bind_run_to_first_provider(&fixture.database, run_id);
     let ahead = fixture.queue_message(run_id).await;
     let sent_now = fixture.queue_message(run_id).await;
     let interrupt_id = new_intervention_id();
@@ -292,8 +294,7 @@ async fn send_now_sent_again_after_its_hand_failed_hands_the_message_again() {
         .dropped_priority_steers_left
         .store(1, Ordering::SeqCst);
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run("running");
-    bind_run_to_first_provider(&fixture.database, run_id);
+    let run_id = fixture.insert_run("running").await;
     let first = fixture.queue_message(run_id).await;
     let sent_now = fixture.queue_message(run_id).await;
     let last = fixture.queue_message(run_id).await;
@@ -320,8 +321,7 @@ async fn send_now_sent_again_after_its_hand_failed_hands_the_message_again() {
 async fn a_release_from_inside_the_sessions_hold_settles_once_the_hold_goes() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run("running");
-    bind_run_to_first_provider(&fixture.database, run_id);
+    let run_id = fixture.insert_run("running").await;
     let item_id = fixture.queue_message(run_id).await;
     let intervention_id = new_intervention_id();
     let choice = InterruptChoice {
@@ -422,8 +422,8 @@ enum SettledAgain {
     Restart,
 }
 
-// An interrupt's release that cannot hand its run what waits, the run bound to no provider yet,
-// fails and records on the interrupt's row that only what the hold held back is left, its choice
+// An interrupt's release that cannot hand its run what waits, the run bound to no provider yet in
+// a session an earlier run opened, fails and records on the interrupt's row that only what the hold held back is left, its choice
 // settled: applied, or not due; once the run is bound, a run's end taking the session's hold, or
 // the queue's recovery after a restart, hands the message and clears the record. Killed by keeping
 // the unsettled release in memory only (the restart never hands), by settling it only at the holds
@@ -436,7 +436,10 @@ enum SettledAgain {
 async fn a_release_left_unsettled_is_settled_at_a_later_hold(#[case] again: SettledAgain) {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run("running");
+    let opening_run_id = fixture.insert_run("running").await;
+    fixture.set_run_state(opening_run_id, "completed");
+    let run_id = fixture.insert_run("waitingForApproval").await;
+    fixture.set_run_state(run_id, "running");
     let item_id = fixture.queue_message(run_id).await;
     let intervention_id = fixture.insert_interrupt(run_id);
     fixture
@@ -454,7 +457,7 @@ async fn a_release_left_unsettled_is_settled_at_a_later_hold(#[case] again: Sett
     bind_run_to_first_provider(&fixture.database, run_id);
     match again {
         SettledAgain::RunEnd => {
-            let ended_run_id = fixture.insert_run("completed");
+            let ended_run_id = fixture.insert_run("completed").await;
             fixture.settle_end(ended_run_id).await;
         }
         SettledAgain::Restart => {
@@ -491,7 +494,7 @@ impl Fixture {
     /// Starts a queued lead run through the queue's admission, opening with a message queued for
     /// it, and answers the run's and the opening's ids.
     async fn start_lead_run(&self) -> (RunId, QueueItemId) {
-        let run_id = self.insert_run("queued");
+        let run_id = self.insert_run("queued").await;
         let opening = self.queue_message(run_id).await;
         timeout(WAIT, self.queue.lifecycle.reconcile(self.session_id))
             .await
@@ -677,7 +680,7 @@ async fn a_reorder_after_send_now_keeps_the_mark_only_on_a_message_left_first(
 ) {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run("paused");
+    let run_id = fixture.insert_run("paused").await;
     bind_run_to_first_provider(&fixture.database, run_id);
     let other = fixture.queue_message(run_id).await;
     let sent_now = fixture.queue_message(run_id).await;

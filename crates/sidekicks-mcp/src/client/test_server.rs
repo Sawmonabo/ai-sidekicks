@@ -1,7 +1,7 @@
 //! An in-process tool server for the client's tests: hand-written JSON lines over a pipe, so it can
 //! answer in the 2025-11-25 shapes rmcp's own server no longer writes, stay silent, write a line
 //! `serde_json` would not, or send a request of its own before it replies; each message it
-//! receives is kept with the instant it arrived.
+//! receives is kept with the instant it arrived, and each arrival wakes the waits on the record.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -61,6 +61,8 @@ pub(super) type Responder = Box<dyn FnMut(&str, &Value) -> Reply + Send>;
 /// The server's side: each message it received, and a sender of lines it writes unasked.
 pub(super) struct TestServer {
     pub(super) received: Arc<Mutex<Vec<(Instant, Value)>>>,
+    // Sent each time a message is kept, so a wait reads the record again only then.
+    arrivals: watch::Sender<()>,
     pub(super) unasked: mpsc::UnboundedSender<String>,
     pub(super) session_id: SessionId,
 }
@@ -86,6 +88,29 @@ impl TestServer {
             .find(|(_, message)| message["id"] == id && message.get("method").is_none())
             .map(|(_, message)| message.clone())
     }
+
+    /// Waits until `holds` reads true of the server, read again at each message it receives.
+    pub(super) async fn wait_until(&self, mut holds: impl FnMut(&Self) -> bool) {
+        let mut arrivals = self.arrivals.subscribe();
+        while !holds(self) {
+            arrivals
+                .changed()
+                .await
+                .expect("the server keeps its sender while the test waits");
+        }
+    }
+}
+
+/// Waits until `contact` reads `wanted`.
+pub(super) async fn wait_for_contact(
+    contact: &watch::Sender<McpTaskContact>,
+    wanted: McpTaskContact,
+) {
+    contact
+        .subscribe()
+        .wait_for(|read| *read == wanted)
+        .await
+        .expect("the test keeps the contact's sender while it waits");
 }
 
 /// A 2025-11-25 server's `initialize` result, declaring tasks on `tools/call` and `tasks/cancel`.
@@ -190,6 +215,8 @@ pub(super) async fn start_test_server(
     let received = Arc::new(Mutex::new(Vec::new()));
     let (unasked, mut unasked_lines) = mpsc::unbounded_channel::<String>();
     let kept = Arc::clone(&received);
+    let arrivals = watch::Sender::new(());
+    let arrived = arrivals.clone();
     tokio::spawn(async move {
         let mut lines = BufReader::new(server_read).lines();
         // The replies held until the client answers the server's own request, by its id.
@@ -202,6 +229,7 @@ pub(super) async fn start_test_server(
                     let message: Value =
                         serde_json::from_str(&line).expect("the client writes JSON");
                     kept.lock().expect("never poisoned").push((Instant::now(), message.clone()));
+                    arrived.send_replace(());
                     let Some(id) = message.get("id").cloned() else { continue };
                     let Some(method) = message.get("method").and_then(Value::as_str) else {
                         // The client's answer to the server's own request releases the held reply.
@@ -250,6 +278,7 @@ pub(super) async fn start_test_server(
         opened,
         TestServer {
             received,
+            arrivals,
             unasked,
             session_id,
         },

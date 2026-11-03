@@ -263,13 +263,12 @@ async fn a_reserved_edit_opens_its_run_whatever_the_order_says(#[case] reserved:
     let fixture = fixture(recording_driver(&calls)).await;
     let resting_run_id = match reserved {
         ReservedRun::Interrupted => {
-            let run_id = fixture.insert_run("running");
-            fixture.bind_on_conversation(run_id).await;
+            let run_id = fixture.insert_run("running").await;
             fixture.rest_interrupted(run_id).await;
             Some(run_id)
         }
         ReservedRun::Paused => {
-            let run_id = fixture.insert_run("paused");
+            let run_id = fixture.insert_run("paused").await;
             bind_run_to_first_provider(&fixture.database, run_id);
             Some(run_id)
         }
@@ -345,7 +344,7 @@ async fn a_reserved_edit_opens_its_run_whatever_the_order_says(#[case] reserved:
 async fn a_run_ended_before_it_reads_its_reserved_edit_never_admits_it() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run("paused");
+    let run_id = fixture.insert_run("paused").await;
     bind_run_to_first_provider(&fixture.database, run_id);
     let key = client_key();
     let hold = fixture
@@ -588,8 +587,7 @@ async fn an_opening_read_under_way_waits_out_the_undo(#[case] under_way: UnderWa
     let fixture = fixture(recording_driver(&calls)).await;
     let resting_run_id = match under_way {
         UnderWay::Continue => {
-            let run_id = fixture.insert_run("running");
-            fixture.bind_on_conversation(run_id).await;
+            let run_id = fixture.insert_run("running").await;
             fixture.rest_interrupted(run_id).await;
             Some(run_id)
         }

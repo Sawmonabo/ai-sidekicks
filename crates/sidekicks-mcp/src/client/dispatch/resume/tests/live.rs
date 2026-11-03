@@ -7,19 +7,20 @@ use std::sync::{Arc, Mutex};
 use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::sync::watch;
-use tokio::time::{Duration, Instant, timeout};
+use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 use super::{address_task_receipt, fixture_at_address};
 use crate::client::connection::McpServerConnection;
 use crate::client::connection::standing::{McpStandingConnection, McpStandingConnectionFeed};
 use crate::client::dispatch::McpCallCompletionError;
-use crate::client::dispatch::tests::{Fixture, task_server, until};
+use crate::client::dispatch::tests::{Fixture, task_server};
 use crate::client::tasks::McpTaskContact::{DidNotAskAgain, NotConfigured, Reached};
 use crate::client::tasks::{McpTaskContact, McpToolCallEnd};
 use crate::client::test_server::{
     Reply, Responder, TestServer, board_accepted, board_answer, board_form, contact,
     method_not_found, text_result, track_call, tracked_end, v1_status_reply, v1_task,
+    wait_for_contact,
 };
 
 /// The elicitation [`board_form`] a 2025-11-25 server sends for task `task-1`, its `_meta` also
@@ -77,7 +78,7 @@ async fn close_unreplaced(
 ) {
     feed.publish(None);
     connection.close().await;
-    until(|| *contact.borrow() == NotConfigured).await;
+    wait_for_contact(contact, NotConfigured).await;
 }
 
 /// A re-bound 2025-11-25 server whose task waits on input, its first held `tasks/result` never
@@ -96,7 +97,9 @@ fn reasked_task_server(is_done: &Arc<AtomicBool>) -> Responder {
 /// Has `server` ask [`task_elicitation`] again under the request id `server-reask`, the same form
 /// under another progress token, once the follow polls it, and waits for the client's answer.
 async fn reask(server: &TestServer) {
-    until(|| !server.requests("tasks/get").is_empty()).await;
+    server
+        .wait_until(|server| !server.requests("tasks/get").is_empty())
+        .await;
     let mut reask = task_elicitation("second");
     reask["jsonrpc"] = json!("2.0");
     reask["id"] = json!("server-reask");
@@ -104,7 +107,9 @@ async fn reask(server: &TestServer) {
         .unasked
         .send(reask.to_string())
         .expect("the server is running");
-    until(|| server.answer_to("server-reask").is_some()).await;
+    server
+        .wait_until(|server| server.answer_to("server-reask").is_some())
+        .await;
 }
 
 /// Publishes a connection to the tracker at its address answering through `responder`, as a
@@ -200,7 +205,7 @@ async fn a_kept_answer_whose_settle_fails_has_its_question_withdrawn() {
             fixture.card.fail_settles();
             let new = replace(&fixture, &feed, reasked_task_server(&is_done)).await;
             reask(&new).await;
-            until(|| fixture.card.withdrawals().contains(&kept)).await;
+            fixture.card.wait_until_withdrawn(&kept).await;
             is_done.store(true, Ordering::SeqCst);
         },
     );
@@ -328,17 +333,11 @@ async fn a_kept_question_not_asked_again_in_300_s_answered_is_withdrawn_and_its_
         })
     };
 
+    let dispatched_at = Instant::now();
     let (dispatched, (new, kept)) = tokio::join!(
-        async {
-            timeout(
-                Duration::from_mins(30),
-                fixture
-                    .dispatch
-                    .call(&standing, track_call(), &contact, &uncanceled),
-            )
-            .await
-            .expect("the bound ends the wait")
-        },
+        fixture
+            .dispatch
+            .call(&standing, track_call(), &contact, &uncanceled),
         async {
             fixture.card.wait_until_taken(1).await;
             close_unreplaced(&feed, &connection, &contact).await;
@@ -347,6 +346,10 @@ async fn a_kept_question_not_asked_again_in_300_s_answered_is_withdrawn_and_its_
         },
     );
     let (end, written) = dispatched.expect("the call is dispatched").complete().await;
+    assert!(
+        dispatched_at.elapsed() < Duration::from_mins(30),
+        "the bound ends the wait"
+    );
 
     let first_poll = new.requests("tasks/get")[0].0;
     let cancel_sent = new.requests("tasks/cancel");
@@ -416,24 +419,23 @@ async fn the_bound_counts_no_outage_and_holds_with_no_question_kept() {
         })
     };
 
+    let dispatched_at = Instant::now();
     let (dispatched, new) = tokio::join!(
+        fixture
+            .dispatch
+            .call(&standing, track_call(), &contact, &uncanceled),
         async {
-            timeout(
-                Duration::from_mins(30),
-                fixture
-                    .dispatch
-                    .call(&standing, track_call(), &contact, &uncanceled),
-            )
-            .await
-            .expect("the bound ends the wait")
-        },
-        async {
-            until(|| !old.requests("tasks/get").is_empty()).await;
+            old.wait_until(|old| !old.requests("tasks/get").is_empty())
+                .await;
             close_unreplaced(&feed, &connection, &contact).await;
             replace(&fixture, &feed, responder).await
         },
     );
     let (end, written) = dispatched.expect("the call is dispatched").complete().await;
+    assert!(
+        dispatched_at.elapsed() < Duration::from_mins(30),
+        "the bound ends the wait"
+    );
 
     let started = first_poll
         .lock()
@@ -473,19 +475,14 @@ async fn a_bounds_cancel_that_fails_lets_the_held_result_go_until_the_cancel_is_
     let contact = contact();
     let uncanceled = CancellationToken::new();
 
+    let dispatched_at = Instant::now();
     let (dispatched, new) = tokio::join!(
+        fixture
+            .dispatch
+            .call(&standing, track_call(), &contact, &uncanceled),
         async {
-            timeout(
-                Duration::from_mins(30),
-                fixture
-                    .dispatch
-                    .call(&standing, track_call(), &contact, &uncanceled),
-            )
-            .await
-            .expect("the bound ends the wait")
-        },
-        async {
-            until(|| !old.requests("tasks/get").is_empty()).await;
+            old.wait_until(|old| !old.requests("tasks/get").is_empty())
+                .await;
             close_unreplaced(&feed, &connection, &contact).await;
             replace(
                 &fixture,
@@ -504,6 +501,10 @@ async fn a_bounds_cancel_that_fails_lets_the_held_result_go_until_the_cancel_is_
         },
     );
     let (end, written) = dispatched.expect("the call is dispatched").complete().await;
+    assert!(
+        dispatched_at.elapsed() < Duration::from_mins(30),
+        "the bound ends the wait"
+    );
 
     let cancels = new.requests("tasks/cancel");
     assert_eq!(cancels.len(), 2, "the failed cancel is sent again");

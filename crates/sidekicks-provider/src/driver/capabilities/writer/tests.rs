@@ -10,7 +10,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::database::schema::SchemaPart;
-use sidekicks_store::database::statement::{StatementBindings, WriteStatement, named_bindings};
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, run_statement};
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use tokio::sync::oneshot;
 
@@ -309,12 +309,7 @@ async fn a_new_printed_version_is_recorded_once_with_the_pair_it_moves() {
         Vec::new(),
     );
     for statement in available {
-        let StatementBindings::Named(values) = &statement.bindings else {
-            unreachable!("the record binds by name");
-        };
-        connection
-            .execute(&statement.sql, named_bindings(values).as_slice())
-            .expect("the record's statement runs");
+        run_statement(&connection, &statement).expect("the record's statement runs");
     }
     assert_eq!(
         record_and_changes(&connection, &readers).0,

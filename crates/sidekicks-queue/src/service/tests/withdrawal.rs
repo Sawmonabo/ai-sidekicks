@@ -10,7 +10,6 @@ use sidekicks_contracts::plan::PlanId;
 use sidekicks_contracts::run::queue::{PlanMessageKind, QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::ports::MessageTakenListener as _;
-use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_session::queue_store::RecordedQueueItemState;
 use tokio::time::timeout;
 
@@ -57,8 +56,7 @@ impl Fixture {
 async fn a_waiting_seed_is_canceled_and_the_message_beside_it_stays() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run("running");
-    bind_run_to_first_provider(&fixture.database, run_id);
+    let run_id = fixture.insert_run("running").await;
     let plan_id = new_plan_id();
     let seed_id = fixture
         .send_plan_message(plan_id, PlanMessageKind::Seed, client_key())
@@ -224,8 +222,7 @@ async fn a_seed_a_starting_run_opens_with_is_answered_taken() {
 async fn with_no_seed_of_the_plan_the_withdrawal_answers_none() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run("running");
-    bind_run_to_first_provider(&fixture.database, run_id);
+    fixture.insert_run("running").await;
     let plan_id = new_plan_id();
     let build_id = fixture
         .send_plan_message(plan_id, PlanMessageKind::Build, client_key())

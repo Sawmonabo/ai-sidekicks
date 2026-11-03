@@ -13,8 +13,6 @@ use serde_json::json;
 use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::restore::{SessionRestoreTarget, SnapshotId};
@@ -22,13 +20,8 @@ use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::rewind::RewindConversationResult;
-use sidekicks_provider::runtime_binding::store::CreateRuntimeBindingInput;
-use sidekicks_provider::runtime_binding::test_store::{
-    binding_input, spawn_config_on, spawned_build, test_provider_account_id,
-};
 use sidekicks_session::checkpoints::store::{Checkpoint, insert_checkpoint_statement};
 use sidekicks_session::run::engine::test_fixture::{append, stored_run_state};
 
@@ -76,12 +69,11 @@ async fn scene(answer: RewindAnswer) -> Scene {
             async move { answered }.boxed()
         });
     let fixture = fixture(driver).await;
-    let run_id = fixture.insert_run("running");
+    let run_id = fixture.insert_run("running").await;
     let message_sequence = fixture.insert_sent_message(run_id);
     let target = fixture
         .insert_checkpoint(run_id, message_sequence, SourceEpoch(SafeInt::ZERO))
         .await;
-    fixture.bind_on_conversation(run_id).await;
     Scene {
         fixture,
         calls,
@@ -143,43 +135,6 @@ impl Fixture {
             .await
             .expect("the test writes the checkpoint");
         SessionRestoreTarget::Snapshot { snapshot_id }
-    }
-
-    /// Binds `run_id` on the session's conversation and opens its epoch cursor, as the opening of
-    /// the process a running lead stands in records its leg, so a run the session opens later
-    /// binds on that conversation.
-    async fn bind_on_conversation(&self, run_id: RunId) {
-        self.queue
-            .provider_sessions
-            .binding_cursors()
-            .create(
-                self.session_id,
-                CreateRuntimeBindingInput {
-                    run_id,
-                    ..binding_input(
-                        spawn_config_on(test_provider_account_id()),
-                        spawned_build("1.0.0", "/opt/provider/bin"),
-                    )
-                },
-            )
-            .await
-            .expect("the run's binding is recorded");
-    }
-
-    /// Opens the epoch cursor of `binding_id` on `run_id`, so the session runs on it now.
-    async fn open_cursor(&self, run_id: RunId, binding_id: RuntimeBindingId) {
-        self.queue
-            .provider_sessions
-            .binding_cursors()
-            .open_binding(
-                self.session_id,
-                binding_id,
-                run_id,
-                ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id is a provider id"),
-                test_provider_account_id(),
-            )
-            .await
-            .expect("the binding's cursor opens");
     }
 
     /// Appends the turn event `event_type` of `run_id`'s turn 2 through the run engine.

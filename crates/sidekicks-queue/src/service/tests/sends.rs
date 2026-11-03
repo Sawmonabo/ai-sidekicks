@@ -48,7 +48,7 @@ use crate::error::QueueError;
 async fn a_send_resumes_a_paused_run_with_the_message() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run("paused");
+    let run_id = fixture.insert_run("paused").await;
     bind_run_to_first_provider(&fixture.database, run_id);
 
     let item_id = timeout(WAIT, fixture.send())
@@ -77,8 +77,7 @@ async fn a_send_whose_lead_run_started_meanwhile_goes_into_it() {
             .reached
             .await
             .expect("the send reads its route");
-        let run_id = fixture.insert_run("running");
-        bind_run_to_first_provider(&fixture.database, run_id);
+        let run_id = fixture.insert_run("running").await;
         before_write.release.send(()).expect("the send waits");
         run_id
     };
@@ -116,15 +115,13 @@ async fn a_send_whose_lead_run_changes_under_every_attempt_is_refused() {
         // A new run's send finds a run started, a live run's send finds it ended, and the next
         // new run's send finds another started.
         first.reached.await.expect("the first attempt reads");
-        let started = fixture.insert_run("running");
-        bind_run_to_first_provider(&fixture.database, started);
+        let started = fixture.insert_run("running").await;
         first.release.send(()).expect("the send waits");
         second.reached.await.expect("the second attempt reads");
         fixture.set_run_state(started, "completed");
         second.release.send(()).expect("the send waits");
         third.reached.await.expect("the third attempt reads");
-        let restarted = fixture.insert_run("running");
-        bind_run_to_first_provider(&fixture.database, restarted);
+        fixture.insert_run("running").await;
         third.release.send(()).expect("the send waits");
     };
 
@@ -293,8 +290,7 @@ async fn a_review_on_a_session_with_no_live_run_opens_a_run_of_its_own() {
 async fn a_review_behind_a_running_turn_is_never_handed_into_it() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run("running");
-    bind_run_to_first_provider(&fixture.database, run_id);
+    let run_id = fixture.insert_run("running").await;
 
     fixture.queue_review(client_key()).await;
     let message_id = timeout(WAIT, fixture.send())
@@ -318,8 +314,7 @@ async fn a_review_behind_a_running_turn_is_never_handed_into_it() {
 async fn an_edit_of_a_waiting_review_is_refused_as_a_review_item() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run("running");
-    bind_run_to_first_provider(&fixture.database, run_id);
+    fixture.insert_run("running").await;
     let review_id = fixture.queue_review(client_key()).await;
 
     let edited = fixture.replace_item(review_id).await;
@@ -478,7 +473,7 @@ async fn a_new_lead_run_is_admitted_with_the_configured_token_limit() {
 #[tokio::test]
 async fn a_send_repeated_after_its_account_was_removed_answers_the_saved_one() {
     let fixture = fixture(MockProviderDriver::new()).await;
-    let run_id = fixture.insert_run("queued");
+    let run_id = fixture.insert_run("queued").await;
     let item_id = fixture.queue_message(run_id).await;
     let key = fixture
         .stored_item(item_id)
@@ -634,8 +629,7 @@ fn plan_message_opening() -> RunOpeningItem {
 async fn a_plan_message_behind_a_running_turn_is_never_handed_into_it() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run("running");
-    bind_run_to_first_provider(&fixture.database, run_id);
+    let run_id = fixture.insert_run("running").await;
     let plan_id = new_plan_id();
     let key = client_key();
 
@@ -701,8 +695,7 @@ async fn a_plan_message_at_rest_opens_a_run_of_its_own_recorded_with_its_plan() 
 async fn an_edit_of_a_waiting_plan_message_is_refused() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run("running");
-    bind_run_to_first_provider(&fixture.database, run_id);
+    fixture.insert_run("running").await;
     let item_id = fixture
         .send_plan_message(new_plan_id(), PlanMessageKind::Build, client_key())
         .await;
@@ -835,8 +828,7 @@ async fn a_plan_message_s_retry_carrying_files_is_refused() {
 async fn a_person_removes_a_build_message_but_never_a_hand_off_s_seed() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
-    let run_id = fixture.insert_run("running");
-    bind_run_to_first_provider(&fixture.database, run_id);
+    fixture.insert_run("running").await;
     let build_id = fixture
         .send_plan_message(new_plan_id(), PlanMessageKind::Build, client_key())
         .await;
