@@ -356,6 +356,12 @@ struct RunToDelete {
 }
 
 impl RunToDelete {
+    // The run's own folder in `data_folder`, which a run whose session had a working folder never
+    // made.
+    fn folder(&self, data_folder: &Path) -> PathBuf {
+        workflow_run_folder(data_folder, &self.definition_id, &self.workflow_run_id)
+    }
+
     fn deleted(&self) -> DeletedWorkflowRun {
         DeletedWorkflowRun {
             workflow_run_id: self.workflow_run_id,
@@ -441,11 +447,14 @@ impl WorkflowRunDeletion {
             .await?
             .ok_or(WorkflowNotFound::Run { workflow_run_id })?;
         match self.delete_runs(&[], &run, RunGuard::Deletable).await {
-            Ok(()) => match remove_run_folder(&self.data_folder, &run).await {
+            Ok(()) => match remove_run_folder(run.folder(&self.data_folder)).await {
                 Ok(()) => Ok(run.deleted()),
-                Err(cause) => Err(WorkflowRunDeletionError::Incomplete {
+                Err((folder, removal)) => Err(WorkflowRunDeletionError::Incomplete {
                     deleted: vec![run.deleted()],
-                    cause: Box::new(SettleFailures::One(cause)),
+                    cause: Box::new(SettleFailures::One(WorkflowRunDeletionError::FolderLeft {
+                        folder,
+                        removal,
+                    })),
                 }),
             },
             Err(error) if refused_statement_index(&error).is_some() => {
@@ -540,8 +549,10 @@ impl WorkflowRunDeletion {
                 match self.delete_still_removable_runs(chunk, guard).await {
                     Ok(chunk_deleted) => {
                         for run in chunk_deleted {
-                            if let Err(error) = remove_run_folder(&self.data_folder, &run).await {
-                                failures.push(error);
+                            let removed = remove_run_folder(run.folder(&self.data_folder)).await;
+                            if let Err((folder, removal)) = removed {
+                                failures
+                                    .push(WorkflowRunDeletionError::FolderLeft { folder, removal });
                             }
                             deleted.push(run.deleted());
                         }
@@ -798,18 +809,15 @@ fn run_to_delete_from_row(row: &Row<'_>) -> rusqlite::Result<RunToDelete> {
     })
 }
 
-// Removes `run`'s own folder in `data_folder`, where it has one: a run whose session had a working
-// folder made none. The workflow's runs folder goes too when that leaves it empty, so no empty
-// folder stays for a workflow whose runs are all gone.
-async fn remove_run_folder(
-    data_folder: &Path,
-    run: &RunToDelete,
-) -> Result<(), WorkflowRunDeletionError> {
-    let folder = workflow_run_folder(data_folder, &run.definition_id, &run.workflow_run_id);
+/// Removes a run's own `folder`, where it has one, since a run whose session had a working folder
+/// made none, then its workflow's runs folder when that leaves it empty, so no empty folder stays
+/// for a workflow with no run folder left: a deleted run's, and a start's that made no run. Fails
+/// with the folder left and why.
+pub(crate) async fn remove_run_folder(folder: PathBuf) -> Result<(), (PathBuf, io::Error)> {
     match tokio::fs::remove_dir_all(&folder).await {
         Ok(()) => {}
         Err(removal) if removal.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(removal) => return Err(WorkflowRunDeletionError::FolderLeft { folder, removal }),
+        Err(removal) => return Err((folder, removal)),
     }
     let runs_folder = folder
         .parent()
@@ -817,6 +825,7 @@ async fn remove_run_folder(
         .to_path_buf();
     match tokio::fs::remove_dir(&runs_folder).await {
         Ok(()) => Ok(()),
+        // Another run of the workflow still has its folder there, or another removal took it.
         Err(removal)
             if matches!(
                 removal.kind(),
@@ -825,9 +834,6 @@ async fn remove_run_folder(
         {
             Ok(())
         }
-        Err(removal) => Err(WorkflowRunDeletionError::FolderLeft {
-            folder: runs_folder,
-            removal,
-        }),
+        Err(removal) => Err((runs_folder, removal)),
     }
 }
