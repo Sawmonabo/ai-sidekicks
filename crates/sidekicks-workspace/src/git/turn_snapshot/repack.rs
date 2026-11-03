@@ -392,15 +392,14 @@ impl CapturePacking {
             Err(failure) => Err(failure),
         };
         // A folder removed while its fold ran, as a purge removes its owner's, has its entries
-        // forgotten, so none is kept for it here.
-        let is_folder_gone =
-            folded.is_err() && matches!(tokio::fs::try_exists(folder).await, Ok(false));
+        // forgotten, so none is kept for it here. The check is made under the lock the purge's
+        // forgetting takes, so a removal after it still forgets the entry this inserts.
         let mut failed_folds = lock(&self.failed_folds);
         match &folded {
             Ok(()) => {
                 failed_folds.remove(folder);
             }
-            Err(_) if is_folder_gone => {}
+            Err(_) if matches!(folder.try_exists(), Ok(false)) => {}
             Err(_) => {
                 failed_folds.insert(folder.to_path_buf(), Instant::now());
             }
