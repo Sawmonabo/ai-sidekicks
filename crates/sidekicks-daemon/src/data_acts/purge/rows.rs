@@ -207,12 +207,13 @@ const RUN_KEYED_DELETES: [&str; 4] = [
 // The session's own deletes after its run-keyed ones, up to its row, in foreign-key order: a
 // snapshot and a recovery checkpoint name the event they reflect, an ask goes after its answer and
 // after the gate answers found through it, a plan before the artifact that keeps its text, and an
-// artifact after the reference to its payload. The agent tree goes in one statement, each node with
-// the children that name it. The attention rows go after the machine's attention count is raised,
+// artifact after the reference to its payload. The answers kept for a card or a question no
+// request held go beside the asks they answer, the person's words with them. The agent tree goes
+// in one statement, each node with the children that name it. The attention rows go after the machine's attention count is raised,
 // so its readers drop the session's entries, and an entry's delivery before the entry it is found
 // through. The messaging rows go at either end of a pair, a message held from the session or a wait
 // on it among them.
-const DELETES_THROUGH_SESSION_ROW: [&str; 34] = [
+const DELETES_THROUGH_SESSION_ROW: [&str; 36] = [
     "DELETE FROM session_snapshots WHERE session_id = @sessionId",
     "DELETE FROM recovery_checkpoints WHERE session_id = @sessionId",
     "DELETE FROM session_events WHERE session_id = @sessionId",
@@ -225,6 +226,8 @@ const DELETES_THROUGH_SESSION_ROW: [&str; 34] = [
        (SELECT id FROM approval_requests WHERE session_id = @sessionId)",
     "DELETE FROM approval_requests WHERE session_id = @sessionId",
     "DELETE FROM approval_correction_uses WHERE session_id = @sessionId",
+    "DELETE FROM approval_kept_answers WHERE session_id = @sessionId",
+    "DELETE FROM question_kept_answers WHERE session_id = @sessionId",
     "DELETE FROM reviewer_denials WHERE session_id = @sessionId",
     "DELETE FROM plans WHERE session_id = @sessionId",
     "DELETE FROM artifact_payload_refs WHERE manifest_id IN

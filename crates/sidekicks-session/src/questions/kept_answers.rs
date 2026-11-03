@@ -118,6 +118,11 @@ impl KeptSecretAnswers {
         );
     }
 
+    // Forgets every answer kept for `session_id`.
+    fn forget_session(&self, session_id: SessionId) {
+        lock(&self.0).retain(|_, kept| kept.session_id != session_id);
+    }
+
     // The questions of `run_id` and `input_digest` whose answers no question asked again took,
     // with when each was kept.
     fn call_candidates(
@@ -194,6 +199,11 @@ pub(crate) fn insert_kept_answer_statement(
 }
 
 impl QuestionsService {
+    /// Forgets the answers with a secret kept in memory for `session_id`, once a purge removed it.
+    pub fn forget_purged_session(&self, session_id: SessionId) {
+        self.kept_secrets.forget_session(session_id);
+    }
+
     /// Every kept answer the session's runs' continues still owe, oldest first: one the question
     /// asked again did not take. Fails as the read fails, or where the log holds no
     /// `question.asked` for a kept answer's question.
