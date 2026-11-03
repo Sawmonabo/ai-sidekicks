@@ -67,6 +67,7 @@ impl KeptAnswerSource<ApprovalRequestId> for KeptAnswers {
                     id: card.approval_request_id,
                     run_id: card.run_id,
                     answer: ContinueAnswer::Approval {
+                        approval_request_id: card.approval_request_id,
                         subject: card.subject.as_str().to_owned(),
                         tool_name: card
                             .tool_name
@@ -105,6 +106,7 @@ impl KeptAnswerSource<QuestionId> for QuestionsService {
                     id: kept.question_id,
                     run_id: kept.run_id,
                     answer: ContinueAnswer::Question {
+                        question_id: kept.question_id,
                         question: kept.question,
                         answer: kept.answer,
                     },
@@ -234,7 +236,8 @@ impl ProviderSessions {
         }
     }
 
-    // Gives back every mark of `claims`, each tried; fails with the first release that failed.
+    // Gives back every mark of `claims`, each tried; fails with the first release that failed, and
+    // logs each later failure with its card or question, which that error does not name.
     pub(super) async fn release_marks(
         &self,
         claims: Vec<ClaimedMark>,
@@ -245,8 +248,10 @@ impl ProviderSessions {
                 ClaimedMark::Approval(id) => self.deps.kept_approvals.release_continue(id).await,
                 ClaimedMark::Question(id) => self.deps.kept_questions.release_continue(id).await,
             };
-            if unreleased.is_ok() {
-                unreleased = released;
+            match released {
+                Err(error) if unreleased.is_err() => log_unreleased_mark(mark, &*error),
+                Err(error) => unreleased = Err(error),
+                Ok(()) => {}
             }
         }
         unreleased
@@ -257,5 +262,22 @@ impl ProviderSessions {
             ClaimedMark::Approval(id) => self.deps.kept_approvals.claim_continue(id).await,
             ClaimedMark::Question(id) => self.deps.kept_questions.claim_continue(id).await,
         }
+    }
+}
+
+// Logs a continue mark that could not be given back after an earlier one already failed the
+// give-back, so the next relaunch will not carry its answer.
+fn log_unreleased_mark(mark: ClaimedMark, error: &(dyn Error + 'static)) {
+    match mark {
+        ClaimedMark::Approval(id) => tracing::error!(
+            approval_request_id = %id,
+            error,
+            "a kept approval's continue mark could not be given back"
+        ),
+        ClaimedMark::Question(id) => tracing::error!(
+            question_id = %id,
+            error,
+            "a kept question's continue mark could not be given back"
+        ),
     }
 }

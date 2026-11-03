@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use rstest::rstest;
 use serde_json::json;
-use sidekicks_contracts::approval::ApprovalDecision;
+use sidekicks_contracts::approval::{ApprovalDecision, ApprovalRequestId};
+use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
@@ -293,17 +294,24 @@ async fn a_continued_turn_runs_on_its_run_and_ends_as_that_turn() {
     );
 }
 
-// A session whose runs in progress all wait on the person or stop starts no process: the resume is
-// deferred with each run's answer, a held run `Waiting` and a stopping one `Gone`, and the slot is
-// freed, so a later resume of a lead with work spawns. Killed by the spawn kept (a start recorded),
-// by a held lead continued (`StillRunning`), by a held helper answered `Gone`, by a stopping lead's
-// helper read as held (`Waiting` in the stopping case), and by the claim kept (the follow-up resume
-// waits on the slot past its timeout).
+// A session whose runs in progress all wait on the person or stop, or whose one run is a pausing
+// lead, starts no process: the resume is deferred with each run's answer, a held run `Waiting` and
+// a stopping run or a lone pausing lead `Gone`, and the slot is freed, so a later resume of a lead
+// with work spawns. Killed by the spawn kept (a start recorded), by a held lead continued
+// (`StillRunning`), by a held helper answered `Gone`, by a waiting run its stop waits on read as
+// held (`Waiting` in the stopping case), by a pausing lead taken as the run in progress
+// (`StillRunning`) or as a lead a process is owed for (a start recorded), and by the claim kept
+// (the follow-up resume waits on the slot past its timeout).
 #[rstest]
 #[case::lead_waits_on_an_ask(RunState::WaitingForApproval, None, false)]
 #[case::helper_waits_on_a_question(RunState::Running, Some(RunState::WaitingForInput), false)]
 #[case::helper_is_paused(RunState::Running, Some(RunState::Paused), false)]
-#[case::lead_and_helper_stop(RunState::Running, Some(RunState::Running), true)]
+#[case::waiting_lead_and_helper_stop(
+    RunState::WaitingForApproval,
+    Some(RunState::WaitingForInput),
+    true
+)]
+#[case::lone_lead_pauses(RunState::Pausing, None, false)]
 #[tokio::test(start_paused = true)]
 async fn a_session_whose_runs_all_wait_or_stop_starts_no_process(
     #[case] lead_state: RunState,
@@ -340,7 +348,8 @@ async fn a_session_whose_runs_all_wait_or_stop_starts_no_process(
         .await
         .expect("the resume answers");
 
-    let held = if is_stopping {
+    // A lead's own pause is no hold, so its turn is gone with the process, as a stopping run's is.
+    let held = if is_stopping || lead_state == RunState::Pausing {
         ProviderTurnAnswer::Gone
     } else {
         ProviderTurnAnswer::Waiting
@@ -386,6 +395,8 @@ async fn a_held_lead_s_continue_carries_the_answers_to_its_process() {
         run_id: helper,
         subagent_id: Some(SubagentId::new("helper-1".to_owned()).expect("a helper id fits")),
         answer: ContinueAnswer::Approval {
+            approval_request_id: ApprovalRequestId::try_from(mint_uuid_v7())
+                .expect("a minted UUID is an ask's id"),
             subject: "rm -rf build".to_owned(),
             tool_name: Some("Bash".to_owned()),
             decision: ApprovalDecision::Approved,
@@ -443,6 +454,8 @@ async fn a_live_process_is_sent_a_held_lead_s_answers_as_its_next_message() {
         run_id: lead,
         subagent_id: None,
         answer: ContinueAnswer::Question {
+            question_id: QuestionId::try_from(mint_uuid_v7())
+                .expect("a minted UUID is a question's id"),
             question: "Which branch?".to_owned(),
             answer: "main".to_owned(),
         },

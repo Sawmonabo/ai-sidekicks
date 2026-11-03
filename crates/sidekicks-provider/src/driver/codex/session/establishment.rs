@@ -4,7 +4,7 @@
 //! service. A failed resume never becomes a new conversation: it answers the failure.
 
 mod adoption;
-mod continuation;
+pub(crate) mod continuation;
 pub(crate) mod helpers;
 mod settings;
 
@@ -45,6 +45,7 @@ use crate::driver::codex::session::calls::CodexSessionTask;
 use crate::driver::codex::session::context_reading::CodexFixedStart;
 use crate::driver::codex::session::controls::update_codex_session_mode;
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::establishment::continuation::CodexAnswerSteer;
 use crate::driver::codex::session::history::{
     CodexListedTurn, compose_codex_newest_turn_page, read_codex_resumed_newest_turn,
     read_codex_turns,
@@ -133,9 +134,18 @@ pub(crate) struct CodexEstablishedSession {
     // Oldest first; none for a fresh conversation.
     listed_turns: Vec<CodexListedTurn>,
     helpers: Vec<CodexRestoredHelper>,
+    // The steer of the person's answers a held lead's running continuation is owed once the
+    // session's task runs; none for a fresh conversation.
+    answer_steer: Option<CodexAnswerSteer>,
 }
 
 impl CodexEstablishedSession {
+    /// Takes the steer of the person's answers the adopted conversation owes its lead, which the
+    /// caller sends once the session's task runs.
+    pub(crate) fn take_answer_steer(&mut self) -> Option<CodexAnswerSteer> {
+        self.answer_steer.take()
+    }
+
     /// The helpers an adopted conversation holds again, each with the spend its usage is based on,
     /// which the caller reads before the session opens.
     pub(crate) fn restored_helpers_mut(&mut self) -> &mut [CodexRestoredHelper] {
@@ -342,6 +352,7 @@ impl CodexSessionEstablishment {
                 fixed_start: CodexFixedStart::FirstRequest,
                 listed_turns: Vec::new(),
                 helpers: Vec::new(),
+                answer_steer: None,
             },
         ))
     }
@@ -385,6 +396,7 @@ impl CodexSessionEstablishment {
             fixed_start,
             listed_turns,
             helpers,
+            answer_steer: _,
         } = established;
         let is_resumed = matches!(fixed_start, CodexFixedStart::Kept(_));
         let base = if is_resumed {

@@ -136,10 +136,10 @@ impl ProviderSessions {
     /// Starts the session's provider process again after it ended and stayed down, its newest
     /// conversation brought back through the driver's restart as an opening's resume brings it
     /// back, and keeps the session open in this process, the idle sleep following it awake; where
-    /// every run waits on the person or stops, the provider starts and reports no process and the
-    /// session stays unopened, answered `Ok` with nothing recorded. Fails
-    /// with [`ProviderSessionError::Closed`] or [`ProviderSessionError::BeingDeleted`] for an ended
-    /// session, [`ProviderSessionError::NoConversation`] for one with none to resume,
+    /// every run in progress waits on the person, is pausing, or stops, the provider starts and
+    /// reports no process and the session stays unopened, answered `Ok` with nothing recorded.
+    /// Fails with [`ProviderSessionError::Closed`] or [`ProviderSessionError::BeingDeleted`] for an
+    /// ended session, [`ProviderSessionError::NoConversation`] for one with none to resume,
     /// [`ProviderSessionError::Provider`] when no driver answers its provider or the driver cannot
     /// resume, the driver never called, [`ProviderSessionError::ResumeRefused`] for a restart the
     /// provider refused, [`ProviderSessionError::ResumedRuns`] for runs the resume named that were

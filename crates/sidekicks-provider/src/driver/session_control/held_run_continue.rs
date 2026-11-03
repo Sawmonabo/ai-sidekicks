@@ -3,7 +3,8 @@
 //! the one text each driver sends the lead for it.
 
 use jiff::Timestamp;
-use sidekicks_contracts::approval::ApprovalDecision;
+use sidekicks_contracts::approval::{ApprovalDecision, ApprovalRequestId};
+use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentId;
 
@@ -75,6 +76,8 @@ pub struct ContinueEntry {
 pub enum ContinueAnswer {
     /// A card the run raised and the person's answer to it.
     Approval {
+        /// The card.
+        approval_request_id: ApprovalRequestId,
         /// The words the card named, such as the command.
         subject: String,
         /// The tool the card held a call of, where it named one.
@@ -88,6 +91,8 @@ pub enum ContinueAnswer {
     },
     /// A question the run asked and the person's answer, a secret read only as answered.
     Question {
+        /// The question.
+        question_id: QuestionId,
         /// The question's pages, one line each.
         question: String,
         /// The answers, one line each.
@@ -121,6 +126,7 @@ pub fn compose_continuation_text(
                 decision,
                 decline_reason,
                 edited_action,
+                ..
             } => {
                 let asked = tool_name.as_ref().map_or_else(
                     || one_line(subject),
@@ -138,7 +144,9 @@ pub fn compose_continuation_text(
                 };
                 format!("{asker} asked to approve {asked}. The person {answered}.")
             }
-            ContinueAnswer::Question { question, answer } => format!(
+            ContinueAnswer::Question {
+                question, answer, ..
+            } => format!(
                 "{asker} asked: {}. The person answered: {}.",
                 one_line(question),
                 one_line(answer)
@@ -185,8 +193,12 @@ fn one_line(text: &str) -> String {
 mod tests {
     use jiff::{SignedDuration, Timestamp};
     use sidekicks_contracts::run::subagent::SubagentId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-    use super::{ContinueAnswer, ContinueEntry, HeldRunContinue, compose_continuation_text};
+    use super::{
+        ApprovalRequestId, ContinueAnswer, ContinueEntry, HeldRunContinue, QuestionId,
+        compose_continuation_text,
+    };
     use crate::driver::idle_sleep::KeptSchedule;
     use crate::driver::test_registry::new_run_id;
 
@@ -207,6 +219,8 @@ mod tests {
                 run_id: lead,
                 subagent_id: None,
                 answer: ContinueAnswer::Question {
+                    question_id: QuestionId::try_from(mint_uuid_v7())
+                        .expect("a minted UUID is a question's id"),
                     question: "Which branch?".to_owned(),
                     answer: "main".to_owned(),
                 },
@@ -215,6 +229,8 @@ mod tests {
                 run_id: new_run_id(),
                 subagent_id: Some(helper),
                 answer: ContinueAnswer::Approval {
+                    approval_request_id: ApprovalRequestId::try_from(mint_uuid_v7())
+                        .expect("a minted UUID is an ask's id"),
                     subject: "rm -rf build".to_owned(),
                     tool_name: Some("Bash".to_owned()),
                     decision: sidekicks_contracts::approval::ApprovalDecision::Rejected,
@@ -229,10 +245,12 @@ mod tests {
             KeptSchedule::Recurring {
                 cron: "0 9 * * *".to_owned(),
                 next_fire_at: Some(past),
+                expires_at: ahead,
             },
             KeptSchedule::Recurring {
                 cron: "*/5 * * * *".to_owned(),
                 next_fire_at: None,
+                expires_at: ahead,
             },
         ];
 

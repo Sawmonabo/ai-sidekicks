@@ -37,7 +37,10 @@ async fn held_lead() -> (
     )
     .await;
     set_run_state(&opening, opening.run_id, "completed");
+    let approval_request_id =
+        ApprovalRequestId::try_from(mint_uuid_v7()).expect("a minted UUID is an ask's id");
     let answer = ContinueAnswer::Approval {
+        approval_request_id,
         subject: "rm -rf build".to_owned(),
         tool_name: Some("Bash".to_owned()),
         decision: ApprovalDecision::Approved,
@@ -45,7 +48,7 @@ async fn held_lead() -> (
         edited_action: None,
     };
     opening.kept_approvals.owe(OwedAnswer {
-        id: ApprovalRequestId::try_from(mint_uuid_v7()).expect("a minted UUID is an ask's id"),
+        id: approval_request_id,
         run_id: opening.earlier_run_id,
         answer: answer.clone(),
     });

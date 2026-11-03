@@ -165,7 +165,7 @@ async fn a_held_leads_ended_continuation_leaves_the_run_waiting() {
 async fn a_held_leads_running_continuation_ends_without_ending_the_run() {
     let mut session = TestCodexSession::start_on(start_scripted_joined_service()).await;
     let folder = tempfile::tempdir().expect("the test makes a folder");
-    let run_id = open_held_running_continuation(&mut session, folder.path()).await;
+    let run_id = Box::pin(open_held_running_continuation(&mut session, folder.path())).await;
 
     let ended = turn_completed(ADOPTED_THREAD, CONTINUATION_TURN, "completed");
     session.task.handle(queued(&ended)).await;
@@ -192,7 +192,7 @@ async fn a_held_leads_running_continuation_ends_without_ending_the_run() {
 async fn a_steer_that_reaches_the_held_continuation_releases_its_end() {
     let mut session = TestCodexSession::start_on(start_scripted_joined_service()).await;
     let folder = tempfile::tempdir().expect("the test makes a folder");
-    let run_id = open_held_running_continuation(&mut session, folder.path()).await;
+    let run_id = Box::pin(open_held_running_continuation(&mut session, folder.path())).await;
     let message_id = new_message_id();
     let _registered = register_codex_steer(&mut session.task.record, run_id, None, message_id)
         .expect("the continuation takes a steer");

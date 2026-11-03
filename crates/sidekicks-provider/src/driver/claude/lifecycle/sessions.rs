@@ -54,9 +54,9 @@ impl ClaudeDriver {
     }
 
     /// Resumes a session's conversation in a fresh process, every failure on the `Failed` arm and
-    /// a resume whose runs all wait on the person or stop on the `Deferred` one; a live process
-    /// that answers it is sent the person's answers on the held lead's turn. Fails as that send
-    /// fails.
+    /// a resume whose runs in progress all wait on the person, are pausing, or stop on the
+    /// `Deferred` one; a live process that answers it is sent the person's answers on the held
+    /// lead's turn. Fails as that send fails.
     pub(crate) async fn resume_session(
         &self,
         params: ResumeSessionParams,
@@ -68,7 +68,8 @@ impl ClaudeDriver {
 
     /// The person's restart of a session whose process stayed down: its crash window and any
     /// restart still waiting are dropped, it resumes, and the person is told it runs again only
-    /// when a process started, not when a live one answered it or every run waits or stops.
+    /// when a process started, not when a live one answered it or every run in progress waits on
+    /// the person, is pausing, or stops.
     pub(crate) async fn restart_session(
         &self,
         params: ResumeSessionParams,

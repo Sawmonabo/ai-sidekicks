@@ -33,7 +33,7 @@ use sidekicks_provider::driver::ports::ProcessGoneListener;
 use sidekicks_provider::port::run_pause::ContinuedMessages;
 use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord};
 use sidekicks_session::run::pause::{RunPauseControl, RunPauseError};
-use sidekicks_session::run::read::read_run_through;
+use sidekicks_session::run::read::{RunStateReader, read_run_through};
 use sidekicks_session::run::stored_state_change::{
     StoredRunStateChange, read_stored_run_state_change,
 };
@@ -647,6 +647,12 @@ impl QueueRunLifecycle {
                 RunState::Running => {
                     admission.resume(run_id);
                     admission.settled(run_id).await;
+                    // A lead the restart held on the person through a helper's ask waits for the
+                    // continue the answer brings, which reconciles again; an opened process does
+                    // not lift that hold.
+                    if self.is_held_on_person(session_id, run_id).await? {
+                        continue;
+                    }
                     let hold = self.deps.session_lock.hold_session(session_id).await;
                     self.hand_waiting(&hold, run_id).await?;
                 }
@@ -654,6 +660,25 @@ impl QueueRunLifecycle {
             }
         }
         Ok(())
+    }
+
+    // Whether the live run `run_id` waits on the person, its own ask or a helper's beneath it.
+    // Fails as the read fails.
+    async fn is_held_on_person(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+    ) -> Result<bool, QueueError> {
+        let live_runs = self
+            .deps
+            .pool
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, QueueError>(RunStateReader::new(reader).list_live_run_resumes(&session_id)?)
+            })
+            .await?;
+        Ok(live_runs
+            .iter()
+            .any(|run| run.run_id == run_id && run.is_held(&live_runs)))
     }
 
     // Hands the live run `run_id` what waits for it, under `hold`, unless no process of its session

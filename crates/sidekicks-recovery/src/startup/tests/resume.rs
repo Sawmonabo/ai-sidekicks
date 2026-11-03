@@ -369,13 +369,12 @@ async fn a_pass_resumes_each_session_with_work_in_progress_and_counts_it() {
 // interrupted by the restart with its turn ended the same way, neither handed an interrupt.
 // Killed by the hand-again dropped (the still-running stopping runs stay live and the wait for
 // their ends runs out), by the pause arms tried first (`pausing` reads `paused` and `paused` is
-// left), by limit rows handed as a person's (a second call for the step-limit run), by the lead's
-// rows handed to a helper (a call for the helper), by `any` read for `all` (the first provider's
-// driver, which expects no resume, is called), by the all-stopping check dropped (the same), by
-// the stopping helper's arm dropped, and by the reopen check reading stops up to the lead (session
-// C is not opened and its runs are not named). Session A's kept turns are handed to its provider
-// once, on its leg's conversation, for both its runs, and none of session C's. Killed by the
-// hand-off skipped or read after the settle (no call).
+// left), by the lead's rows handed to a helper (a call for the helper), by `any` read for `all`
+// (the first provider's driver, which expects no resume, is called), by the all-stopping check
+// dropped (the same), and by the reopen check reading stops up to the lead (session C is not
+// opened and its runs are not named). Session A's kept turns are handed to its provider once, on
+// its leg's conversation, for both its runs, and none of session C's. Killed by the hand-off
+// skipped or read after the settle (no call).
 #[tokio::test]
 async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interrupt_again() {
     let answers: Arc<Mutex<HashMap<RunId, ProviderTurnAnswer>>> = Arc::default();
@@ -676,14 +675,16 @@ async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interru
 }
 
 // A resume the provider refuses fails the session's running run with the provider's own words,
-// while a stopping run beside it ends by its stop, as the person's; the status read lists the
-// failed run under its session with what its recovery needs and a provider failure; once the
-// session's next run starts, the entry is gone; the kept turns of both runs are handed to the
-// provider, each ended for a stop only where the run has one of its own. Killed by
-// `mark_run_halted` not called (no entry), by the restart's own words written (the detail differs),
-// by the failure detail winning over the run's stop (the stopping run reads `failed`), by the entry
-// never cleared, by the refused session's runs left out (no call), and by `is_for_stop` set alike
-// for both.
+// while a stopping run beside it ends by its stop, as the person's, and its helper, which no stop
+// of its own reaches, reads interrupted by the restart; the status read lists the failed run under
+// its session with what its recovery needs and a provider failure; once the session's next run
+// starts, the entry is gone; the kept turns of both leads are handed to the provider, each ended
+// for a stop only where the run has one of its own. Killed by `mark_run_halted` not called (no
+// entry), by the restart's own words written (the detail differs), by the failure detail winning
+// over the run's stop (the stopping run reads `failed`), by the stopping helper's arm dropped or
+// the stops read per run as each settles, after the lead's end discharged the stop its helper
+// waits on (the helper reads `failed`), by the entry never cleared, by the refused session's runs
+// left out (no call), and by `is_for_stop` set alike for both.
 #[tokio::test]
 async fn a_refused_resume_fails_its_run_and_lists_it_until_the_sessions_next_run() {
     let mut refusing = resuming_driver(|_params| DriverResumeResult::Failed {
@@ -700,6 +701,7 @@ async fn a_refused_resume_fails_its_run_and_lists_it_until_the_sessions_next_run
     let stopping_run = test_run_id();
     insert_running_run(&fixture.store.database, session_id, stopping_run);
     fixture.record_person_interrupt(stopping_run);
+    let cut_helper = fixture.insert_helper(session_id, stopping_run);
     fixture
         .open_turn(session_id, run_id, Some("turn-failed"))
         .await;
@@ -726,6 +728,14 @@ async fn a_refused_resume_fails_its_run_and_lists_it_until_the_sessions_next_run
         "interrupted"
     );
     assert_eq!(fixture.run_trigger(session_id, stopping_run), None);
+    assert_eq!(
+        stored_run_state(&fixture.store.database, &cut_helper).0,
+        "interrupted"
+    );
+    assert_eq!(
+        fixture.run_trigger(session_id, cut_helper).as_deref(),
+        Some("daemonRestart")
+    );
     let mut kept = vec![
         kept_turn(run_id, "turn-failed", false),
         kept_turn(stopping_run, "turn-stopping", true),
