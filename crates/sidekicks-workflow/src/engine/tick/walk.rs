@@ -386,7 +386,8 @@ impl RunWalk {
     }
 
     /// Applies every feed of the step of `place` at `execution_index`: its outputs in order, each
-    /// output's slots in the graph's order. Answers the rounds the feeds entered, in visiting order.
+    /// output's slots in the graph's order. Answers the rounds the feeds entered, in visiting
+    /// order.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn feed(
         &mut self,

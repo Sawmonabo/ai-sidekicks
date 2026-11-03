@@ -23,7 +23,10 @@ use crate::kinds::{StepFailure, StepOutcome, uncoded_step_error};
 
 /// What a step reads whose agent run left the memory gate's line unadmitted yet read as completed.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-const WITHDRAWN_RUN_COMPLETED: &str = "the step's agent run left the memory gate's line before it was admitted, yet read as completed";
+const WITHDRAWN_RUN_COMPLETED: &str = concat!(
+    "the step's agent run left the memory gate's line before it was admitted, ",
+    "yet read as completed"
+);
 
 impl StepDispatch {
     /// Drives `ready`, an agent step of the run of `scope`, reading `snapshot`, to its settlement:
@@ -169,7 +172,10 @@ impl StepDispatch {
                         }
                     }
                     start = async {
-                        started.as_mut().expect("the branch runs only while the start is watched").await
+                        started
+                            .as_mut()
+                            .expect("the branch runs only while the start is watched")
+                            .await
                     }, if started.is_some() => {
                         started = None;
                         // A run that ended before starting sends nothing; its outcome follows.

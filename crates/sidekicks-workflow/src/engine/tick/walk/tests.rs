@@ -39,7 +39,9 @@ impl NodeExecutor for FirstInputExecutor {
 fn kind(name: &str, inputs: usize, outputs: usize) -> NodeKind {
     let handles = |side: &str, count: usize| -> Value {
         (0..count)
-            .map(|index| json!({ "type": "main", "id": format!("{side}/main/{index}"), "label": "H" }))
+            .map(|index| {
+                json!({ "type": "main", "id": format!("{side}/main/{index}"), "label": "H" })
+            })
             .collect()
     };
     test_kind(

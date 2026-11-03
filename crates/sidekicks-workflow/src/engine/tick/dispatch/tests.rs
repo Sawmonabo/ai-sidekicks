@@ -297,7 +297,8 @@ fn settlement_json(settlement: &StepSettlement) -> Value {
                     serde_json::to_value(error).expect("a step failure writes")
                 }
                 StepFailure::EndsRun(error) => {
-                    json!({ "endsRun": serde_json::to_value(error).expect("a step failure writes") })
+                    let error = serde_json::to_value(error).expect("a step failure writes");
+                    json!({ "endsRun": error })
                 }
                 StepFailure::Declined { words, at } => json!({ "words": words, "at": at }),
             };

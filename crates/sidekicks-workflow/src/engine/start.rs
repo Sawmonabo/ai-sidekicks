@@ -337,15 +337,16 @@ impl WorkflowRunStarter {
 
     /// Starts `start`'s run: checks it, prepares its folder, reads the scope its steps share,
     /// builds its trigger input, then writes its row and its `workflow.run.started` together, the
-    /// event's instant the row's start and the scope's. A run joining a chain at its limit is
-    /// held, with nothing written. Fails with
-    /// [`WorkflowRunStartError::Refused`] (`workflow.run.startDenied`,
-    /// `workflow.run.inputRequired`), [`WorkflowRunStartError::Version`]
-    /// (`workflow.version.notFound`) or [`WorkflowRunStartError::Session`] (`session.notFound`)
-    /// before anything is made, and with the other variants when a read, the provider, the folder,
-    /// the payload store or the write fails; the run's own folder, with its workflow's runs folder
-    /// once that is empty, and its stored trigger input go with every outcome but a start. A held start whose folder or stored input cannot be removed
-    /// is still answered held, the removal's failure going to the engine's record.
+    /// event's instant the row's start and the scope's. A run joining a chain at its limit is held,
+    /// with nothing written. Fails with [`WorkflowRunStartError::Refused`]
+    /// (`workflow.run.startDenied`, `workflow.run.inputRequired`),
+    /// [`WorkflowRunStartError::Version`] (`workflow.version.notFound`) or
+    /// [`WorkflowRunStartError::Session`] (`session.notFound`) before anything is made, and with
+    /// the other variants when a read, the provider, the folder, the payload store or the write
+    /// fails; the run's own folder, with its workflow's runs folder once that is empty, and its
+    /// stored trigger input go with every outcome but a start. A held start whose folder or stored
+    /// input cannot be removed is still answered held, the removal's failure going to the engine's
+    /// record.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
