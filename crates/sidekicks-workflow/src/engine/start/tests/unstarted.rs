@@ -1,7 +1,9 @@
 //! Starts that make no run: refused before anything is made, or held on their chain, and what a
 //! held start does when it cannot clean up.
 
+use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -16,8 +18,10 @@ use super::{
     Fixture, ROOT_RUN_ID, TestSession, UNKNOWN_VERSION_ID, body, item, joins_root, refusal,
     runs_folders, start, test_provider,
 };
+use crate::engine::event_record::EngineFault;
 use crate::engine::ports::REFUSED_PORT_CALL;
 use crate::engine::start::{WorkflowStartArrival, WorkflowStartOutcome};
+use crate::secrets::redaction::RunRedaction;
 
 /// How a start that writes nothing ends.
 #[derive(Clone, Copy, Debug)]
@@ -128,9 +132,10 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
     assert_eq!(fixture.payloads.deletes(), written);
 }
 
-/// A start held on its chain whose stored input cannot be deleted is still answered held, and the
-/// failed deletion goes to the engine's record with its cause. Mutation: answer the hold inside an
-/// error; drop the failure unrecorded.
+/// A start held on its chain whose stored input cannot be deleted is still answered held, the
+/// failed deletion goes to the engine's record with its cause, and that run's record is ended, so
+/// the recorder keeps no sequence for it. Mutations: answer the hold inside an error; drop the
+/// failure unrecorded; leave the run's record open.
 #[tokio::test]
 async fn a_held_start_that_cannot_clean_up_is_still_held() {
     let declared = json!([{ "type": "string", "name": "ticket", "required": true, "default": "" }]);
@@ -166,4 +171,18 @@ async fn a_held_start_that_cannot_clean_up_is_still_held() {
         vec![(json!("heldStartLeftBehind"), json!(REFUSED_PORT_CALL))]
     );
     assert_eq!(runs_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
+    let held_run_id: WorkflowRunId =
+        serde_json::from_value(fixture.records.lines()[0]["workflowRunId"].clone())
+            .expect("the fault names the held start's run");
+    fixture
+        .starter
+        .recorder
+        .for_run(held_run_id, Arc::new(RunRedaction::new(&[])))
+        .fault(
+            None,
+            EngineFault::HeldStartLeftBehind,
+            &io::Error::other("a later line"),
+        )
+        .await;
+    assert_eq!(fixture.records.lines()[1]["sequence"], json!(1));
 }
