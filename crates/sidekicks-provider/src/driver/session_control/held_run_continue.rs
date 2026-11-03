@@ -33,8 +33,9 @@ pub struct MissedFire {
 
 impl HeldRunContinue {
     /// The continue of `lead_run_id` with `entries`, naming each of the session's
-    /// `kept_schedules` whose fire, as the provider stated it, is already past at `now`; a
-    /// recurring job the provider named no time for has no run known to have come due.
+    /// `kept_schedules` whose fire, as the provider stated it, is already past at `now` while the
+    /// provider still kept it; a recurring job the provider named no time for has no run known to
+    /// have come due, and one due at or past its expiry was deleted before it could run.
     pub fn new(
         lead_run_id: RunId,
         entries: Vec<ContinueEntry>,
@@ -44,7 +45,9 @@ impl HeldRunContinue {
         let missed_fires = kept_schedules
             .iter()
             .filter_map(|schedule| {
-                let due_at = schedule.stated_fire_at().filter(|fire| *fire <= now)?;
+                let due_at = schedule
+                    .stated_fire_at()
+                    .filter(|fire| *fire <= now && schedule.is_kept_at(*fire))?;
                 let cron = match schedule {
                     KeptSchedule::Once { .. } => None,
                     KeptSchedule::Recurring { cron, .. } => Some(cron.clone()),
@@ -202,9 +205,10 @@ mod tests {
     use crate::driver::idle_sleep::KeptSchedule;
     use crate::driver::test_registry::new_run_id;
 
-    // The text names each answer and each fire whose stated time passed, and no fire still ahead
-    // or with no stated time. Killed by the past test flipped (the future fire named, the past
-    // ones not) and by a fire with no stated time counted missed.
+    // The text names each answer and each fire whose stated time passed, and no fire still ahead,
+    // with no stated time, or due at or past its job's expiry. Killed by the past test flipped
+    // (the future fire named, the past ones not), by a fire with no stated time counted missed,
+    // and by the expiry not read (the expired job's fire named).
     #[test]
     fn the_text_names_the_answers_and_only_the_fires_already_past() {
         let now = Timestamp::from_second(1_800_000_000).expect("a time in range");
@@ -251,6 +255,11 @@ mod tests {
                 cron: "*/5 * * * *".to_owned(),
                 next_fire_at: None,
                 expires_at: ahead,
+            },
+            KeptSchedule::Recurring {
+                cron: "30 8 * * *".to_owned(),
+                next_fire_at: Some(past),
+                expires_at: past,
             },
         ];
 
