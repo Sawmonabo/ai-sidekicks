@@ -256,12 +256,17 @@ mod tests {
     // Two accounts' sign-ins move toward the files and either the second's keychain read or the
     // secrets' own move after both is refused as a locked keychain: every sign-in already in its
     // file is back in its item, and the refusal names the locked keychain with no put-back failure
-    // beside it. Killed by the put-back skipped.
+    // beside it; where the first's move back is refused too, it stays in its file and the refusal
+    // names it. Killed by the put-back skipped, and by a put-back's failure left unnamed.
     #[rstest]
-    #[case::second_sign_in_refused("second")]
-    #[case::secrets_move_refused("none")]
+    #[case::second_sign_in_refused("second", None)]
+    #[case::secrets_move_refused("none", None)]
+    #[case::put_back_refused("second", Some("first"))]
     #[tokio::test]
-    async fn a_refused_move_puts_every_sign_in_moved_before_it_back(#[case] refused_account: &str) {
+    async fn a_refused_move_puts_every_sign_in_moved_before_it_back(
+        #[case] refused_account: &str,
+        #[case] refused_put_back: Option<&str>,
+    ) {
         let provider = PROVIDER_REGISTRATIONS[0].descriptor;
         let sign_ins = ["first", "second"].map(|account| ProviderSignIn {
             provider,
@@ -279,9 +284,11 @@ mod tests {
         let move_one = |toward: SecretsMoveDestination, sign_in: KeychainSignIn| {
             let places = &places;
             async move {
-                if toward == SecretsMoveDestination::LoggedOutServiceFile
-                    && sign_in.account == refused_account
-                {
+                let refused = match toward {
+                    SecretsMoveDestination::LoggedOutServiceFile => Some(refused_account),
+                    SecretsMoveDestination::OperatingSystem => refused_put_back,
+                };
+                if refused == Some(sign_in.account.as_str()) {
                     return Err(SignInMoveError::Keychain {
                         service: sign_in.service,
                         account: sign_in.account,
@@ -311,19 +318,29 @@ mod tests {
 
         let places = places.into_inner().expect("the places are readable");
         for account in ["first", "second"] {
-            assert_eq!(
-                places[account],
-                SecretsMoveDestination::OperatingSystem,
-                "the {account} sign-in was left in its file"
-            );
+            let expected = if refused_put_back == Some(account) {
+                SecretsMoveDestination::LoggedOutServiceFile
+            } else {
+                SecretsMoveDestination::OperatingSystem
+            };
+            assert_eq!(places[account], expected, "the {account} sign-in");
         }
         let DaemonModeOutcome::Error(refusal) = outcome else {
             panic!("a refused sign-in answered a moved one");
         };
-        assert!(
-            refusal.message.ends_with("the login keychain is locked"),
-            "{}",
-            refusal.message
-        );
+        let put_back_failure = "sign-in it had moved could not be put back";
+        if refused_put_back.is_some() {
+            assert!(
+                refusal.message.contains(put_back_failure),
+                "{}",
+                refusal.message
+            );
+        } else {
+            assert!(
+                refusal.message.ends_with("the login keychain is locked"),
+                "{}",
+                refusal.message
+            );
+        }
     }
 }

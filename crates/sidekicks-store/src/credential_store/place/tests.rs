@@ -172,8 +172,9 @@ async fn a_move_refused_partway_is_put_back_at_its_start(#[case] removal_refusal
 }
 
 // The same move whose first item, deleted from the keychain, cannot be written back there: its
-// copy in the files, the only one left, stays, and the record still names the move, which the next
-// start finishes. Killed by the copy of an item not written back deleted all the same.
+// copy in the files, the only one left, stays, the record still names the move, which the next
+// start finishes, and the refusal names the put-back that failed. Killed by the copy of an item
+// not written back deleted all the same, and by the put-back's failure left unnamed.
 #[tokio::test]
 async fn a_copy_whose_item_cannot_be_written_back_stays_with_the_move_recorded() {
     let folder = tempfile::tempdir().expect("the test makes a folder");
@@ -213,5 +214,13 @@ async fn a_copy_whose_item_cannot_be_written_back_stays_with_the_move_recorded()
     assert_eq!(
         keychain.values().into_keys().collect::<Vec<_>>(),
         [(service, "second".to_owned())]
+    );
+    assert!(
+        stopped
+            .refusal
+            .reason()
+            .contains("the move could not be put back whole"),
+        "{}",
+        stopped.refusal.reason()
     );
 }
