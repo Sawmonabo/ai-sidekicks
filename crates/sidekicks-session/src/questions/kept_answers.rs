@@ -334,6 +334,8 @@ impl QuestionsService {
                     None => continue,
                 },
             };
+            // The question is settled already, so a tool server that keeps the answer for its
+            // next ask leaves nothing to settle when that ask takes it.
             self.send_answers(run_id, request_id.to_owned(), answered_by, answers)
                 .await?;
             return Ok(Some(question_id));

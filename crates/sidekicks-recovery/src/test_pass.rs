@@ -348,6 +348,7 @@ impl PassFixture {
         let questions = Arc::new(QuestionsService::new(
             Arc::clone(&store.appender),
             Arc::clone(&services.reads),
+            Arc::clone(&store.writer),
             Arc::clone(&self.engine),
             Arc::new(ProviderRegistry::register_from(
                 &[],

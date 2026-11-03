@@ -102,7 +102,11 @@ async fn a_kept_answer_leaves_its_question_open_until_its_settle() {
         )
         .await
         .expect("the second answer is kept");
-    assert_eq!(second.state, QuestionResolveState::Kept);
+    assert_eq!(second.response.state, QuestionResolveState::Kept);
+    assert_eq!(
+        second.kept, None,
+        "a held request took the answer, so no continue owes it"
+    );
 
     QuestionPort::settle_kept_answer(&fixture.questions, fixture.session_id, request_id)
         .await
