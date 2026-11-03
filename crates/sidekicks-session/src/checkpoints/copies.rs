@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::release_manifest::Sha256Hex;
 use sidekicks_platforms::{
-    RegularFileOpen, create_missing_private_folders, create_new_file, flush_folder,
+    RegularFileOpen, create_missing_private_folders, create_new_file, file_mode_of, flush_folder,
     flush_open_file, open_regular_file,
 };
 use sidekicks_std::cleanup_failures::CleanupFailures;
@@ -45,8 +45,13 @@ pub struct CopyStore {
 /// What stood at a path a copy was asked of.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FileCopyOutcome {
-    /// A regular file, whose bytes are kept under this hash.
-    Copied(Sha256Hex),
+    /// A regular file, whose bytes were kept.
+    Copied {
+        /// The SHA-256 its copy is named for.
+        hash: Sha256Hex,
+        /// Its permission bits as a Unix mode (the low twelve), which a put-back gives it again.
+        mode: u32,
+    },
     /// Nothing: the path, or a folder on its way, was not found.
     Gone,
     /// A link, which was not followed.
@@ -59,8 +64,8 @@ pub enum FileCopyOutcome {
 /// failed too, which the failure then carries.
 #[derive(Debug, thiserror::Error)]
 pub enum FileCopyError {
-    /// Opening or reading the file, or making the copy's temporary file, failed before anything
-    /// was written; or flushing the copies folder failed once a copy had its name.
+    /// Opening or reading the file, reading its mode, or making the copy's temporary file, failed
+    /// before anything was written; or flushing the copies folder failed once a copy had its name.
     #[error("the checkpoint copy could not be made")]
     Io(#[source] io::Error),
     /// A step on the copy's temporary file failed once it existed (hashing it, checking for a
@@ -114,6 +119,7 @@ impl CopyStore {
             }
             Err(error) => return Err(FileCopyError::Io(error)),
         };
+        let mode = file_mode_of(&file).map_err(FileCopyError::Io)?;
         let temporary = self.temporary_path()?;
         let hash = match clone_open_file(&file, &temporary) {
             Ok(()) => self.keep_clone(&temporary)?,
@@ -121,7 +127,7 @@ impl CopyStore {
             // A failed clone leaves nothing at the temporary path.
             Err(CloneOpenFileError::Failed(error)) => return Err(FileCopyError::Clone(error)),
         };
-        Ok(FileCopyOutcome::Copied(hash))
+        Ok(FileCopyOutcome::Copied { hash, mode })
     }
 
     /// Keeps a copy of every byte `reader` gives, as a byte copy, and answers its hash.
