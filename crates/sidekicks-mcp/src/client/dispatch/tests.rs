@@ -24,12 +24,10 @@ use crate::client::tasks::{McpTaskContact, McpToolCallEnd};
 use crate::client::test_server::{
     Reply, Responder, TestServer, contact, method_not_found, start_test_server, test_client,
     text_result, track_call, tracked_end, v1_initialize_result, v1_status_reply, v1_task,
+    wait_for_contact,
 };
 use crate::command_receipts::{CommandReceiptStore, background_statement};
 use crate::schema::schema_parts;
-
-/// How long [`until`] waits for its condition before it fails the test.
-const UNTIL_LIMIT: Duration = Duration::from_secs(120);
 
 /// A receipt row as stored: its status, whether it was claimed and ended, and its four task
 /// columns.
@@ -218,15 +216,6 @@ pub(super) fn tools_server(
     })
 }
 
-/// Waits, on the paused clock, until `condition` holds; fails the test after [`UNTIL_LIMIT`].
-pub(super) async fn until(mut condition: impl FnMut() -> bool) {
-    let started = Instant::now();
-    while !condition() {
-        assert!(started.elapsed() < UNTIL_LIMIT, "the condition never held");
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-}
-
 /// The ids of the requests the client told `server` it canceled.
 fn canceled_requests(server: &TestServer) -> Vec<Value> {
     server
@@ -264,7 +253,9 @@ async fn a_task_is_stored_on_its_receipt_before_its_first_poll_and_completes_inl
             .dispatch
             .call(&standing, track_call(), &contact, &uncanceled),
         async {
-            until(|| server.requests("tasks/get").len() == 1).await;
+            server
+                .wait_until(|server| server.requests("tasks/get").len() == 1)
+                .await;
             fixture.receipts()
         },
     );
@@ -309,7 +300,7 @@ async fn a_call_dropped_unanswered_leaves_its_receipt_claimed_without_a_task() {
         _ = fixture.dispatch.call(&standing, track_call(), &contact, &uncanceled) => {
             panic!("an unanswered call does not end");
         }
-        () = until(|| server.requests("tools/call").len() == 1) => {}
+        () = server.wait_until(|server| server.requests("tools/call").len() == 1) => {}
     }
 
     assert_eq!(
@@ -402,7 +393,9 @@ async fn a_canceled_task_is_asked_to_cancel_and_followed_to_the_end_it_reaches(
             .dispatch
             .call(&standing, track_call(), &contact, &cancellation),
         async {
-            until(|| server.requests("tasks/get").len() == 1).await;
+            server
+                .wait_until(|server| server.requests("tasks/get").len() == 1)
+                .await;
             cancellation.cancel();
         },
     );
@@ -438,12 +431,16 @@ async fn a_plain_call_canceled_before_its_answer_ends_canceled_with_its_end_unkn
             .dispatch
             .call(&standing, track_call(), &contact, &cancellation),
         async {
-            until(|| server.requests("tools/call").len() == 1).await;
+            server
+                .wait_until(|server| server.requests("tools/call").len() == 1)
+                .await;
             cancellation.cancel();
         },
     );
     let (end, written) = dispatched.expect("the call is dispatched").complete().await;
-    until(|| !canceled_requests(&server).is_empty()).await;
+    server
+        .wait_until(|server| !canceled_requests(server).is_empty())
+        .await;
 
     assert_eq!(end.expect("the call ends"), McpToolCallEnd::Canceled);
     written.expect("the caller writes the end");
@@ -469,14 +466,18 @@ async fn a_plain_call_cut_by_its_sessions_close_is_written_unknown_at_once() {
             .dispatch
             .call(&standing, track_call(), &contact, &uncanceled),
         async {
-            until(|| server.requests("tools/call").len() == 1).await;
+            server
+                .wait_until(|server| server.requests("tools/call").len() == 1)
+                .await;
             fixture.client.close_session(fixture.session_id).await;
             started.elapsed()
         },
     );
     let stored = fixture.receipts();
     let (end, written) = dispatched.expect("the call is dispatched").complete().await;
-    until(|| !canceled_requests(&server).is_empty()).await;
+    server
+        .wait_until(|server| !canceled_requests(server).is_empty())
+        .await;
 
     assert!(
         closed_after < Duration::from_secs(60),
@@ -511,7 +512,9 @@ async fn a_closing_sessions_task_is_canceled_before_its_connection_closes() {
             .dispatch
             .call(&standing, track_call(), &contact, &uncanceled),
         async {
-            until(|| !server.requests("tasks/get").is_empty()).await;
+            server
+                .wait_until(|server| !server.requests("tasks/get").is_empty())
+                .await;
             fixture.client.close_session(fixture.session_id).await;
         },
     );
@@ -546,9 +549,11 @@ async fn a_closing_sessions_task_whose_cancel_was_refused_is_not_asked_again() {
             .dispatch
             .call(&standing, track_call(), &contact, &cancellation),
         async {
-            until(|| !server.requests("tasks/get").is_empty()).await;
+            server
+                .wait_until(|server| !server.requests("tasks/get").is_empty())
+                .await;
             cancellation.cancel();
-            until(|| *contact.borrow() == CancelRefused { is_from_stop: true }).await;
+            wait_for_contact(&contact, CancelRefused { is_from_stop: true }).await;
             fixture.client.close_session(fixture.session_id).await;
         },
     );
@@ -596,7 +601,9 @@ async fn a_closing_sessions_task_that_ended_meanwhile_is_read_once_for_its_resul
             .dispatch
             .call(&standing, track_call(), &contact, &uncanceled),
         async {
-            until(|| !server.requests("tasks/get").is_empty()).await;
+            server
+                .wait_until(|server| !server.requests("tasks/get").is_empty())
+                .await;
             fixture.client.close_session(fixture.session_id).await;
         },
     );
@@ -679,7 +686,9 @@ async fn a_call_whose_session_closes_during_its_tools_read_sends_no_call() {
             .dispatch
             .call(&standing, track_call(), &contact, &uncanceled),
         async {
-            until(|| server.requests("tools/list").len() == 2).await;
+            server
+                .wait_until(|server| server.requests("tools/list").len() == 2)
+                .await;
             fixture.client.close_session(fixture.session_id).await;
         },
     );
@@ -713,7 +722,9 @@ async fn a_call_canceled_during_its_tools_read_leaves_the_tools_to_read_again() 
             .dispatch
             .call(&standing, track_call(), &contact, &cancellation),
         async {
-            until(|| server.requests("tools/list").len() == 2).await;
+            server
+                .wait_until(|server| server.requests("tools/list").len() == 2)
+                .await;
             cancellation.cancel();
         },
     );
@@ -749,7 +760,9 @@ async fn a_task_cut_by_the_clients_stop_leaves_its_receipt_in_flight() {
             .dispatch
             .call(&standing, track_call(), &contact, &uncanceled),
         async {
-            until(|| !server.requests("tasks/get").is_empty()).await;
+            server
+                .wait_until(|server| !server.requests("tasks/get").is_empty())
+                .await;
             fixture.client.stop().await;
         },
     );

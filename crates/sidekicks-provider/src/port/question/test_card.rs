@@ -232,6 +232,15 @@ impl QuestionCard {
         .await;
     }
 
+    /// Waits until the card took a withdrawal of `request_id`; fails the test past 60 s.
+    pub async fn wait_until_withdrawn(&self, request_id: &str) {
+        self.wait_until(
+            |card| card.withdrawals().iter().any(|taken| taken == request_id),
+            "the card takes the withdrawal",
+        )
+        .await;
+    }
+
     /// The request id of every withdrawal the card took, in order.
     pub fn withdrawals(&self) -> Vec<String> {
         self.withdrawals.lock().expect("never poisoned").clone()
@@ -243,6 +252,14 @@ impl QuestionCard {
         let gate = Arc::new(Notify::new());
         *self.withdraw_gate.lock().expect("never poisoned") = Some(Arc::clone(&gate));
         gate
+    }
+
+    /// Lets every withdrawal held back by [`Self::hold_withdrawals`] through, and each later one
+    /// pass at once.
+    pub fn release_withdrawals(&self) {
+        if let Some(gate) = self.withdraw_gate.lock().expect("never poisoned").take() {
+            gate.notify_waiters();
+        }
     }
 
     /// Waits for an open question and answers the oldest with `answers` through its answerer: a
@@ -414,10 +431,17 @@ impl QuestionPort for QuestionCard {
         &self,
         withdrawal: ProviderQuestionWithdrawal,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        let gate = self.withdraw_gate.lock().expect("never poisoned").clone();
+        // Waiting from the call itself, so a release made before the future first runs still
+        // reaches it.
+        let held = self
+            .withdraw_gate
+            .lock()
+            .expect("never poisoned")
+            .clone()
+            .map(Notify::notified_owned);
         async move {
-            if let Some(gate) = gate {
-                gate.notified().await;
+            if let Some(held) = held {
+                held.await;
             }
             self.withdrawals
                 .lock()

@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::client::connection::standing::McpStandingConnection;
 use crate::client::dispatch::tests::{
-    Fixture, StoredReceipt, receipt_without_task, silent_call_server, task_server, until,
+    Fixture, StoredReceipt, receipt_without_task, silent_call_server, task_server,
 };
 use crate::client::dispatch::{McpCallCompletionError, McpToolDispatchError};
 use crate::client::tasks::McpTaskContact::{
@@ -20,7 +20,7 @@ use crate::client::tasks::{McpServerEndpoint, McpToolCallEnd};
 use crate::client::test_server::{
     Reply, Responder, board_accepted, board_answer, board_form, completed, contact, input_required,
     method_not_found, text_result, track_call, tracked_end, tracker_address, v1_status_reply,
-    v2_task_server,
+    v2_task_server, wait_for_contact,
 };
 
 /// A fixture whose connections reach the server `tracker` at its address.
@@ -64,30 +64,25 @@ async fn a_task_whose_connection_a_reconnect_replaces_is_followed_on_the_new_one
     let contact = contact();
     let uncanceled = CancellationToken::new();
 
-    let (dispatched, new) = timeout(Duration::from_secs(600), async {
-        tokio::join!(
-            fixture
-                .dispatch
-                .call(&standing, track_call(), &contact, &uncanceled),
-            async {
-                until(|| !old.requests("tasks/get").is_empty()).await;
-                // The Reconnect publishes the new connection, then closes the old one under the
-                // follow.
-                let (_, new) = fixture
-                    .connect(task_server(|method, _| match method {
-                        "tasks/get" => v1_status_reply("completed"),
-                        "tasks/result" => {
-                            Reply::Answer(json!({ "result": text_result("tracked") }))
-                        }
-                        _ => method_not_found(),
-                    }))
-                    .await;
-                new
-            },
-        )
-    })
-    .await
-    .expect("the follow ends on the new connection");
+    let (dispatched, new) = tokio::join!(
+        fixture
+            .dispatch
+            .call(&standing, track_call(), &contact, &uncanceled),
+        async {
+            old.wait_until(|old| !old.requests("tasks/get").is_empty())
+                .await;
+            // The Reconnect publishes the new connection, then closes the old one under the
+            // follow.
+            let (_, new) = fixture
+                .connect(task_server(|method, _| match method {
+                    "tasks/get" => v1_status_reply("completed"),
+                    "tasks/result" => Reply::Answer(json!({ "result": text_result("tracked") })),
+                    _ => method_not_found(),
+                }))
+                .await;
+            new
+        },
+    );
     let (end, written) = dispatched.expect("the call is dispatched").complete().await;
 
     assert_eq!(end.expect("the call ends"), tracked_end());
@@ -129,7 +124,8 @@ async fn a_refused_stop_still_reads_refused_after_an_outage_and_a_reconnect() {
             .dispatch
             .call(&standing, track_call(), &contact, &cancellation),
         async {
-            until(|| old.requests("tasks/get").len() == 1).await;
+            old.wait_until(|old| old.requests("tasks/get").len() == 1)
+                .await;
             cancellation.cancel();
             let mut seen = contact.subscribe();
             seen.wait_for(|state| *state == CancelRefused { is_from_stop: true })
@@ -190,7 +186,8 @@ async fn a_2026_07_28_tasks_open_question_is_kept_across_a_reconnect_and_answere
                 }))
                 .await;
             // A poll on the new connection reads `k1` still waiting, where a key asked again shows.
-            until(|| !new.requests("tasks/get").is_empty()).await;
+            new.wait_until(|new| !new.requests("tasks/get").is_empty())
+                .await;
             fixture.card.answer_open(board_answer()).await;
             new
         },
@@ -313,11 +310,13 @@ async fn a_task_whose_server_is_no_longer_configured_reads_so_and_waits_until_th
             .dispatch
             .call(&standing, track_call(), &contact, &uncanceled),
         async {
-            until(|| !server.requests("tasks/get").is_empty()).await;
+            server
+                .wait_until(|server| !server.requests("tasks/get").is_empty())
+                .await;
             // The server is removed: no connection of it stays live.
             feed.publish(None);
             connection.close().await;
-            until(|| *contact.borrow() == NotConfigured).await;
+            wait_for_contact(&contact, NotConfigured).await;
             let polls = server.requests("tasks/get").len();
             tokio::time::sleep(Duration::from_secs(600)).await;
             assert_eq!(
@@ -335,7 +334,7 @@ async fn a_task_whose_server_is_no_longer_configured_reads_so_and_waits_until_th
                 .open(working_task_server(), Some(&other_address()))
                 .await;
             feed.publish(Some(Arc::new(elsewhere)));
-            until(|| *contact.borrow() == Reconfigured).await;
+            wait_for_contact(&contact, Reconfigured).await;
             feed.close().await;
         },
     );
@@ -378,7 +377,9 @@ async fn a_task_whose_connection_ends_with_no_reconnect_reads_lost_300_s_after_i
         async {
             // Every answer comes after this, so `Lost` is due no sooner than 300 s from here.
             let started = Instant::now();
-            until(|| server.requests("tasks/get").len() > 1).await;
+            server
+                .wait_until(|server| server.requests("tasks/get").len() > 1)
+                .await;
             // Its polls go unanswered for 250 s, then its transport ends on its own: the
             // connection stays published, nothing replaces it.
             tokio::time::sleep_until(started + Duration::from_secs(250)).await;
@@ -442,7 +443,7 @@ async fn a_task_whose_server_answered_errors_reads_errors_persisted_when_its_wai
             .dispatch
             .call(&standing, track_call(), &contact, &uncanceled),
         async {
-            until(|| *contact.borrow() == AnsweredWithErrors).await;
+            wait_for_contact(&contact, AnsweredWithErrors).await;
             // Its transport ends on its own while the errors show: nothing replaces it.
             connection.close().await;
             let mut seen = contact.subscribe();
@@ -481,12 +482,14 @@ async fn a_task_waiting_for_its_replacement_when_the_client_stops_stays_in_fligh
             .call(&standing, track_call(), &contact, &uncanceled),
         async {
             // The task is accepted before its connection is replaced.
-            until(|| !server.requests("tasks/get").is_empty()).await;
+            server
+                .wait_until(|server| !server.requests("tasks/get").is_empty())
+                .await;
             let (opened, _other) = fixture
                 .open(working_task_server(), Some(&other_address()))
                 .await;
             fixture.client.add_connection(opened).await;
-            until(|| *contact.borrow() == Reconfigured).await;
+            wait_for_contact(&contact, Reconfigured).await;
             fixture.client.stop().await;
         },
     );
@@ -515,7 +518,9 @@ async fn a_backgrounded_plain_call_cut_by_the_clients_stop_stays_in_flight() {
             .dispatch
             .call(&standing, track_call(), &contact, &uncanceled),
         async {
-            until(|| server.requests("tools/call").len() == 1).await;
+            server
+                .wait_until(|server| server.requests("tools/call").len() == 1)
+                .await;
             fixture.move_to_background("command-1");
             fixture.client.stop().await;
         },
@@ -550,11 +555,13 @@ async fn a_backgrounded_task_canceled_while_waiting_for_its_replacement_keeps_it
             .dispatch
             .call(&standing, track_call(), &contact, &cancellation),
         async {
-            until(|| !server.requests("tasks/get").is_empty()).await;
+            server
+                .wait_until(|server| !server.requests("tasks/get").is_empty())
+                .await;
             fixture.move_to_background("command-1");
             feed.publish(None);
             connection.close().await;
-            until(|| *contact.borrow() == NotConfigured).await;
+            wait_for_contact(&contact, NotConfigured).await;
             cancellation.cancel();
         },
     );
@@ -604,10 +611,10 @@ async fn a_dispatch_dropped_as_its_follow_leaves_the_tasks_watch_withdraws_the_t
             .call(&standing, track_call(), &contact, &uncanceled),
     );
 
-    let (task_question, withdraw_gate) = tokio::select! {
+    let task_question = tokio::select! {
         _ = &mut call => panic!("the call ended before its connection closed"),
         held = async {
-            until(|| server.requests("tools/call").len() == 1).await;
+            server.wait_until(|server| server.requests("tools/call").len() == 1).await;
             // A question outside the task, asked under the call, which the call's end withdraws.
             let call_question = json!({
                 "jsonrpc": "2.0",
@@ -624,18 +631,15 @@ async fn a_dispatch_dropped_as_its_follow_leaves_the_tasks_watch_withdraws_the_t
             fixture.card.wait_until_waiting(1).await;
             let task_question = fixture.card.waiting()[0].request_id.clone();
             // Held, so the end of the call's tracking would wait here if it awaited them.
-            let withdraw_gate = fixture.card.hold_withdrawals();
+            fixture.card.hold_withdrawals();
             feed.publish(None);
             connection.close().await;
-            until(|| *contact.borrow() == NotConfigured).await;
-            (task_question, withdraw_gate)
+            wait_for_contact(&contact, NotConfigured).await;
+            task_question
         } => held,
     };
     drop(call);
 
-    until(|| {
-        withdraw_gate.notify_waiters();
-        fixture.card.withdrawals().contains(&task_question)
-    })
-    .await;
+    fixture.card.release_withdrawals();
+    fixture.card.wait_until_withdrawn(&task_question).await;
 }

@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 use super::live::task_elicitation;
 use super::{address_task_receipt, fixture_at_address, working_task_server};
 use crate::client::connection::standing::McpStandingConnection;
-use crate::client::dispatch::tests::{Fixture, task_server, tools_server, until};
+use crate::client::dispatch::tests::{Fixture, task_server, tools_server};
 use crate::client::dispatch::{McpCallCompletionError, McpDispatchedCall};
 use crate::client::tasks::McpTaskContact::{CancelRefused, NotConfigured, Reached};
 use crate::client::tasks::{
@@ -24,7 +24,7 @@ use crate::client::tasks::{
 use crate::client::test_server::{
     Reply, Responder, board_accepted, board_answer, completed, contact, input_required,
     method_not_found, text_result, track_call, tracked_end, tracker_address, v1_initialize_result,
-    v1_status_reply, v2_task_server,
+    v1_status_reply, v2_task_server, wait_for_contact,
 };
 use crate::command_receipts::{InFlightReceipt, InFlightTask};
 
@@ -176,7 +176,7 @@ async fn a_task_resumed_with_no_connection_of_its_server_reads_so_and_waits_for_
     let (dispatched, _server) = tokio::join!(
         resume(&fixture, &standing, receipt, &contact, &uncanceled),
         async {
-            until(|| *contact.borrow() == NotConfigured).await;
+            wait_for_contact(&contact, NotConfigured).await;
             tokio::time::sleep(Duration::from_mins(10)).await;
             assert_eq!(
                 fixture.receipts(),
@@ -276,7 +276,9 @@ async fn a_resumed_task_whose_session_closes_is_canceled_and_written_by_its_disp
     let (dispatched, ()) = tokio::join!(
         resume(&fixture, &standing, receipt, &contact, &uncanceled),
         async {
-            until(|| !server.requests("tasks/get").is_empty()).await;
+            server
+                .wait_until(|server| !server.requests("tasks/get").is_empty())
+                .await;
             fixture.client.close_session(fixture.session_id).await;
         },
     );
