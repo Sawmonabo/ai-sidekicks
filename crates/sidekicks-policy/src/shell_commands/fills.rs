@@ -231,12 +231,16 @@ impl CommandLineFills {
     /// variable's reference in that shell's form for the fill's place: the bash reading places it
     /// for a POSIX shell and cmd.exe, the PowerShell reading for PowerShell and the csh scan for
     /// csh, and fish takes `"$V"` everywhere; under cmd.exe the author's `^` and `!` are escaped
-    /// where delayed expansion would read them. Fails with the first fill the reading refuses. Runs
-    /// inside one read of the reading bound.
+    /// where delayed expansion would read them, and there an author's `%…%` reference to a
+    /// variable `environment` defines is written in its delayed form `!…!`; `environment` is the
+    /// launch's names and values, which only cmd.exe reads, its names compared as Windows does,
+    /// ignoring case. Fails with the first fill the reading refuses. Runs inside one read of the
+    /// reading bound.
     pub fn fill_for_launch(
         &self,
         reader: &mut ShellLineReader,
         shell: ShellGrammar,
+        environment: &[(&str, &str)],
     ) -> Result<String, RefusedFill> {
         let placings = match shell {
             ShellGrammar::Posix(_) => bash::place_fills(reader, self),
@@ -274,7 +278,9 @@ impl CommandLineFills {
         }
         filled.push_str(&self.line[kept_from..]);
         Ok(match shell {
-            ShellGrammar::Cmd => cmd::keep_through_delayed_expansion(&filled, &references),
+            ShellGrammar::Cmd => {
+                cmd::keep_through_delayed_expansion(&filled, &references, environment)
+            }
             ShellGrammar::Posix(_)
             | ShellGrammar::Fish
             | ShellGrammar::Csh
@@ -413,6 +419,10 @@ mod tests {
     // Far past every line here, so only the limit case reaches a limit.
     const LIMIT: usize = 4_096;
 
+    // A cmd launch's environment: names spelled in another case than the lines spell them, a
+    // value holding a `^` and one holding a `!`.
+    const CMD_ENVIRONMENT: &[(&str, &str)] = &[("Target", "C:\\a^b"), ("Bang", "a!b")];
+
     // The fills of a command step's line, written as its param holds it after the `=`.
     fn fills_of(line: &str) -> CommandLineFills {
         let text = format!("={line}");
@@ -427,7 +437,7 @@ mod tests {
     }
 
     fn launch(line: &str, shell: ShellGrammar) -> Result<String, RefusedFill> {
-        fills_of(line).fill_for_launch(&mut ShellLineReader::new(LIMIT), shell)
+        fills_of(line).fill_for_launch(&mut ShellLineReader::new(LIMIT), shell, &[])
     }
 
     fn grammar(program: &str) -> ShellGrammar {
@@ -624,8 +634,10 @@ mod tests {
     }
 
     // cmd.exe's delayed expansion reads again each piece of a command holding a `!`, the arguments
-    // as one piece, so a launch escapes the author's `^` and `!` there, inside quotes and out, and
-    // leaves a redirection's target and another command without a `!` as written.
+    // as one piece, and of an `if` each compared value alone, so a launch escapes the author's
+    // `^` and `!` there, inside quotes and out, and leaves a name running through a `/`, a
+    // redirection's target, another command, an `if`'s other value and its command without a `!`
+    // as written.
     #[rstest]
     #[case::a_caret_in_a_string("grep \"^{{ x }}\" file", "grep \"^^!SIDEKICKS_VALUE_1!\" file")]
     #[case::a_caret_before_text_in_a_string(
@@ -633,6 +645,10 @@ mod tests {
         "grep \"^^a !SIDEKICKS_VALUE_1!\" file"
     )]
     #[case::an_escaped_caret("echo ^^{{ x }}", "echo ^^^^\"!SIDEKICKS_VALUE_1!\"")]
+    #[case::an_escaped_caret_in_a_name_running_through_a_slash(
+        "echo/^^ {{ x }}",
+        "echo/^^ \"!SIDEKICKS_VALUE_1!\""
+    )]
     #[case::an_exclamation_mark("echo \"a!\" {{ x }}", "echo \"a^!\" \"!SIDEKICKS_VALUE_1!\"")]
     #[case::a_redirections_target(
         "grep \"^a\" {{ x }} > \"^b\"",
@@ -642,11 +658,89 @@ mod tests {
         "echo \"^a\" & echo {{ x }}",
         "echo \"^a\" & echo \"!SIDEKICKS_VALUE_1!\""
     )]
+    #[case::an_if_comparison(
+        "IF \"^a{{ x }}\"==\"^b\" echo \"^c\"",
+        "IF \"^^a!SIDEKICKS_VALUE_1!\"==\"^b\" echo \"^c\""
+    )]
+    #[case::an_if_comparison_after_its_options(
+        "IF /I NOT \"^a\" EQU \"^b{{ x }}\" echo \"^c\"",
+        "IF /I NOT \"^a\" EQU \"^^b!SIDEKICKS_VALUE_1!\" echo \"^c\""
+    )]
     fn a_cmd_launch_keeps_the_written_text_through_delayed_expansion(
         #[case] line: &str,
         #[case] filled: &str,
     ) {
         assert_eq!(launch(line, ShellGrammar::Cmd), Ok(filled.to_owned()));
+    }
+
+    // Of a `for` delayed expansion reads the set alone, and the command after `do` as a command of
+    // its own; each case runs the escape step on the line a launch would build.
+    #[rstest]
+    #[case::a_reference_in_the_set(
+        "for %i in (\"^a\" \"!SIDEKICKS_VALUE_1!\") do echo \"^b\"",
+        "for %i in (\"^^a\" \"!SIDEKICKS_VALUE_1!\") do echo \"^b\""
+    )]
+    #[case::a_reference_in_the_command(
+        "for %i in (\"^a\") do echo \"^b\" \"!SIDEKICKS_VALUE_1!\"",
+        "for %i in (\"^a\") do echo \"^^b\" \"!SIDEKICKS_VALUE_1!\""
+    )]
+    fn a_cmd_for_keeps_the_written_text_through_delayed_expansion(
+        #[case] line: &str,
+        #[case] kept: &str,
+    ) {
+        let reference = "\"!SIDEKICKS_VALUE_1!\"";
+        let start = line.find(reference).expect("each line holds the reference");
+        let range = start..start + reference.len();
+        assert_eq!(
+            cmd::keep_through_delayed_expansion(line, std::slice::from_ref(&range), &[]),
+            kept
+        );
+    }
+
+    // In a piece delayed expansion reads again, a `%…%` reference to a variable the launch's
+    // environment defines, its substring and substitution forms included, is written in its
+    // delayed form, escaped outside quotes for the second phase, so its value keeps its `^` and
+    // `!`; an undefined one stays as written, and the first reading goes on from after its first
+    // `%`, so a defined name can start at its second. A piece holding a variable whose value has a
+    // `!` is read again, and a redirection's target without a `!` keeps a defined name as written.
+    #[rstest]
+    #[case::a_defined_name(
+        "copy {{ x }} \"%TARGET%\"",
+        "copy \"!SIDEKICKS_VALUE_1!\" \"!TARGET!\""
+    )]
+    #[case::an_undefined_name(
+        "copy {{ x }} \"%SOURCE%\"",
+        "copy \"!SIDEKICKS_VALUE_1!\" \"%SOURCE%\""
+    )]
+    #[case::a_defined_name_after_an_undefined_one(
+        "copy {{ x }} %SOURCE%TARGET%",
+        "copy \"!SIDEKICKS_VALUE_1!\" %SOURCE!TARGET!"
+    )]
+    #[case::a_substring_form(
+        "copy {{ x }} \"%TARGET:~0,4%\"",
+        "copy \"!SIDEKICKS_VALUE_1!\" \"!TARGET:~0,4!\""
+    )]
+    #[case::a_substitution_form_outside_quotes(
+        "copy {{ x }} %TARGET:^=+%",
+        "copy \"!SIDEKICKS_VALUE_1!\" !TARGET:^^=+!"
+    )]
+    #[case::a_value_holding_a_mark(
+        "echo {{ x }} & echo \"^a\" %BANG%",
+        "echo \"!SIDEKICKS_VALUE_1!\" & echo \"^^a\" !BANG!"
+    )]
+    #[case::a_target_not_read_again(
+        "copy {{ x }} b > \"%TARGET%\"",
+        "copy \"!SIDEKICKS_VALUE_1!\" b > \"%TARGET%\""
+    )]
+    fn a_cmd_launch_hands_a_defined_variable_over_unscanned(
+        #[case] line: &str,
+        #[case] filled: &str,
+    ) {
+        let mut reader = ShellLineReader::new(LIMIT);
+        assert_eq!(
+            fills_of(line).fill_for_launch(&mut reader, ShellGrammar::Cmd, CMD_ENVIRONMENT),
+            Ok(filled.to_owned())
+        );
     }
 
     // The places a launch refuses with the rule that names them: a quote inside a substitution
