@@ -220,11 +220,11 @@ fn a_won_round_takes_only_its_own_pass_and_a_same_turn_loser_never_runs() {
 /// that step's other descendants never feed the winner a second round: the trigger feeds A, Y and
 /// P; A and Z feed M's first main slot, Y feeds Z and B's first slot, P feeds B's second, and B
 /// feeds M's second. Inside a loop, a step the win overtook feeds the loop node before M nothing,
-/// so it never starts a new pass, while a feed the win did not overtake, decided in the win's
-/// visit after it, starts one, whose feeds win again. Mutations: leave a step or round the win
-/// overtook unread at its decision (B readied by the flush); let a feed the win overtook open
-/// another round (M readied again from Z); admit the loop's new pass from a step the win overtook
-/// (L readied from Y); keep the win across the pass a feed it did not overtake starts (M never
+/// so it never starts a new pass, while the loop node's round, decided in the win's visit after
+/// it, is never overtaken and starts one, whose feeds win again. Mutations: leave a step or round
+/// the win overtook unread at its decision (B readied by the flush); let a feed the win overtook
+/// open another round (M readied again from Z); admit the loop's new pass from a step the win
+/// overtook (L readied from Y); let the win overtake the round of a loop node before it (M never
 /// runs on pass 1).
 #[test]
 fn a_loser_readied_in_a_later_turn_never_runs_and_the_winner_runs_once_a_pass() {
@@ -469,6 +469,48 @@ fn a_loops_next_pass_keeps_a_round_a_live_step_of_its_last_pass_still_fills() {
     assert_eq!(
         describe(&walk.settle(&readied(&l_turn, "S"), &[1])),
         ["ready J run 0 exec 9 from R:0@4 S:0@5"]
+    );
+}
+
+/// A step that reaches a win's node only through a loop node before it is no loser of the win,
+/// even on no loop pass: the trigger feeds the loop node L and S, which also feeds L; L feeds A
+/// and B, A feeds M's first main slot and B its second, and M wires back into L. A wins M while S
+/// is live, and S's feed then starts L's next pass. Mutation: let the win overtake every live step
+/// of its loop passes, so S, which holds none, is overtaken and its feed into L is dropped.
+#[test]
+fn a_step_before_a_loop_keeps_its_feed_into_the_loop_after_a_win_inside_it() {
+    let (mut walk, start_turn) = start(
+        vec![
+            node("trigger", "test.trigger", 0, false),
+            node("L", "test.loop", 1, false),
+            node("S", "test.step", 2, false),
+            node("A", "test.step", 3, false),
+            node("B", "test.step", 4, false),
+            node("M", "test.first", 5, false),
+        ],
+        &[
+            edge("trigger", 0, "L", 0),
+            edge("trigger", 0, "S", 0),
+            edge("S", 0, "L", 0),
+            edge("L", 1, "A", 0),
+            edge("L", 1, "B", 0),
+            edge("A", 0, "M", 0),
+            edge("B", 0, "M", 1),
+            edge("M", 0, "L", 0),
+        ],
+    );
+    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
+    let l_turn = walk.settle(&readied(&trigger_turn, "L"), &[0, 1]);
+    assert_eq!(
+        describe(&walk.settle(&readied(&l_turn, "A"), &[1])),
+        [
+            "ready M run 0 exec 5 from A:0@3 - -",
+            "win M exec 5 losers [B@4]"
+        ]
+    );
+    assert_eq!(
+        describe(&walk.settle(&readied(&trigger_turn, "S"), &[1])),
+        ["ready L run 1 exec 6 from S:0@2"]
     );
 }
 

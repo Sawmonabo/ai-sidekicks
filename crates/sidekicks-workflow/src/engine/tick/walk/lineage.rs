@@ -38,7 +38,7 @@ impl LoopPasses {
 #[derive(Clone, Default)]
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(super) struct StepLineage {
-    /// The wins, by index, decided while it or a step it descends from was pending.
+    /// The wins, by index, that overtook it or a step it descends from.
     pub(super) overtaken_by: BTreeSet<usize>,
     /// The pass of each loop it belongs to.
     pub(super) passes: LoopPasses,

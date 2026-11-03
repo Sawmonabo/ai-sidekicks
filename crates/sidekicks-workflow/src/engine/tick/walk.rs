@@ -2,11 +2,13 @@
 //! settles in log order. Each settle feeds its outputs into the input slots of the nodes they
 //! enter, a node's slots fill in rounds by run index, and a full round with items is decided; a
 //! first-to-arrive node's round is decided by its first input with items. Every step and round
-//! of the win's loop passes still pending when such a win is decided is overtaken by it, and so is
-//! all it leads to, in that turn or a later one: at a losing place of the win it is canceled, and
-//! into the won node it feeds only the won round. A loop's later pass, started before the win, is
-//! not its to reach. Once the run is quiet, the flush decides what still waits, a node only
-//! once none of its ancestors waits.
+//! of the win's loop passes still pending, when such a win is decided, at a place on the way to
+//! the won node and not before a loop node that precedes it is overtaken by it, and so is all it
+//! leads to, in that turn or a later one: at a losing place of the win it is canceled, and into
+//! the won node it feeds only the won round. A loop's later pass, started before the win, and a
+//! step that reaches the won node only through a loop node's next pass are not its to reach. Once
+//! the run is quiet, the flush decides what still waits, a node only once none of its ancestors
+//! waits.
 
 mod first_to_arrive;
 mod graph;
@@ -94,8 +96,8 @@ struct LiveStep {
     run_index: u64,
     /// The feed of each main input slot in slot order, which a retry runs on again.
     sources: Vec<Option<WorkflowStepSource>>,
-    /// The wins, by index, decided while this step or a step it descends from was pending, and
-    /// the loop passes it belongs to.
+    /// The wins, by index, that overtook this step or a step it descends from, and the loop
+    /// passes it belongs to.
     lineage: StepLineage,
 }
 
@@ -474,9 +476,10 @@ impl RunWalk {
     /// Decides the round of the node at `place` under `run_index`. A first-to-arrive node's round
     /// readies on its lowest slot with items, the other slots read as fed nothing, and stays open
     /// for the late feeds its win overtook until no slot can still be fed. The win overtakes every
-    /// live step and every other open round of its loop passes; a loser readied earlier in this
-    /// turn is taken back from its ready steps and canceled undispatched, and one the win overtook
-    /// decided later, in this turn or another, is canceled. Any other node's round is run once
+    /// live step and every other open round of its loop passes at a place it reaches, as
+    /// `reached_places_of` tells; a loser readied earlier in this turn is taken back from its ready
+    /// steps and canceled undispatched, and one the win overtook decided later, in this turn or
+    /// another, is canceled. Any other node's round is run once
     /// every slot is filled and one holds items. A round decided already, or whose filled slots are
     /// all empty, is left as it is.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
@@ -515,6 +518,7 @@ impl RunWalk {
             .collect();
         let lineage = round.lineage.clone();
         let is_losing = self.losing_places_of(place, winning_slot);
+        let is_reached = self.reached_places_of(place);
         let win = self.wins.len();
         self.wins.push(DecidedWin {
             place,
@@ -538,13 +542,14 @@ impl RunWalk {
             false
         });
         for live_step in self.live.values_mut() {
-            if passes.is_same_as(&live_step.lineage.passes) {
+            if is_reached[live_step.place] && passes.is_same_as(&live_step.lineage.passes) {
                 live_step.lineage.overtaken_by.insert(win);
             }
         }
         for (other_place, rounds) in self.rounds.iter_mut().enumerate() {
             for (&other_run_index, round) in &mut rounds.open {
                 if (other_place, other_run_index) != (place, run_index)
+                    && is_reached[other_place]
                     && passes.is_same_as(&round.lineage.passes)
                 {
                     round.lineage.overtaken_by.insert(win);
@@ -598,6 +603,28 @@ impl RunWalk {
         overtaken_by
             .iter()
             .any(|&win| self.wins[win].is_losing[place])
+    }
+
+    /// Which places, by place, a win of the node at `place` reaches: the node and the places
+    /// that precede it, through whose steps the losing branches and the late feeds into the node
+    /// run, but not a loop node that precedes it or a place before one, whose feeds into that
+    /// loop node start its next pass rather than lose or straggle on this one.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    fn reached_places_of(&self, place: usize) -> Vec<bool> {
+        let graph = &self.graph;
+        let loops_before: Vec<usize> = (0..graph.node_count())
+            .filter(|&loop_place| {
+                graph.node(loop_place).loop_output.is_some() && graph.is_ancestor(loop_place, place)
+            })
+            .collect();
+        (0..graph.node_count())
+            .map(|other| {
+                (other == place || graph.is_ancestor(other, place))
+                    && !loops_before.iter().any(|&loop_place| {
+                        other == loop_place || graph.is_ancestor(other, loop_place)
+                    })
+            })
+            .collect()
     }
 
     /// Which places lose when the node at `place` wins on `winning_slot`, by place.
@@ -691,8 +718,8 @@ impl RunWalk {
 
     /// Readies `step` of the node at `place`, of `lineage`, making it live. A loop node's step
     /// belongs to the passes around its loop, not its own; it starts a new pass of what it leads
-    /// to, so it drops the wins of the nodes it precedes that its round was pending at, whose
-    /// rounds of that pass are new, and closes the rounds of earlier passes nothing can fill.
+    /// to, so it closes the rounds of earlier passes nothing can fill. No win at a node it
+    /// precedes reaches it: such a win never marks it, and its feeds that carry one are dropped.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn ready(
         &mut self,
@@ -704,9 +731,6 @@ impl RunWalk {
         turn: &mut WalkTurn,
     ) {
         if self.graph.node(place).loop_output.is_some() {
-            lineage
-                .overtaken_by
-                .retain(|&win| !self.graph.is_ancestor(place, self.wins[win].place));
             lineage.passes.leave(place);
             self.close_passed_rounds(place);
         }

@@ -31,8 +31,8 @@ pub(super) struct Round {
     /// overtook, until no slot can still be fed, and a feed it did not overtake, a loop's next pass
     /// among them, goes to a later round.
     pub(super) won: Option<usize>,
-    /// The wins, by index, this round was pending at or descends from a step pending at, and the
-    /// loop passes its feeds belong to.
+    /// The wins, by index, that overtook this round or a step it descends from, and the loop
+    /// passes its feeds belong to.
     pub(super) lineage: StepLineage,
 }
 
