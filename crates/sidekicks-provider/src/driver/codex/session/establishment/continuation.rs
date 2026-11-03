@@ -5,8 +5,8 @@
 //! the daemon only joined, Codex continued the cut turn itself before the daemon came back and
 //! sends it no start of that turn, so the daemon ends the cut turns in the log and holds the turn
 //! the resume's page shows continuing them as the run's next, marked to pause at its next step
-//! end where the lead was pausing. A lead held on the person is not continued at the start, nor a
-//! pausing lead on its own service; neither is a pausing lead whose continuation is already over.
+//! end where the lead was pausing, or ended as the pause's turn where it is already over. A lead
+//! held on the person is not continued at the start, nor a pausing lead on its own service.
 //! A joined service's continuation of a lead held on the person is marked held, so its end is
 //! written as the daemon's and the lead keeps waiting for the person's answer.
 //!
@@ -265,11 +265,12 @@ impl CodexSessionEstablishment {
     // pausing lead's is marked to pause at its next step end, as the pause asked of it would. One
     // already over, on a running or waiting lead with no stop pending, is held unopened, so its
     // listed end, routed as the session opens, opens it and ends the run, and answers
-    // `EndedByProvider`. A lead held on the person, its own ask or a helper's beneath it, has its
+    // `EndedByProvider`; on a pausing lead it is opened as the pause's turn, so its listed end
+    // pauses the run. A lead held on the person, its own ask or a helper's beneath it, has its
     // continuation marked held, so either end of it, live or listed, is written as the daemon's
     // and leaves the run waiting for the answer: one already over answers `Waiting`. A stopping
-    // or pausing lead's ended continuation, a run whose cut turn's end could not be written, and
-    // a lead with no continuation are not taken.
+    // lead's ended continuation, a run whose cut turn's end could not be written, and a lead with
+    // no continuation are not taken.
     async fn adopt_continued_turns(
         &self,
         record: &mut CodexSessionRecord,
@@ -305,9 +306,8 @@ impl CodexSessionEstablishment {
             };
             let is_running = is_codex_turn_in_progress(&continuation.turn);
             let is_held = run.is_held(live_runs);
-            // A stop pending on the lead settles it once its continuation is over, and a pause
-            // pending on it is owed its continuation's end in the log.
-            if (!is_running && (run.is_stopping || run.run_state == RunState::Pausing))
+            // A stop pending on the lead settles it once its continuation is over.
+            if (!is_running && run.is_stopping)
                 || !self.end_cut_turns(record, run, &cut.turn_numbers).await
             {
                 continue;
@@ -334,6 +334,16 @@ impl CodexSessionEstablishment {
             } else if is_held {
                 ProviderTurnAnswer::Waiting
             } else {
+                // A pausing lead's continuation is the pause's turn, so its listed end pauses it.
+                if run.run_state == RunState::Pausing {
+                    record
+                        .paused_run_id_by_interrupted_turn_id
+                        .insert(continuation.id.clone(), run.run_id);
+                    self.dependencies
+                        .delivery
+                        .open_started_turn(record, &continuation.id)
+                        .await;
+                }
                 ProviderTurnAnswer::EndedByProvider
             };
             continued.push(ResumedRunAnswer {
