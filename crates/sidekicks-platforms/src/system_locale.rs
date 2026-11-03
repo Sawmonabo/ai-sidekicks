@@ -30,7 +30,7 @@ impl HourField {
     /// field is padded (`03:00`).
     #[expect(
         clippy::wildcard_enum_match_arm,
-        reason = "the hour cycle is an open union, and a cycle added to it reads as the 12-hour clock"
+        reason = "the hour cycle is an open union; a cycle added to it reads as the 12-hour clock"
     )]
     pub fn time_of_day(self, hour: i8, minute: i8) -> String {
         let (shown_hour, has_period) = match self.cycle {
