@@ -438,7 +438,7 @@ impl RunWalk {
 
     /// Decides the round of the node at `place` under `run_index`. A first-to-arrive node's round
     /// readies on its lowest slot with items, the other slots read as fed nothing, and stays open
-    /// for the late feeds its win overtook until every slot has fed. The win overtakes every live
+    /// for the late feeds its win overtook until no slot can still be fed. The win overtakes every live
     /// step and every other open round; a loser readied earlier in this turn is taken back from
     /// its ready steps and canceled undispatched, and one the win overtook decided later, in this
     /// turn or another, is canceled. Any other node's round is run once every slot is filled and
@@ -459,7 +459,7 @@ impl RunWalk {
             return;
         }
         if round.is_won() {
-            if round.is_full() {
+            if self.is_spent(place, round) {
                 self.take_round(place, run_index);
             }
             return;
@@ -478,7 +478,6 @@ impl RunWalk {
             .enumerate()
             .map(|(slot, source)| source.filter(|_| slot == winning_slot))
             .collect();
-        let is_full = round.is_full();
         let overtaken_by = round.overtaken_by.clone();
         let is_losing = self.losing_places_of(place, winning_slot);
         let win = self.wins.len();
@@ -515,7 +514,7 @@ impl RunWalk {
             .get_mut(&run_index)
             .expect("the round being decided is open");
         round.won = Some(win);
-        if is_full {
+        if self.is_spent(place, &self.rounds[place].open[&run_index]) {
             self.take_round(place, run_index);
         }
         let step = self.take_step(place);
@@ -524,6 +523,24 @@ impl RunWalk {
             losers,
         });
         self.ready(place, step, run_index, sources, overtaken_by, turn);
+    }
+
+    /// Whether the won `round` of the node at `place` can take no more feeds: every slot not yet
+    /// fed is fed only from places on a losing branch of its win, whose steps the win cancels.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    fn is_spent(&self, place: usize, round: &Round) -> bool {
+        let Some(win) = round.won else {
+            return false;
+        };
+        let is_losing = &self.wins[win].is_losing;
+        round
+            .slots
+            .iter()
+            .zip(&self.graph.node(place).slots)
+            .all(|(slot, input)| {
+                matches!(slot, RoundSlot::Filled { .. })
+                    || input.feeders.iter().all(|&feeder| is_losing[feeder])
+            })
     }
 
     /// Whether the node at `place` is on a losing branch of one of the wins `overtaken_by`.

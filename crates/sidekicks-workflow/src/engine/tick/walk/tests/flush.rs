@@ -138,7 +138,8 @@ fn loop_quiet_walk() -> RunWalk {
     walk
 }
 
-/// A quiet walk whose first-to-arrive M won on A and ran, B dropped before it fed M.
+/// A quiet walk whose first-to-arrive M won on A and ran, B, which also feeds D and so is no
+/// loser, dropped before it fed M.
 fn won_round_quiet_walk() -> RunWalk {
     let (mut walk, start_turn) = start(
         vec![
@@ -146,12 +147,14 @@ fn won_round_quiet_walk() -> RunWalk {
             node("A", "test.step", 1, false),
             node("B", "test.step", 2, false),
             node("M", "test.first", 3, false),
+            node("D", "test.step", 4, false),
         ],
         &[
             edge("trigger", 0, "A", 0),
             edge("trigger", 0, "B", 0),
             edge("A", 0, "M", 0),
             edge("B", 0, "M", 1),
+            edge("B", 0, "D", 0),
         ],
     );
     let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);

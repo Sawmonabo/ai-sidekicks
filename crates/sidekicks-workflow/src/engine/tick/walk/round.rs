@@ -26,7 +26,7 @@ pub(super) struct Round {
     pub(super) slots: Vec<RoundSlot>,
     /// Where a first-to-arrive node's step already ran on the round, the index of that win among
     /// the walk's wins: the round then takes, without a step, only the late feeds the win
-    /// overtook, until every slot has fed, and a feed it did not overtake, a loop's next pass
+    /// overtook, until no slot can still be fed, and a feed it did not overtake, a loop's next pass
     /// among them, goes to a later round.
     pub(super) won: Option<usize>,
     /// The wins, by index, this round was pending at or descends from a step pending at.
@@ -49,14 +49,6 @@ impl Round {
             Some(win) => overtaken_by.contains(&win),
             None => !is_claimed,
         }
-    }
-
-    /// Whether every slot is filled.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-    pub(super) fn is_full(&self) -> bool {
-        self.slots
-            .iter()
-            .all(|slot| matches!(slot, RoundSlot::Filled { .. }))
     }
 
     /// The lowest slot whose feed carries items, `None` when no slot's does.

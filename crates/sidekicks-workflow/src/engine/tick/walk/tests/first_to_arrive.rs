@@ -11,12 +11,12 @@ use crate::engine::tick::walk::{RunWalk, WalkTurn};
 use crate::expressions::lineage::{StepKey, StepOutput, StepOutputs};
 
 /// A first-to-arrive node readies on its first input with items, passing that input in its spec
-/// place, and its losers are only the live steps whose branch feeds nothing else; a straggler's
-/// late feed enters the won round without a second step, a loser readied after the win from a
-/// shared ancestor (C, from X) is canceled, and the won round it never fed closes once the run is
-/// quiet; with every branch empty nothing wins and the flush skips it. Mutations: let an empty
-/// input win; cancel a shared ancestor (X); let a straggler ready the node again; ready a loser
-/// decided after the win; use the slot index as the spec position.
+/// place, and its losers are only the live steps whose branch feeds nothing else; its won round,
+/// whose unfed slots those losers alone feed, closes at the win, a straggler's late feed readies no
+/// second step, and a loser readied after the win from a shared ancestor (C, from X) is canceled;
+/// with every branch empty nothing wins and the flush skips it. Mutations: let an empty input win;
+/// cancel a shared ancestor (X); let a straggler ready the node again; ready a loser decided after
+/// the win; use the slot index as the spec position; keep a won round its losers alone feed open.
 #[test]
 fn first_to_arrive_wins_on_items_and_cancels_only_its_losing_branch() {
     let (mut walk, start_turn) = first_to_arrive_walk();
@@ -30,6 +30,7 @@ fn first_to_arrive_wins_on_items_and_cancels_only_its_losing_branch() {
             "win M exec 4 losers [B@2]"
         ]
     );
+    assert_eq!(open_rounds(&walk, "M"), Vec::<u64>::new());
     let a_items: Vec<WorkflowItem> = (0..2)
         .map(|number| {
             serde_json::from_value(json!({ "json": { "number": number } }))
@@ -60,7 +61,6 @@ fn first_to_arrive_wins_on_items_and_cancels_only_its_losing_branch() {
         describe(&x_turn),
         ["ready Y run 0 exec 6 from X:0@3", "canceled C exec 5"]
     );
-    assert_eq!(open_rounds(&walk, "M"), [0]);
     for (turn, node_id) in [(&a_turn, "M"), (&x_turn, "Y")] {
         assert_eq!(
             describe(&walk.settle(&readied(turn, node_id), &[1])),
@@ -68,7 +68,7 @@ fn first_to_arrive_wins_on_items_and_cancels_only_its_losing_branch() {
         );
     }
     assert_eq!(describe(&walk.flush()), Vec::<String>::new());
-    assert_eq!(open_rounds(&walk, "M"), Vec::<u64>::new());
+    assert_eq!(every_open_round(&walk), Vec::<String>::new());
 
     let (mut walk, start_turn) = first_to_arrive_walk();
     let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
@@ -113,14 +113,14 @@ fn looping_first_to_arrive_walk() -> (RunWalk, WalkTurn) {
 }
 
 /// Inside a loop, a first-to-arrive win names the live step on its losing branch, though the loop
-/// comes back round to that branch, and its round takes only its own pass's late feed: that
-/// pass's straggler closes it, and the next pass's feed opens the next round and wins it, naming
-/// the next pass's loser. A loser readied earlier in the turn of its win is taken back from the
-/// turn's ready steps and canceled, and one decided later in that turn, run, skipped or won as a
-/// first-to-arrive node itself, is canceled before it can feed the winner a second round.
-/// Mutations: follow a loop's back edge to the losers, so none loses; let a won round take any
-/// feed; let it take none; leave a same-turn loser ready; ready or skip a loser decided after the
-/// win; let a first-to-arrive loser decided after the win win its own round.
+/// comes back round to that branch, and that loser's late feed readies nothing: the next pass's
+/// feed opens the next round and wins it, naming the next pass's loser. A loser readied earlier
+/// in the turn of its win is taken back from the turn's ready steps and canceled, and one decided
+/// later in that turn, run, skipped or won as a first-to-arrive node itself, is canceled before it
+/// can feed the winner a second round, the won round closing at the win. Mutations: follow a
+/// loop's back edge to the losers, so none loses; let the loser's late feed open a round; leave a
+/// same-turn loser ready; ready or skip a loser decided after the win; let a first-to-arrive loser
+/// decided after the win win its own round; keep the won round open.
 #[test]
 fn a_won_round_takes_only_its_own_pass_and_a_same_turn_loser_never_runs() {
     let (mut walk, start_turn) = looping_first_to_arrive_walk();
@@ -212,7 +212,7 @@ fn a_won_round_takes_only_its_own_pass_and_a_same_turn_loser_never_runs() {
             ]
         );
         assert_eq!(walk.live.keys().copied().collect::<Vec<_>>(), [1]);
-        assert_eq!(open_rounds(&walk, "M"), [0]);
+        assert_eq!(open_rounds(&walk, "M"), Vec::<u64>::new());
     }
 }
 
