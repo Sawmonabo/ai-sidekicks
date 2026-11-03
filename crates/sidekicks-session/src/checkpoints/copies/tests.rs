@@ -1,11 +1,12 @@
 use std::ffi::OsString;
-use std::fs;
+use std::fs::{self, File};
 use std::path::Path;
 
 use rstest::rstest;
 use sidekicks_contracts::release_manifest::Sha256Hex;
 use sidekicks_platforms::{
-    harness_test_name, is_superuser, make_folder_link, make_unreadable, scratch_volume,
+    file_mode_of, harness_test_name, is_superuser, make_folder_link, make_unreadable,
+    scratch_volume,
 };
 
 use super::{CopyStore, FileCopyError, FileCopyOutcome};
@@ -17,15 +18,14 @@ fn abc_hash() -> Sha256Hex {
     Sha256Hex::new(ABC_SHA256.to_owned()).expect("a SHA-256 in lowercase hex")
 }
 
-/// The mode a read-only file reads as on every system: read by everyone, written by no one.
-const READ_ONLY_MODE: u32 = 0o444;
-
-// Writes `abc` to `path` and makes it read-only, so its mode is no file's default and no copy's.
-fn write_read_only_source(path: &Path) {
+// Writes `abc` to `path` and makes it read-only, so its mode is no file's default and no copy's,
+// and answers that mode as the file reads it, whatever the umask left.
+fn write_read_only_source(path: &Path) -> u32 {
     fs::write(path, b"abc").expect("the source is written");
     let mut permissions = fs::metadata(path).expect("the source reads").permissions();
     permissions.set_readonly(true);
     fs::set_permissions(path, permissions).expect("the source is made read-only");
+    file_mode_of(&File::open(path).expect("the source opens")).expect("the source's mode reads")
 }
 
 // The names in the store's copies folder, in order.
@@ -44,14 +44,14 @@ fn copy_names(store: &CopyStore) -> Vec<OsString> {
 fn a_content_is_kept_once_under_its_hash() {
     let owner = tempfile::tempdir().expect("an owner folder");
     let source = owner.path().join("source");
-    write_read_only_source(&source);
+    let source_mode = write_read_only_source(&source);
     let store = CopyStore::open(owner.path()).expect("the copies folder opens");
 
     assert_eq!(
         store.keep_file_copy(&source).expect("the file is copied"),
         FileCopyOutcome::Copied {
             hash: abc_hash(),
-            mode: READ_ONLY_MODE
+            mode: source_mode
         }
     );
     assert_eq!(
@@ -133,14 +133,14 @@ fn a_file_on_another_volume_is_byte_copied() {
         return;
     };
     let source = volume.mount_point().join("source");
-    write_read_only_source(&source);
+    let source_mode = write_read_only_source(&source);
     let store = CopyStore::open(volume.root()).expect("the copies folder opens");
 
     assert_eq!(
         store.keep_file_copy(&source).expect("the file is copied"),
         FileCopyOutcome::Copied {
             hash: abc_hash(),
-            mode: READ_ONLY_MODE
+            mode: source_mode
         }
     );
     assert_eq!(copy_names(&store), vec![OsString::from(ABC_SHA256)]);
