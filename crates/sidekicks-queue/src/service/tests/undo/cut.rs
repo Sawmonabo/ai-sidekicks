@@ -77,11 +77,6 @@ fn checks_run_reaching(run_id: RunId, run_version: i64) -> RollbackCompanionChec
     })
 }
 
-/// A check that reads nothing, so a guard it misses refuses only at the write.
-fn checks_nothing() -> RollbackCompanionCheck {
-    Arc::new(|_| Ok(()))
-}
-
 /// A companion statement that holds only while `run_id` stands at `run_version`.
 fn run_at_version(run_id: RunId, run_version: i64) -> WriteStatement {
     WriteStatement {
@@ -134,11 +129,11 @@ async fn a_cut_the_provider_or_a_companion_refuses_writes_nothing(#[case] unwrit
     let scene = scene(answer).await;
     let fixture = &scene.fixture;
     // The rollback moves the run to version 2, so a guard on version 1 refuses its write; only one
-    // case's check reads that before the cut.
+    // case's check reads that before the cut, and the others' check nothing, as the default's.
     let check = match unwritten {
         UnwrittenCut::CheckRefused => checks_run_reaching(scene.run_id, 1),
         UnwrittenCut::Degraded | UnwrittenCut::Failed | UnwrittenCut::WriteRefused => {
-            checks_nothing()
+            RollbackCompanions::default().check
         }
     };
     let companions = recovery_companions(&scene, scene.run_id, 1, check);
@@ -412,7 +407,10 @@ async fn a_cut_waits_for_the_turns_end_before_the_provider_is_asked() {
         .await;
 
     assert!(
-        matches!(&refused, Err(ConversationCutError::TurnOpen { run_id }) if *run_id == scene.run_id),
+        matches!(
+            &refused,
+            Err(ConversationCutError::TurnOpen { run_id }) if *run_id == scene.run_id
+        ),
         "{refused:?}"
     );
     assert_eq!(rewinds_while_open, 0);
