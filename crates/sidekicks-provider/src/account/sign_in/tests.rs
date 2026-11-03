@@ -61,8 +61,12 @@ const NOTIFICATION_WAIT: Duration = Duration::from_secs(5);
 /// How long the test tries for the home before it reads as held.
 const HELD_HOME_WAIT: Duration = Duration::from_millis(50);
 
-/// The provider's own words for why a scripted flow failed.
-const PROVIDER_FAILURE_REASON: &str = "device auth failed with status 403";
+/// The provider's own words for why a scripted flow failed, quoting a code and an address.
+const PROVIDER_FAILURE_REASON: &str =
+    "Login failed for code Xa9fQ2bT7kLm3nPq#state-4e1b at https://claude.com/cai/oauth?code=true";
+
+/// Those words as the person reads them, the code and the address replaced.
+const SHOWN_FAILURE_REASON: &str = "Login failed for code *** at ***";
 
 /// The kind of sign-in the scripted status read reports.
 const OBSERVED_AUTH_MODE: ProviderAuthMode = ProviderAuthMode::OauthSubscription;
@@ -327,8 +331,8 @@ fn refusal_of(error: ProviderSignInError) -> (RefusalCode, Option<serde_json::Va
 // as that end leaves it, a new account and a re-signed registered one with the kind of sign-in its
 // status read reported. No published notification carries the prompt or the code, and no session
 // event is appended. Killed by a row inserted at the start, by a raw line forwarded as the failure
-// text, by the provider's own reason for a failed flow dropped, by a code written before the
-// prompt or twice, by a failed new account keeping its home, by
+// text, by the provider's own reason for a failed flow dropped or passing a code or an address
+// through, by a code written before the prompt or twice, by a failed new account keeping its home, by
 // the home held across the flow or after it, by a written row not published, and by the reported
 // kind not written or an earlier kind kept over it, a registered account's included.
 #[rstest]
@@ -520,12 +524,12 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
         failure_reason.is_some(),
         outcome == ProviderSignInOutcome::Failed
     );
-    // A failed flow's own words are the failure's reason.
-    if let ProviderSignInEnd::Failed {
-        reason: Some(reason),
-    } = &end
-    {
-        assert_eq!(failure_reason.as_ref(), Some(reason));
+    // A failed flow's own words are the failure's reason, its code and address replaced.
+    if let ProviderSignInEnd::Failed { reason: Some(_) } = &end {
+        assert_eq!(
+            failure_reason.as_ref().map(FreeFormText::as_str),
+            Some(SHOWN_FAILURE_REASON)
+        );
     }
     // The home is free once the attempt has settled.
     drop(

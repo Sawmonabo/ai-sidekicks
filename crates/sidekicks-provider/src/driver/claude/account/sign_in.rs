@@ -14,7 +14,9 @@ use futures::channel::mpsc as prompt_channel;
 use futures::future::BoxFuture;
 use memchr::memmem;
 use process_wrap::tokio::ChildWrapper;
-use sidekicks_contracts::provider::account::record::ProviderAuthMode;
+use sidekicks_contracts::provider::account::record::{
+    PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN, ProviderAuthMode,
+};
 use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderSignInArm, ProviderSignInCancelStatus,
 };
@@ -43,7 +45,7 @@ use crate::driver::contract::account::{
     ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInObservation,
     read_sign_in_address,
 };
-use crate::driver::contract::error::DriverError;
+use crate::driver::contract::error::{DriverError, bound_provider_words};
 use crate::spawned_version::ResolvedProviderExecutable;
 
 /// The arguments after the Claude Code command that start its claude.ai sign-in.
@@ -81,6 +83,12 @@ const NO_BROWSER: &str = "/usr/bin/true";
 /// The most of one error output line held, far above the refusal line's length; a longer line is
 /// read in pieces of this length.
 const ERROR_LINE_CAP: u64 = 4 * 1024;
+
+/// How long the error stream is still read once the flow has exited, for the reason it gives.
+const ERROR_DRAIN_WAIT: Duration = Duration::from_secs(1);
+
+/// A failed flow's reason, the last line with text Claude Code wrote to its error stream.
+type ErrorReason = FreeFormText<PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN>;
 
 /// The most output held while the address line is still unread, far above its length.
 const ADDRESS_OUTPUT_CAP: usize = 64 * 1024;
@@ -448,6 +456,9 @@ impl Flow {
         tokio::pin!(bound);
         let mut chunk = [0_u8; OUTPUT_CHUNK];
         let mut error_line = Vec::new();
+        // The last line Claude Code wrote to its error stream with any text, the reason a failed
+        // flow gives; the broker scrubs it before it leaves.
+        let mut last_error: Option<ErrorReason> = None;
         let (mut is_output_open, mut is_errors_open, mut is_input_open) = (true, true, true);
         let mut asked_end: Option<ProviderSignInEnd> = None;
         // Cancels answered by how the flow ends, not at once.
@@ -479,10 +490,12 @@ impl Flow {
                     None
                 }
                 FlowEvent::ErrorLine(Ok(read)) if read > 0 => {
-                    // Its text is never kept or logged: it may echo what the person pasted.
+                    // Never logged, since it may echo what the person pasted; only the last line
+                    // with text is kept, as a failed flow's reason.
                     if error_line.starts_with(REFUSED_CODE_START) {
                         self.report_prompt();
                     }
+                    keep_error_line(&error_line, &mut last_error);
                     error_line.clear();
                     self.errors.set_limit(ERROR_LINE_CAP);
                     None
@@ -564,11 +577,14 @@ impl Flow {
                 asked_end = Some(end);
             }
         };
+        if is_errors_open {
+            self.drain_errors(error_line, &mut last_error).await;
+        }
         let end = asked_end.unwrap_or(match status {
             Ok(status) if status.success() => ProviderSignInEnd::Finished,
             // A flow a cancel was asked of ended unfinished: it is canceled.
             Ok(_) | Err(_) if !unanswered_cancels.is_empty() => ProviderSignInEnd::Canceled,
-            Ok(_) | Err(_) => ProviderSignInEnd::Failed { reason: None },
+            Ok(_) | Err(_) => ProviderSignInEnd::Failed { reason: last_error },
         });
         let canceled = if end == ProviderSignInEnd::Canceled {
             ProviderSignInCancelStatus::Canceled
@@ -583,6 +599,28 @@ impl Flow {
         }
     }
 
+    // Reads what the error stream still holds once the flow has exited, from `line`'s unfinished
+    // text on, for up to `ERROR_DRAIN_WAIT`, keeping its last line with text in `last_error`.
+    async fn drain_errors(&mut self, mut line: Vec<u8>, last_error: &mut Option<ErrorReason>) {
+        let drained = tokio::time::timeout(ERROR_DRAIN_WAIT, async {
+            loop {
+                match self.errors.read_until(b'\n', &mut line).await {
+                    Ok(read) if read > 0 => {
+                        keep_error_line(&line, last_error);
+                        line.clear();
+                        self.errors.set_limit(ERROR_LINE_CAP);
+                    }
+                    Ok(_) | Err(_) => break,
+                }
+            }
+        })
+        .await;
+        if drained.is_err() {
+            tracing::debug!("Claude Code's sign-in error output was still open after it exited");
+        }
+        keep_error_line(&line, last_error);
+    }
+
     fn report_prompts(&mut self) {
         for _ in 0..self.scan.take_prompts() {
             self.report_prompt();
@@ -593,6 +631,13 @@ impl Flow {
         if self.prompts.try_send(()).is_err() {
             tracing::debug!("a Claude Code sign-in waited for a code while a wait was unread");
         }
+    }
+}
+
+// Keeps `line` in `last_error` where it holds text once its terminal controls are left out.
+fn keep_error_line(line: &[u8], last_error: &mut Option<ErrorReason>) {
+    if let Some(reason) = bound_provider_words(&strip_terminal_controls(line)) {
+        *last_error = Some(reason);
     }
 }
 

@@ -31,6 +31,9 @@ const PASTED_CODE: &str = "pasted-code-7f3a#state-test";
 /// The browser opener the person's own environment names.
 const OWN_BROWSER: &str = "/opt/own/browser";
 
+/// The last line the stand-in writes to its error stream before it exits unfinished.
+const CLAUDE_FAILURE: &str = "OAuth error: Request failed with status code 400";
+
 /// How long a test waits on the stand-in.
 const WAIT: Duration = Duration::from_secs(10);
 
@@ -174,6 +177,38 @@ async fn a_sign_in_shows_its_address_waits_for_a_code_and_finishes_on_it(
             .iter()
             .all(|text| !text.contains(PASTED_CODE)),
         "the code reached a log line"
+    );
+}
+
+// A flow that exits unfinished gives the last line with text Claude Code wrote to its error stream
+// as its reason, whatever came before it and the blank line after it. Killed by the line dropped.
+#[tokio::test]
+async fn a_failed_sign_in_gives_claude_code_s_last_error_line() {
+    let root = tempfile::tempdir().expect("a scratch folder is made");
+    let script = format!(
+        "#!/bin/sh\nprintf \"If the browser didn't open, visit: %s\\n\" '{SIGN_IN_ADDRESS}'\n\
+         printf 'Opening browser to sign in\\n' >&2\n\
+         printf '{CLAUDE_FAILURE}\\n\\n' >&2\nexit 1\n"
+    );
+    let legs = legs_running(root.path(), script).await;
+
+    let handle = legs
+        .start_sign_in(
+            test_provider_account_id(),
+            home(root.path()),
+            ProviderSignInArm::DeviceCode,
+        )
+        .await
+        .expect("the sign-in starts");
+    let end = tokio::time::timeout(WAIT, handle.completion)
+        .await
+        .expect("the flow ends");
+
+    assert_eq!(
+        end,
+        ProviderSignInEnd::Failed {
+            reason: Some(FreeFormText::new(CLAUDE_FAILURE.to_owned()).expect("a reason")),
+        }
     );
 }
 

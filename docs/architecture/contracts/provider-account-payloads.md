@@ -655,8 +655,9 @@ type ProviderAccountNotification =
   // health observation next and publishes the result as `accountChanged`; a client that treats
   // this notification as the authentication verdict will render an account as ready that a spawn
   // would refuse. `failureReason` is message text shown to the person under `Sign-in did not
-  // finish.`: the provider's own reason where its flow reported one (Codex's completion `error`),
-  // cut to the cap, else the daemon's; it carries NO credential material and no home path.
+  // finish.`: the provider's own reason where its flow reported one (Codex's completion `error`,
+  // the last line Claude Code wrote to its error stream), cut to the cap, else the daemon's. Every
+  // address, code, token, credential and path in it is replaced before it leaves the daemon.
   // `expired` carries none: the
   // provider's code or the attempt's own bound ran out, and the sign-in card reads
   // `Code expired · Sign in again`.

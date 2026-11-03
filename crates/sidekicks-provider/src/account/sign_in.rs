@@ -16,8 +16,9 @@
 //!   attempt with nothing written. A row written goes out as `accountChanged` before the attempt's
 //!   end.
 //! - Only typed fields leave: the reply's address, code and bound, `signInCodeRequested` and
-//!   `signInCompleted`. No line of a provider's stream reaches a caller; a provider's own words
-//!   leave only bounded, as a refused start's failure detail or a failed end's reason.
+//!   `signInCompleted`. No line of a provider's stream reaches a caller, except the words a failed
+//!   end gives as its reason, which leave bounded with every address, code and credential
+//!   replaced; a refused start's failure detail carries the provider's words too.
 //! - A pasted code goes to the input of the attempt that waits for one and nowhere else.
 //! - The registry stays un-evented: completion is a wire notification, never a session event.
 

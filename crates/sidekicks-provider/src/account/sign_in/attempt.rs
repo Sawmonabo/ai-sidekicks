@@ -8,12 +8,13 @@ use futures::StreamExt as _;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use sidekicks_contracts::provider::account::record::{
-    BillingMode, CredentialGeneration, ProviderAccountId, ProviderAccountNotification,
-    ProviderSignInOutcome,
+    BillingMode, CredentialGeneration, PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN, ProviderAccountId,
+    ProviderAccountNotification, ProviderSignInOutcome,
 };
 use sidekicks_contracts::provider::account::sign_in::{
     ProviderAccountSignInResponse, ProviderSignInArm,
 };
+use sidekicks_ipc::redaction::sanitize_sign_in_failure_reason;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot;
 
@@ -27,6 +28,7 @@ use crate::account::registry::{AccountAdmission, MintedAccount, ProviderAccountR
 use crate::driver::contract::account::{
     ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs,
 };
+use crate::driver::contract::error::bound_provider_words;
 
 /// An account's sign-in slot and its listed attempt, held from the start until the attempt
 /// settles. Every path that ends it before a row took its minted home removes that home first,
@@ -259,7 +261,7 @@ impl Attempt {
 
     // Takes the status read after a finished flow and writes what it found; a new account that
     // ends any other way loses its minted home. A failed flow's reason is the provider's own words
-    // where it gave any.
+    // where it gave any, every address, code and credential in them replaced first.
     async fn settle(
         &mut self,
         legs: &dyn ProviderSignInLegs,
@@ -272,7 +274,16 @@ impl Attempt {
             }
             ProviderSignInEnd::Failed { reason } => (
                 ProviderSignInOutcome::Failed,
-                Some(reason.unwrap_or_else(|| failure_reason_text("The sign-in did not finish"))),
+                Some(
+                    reason
+                        .and_then(|words| {
+                            bound_provider_words(&sanitize_sign_in_failure_reason(
+                                words.as_str(),
+                                PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN,
+                            ))
+                        })
+                        .unwrap_or_else(|| failure_reason_text("The sign-in did not finish")),
+                ),
             ),
             ProviderSignInEnd::Expired => (ProviderSignInOutcome::Expired, None),
             ProviderSignInEnd::Canceled => (ProviderSignInOutcome::Canceled, None),
