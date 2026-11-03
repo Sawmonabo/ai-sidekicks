@@ -19,7 +19,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
 use sidekicks_provider::driver::idle_sleep::SessionSleepState;
 use sidekicks_provider::driver::session_control::{
-    DriverResumeResult, ResumeSessionParams, ResumedRunAnswer,
+    DriverResumeResult, ProviderTurnAnswer, ResumeSessionParams, ResumedRunAnswer,
 };
 use sidekicks_provider::left_conversations::LeftConversation;
 use sidekicks_provider::runtime_binding::resume::{
@@ -275,6 +275,9 @@ impl ProviderSessions {
         if matches!(relaunch, Relaunch::Continue) && held_run_continue.is_none() {
             return Ok((None, ResumedSession::default()));
         }
+        let continued_lead_id = held_run_continue
+            .as_ref()
+            .map(|held_run_continue| held_run_continue.lead_run_id);
         params.held_run_continue = held_run_continue;
         // Status legs open only once the driver will run, so a continue that runs none opens none.
         params.on_mcp_server_status = function_legs_for(&minted_id).on_mcp_server_status;
@@ -347,6 +350,23 @@ impl ProviderSessions {
                 ));
             }
         };
+        // A continue reached its lead only where the provider runs the lead's turn on; one it did
+        // not take up is given back, so the next relaunch of that lead carries it.
+        if let Some(lead_run_id) = continued_lead_id
+            && !runs.iter().any(|run| {
+                run.run_id == lead_run_id && run.turn == ProviderTurnAnswer::StillRunning
+            })
+            && let Err(cause) = self.release_marks(claims).await
+        {
+            let unreleased = ProviderSessionError::KeptAnswers { session_id, cause };
+            self.deps.binding_cursors.forget_binding(&minted_id);
+            // A process this relaunch brought up is closed, as one whose runs were not taken is.
+            return Err(if binding_id == minted_id {
+                close_unrecorded(driver.as_ref(), session_id, unreleased).await
+            } else {
+                unreleased
+            });
+        }
         let named_run_ids = runs.iter().map(|run| run.run_id).collect();
         // Each run the resume named is settled before the binding is recorded, so none goes live
         // on the resumed process ahead of its settlement.

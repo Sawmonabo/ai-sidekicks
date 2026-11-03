@@ -179,7 +179,9 @@ pub struct ResumeSessionParams {
     /// for in [`DriverResumeResult::Resumed`]'s `runs`.
     pub live_runs: Vec<LiveRunResume>,
     /// The person's answers a lead the restart held on them now continues with, its continue
-    /// claimed for this resume; `None` where nothing is owed.
+    /// claimed for this resume; `None` where nothing is owed. A driver that answers `Resumed` sends
+    /// them on the lead's turn and answers that lead `StillRunning`; a lead answered otherwise
+    /// has its answers given back for the next resume.
     pub held_run_continue: Option<HeldRunContinue>,
 }
 
