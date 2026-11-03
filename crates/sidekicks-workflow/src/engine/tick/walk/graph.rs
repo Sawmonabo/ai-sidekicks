@@ -287,7 +287,8 @@ fn forward_feeders(nodes: &[RunGraphNode], is_loop: &[bool]) -> Vec<Vec<usize>> 
                 }
             }
         }
-        // Kosaraju's search walks with its own stack, so a long chain cannot exhaust the call stack.
+        // Kosaraju's search walks with its own stack, so a long chain cannot exhaust the call
+        // stack.
         for component in kosaraju_scc(&group) {
             if component.len() < 2 {
                 continue;
