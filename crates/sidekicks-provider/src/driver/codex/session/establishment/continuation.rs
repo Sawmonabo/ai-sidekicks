@@ -36,7 +36,7 @@ use crate::driver::codex::run::start::record::{
 use crate::driver::codex::run::start::{CODEX_TURN_START_TIMEOUT, CodexRunStart};
 use crate::driver::codex::run::steer::steer_codex_run;
 use crate::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
-use crate::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
+use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::history::{CodexListedTurn, read_codex_resumed_newest_turn};
 use crate::driver::codex::session::inbound::CodexSessionInboundSender;
 use crate::driver::codex::session::owed_turn_ends::{
@@ -378,15 +378,14 @@ impl CodexSessionEstablishment {
 
     // Starts `continuation`, the turn that continues `run`, on the record's conversation, composed
     // as a run's turn is, so it names the session's mode, reviewer, model and environments, and
-    // carrying no
-    // message id, so it never reads as the person's; then holds the turn as the run's, its
-    // deliveries on `binding`. Its `turn/started`, waiting in the session's queue, opens the run's
-    // next turn. A start left unanswered past its deadline may still have started the turn, so the
-    // conversation is resumed again, bare, and a newest turn on its page that none of
-    // `listed_turns`, the turns listed before the start, names is held as the one it started;
-    // `turn/start` is never sent again, since Codex would start a second turn. Fails as the
-    // composition or the request fails, with the deadline's failure where the second resume shows
-    // no new turn, and as the second resume fails.
+    // carrying no message id, so it never reads as the person's; then holds the turn as the
+    // run's, its deliveries on `binding`. Its `turn/started`, waiting in the session's queue,
+    // opens the run's next turn. A start that failed once it went out, other than by Codex's
+    // refusal, may still have started the turn, so the conversation is resumed again, bare, and a
+    // newest turn on its page that none of `listed_turns`, the turns listed before the start,
+    // names is held as the one it started; `turn/start` is never sent again, since Codex would
+    // start a second turn. Fails as the composition fails, with Codex's refusal, with the
+    // start's failure where the second resume shows no new turn, and as the second resume fails.
     async fn start_continuation(
         &self,
         record: &mut CodexSessionRecord,
@@ -412,17 +411,17 @@ impl CodexSessionEstablishment {
         let (mut params, run_turn) = compose_run_turn(record, connection, request).await?;
         params.turn_trigger = Some(DAEMON_RECOVERY_TURN_TRIGGER.to_owned());
         params.root_turn_id = continuation.root_turn_id;
-        let turn_id = match connection.request(TURN_START_METHOD, &params).await {
-            Ok(reply) => read_turn_id(&reply, TURN_START_METHOD)?,
-            Err(
-                error @ CodexError::Unanswered {
-                    cause: CodexUnansweredCause::Deadline { .. },
-                    ..
-                },
-            ) => find_started_continuation(record, connection, listed_turns)
+        let started = connection
+            .request(TURN_START_METHOD, &params)
+            .await
+            .and_then(|reply| read_turn_id(&reply, TURN_START_METHOD));
+        let turn_id = match started {
+            Ok(turn_id) => turn_id,
+            // Codex answered that it started nothing.
+            Err(refused @ CodexError::ProviderRequest { .. }) => return Err(refused),
+            Err(error) => find_started_continuation(record, connection, listed_turns)
                 .await?
                 .ok_or(error)?,
-            Err(error) => return Err(error),
         };
         // The turn's frames wait unread in the session's queue, so it has settled no speed yet:
         // the acceptance answers a speed only for a turn already over.
