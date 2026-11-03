@@ -23,9 +23,9 @@ enum CursorState {
     Dropped,
 }
 
-// Killed by the arm not gated on a cut's freeze, which appends the frozen cursor's row; by a dropped
-// cursor failing `NotOpen` or an open one absorbing the row; by a stamp on an appended row; and by
-// a body dropped, or one written for a row that has none.
+// Killed by the arm not gated on a cut's freeze, which appends the frozen cursor's row; by a
+// dropped cursor failing `NotOpen` or an open one absorbing the row; by a stamp on an appended
+// row; and by a body dropped, or one written for a row that has none.
 #[rstest]
 #[case::open(CursorState::Open, Some("Exported 3 files"))]
 #[case::frozen_by_a_fork_restart(CursorState::FrozenByAForkRestart, None)]
