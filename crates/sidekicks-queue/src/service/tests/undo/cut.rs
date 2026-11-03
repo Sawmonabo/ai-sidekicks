@@ -1,11 +1,12 @@
 //! The conversation cut: refused or degraded cuts write nothing, a companion its check refuses is
 //! refused before the provider is asked, an applied one lands with its companions and keeps the
-//! hold, a fork moves the session to its binding, every later run rolls back in the same write, and
-//! no cut is asked of the provider while a turn is open.
+//! hold, a fork moves the session to its binding, every later run rolls back in the same write, no
+//! cut is asked of the provider while a turn is open, and a turn the provider opens once it answered
+//! opens after the write.
 
 use std::borrow::Cow;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use rstest::rstest;
 use rusqlite::Connection;
@@ -19,8 +20,11 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::rewind::RewindConversationResult;
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
+use sidekicks_provider::port::run_host::{RunHost, RunHostError};
+use sidekicks_provider::run::turn_end::StartedTurn;
 use sidekicks_provider::runtime_binding::store::mint_runtime_binding_id;
 use sidekicks_session::checkpoints::store::list_checkpoints;
+use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::errors::RunEngineError;
 use sidekicks_session::run::engine::undo::{
     RollbackCheckError, RollbackCompanionCheck, RollbackCompanions,
@@ -28,8 +32,11 @@ use sidekicks_session::run::engine::undo::{
 use sidekicks_session::run::state_change::{RunWriteCompanions, RunWriteError};
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::events::session::appender::SessionEventDraft;
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
+use tokio::time::timeout;
 
-use super::super::client_key;
+use super::super::{HELD_WATCH, WAIT, client_key};
 use super::{RewindAnswer, Scene, TARGET_TURN, applied_in_place, position, scene};
 use crate::error::QueueError;
 use crate::service::undo::{ConversationCut, ConversationCutError};
@@ -420,4 +427,90 @@ async fn a_cut_waits_for_the_turns_end_before_the_provider_is_asked() {
         "{applied:?}"
     );
     assert_eq!(scene.rewinds.load(Ordering::SeqCst), 1);
+}
+
+/// A turn's opening on the run, as the provider asks the engine for it.
+type Opening = JoinHandle<Result<Option<StartedTurn>, RunHostError>>;
+
+// A turn the provider opens on the target's run once it answered the cut, while the cut waits for
+// the session's queue lock, opens only after the rollback is written, and the cut lands. Killed by
+// the undo's write left unmarked, where the opening writes its start within the watch and its open
+// turn refuses the rollback, and by the mark never taken down, where the opening never ends.
+#[tokio::test]
+async fn a_turn_opened_once_the_provider_answered_opens_after_the_rollback() {
+    let opened_on: Arc<OnceLock<(Arc<RunEngine>, RunId)>> = Arc::new(OnceLock::new());
+    let (opening_sender, opening_receiver) = oneshot::channel::<Opening>();
+    let opening_sender = Arc::new(Mutex::new(Some(opening_sender)));
+    let opens = Arc::clone(&opened_on);
+    let scene = scene(Arc::new(move || {
+        let (engine, run_id) = opens.get().expect("the scene is set").clone();
+        let opening = tokio::spawn(async move {
+            RunHost::start_turn(engine.as_ref(), run_id, None, None, None).await
+        });
+        if let Some(sender) = opening_sender.lock().expect("unpoisoned").take() {
+            assert!(
+                sender.send(opening).is_ok(),
+                "the test waits for the opening"
+            );
+        }
+        Ok(RewindConversationResult::Applied {
+            binding_id: None,
+            cut_message_text: None,
+        })
+    }))
+    .await;
+    let fixture = &scene.fixture;
+    assert!(
+        opened_on
+            .set((Arc::clone(&fixture.queue.engine), scene.run_id))
+            .is_ok(),
+        "the scene is set once"
+    );
+    let hold = fixture
+        .queue
+        .hold_for_undo(fixture.session_id, client_key())
+        .await;
+    let queue_lock = fixture
+        .queue
+        .session_lock
+        .hold_session(fixture.session_id)
+        .await;
+    let queue = Arc::clone(&fixture.queue);
+    let target = scene.target.clone();
+    let cut = tokio::spawn(async move {
+        queue
+            .cut_conversation(&hold, &target, RollbackCompanions::default())
+            .await
+    });
+
+    let mut opening = timeout(WAIT, opening_receiver)
+        .await
+        .expect("the provider is asked for the cut")
+        .expect("the opening is spawned");
+    let opened_before_the_write = timeout(HELD_WATCH, &mut opening).await.is_ok();
+    drop(queue_lock);
+    let cut = timeout(WAIT, cut)
+        .await
+        .expect("the cut ends")
+        .expect("the cut's task ends");
+    let started = timeout(WAIT, opening)
+        .await
+        .expect("the opening ends once the write has")
+        .expect("the opening's task ends")
+        .expect("the turn's start is written");
+
+    assert!(!opened_before_the_write, "the opening waits for the write");
+    assert!(
+        matches!(cut, Ok(ConversationCut::Applied { .. })),
+        "{cut:?}"
+    );
+    assert!(started.is_some(), "the run is live");
+    assert!(
+        fixture.event_types().ends_with(&[
+            "agent.run.rolledBack".to_owned(),
+            "agent.turn.started".to_owned(),
+        ]),
+        "{:?}",
+        fixture.event_types()
+    );
 }
