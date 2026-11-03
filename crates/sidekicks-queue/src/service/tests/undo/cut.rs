@@ -1,8 +1,8 @@
 //! The conversation cut: refused or degraded cuts write nothing, a companion its check refuses is
 //! refused before the provider is asked, an applied one lands with its companions and keeps the
 //! hold, a fork moves the session to its binding, every later run rolls back in the same write, no
-//! cut is asked of the provider while a turn is open, and a turn the provider opens once it answered
-//! opens after the write.
+//! cut is asked of the provider while a turn is open, and a turn the provider opens once it
+//! answered opens after the write.
 
 use std::borrow::Cow;
 use std::sync::atomic::Ordering;
@@ -489,6 +489,8 @@ async fn a_turn_opened_once_the_provider_answered_opens_after_the_rollback() {
         .await
         .expect("the provider is asked for the cut")
         .expect("the opening is spawned");
+    // Sound only on the current-thread test runtime, where the mark goes in before the opening
+    // first runs; on a multi-threaded one the opening could pass its check first.
     let opened_before_the_write = timeout(HELD_WATCH, &mut opening).await.is_ok();
     drop(queue_lock);
     let (cut, _hold) = timeout(WAIT, cut)

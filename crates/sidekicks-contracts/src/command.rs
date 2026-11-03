@@ -14,6 +14,7 @@ use crate::event::envelope::{
 use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::method::methods;
 use crate::method_descriptor::NullPayload;
+use crate::provider::tool_call::ToolCallId;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -263,6 +264,15 @@ with_machine_content_descriptor! {
         pub run_id: RunId,
         /// The command.
         pub command_id: CommandId,
+        /// The tool call that started the command, where the provider named one: the command's
+        /// turn is the turn that call opened in.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "ToolCallId")]
+        pub tool_call_id: Option<ToolCallId>,
         /// How it ended.
         pub ending: CommandEnding,
         /// The process's exit code.

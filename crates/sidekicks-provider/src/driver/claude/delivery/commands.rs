@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex, Weak};
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use sidekicks_contracts::command::CommandId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -403,6 +404,7 @@ impl ClaudeCommandTasks {
                 return None;
             }
             task.tool_use_id = Some(frame.tool_use_id()?.to_owned());
+            task.start.tool_call_id = tool_call_id_of(frame);
             task.start.line = command.as_deref().map(bash_line_text);
             return Some(task.start.clone());
         }
@@ -411,6 +413,7 @@ impl ClaudeCommandTasks {
             session_id,
             command_id: CommandId::new(task_id.to_owned())?,
             run_id: run?.run_id,
+            tool_call_id: tool_call_id_of(frame),
             binding_id: run?.binding_id.clone(),
             name: command_name(frame.description.as_deref(), command.as_deref(), task_id)?,
             started_at: WireInstant::now(),
@@ -467,6 +470,7 @@ impl ClaudeCommandTasks {
                     session_id,
                     command_id: CommandId::new(task_id.to_owned())?,
                     run_id: run.run_id,
+                    tool_call_id: None,
                     binding_id: run.binding_id.clone(),
                     name: command_name(entry.description.as_deref(), None, task_id)?,
                     started_at: WireInstant::now(),
@@ -808,6 +812,11 @@ fn is_command_task(task_type: Option<&str>) -> bool {
         ]
         .contains(&task_type)
     })
+}
+
+// The tool call a command task's `frame` names as its start, where it names one a row can carry.
+fn tool_call_id_of(frame: &ClaudeTaskFrame) -> Option<ToolCallId> {
+    ToolCallId::new(frame.tool_use_id()?.to_owned()).ok()
 }
 
 // A command's name on its row: Claude Code's description of it, else its line, else its id.

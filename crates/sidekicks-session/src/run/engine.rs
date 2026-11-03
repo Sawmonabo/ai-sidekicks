@@ -33,6 +33,7 @@ use std::sync::{Arc, Mutex, Weak};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::events::{
     AgentRunProviderInitializedPayload, AgentRunWorkerShuttingDownPayload, TurnEndOrigin,
 };
@@ -40,12 +41,14 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::transcript::turn_attribution::{EpochPosition, transcript_run_stamp_at};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::run::delivery::{RunMarker, RunSetupRefusal};
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
+use sidekicks_provider::runtime_binding::store::read_binding;
 use sidekicks_std::mutex_lock::lock;
 #[cfg(any(test, feature = "test-support"))]
 use sidekicks_std::pause_point::PausePoint;
@@ -57,7 +60,7 @@ use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
-use sidekicks_store::events::session::read::DamagedFromSequenceReader;
+use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_read_bound};
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_workspace::run_setup_gates::{RunSetupGate, RunSetupGates};
 use tokio::sync::{SetOnce, SetOnceError};
@@ -66,15 +69,19 @@ use crate::interventions::interrupt_queue::InterruptQueue;
 use crate::interventions::store::run_at_version_statement;
 use crate::plan_holds::PlanHolds;
 use crate::run::agent::RUN_AGENT_STATEMENT_CAPACITY;
+use crate::run::binding_cursors::epoch_binding_of;
 use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::live::{ContinuingRun, LiveRuns, ProviderChangeGuard, StartingRun};
 use crate::run::engine::turns::{TurnEnd, WriteWithResend};
+use crate::run::epochs::EpochBinding;
 use crate::run::limit_interrupter::LimitInterrupter;
 use crate::run::provider_choice::held::HeldChoiceAnswers;
 use crate::run::read::{RunRead, RunStateReader, read_run_through, safe_run_version};
 use crate::run::refusals::{RunRefusal, ended_run_refusal};
 use crate::run::session_posture::SessionPostureSource;
 use crate::run::state_change::{RunStateChange, RunWriteCompanions, RunWriter};
+use crate::run::superseded::read_superseded_turns_guarded;
+use crate::transcript::turn_attribution::{RunTurnReads, TurnAttributionError};
 
 /// The statements the engine's reads prepare on a pooled connection: the run's row, the live
 /// provider subagents beneath a run, the ended runs with an open turn, a run's pending interrupts
@@ -88,9 +95,10 @@ use crate::run::state_change::{RunStateChange, RunWriteCompanions, RunWriter};
 /// read of a session's stored leg (the session's runs and their bindings), whether a run ended at
 /// its setup, a restart's re-arm of a live run (its newest open turn with its steps, and the
 /// session's step bound), a provider subagent's node by its provider's id, the run a provider's
-/// helper was dispatched beneath, and a turn start's reads of the message that opened it and of
-/// where its run stands (the run's rollbacks and turn starts).
-pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 30 + RUN_AGENT_STATEMENT_CAPACITY;
+/// helper was dispatched beneath, a turn start's reads of the message that opened it and of
+/// where its run stands (the run's rollbacks and turn starts), and a late row's reads of the tool
+/// call it closes, of its run's superseded turns and of its binding.
+pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 33 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.
 const LIVE_APPEND_ATTEMPTS: usize = 3;
@@ -669,6 +677,51 @@ impl RunEngine {
             .await
     }
 
+    /// Whether `run_id`'s latest tool call `tool_call_id` in `session_id`'s log opened in a turn
+    /// an undo superseded, its late row arriving on the binding `binding_id`. A call that opened
+    /// in a kept turn or has no opening in the log is kept, and so is one whose binding has no
+    /// row, which only a purged session leaves. Fails as the reads do.
+    pub(crate) async fn read_tool_call_opening_turn(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+        tool_call_id: String,
+        binding_id: RuntimeBindingId,
+    ) -> Result<ToolCallOpeningTurn, RunEngineError> {
+        let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
+        self.pool
+            .read(ReadLength::Short, move |reader| {
+                let (turns, no_newer_rollback) = read_superseded_turns_guarded(
+                    reader,
+                    &*read_damaged_from_sequence,
+                    &session_id,
+                    &run_id,
+                )
+                .map_err(TurnAttributionError::from)?;
+                let kept = ToolCallOpeningTurn::Kept { no_newer_rollback };
+                let log_end = session_read_bound(&*read_damaged_from_sequence, &session_id, None);
+                let Some(opening) = RunTurnReads::new(reader, &*read_damaged_from_sequence)
+                    .read_tool_call_opening_before(&session_id, &run_id, &tool_call_id, log_end)?
+                else {
+                    return Ok(kept);
+                };
+                if transcript_run_stamp_at(&turns, opening)
+                    .superseded
+                    .is_none()
+                {
+                    return Ok(kept);
+                }
+                Ok::<_, RunEngineError>(match read_binding(reader, &binding_id)? {
+                    Some(binding) => ToolCallOpeningTurn::Cut {
+                        binding: epoch_binding_of(&binding),
+                        source: opening,
+                    },
+                    None => kept,
+                })
+            })
+            .await
+    }
+
     /// The run `run_id` as it reads now; fails with [`RunRefusal::NotFound`] when it has no row,
     /// and as the read does.
     pub(crate) async fn require_run(&self, run_id: RunId) -> Result<RunRead, RunEngineError> {
@@ -676,6 +729,25 @@ impl RunEngine {
             .await?
             .ok_or(RunEngineError::Refused(RunRefusal::NotFound { run_id }))
     }
+}
+
+/// Where a run's late row's tool call opened, read from the log.
+pub(crate) enum ToolCallOpeningTurn {
+    /// In a turn an undo superseded: the row is absorbed as from before the cut, at `source` on
+    /// the `binding` it arrived on.
+    Cut {
+        /// The binding the row arrived on.
+        binding: EpochBinding,
+        /// Where the call opened.
+        source: EpochPosition,
+    },
+    /// In a kept turn, or nowhere the log shows: the row is appended, with `no_newer_rollback` in
+    /// its write, which refuses it once a rollback of the run the read did not take is in the
+    /// log, so the read decides again.
+    Kept {
+        /// The guard the row's append carries.
+        no_newer_rollback: WriteStatement,
+    },
 }
 
 // A step's failure with the failures of the cleanups that ran after it, every one kept: the step's

@@ -117,9 +117,9 @@ pub struct RunRollback {
 }
 
 /// An undo's rollback write in progress on one session, from [`RunEngine::mark_undo_write`]: while
-/// it is held, a turn opening on the session waits for it to drop and then opens, never refused
-/// and never waiting on the provider's session task. Dropping it ends the write's hold on every
-/// path, a failed write and a dropped future included.
+/// it is held, a turn opening on the session that meets it waits for it to drop and then opens,
+/// never refused and never waiting on the provider's session task. Dropping it ends the write's
+/// hold on every path, a failed write and a dropped future included.
 #[must_use = "a turn opening waits for the write only while the mark is held"]
 pub struct UndoWriteMark<'engine> {
     live: &'engine Mutex<LiveRuns>,
@@ -144,8 +144,8 @@ impl Drop for UndoWriteMark<'_> {
 
 impl RunEngine {
     /// Marks an undo's rollback write in progress on `session_id`, taken once the provider
-    /// confirmed the cut and dropped once the write has ended, so a turn the provider opens on the
-    /// session meanwhile opens after the rollback and cannot refuse it.
+    /// confirmed the cut and dropped once the write has ended, so a turn opening on the session
+    /// that meets the mark opens after the rollback and cannot refuse it.
     pub fn mark_undo_write(&self, session_id: SessionId) -> UndoWriteMark<'_> {
         let write = Arc::new(UndoWrite {
             ended: SetOnce::new(),

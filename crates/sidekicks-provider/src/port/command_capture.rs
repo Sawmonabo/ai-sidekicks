@@ -88,11 +88,11 @@ pub trait CommandCapture: Send + Sync {
     /// go once this answers, either way, and a command whose open failed runs with no window.
     /// Answers the window opened where the session's capture can cover the command. Fails
     /// `Refused`, recording nothing, for a session with no checkpoint or a run with no checkout,
-    /// where there is no coverage to lose and nothing an undo could put back. Fails
-    /// `CaptureFailed` for a failed read or write of the capture once it recorded the command as
-    /// run uncovered, or, where that record cannot be written, marked the session's capture failed
-    /// until its next capture succeeds, which the undo's preview and its list of uncovered commands
-    /// show as a failed capture.
+    /// where there is no coverage to lose and nothing an undo could put back. Fails `CaptureFailed`
+    /// for a failed read or write of the capture once it recorded the command as run uncovered, or,
+    /// where that record cannot be written, marked the session's capture failed until its next
+    /// capture succeeds, which the undo's preview and its list of uncovered commands show as a
+    /// failed capture.
     fn open_window(
         &self,
         start: CommandWindowStart,

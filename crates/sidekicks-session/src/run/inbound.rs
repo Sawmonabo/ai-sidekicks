@@ -6,8 +6,8 @@
 //! piece of a reply or of reasoning once no turn of its ended run is open; any other row is
 //! appended, stamped with its source pair when it is late, a reasoning update among them with its
 //! body. A session notice or session row belongs to no execution and is appended as it is, and so
-//! is a run's row that lands after its run: unstamped, on that run's own binding, whatever its
-//! cursor holds.
+//! is a run's row that lands after its run, unstamped, whatever its binding's cursor holds, unless
+//! the log shows its tool call opened in a turn an undo superseded: then it is absorbed.
 
 mod absorb;
 #[cfg(test)]
@@ -50,7 +50,7 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use crate::console_state::advisor_model_change_statement;
 use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::turns::guards::run_live_or_turn_open_statement;
-use crate::run::engine::{RunEngine, SubagentRunStart};
+use crate::run::engine::{RunEngine, SubagentRunStart, ToolCallOpeningTurn};
 use crate::run::epochs::{DeliveryAttribution, EpochBinding, EpochCursorError, ExecutionEpochs};
 use crate::run::inbound::absorb::absorb;
 use crate::run::provider_choice::ProviderChoiceResolver;
@@ -85,12 +85,16 @@ pub struct RunInboundDispatch {
     /// Where a test holds a held answer's settle between its failed try and its retry.
     #[cfg(test)]
     pub(super) settle_retry_pause: PausePoint,
+    /// Where a test holds an after-run row between the read of its opening's turn and its append.
+    #[cfg(test)]
+    pub(super) after_run_append_pause: PausePoint,
 }
 
 // A delivery attributed to its execution, with what is left to do for it.
 enum Attributed {
     Settled(InboundOutcome),
     Append(Box<PendingAppend>),
+    AfterRun(Box<AfterRunAppend>),
     Run {
         binding: EpochBinding,
         attribution: DeliveryAttribution,
@@ -113,6 +117,34 @@ struct PendingAppend {
     piece_of: Option<PieceDelivery>,
 }
 
+// A run's row that lands after its run, with the tool call whose opening decides whether an undo
+// took it: the call's own, or the one that started its command.
+struct AfterRunAppend {
+    binding_id: RuntimeBindingId,
+    opening: Option<(RunId, String)>,
+    session_id: SessionId,
+    event: SessionEvent,
+    content: Option<String>,
+    source: Option<EpochPosition>,
+}
+
+impl AfterRunAppend {
+    // The row's append, with the guard its opening's read hands it first in its write.
+    fn pending(&self, guard: Option<WriteStatement>) -> PendingAppend {
+        PendingAppend {
+            session_id: self.session_id,
+            event: self.event.clone(),
+            linkage: SessionEventLinkage {
+                transactional_prelude: guard.into_iter().collect(),
+                ..body_linkage(self.content.clone())
+            },
+            source: self.source,
+            preceding_events: Vec::new(),
+            piece_of: None,
+        }
+    }
+}
+
 // Where a piece of a run's reply or reasoning arrived, to absorb it once its run has ended.
 struct PieceDelivery {
     binding: EpochBinding,
@@ -122,6 +154,10 @@ struct PieceDelivery {
 
 // The prelude statement that refuses a piece's write once its run and every turn of it ended.
 const PIECE_RUN_LIVE_GUARD_INDEX: usize = 0;
+
+// The prelude statement that refuses an after-run row's write once a rollback of its run lands
+// that the read of its opening's turn did not take.
+const AFTER_RUN_ROLLBACK_GUARD_INDEX: usize = 0;
 
 // A delivery on a binding that is absorbed when it comes from before a cut.
 enum Absorbable {
@@ -211,6 +247,8 @@ impl RunInboundDispatch {
             choices,
             #[cfg(test)]
             settle_retry_pause: PausePoint::default(),
+            #[cfg(test)]
+            after_run_append_pause: PausePoint::default(),
         }
     }
 
@@ -232,54 +270,8 @@ impl RunInboundDispatch {
         async move {
             match attributed? {
                 Attributed::Settled(outcome) => Ok(outcome),
-                Attributed::Append(append) => {
-                    let PendingAppend {
-                        session_id,
-                        event,
-                        mut linkage,
-                        source,
-                        preceding_events,
-                        piece_of,
-                    } = *append;
-                    let piece_run_id = piece_of
-                        .as_ref()
-                        .map(|piece| piece.absorbed.run_id.unwrap_or(piece.binding.run_id));
-                    if let Some(run_id) = &piece_run_id {
-                        self.engine.wait_while_continuing(run_id).await;
-                        let guard = run_live_or_turn_open_statement(run_id);
-                        linkage
-                            .transactional_prelude
-                            .insert(PIECE_RUN_LIVE_GUARD_INDEX, guard);
-                    }
-                    for (preceding, body) in preceding_events {
-                        let draft = SessionEventDraft::of_session(session_id, &preceding)?;
-                        linkage.preceding_events.push(match body {
-                            Some(body) => draft.with_content_body(body),
-                            None => draft,
-                        });
-                    }
-                    let draft = SessionEventDraft::of_session(session_id, &event)?;
-                    let event_id = match self.appender.append(draft, linkage).await {
-                        Ok(receipt) => receipt.id,
-                        Err(error)
-                            if error.refused_statement_index()
-                                == Some(PIECE_RUN_LIVE_GUARD_INDEX) =>
-                        {
-                            let (Some(piece), Some(run_id)) = (piece_of, piece_run_id) else {
-                                return Err(error.into());
-                            };
-                            self.engine.require_run(run_id).await?;
-                            return self
-                                .absorb_ended(&piece.binding, &piece.absorbed, piece.attribution)
-                                .await;
-                        }
-                        Err(error) => return Err(error.into()),
-                    };
-                    Ok(match source {
-                        None => InboundOutcome::Appended { event_id },
-                        Some(source) => InboundOutcome::AppendedStamped { event_id, source },
-                    })
-                }
+                Attributed::Append(append) => self.append(*append).await,
+                Attributed::AfterRun(after_run) => self.append_after_run(*after_run).await,
                 Attributed::Run {
                     binding,
                     attribution,
@@ -289,9 +281,107 @@ impl RunInboundDispatch {
         }
     }
 
+    // Appends `append`; a piece whose run and every turn of it ended is absorbed instead.
+    async fn append(&self, append: PendingAppend) -> Result<InboundOutcome, InboundDispatchError> {
+        let PendingAppend {
+            session_id,
+            event,
+            mut linkage,
+            source,
+            preceding_events,
+            piece_of,
+        } = append;
+        let piece_run_id = piece_of
+            .as_ref()
+            .map(|piece| piece.absorbed.run_id.unwrap_or(piece.binding.run_id));
+        if let Some(run_id) = &piece_run_id {
+            self.engine.wait_while_continuing(run_id).await;
+            let guard = run_live_or_turn_open_statement(run_id);
+            linkage
+                .transactional_prelude
+                .insert(PIECE_RUN_LIVE_GUARD_INDEX, guard);
+        }
+        for (preceding, body) in preceding_events {
+            let draft = SessionEventDraft::of_session(session_id, &preceding)?;
+            linkage.preceding_events.push(match body {
+                Some(body) => draft.with_content_body(body),
+                None => draft,
+            });
+        }
+        let draft = SessionEventDraft::of_session(session_id, &event)?;
+        let event_id = match self.appender.append(draft, linkage).await {
+            Ok(receipt) => receipt.id,
+            Err(error) if error.refused_statement_index() == Some(PIECE_RUN_LIVE_GUARD_INDEX) => {
+                let (Some(piece), Some(run_id)) = (piece_of, piece_run_id) else {
+                    return Err(error.into());
+                };
+                self.engine.require_run(run_id).await?;
+                return self
+                    .absorb_ended(&piece.binding, &piece.absorbed, piece.attribution)
+                    .await;
+            }
+            Err(error) => return Err(error.into()),
+        };
+        Ok(match source {
+            None => InboundOutcome::Appended { event_id },
+            Some(source) => InboundOutcome::AppendedStamped { event_id, source },
+        })
+    }
+
+    // Appends a run's row that lands after its run, unless its tool call opened in a turn an undo
+    // superseded, which absorbs it as from before the cut, whatever its binding's cursor holds.
+    // The append carries a guard that refuses it once a rollback of the run lands that the read
+    // did not take, and the read then decides again; each refusal is a rollback the next read
+    // takes, so the loop ends with the run's rollbacks.
+    async fn append_after_run(
+        &self,
+        after_run: AfterRunAppend,
+    ) -> Result<InboundOutcome, InboundDispatchError> {
+        let Some((run_id, tool_call_id)) = &after_run.opening else {
+            return self.append(after_run.pending(None)).await;
+        };
+        loop {
+            let opening_turn = self
+                .engine
+                .read_tool_call_opening_turn(
+                    after_run.session_id,
+                    *run_id,
+                    tool_call_id.clone(),
+                    after_run.binding_id.clone(),
+                )
+                .await?;
+            let no_newer_rollback = match opening_turn {
+                ToolCallOpeningTurn::Cut { binding, source } => {
+                    return Ok(absorb(
+                        &binding,
+                        &AbsorbedDelivery {
+                            kind: "afterRunRow",
+                            run_id: Some(*run_id),
+                            new_state: None,
+                        },
+                        LateEventAbsorbReason::BeforeCut,
+                        DeliveryAttribution::BeforeCut { source },
+                    ));
+                }
+                ToolCallOpeningTurn::Kept { no_newer_rollback } => no_newer_rollback,
+            };
+            #[cfg(test)]
+            self.after_run_append_pause.pass().await;
+            match self
+                .append(after_run.pending(Some(no_newer_rollback)))
+                .await
+            {
+                Err(InboundDispatchError::Append(error))
+                    if error.refused_statement_index() == Some(AFTER_RUN_ROLLBACK_GUARD_INDEX) => {}
+                outcome => return outcome,
+            }
+        }
+    }
+
     // Attributes `delivery` and settles what needs no write: a turn boundary, a delivery from
     // before a cut, a permission ask and a live state. A session notice, a row about the session or
-    // the machine and a run's row that lands after its run are appended without attributing.
+    // the machine and a run's row that lands after its run are appended without attributing, the
+    // last once its tool call's opening is read.
     fn attribute(&self, delivery: InboundDelivery<'_>) -> Result<Attributed, EpochCursorError> {
         let (binding, absorbable) = match delivery {
             InboundDelivery::SessionNotice { session_id, notice } => {
@@ -323,15 +413,21 @@ impl RunInboundDispatch {
                     None,
                 ));
             }
-            InboundDelivery::AfterRunRow { row, content, .. } => {
+            InboundDelivery::AfterRunRow {
+                binding_id,
+                row,
+                content,
+            } => {
+                let opening = tool_call_opening_of(&row);
                 let (session_id, event, source) = row.into_event(None);
-                return Ok(appended(
+                return Ok(Attributed::AfterRun(Box::new(AfterRunAppend {
+                    binding_id,
+                    opening,
                     session_id,
-                    Vec::new(),
                     event,
-                    body_linkage(content),
+                    content,
                     source,
-                ));
+                })));
             }
             InboundDelivery::TurnBoundary { binding_id } => {
                 return self.open_turn(&binding_id).map(Attributed::Settled);
@@ -698,6 +794,36 @@ fn possible_source(attribution: DeliveryAttribution) -> Option<EpochPosition> {
 
 // A row to append as it was attributed, after `preceding`, events with no body written before it
 // in the same write.
+// The run and tool call whose opening places a row that lands after its run: a held call's close
+// or move to the background names its call, and a command's ending the call that started it.
+fn tool_call_opening_of(row: &LateAppendableRow) -> Option<(RunId, String)> {
+    let (run_id, tool_call_id) = match row {
+        LateAppendableRow::AgentToolCallBackgrounded(payload) => {
+            (payload.run_id, Some(&payload.tool_call_id))
+        }
+        LateAppendableRow::AgentToolCallCompleted(payload) => {
+            (payload.run_id, payload.tool_call_id.as_ref())
+        }
+        LateAppendableRow::AgentToolCallFailed(payload) => {
+            (payload.run_id, payload.tool_call_id.as_ref())
+        }
+        LateAppendableRow::AgentCommandEnded(payload) => {
+            (payload.run_id, payload.tool_call_id.as_ref())
+        }
+        LateAppendableRow::AgentMessageSent(_)
+        | LateAppendableRow::AgentToolCallInvoked(_)
+        | LateAppendableRow::AgentSubagentStarted(_)
+        | LateAppendableRow::AgentSubagentCompleted(_)
+        | LateAppendableRow::SessionProviderStatusReported(_)
+        | LateAppendableRow::UsageTokenCountRecorded(_)
+        | LateAppendableRow::UsageContextWindowUpdated(_)
+        | LateAppendableRow::UsageApiRequestRetried(_)
+        | LateAppendableRow::AgentRunContextCompacted(_)
+        | LateAppendableRow::AgentTurnRerouted(_) => return None,
+    };
+    Some((run_id, tool_call_id?.as_str().to_owned()))
+}
+
 fn appended(
     session_id: SessionId,
     preceding: Vec<SessionEvent>,

@@ -7,6 +7,7 @@
 use jiff::Timestamp;
 use serde_json::{Map, Value};
 use sidekicks_contracts::command::{CommandId, ExitCode};
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
@@ -48,6 +49,8 @@ impl CodexFrameDelivery {
             session_id: record.session_id,
             command_id,
             run_id: run.run_id,
+            // The command's item is its tool call, under the same id.
+            tool_call_id: ToolCallId::new(item_id.to_owned()).ok(),
             binding_id: run.binding_id.clone(),
             name,
             started_at: instant_at(started_at_ms),
