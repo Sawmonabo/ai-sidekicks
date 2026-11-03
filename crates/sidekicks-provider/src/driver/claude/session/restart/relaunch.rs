@@ -153,6 +153,7 @@ fn relaunch_failure(detail: &str) -> ClaudeResumeAnswer {
             ),
         },
         has_started_process: false,
+        live_turn_to_continue: None,
     }
 }
 

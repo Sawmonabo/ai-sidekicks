@@ -32,8 +32,8 @@ use crate::driver::claude::session::state::{ClaudeSpawnBinding, LiveClaudeSessio
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::spawn::account_home::write_claude_home_retention;
 use crate::driver::claude::spawn::environment::{
-    CLAUDE_RESUME_INTERRUPTED_TURN_KEY, ClaudeAccountFolders, ClaudeProcessEnvironmentRequest,
-    ClaudeProcessHome, compose_claude_process_environment,
+    ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, ClaudeProcessHome,
+    compose_claude_process_environment, interrupted_turn_resume_environment,
 };
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::contract::params_and_results::StartRunParams;
@@ -107,6 +107,8 @@ pub(crate) struct ClaudeSpawnLegsRequest {
     pub(crate) context: ClaudeSpawnContext,
     /// Whether the process resumes a conversation whose interrupted turn it continues.
     pub(crate) continues_interrupted_turn: bool,
+    /// The words the continued turn goes on with in place of Claude Code's own; `None` keeps them.
+    pub(crate) resume_prompt: Option<String>,
 }
 
 /// The daemon's services a spawn's legs are built with.
@@ -165,8 +167,8 @@ pub(crate) enum ClaudeSpawnLegsError {
 
 /// Builds the legs every spawn path starts a process from, offering no callback tools and
 /// installing no registry: the account home's retention set, git kept from asking on a terminal,
-/// a command channel's variables where one opened, and the key that continues an interrupted turn
-/// where the request asks it. Fails when the retention cannot be written, the curated credential
+/// a command channel's variables where one opened, and the keys that continue an interrupted turn,
+/// with the request's words where it gives them, where the request asks it. Fails when the retention cannot be written, the curated credential
 /// list cannot be resolved or the environment cannot be built.
 pub(crate) async fn build_claude_spawn_bound_legs(
     request: ClaudeSpawnLegsRequest,
@@ -194,12 +196,13 @@ pub(crate) async fn build_claude_spawn_bound_legs(
                 .iter()
                 .flat_map(|channel| channel.environment().iter().cloned()),
         )
-        .chain(request.continues_interrupted_turn.then(|| {
-            (
-                CLAUDE_RESUME_INTERRUPTED_TURN_KEY.to_owned(),
-                "1".to_owned(),
-            )
-        }))
+        .chain(
+            request
+                .continues_interrupted_turn
+                .then(|| interrupted_turn_resume_environment(request.resume_prompt.as_deref()))
+                .into_iter()
+                .flatten(),
+        )
         .collect::<Vec<_>>();
     let spawn_environment = compose_claude_process_environment(
         ClaudeProcessEnvironmentRequest {

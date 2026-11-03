@@ -1,6 +1,6 @@
 //! A held lead continued once the person answered: the resume carries the answers owed it only
 //! while the lead runs, each answer once, and owes it again to the next resume when the provider
-//! refused the one that carried it.
+//! refused the one that carried it or resumed without continuing the lead.
 
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -9,7 +9,7 @@ use rusqlite::params;
 use sidekicks_contracts::approval::{ApprovalDecision, ApprovalRequestId};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_provider::driver::session_control::continuation::{
+use sidekicks_provider::driver::session_control::held_run_continue::{
     ContinueAnswer, ContinueEntry, HeldRunContinue,
 };
 use sidekicks_std::mutex_lock::lock;
@@ -125,6 +125,29 @@ async fn a_refused_continue_owes_its_answer_to_the_next() {
         "the refusal is answered: {refused:?}"
     );
     opening.is_refused.store(false, Ordering::SeqCst);
+    resume_after_answer(&opening)
+        .await
+        .expect("the next continue resumes the lead");
+
+    let entries: Vec<_> = lock(&carried)
+        .iter()
+        .map(|carried| carried.as_ref().map(|carried| carried.entries.clone()))
+        .collect();
+    assert_eq!(entries, [Some(vec![entry.clone()]), Some(vec![entry])]);
+}
+
+// A resume the provider answered without running the lead on gives its answer back, so the next
+// continue carries it again. Killed by the give-back on that arm dropped (the second continue
+// resumes nothing).
+#[tokio::test]
+async fn a_continue_the_lead_never_took_owes_its_answer_to_the_next() {
+    let (opening, carried, entry) = held_lead().await;
+    opening.is_continue_dropped.store(true, Ordering::SeqCst);
+
+    resume_after_answer(&opening)
+        .await
+        .expect("the resume answers without the lead");
+    opening.is_continue_dropped.store(false, Ordering::SeqCst);
     resume_after_answer(&opening)
         .await
         .expect("the next continue resumes the lead");
