@@ -9,13 +9,10 @@ use std::path::{Path, PathBuf};
 use sidekicks_platforms::create_new_file;
 
 use crate::cleanup_failures::CleanupFailures;
+use crate::file::clone_open_file::{CloneOpenFileError, NEW_COPY_MODE, clone_open_file};
 use crate::file::publish_without_replacing::{PublishOutcome, blocking_publish_without_replacing};
 use crate::file::removal_after_failure::remove_file_after_failure;
-use crate::missing_entry::MissingEntry as _;
 use crate::random_hex::random_hex;
-
-// The mode a fallback copy is made with, before it takes the source's own.
-const FALLBACK_COPY_MODE: u32 = 0o600;
 
 // The random bytes in a fallback copy's temporary name, so two copies to one path never meet.
 const TEMPORARY_NAME_RANDOM_BYTES: usize = 8;
@@ -25,33 +22,35 @@ const COPYING: &str = "copying the file";
 
 /// Copies `source` to `destination`, keeping its mode: a clone where the file system makes one,
 /// else a byte copy into a temporary file beside `destination` that takes its name only whole, so
-/// a copy that fails partway, or is cut by a crash, never carries the name. Fails with
-/// `AlreadyExists` when anything is at `destination`, which is never replaced, `NotFound` when
-/// `source` or the folder is missing, else with the copy's or the naming's error; when removing a
-/// copy that failed partway fails too, the error keeps the copy's kind and wraps a
-/// [`CleanupFailures`](crate::cleanup_failures::CleanupFailures) holding both; fails with the
-/// removal's error when a clone made but not finished cannot be removed. `source` is a regular
-/// file: on Linux and Windows the clone answers any other kind of source with `InvalidInput`, which
-/// hides an entry already at `destination`, so that entry would be removed.
+/// a copy that fails partway, or is cut by a crash, never carries the name. Fails with the source's
+/// open error, unchanged and before `destination` is touched, `AlreadyExists` when anything is at
+/// `destination`, which is never replaced or removed, `NotFound` when the folder is missing, else
+/// with the copy's or the naming's error; when removing a clone or a copy that failed partway fails
+/// too, the error keeps the failure's kind and wraps a
+/// [`CleanupFailures`](crate::cleanup_failures::CleanupFailures) holding both. `source` is a
+/// regular file.
 pub fn clone_or_copy(source: &Path, destination: &Path) -> io::Result<()> {
-    match reflink_copy::reflink(source, destination) {
+    let file = File::open(source)?;
+    match clone_open_file(&file, destination) {
         Ok(()) => Ok(()),
-        Err(refusal)
+        Err(CloneOpenFileError::Failed(failure))
             if matches!(
-                refusal.kind(),
+                failure.kind(),
                 io::ErrorKind::AlreadyExists | io::ErrorKind::NotFound
-            ) =>
+            ) || is_cleanup_failure(&failure) =>
         {
-            Err(refusal)
+            Err(failure)
         }
         // A file system that makes no clone, or refuses this one, still takes a byte copy; a
-        // real problem fails the copy with its own error. On Linux and Windows a clone whose
-        // permissions could not be set is left at the path, so it goes first.
-        Err(_clone_refused) => {
-            fs::remove_file(destination).none_if_missing()?;
-            copy_then_publish(source, destination)
-        }
+        // real problem fails the copy with its own error.
+        Err(_clone_refused) => copy_then_publish(source, destination),
     }
+}
+
+// Whether `failure` carries a failed removal of what the clone made, which a byte copy would
+// then find at the path.
+fn is_cleanup_failure(failure: &io::Error) -> bool {
+    matches!(failure.get_ref(), Some(inner) if inner.is::<CleanupFailures<io::Error>>())
 }
 
 // Copies `source`'s bytes into a new temporary file beside `destination`, gives it `destination`'s
@@ -95,7 +94,7 @@ fn temporary_path_beside(destination: &Path) -> io::Result<PathBuf> {
 fn copy_into_new_file(source: &Path, path: &Path) -> io::Result<Permissions> {
     let mut reader = File::open(source)?;
     let permissions = reader.metadata()?.permissions();
-    let mut copy = create_new_file(path, FALLBACK_COPY_MODE)?;
+    let mut copy = create_new_file(path, NEW_COPY_MODE)?;
     io::copy(&mut reader, &mut copy)?;
     Ok(permissions)
 }
@@ -104,6 +103,8 @@ fn copy_into_new_file(source: &Path, path: &Path) -> io::Result<Permissions> {
 mod tests {
     use std::fs;
     use std::io;
+
+    use sidekicks_platforms::{is_superuser, make_unreadable};
 
     use super::{clone_or_copy, copy_then_publish};
 
@@ -145,6 +146,29 @@ mod tests {
         assert_eq!(
             fs::read(&destination).expect("the copy reads"),
             b"the source's bytes"
+        );
+    }
+
+    // Fails when the target is removed before the source has opened, as a removal ahead of the
+    // byte copy would remove it whenever the source cannot be read.
+    #[test]
+    fn a_source_that_does_not_open_leaves_an_existing_target_whole() {
+        if is_superuser() {
+            return;
+        }
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let source = scratch.path().join("source");
+        fs::write(&source, b"the source's bytes").expect("the source is written");
+        let destination = scratch.path().join("destination");
+        fs::write(&destination, b"written before").expect("the target is written");
+        let _unreadable = make_unreadable(&source).expect("the source is made unreadable");
+
+        let refusal =
+            clone_or_copy(&source, &destination).expect_err("an unreadable source is not copied");
+        assert_eq!(refusal.kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(
+            fs::read(&destination).expect("the target reads"),
+            b"written before"
         );
     }
 }

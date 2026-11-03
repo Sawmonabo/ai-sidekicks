@@ -180,8 +180,8 @@ impl CapturePacking {
     }
 
     /// Forgets what this daemon run keeps of the capture folders under the owner folder
-    /// `owner_folder`, for an owner whose folder was removed: how many packs each folder's last fold
-    /// left and when a fold there failed.
+    /// `owner_folder`, for an owner whose folder was removed: how many packs each folder's last
+    /// fold left and when a fold there failed.
     pub fn forget_owner(&self, owner_folder: &Path) {
         lock(&self.packs_left_by_fold).retain(|folder, _| !folder.starts_with(owner_folder));
         lock(&self.failed_folds).retain(|folder, _| !folder.starts_with(owner_folder));
@@ -375,7 +375,7 @@ impl CapturePacking {
 
     // Folds `folder`'s packs into geometric order when a fold is due and the git for `place` can
     // fold, and keeps how many packs it left, or when it failed, a failed read of git's version
-    // included, so the next fold there waits.
+    // included, so the next fold there waits; a fold that finds its folder gone keeps nothing.
     async fn fold_held(
         &self,
         place: Option<&Place>,
@@ -391,11 +391,16 @@ impl CapturePacking {
             Ok(false) => return Ok(()),
             Err(failure) => Err(failure),
         };
+        // A folder removed while its fold ran, as a purge removes its owner's, has its entries
+        // forgotten, so none is kept for it here.
+        let is_folder_gone =
+            folded.is_err() && matches!(tokio::fs::try_exists(folder).await, Ok(false));
         let mut failed_folds = lock(&self.failed_folds);
         match &folded {
             Ok(()) => {
                 failed_folds.remove(folder);
             }
+            Err(_) if is_folder_gone => {}
             Err(_) => {
                 failed_folds.insert(folder.to_path_buf(), Instant::now());
             }
