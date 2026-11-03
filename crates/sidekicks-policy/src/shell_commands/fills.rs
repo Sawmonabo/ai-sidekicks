@@ -631,14 +631,19 @@ mod tests {
         FillRefusal::NotExpanding
     )]
     // The bash reading's own refusals, which the PowerShell reading would also give at save: a
-    // string left open, bash 5.3's command forms of `${…}`, which the grammar does not read, and
-    // an offset written as a bare fill.
+    // string left open, bash 5.3's command forms of `${…}`, which the grammar reads whole only
+    // when the fill opens the body, and an offset written as a bare fill.
     #[case::a_syntax_error("echo \"{{ x }}", "bash", FillRefusal::NotWhole)]
     #[case::a_command_in_an_expansion("echo ${ echo {{ x }}; }", "bash", FillRefusal::NotWhole)]
     #[case::a_value_command_in_an_expansion(
         "echo ${| echo {{ x }}; }",
         "bash",
         FillRefusal::NotWhole
+    )]
+    #[case::a_fill_opening_a_command_in_an_expansion(
+        "echo ${ {{ x }}}",
+        "bash",
+        FillRefusal::CommandInExpansion
     )]
     #[case::a_bare_offset("echo ${p:{{ x }}}", "bash", FillRefusal::Arithmetic)]
     #[case::a_bare_offset_quoted("echo \"${p:{{ x }}}\"", "bash", FillRefusal::Arithmetic)]
