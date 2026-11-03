@@ -123,6 +123,9 @@ pub(crate) struct RunWalk {
     /// The losing places of a win of the node at a place on a slot, by `(place, slot)`, worked out
     /// once each, so wins of one node share them.
     losing_places: BTreeMap<(usize, usize), Arc<[bool]>>,
+    /// The places a win of the node at a place on a slot reaches, by `(place, slot)`, worked out
+    /// once each beside its losing places.
+    reached_places: BTreeMap<(usize, usize), Arc<[bool]>>,
 }
 
 impl RunWalk {
@@ -149,6 +152,7 @@ impl RunWalk {
             passed_on: BTreeMap::new(),
             wins: Vec::new(),
             losing_places: BTreeMap::new(),
+            reached_places: BTreeMap::new(),
         }
     }
 
@@ -510,7 +514,7 @@ impl RunWalk {
             .collect();
         let lineage = round.lineage.clone();
         let is_losing = self.losing_places_of(place, winning_slot);
-        let is_reached = self.reached_places_of(place, &is_losing);
+        let is_reached = self.reached_places_of(place, winning_slot);
         let win = self.wins.len();
         self.wins.push(DecidedWin {
             place,
@@ -570,12 +574,7 @@ impl RunWalk {
     /// fed while a feeder of it has a live step on the round's pass, whose items it still takes.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn is_spent(&self, place: usize, round: &Round) -> bool {
-        let wins: Vec<&[bool]> = round
-            .won
-            .iter()
-            .chain(&round.lineage.overtaken_by)
-            .map(|&win| &*self.wins[win].is_losing)
-            .collect();
+        let wins = round.won.iter().chain(&round.lineage.overtaken_by);
         round
             .slots
             .iter()
@@ -595,7 +594,7 @@ impl RunWalk {
                     || input
                         .feeders
                         .iter()
-                        .all(|&feeder| wins.iter().any(|is_losing| is_losing[feeder]))
+                        .all(|&feeder| wins.clone().any(|&win| self.wins[win].is_losing[feeder]))
             })
     }
 
@@ -607,24 +606,30 @@ impl RunWalk {
             .any(|&win| self.wins[win].is_losing[place])
     }
 
-    /// Which places, by place, a win of the node at `place` with the losing places `is_losing`
-    /// reaches: the node, every losing place, and every place that leads into the node without
+    /// Which places, by place, a win of the node at `place` on `winning_slot` reaches: the node, every losing place, and every place that leads into the node without
     /// passing a loop node whose body holds it, through whose steps the late feeds into the node
     /// run. A place that leads into the node only through such a loop node is not reached, since
     /// its feeds into that loop node start the loop's next pass rather than straggle on this one;
     /// a loop node before the node that does not hold it is reached like any other place.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-    fn reached_places_of(&self, place: usize, is_losing: &[bool]) -> Vec<bool> {
+    fn reached_places_of(&mut self, place: usize, winning_slot: usize) -> Arc<[bool]> {
+        let is_losing = self.losing_places_of(place, winning_slot);
         let graph = &self.graph;
-        let mut is_reached = is_losing.to_vec();
-        is_reached[place] = true;
-        first_to_arrive::mark_ancestors(
-            graph,
-            graph.forward_feeders(place).iter().copied(),
-            |ancestor| !graph.is_in_loop_body(place, ancestor),
-            &mut is_reached,
-        );
-        is_reached
+        Arc::clone(
+            self.reached_places
+                .entry((place, winning_slot))
+                .or_insert_with(|| {
+                    let mut is_reached = is_losing.to_vec();
+                    is_reached[place] = true;
+                    first_to_arrive::mark_ancestors(
+                        graph,
+                        graph.forward_feeders(place).iter().copied(),
+                        |ancestor| !graph.is_in_loop_body(place, ancestor),
+                        &mut is_reached,
+                    );
+                    is_reached.into()
+                }),
+        )
     }
 
     /// Which places lose when the node at `place` wins on `winning_slot`, by place.
