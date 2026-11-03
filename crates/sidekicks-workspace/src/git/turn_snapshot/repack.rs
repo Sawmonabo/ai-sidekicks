@@ -277,9 +277,7 @@ impl CapturePacking {
             )
             .await?;
         }
-        if self.can_fold(place).await? {
-            self.fold_held(place, &folder, &hold).await?;
-        }
+        self.fold_held(place, &folder, &hold).await?;
         Ok(CaptureFolderSweep::Swept(pass))
     }
 
@@ -355,14 +353,9 @@ impl CapturePacking {
     // A fold a capture's pack found due, run when the folder's lock comes free and only when it is
     // still due then. Never fails: a failure is logged.
     async fn fold_when_due(&self, place: Option<&Place>, folder: PathBuf) {
-        let folded = match self.can_fold(place).await {
-            Ok(true) => {
-                let hold = self.folder_lock.acquire(folder.clone()).await;
-                self.fold_held(place, &folder, &hold).await
-            }
-            Ok(false) => Ok(()),
-            Err(failure) => Err(failure),
-        };
+        let hold = self.folder_lock.acquire(folder.clone()).await;
+        let folded = self.fold_held(place, &folder, &hold).await;
+        drop(hold);
         if let Err(failure) = folded {
             CaptureDiagnostic::FoldFailed {
                 capture_folder: folder,
@@ -372,8 +365,9 @@ impl CapturePacking {
         }
     }
 
-    // Folds `folder`'s packs into geometric order when a fold is due, and keeps how many packs
-    // it left, or when it failed, so the next fold there waits.
+    // Folds `folder`'s packs into geometric order when a fold is due and the git for `place` can
+    // fold, and keeps how many packs it left, or when it failed, a failed read of git's version
+    // included, so the next fold there waits.
     async fn fold_held(
         &self,
         place: Option<&Place>,
@@ -384,7 +378,11 @@ impl CapturePacking {
         if !self.is_fold_due(folder, counts.packs) {
             return Ok(());
         }
-        let folded = self.fold(place, folder, hold).await;
+        let folded = match self.can_fold(place).await {
+            Ok(true) => self.fold(place, folder, hold).await,
+            Ok(false) => return Ok(()),
+            Err(failure) => Err(failure),
+        };
         let mut failed_folds = lock(&self.failed_folds);
         match &folded {
             Ok(()) => {
