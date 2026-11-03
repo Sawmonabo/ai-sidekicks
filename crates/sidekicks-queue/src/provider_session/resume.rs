@@ -470,8 +470,8 @@ impl ProviderSessions {
         ))
     }
 
-    // Hands the provider's answer for each run `session_id`'s resume named to the resumed runs'
-    // ingress, under the caller's transition lock.
+    // Moves each run `runs` names on from its answered wait to running, through the resumed runs'
+    // ingress.
     async fn continue_answered_runs(
         &self,
         runs: Vec<(RunId, RunState)>,
@@ -483,6 +483,8 @@ impl ProviderSessions {
             .await
     }
 
+    // Hands the provider's answer for each run `session_id`'s resume named to the resumed runs'
+    // ingress, under the caller's transition lock.
     async fn take_resumed_runs(
         &self,
         session_id: SessionId,
