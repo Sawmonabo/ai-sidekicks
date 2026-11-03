@@ -284,8 +284,13 @@ mod tests {
             hold_started_at: None,
             is_sibling_failure: false,
         });
-        let last = report("a", a_canceled);
-        let closed_at = last.at.clone();
+        // A past instant, so a closing report stamped with a fresh clock read cannot match it.
+        let closed_at = WireInstant::try_from("2025-03-04T15:00:00.000Z".to_owned())
+            .expect("the test's instant reads");
+        let last = StepReport {
+            at: closed_at.clone(),
+            ..report("a", a_canceled)
+        };
         let WaveSettle::Closed {
             reports: closing,
             run_to_stop: None,
