@@ -187,7 +187,7 @@ impl ProviderSessions {
     ) -> Result<ResumedSession, ProviderSessionError> {
         let _hold = self.deps.transition_lock.acquire(session_id).await;
         self.refuse_ended(session_id).await?;
-        if self.lock_opened().contains_key(&session_id) {
+        if self.is_opened(session_id) {
             return Ok(ResumedSession::default());
         }
         let leg = read_session_leg(&self.deps.pool, session_id)
