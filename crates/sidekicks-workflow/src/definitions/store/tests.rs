@@ -93,7 +93,7 @@ async fn open_stores(
 }
 
 /// The step `http.call` at version 1, whose `token` param the kind marks sensitive and whose
-/// `url` param it does not.
+/// `url` param it does not, and whose `tool` param is a tool binding.
 fn call_kind() -> NodeKind {
     test_kind(
         json!({
@@ -103,6 +103,7 @@ fn call_kind() -> NodeKind {
             "params": [
                 { "id": "token", "label": "Token", "type": "string", "sensitive": true },
                 { "id": "url", "label": "Address", "type": "string" },
+                { "id": "tool", "label": "Tool", "type": "mcpTool" },
             ],
             "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
             "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
@@ -547,6 +548,69 @@ async fn a_save_refuses_a_secret_its_params_cannot_resolve(
     assert_eq!(
         serde_json::to_value(&findings).expect("the findings write as JSON"),
         expected
+    );
+    let definitions: i64 = database
+        .reader()
+        .query_row("SELECT COUNT(*) FROM workflow_definitions", [], |row| {
+            row.get(0)
+        })
+        .expect("the test counts the workflows");
+    assert_eq!(definitions, 0, "a refused save writes no workflow");
+}
+
+/// A save refuses a tool binding carrying a policy as the request's own read refuses an unknown
+/// member, naming the field at its place in the request, and writes no workflow; the binding
+/// without it saves. Mutation: let a binding no finding names pass the save.
+#[rstest]
+#[case::carrying_a_policy(Some("allow"))]
+#[case::a_reference_only(None)]
+#[tokio::test]
+async fn a_save_refuses_a_tool_binding_carrying_a_policy(#[case] approval_mode: Option<&str>) {
+    let database = TestDatabase::new(schema_parts());
+    let (store, _drafts) = open_stores(&database, SHELL_LINE_LIMIT).await;
+    let mut tool = json!({
+        "binding": { "scope": "user", "provider": "codex", "serverName": "github" },
+        "toolName": "search",
+    });
+    if let Some(approval_mode) = approval_mode {
+        tool["approvalMode"] = json!(approval_mode);
+    }
+    let mut document = document("Calls", "notes.md");
+    document["nodes"][0] = json!({
+        "id": "call", "kind": "http.call", "kindVersion": 1, "name": "Call",
+        "order": 0, "params": { "tool": tool },
+    });
+    document["edges"][0]["target"] = json!("call");
+
+    let saved = store
+        .create(
+            &WorkflowDefinitionCreateRequest {
+                document: serde_json::from_value(document).expect("the test's document reads"),
+                origin: WorkflowCreateOrigin::FileImport {},
+            },
+            &author(),
+        )
+        .await;
+
+    if approval_mode.is_none() {
+        assert!(saved.is_ok(), "{saved:?}");
+        return;
+    }
+    let Err(WorkflowDefinitionStoreError::Refused(DefinitionRefusal::Unreadable { issues })) =
+        saved
+    else {
+        panic!("the save is refused as unreadable, not {saved:?}");
+    };
+    let [issue] = issues.as_slice() else {
+        panic!("one field is named: {issues:?}");
+    };
+    assert_eq!(
+        serde_json::to_value(&issue.path).expect("a path writes as JSON"),
+        json!(["document", "nodes", 0, "params", "tool", "approvalMode"])
+    );
+    assert!(
+        issue.message.starts_with("breaks the schema's"),
+        "{issue:?}"
     );
     let definitions: i64 = database
         .reader()
