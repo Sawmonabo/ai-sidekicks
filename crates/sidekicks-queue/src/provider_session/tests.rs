@@ -21,18 +21,21 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use rusqlite::params;
 use serde_json::json;
+use sidekicks_contracts::approval::ApprovalRequestId;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::place::Place;
+use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::events::SessionNotice;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::error_causes::ExecutableUnresolvable;
@@ -68,7 +71,7 @@ use sidekicks_store::events::session::followers::SessionEventFollowers;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use super::test_opening::{
-    RecordedProcessFollowing, RecordedResumedRuns, first_provider,
+    OrphanedAnswersStandIn, RecordedProcessFollowing, RecordedResumedRuns, first_provider,
     record_first_provider_capabilities, test_execution_postures, test_opening_composer,
 };
 use super::{
@@ -94,17 +97,19 @@ type ResumeHook = Box<dyn Fn(&ResumeSessionParams) + Send + Sync>;
 /// What runs as the close's `session.closed` is appended, before its write is queued.
 type ClosedAppendHook = Box<dyn Fn() + Send + Sync>;
 
-// A session an earlier daemon ran on its binding, its provider sessions and its changes sharing
-// the transition lock, over a driver that resumes the conversation on the binding the queue minted,
-// or on `came_up_on` once a test sets it, checking that binding's cursor is open as it runs, and
+// A session an earlier daemon ran on its binding, its provider sessions and its changes sharing the
+// transition lock, over a driver that resumes the conversation on the binding the queue minted, or
+// on `came_up_on` once a test sets it, checking that binding's cursor is open as it runs, and
 // closes at once, counting each close; each event changes the session's directory row, so a close
 // leaves the session reading closed. Once a test sets `is_row_taken`, a resume first records a row
 // under the binding it runs on, so the queue's own record of it fails; once it sets `is_deferred`,
 // a resume starts no process and answers every run waiting; once it sets `git_folder`, an opening
-// names that git folder, and once it sets `provider`, that provider; once it sets
-// `is_provider_missing`, a resume or restart answers the provider not installed. The session
-// runs in `TEST_PLACE`. The resumed runs' stand-in records each resume's runs, and
-// whether the binding last handed out had a row as they reached it.
+// names that git folder, and once it sets `provider`, that provider; once it sets `is_refused`, a
+// resume fails; once it sets `is_provider_missing`, a resume or restart answers the provider not
+// installed. A resume carrying a continue answers its lead still running, but once a test sets
+// `is_continue_dropped`, gone. The session runs in `TEST_PLACE`. The resumed runs' stand-in records
+// each resume's runs, and whether the binding last handed out had a row as they reached it; the
+// orphaned answers' stand-ins owe what a test gives them.
 struct Opening {
     database: TestDatabase,
     session_id: SessionId,
@@ -116,6 +121,8 @@ struct Opening {
     came_up_on: Arc<Mutex<Option<RuntimeBindingId>>>,
     is_row_taken: Arc<AtomicBool>,
     is_deferred: Arc<AtomicBool>,
+    is_refused: Arc<AtomicBool>,
+    is_continue_dropped: Arc<AtomicBool>,
     git_folder: Arc<Mutex<Option<FilesystemPath>>>,
     provider: Arc<Mutex<Option<ProviderId>>>,
     is_provider_missing: Arc<AtomicBool>,
@@ -126,6 +133,7 @@ struct Opening {
     following: Arc<RecordedProcessFollowing>,
     resumed_runs: Arc<RecordedResumedRuns>,
     handed_rows_at_take: Arc<Mutex<Vec<bool>>>,
+    orphaned_approvals: Arc<OrphanedAnswersStandIn<ApprovalRequestId>>,
 }
 
 impl Opening {
@@ -210,6 +218,8 @@ impl Opening {
         let came_up_on = Arc::new(Mutex::new(None::<RuntimeBindingId>));
         let is_row_taken = Arc::new(AtomicBool::new(false));
         let is_deferred = Arc::new(AtomicBool::new(false));
+        let is_refused = Arc::new(AtomicBool::new(false));
+        let is_continue_dropped = Arc::new(AtomicBool::new(false));
         let closes = Arc::new(AtomicUsize::new(0));
         let git_folder = Arc::new(Mutex::new(None));
         let provider = Arc::new(Mutex::new(None));
@@ -225,6 +235,8 @@ impl Opening {
                 Arc::clone(&is_deferred),
                 Arc::clone(&is_provider_missing),
             );
+            let is_refused = Arc::clone(&is_refused);
+            let is_continue_dropped = Arc::clone(&is_continue_dropped);
             move |params: ResumeSessionParams| {
                 assert_eq!(params.resume_handle, "conversation-1");
                 assert!(
@@ -235,6 +247,18 @@ impl Opening {
                     return async { Err(unresolvable_provider(false)) }.boxed();
                 }
                 on_resume(&params);
+                if is_refused.load(Ordering::SeqCst) {
+                    return async {
+                        Ok(DriverResumeResult::Failed {
+                            recovery_condition: RecoveryCondition::RecoveryNeeded,
+                            provider_failure_detail: FreeFormText::new(
+                                "the conversation could not be read".to_owned(),
+                            )
+                            .expect("a failure detail"),
+                        })
+                    }
+                    .boxed();
+                }
                 if is_deferred.load(Ordering::SeqCst) {
                     let runs = params
                         .live_runs
@@ -253,7 +277,16 @@ impl Opening {
                     .load(Ordering::SeqCst)
                     .then(|| params.binding_id.clone());
                 let store = Arc::clone(&store);
-                let runs = answer_every_run_gone(&params.live_runs);
+                let mut runs = answer_every_run_gone(&params.live_runs);
+                if let Some(held_run_continue) = &params.held_run_continue
+                    && !is_continue_dropped.load(Ordering::SeqCst)
+                {
+                    for answer in &mut runs {
+                        if answer.run_id == held_run_continue.lead_run_id {
+                            answer.turn = ProviderTurnAnswer::StillRunning;
+                        }
+                    }
+                }
                 async move {
                     if let Some(taken) = taken {
                         take_row(&store, taken, earlier_run_id).await;
@@ -319,6 +352,7 @@ impl Opening {
                 lock(&handed_rows_at_take).push(has_row);
             }
         })));
+        let orphaned_approvals = Arc::new(OrphanedAnswersStandIn::default());
         let sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
             pool,
             appender: Arc::new(SessionEventAppender::new(
@@ -333,6 +367,8 @@ impl Opening {
             process_follower: Arc::clone(&following) as Arc<dyn SessionProcessFollower>,
             execution_postures: Arc::clone(&execution_postures),
             resumed_runs: resumed_runs.registered(),
+            orphaned_approvals: Arc::clone(&orphaned_approvals) as Arc<_>,
+            orphaned_questions: Arc::new(OrphanedAnswersStandIn::<QuestionId>::default()),
         }));
         execution_postures
             .set_stored_postures(Arc::downgrade(&sessions) as Weak<_>)
@@ -348,6 +384,8 @@ impl Opening {
             came_up_on,
             is_row_taken,
             is_deferred,
+            is_refused,
+            is_continue_dropped,
             git_folder,
             provider,
             is_provider_missing,
@@ -358,6 +396,7 @@ impl Opening {
             following,
             resumed_runs,
             handed_rows_at_take,
+            orphaned_approvals,
         }
     }
 

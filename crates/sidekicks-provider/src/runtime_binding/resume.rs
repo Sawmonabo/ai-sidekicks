@@ -90,5 +90,6 @@ pub fn compose_resume_session_params(
         on_mcp_server_status: None,
         kept_schedules,
         live_runs,
+        held_run_continue: None,
     })
 }

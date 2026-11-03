@@ -33,7 +33,7 @@ use super::{
 };
 use crate::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
 use crate::schema::schema_parts;
-use crate::service::tests::{ApprovalFixture, from_json};
+use crate::service::tests::{ApprovalFixture, from_json, held_by_a_live_call};
 
 // Appends the event `event` describes to the session's log and answers its sequence.
 async fn append(writer: &DatabaseWriter, session_id: SessionId, event: serde_json::Value) -> i64 {
@@ -207,7 +207,7 @@ async fn a_revoke_answers_not_kept_only_while_the_rule_file_keeps_it(
     }));
     let resolved = approvals
         .service
-        .resolve(&answer, from_json(json!("device-1")))
+        .resolve(&answer, from_json(json!("device-1")), held_by_a_live_call)
         .await
         .expect("the rule's card is answered");
     let made = ProviderAnswerRule {

@@ -1,10 +1,14 @@
 //! What a resume answers of each run it names, the turn of the run in progress a fresh process
-//! continues on that run, and the resume that starts no process where every run waits or stops.
+//! continues on that run, the resume that starts no process where every run waits, the lead is
+//! pausing, or stops, and a held lead's continue on a live process.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use rstest::rstest;
 use serde_json::json;
+use sidekicks_contracts::approval::{ApprovalDecision, ApprovalRequestId};
+use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
@@ -12,11 +16,17 @@ use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_platforms::PathRules;
 
 use super::start_params;
 use crate::driver::claude::run::routes::ClaudeChildRunRoute;
+use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::{ScriptedDriver, resume_params};
 use crate::driver::claude::session::scripted::{binding_id, hand_scripted_frame, settle};
+use crate::driver::claude::session::transport::user_message::ClaudeWriteDelivery;
+use crate::driver::session_control::held_run_continue::{
+    ContinueAnswer, ContinueEntry, HeldRunContinue,
+};
 use crate::driver::session_control::{
     DriverResumeResult, LiveRunResume, OpenTurnResume, ProviderTurnAnswer, ResumeSessionParams,
     ResumedRunAnswer,
@@ -286,17 +296,24 @@ async fn a_continued_turn_runs_on_its_run_and_ends_as_that_turn() {
     );
 }
 
-// A session whose runs in progress all wait on the person or stop starts no process: the resume is
-// deferred with each run's answer, a held run `Waiting` and a stopping one `Gone`, and the slot is
-// freed, so a later resume of a lead with work spawns. Killed by the spawn kept (a start recorded),
-// by a held lead continued (`StillRunning`), by a held helper answered `Gone`, by a stopping lead's
-// helper read as held (`Waiting` in the stopping case), and by the claim kept (the follow-up resume
-// waits on the slot past its timeout).
+// A session whose runs in progress all wait on the person or stop, or whose one run is a pausing
+// lead, starts no process: the resume is deferred with each run's answer, a held run `Waiting` and
+// a stopping run or a lone pausing lead `Gone`, and the slot is freed, so a later resume of a lead
+// with work spawns. Killed by the spawn kept (a start recorded), by a held lead continued
+// (`StillRunning`), by a held helper answered `Gone`, by a waiting run its stop waits on read as
+// held (`Waiting` in the stopping case), by a pausing lead taken as the run in progress
+// (`StillRunning`) or as a lead a process is owed for (a start recorded), and by the claim kept
+// (the follow-up resume waits on the slot past its timeout).
 #[rstest]
 #[case::lead_waits_on_an_ask(RunState::WaitingForApproval, None, false)]
 #[case::helper_waits_on_a_question(RunState::Running, Some(RunState::WaitingForInput), false)]
 #[case::helper_is_paused(RunState::Running, Some(RunState::Paused), false)]
-#[case::lead_and_helper_stop(RunState::Running, Some(RunState::Running), true)]
+#[case::waiting_lead_and_helper_stop(
+    RunState::WaitingForApproval,
+    Some(RunState::WaitingForInput),
+    true
+)]
+#[case::lone_lead_pauses(RunState::Pausing, None, false)]
 #[tokio::test(start_paused = true)]
 async fn a_session_whose_runs_all_wait_or_stop_starts_no_process(
     #[case] lead_state: RunState,
@@ -333,7 +350,8 @@ async fn a_session_whose_runs_all_wait_or_stop_starts_no_process(
         .await
         .expect("the resume answers");
 
-    let held = if is_stopping {
+    // A lead's own pause is no hold, so its turn is gone with the process, as a stopping run's is.
+    let held = if is_stopping || lead_state == RunState::Pausing {
         ProviderTurnAnswer::Gone
     } else {
         ProviderTurnAnswer::Waiting
@@ -364,4 +382,178 @@ async fn a_session_whose_runs_all_wait_or_stop_starts_no_process(
     .expect("the resume answers");
     assert!(matches!(resumed, DriverResumeResult::Resumed { .. }));
     fixture.next_start().await;
+}
+
+// A resume carrying a held lead's continue spawns the process that continues the lead with the
+// person's answers as its words: a helper's approval names the helper and asks the lead to continue
+// it by message to its id. Killed by the continue ignored (Claude Code's own words stand) and by
+// the words left off the spawn.
+#[tokio::test(start_paused = true)]
+async fn a_held_lead_s_continue_carries_the_answers_to_its_process() {
+    let fixture = ScriptedDriver::new();
+    let session_id = fixture.closed_session().await;
+    let (lead, helper) = (new_run_id(), new_run_id());
+    let helper_answer = ContinueEntry {
+        run_id: helper,
+        subagent_id: Some(SubagentId::new("helper-1".to_owned()).expect("a helper id fits")),
+        answer: ContinueAnswer::Approval {
+            approval_request_id: ApprovalRequestId::try_from(mint_uuid_v7())
+                .expect("a minted UUID is an ask's id"),
+            subject: "rm -rf build".to_owned(),
+            tool_name: Some("Bash".to_owned()),
+            decision: ApprovalDecision::Approved,
+            decline_reason: None,
+            edited_action: None,
+        },
+    };
+
+    let resumed = fixture
+        .driver
+        .resume_session(ResumeSessionParams {
+            live_runs: vec![lead_run(lead, vec![open_turn(1)]), helper_run(helper, lead)],
+            held_run_continue: Some(HeldRunContinue {
+                lead_run_id: lead,
+                entries: vec![helper_answer],
+                missed_fires: Vec::new(),
+            }),
+            ..resume_params(session_id)
+        })
+        .await
+        .expect("the resume answers");
+    let started = fixture.next_start().await;
+
+    assert!(matches!(resumed, DriverResumeResult::Resumed { .. }));
+    let value = |name| PathRules::Posix.environment_value(&started.environment, name);
+    assert_eq!(value("CLAUDE_CODE_RESUME_INTERRUPTED_TURN"), Some("1"));
+    assert_eq!(
+        value("CLAUDE_CODE_RESUME_PROMPT"),
+        Some(
+            "While the app restarted, the person answered what you were waiting on:\n\
+             Your helper helper-1 asked to approve Bash: rm -rf build. The person approved it. \
+             Continue that helper with SendMessage to its id helper-1, not by starting a new one."
+        )
+    );
+}
+
+// A resume the session's live process answers sends a held lead's continue to that process as the
+// lead's next message, never ending it, and answers the lead still running so its answers stay
+// taken. Killed by the send dropped (no message reaches the process and the lead answers gone).
+#[tokio::test(start_paused = true)]
+async fn a_live_process_is_sent_a_held_lead_s_answers_as_its_next_message() {
+    let fixture = ScriptedDriver::new();
+    let session_id = fixture.closed_session().await;
+    let channel = Arc::new(ScriptedChannel::default());
+    fixture.starts.script_session(Arc::clone(&channel));
+    let params = resume_params(session_id);
+    fixture
+        .driver
+        .restart_session(params.clone())
+        .await
+        .expect("the restart answers");
+    fixture.next_start().await;
+    let lead = new_run_id();
+    let lead_answer = ContinueEntry {
+        run_id: lead,
+        subagent_id: None,
+        answer: ContinueAnswer::Question {
+            question_id: QuestionId::try_from(mint_uuid_v7())
+                .expect("a minted UUID is a question's id"),
+            question: "Which branch?".to_owned(),
+            answer: "main".to_owned(),
+        },
+    };
+
+    let resumed = fixture
+        .driver
+        .resume_session(ResumeSessionParams {
+            live_runs: vec![lead_run(lead, vec![open_turn(2)])],
+            held_run_continue: Some(HeldRunContinue {
+                lead_run_id: lead,
+                entries: vec![lead_answer],
+                missed_fires: Vec::new(),
+            }),
+            ..params
+        })
+        .await
+        .expect("the resume answers");
+
+    let DriverResumeResult::Resumed { runs, .. } = resumed else {
+        unreachable!("the live process answers the resume: {resumed:?}")
+    };
+    assert_eq!(runs, [answer(lead, ProviderTurnAnswer::StillRunning)]);
+    assert!(
+        fixture.starts.take_started().is_empty(),
+        "no process starts"
+    );
+    let contents: Vec<_> = channel
+        .user_frames()
+        .into_iter()
+        .map(|frame| frame["message"]["content"].clone())
+        .collect();
+    assert_eq!(
+        contents,
+        [json!(
+            "While the app restarted, the person answered what you were waiting on:\n\
+             You asked: Which branch?. The person answered: main."
+        )]
+    );
+}
+
+// A held lead's continue whose message the live process never took leaves the stream reading the
+// turn it read before, whether the write surely failed or may have reached the process. Killed by
+// the continued turn left open on the failed write.
+#[rstest]
+#[case::unsent(ClaudeWriteDelivery::Unsent)]
+#[case::indeterminate(ClaudeWriteDelivery::Indeterminate)]
+#[tokio::test(start_paused = true)]
+async fn a_failed_continue_write_leaves_the_stream_s_turn_as_it_was(
+    #[case] delivery: ClaudeWriteDelivery,
+) {
+    let fixture = ScriptedDriver::new();
+    let session_id = fixture.closed_session().await;
+    let channel = Arc::new(ScriptedChannel::default());
+    fixture.starts.script_session(Arc::clone(&channel));
+    let params = resume_params(session_id);
+    fixture
+        .driver
+        .restart_session(params.clone())
+        .await
+        .expect("the restart answers");
+    fixture.next_start().await;
+    let stream = fixture
+        .driver
+        .composed_parts()
+        .expect("the pieces are composed")
+        .establishment
+        .streams
+        .get(session_id)
+        .expect("the live session has a stream");
+    let before = stream.open_turn();
+    let lead = new_run_id();
+    channel.fail_next_user_write(delivery);
+
+    fixture
+        .driver
+        .resume_session(ResumeSessionParams {
+            live_runs: vec![lead_run(lead, vec![open_turn(2)])],
+            held_run_continue: Some(HeldRunContinue {
+                lead_run_id: lead,
+                entries: vec![ContinueEntry {
+                    run_id: lead,
+                    subagent_id: None,
+                    answer: ContinueAnswer::Question {
+                        question_id: QuestionId::try_from(mint_uuid_v7())
+                            .expect("a minted UUID is a question's id"),
+                        question: "Which branch?".to_owned(),
+                        answer: "main".to_owned(),
+                    },
+                }],
+                missed_fires: Vec::new(),
+            }),
+            ..params
+        })
+        .await
+        .expect_err("the continue's write fails");
+
+    assert_eq!(stream.open_turn(), before);
 }

@@ -39,6 +39,7 @@ use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
 use crate::runtime_binding::resume::ResumeFunctionLegs;
 
 mod bound_helpers;
+mod held_lead;
 
 // What the stand-ins for the reviewer denials and the queue heard, in order, each with the turn
 // ends the run engine took before it, and what held each gone session's slot as the queue heard.
@@ -140,6 +141,7 @@ fn test_recovery(
             release: Arc::clone(&session.scripted.dependencies.release),
             run_ends: Arc::clone(&session.engine) as _,
             dispatch: Arc::clone(&session.engine) as _,
+            answer_steers: session.answer_steers(),
             reviewer_denials,
             process_gone,
             session_relaunched,

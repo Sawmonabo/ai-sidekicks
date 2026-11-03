@@ -199,6 +199,13 @@ pub(crate) struct CodexSessionRecord {
     /// as the daemon's, never its run's, until a steer of the person's words reaches it. A helper
     /// held on the person at the adoption has its newest turn here where Codex lists it over.
     pub(crate) held_continuation_turn_ids: HashSet<String>,
+    /// The steer of the person's answers owed each held continuation, by that turn's id: its echo
+    /// lets the hold go, and the turn's end with it sent and unechoed ends the run as the turn
+    /// ended, the answers given back.
+    pub(crate) answer_steer_by_turn_id: HashMap<String, QueueItemId>,
+    /// Leads whose held continuation ended before the steer of the person's answers was sent, so
+    /// the answers go in a turn of their own instead.
+    pub(crate) answer_turn_owed_run_ids: HashSet<RunId>,
     /// Runs whose turn was interrupted to pause them, by that turn's id: its interrupted end is
     /// the pause taking effect, never the run's end.
     pub(crate) paused_run_id_by_interrupted_turn_id: HashMap<String, RunId>,
@@ -294,6 +301,8 @@ impl CodexSessionRecord {
             last_steer_send: None,
             pause_run_id_by_turn_id: HashMap::new(),
             held_continuation_turn_ids: HashSet::new(),
+            answer_steer_by_turn_id: HashMap::new(),
+            answer_turn_owed_run_ids: HashSet::new(),
             paused_run_id_by_interrupted_turn_id: HashMap::new(),
             continues_awaiting_pause: HashMap::new(),
             turn_input_by_turn_id: HashMap::new(),

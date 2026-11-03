@@ -26,6 +26,7 @@ use sidekicks_contracts::session::recovery::{
 };
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_queue::service::answer_continue::HaltedRunRecord;
 use sidekicks_session::run::read::RunStateReader;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{
@@ -112,6 +113,12 @@ struct TrackerState {
 impl Default for RecoveryStatusTracker {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl HaltedRunRecord for RecoveryStatusTracker {
+    fn halt_run(&self, session_id: &SessionId, run: DaemonRecoveryHaltedRun) {
+        self.mark_run_halted(session_id, run);
     }
 }
 

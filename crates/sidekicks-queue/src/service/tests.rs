@@ -21,8 +21,11 @@ use futures::future::{self, BoxFuture};
 use rstest::rstest;
 use rusqlite::params;
 use serde_json::{Value, json};
+use sidekicks_contracts::approval::ApprovalRequestId;
+use sidekicks_contracts::daemon::recovery::DaemonRecoveryHaltedRun;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{
     AgentQueueItemCancelRequest, AgentQueueItemCreateRequest, QueueItemId, QueuedSkillPick,
@@ -78,13 +81,15 @@ use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tempfile::TempDir;
 
+use super::answer_continue::HaltedRunRecord;
 use super::{EMPTIED_RUN_DETAIL, RunQueue, RunQueueDeps};
 use crate::changes::QueueChangeSignals;
 use crate::error::QueueError;
 use crate::memory_gate::{MemoryGate, MemoryGateFigures};
 use crate::provider_session::test_opening::{
-    RecordedProcessFollowing, RecordedResumedRuns, record_first_provider_capabilities,
-    test_execution_postures, test_git_folder_reader, test_opening_composer,
+    OrphanedAnswersStandIn, RecordedProcessFollowing, RecordedResumedRuns,
+    record_first_provider_capabilities, test_execution_postures, test_git_folder_reader,
+    test_opening_composer,
 };
 use crate::provider_session::{ProviderSessions, ProviderSessionsDeps};
 use crate::run_token_limit::RunTokenLimitReader;
@@ -260,6 +265,21 @@ struct Fixture {
     // The engine's posture files.
     home: TempDir,
     process: Arc<ProcessStandIn>,
+    halted_runs: Arc<HaltedRunsStandIn>,
+    // The cards' orphaned answers and open asks the queue reads.
+    orphaned_approvals: Arc<OrphanedAnswersStandIn<ApprovalRequestId>>,
+    // Where a resume's runs are settled.
+    resumed_runs: Arc<RecordedResumedRuns>,
+}
+
+/// The runs the queue halted in the recovery status, each beside its session, in order.
+#[derive(Default)]
+struct HaltedRunsStandIn(Mutex<Vec<(SessionId, DaemonRecoveryHaltedRun)>>);
+
+impl HaltedRunRecord for HaltedRunsStandIn {
+    fn halt_run(&self, session_id: &SessionId, run: DaemonRecoveryHaltedRun) {
+        lock(&self.0).push((*session_id, run));
+    }
 }
 
 async fn fixture(driver: MockProviderDriver) -> Fixture {
@@ -270,6 +290,9 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
     insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
     insert_lead(&database, session_id, PROVIDERS[0].id);
     let process = Arc::new(ProcessStandIn::default());
+    let halted_runs = Arc::new(HaltedRunsStandIn::default());
+    let orphaned_approvals = Arc::new(OrphanedAnswersStandIn::default());
+    let resumed_runs = Arc::new(RecordedResumedRuns::default());
     let queue = queue_over(
         &database,
         &log,
@@ -277,6 +300,9 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         driver,
         Arc::clone(&process) as _,
         CurrentProviderAccount::Current(test_provider_account_id()),
+        Arc::clone(&halted_runs) as _,
+        &orphaned_approvals,
+        &resumed_runs,
     );
     Fixture {
         database,
@@ -285,11 +311,20 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         session_id,
         home,
         process,
+        halted_runs,
+        orphaned_approvals,
+        resumed_runs,
     }
 }
 
 /// A run queue over `database` and its `log`, built as the daemon's start builds it, its lead's
-/// provider answered by `driver`, its process read from `processes` and its account by `account`.
+/// provider answered by `driver`, its process read from `processes`, its account by `account`,
+/// the runs it halts recorded in `halted_runs`, its cards' orphaned answers and open asks read
+/// from `orphaned_approvals`, and its resumes' runs settled by `resumed_runs`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the record, the home, the driver and each stand-in a test swaps in"
+)]
 fn queue_over(
     database: &TestDatabase,
     log: &TestLog,
@@ -297,6 +332,9 @@ fn queue_over(
     driver: MockProviderDriver,
     processes: Arc<dyn ProviderProcessIds>,
     account: CurrentProviderAccount,
+    halted_runs: Arc<dyn HaltedRunRecord>,
+    orphaned_approvals: &Arc<OrphanedAnswersStandIn<ApprovalRequestId>>,
+    resumed_runs: &Arc<RecordedResumedRuns>,
 ) -> Arc<RunQueue> {
     let pool = Arc::new(DatabaseReadPool::new(
         database.path(),
@@ -329,7 +367,9 @@ fn queue_over(
         transition_lock: Arc::new(KeyedLock::new()),
         process_follower: Arc::new(RecordedProcessFollowing::default()),
         execution_postures: test_execution_postures(),
-        resumed_runs: Arc::new(RecordedResumedRuns::default()).registered(),
+        resumed_runs: resumed_runs.registered(),
+        orphaned_approvals: Arc::clone(orphaned_approvals) as Arc<_>,
+        orphaned_questions: Arc::new(OrphanedAnswersStandIn::<QuestionId>::default()),
     }));
     let memory_gate = Arc::new(MemoryGate::new(
         MemoryGateFigures {
@@ -363,6 +403,7 @@ fn queue_over(
                 .expect("a new registration takes its port");
             Arc::new(token_limits)
         },
+        halted_runs,
     })
 }
 
@@ -389,7 +430,7 @@ fn client_key() -> ClientUuid {
 
 impl Fixture {
     /// Writes a lead run of the session in `state`, at version 1, queued on the test's account,
-    /// and answers its id.
+    /// and answers its id; a running one has its session's process opened, as a live lead's is.
     fn insert_run(&self, state: &str) -> RunId {
         let run_id = new_run_id();
         insert_running_run(&self.database, self.session_id, run_id);
@@ -402,6 +443,11 @@ impl Fixture {
             }),
         );
         self.set_run_state(run_id, state);
+        if state == "running" {
+            self.queue
+                .provider_sessions
+                .record_test_opening(self.session_id);
+        }
         run_id
     }
 

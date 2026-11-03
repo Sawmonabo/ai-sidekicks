@@ -19,6 +19,7 @@ use crate::driver::claude::delivery::commands::ClaudeHeldCommand;
 use crate::driver::claude::delivery::mcp_tasks::restore::{ClaudeKeptCall, ClaudeKeptCallsSource};
 use crate::driver::claude::delivery::run_readings::{ClaudeOpenTurn, ClaudeStreamSession};
 use crate::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
+use crate::driver::claude::delivery::turn_readings::ClaudeTurnReadings;
 use crate::driver::claude::goals::endings::ClaudeProcessGoal;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
@@ -37,6 +38,13 @@ pub(crate) enum ClaudeFirstRequest {
     Answered,
     /// The provider refused it for its login.
     LoginRefused,
+}
+
+/// The turn a stream read before a held lead's turn was continued on it.
+pub(crate) struct ClaudeTurnBeforeContinue {
+    turn: Option<ClaudeOpenTurn>,
+    has_turn_message: bool,
+    turn_readings: ClaudeTurnReadings,
 }
 
 /// One session's stream while its process runs: its readings, behind one lock never held across
@@ -113,14 +121,20 @@ impl ClaudeSessionStream {
 
     /// Opens the stream on `run`'s turn `turn_number` as it was before the process came up, which a
     /// resumed process continues: its frames go to that turn and its end is that turn's, with no
-    /// other turn started. `provider_turn_id` is the id the turn's start recorded.
+    /// other turn started. `provider_turn_id` is the id the turn's start recorded. Answers the
+    /// turn the stream read before, which [`Self::restore_turn`] puts back.
     pub(crate) fn continue_turn(
         &self,
         run: ClaudeBoundRun,
         turn_number: SafeInt<1>,
         provider_turn_id: Option<ProviderTurnId>,
-    ) {
+    ) -> ClaudeTurnBeforeContinue {
         let mut readings = self.lock();
+        let before = ClaudeTurnBeforeContinue {
+            turn: readings.turn.clone(),
+            has_turn_message: readings.has_turn_message,
+            turn_readings: readings.turn_readings.clone(),
+        };
         readings.turn_readings.open(run.run_id, provider_turn_id);
         // The resumed turn is under way, so a message it takes in joins it.
         readings.has_turn_message = true;
@@ -129,6 +143,23 @@ impl ClaudeSessionStream {
             binding_id: run.binding_id,
             turn_number: Some(turn_number),
         });
+        before
+    }
+
+    /// Puts back the turn the stream read before a continue whose message never reached the
+    /// process.
+    pub(crate) fn restore_turn(&self, before: ClaudeTurnBeforeContinue) {
+        let mut readings = self.lock();
+        readings.turn = before.turn;
+        readings.has_turn_message = before.has_turn_message;
+        readings.turn_readings = before.turn_readings;
+    }
+
+    /// The turn the stream has open, and whether it already took a message.
+    #[cfg(test)]
+    pub(crate) fn open_turn(&self) -> (Option<ClaudeOpenTurn>, bool) {
+        let readings = self.lock();
+        (readings.turn.clone(), readings.has_turn_message)
     }
 
     // A terminal gate version for one more turn the run engine could not number, past every

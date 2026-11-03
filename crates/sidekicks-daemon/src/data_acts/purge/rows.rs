@@ -21,11 +21,13 @@ use sidekicks_session::messaging::exchanges::DELETE_SESSION_EXCHANGES_SQL;
 use sidekicks_session::messaging::paused_queue::DELETE_SESSION_PAUSED_MESSAGES_SQL;
 use sidekicks_session::messaging::reminders::DELETE_SESSION_REMINDERS_SQL;
 use sidekicks_session::messaging::waits::DELETE_SESSION_WAITS_SQL;
+use sidekicks_session::questions::projection::QuestionsProjection;
 use sidekicks_session::queue_store::plan_message::plan_message_item_sql;
 use sidekicks_session::run::ids::SESSION_RUN_IDS_SQL;
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::text_column;
+use sidekicks_store::events::projection::SessionProjection as _;
 use sidekicks_workflow::runs::deletion::workflow_run_deletion_statements;
 use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
 use sidekicks_workspace::repo::mount::service::managed_mount_deletion_statements;
@@ -169,14 +171,15 @@ const RUN_KEYED_DELETES: [&str; 4] = [
 // The session's own deletes after its run-keyed ones, up to its row, in foreign-key order: a
 // snapshot and a recovery checkpoint name the event they reflect, an ask goes after its answer and
 // after the gate answers found through it, a plan before the artifact that keeps its text, and an
-// artifact after the reference to its payload. A checkpoint's versions go first, then a window's
-// links to the shadows it stood on, then the windows, then the checkpoints, then the shadows, which
-// a version or a link names. The agent tree goes in one statement, each node with the children
-// that name it. The attention rows go after the machine's attention count is raised, so its readers
-// drop the session's entries, and an entry's delivery before the entry it is found through. The
-// messaging rows go at either end of a pair, a message held from the session or a wait on it among
-// them.
-const DELETES_THROUGH_SESSION_ROW: [&str; 41] = [
+// artifact after the reference to its payload. The orphaned answers of a card or a question go
+// beside the asks they answer, the person's words with them. A checkpoint's versions go first, then
+// a window's links to the shadows it stood on, then the windows, then the checkpoints, then the
+// shadows, which a version or a link names. The agent tree goes in one statement, each node with
+// the children that name it. The attention rows go after the machine's attention count is raised,
+// so its readers drop the session's entries, and an entry's delivery before the entry it is found
+// through. The messaging rows go at either end of a pair, a message held from the session or a wait
+// on it among them.
+const DELETES_THROUGH_SESSION_ROW: [&str; 43] = [
     "DELETE FROM session_snapshots WHERE session_id = @sessionId",
     "DELETE FROM recovery_checkpoints WHERE session_id = @sessionId",
     "DELETE FROM session_events WHERE session_id = @sessionId",
@@ -189,6 +192,8 @@ const DELETES_THROUGH_SESSION_ROW: [&str; 41] = [
        (SELECT id FROM approval_requests WHERE session_id = @sessionId)",
     "DELETE FROM approval_requests WHERE session_id = @sessionId",
     "DELETE FROM approval_correction_uses WHERE session_id = @sessionId",
+    "DELETE FROM approval_orphaned_answers WHERE session_id = @sessionId",
+    "DELETE FROM question_orphaned_answers WHERE session_id = @sessionId",
     "DELETE FROM reviewer_denials WHERE session_id = @sessionId",
     "DELETE FROM plans WHERE session_id = @sessionId",
     "DELETE FROM artifact_payload_refs WHERE manifest_id IN
@@ -412,8 +417,9 @@ pub(super) async fn gone_worktree_ids(
 /// The one write that deletes every row naming the session, led by its two guards: the session is
 /// still marked, and no event of it lies past `last_sequence` (its receipt's range, `None` for a
 /// session with no event). The workflow runs go first with every row hanging off them, then the
-/// rows keyed by the session's runs, then the session's own, its plans and its hand-off row among
-/// them, the chat's managed mount last.
+/// rows keyed by the session's runs, then its questions and the queued answers paired with them,
+/// then the session's own, its plans and its hand-off row among them, the chat's managed mount
+/// last.
 pub(super) fn session_deletion_statements(
     session_id: SessionId,
     last_sequence: Option<i64>,
@@ -450,6 +456,8 @@ pub(super) fn session_deletion_statements(
             .iter()
             .map(|delete| by_session(Cow::Owned(format!("{delete} IN ({SESSION_RUN_IDS_SQL})")))),
     );
+    // The questions' rows go as their projection's rebuild clears them.
+    statements.extend(QuestionsProjection.clear_statements(&session_id));
     statements.extend(
         DELETES_THROUGH_SESSION_ROW
             .iter()

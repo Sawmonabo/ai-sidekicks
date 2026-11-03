@@ -39,7 +39,9 @@ use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use sidekicks_provider::driver::ports::{DriverPorts, ProcessGoneListener, SessionPlace};
+use sidekicks_provider::driver::ports::{
+    ContinueGivenBackListener, DriverPorts, ProcessGoneListener, SessionPlace,
+};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::{
     DriverServices, ProviderAccountReader, ProviderDescriptor, ProviderRegistration,
@@ -298,6 +300,8 @@ pub(crate) struct DriverPortOwners {
     pub(crate) queue_delivery: QueueDelivery,
     /// The run queue's intake of a session's provider process that ended.
     pub(crate) process_gone: Arc<dyn ProcessGoneListener>,
+    /// The run queue's intake of a held lead's continue its provider did not carry.
+    pub(crate) continue_given_back: Arc<dyn ContinueGivenBackListener>,
     /// The approval pipeline's permission asks.
     pub(crate) permission_asks: Arc<PermissionAsks>,
     /// The questions card's service.
@@ -377,6 +381,9 @@ pub(crate) fn register_driver_ports(
         .register(Arc::clone(&queue_delivery) as _)?;
     ports.continued_messages.register(queue_delivery)?;
     ports.process_gone.register(owners.process_gone)?;
+    ports
+        .continue_given_back
+        .register(owners.continue_given_back)?;
     ports.permission_asks.register(owners.permission_asks)?;
     ports.questions.register(owners.questions)?;
     ports.plans.register(owners.plans)?;

@@ -70,6 +70,9 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::codex::session::calls::{
     CodexSessionCallDependencies, CodexSessionTask, run_codex_session_call,
 };
+use crate::driver::codex::session::establishment::answer_steer::{
+    CodexAnswerSteerDependencies, CodexAnswerSteers,
+};
 use crate::driver::codex::session::establishment::{
     CodexSessionEstablishment, CodexSessionEstablishmentDependencies,
 };
@@ -256,6 +259,7 @@ impl TestCodexSession {
         assert!(ports.message_taken.register(queue.clone()).is_ok());
         assert!(ports.message_refused.register(queue.clone()).is_ok());
         assert!(ports.message_given_back.register(queue.clone()).is_ok());
+        assert!(ports.continue_given_back.register(queue.clone()).is_ok());
         let retries = Arc::new(CodexFasterModelRetries::new(
             CodexFasterModelRetryDependencies {
                 slots: Arc::clone(&slots),
@@ -312,6 +316,17 @@ impl TestCodexSession {
             .await
             .expect("the binding is recorded")
             .id
+    }
+
+    /// The answers' steers over the session's routes, run start, engine and queue stand-in.
+    pub(crate) fn answer_steers(&self) -> Arc<CodexAnswerSteers> {
+        Arc::new(CodexAnswerSteers::new(CodexAnswerSteerDependencies {
+            run_routes: Arc::clone(&self.task.run_routes),
+            run_start: Arc::clone(&self.run_start),
+            dispatch: Arc::clone(&self.engine) as _,
+            continue_given_back: Arc::clone(&self.task.ports.continue_given_back),
+            tasks: TaskTracker::new(),
+        }))
     }
 }
 
