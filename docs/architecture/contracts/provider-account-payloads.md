@@ -561,15 +561,21 @@ type ProviderAccountUsageListResponse =
 //
 // SHAPE MIRRORS THE PROVIDER'S OWN, deliberately: the pinned Codex login-start returns either an
 // authorization URL or a device code with its verification URL, and the pinned Claude flow prints a
-// URL and accepts a pasted code. WHERE THE SIGN-IN STARTS DECIDES THE ARM: a Codex sign-in started
-// at the machine runs `account/login/start {type: "chatgpt"}`, and one started from another device
-// runs `{type: "chatgptDeviceCode"}`, because the browser arm calls back to `localhost:1455`, which
-// that device cannot reach. A Claude Code sign-in started from another device ends at its `Paste
+// URL and accepts a pasted code. THE REQUEST NAMES THE ARM, `browser` or `deviceCode`, and the
+// sign-in runs it. Naming none, a sign-in started at the machine runs the browser arm and one
+// started from another device runs device code, the arm that needs no callback; another device
+// naming `browser` is refused `provider.account.signInUnsupported`, because the browser arm calls
+// back to this machine (Codex's `localhost:1455`), which that device cannot reach. A client that
+// knows no browser reaches its person names `deviceCode`. A Codex sign-in runs
+// `account/login/start {type: "chatgpt"}` on the browser arm and `{type: "chatgptDeviceCode"}` on
+// device code. A Claude Code sign-in on device code opens no browser here and ends at its `Paste
 // code here if prompted` prompt (https://code.claude.com/docs/en/authentication), which the broker
 // reports as `signInCodeRequested` and the person answers with
-// `provider.account.signInCode.submit`. A provider arm emitting neither cannot be brokered and is
-// refused `provider.account.signInUnsupported` rather than spawning a flow the person cannot
-// finish. A second start against an account with one in flight is refused
+// `provider.account.signInCode.submit`. A sign-in on an account registered with a pasted key or
+// token is refused `provider.account.signInUnsupported` on either arm: pasting a new one replaces
+// it. A provider arm emitting neither cannot be brokered and is refused
+// `provider.account.signInUnsupported` rather than spawning a flow the person cannot finish. A
+// second start against an account with one in flight is refused
 // `provider.account.signInInFlight` — at least one pinned provider holds exactly ONE active login
 // slot and SILENTLY DROPS the previous attempt, which would strand the person mid-flow on another
 // device with no signal that their code had stopped working. A browser sign-in at the machine
@@ -582,13 +588,16 @@ type ProviderAccountUsageListResponse =
 // health observation reports the provider's identity, its billing mode `unknown` (drawn `Billing
 // not set`) until the person corrects it in place. A sign-in that ends without an identity leaves
 // no row.
-type ProviderAccountSignInRequest = { accountId: ProviderAccountId } | { provider: ProviderId };
+type ProviderAccountSignInRequest =
+  | { accountId: ProviderAccountId; arm?: ProviderSignInArm }
+  | { provider: ProviderId; arm?: ProviderSignInArm };
+type ProviderSignInArm = "browser" | "deviceCode";
 interface ProviderAccountSignInResponse {
   attemptId: string; // opaque, daemon-minted, single-use; the correlation key for cancel and for completion
   verificationUri: string; // where the person completes the flow — the provider's own URL, verbatim
   userCode?: string; // present on a device-code arm; the person types it at `verificationUri`
   expiresAt?: string; // RFC 3339 UTC, where the provider bounds the attempt; null/absent = the provider published no bound. A whitelisted field (Spec-025 §Brokered interactive sign-in), admitted under the same parse-and-validate rule as the others: parsed to an RFC 3339 instant, required to be in the future and within the provider's documented attempt ceiling, and OMITTED rather than surfaced where it fails either test. It is a bound on an attempt, not provider state — it carries no OAuth, PKCE, or credential field.
-  isBrowserOpenedByProvider: boolean; // true where the provider opened the address in a browser itself (Claude Code's sign-in at this machine): the client opens nothing, and still draws `Open the sign-in page` with the address
+  isBrowserOpenedByProvider: boolean; // true where the provider opened the address in a browser itself (Claude Code's browser arm): the client opens nothing, and still draws `Open the sign-in page` with the address
 }
 // The `data.fields` of a `provider.account.signInInFlight` refusal a sign-in holds: the open
 // attempt, cancelable with `provider.account.signInAttempt.cancel`, and the account it signs in.
