@@ -792,8 +792,6 @@ fn possible_source(attribution: DeliveryAttribution) -> Option<EpochPosition> {
     }
 }
 
-// A row to append as it was attributed, after `preceding`, events with no body written before it
-// in the same write.
 // The run and tool call whose opening places a row that lands after its run: a held call's close
 // or move to the background names its call, and a command's ending the call that started it.
 fn tool_call_opening_of(row: &LateAppendableRow) -> Option<(RunId, String)> {
@@ -824,6 +822,8 @@ fn tool_call_opening_of(row: &LateAppendableRow) -> Option<(RunId, String)> {
     Some((run_id, tool_call_id?.as_str().to_owned()))
 }
 
+// A row to append as it was attributed, after `preceding`, events with no body written before it
+// in the same write.
 fn appended(
     session_id: SessionId,
     preceding: Vec<SessionEvent>,
