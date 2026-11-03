@@ -403,8 +403,8 @@ async fn a_line_runs_uncovered_without_an_acknowledgment_and_never_once_stopped(
 
 // Fails when the daemon's stop does not reach a line command once it runs, so an undo's stop of
 // the agent's commands before its cut leaves the command running and the wait for its end hangs;
-// fails within 5 s. Mutation: run the line's command with no requests followed
-// (`run_child(.., None)`).
+// the wait for the stop fails after 5 s. Mutation: run the line's command with no requests
+// followed (`run_child(.., None)`).
 #[tokio::test]
 async fn a_running_line_command_takes_the_daemon_s_stop() {
     let folder = tempfile::tempdir().expect("a folder");
