@@ -35,7 +35,14 @@ use crate::secrets::store::WorkflowSecretStore;
 
 /// The statements [`find_step_secrets`] runs on a read connection: the live record of one
 /// reference.
-pub const STEP_SECRET_STATEMENT_CAPACITY: usize = 1;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the read pool the daemon opens for the engine's steps"
+    )
+)]
+pub(crate) const STEP_SECRET_STATEMENT_CAPACITY: usize = 1;
 
 // A record being deleted no longer resolves, so a value its delete is removing is never handed out.
 const LIVE_SECRET_RECORD_SQL: &str = "SELECT id FROM workflow_secrets
