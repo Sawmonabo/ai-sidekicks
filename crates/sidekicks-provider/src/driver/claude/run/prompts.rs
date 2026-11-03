@@ -310,7 +310,8 @@ mod tests {
     }
 
     // Kills: a dropped newest message still named newest, so a conversation cut names a message
-    // Claude Code never took as the last one it saw.
+    // Claude Code never took as the last one it saw, and a take forgetting the taken message
+    // itself, so a newer one dropped after it leaves no message newest.
     #[test]
     fn a_dropped_newest_message_leaves_the_one_before_it_newest() {
         let session_id = session();
@@ -319,6 +320,12 @@ mod tests {
         prompts.record_written(session_id, run_id, "first", false);
         prompts.record_written(session_id, run_id, "second", false);
         prompts.record_dropped(session_id, "second");
+
+        assert_eq!(prompts.newest_for(session_id), Some("first"));
+
+        prompts.record_taken(session_id, "first", None);
+        prompts.record_written(session_id, run_id, "third", false);
+        prompts.record_dropped(session_id, "third");
 
         assert_eq!(prompts.newest_for(session_id), Some("first"));
     }
