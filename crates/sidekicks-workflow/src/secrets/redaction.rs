@@ -247,7 +247,7 @@ fn free_member_name(members: &serde_json::Map<String, serde_json::Value>, name: 
     (2..=members.len() + 1)
         .map(|number| format!("{name} ({number})"))
         .find(|candidate| !members.contains_key(candidate))
-        .expect("the map holds fewer names than the candidates, so one is free")
+        .expect("the map holds `name` itself, so at most all but one candidate is taken")
 }
 
 /// The needle set `shared` holds now; a poisoned lock still holds a whole set, since a writer only
