@@ -348,3 +348,68 @@ fn a_loser_readied_in_a_later_turn_never_runs_and_the_winner_runs_once_a_pass() 
         ]
     );
 }
+
+/// A loop's next pass closes the rounds the last pass's win left open, so its feeds fill fresh
+/// rounds: the loop node L feeds A, Y and Q; A feeds M's first main slot, Y and Q feed the pair
+/// P2, which feeds M's second, and M feeds C, which wires back into L. On pass 0, Y fills half of
+/// P2's round before A wins and Q is canceled; on pass 1, Y and Q fill P2's next round, which
+/// runs and wins M. Mutation: keep the half-filled round open, so Q's feed fills it, it is
+/// canceled as the old win's loser, and M never runs on pass 1.
+#[test]
+fn a_loops_next_pass_closes_the_rounds_its_last_pass_left_open() {
+    let (mut walk, start_turn) = start(
+        vec![
+            node("trigger", "test.trigger", 0, false),
+            node("L", "test.loop", 1, false),
+            node("A", "test.step", 2, false),
+            node("Y", "test.step", 3, false),
+            node("Q", "test.step", 4, false),
+            node("P2", "test.pair", 5, false),
+            node("M", "test.first", 6, false),
+            node("C", "test.step", 7, false),
+        ],
+        &[
+            edge("trigger", 0, "L", 0),
+            edge("L", 1, "A", 0),
+            edge("L", 1, "Y", 0),
+            edge("L", 1, "Q", 0),
+            edge("A", 0, "M", 0),
+            edge("Y", 0, "P2", 0),
+            edge("Q", 0, "P2", 1),
+            edge("P2", 0, "M", 1),
+            edge("M", 0, "C", 0),
+            edge("C", 0, "L", 0),
+        ],
+    );
+    let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
+    let l_turn = walk.settle(&readied(&trigger_turn, "L"), &[0, 1]);
+    walk.settle(&readied(&l_turn, "Y"), &[1]);
+    let a_turn = walk.settle(&readied(&l_turn, "A"), &[1]);
+    assert_eq!(
+        describe(&a_turn),
+        [
+            "ready M run 0 exec 5 from A:0@2 - -",
+            "win M exec 5 losers [Q@4]"
+        ]
+    );
+    assert_eq!(every_open_round(&walk), ["P2:0"]);
+    walk.drop_step(&readied(&l_turn, "Q"));
+    let m_turn = walk.settle(&readied(&a_turn, "M"), &[1]);
+    let c_turn = walk.settle(&readied(&m_turn, "C"), &[1]);
+    assert_eq!(describe(&c_turn), ["ready L run 1 exec 7 from C:0@6"]);
+    assert_eq!(every_open_round(&walk), Vec::<String>::new());
+    let next_l_turn = walk.settle(&readied(&c_turn, "L"), &[0, 1]);
+    walk.settle(&readied(&next_l_turn, "Y"), &[1]);
+    let q_turn = walk.settle(&readied(&next_l_turn, "Q"), &[1]);
+    assert_eq!(
+        describe(&q_turn),
+        ["ready P2 run 1 exec 11 from Y:0@9 Q:0@10"]
+    );
+    assert_eq!(
+        describe(&walk.settle(&readied(&q_turn, "P2"), &[1])),
+        [
+            "ready M run 1 exec 12 from - P2:0@11 -",
+            "win M exec 12 losers [A@8]"
+        ]
+    );
+}

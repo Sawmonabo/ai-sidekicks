@@ -646,7 +646,8 @@ impl RunWalk {
 
     /// Readies `step` of the node at `place`, overtaken by the wins `overtaken_by`, making it
     /// live. A loop node's step starts a new pass of what it leads to, so it drops the wins of the
-    /// nodes it precedes that its round was pending at, whose rounds of that pass are new.
+    /// nodes it precedes that its round was pending at, whose rounds of that pass are new, and
+    /// closes the rounds the earlier passes' wins left open.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn ready(
         &mut self,
@@ -659,6 +660,7 @@ impl RunWalk {
     ) {
         if self.graph.node(place).is_loop {
             overtaken_by.retain(|&win| !self.graph.is_ancestor(place, self.wins[win].place));
+            self.close_passed_rounds(place);
         }
         self.live.insert(
             step.execution_index.get(),
@@ -675,6 +677,34 @@ impl RunWalk {
             run_index,
             sources,
         });
+    }
+
+    /// Closes the open rounds at the places the loop node at `loop_place` precedes that a win at
+    /// such a place won or overtook: they belong to an earlier pass, so none takes the new pass's
+    /// feeds and no won round outlives its pass.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    fn close_passed_rounds(&mut self, loop_place: usize) {
+        let graph = &self.graph;
+        let is_passed = |win: usize| graph.is_ancestor(loop_place, self.wins[win].place);
+        let passed: Vec<(usize, u64)> = (0..graph.node_count())
+            .filter(|&place| graph.is_ancestor(loop_place, place))
+            .flat_map(|place| {
+                self.rounds[place]
+                    .open
+                    .iter()
+                    .filter(|(_, round)| {
+                        round
+                            .won
+                            .into_iter()
+                            .chain(round.overtaken_by.iter().copied())
+                            .any(is_passed)
+                    })
+                    .map(move |(&run_index, _)| (place, run_index))
+            })
+            .collect();
+        for (place, run_index) in passed {
+            self.take_round(place, run_index);
+        }
     }
 
     /// The key of the node at `place`'s next step: attempt 1 at the next execution index.
