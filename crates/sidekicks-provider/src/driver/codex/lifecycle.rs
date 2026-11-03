@@ -388,6 +388,8 @@ impl CodexDriver {
         let answer_steers = Arc::new(CodexAnswerSteers::new(CodexAnswerSteerDependencies {
             run_routes: Arc::clone(&self.run_routes),
             run_start: Arc::clone(&run_start),
+            dispatch: Arc::clone(&dispatch),
+            continue_given_back: Arc::clone(&ports.continue_given_back),
             tasks: self.tasks.clone(),
         }));
         let recovery = Arc::new(CodexServiceRecovery::new(
