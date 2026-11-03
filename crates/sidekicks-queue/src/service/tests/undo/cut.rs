@@ -477,10 +477,12 @@ async fn a_turn_opened_once_the_provider_answered_opens_after_the_rollback() {
         .await;
     let queue = Arc::clone(&fixture.queue);
     let target = scene.target.clone();
+    // The hold comes back with the cut, so its release cannot write while the log is read.
     let cut = tokio::spawn(async move {
-        queue
+        let cut = queue
             .cut_conversation(&hold, &target, RollbackCompanions::default())
-            .await
+            .await;
+        (cut, hold)
     });
 
     let mut opening = timeout(WAIT, opening_receiver)
@@ -489,7 +491,7 @@ async fn a_turn_opened_once_the_provider_answered_opens_after_the_rollback() {
         .expect("the opening is spawned");
     let opened_before_the_write = timeout(HELD_WATCH, &mut opening).await.is_ok();
     drop(queue_lock);
-    let cut = timeout(WAIT, cut)
+    let (cut, _hold) = timeout(WAIT, cut)
         .await
         .expect("the cut ends")
         .expect("the cut's task ends");
