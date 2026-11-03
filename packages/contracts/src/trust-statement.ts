@@ -10,6 +10,7 @@
 import { z } from "zod";
 
 import { decodedByteLength } from "./internal/base64.js";
+import { Sha256HexSchema } from "./internal/sha256-hex.js";
 import { NodeIdSchema, type NodeId } from "./runtime-node/id.js";
 import { wireFreeFormString } from "./free-form-string.js";
 import { isoDateTimeSchema } from "./internal/wire-scalars.js";
@@ -46,15 +47,6 @@ export const PasskeyIdSchema: z.ZodType<string, string> = z
   .base64url()
   .min(1)
   .max(PASSKEY_ID_MAX_LEN);
-
-/**
- * The SHA-256 of a statement's canonical bytes (RFC 8785), as 64 lowercase hex
- * characters. The chain names each statement's predecessor by it, and a channel open
- * exchanges the newest one as the chain head.
- */
-export const TrustStatementHashSchema: z.ZodType<string, string> = z
-  .string()
-  .regex(/^[0-9a-f]{64}$/u, "a statement hash is 64 lowercase hex characters");
 
 // Keys
 
@@ -224,6 +216,7 @@ export type TrustStatementKind = (typeof TRUST_STATEMENT_KINDS)[number];
  * `runtimenode.added` the person's first machine signs itself, has no predecessor.
  */
 export interface TrustStatementBase {
+  /** The SHA-256 of the predecessor's canonical bytes (RFC 8785), as 64 lowercase hex digits. */
   previousHash: string;
   issuedAt: string;
   signatures: TrustStatementSignature[];
@@ -300,7 +293,7 @@ export type TrustStatement =
 const NameSchema = wireFreeFormString(MACHINE_OR_DEVICE_NAME_MAX_LEN, "name");
 const PlatformSchema = wireFreeFormString(PLATFORM_DESCRIPTION_MAX_LEN, "platform");
 const statementBase = {
-  previousHash: TrustStatementHashSchema,
+  previousHash: Sha256HexSchema,
   issuedAt: isoDateTimeSchema,
   signatures: z.array(TrustStatementSignatureSchema).min(1),
 };
@@ -343,7 +336,7 @@ const runtimeNodeAddedStatementObject = z
   .object({
     kind: z.literal("runtimenode.added"),
     ...statementBase,
-    previousHash: TrustStatementHashSchema.nullable(),
+    previousHash: Sha256HexSchema.nullable(),
     nodeId: NodeIdSchema,
     identityKey: MachineIdentityKeySchema,
     channelKey: ChannelPublicKeySchema,
