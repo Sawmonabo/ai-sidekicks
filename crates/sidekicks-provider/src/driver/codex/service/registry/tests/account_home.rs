@@ -103,6 +103,13 @@ async fn a_lasting_service_keeps_its_sign_in_in_the_store_its_home_names(
     let folder = short_socket_folder().expect("a scratch folder is made");
     let home = account_home(folder.path(), kind_of(test_provider_account_id()));
     let services = services_on(home, folder, |program| Arc::new(program));
+    // A pasted key's start hands the service its key; a `ChatGPT` home's start reads none.
+    AccountHomes {
+        homes: HashMap::from([(test_provider_account_id(), services.home.codex_home.clone())]),
+        current: test_provider_account_id(),
+        api_keys: HashMap::from([(test_provider_account_id(), SecretString::from(TEST_KEY))]),
+    }
+    .register_on(&services.dependencies.provider_accounts);
     let daemon = this_daemon(&services);
 
     let service = daemon
