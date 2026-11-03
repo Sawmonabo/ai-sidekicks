@@ -372,6 +372,10 @@ impl ClaudeSessionEstablishment {
                 command_channel,
                 context,
                 continues_interrupted_turn: request.continued_turn.is_some(),
+                resume_prompt: request
+                    .continued_turn
+                    .as_ref()
+                    .and_then(|turn| turn.prompt.clone()),
             },
             &ClaudeSpawnLegServices::of(sources),
         )
