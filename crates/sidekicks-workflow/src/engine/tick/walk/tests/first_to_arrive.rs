@@ -11,10 +11,12 @@ use crate::engine::tick::walk::{RunWalk, WalkTurn};
 use crate::expressions::lineage::{StepKey, StepOutput, StepOutputs};
 
 /// A first-to-arrive node readies on its first input with items, passing that input in its spec
-/// place, and its losers are only the live steps whose branch feeds nothing else; later feeds
-/// close the won round without a second step, and with every branch empty nothing wins and the
-/// flush skips it. Mutations: let an empty input win; cancel a shared ancestor (X); let a
-/// straggler ready the node again; use the slot index as the spec position.
+/// place, and its losers are only the live steps whose branch feeds nothing else; a straggler's
+/// late feed enters the won round without a second step, a loser readied after the win from a
+/// shared ancestor (C, from X) is canceled, and the won round it never fed closes once the run is
+/// quiet; with every branch empty nothing wins and the flush skips it. Mutations: let an empty
+/// input win; cancel a shared ancestor (X); let a straggler ready the node again; ready a loser
+/// decided after the win; use the slot index as the spec position.
 #[test]
 fn first_to_arrive_wins_on_items_and_cancels_only_its_losing_branch() {
     let (mut walk, start_turn) = first_to_arrive_walk();
@@ -56,16 +58,16 @@ fn first_to_arrive_wins_on_items_and_cancels_only_its_losing_branch() {
     let x_turn = walk.settle(&readied(&trigger_turn, "X"), &[1]);
     assert_eq!(
         describe(&x_turn),
-        [
-            "ready C run 0 exec 5 from X:0@3",
-            "ready Y run 0 exec 6 from X:0@3"
-        ]
+        ["ready Y run 0 exec 6 from X:0@3", "canceled C exec 5"]
     );
     assert_eq!(open_rounds(&walk, "M"), [0]);
-    assert_eq!(
-        describe(&walk.settle(&readied(&x_turn, "C"), &[1])),
-        Vec::<String>::new()
-    );
+    for (turn, node_id) in [(&a_turn, "M"), (&x_turn, "Y")] {
+        assert_eq!(
+            describe(&walk.settle(&readied(turn, node_id), &[1])),
+            Vec::<String>::new()
+        );
+    }
+    assert_eq!(describe(&walk.flush()), Vec::<String>::new());
     assert_eq!(open_rounds(&walk, "M"), Vec::<u64>::new());
 
     let (mut walk, start_turn) = first_to_arrive_walk();

@@ -544,7 +544,6 @@ fn first_to_arrive_answers() -> Vec<String> {
     }
     let x_turn = walk.settle(&readied(&trigger_turn, "X"), &[1]);
     answer.extend(describe(&x_turn));
-    answer.extend(describe(&walk.settle(&readied(&x_turn, "C"), &[1])));
     answer
 }
 
@@ -564,8 +563,8 @@ fn first_to_arrive_answers() -> Vec<String> {
     "ready X run 0 exec 3 from trigger:0@0",
     "ready M run 0 exec 4 from A:0@1 - -",
     "win M exec 4 losers [B@2]",
-    "ready C run 0 exec 5 from X:0@3",
     "ready Y run 0 exec 6 from X:0@3",
+    "canceled C exec 5",
 ])]
 fn the_same_settles_give_the_same_turns(
     #[case] walk_answers: fn() -> Vec<String>,
