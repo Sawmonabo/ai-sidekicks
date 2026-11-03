@@ -72,6 +72,14 @@ pub trait MessageGivenBackListener: Send + Sync {
     fn message_given_back(&self, session_id: SessionId, message_id: &str);
 }
 
+/// The run queue's intake of a held lead's continue its provider did not carry: the steer that
+/// held the person's answers went unechoed to its turn's end, or the turn meant to carry them
+/// failed, so each answer's continue mark is given back for the next relaunch.
+pub trait ContinueGivenBackListener: Send + Sync {
+    /// The continue a relaunch handed `session_id`'s lead `lead_run_id` did not reach it.
+    fn continue_given_back(&self, session_id: SessionId, lead_run_id: RunId);
+}
+
 /// The run queue's intake of a session's provider process that ended, on its own or for a move to
 /// a new build, so a message it kept for a turn of its own went with it.
 pub trait ProcessGoneListener: Send + Sync {
@@ -155,6 +163,8 @@ pub struct DriverPorts {
     pub message_refused: Arc<PortRegistration<Arc<dyn MessageRefusedListener>>>,
     /// The run queue's intake of a handed message the provider let go unsent.
     pub message_given_back: Arc<PortRegistration<Arc<dyn MessageGivenBackListener>>>,
+    /// The run queue's intake of a held lead's continue its provider did not carry.
+    pub continue_given_back: Arc<PortRegistration<Arc<dyn ContinueGivenBackListener>>>,
     /// The session directory's intake of a relaunch.
     pub session_relaunched: Arc<PortRegistration<Arc<dyn SessionRelaunchListener>>>,
     /// The run queue's intake of an ended process.
@@ -235,6 +245,7 @@ impl DriverPorts {
             message_taken: Arc::new(PortRegistration::new("message taken")),
             message_refused: Arc::new(PortRegistration::new("message refused")),
             message_given_back: Arc::new(PortRegistration::new("message given back")),
+            continue_given_back: Arc::new(PortRegistration::new("continue given back")),
             session_relaunched: Arc::new(PortRegistration::new("session relaunched")),
             process_gone: Arc::new(PortRegistration::new("process gone")),
             usage: Arc::new(PortRegistration::new("usage")),

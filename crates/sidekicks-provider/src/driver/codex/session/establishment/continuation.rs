@@ -18,7 +18,6 @@
 use std::error::Error;
 
 use sidekicks_contracts::run::events::TurnEndCause;
-use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
@@ -27,18 +26,14 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::adoption::request_bare_thread_resume;
+use super::answer_steer::CodexAnswerSteer;
 use super::{CodexResumedThread, CodexSessionEstablishment};
-use crate::driver::codex::attachments::compose_codex_message_input;
-use crate::driver::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
+use crate::driver::codex::run::routes::CodexRunBinding;
 use crate::driver::codex::run::start::record::{
     CodexTurnRequest, apply_run_turn_acceptance, compose_run_turn, route_accepted_turn,
 };
-use crate::driver::codex::run::start::{CODEX_TURN_START_TIMEOUT, CodexRunStart};
-use crate::driver::codex::run::steer::steer_codex_run;
-use crate::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::history::{CodexListedTurn, read_codex_resumed_newest_turn};
-use crate::driver::codex::session::inbound::CodexSessionInboundSender;
 use crate::driver::codex::session::owed_turn_ends::{
     is_codex_turn_in_progress, read_codex_listed_turn,
 };
@@ -46,7 +41,6 @@ use crate::driver::codex::session::state::{CodexSessionRecord, CodexTurnMessage}
 use crate::driver::codex::thread::view::{CodexThreadStatus, TURN_START_METHOD, read_turn_id};
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
-use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::held_run_continue::{
     ContinueAnswer, HeldRunContinue, compose_continuation_text,
 };
@@ -62,21 +56,6 @@ pub(crate) const CODEX_CONTINUATION_TEXT: &str = "The server restarted and inter
 
 /// Codex's own classification of the caller that starts a turn recovering from its restart.
 const DAEMON_RECOVERY_TURN_TRIGGER: &str = "daemon_recovery";
-
-/// The steer a held lead's running continuation owes the person's answers, sent once the
-/// session's task runs, and the turn that carries them where that continuation ended first.
-pub(crate) struct CodexAnswerSteer {
-    /// The lead.
-    pub(super) run_id: RunId,
-    /// The continuation Codex runs for it.
-    pub(super) turn_id: String,
-    /// The first answered card's or question's id, which the steer goes under.
-    pub(super) message_id: QueueItemId,
-    /// The answers' words.
-    pub(super) answer_text: String,
-    /// Where the lead's deliveries go.
-    binding: CodexRunBinding,
-}
 
 // A continuation turn to start: the first turn of the chain it continues, as Codex names it, and
 // its words.
@@ -191,11 +170,15 @@ impl CodexSessionEstablishment {
                 .map(str::to_owned),
         };
         if let Some(turn_id) = running_turn_id {
+            let message_id = read_answer_steer_key(held);
             record.held_continuation_turn_ids.insert(turn_id.clone());
+            record
+                .answer_steer_by_turn_id
+                .insert(turn_id.clone(), message_id);
             return Some(CodexAnswerSteer {
                 run_id: run.run_id,
                 turn_id,
-                message_id: read_answer_steer_key(held),
+                message_id,
                 answer_text: compose_answer_text(held),
                 binding: binding.clone(),
             });
@@ -443,73 +426,6 @@ impl CodexSessionEstablishment {
         run_routes.bind_run_delivery(run.run_id, binding.clone());
         Ok(())
     }
-}
-
-/// Steers the person's answers `steer` holds into its lead's running continuation on the session
-/// `inbound` reaches, its task running; where that continuation already ended, the lead's
-/// deliveries are bound to it again and a turn holding Codex's continuation words and the
-/// answers is started instead. A steer or a turn that fails otherwise is logged, the lead left
-/// as it stands.
-pub(crate) async fn send_codex_answer_steer(
-    steer: CodexAnswerSteer,
-    inbound: &CodexSessionInboundSender,
-    run_routes: &CodexRunRoutes,
-    run_start: &CodexRunStart,
-) {
-    let input = compose_codex_message_input(&[CodexTurnMessage {
-        text: steer.answer_text.clone(),
-        skills: Vec::new(),
-        attachments: Vec::new(),
-    }]);
-    let steered = steer_codex_run(
-        inbound,
-        steer.run_id,
-        Some(steer.turn_id),
-        steer.message_id,
-        std::future::ready(Ok(input)),
-    )
-    .await;
-    let failed = match steered {
-        Ok(_) => return,
-        Err(DriverError::SteerTurnEnded(_)) => {
-            run_routes.bind_run(steer.run_id, steer.binding.session_id);
-            run_routes.bind_run_delivery(steer.run_id, steer.binding.clone());
-            let turn = CodexTurnRequest {
-                messages: vec![CodexTurnMessage {
-                    text: format!("{CODEX_CONTINUATION_TEXT}\n\n{}", steer.answer_text),
-                    skills: Vec::new(),
-                    attachments: Vec::new(),
-                }],
-                client_message_ids: Vec::new(),
-                model: None,
-                output_speed: None,
-                output_speed_for_turn: run_routes.output_speed_for_turn_of(steer.run_id),
-                output_schema: None,
-                level: None,
-            };
-            let started = run_start
-                .start_turn(
-                    inbound,
-                    steer.run_id,
-                    steer.binding.binding_id,
-                    turn,
-                    None,
-                    &CodexTurnEndDeadline::new(CODEX_TURN_START_TIMEOUT),
-                )
-                .await;
-            match started {
-                Ok(()) => return,
-                Err(error) => DriverError::from(error),
-            }
-        }
-        Err(error) => error,
-    };
-    tracing::warn!(
-        session_id = %inbound.session_id(),
-        run_id = %steer.run_id,
-        error = &failed as &(dyn Error + 'static),
-        "the person's answers could not reach the codex lead the restart held"
-    );
 }
 
 /// Puts each answer of `continued` in place of its run's in `result`.

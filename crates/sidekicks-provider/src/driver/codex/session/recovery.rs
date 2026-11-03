@@ -794,6 +794,8 @@ pub(crate) fn drop_codex_turns(
     }
     record.continues_awaiting_pause.clear();
     record.held_continuation_turn_ids.clear();
+    record.answer_steer_by_turn_id.clear();
+    record.answer_turn_owed_run_ids.clear();
     record.pause_run_id_by_turn_id.clear();
     record.interrupting_turn_ids.clear();
     record.turn_input_by_turn_id.clear();

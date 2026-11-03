@@ -291,6 +291,8 @@ impl ProviderSessions {
                 .release_marks_after(session_id, claims, unopened.into())
                 .await);
         }
+        // Kept before the driver runs, so a give-back it sends before it answers finds them.
+        self.hand_continue(session_id, continued_lead_id, claims);
         let answered = match relaunch {
             Relaunch::Resume | Relaunch::Continue => driver.resume_session(params).await,
             Relaunch::Restart => driver.restart_session(params).await,
@@ -302,6 +304,7 @@ impl ProviderSessions {
                 let failed = self
                     .answer_failed_start(session_id, &leg.provider_name, error.into())
                     .await;
+                let claims = self.take_handed_continue(session_id);
                 return Err(self.release_marks_after(session_id, claims, failed).await);
             }
         };
@@ -324,6 +327,7 @@ impl ProviderSessions {
                     recovery_condition,
                     provider_failure_detail,
                 };
+                let claims = self.take_handed_continue(session_id);
                 return Err(self.release_marks_after(session_id, claims, refused).await);
             }
             // An admission never meets this arm: with a live lead a send goes to that lead, a
@@ -334,7 +338,7 @@ impl ProviderSessions {
             DriverResumeResult::Deferred { runs } => {
                 self.deps.binding_cursors.forget_binding(&minted_id);
                 // The continue reached no process, so the next relaunch carries it.
-                self.release_marks(claims)
+                self.release_marks(self.take_handed_continue(session_id))
                     .await
                     .map_err(|cause| ProviderSessionError::KeptAnswers { session_id, cause })?;
                 let named_run_ids = runs.iter().map(|run| run.run_id).collect();
@@ -351,12 +355,15 @@ impl ProviderSessions {
             }
         };
         // A continue reached its lead only where the provider runs the lead's turn on; one it did
-        // not take up is given back, so the next relaunch of that lead carries it.
+        // not take up is given back, so the next relaunch of that lead carries it. One it took up
+        // stays handed, for the driver to give back should its turn not carry it after all.
         if let Some(lead_run_id) = continued_lead_id
             && !runs.iter().any(|run| {
                 run.run_id == lead_run_id && run.turn == ProviderTurnAnswer::StillRunning
             })
-            && let Err(cause) = self.release_marks(claims).await
+            && let Err(cause) = self
+                .release_marks(self.take_handed_continue(session_id))
+                .await
         {
             let unreleased = ProviderSessionError::KeptAnswers { session_id, cause };
             self.deps.binding_cursors.forget_binding(&minted_id);

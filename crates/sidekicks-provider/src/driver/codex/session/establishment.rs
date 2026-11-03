@@ -4,6 +4,7 @@
 //! service. A failed resume never becomes a new conversation: it answers the failure.
 
 mod adoption;
+pub(crate) mod answer_steer;
 pub(crate) mod continuation;
 pub(crate) mod helpers;
 mod settings;
@@ -45,7 +46,7 @@ use crate::driver::codex::session::calls::CodexSessionTask;
 use crate::driver::codex::session::context_reading::CodexFixedStart;
 use crate::driver::codex::session::controls::update_codex_session_mode;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::session::establishment::continuation::CodexAnswerSteer;
+use crate::driver::codex::session::establishment::answer_steer::CodexAnswerSteer;
 use crate::driver::codex::session::history::{
     CodexListedTurn, compose_codex_newest_turn_page, read_codex_resumed_newest_turn,
     read_codex_turns,

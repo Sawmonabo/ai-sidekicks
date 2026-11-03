@@ -2,8 +2,6 @@
 //! conversation, a move to a new build, its close and the daemon's stop, the purge of its
 //! conversations, and the messages a continue sent that Codex took.
 
-use std::sync::Arc;
-
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
@@ -15,7 +13,6 @@ use crate::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnWait
 use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
-use crate::driver::codex::session::establishment::continuation::send_codex_answer_steer;
 use crate::driver::codex::session::history::read_codex_turn_id_by_client_message_id;
 use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
 use crate::driver::codex::session::lifecycle_call::{
@@ -110,16 +107,7 @@ impl CodexDriver {
         claim.install(inbound.clone());
         self.spawn_session_task(parts, opened);
         if let Some(answer_steer) = answer_steer {
-            let parts = Arc::clone(parts);
-            self.tasks.spawn(async move {
-                send_codex_answer_steer(
-                    answer_steer,
-                    &inbound,
-                    &parts.run_routes,
-                    &parts.run_start,
-                )
-                .await;
-            });
+            parts.answer_steers.send(answer_steer, inbound);
         }
         Ok(resumed.result)
     }

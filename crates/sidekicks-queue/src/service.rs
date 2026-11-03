@@ -35,7 +35,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_provider::driver::ProviderAccountReader;
-use sidekicks_provider::driver::ports::ProcessGoneListener;
+use sidekicks_provider::driver::ports::{ContinueGivenBackListener, ProcessGoneListener};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::process_identity::ProviderProcessIds;
 use sidekicks_session::changes::refuse_unchangeable_session;
@@ -66,6 +66,7 @@ use crate::delivery::{
 use crate::error::QueueError;
 use crate::memory_gate::MemoryGate;
 use crate::provider_session::ProviderSessions;
+use crate::provider_session::held_run_continue::ContinueGivenBack;
 use crate::recorder::{QueueRecorder, QueueRecorderDeps};
 use crate::refusals::{
     UnreturnedReason, change_refused, left_queue_refusal, queue_item_not_found, unreturned_refusal,
@@ -264,6 +265,15 @@ impl RunQueue {
     /// what the process kept for runs that ended; it holds the queue's run lifecycle weakly.
     pub fn process_gone_listener(&self) -> Arc<dyn ProcessGoneListener> {
         Arc::new(RunLifecycleListener(Arc::downgrade(&self.lifecycle)))
+    }
+
+    /// The listener a driver tells of a held lead's continue it did not carry, which gives each
+    /// answer's continue mark back for the next relaunch; it holds the provider sessions weakly.
+    pub fn continue_given_back_listener(&self) -> Arc<dyn ContinueGivenBackListener> {
+        Arc::new(ContinueGivenBack {
+            sessions: Arc::downgrade(&self.provider_sessions),
+            releases: self.releases.clone(),
+        })
     }
 
     /// Sends one message from `device_id` to the lead of `to`, else of `session_id`, and answers it
