@@ -397,7 +397,8 @@ impl WorkflowRunStarter {
         ended
     }
 
-    // Records what a held start could not remove, under the run id it minted.
+    // Records what a held start could not remove, under the run id it minted, then ends that run's
+    // record, since a held start makes no run.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
@@ -411,6 +412,7 @@ impl WorkflowRunStarter {
             .for_run(run_id, Arc::new(RunRedaction::new(&[])))
             .fault(None, EngineFault::HeldStartLeftBehind, removal)
             .await;
+        self.recorder.end_run(run_id);
     }
 
     // The checks, in order, before anything is made: a trigger's fire under the workflow start

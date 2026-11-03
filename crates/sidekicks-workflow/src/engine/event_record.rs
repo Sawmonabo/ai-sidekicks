@@ -200,8 +200,8 @@ pub(crate) struct EngineRecorder {
     sink: Arc<dyn EngineRecordSink>,
     /// This daemon life's id, on every line.
     life_id: UuidTextForm,
-    /// The next line's sequence of each run recorded in this life: one counter per run, so a record
-    /// made again for a run carries on from its last line.
+    /// The next line's sequence of each run recorded in this life and not yet ended: one counter per
+    /// run, so a record made again for a run carries on from its last line.
     sequences: Mutex<HashMap<WorkflowRunId, Arc<AtomicU64>>>,
 }
 
@@ -236,6 +236,19 @@ impl EngineRecorder {
             redaction,
             sequence,
         }
+    }
+
+    /// Forgets `run_id`'s sequence once the run has ended and records nothing more, so the life
+    /// keeps no counter for a run that is over.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the tick's run end and the run start's held start"
+        )
+    )]
+    pub(crate) fn end_run(&self, run_id: WorkflowRunId) {
+        lock(&self.sequences).remove(&run_id);
     }
 }
 
@@ -553,6 +566,7 @@ mod tests {
     use sidekicks_contracts::workflow::run::id::WorkflowRunId;
     use sidekicks_contracts::workflow::run::status::WorkflowWaitCause;
     use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
+    use sidekicks_std::mutex_lock::lock;
 
     use super::{
         EngineDecision, EngineIntent, EngineOutcome, EngineRecorder, RunEngineRecord,
@@ -583,9 +597,10 @@ mod tests {
 
     /// Two runs interleaved on one recorder each number their lines from 1, a record made again
     /// for a run carries on from its last line, an outcome names its intent's sequence, one life id
-    /// marks every line, and a second recorder starts a new life at 1. Mutations: one counter for
-    /// every run; a fresh counter per record; an outcome without its intent's sequence; the life id
-    /// dropped or shared between recorders.
+    /// marks every line, a run's end drops its counter, and a second recorder starts a new life at
+    /// 1. Mutations: one counter for every run; a fresh counter per record; an outcome without its
+    /// intent's sequence; a run's counter kept past its end; the life id dropped or shared between
+    /// recorders.
     #[tokio::test]
     async fn each_run_numbers_its_lines_from_one_and_an_outcome_names_its_intent() {
         const RUN_A: &str = "0190a2b4-7c3d-7e5f-8a1b-2c3d4e5f6a7a";
@@ -642,6 +657,14 @@ mod tests {
         };
         assert_eq!(sequences(RUN_A), [json!(1), json!(2), json!(3), json!(4)]);
         assert_eq!(sequences(RUN_B), [json!(1), json!(2)]);
+        recorder.end_run(run_id(RUN_B));
+        assert_eq!(
+            lock(&recorder.sequences)
+                .keys()
+                .copied()
+                .collect::<Vec<_>>(),
+            [run_id(RUN_A)]
+        );
         assert_eq!(of_run(RUN_A)[2]["intentSequence"], json!(1));
         assert_eq!(of_run(RUN_B)[1]["intentSequence"], json!(1));
         assert_eq!(of_run(RUN_A)[0]["nodeId"], json!("build"));
