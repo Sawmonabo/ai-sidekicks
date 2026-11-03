@@ -179,6 +179,14 @@ impl CapturePacking {
         }
     }
 
+    /// Forgets what this daemon run keeps of the capture folders under the owner folder
+    /// `owner_folder`, for an owner whose folder was removed: how many packs each folder's last fold
+    /// left and when a fold there failed.
+    pub fn forget_owner(&self, owner_folder: &Path) {
+        lock(&self.packs_left_by_fold).retain(|folder, _| !folder.starts_with(owner_folder));
+        lock(&self.failed_folds).retain(|folder, _| !folder.starts_with(owner_folder));
+    }
+
     /// Packs what `captured` borrows from the repository beyond its base's tree into its capture
     /// folder, removes the loose copies, and starts a fold on a task of its own when one is due,
     /// running git for the project at `place`. Never fails: a failure is logged and the remaining
