@@ -10,9 +10,8 @@ use keyring_core::api::{CredentialApi, CredentialStoreApi};
 use keyring_core::{Credential, Entry};
 use tokio::sync::watch;
 
-/// A credential store whose calls each wait until [`BlockingCredentialStore::release`], and a held
-/// service's until the next release, then answer as a store keeping each entry's last written
-/// value. Every call waiting must be released before the test's runtime drops, since the drop waits
+/// A credential store whose calls each wait until [`BlockingCredentialStore::release`], then
+/// answer as a store keeping each entry's last written value. Every call waiting must be released before the test's runtime drops, since the drop waits
 /// on it.
 #[derive(Debug)]
 pub struct BlockingCredentialStore {
@@ -24,7 +23,7 @@ impl BlockingCredentialStore {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
             calls: Arc::new(HeldCalls {
-                holds: Mutex::new(Holds::default()),
+                is_released: Mutex::new(false),
                 released: Condvar::new(),
                 received: watch::Sender::new(0),
                 kept: Mutex::new(KeptValues::default()),
@@ -32,18 +31,10 @@ impl BlockingCredentialStore {
         })
     }
 
-    /// Lets every call waiting, and every later one, answer, every held service's included.
+    /// Lets every call waiting, and every later one, answer.
     pub fn release(&self) {
-        let mut holds = self.calls.holds();
-        holds.is_released = true;
-        holds.held_services.clear();
+        *self.calls.is_released() = true;
         self.calls.released.notify_all();
-    }
-
-    /// From now on holds every call under `service` until the next [`Self::release`], while other
-    /// services' calls answer once released.
-    pub fn hold_calls_for(&self, service: &str) {
-        self.calls.holds().held_services.insert(service.to_owned());
     }
 
     /// From now on keeps every value written under `service` with its last character dropped, as a
@@ -110,7 +101,7 @@ impl CredentialStoreApi for BlockingCredentialStore {
     // The entries holding a value under the service the search names.
     fn search(&self, spec: &HashMap<&str, &str>) -> keyring_core::Result<Vec<Entry>> {
         let service = spec.get("service").copied().unwrap_or_default();
-        self.calls.answer_when_released(service);
+        self.calls.answer_when_released();
         let specifiers: Vec<(String, String)> = self
             .calls
             .kept()
@@ -130,21 +121,14 @@ impl CredentialStoreApi for BlockingCredentialStore {
     }
 }
 
-// The calls the store and its entries share: which are held, how many arrived, and the values
-// kept.
+// The calls the store and its entries share: whether they are released, how many arrived, and the
+// values kept.
 #[derive(Debug)]
 struct HeldCalls {
-    holds: Mutex<Holds>,
+    is_released: Mutex<bool>,
     released: Condvar,
     received: watch::Sender<usize>,
     kept: Mutex<KeptValues>,
-}
-
-// Whether calls are released, and the services whose calls wait for the next release even so.
-#[derive(Debug, Default)]
-struct Holds {
-    is_released: bool,
-    held_services: HashSet<String>,
 }
 
 // Each entry's last written value, by service and account, the services whose values are kept
@@ -157,20 +141,19 @@ struct KeptValues {
 }
 
 impl HeldCalls {
-    fn answer_when_released(&self, service: &str) {
+    fn answer_when_released(&self) {
         self.received.send_modify(|received| *received += 1);
-        let holds = self.holds();
         drop(
             self.released
-                .wait_while(holds, |holds| {
-                    !holds.is_released || holds.held_services.contains(service)
-                })
+                .wait_while(self.is_released(), |is_released| !*is_released)
                 .unwrap_or_else(PoisonError::into_inner),
         );
     }
 
-    fn holds(&self) -> std::sync::MutexGuard<'_, Holds> {
-        self.holds.lock().unwrap_or_else(PoisonError::into_inner)
+    fn is_released(&self) -> std::sync::MutexGuard<'_, bool> {
+        self.is_released
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     fn kept(&self) -> std::sync::MutexGuard<'_, KeptValues> {
@@ -187,7 +170,7 @@ struct BlockingCredential {
 
 impl CredentialApi for BlockingCredential {
     fn set_secret(&self, secret: &[u8]) -> keyring_core::Result<()> {
-        self.calls.answer_when_released(&self.specifiers.0);
+        self.calls.answer_when_released();
         let mut kept = self.calls.kept();
         if let Some(accepted) = kept.refused_writes.get_mut(&self.specifiers.0) {
             if *accepted == 0 {
@@ -207,7 +190,7 @@ impl CredentialApi for BlockingCredential {
     }
 
     fn get_secret(&self) -> keyring_core::Result<Vec<u8>> {
-        self.calls.answer_when_released(&self.specifiers.0);
+        self.calls.answer_when_released();
         self.calls
             .kept()
             .values
@@ -217,7 +200,7 @@ impl CredentialApi for BlockingCredential {
     }
 
     fn delete_credential(&self) -> keyring_core::Result<()> {
-        self.calls.answer_when_released(&self.specifiers.0);
+        self.calls.answer_when_released();
         self.calls
             .kept()
             .values
