@@ -15,10 +15,12 @@ use crate::engine::ports::StepAdmissionOutcome;
 use crate::engine::tick::{StepReport, StepReportKind};
 
 /// How often a held step repeats its `workflow.phase.waitingOnPool` report while the hold lasts.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) const POOL_WAIT_REPEAT: Duration = Duration::from_secs(30);
 
 /// How a step's wait at the memory gate ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum GateWaitEnd {
     /// The gate admitted the step, and its `Admitted` report was sent.
     Admitted,
@@ -39,6 +41,7 @@ pub(crate) enum GateWaitEnd {
 /// Waits for the gate's answer on `admission` for `step`, reporting the hold on `reports`: a
 /// `WaitingOnPool` when it starts and every [`POOL_WAIT_REPEAT`] after, each carrying the first's
 /// instant, then `Admitted`. A step the gate already decided reports no hold.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) async fn wait_at_gate(
     step: WorkflowStepKey,
     mut admission: watch::Receiver<Option<StepAdmissionOutcome>>,
@@ -118,6 +121,7 @@ pub(crate) async fn wait_at_gate(
 
 // Sends `step`'s hold report made at `at`, unless `cancel` fires first, so a full channel never
 // keeps a canceled step waiting; `Some` is how the wait ends.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 async fn send_hold(
     reports: &mpsc::Sender<StepReport>,
     step: &WorkflowStepKey,
@@ -138,9 +142,11 @@ async fn send_hold(
 }
 
 /// The tick's report channel is closed.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(super) struct ReportsClosed;
 
 /// Sends `kind` for `step`, made at `at`, on `reports`.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(super) async fn send(
     reports: &mpsc::Sender<StepReport>,
     step: &WorkflowStepKey,
@@ -157,6 +163,7 @@ pub(super) async fn send(
 
 /// Where the line of entries to the gate stands.
 #[derive(Debug, Default)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 struct GateEntryPlaces {
     /// The place the next turn takes.
     next: u64,
@@ -168,6 +175,7 @@ struct GateEntryPlaces {
 
 /// The line state and the signal that it moved, shared by the order and its turns.
 #[derive(Debug, Default)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 struct GateEntryLine {
     /// The places.
     places: Mutex<GateEntryPlaces>,
@@ -179,6 +187,7 @@ struct GateEntryLine {
 /// the order they became ready, siblings readied together taken in their `order`. Clones share one
 /// line.
 #[derive(Clone, Debug, Default)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct GateEntryOrder {
     /// The line its turns share.
     line: Arc<GateEntryLine>,
@@ -186,6 +195,7 @@ pub(crate) struct GateEntryOrder {
 
 impl GateEntryOrder {
     /// The next turn in the line, behind every turn taken before it.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn take_turn(&self) -> GateEntryTurn {
         let mut places = lock(&self.line.places);
         let place = places.next;
@@ -200,6 +210,7 @@ impl GateEntryOrder {
 /// One step's turn to enter the gate. Dropping it marks the place done, whether the step entered
 /// the gate or was abandoned, which releases the turn behind it.
 #[derive(Debug)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct GateEntryTurn {
     /// The line it belongs to.
     line: Arc<GateEntryLine>,
@@ -209,6 +220,7 @@ pub(crate) struct GateEntryTurn {
 
 impl GateEntryTurn {
     /// Returns once every turn taken before this one has been dropped.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) async fn wait(&self) {
         loop {
             let moved = self.line.moved.notified();

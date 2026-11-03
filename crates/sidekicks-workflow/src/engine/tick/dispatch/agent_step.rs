@@ -22,6 +22,7 @@ use crate::engine::tick::{ReadyStep, RunScope, RunSnapshot, StepReportKind, Step
 use crate::kinds::{StepFailure, StepOutcome, uncoded_step_error};
 
 /// What a step reads whose agent run left the memory gate's line unadmitted yet read as completed.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 const WITHDRAWN_RUN_COMPLETED: &str = "the step's agent run left the memory gate's line before it was admitted, yet read as completed";
 
 impl StepDispatch {
@@ -31,6 +32,7 @@ impl StepDispatch {
     /// progress and settles with its outcome. A step canceled before its run is created creates
     /// none; one canceled after settles canceled once its stopped run has ended, and a stop that
     /// cannot be sent goes to the engine's record.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(super) async fn drive_agent_step(
         self,
         scope: Arc<RunScope>,

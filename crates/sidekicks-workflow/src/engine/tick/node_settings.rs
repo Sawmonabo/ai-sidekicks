@@ -15,6 +15,7 @@ use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 
 /// The main inputs among a step's `inputs`, one list per input handle of `spec` in spec order: the
 /// lists at the inputs whose `is_tool()` is false, in spec order, borrowed or taken as `inputs` is.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn main_inputs<Input>(
     spec: &WorkflowNodeKindSpec,
     inputs: impl IntoIterator<Item = Input>,
@@ -28,6 +29,7 @@ pub(crate) fn main_inputs<Input>(
 }
 
 /// How many main inputs a kind lists: its inputs whose `is_tool()` is false.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn main_input_count(spec: &WorkflowNodeKindSpec) -> usize {
     spec.inputs
         .as_slice()
@@ -37,6 +39,7 @@ pub(crate) fn main_input_count(spec: &WorkflowNodeKindSpec) -> usize {
 }
 
 /// How many items each of a step's main inputs holds, in spec order.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn main_input_lengths(
     spec: &WorkflowNodeKindSpec,
     inputs: &[Vec<WorkflowItem>],
@@ -57,6 +60,7 @@ pub(crate) fn main_output_count(spec: &WorkflowNodeKindSpec) -> usize {
 /// The outputs a pinned node gives in place of running, honored only in a manual run: its pinned
 /// items on the first main output and every other of its `main_output_count` outputs empty, or
 /// `None` when the run is not manual or nothing is pinned onto the node.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn pinned_outputs(
     mode: WorkflowRunMode,
     pin_data: Option<&Record<String, Vec<WorkflowPinnedItem>>>,
@@ -73,6 +77,7 @@ pub(crate) fn pinned_outputs(
 
 /// The outputs of a step that gives `items` whole: `items` on the first main output and every
 /// other of its `main_output_count` outputs empty, one output at the least.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn place_on_first_output(
     items: Vec<WorkflowItem>,
     main_output_count: usize,
@@ -84,6 +89,7 @@ pub(crate) fn place_on_first_output(
 
 /// The inputs an execute-once node runs over: every input list, of every input handle, cut to
 /// its first item; the inputs unchanged when the node does not set it.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn execute_once_inputs(
     node: &WorkflowNode,
     mut inputs: Vec<Vec<WorkflowItem>>,
@@ -98,6 +104,7 @@ pub(crate) fn execute_once_inputs(
 
 /// The calls a per-item kind makes over its one main input: one call per item, in item order,
 /// each call's inputs a single list holding that item.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn per_item_calls(main_input: Vec<WorkflowItem>) -> Vec<Vec<Vec<WorkflowItem>>> {
     main_input
         .into_iter()
@@ -108,6 +115,7 @@ pub(crate) fn per_item_calls(main_input: Vec<WorkflowItem>) -> Vec<Vec<Vec<Workf
 /// A per-item kind's outputs: its calls' outputs joined handle by handle in call order, each
 /// item's lineage pointing at the input item its call saw, since each call saw only that one.
 /// No calls join to no outputs.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn join_per_item_outputs(calls: Vec<Vec<Vec<WorkflowItem>>>) -> Vec<Vec<WorkflowItem>> {
     let mut joined: Vec<Vec<WorkflowItem>> = Vec::new();
     for (call_index, call_outputs) in calls.into_iter().enumerate() {
@@ -130,6 +138,7 @@ pub(crate) fn join_per_item_outputs(calls: Vec<Vec<Vec<WorkflowItem>>>) -> Vec<V
 /// single output hold as many items each and item k came from item k. Any other shape, a collapse
 /// among them, is left for the kind to set. `main_input_lengths` is how many items each main input
 /// held.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn fill_paired_items(main_input_lengths: &[usize], outputs: &mut [Vec<WorkflowItem>]) {
     let is_single_item = matches!(main_input_lengths, [1]);
     let is_same_count = matches!(
@@ -155,6 +164,7 @@ fn fill_paired_items(main_input_lengths: &[usize], outputs: &mut [Vec<WorkflowIt
 /// Shapes the outputs a node gives, pinned or run, around main inputs holding as many items as
 /// `main_input_lengths` says: the lineage it can only have is filled in, then an always-output node
 /// gains its empty item.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn shape_outputs(
     node: &WorkflowNode,
     main_input_lengths: &[usize],
@@ -168,6 +178,7 @@ pub(crate) fn shape_outputs(
 /// or empty, its lineage every item of every main input, input by input, each main input holding
 /// as many items as `main_input_lengths` says; the outputs unchanged when the node does not set it
 /// or its first output holds an item.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn ensure_output_item(
     node: &WorkflowNode,
     main_input_lengths: &[usize],
@@ -201,6 +212,7 @@ fn ensure_output_item(
 }
 
 /// A pinned item as the item it stands for; a pinned item never carries a binary value.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn pinned_item(pinned: WorkflowPinnedItem) -> WorkflowItem {
     WorkflowItem {
         json: pinned.json,
@@ -212,6 +224,7 @@ fn pinned_item(pinned: WorkflowPinnedItem) -> WorkflowItem {
 
 /// `lineage` with every entry pointing at input item `call_item`, its input kept; an unset one
 /// becomes that item alone.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn lineage_at(lineage: Option<WorkflowPairedItems>, call_item: SafeInt<0>) -> WorkflowPairedItems {
     match lineage {
         None => WorkflowPairedItems::One(WorkflowPairedItem {

@@ -4,14 +4,6 @@
 //! built once per step on the evaluator thread; `jsonata-core` binds a value only into the
 //! `Context` an `Evaluator` is built with, so each evaluation builds its own evaluator over it.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the evaluator thread, which evaluates each expression against its bindings"
-    )
-)]
-
 use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -43,6 +35,7 @@ use crate::expressions::syntax_tree::find_in_syntax_tree;
 
 /// The call `$now` formats the run's instant with, so a picture and a time zone read exactly as
 /// `$fromMillis` reads them.
+#[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
 const INSTANT_TEXT_CALL: &str = "$fromMillis($instantMillis, $picture, $timezone)";
 
 /// The binding that answers a labeled node's params, `$params('<label>')`.
@@ -58,6 +51,7 @@ const ITEM_PICKS: [ItemPick; 4] = [
 
 /// What a step's expressions read, handed to the evaluator thread once when the step is
 /// dispatched. The run's shared data is held by `Arc`, so the steps of one run share it.
+#[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
 pub(crate) struct ExpressionBindings {
     /// The step the expressions belong to.
     pub(crate) step: StepKey,
@@ -95,6 +89,7 @@ pub(crate) struct ExpressionBindings {
 /// credential's name through `$env`, a part the parser refuses, the evaluator's own failure, the
 /// step's cancel, or the evaluator thread stopped before it answered.
 #[derive(Debug, thiserror::Error)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
 pub(crate) enum ExpressionError {
     /// `$item('<label>')`, or another binding naming a label, found no item.
     #[error(transparent)]
@@ -131,30 +126,41 @@ pub(crate) enum ExpressionError {
 /// once from the step's [`ExpressionBindings`], and its items converted once on first use.
 pub(crate) struct StepBindings {
     /// What the item readers and `$params` read, shared by every evaluation of the step.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     items: Rc<StepItems>,
     /// `$runIndex`.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     run_index: JValue,
     /// `$now` read as a value: the run's instant in ISO 8601.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     now: JValue,
     /// `$today`.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     today: JValue,
     /// `$env`, credential-shaped rows left out.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     environment: JValue,
     /// `$vars`.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     variables: JValue,
     /// `$run`.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     run: JValue,
     /// `$workflow`.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     workflow: JValue,
     /// The run's instant in milliseconds, which `$millis()` answers.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     instant_millis: i64,
     /// [`INSTANT_TEXT_CALL`], parsed once for every `$now(...)` call of the step.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     instant_text_call: Rc<AstNode>,
 }
 
 impl StepBindings {
     /// The step's bindings, each constant value converted and [`INSTANT_TEXT_CALL`] parsed here,
     /// once for all its items.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     pub(crate) fn new(bindings: ExpressionBindings) -> Self {
         let environment = bindings
             .environment_rows
@@ -219,6 +225,7 @@ impl StepBindings {
     /// [`ExpressionError::CredentialEnvironmentName`] before evaluating when the expression reads
     /// `$env` by a credential's name, with [`ExpressionError::Lineage`] when an item binding found
     /// no item, and with [`ExpressionError::Evaluation`] when the evaluator fails.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     pub(crate) fn evaluate(
         &self,
         expression: &AstNode,
@@ -243,6 +250,7 @@ impl StepBindings {
 
     /// The bindings read as values for input item `item_index`: the step's constants cloned,
     /// which shares them, and the item's `json` and index.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     fn context(&self, item_index: usize) -> Context {
         // A step with no input item, such as one that always outputs data, reads `$json` as `{}`.
         let item_json = self
@@ -273,6 +281,7 @@ impl StepBindings {
     /// The bindings called as functions: the item readers, `$params`, and `$now` and `$millis`
     /// answering the run's instant. An item reader's lineage or label failure is written to
     /// `lineage_error` as well as returned, so the caller reads it typed.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     fn register(
         &self,
         evaluator: &mut Evaluator,
@@ -343,21 +352,28 @@ impl ItemPick {
 /// use, and shared by every later evaluation of the step.
 struct StepItems {
     /// The step the expressions belong to.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     step: StepKey,
     /// The step's own input items.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     input_items: Arc<[WorkflowItem]>,
     /// The run's steps so far.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     steps: Arc<StepOutputs>,
     /// Each node's params by id.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     node_params: Arc<HashMap<WorkflowNodeId, JsonRecord>>,
     /// The step's input items as evaluator values.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     input_values: OnceCell<JArray>,
     /// Each labeled node's items, as `$all('<label>')` reads them, as evaluator values.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     node_values: RefCell<HashMap<WorkflowNodeId, JArray>>,
 }
 
 impl StepItems {
     /// The step's input items as evaluator values, converted on the first call.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     fn input_values(&self) -> &JArray {
         self.input_values
             .get_or_init(|| items_array(&self.input_items))
@@ -365,6 +381,7 @@ impl StepItems {
 
     /// The items `$all('<label>')` reads of `node_id`: its latest execution's first output, as a
     /// node read by label defaults to; empty while it has not run. Converted on the first call.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     fn node_values(&self, node_id: &WorkflowNodeId) -> JArray {
         self.node_values
             .borrow_mut()
@@ -381,6 +398,7 @@ impl StepItems {
 }
 
 /// What the item readers and `$params` of one evaluation read.
+#[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
 struct ItemReader {
     /// The step's items.
     items: Rc<StepItems>,
@@ -394,6 +412,7 @@ impl ItemReader {
     /// `pick` over the step's own input when `args` is empty, else over the node `args` labels:
     /// that node's latest execution's first output, and for `$item` the item the current one
     /// came from. An absent first or last item is undefined.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     fn items(&self, pick: ItemPick, args: &[JValue]) -> HostFnResult {
         let label = label_argument(pick.name(), args)?;
         let items = match (label, pick) {
@@ -432,6 +451,7 @@ impl ItemReader {
     }
 
     /// The params of the node `args` labels, as the document stores them.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     fn params(&self, args: &[JValue]) -> HostFnResult {
         let Some(label) = label_argument(PARAMS_BINDING, args)? else {
             return Err(EvaluatorError::TypeError(
@@ -453,6 +473,7 @@ impl ItemReader {
     }
 
     /// `error` written for the caller and returned as the evaluator's failure.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     fn refuse(&self, error: LineageError) -> EvaluatorError {
         let message = error.to_string();
         *self.lineage_error.borrow_mut() = Some(error);
@@ -462,6 +483,7 @@ impl ItemReader {
 
 /// The label in `args`, `None` when there are no arguments; fails with a type error for anything
 /// but one string.
+#[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
 fn label_argument<'args>(
     binding: &str,
     args: &'args [JValue],
@@ -476,11 +498,13 @@ fn label_argument<'args>(
 }
 
 /// `items` as an evaluator array of [`item_value`]s.
+#[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
 fn items_array(items: &[WorkflowItem]) -> JArray {
     JArray::new(items.iter().map(item_value).collect())
 }
 
 /// `item` as the evaluator reads it: its `json`, `binary`, `pairedItem` and `error`.
+#[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
 fn item_value(item: &WorkflowItem) -> JValue {
     JValue::from(serde_json::to_value(item).expect("an item writes as JSON"))
 }
@@ -488,6 +512,7 @@ fn item_value(item: &WorkflowItem) -> JValue {
 /// The instant `instant_millis` as `$fromMillis` writes it under `picture_and_zone`, jsonata's
 /// `$now(picture, timezone)`, through `call`, the parsed [`INSTANT_TEXT_CALL`]: ISO 8601 in UTC
 /// when both are absent.
+#[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
 fn instant_text(call: &AstNode, instant_millis: i64, picture_and_zone: &[JValue]) -> HostFnResult {
     if picture_and_zone.len() > 2 {
         return Err(EvaluatorError::EvaluationError(
@@ -504,12 +529,14 @@ fn instant_text(call: &AstNode, instant_millis: i64, picture_and_zone: &[JValue]
 
 /// Whether `name` is shaped like a credential's, the rule a project's environment rows are saved
 /// under.
+#[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
 fn is_credential_name(name: &str) -> bool {
     environment_name_refusal(name) == Some(EnvironmentNameRefusalReason::CredentialShaped)
 }
 
 /// The first credential-shaped name `node` or any node inside it reads from `$env`, as `$env.NAME`
 /// or `$lookup($env, 'NAME')`.
+#[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
 fn credential_environment_name(node: &AstNode) -> Option<&str> {
     find_in_syntax_tree(node, &mut |inner| {
         environment_read(inner).filter(|name| is_credential_name(name))
@@ -529,6 +556,7 @@ pub(crate) fn reads_a_label(name: &str) -> bool {
 }
 
 /// The name `node` itself reads from `$env`, as `$env.NAME` or `$lookup($env, 'NAME')`.
+#[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
 fn environment_read(node: &AstNode) -> Option<&str> {
     if let AstNode::Path { steps } = node
         && let [first, second, ..] = steps.as_slice()
@@ -548,6 +576,7 @@ fn environment_read(node: &AstNode) -> Option<&str> {
 }
 
 /// Whether `node` is the variable `$env`.
+#[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
 fn is_environment(node: &AstNode) -> bool {
     matches!(node, AstNode::Variable(name) if name == "env")
 }

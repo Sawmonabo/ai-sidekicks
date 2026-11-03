@@ -1,15 +1,6 @@
 //! The one walk over a parsed expression's syntax tree, which every reader of the tree that looks
 //! for a node shares.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the evaluator thread's credential check and the save check of the workflow \
-                  definition store"
-    )
-)]
-
 use jsonata_core::ast::{AstNode, PathStep, Stage};
 
 /// The first answer `visit` gives over `root`'s nodes, each node visited before its children and

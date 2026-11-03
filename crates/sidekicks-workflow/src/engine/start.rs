@@ -3,14 +3,6 @@
 //! the folder the run works in, the scope its steps share and the input its trigger step starts
 //! on, and the one write of the run's row with its `workflow.run.started`, which holds a run
 //! joining a chain at its limit.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the program's workflow engine and its start handlers, which start runs"
-    )
-)]
-
 #[cfg(test)]
 mod tests;
 
@@ -96,18 +88,34 @@ use crate::secrets::redaction::RunRedaction;
 /// The statements a start prepares on a read connection: the pinned version by its id, the
 /// session's working folder, the workflow's level and pins, its project's environment rows and
 /// the session's project.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
 pub(crate) const WORKFLOW_RUN_START_STATEMENT_CAPACITY: usize = 5;
 
 // The level every run of the workflow runs at, and its pinned test items.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
 const DEFINITION_SCOPE_SQL: &str =
     "SELECT permission_level, pin_data_json FROM workflow_definitions WHERE id = ?1";
 
 // The project the session works in, NULL for a chat.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
 static SESSION_PROJECT_SQL: LazyLock<String> =
     LazyLock::new(|| format!("SELECT {}", session_project_sql("?1")));
 
 /// How a start reached the engine, which decides whether the workflow start rule judges it here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
 pub(crate) enum WorkflowStartArrival {
     /// The person's own start, from any of their devices, which no rule judges.
     Person,
@@ -120,6 +128,10 @@ pub(crate) enum WorkflowStartArrival {
 /// One start: the version it pins, the session it lives in, how and by whom it was started, its
 /// place in its chain and the items it was given.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
 pub(crate) struct WorkflowRunStart {
     /// The version the run pins.
     pub(crate) workflow_version_id: WorkflowVersionId,
@@ -142,6 +154,10 @@ pub(crate) struct WorkflowRunStart {
 /// A run the start wrote: the scope its steps share, which holds the folder it works in, the edges
 /// of its pinned version and the input its trigger step starts on.
 #[derive(Clone)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
 pub(crate) struct StartedRun {
     /// What the run's steps share, built once here.
     pub(crate) scope: Arc<RunScope>,
@@ -166,6 +182,10 @@ impl fmt::Debug for StartedRun {
 
 /// How a start that passed its checks ended.
 #[derive(Clone, Debug)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
 pub(crate) enum WorkflowStartOutcome {
     /// The run and its started event were written.
     Started(StartedRun),
@@ -210,24 +230,48 @@ pub(crate) enum WorkflowRunStartError {
     KeptValues(#[from] WorkflowKeptValueError),
     /// The provider the run's command steps run under did not read.
     #[error("the run's provider could not be read")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
     Provider(#[source] PortError),
     /// The run's own folder could not be made.
     #[error("the run's own folder could not be made")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
     Folder(#[source] io::Error),
     /// The trigger step's input does not write as JSON.
     #[error("the trigger step's input does not write as JSON")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
     InputJson(#[source] serde_json::Error),
     /// The payload store did not keep the trigger step's input.
     #[error("the trigger step's input could not be stored")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
     Payload(#[source] PortError),
     /// The started event broke one of its type's checks.
     #[error("the run's started event could not be drafted")]
     Draft(#[from] SessionEventDraftError),
     /// The event log did not keep the start's write.
     #[error("the run's start was not kept")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
     Append(#[source] SessionEventAppendError),
     /// The chain the run joins has no stored first run at `chain_root_run_id`.
     #[error("the chain the run joins has no stored first run {chain_root_run_id}")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
     ChainRootMissing {
         /// The first run the start named.
         chain_root_run_id: WorkflowRunId,
@@ -235,6 +279,10 @@ pub(crate) enum WorkflowRunStartError {
     /// The start failed and the run's own folder it made could not be removed; `ended` is how it
     /// failed.
     #[error("the run's own folder at {} was left behind", .folder.display())]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
     FolderLeft {
         /// The folder.
         folder: PathBuf,
@@ -247,6 +295,10 @@ pub(crate) enum WorkflowRunStartError {
     /// The start failed and the trigger step's input it stored could not be deleted; `ended` is how
     /// it failed.
     #[error("the trigger step's stored input {artifact_id} was left behind")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
     PayloadLeft {
         /// The stored input.
         artifact_id: ArtifactId,
@@ -290,6 +342,10 @@ impl From<WorkflowRunStartError> for HandlerError {
 
 /// What a start's checks read: the workflow, its version's body as the run needs it, and the
 /// session's working folder.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
 struct CheckedStart {
     definition_id: WorkflowDefinitionId,
     workflow_name: WorkflowName,
@@ -303,6 +359,10 @@ struct CheckedStart {
 /// What a run's scope reads beside its version: the workflow's level and, for a manual run, its
 /// pins, the session's project and that project's environment rows, the workflow's kept values
 /// and the provider.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
 struct ScopeReads {
     permission_level: PermissionLevel,
     pin_data: Option<Record<String, Vec<WorkflowPinnedItem>>>,
@@ -314,12 +374,20 @@ struct ScopeReads {
 
 /// The folder a run works in: the session's, or its own, which the start made and removes when it
 /// ends without a run.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
 enum RunFolder {
     Session(PathBuf),
     Own(PathBuf),
 }
 
 impl RunFolder {
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
     fn path(&self) -> &Path {
         match self {
             Self::Session(path) | Self::Own(path) => path,
@@ -328,6 +396,10 @@ impl RunFolder {
 }
 
 /// What a start prepared once its checks passed: the run's id, its start and its folder.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
 struct PreparedStart {
     workflow_run_id: WorkflowRunId,
     started_at: WireInstant,
@@ -335,6 +407,10 @@ struct PreparedStart {
 }
 
 /// What a [`WorkflowRunStarter`] reads, writes and asks through.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
 pub(crate) struct WorkflowRunStarterDependencies {
     /// The read pool every read of a start goes through.
     pub(crate) pool: Arc<DatabaseReadPool>,
@@ -360,6 +436,10 @@ pub(crate) struct WorkflowRunStarterDependencies {
 
 /// Starts workflow runs: checks each start, prepares the run's folder, reads the scope its steps
 /// share, builds its trigger input, and writes the run's row with its started event in one write.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
 pub(crate) struct WorkflowRunStarter {
     pool: Arc<DatabaseReadPool>,
     appender: SessionEventAppender,
@@ -375,6 +455,10 @@ pub(crate) struct WorkflowRunStarter {
 
 impl WorkflowRunStarter {
     /// The starter over `dependencies`.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
     pub(crate) fn new(dependencies: WorkflowRunStarterDependencies) -> Self {
         let WorkflowRunStarterDependencies {
             pool,
@@ -413,6 +497,10 @@ impl WorkflowRunStarter {
     /// the payload store or the write fails; the run's own folder and its stored trigger input go
     /// with every outcome but a start. A held start whose folder or stored input cannot be removed
     /// is still answered held, the removal's failure going to the engine's record.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
     pub(crate) async fn start(
         &self,
         start: WorkflowRunStart,
@@ -461,6 +549,10 @@ impl WorkflowRunStarter {
     }
 
     // Records what a held start could not remove, under the run id it minted.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
     async fn record_left_behind(
         &self,
         run_id: WorkflowRunId,
@@ -474,6 +566,10 @@ impl WorkflowRunStarter {
 
     // The checks, in order, before anything is made: a trigger's fire under the workflow start
     // rule, the version, the session, the trigger's declared inputs.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
     async fn check(&self, start: &WorkflowRunStart) -> Result<CheckedStart, WorkflowRunStartError> {
         // Only a trigger's fire is judged here, as this machine's owner.
         let judged_owner = match start.arrival {
@@ -553,6 +649,10 @@ impl WorkflowRunStarter {
     }
 
     // Mints the run's id and its start, and makes its own folder where the session has none.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
     async fn prepare(
         &self,
         checked: &CheckedStart,
@@ -580,6 +680,10 @@ impl WorkflowRunStarter {
     // What the run's scope reads beside its version: one pooled read of the workflow's level and
     // pins, the project's environment rows and the session's project, then the workflow's kept
     // values and the provider. Pins are taken for a manual run only.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
     async fn read_scope(
         &self,
         session_id: SessionId,
@@ -627,6 +731,10 @@ impl WorkflowRunStarter {
 
     // The trigger step's input: inline within the cap, else stored through the payload store
     // under the trigger step's key.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
     async fn trigger_input(
         &self,
         session_id: SessionId,
@@ -660,6 +768,10 @@ impl WorkflowRunStarter {
     // its chain's count for a joining run, and its started event, whose instant is the row's start.
     // The scope is read first, so a failed read leaves no stored input behind; an input it stores
     // is named in `stored_input`, for the start to delete when no run is made.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the engine's run start handlers")
+    )]
     async fn write(
         &self,
         start: WorkflowRunStart,
@@ -792,6 +904,10 @@ impl WorkflowRunStarter {
 }
 
 // The workflow's level and its stored pins.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
 fn read_definition_scope(
     connection: &Connection,
     definition_id: WorkflowDefinitionId,
@@ -804,6 +920,10 @@ fn read_definition_scope(
 }
 
 // The project `session_id` works in; `None` for a chat or a session not bound to a project yet.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
 fn read_session_project(
     connection: &Connection,
     session_id: &SessionId,
@@ -817,6 +937,10 @@ fn read_session_project(
 
 /// The refusal of a start the workflow start rule denied, with the rule's errors when it gave
 /// any.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
 fn start_denied(errors: &[String]) -> DomainError {
     let refusal = DomainError::new(
         "This workflow may not start: a rule stops it.",
@@ -833,6 +957,10 @@ fn start_denied(errors: &[String]) -> DomainError {
 // there yet, so a removal never takes a folder another start made. A run's delete removes the
 // workflow's runs folder once it empties, so a parent gone between the two steps is made again,
 // once.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
 async fn make_own_folder(folder: &Path) -> io::Result<()> {
     let parent = folder
         .parent()

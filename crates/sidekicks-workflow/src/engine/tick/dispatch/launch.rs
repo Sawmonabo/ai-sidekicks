@@ -25,6 +25,7 @@ impl StepDispatch {
     /// `admission`. Its inputs arrive already cut for an execute-once node. Reports nothing; fails
     /// with [`StepFailure::Failed`] when a secret, a param or a template does, recording a failed
     /// keychain or secret read with its causes in the engine's record first.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) async fn launch(
         &self,
         scope: &RunScope,

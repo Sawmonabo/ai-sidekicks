@@ -9,14 +9,6 @@
 //! the earliest, read again from the rows at start, after each write that moves a deadline, and by
 //! the scheduler across sleep.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the program's workflow engine, which opens, answers and times out person waits"
-    )
-)]
-
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::sync::Arc;
@@ -64,19 +56,24 @@ use crate::kinds::{PersonAsk, StepFailure, coded_step_error, uncoded_step_error}
 
 /// The statements the deadline clock and the answer's row read run on a read connection: the
 /// earliest deadline, the steps due by an instant and one waiting step by its wait id.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 pub(crate) const PERSON_WAIT_STATEMENT_CAPACITY: usize = 3;
 
 /// The deadline clock's job, as the program's log names it.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 const DEADLINE_JOB: &str = "workflow person wait deadline";
 
 /// The deadline clock's retry, as the program's log names it.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 const DEADLINE_RETRY_JOB: &str = "workflow person wait deadline retry";
 
 // Uses the partial index on the deadline, so the earliest is one index step.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 const EARLIEST_DEADLINE_SQL: &str =
     "SELECT MIN(wait_deadline_at) FROM workflow_steps WHERE wait_deadline_at IS NOT NULL";
 
 // A deadline is set only while a person wait holds the step, so no status test is needed.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 const DUE_WAITS_SQL: &str = "SELECT workflow_run_id, node_id, attempt, execution_index, \
      wait_started_at, wait_deadline_at FROM workflow_steps \
      WHERE wait_deadline_at IS NOT NULL AND wait_deadline_at <= @instant \
@@ -89,12 +86,14 @@ const DUE_WAITS_SQL: &str = "SELECT workflow_run_id, node_id, attempt, execution
         reason = "the answer's intake, which finds the waiting step by its wait id"
     )
 )]
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 const WAITING_STEP_SQL: &str = "SELECT workflow_run_id, node_id, attempt, execution_index, \
      wait_cause, wait_deadline_at FROM workflow_steps WHERE wait_id = @wait_id";
 
 /// A wait on a person the engine opened for a step: what the commit stores on the step's row and
 /// writes in its `workflow.phase.suspended`.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 pub(crate) struct OpenedPersonWait {
     /// The wait's id, which the person's answer names.
     pub(crate) wait_id: UuidTextForm,
@@ -108,6 +107,7 @@ pub(crate) struct OpenedPersonWait {
 
 /// Opens a wait for `ask` at `at`, under a fresh wait id, giving up `timeout` after `at` where one
 /// is set. Fails the step, uncoded, when that deadline lies past the last instant a timestamp holds.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 pub(crate) fn open_person_wait(
     ask: &PersonAsk,
     timeout: Option<Duration>,
@@ -130,6 +130,7 @@ pub(crate) fn open_person_wait(
 }
 
 // `timeout` after `at`; fails when `at` does not read as a timestamp or the sum lies past the last.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 fn deadline_after(at: &WireInstant, timeout: Duration) -> Result<WireInstant, Box<dyn Error>> {
     let start = at.timestamp().ok_or(NotAnInstant)?;
     let deadline = start.checked_add(timeout)?;
@@ -138,6 +139,7 @@ fn deadline_after(at: &WireInstant, timeout: Duration) -> Result<WireInstant, Bo
 }
 
 // The wait cause `ask` opens.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 fn ask_cause(ask: &PersonAsk) -> WorkflowWaitCause {
     match ask {
         PersonAsk::Approval { .. } => WorkflowWaitCause::Approval,
@@ -155,6 +157,7 @@ fn ask_cause(ask: &PersonAsk) -> WorkflowWaitCause {
         reason = "the tick's commit, which writes the suspended event"
     )
 )]
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 pub(crate) fn suspended_payload(
     scope: &RunScope,
     step: &WorkflowStepKey,
@@ -215,6 +218,7 @@ pub(crate) fn suspended_payload(
     )
 )]
 #[derive(Clone)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 pub(crate) struct PersonWaitPorts {
     /// Raises an approval wait's card.
     pub(crate) cards: Arc<dyn ApprovalCardRaiser>,
@@ -235,6 +239,7 @@ impl PersonWaitPorts {
             reason = "the tick, which asks the person once the wait is stored"
         )
     )]
+    #[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
     pub(crate) async fn ask_person(
         &self,
         scope: &RunScope,
@@ -290,6 +295,7 @@ impl PersonWaitPorts {
 /// A person's answer to a step waiting on them: an approval card's decision, a form's fields keyed
 /// by each field's id, or a chat reply's text.
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 pub(crate) enum PersonWaitAnswer {
     /// The approval card's decision.
     Approval(ApprovalDecision),
@@ -301,6 +307,7 @@ pub(crate) enum PersonWaitAnswer {
 
 impl PersonWaitAnswer {
     // The wait cause this answer settles.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
     fn cause(&self) -> WorkflowWaitCause {
         match self {
             Self::Approval(_) => WorkflowWaitCause::Approval,
@@ -312,6 +319,7 @@ impl PersonWaitAnswer {
 
 /// A step a person wait holds, as its row stores it.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 pub(crate) struct WaitingPersonStep {
     /// The step.
     pub(crate) step: WorkflowStepKey,
@@ -325,6 +333,7 @@ pub(crate) struct WaitingPersonStep {
 
 /// Why an answer did not settle a wait; it answers `workflow.step.notWaiting`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 pub(crate) enum PersonWaitRefusal {
     /// The answer names another wait, is the wrong kind for the wait, or came at or after its
     /// deadline.
@@ -338,6 +347,7 @@ pub(crate) enum PersonWaitRefusal {
 /// item `{"reply": <text>}`, each paired to input item 0 where there is one. Refused `NotWaiting`
 /// when the answer is not of the wait's kind, or `at` is at or after the deadline, even before the
 /// deadline clock fires.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 pub(crate) fn settle_person_wait(
     waiting: &WaitingPersonStep,
     answer: PersonWaitAnswer,
@@ -382,6 +392,7 @@ pub(crate) fn settle_person_wait(
 }
 
 // `items`, each paired to its own index in them.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 fn paired_to_their_index(items: Vec<WorkflowItem>) -> Vec<WorkflowItem> {
     items
         .into_iter()
@@ -397,6 +408,7 @@ fn paired_to_their_index(items: Vec<WorkflowItem>) -> Vec<WorkflowItem> {
 }
 
 // An item holding `json` and no binary value, its lineage `paired_item`.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 fn answer_item(json: Value, paired_item: Option<WorkflowPairedItems>) -> WorkflowItem {
     WorkflowItem {
         json: AnyValue(json),
@@ -415,6 +427,7 @@ fn answer_item(json: Value, paired_item: Option<WorkflowPairedItems>) -> Workflo
         reason = "the answer's intake, which finds the waiting step by its wait id"
     )
 )]
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 pub(crate) fn read_waiting_person_step(
     connection: &Connection,
     wait_id: &UuidTextForm,
@@ -437,6 +450,7 @@ pub(crate) fn read_waiting_person_step(
 
 /// The step key in the first four columns of `row`: the run, the node, the attempt and the
 /// execution index. Fails when a column does not read as its type.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 pub(crate) fn step_key(row: &Row<'_>) -> rusqlite::Result<WorkflowStepKey> {
     Ok(WorkflowStepKey {
         workflow_run_id: text_column(row, 0, |text| WorkflowRunId::new(&text))?,
@@ -447,6 +461,7 @@ pub(crate) fn step_key(row: &Row<'_>) -> rusqlite::Result<WorkflowStepKey> {
 }
 
 // The stored instant in column `index` of `row`, as a timestamp.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 fn stored_timestamp(row: &Row<'_>, index: usize) -> rusqlite::Result<Timestamp> {
     text_column(row, index, |text| {
         WireInstant::try_from(text)?.timestamp().ok_or(NotAnInstant)
@@ -454,6 +469,7 @@ fn stored_timestamp(row: &Row<'_>, index: usize) -> rusqlite::Result<Timestamp> 
 }
 
 // The earliest deadline of a step waiting on a person, `None` when no wait has one.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 fn earliest_person_wait_deadline(
     connection: &Connection,
 ) -> Result<Option<SystemTime>, PersonWaitDeadlineError> {
@@ -468,12 +484,14 @@ fn earliest_person_wait_deadline(
 }
 
 // A step whose deadline passed, and how long its wait was allowed.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 struct DueWait {
     step: WorkflowStepKey,
     limit_ms: SafeInt<1>,
 }
 
 // Every step waiting on a person whose deadline is at or before `instant`, earliest first.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 fn due_person_waits(
     connection: &Connection,
     instant: &WireInstant,
@@ -497,6 +515,7 @@ fn due_person_waits(
 }
 
 // The failure of `step`, whose wait passed its deadline `limit_ms` after it began.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 fn step_timed_out(step: &WorkflowStepKey, limit_ms: SafeInt<1>) -> StepFailure {
     let details = WorkflowStepTimedOutDetails {
         cause: WorkflowStepTimedOutCause::StepTimeout,
@@ -512,6 +531,7 @@ fn step_timed_out(step: &WorkflowStepKey, limit_ms: SafeInt<1>) -> StepFailure {
 
 /// Why the deadline clock could not read the waits or report a due one.
 #[derive(Debug, thiserror::Error)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 pub(crate) enum PersonWaitDeadlineError {
     /// SQLite refused a read, or a stored value did not read as its type.
     #[error("a read of the steps waiting on a person failed")]
@@ -527,6 +547,7 @@ pub(crate) enum PersonWaitDeadlineError {
 
 /// The engine's one deadline clock over every step waiting on a person: armed at the earliest
 /// stored deadline, it fails each step whose deadline passed with `workflow.step.timedOut`.
+#[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
 pub(crate) struct PersonWaitDeadlines {
     /// The clock's one job on the wall clock.
     armed: ArmedInstant,
@@ -539,6 +560,7 @@ pub(crate) struct PersonWaitDeadlines {
 impl PersonWaitDeadlines {
     /// The clock on `scheduler`, reading on `reads` and reporting to `reports`; nothing is armed
     /// until its first [`InstantJob::rearm`].
+    #[cfg_attr(not(test), expect(dead_code, reason = "the engine's person waits"))]
     pub(crate) fn new(
         scheduler: Arc<Scheduler>,
         reads: Arc<DatabaseReadPool>,

@@ -3,14 +3,6 @@
 //! hundreds of milliseconds. A step's data crosses to the thread once, when the step opens; each
 //! item's evaluation then crosses only the item's index and its answer.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the tick's dispatch, which evaluates each step's params on this thread"
-    )
-)]
-
 use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
@@ -34,19 +26,23 @@ use tokio_util::sync::CancellationToken;
 use crate::expressions::bindings::{ExpressionBindings, ExpressionError, StepBindings};
 
 /// The thread's name, as a process listing shows it.
+#[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
 const THREAD_NAME: &str = "workflow-expressions";
 
 /// The most jobs that wait for the thread; one more waits for room on the channel, so the queue
 /// never holds more and a job's worst wait is the jobs ahead of it.
+#[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
 const JOB_CAPACITY: usize = 256;
 
 /// The deepest an evaluation nests, in evaluator levels, past which it fails with `D1011`: about
 /// 3,300 nested non-tail calls and about 30 MB of stack segments at its peak, a third of the
 /// 30,000-level backstop `jsonata-core` keeps when none is set.
+#[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
 const MAX_STACK_DEPTH: usize = 10_000;
 
 /// The longest sequence a query builds (a map, a filter, a wildcard, a range), past which the
 /// evaluation fails with `D2015`; an array literal or an input array is not counted.
+#[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
 const MAX_SEQUENCE_LENGTH: usize = 1_000_000;
 
 /// The steps open on the thread, by the id their handle holds.
@@ -64,11 +60,13 @@ pub(crate) struct ExpressionEvaluator {
     /// The steps whose close found the channel full, dropped before the thread's next job.
     closed_steps: std::sync::mpsc::Sender<u64>,
     /// The id the next step opened gets.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
     next_step: Arc<AtomicU64>,
 }
 
 impl ExpressionEvaluator {
     /// Starts the thread; the service makes one. Fails when the thread cannot be made.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
     pub(crate) fn start() -> io::Result<Self> {
         let (jobs, mut waiting_jobs) = mpsc::channel::<Job>(JOB_CAPACITY);
         let (closed_steps, closed) = std::sync::mpsc::channel();
@@ -96,6 +94,7 @@ impl ExpressionEvaluator {
     /// runtime, and waits for room when the channel is full. Fails with
     /// [`ExpressionError::TemplateUnparsable`] for a part the parser refuses, and
     /// [`ExpressionError::EvaluatorStopped`] when the thread stopped.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
     pub(crate) async fn open_step(
         &self,
         bindings: ExpressionBindings,
@@ -141,6 +140,7 @@ impl ExpressionEvaluator {
     /// Queues `job` once the channel has room, waiting on the channel's own reservation. A stopped
     /// thread drops the job, and its answer with it, which the caller reads as
     /// [`ExpressionError::EvaluatorStopped`].
+    #[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
     async fn send(&self, job: Job) {
         if let Ok(permit) = self.jobs.reserve().await {
             permit.send(job);
@@ -162,6 +162,7 @@ impl StepExpressionsHandle {
     /// Each of the step's templates evaluated for input item `item_index`, in the order the step
     /// opened with. The job is queued once the channel has room; the future borrows the handle,
     /// so the step stays open while it waits. Fails as [`StepExpressions::evaluate_item`] does.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
     pub(crate) async fn evaluate_item(
         &self,
         item_index: usize,
@@ -209,6 +210,7 @@ impl Drop for StepExpressionsHandle {
 }
 
 /// A param's `=` template, owned so it crosses to the thread: literal text never does.
+#[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
 pub(crate) struct ParamTemplate {
     /// Whether the value is the one expression's or the parts joined.
     shape: TemplateShape,
@@ -235,6 +237,7 @@ impl From<&ExpressionTemplate<'_>> for ParamTemplate {
 }
 
 /// One piece of a [`ParamTemplate`].
+#[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
 enum OwnedTemplatePart {
     /// Literal text between parts.
     Text(String),
@@ -245,16 +248,20 @@ enum OwnedTemplatePart {
 /// A param template on the thread, its expressions parsed.
 struct ParsedTemplate {
     /// Whether the value is the one expression's or the parts joined.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
     shape: TemplateShape,
     /// The parts in text order.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
     parts: Vec<ParsedPart>,
 }
 
 /// One piece of a [`ParsedTemplate`].
 enum ParsedPart {
     /// Literal text between parts.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
     Text(String),
     /// A parsed expression.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
     Expression(AstNode),
 }
 
@@ -262,12 +269,16 @@ enum ParsedPart {
 /// of options and cancel token every evaluation of the step runs under.
 struct StepExpressions {
     /// What the step's expressions read.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
     bindings: StepBindings,
     /// The step's templates.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
     templates: Vec<ParsedTemplate>,
     /// The options each evaluation's evaluator is built with.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
     options: EvaluatorOptions,
     /// The step's cancel, which the options carry.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
     cancel: CancelToken,
 }
 
@@ -275,6 +286,7 @@ impl StepExpressions {
     /// The step's expressions, its bindings built and each template part parsed. An evaluator
     /// built with a canceled token fails every evaluation, which a canceled step wants. Fails with
     /// [`ExpressionError::TemplateUnparsable`] for a part the parser refuses.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
     fn new(
         bindings: ExpressionBindings,
         templates: &[ParamTemplate],
@@ -318,6 +330,7 @@ impl StepExpressions {
     /// Each template's value for input item `item_index`. Fails with
     /// [`ExpressionError::Canceled`] once the step is canceled, and as [`StepBindings::evaluate`]
     /// fails otherwise.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
     fn evaluate_item(&self, item_index: usize) -> Result<Vec<Value>, ExpressionError> {
         self.templates
             .iter()
@@ -328,6 +341,7 @@ impl StepExpressions {
     /// `template`'s value: a whole template keeps its expression's JSON type, an undefined value
     /// reading as null; a joined one is a string of its parts, each value as `$string` writes it
     /// and an undefined one as nothing, as the `&` operator joins.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
     fn evaluate_template(
         &self,
         template: &ParsedTemplate,
@@ -357,6 +371,7 @@ impl StepExpressions {
 
     /// `expression`'s value for input item `item_index`. A built-in call over a large input
     /// finishes before it sees the cancel, so the step's token is read after every call too.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the tick's dispatch"))]
     fn evaluate_part(
         &self,
         expression: &AstNode,

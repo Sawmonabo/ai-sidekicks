@@ -1,14 +1,6 @@
 //! The engine's tick: each turn of its loop walks what committed, admits and dispatches the
 //! steps the walk readied, and commits what they reported in one write.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the program's workflow engine, which runs the tick"
-    )
-)]
-
 mod admission;
 mod branch_cancellation;
 mod dispatch;
@@ -53,6 +45,7 @@ use crate::secrets::redaction::RunRedaction;
 
 /// What one run's steps share, built once by the run's start or its restart and held as an `Arc`
 /// by every step the run dispatches.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunScope {
     /// The session the run works in.
     pub(crate) session_id: SessionId,
@@ -136,6 +129,7 @@ pub(crate) fn test_run_scope(mode: WorkflowRunMode, nodes: Vec<WorkflowNode>) ->
 /// What a run's steps had recorded when the turn began, handed to each step that turn dispatches
 /// so every one reads the same fixed copy.
 #[derive(Clone)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunSnapshot {
     /// Each node's executions so far.
     pub(crate) outputs: Arc<StepOutputs>,
@@ -144,6 +138,7 @@ pub(crate) struct RunSnapshot {
 }
 
 /// A step the walk readied: its key, its loop's run index and its input.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct ReadyStep {
     /// The step.
     pub(crate) step: WorkflowStepKey,
@@ -160,6 +155,7 @@ pub(crate) struct ReadyStep {
 
 /// What one step reported to the tick, which the commit turns into events and rows. The commit
 /// writes `at` as the event's instant, so the live rows and the fold read the same instant.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct StepReport {
     /// The step that reported.
     pub(crate) step: WorkflowStepKey,
@@ -174,6 +170,7 @@ pub(crate) struct StepReport {
 /// any report from its driver; a step the gate weighs, and an agent step, whose run joins the gate
 /// when it is made, reports its hold and its admission from its driver. An agent step whose run
 /// leaves the gate's line unadmitted reports no `Admitted` before it settles.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum StepReportKind {
     /// The memory gate holds the step; every report of one hold carries the instant of its first,
     /// so the first is the one whose `at` equals `hold_started_at`.
@@ -210,6 +207,7 @@ pub(crate) enum StepReportKind {
 }
 
 /// How a step ended.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum StepSettlement {
     /// The step finished with its outputs.
     Completed {

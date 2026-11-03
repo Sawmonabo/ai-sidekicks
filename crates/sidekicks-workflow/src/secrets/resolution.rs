@@ -67,6 +67,7 @@ pub(crate) struct ResolvedStepSecret {
     )]
     pub(crate) parameter: String,
     /// The secret's value.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the tick's step launch"))]
     pub(crate) value: SecretString,
 }
 
@@ -96,6 +97,7 @@ pub enum StepSecretRefusal {
 impl StepSecretRefusal {
     /// Whether a failure lies under the refusal: the keychain's, or a failed read's; a reference
     /// that did not resolve has none.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the tick's step launch"))]
     pub(crate) fn has_failure_underneath(&self) -> bool {
         !matches!(self, Self::NotFound { .. })
     }

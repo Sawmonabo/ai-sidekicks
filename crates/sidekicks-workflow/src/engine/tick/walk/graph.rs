@@ -17,6 +17,7 @@ use crate::kinds::NodeKindTable;
 
 /// Why a run's graph could not be built from its pinned version.
 #[derive(Debug, thiserror::Error)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum RunGraphError {
     /// The table no longer lists the node's kind at the version the node records.
     #[error("the kind of node {} is not listed at its version", .node_id.as_str())]
@@ -36,6 +37,7 @@ pub(crate) enum RunGraphError {
 
 /// One slot a main output feeds: the target node's place in the graph and its slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct SlotTarget {
     /// The target node's place, which is its visiting rank.
     pub(crate) node: usize,
@@ -44,6 +46,7 @@ pub(crate) struct SlotTarget {
 }
 
 /// One main input slot of a node: slot k is the input whose id is `inputs/main/k`.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct InputSlot {
     /// The input's position among the kind's inputs, tool inputs included.
     pub(crate) spec_position: usize,
@@ -53,6 +56,7 @@ pub(crate) struct InputSlot {
 }
 
 /// One node of a run's graph.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunGraphNode {
     /// The node.
     pub(crate) id: WorkflowNodeId,
@@ -73,6 +77,7 @@ pub(crate) struct RunGraphNode {
 
 /// A run's graph: its nodes sorted by `(order, id)`, so a node's place is its visiting rank and no
 /// hash order reaches the walk.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunGraph {
     /// The nodes in visiting order.
     nodes: Vec<RunGraphNode>,
@@ -89,6 +94,7 @@ impl RunGraph {
     /// handles read from `kinds`. Fails with [`RunGraphError::UnknownKind`] when the table no
     /// longer lists a node's kind at its version, and with [`RunGraphError::UndeclaredHandle`]
     /// when a main edge names a handle its node's kind does not declare.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn new(
         nodes: &HashMap<WorkflowNodeId, WorkflowNode>,
         trigger: &WorkflowNodeId,
@@ -208,21 +214,25 @@ impl RunGraph {
     }
 
     /// The node at `place`.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn node(&self, place: usize) -> &RunGraphNode {
         &self.nodes[place]
     }
 
     /// How many nodes the graph holds; their places run from 0 below it.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn node_count(&self) -> usize {
         self.nodes.len()
     }
 
     /// The trigger's place.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn trigger(&self) -> usize {
         self.trigger
     }
 
     /// The place of the node `node_id`, which the graph holds.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn place(&self, node_id: &WorkflowNodeId) -> usize {
         *self
             .places
@@ -232,11 +242,13 @@ impl RunGraph {
 
     /// The places of the nodes that precede the node at `place` along forward main edges, lowest
     /// first; two nodes of one loop are never each other's ancestors.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn ancestors(&self, place: usize) -> &[usize] {
         &self.ancestors[place]
     }
 
     /// The places of the nodes whose main outputs feed the node at `place`, with repeats.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn feeders(&self, place: usize) -> impl Iterator<Item = usize> + '_ {
         self.nodes[place]
             .slots
@@ -247,6 +259,7 @@ impl RunGraph {
 
 /// Where a node stands in the depth-first walk that sorts the edges into forward and back ones.
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 enum WalkMark {
     /// The walk has not reached it.
     Unreached,
@@ -259,6 +272,7 @@ enum WalkMark {
 /// Each of `nodes`' ancestors along forward main edges, by place, lowest first. A depth-first walk
 /// from `trigger`, then from each node it has not reached in place order, following each node's
 /// targets in output order, takes every edge but those that close a loop, its back edges.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn forward_ancestors(nodes: &[RunGraphNode], trigger: usize) -> Vec<Vec<usize>> {
     let node_count = nodes.len();
     let targets: Vec<Vec<usize>> = nodes
@@ -314,6 +328,7 @@ fn forward_ancestors(nodes: &[RunGraphNode], trigger: usize) -> Vec<Vec<usize>> 
 }
 
 /// The refusal of an edge naming `handle` on `node_id`, whose kind declares no such main handle.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn undeclared_handle(node_id: &WorkflowNodeId, handle: &NonEmptyText) -> RunGraphError {
     RunGraphError::UndeclaredHandle {
         node_id: node_id.clone(),

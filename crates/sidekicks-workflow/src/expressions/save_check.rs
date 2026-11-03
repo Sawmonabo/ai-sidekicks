@@ -2,15 +2,6 @@
 //! by a label the document holds, and hold only patterns the evaluator builds, and a command step's
 //! fills must each land where a reference to it expands as one value.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the workflow definition handlers and the workflow agent tools, through the \
-                  workflow definition store"
-    )
-)]
-
 use std::collections::HashSet;
 use std::convert::Infallible;
 use std::iter;

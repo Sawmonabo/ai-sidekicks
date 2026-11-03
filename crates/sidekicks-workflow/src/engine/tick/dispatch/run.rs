@@ -22,6 +22,7 @@ impl StepDispatch {
     /// `Progressed` each time the step marks progress, and answers the step's settlement. A step
     /// canceled while it ran settles canceled once its executor returns, whatever it answered.
     /// Answers `None` when the tick stopped taking reports, which cancels the step.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(super) async fn run_executor(
         &self,
         node: &WorkflowNode,
@@ -100,6 +101,7 @@ impl StepDispatch {
 /// `onError` goes on past it and the failure is a decline or a failure on the step's last try:
 /// then the call's outputs are what `onError` passes on, its error naming the call's item, and
 /// the next call runs.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(super) async fn execute(
     node: &WorkflowNode,
     kind: &NodeKind,
@@ -158,6 +160,7 @@ pub(super) async fn execute(
 /// The outputs `node`'s `onError` passes on for the per-item call `call_index` that failed with
 /// `failure` over `call_inputs`: its one item, carrying the error with the call's index as the
 /// error's item, since the call's own item 0 is the step's item `call_index`.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn passed_on_call_outputs(
     node: &WorkflowNode,
     kind: &NodeKind,
@@ -182,6 +185,7 @@ fn passed_on_call_outputs(
 
 /// `failure` carrying the index of the per-item call that failed, `call_index`, where it names no
 /// item. A decline passes through.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn fill_failed_call(mut failure: StepFailure, call_index: usize) -> StepFailure {
     if let Some(error) = failure.error_mut() {
         error_members(error)

@@ -13,6 +13,7 @@ use crate::engine::tick::{StepReport, StepReportKind, StepSettlement};
 
 /// Why a set of branches was canceled.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum BranchCancelReason {
     /// A `firstToArrive` merge took its first input; the run goes on.
     FirstToArrive,
@@ -21,6 +22,7 @@ pub(crate) enum BranchCancelReason {
 }
 
 /// A step on a losing branch, with its cancel.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct BranchLoser {
     /// The step.
     pub(crate) step: WorkflowStepKey,
@@ -31,6 +33,7 @@ pub(crate) struct BranchLoser {
 }
 
 /// The running losers of one cancel, which settle together once the last of them has settled.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct BranchWave {
     /// The step whose turn decided the cancel.
     deciding: WorkflowStepKey,
@@ -43,6 +46,7 @@ pub(crate) struct BranchWave {
 }
 
 /// What a wave answers for one report.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum WaveSettle {
     /// A member settled and others are still winding down.
     Pending {
@@ -63,6 +67,7 @@ pub(crate) enum WaveSettle {
 
 /// Cancels every loser of `deciding`'s turn for `reason`, answering a `Canceling` for each running
 /// loser, and the wave of the running losers when there is one.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn cancel_branches(
     deciding: WorkflowStepKey,
     reason: BranchCancelReason,
@@ -95,6 +100,7 @@ impl BranchWave {
     /// Takes `report` into the wave. A member's settlement counts as canceled whatever it says, and
     /// its outputs are dropped, but an agent run kept on a spent account comes back to be stopped;
     /// every other report comes back as `Passed`.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn settle(&mut self, report: StepReport) -> WaveSettle {
         let is_member_settlement = matches!(report.kind, StepReportKind::Settled(_))
             && self.members.contains(&report.step);

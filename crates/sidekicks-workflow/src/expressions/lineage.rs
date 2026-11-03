@@ -1,14 +1,6 @@
 //! The steps a run has taken so far, as an expression reads them, and the walk back through each
 //! item's `pairedItem` from the current item to the item of an earlier node that it came from.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the evaluator thread, which holds a run's step outputs for its expressions"
-    )
-)]
-
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -23,8 +15,10 @@ use sidekicks_contracts::workflow::run::step::record::WorkflowStepSource;
 #[derive(Clone, Debug)]
 pub(crate) struct StepKey {
     /// The node.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     pub(crate) node_id: WorkflowNodeId,
     /// Which execution of it.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     pub(crate) execution_index: u64,
 }
 
@@ -33,8 +27,10 @@ pub(crate) struct StepKey {
 #[derive(Debug)]
 pub(crate) struct StepOutput {
     /// Per input slot, the output that fed it, or `None` for a slot nothing fed.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     pub(crate) sources: Vec<Option<WorkflowStepSource>>,
     /// Per output handle, the items it wrote; empty for a step still running.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     pub(crate) outputs: Vec<Vec<WorkflowItem>>,
 }
 
@@ -45,8 +41,10 @@ pub(crate) struct StepOutput {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct StepOutputs {
     /// The labels of the run's nodes, which every clone shares.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     labels: Arc<NodeLabels>,
     /// Each node's executions by execution index.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     steps: HashMap<WorkflowNodeId, BTreeMap<u64, Arc<StepOutput>>>,
 }
 
@@ -54,13 +52,16 @@ pub(crate) struct StepOutputs {
 #[derive(Debug, Default)]
 struct NodeLabels {
     /// Each node's id by its label.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     node_ids_by_label: HashMap<String, WorkflowNodeId>,
     /// Each node's label by its id.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     labels_by_node_id: HashMap<WorkflowNodeId, String>,
 }
 
 impl StepOutputs {
     /// The steps of a run over `nodes`, each a node's id and label, before any step ran.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     pub(crate) fn new(nodes: impl IntoIterator<Item = (WorkflowNodeId, String)>) -> Self {
         let mut labels = NodeLabels::default();
         for (node_id, label) in nodes {
@@ -76,6 +77,7 @@ impl StepOutputs {
     }
 
     /// Records what the execution `key` read and wrote, replacing what it held.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     pub(crate) fn record(&mut self, key: StepKey, output: StepOutput) {
         self.steps
             .entry(key.node_id)
@@ -84,6 +86,7 @@ impl StepOutputs {
     }
 
     /// The node labeled `label`; fails with [`LineageError::UnknownLabel`] when no node is.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     pub(crate) fn node_id(&self, label: &str) -> Result<&WorkflowNodeId, LineageError> {
         self.labels
             .node_ids_by_label
@@ -94,6 +97,7 @@ impl StepOutputs {
     }
 
     /// The latest execution of `node_id`, or `None` while it has not run.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     pub(crate) fn latest_step(&self, node_id: &WorkflowNodeId) -> Option<&StepOutput> {
         self.steps
             .get(node_id)
@@ -102,6 +106,7 @@ impl StepOutputs {
     }
 
     /// The execution `key`, or `None` when it has not run.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     pub(crate) fn step(&self, key: &StepKey) -> Option<&StepOutput> {
         self.steps
             .get(&key.node_id)
@@ -110,6 +115,7 @@ impl StepOutputs {
     }
 
     /// The label a person reads for `node_id`.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     fn label(&self, node_id: &WorkflowNodeId) -> String {
         self.labels
             .labels_by_node_id
@@ -119,6 +125,7 @@ impl StepOutputs {
     }
 
     /// How many executions the run recorded, which bounds a walk back through them.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
     fn execution_count(&self) -> usize {
         self.steps.values().map(BTreeMap::len).sum()
     }
@@ -128,6 +135,7 @@ impl StepOutputs {
 /// it, a node on the way back recorded no lineage for the item, or a node on the way back made the
 /// item from several.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
 pub(crate) enum LineageError {
     /// No node is labeled `label`.
     #[error("No node is labeled '{label}'.")]
@@ -175,6 +183,7 @@ pub(crate) enum LineageError {
 /// [`LineageError::LineageMissing`] where an item on the way records no lineage or the walk goes
 /// round more steps than the run recorded, which only a cycle in the records does, and with
 /// [`LineageError::Ambiguous`] where an item came from several.
+#[cfg_attr(not(test), expect(dead_code, reason = "the evaluator thread"))]
 pub(crate) fn walk_paired_item<'steps>(
     steps: &'steps StepOutputs,
     from: &StepKey,

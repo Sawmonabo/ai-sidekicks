@@ -43,6 +43,7 @@ use crate::secrets::store::WorkflowSecretStore;
 /// Launches and drives the steps the tick readies, through the engine's ports and the service's
 /// expression thread, database reads, secret store and HTTP client, reporting to the tick.
 #[derive(Clone)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct StepDispatch {
     /// The ports the program's workflow engine hands the dispatch.
     ports: EnginePorts,
@@ -65,6 +66,7 @@ pub(crate) struct StepDispatch {
 }
 
 /// A step the dispatch admitted: its own cancel and the reports the tick writes for it this turn.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct DispatchedStep {
     /// The step's cancel, a child of its run's.
     pub(crate) cancel: CancellationToken,
@@ -76,6 +78,7 @@ impl StepDispatch {
     /// The dispatch over `ports`, `evaluator`, `reads`, `secrets`, `http` and `kinds`, sending its
     /// drivers' reports on `reports` and recording the engine's faults to the ports' sink under
     /// this daemon life.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn new(
         ports: EnginePorts,
         evaluator: ExpressionEvaluator,
@@ -107,6 +110,7 @@ impl StepDispatch {
     /// reports its hold and its admission; an agent step takes its turn once its params are
     /// evaluated, so a slow evaluation holds up no other step. Answers the step's cancel and the
     /// reports the tick writes this turn. Must be called inside tokio.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn dispatch(
         &self,
         scope: &Arc<RunScope>,
@@ -222,6 +226,7 @@ impl StepDispatch {
 
     /// The node of `step`, a step of the run of `scope`, and its kind, both of which the dispatch
     /// found when it dispatched the step.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     fn look_up_step<'scope>(
         &self,
         scope: &'scope RunScope,
@@ -242,6 +247,7 @@ impl StepDispatch {
     /// it runs, waits for its `turn` in the entry line, enters the gate and reports its hold and
     /// its admission, then runs it as [`Self::drive`] does, holding its ticket. A step canceled in
     /// the line or at the gate settles canceled; one the gate releases unadmitted fails.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     async fn drive_at_gate(
         self,
         scope: Arc<RunScope>,
@@ -331,6 +337,7 @@ impl StepDispatch {
     /// Drives the admitted step `ready`, its inputs already cut for execute-once, to its
     /// settlement: launched holding its place at the memory gate, `admission`, then started and
     /// run. A launch that fails after the step's cancel settles canceled.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     async fn drive(
         self,
         scope: Arc<RunScope>,
@@ -381,6 +388,7 @@ impl StepDispatch {
 
     /// Records `fault`, met by `step` of the run of `scope`, with `error`'s chain in the engine's
     /// record.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     async fn record_fault(
         &self,
         scope: &RunScope,
@@ -397,6 +405,7 @@ impl StepDispatch {
     /// Sends `kind` for `step` to the tick, answering whether the tick took it. When the tick has
     /// stopped taking reports, cancels the step through `cancel`, so a process it started still
     /// ends.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     async fn report(
         &self,
         step: &WorkflowStepKey,
@@ -414,6 +423,7 @@ impl StepDispatch {
 }
 
 /// Waits for `turn` in the entry line, answering whether the step's `cancel` came first.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 async fn is_canceled_in_line(turn: &GateEntryTurn, cancel: &CancellationToken) -> bool {
     tokio::select! {
         biased;
@@ -425,6 +435,7 @@ async fn is_canceled_in_line(turn: &GateEntryTurn, cancel: &CancellationToken) -
 /// The settlement of a step whose launch failed with `failure`: canceled when its `cancel` is,
 /// since a cancel during the launch comes back as the launch's own failure, else failed on node
 /// `node_id` with its message scrubbed through `redaction`.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn settle_launch_failure(
     failure: StepFailure,
     cancel: &CancellationToken,
@@ -445,6 +456,7 @@ fn settle_launch_failure(
 }
 
 /// The members every arm of a step failure carries: its message, its node and its item.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(super) fn error_members(
     error: &mut WorkflowStepError,
 ) -> (
@@ -465,6 +477,7 @@ pub(super) fn error_members(
 
 /// `failure` as the step settles with it: its node `node_id` where it names none, and its message
 /// and a coded failure's details scrubbed through `redaction`. A decline passes through.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn fill_step_failure(
     mut failure: StepFailure,
     node_id: &WorkflowNodeId,
@@ -481,6 +494,7 @@ fn fill_step_failure(
 
 /// `outputs`, a step's output items, with every string of each item's data and failure scrubbed
 /// through `redaction` before the step settles with them.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn scrub_outputs(outputs: &mut [Vec<WorkflowItem>], redaction: &RunRedaction) {
     for item in outputs.iter_mut().flatten() {
         redaction.scrub_json(&mut item.json.0);
@@ -492,6 +506,7 @@ fn scrub_outputs(outputs: &mut [Vec<WorkflowItem>], redaction: &RunRedaction) {
 
 /// Scrubs `error`'s message and, for a coded failure, every string of its details through
 /// `redaction`; an agent resolution's details are typed values only.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn scrub_step_error(error: &mut WorkflowStepError, redaction: &RunRedaction) {
     let (message, _node_id, _item_index) = error_members(error);
     if let Cow::Owned(scrubbed) = redaction.scrub(message.as_str()) {

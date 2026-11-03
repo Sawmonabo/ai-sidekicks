@@ -22,13 +22,16 @@ use crate::engine::tick::node_settings::{main_inputs, main_output_count, place_o
 use crate::kinds::{StepFailure, uncoded_step_error};
 
 /// The most tries the engine gives a step, whatever its node's `retry.maxTries` asks.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) const RETRY_TRIES_CEILING: u64 = 5;
 
 /// The longest wait the engine leaves between two tries, whatever its node's `retry.waitMs` asks.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) const RETRY_WAIT_CEILING: Duration = Duration::from_millis(5_000);
 
 /// The tries a node's step gets and the wait between them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct StepRetry {
     /// The tries, counted from 1.
     pub(crate) max_tries: u64,
@@ -39,6 +42,7 @@ pub(crate) struct StepRetry {
 /// The tries `node`'s step gets: one with no wait when it sets no `retry`, else its `retry` held
 /// under [`RETRY_TRIES_CEILING`] and [`RETRY_WAIT_CEILING`]. The clamp is the engine's; the
 /// document's numbers are never trusted past it.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn step_retry(node: &WorkflowNode) -> StepRetry {
     match node.retry {
         None => StepRetry {
@@ -53,6 +57,7 @@ pub(crate) fn step_retry(node: &WorkflowNode) -> StepRetry {
 }
 
 /// What follows a failed step.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum StepFailureRoute {
     /// The step runs again as its next attempt, which the walk's retry numbers, after `wait`.
     Retry {
@@ -74,6 +79,7 @@ pub(crate) enum StepFailureRoute {
 /// input handle of `spec`: the run's end for a failure that ends it; else a retry while tries are
 /// left, never for a decline; else what [`passed_on_outputs`] answers, or a park where `onError`
 /// goes on past nothing.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn route_step_failure(
     node: &WorkflowNode,
     spec: &WorkflowNodeKindSpec,
@@ -98,6 +104,7 @@ pub(crate) fn route_step_failure(
 /// `spec`, when it goes on past it: `continue` passes the inputs' items on the first main output,
 /// and `continueErrorOutput` sends them down the error output, after the kind's main outputs.
 /// `None` for `stop` and an unset `onError`, which go on past nothing.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn passed_on_outputs(
     node: &WorkflowNode,
     spec: &WorkflowNodeKindSpec,
@@ -123,6 +130,7 @@ pub(crate) fn passed_on_outputs(
 /// the step's error on `node`: on the one item of the first main input the error's item index
 /// names, the input a per-item kind runs over, or on every item when it names none. A decline's
 /// error names the decline and carries its words where the person typed any.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn passed_on_items(
     node: &WorkflowNode,
     spec: &WorkflowNodeKindSpec,
@@ -166,6 +174,7 @@ fn passed_on_items(
 
 /// How a failure stops its run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum RunStop {
     /// The run parks and can be resumed.
     Park,
@@ -174,6 +183,7 @@ pub(crate) enum RunStop {
 }
 
 /// Where one of the run's other live steps stands when a failure stops the run.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum SiblingState {
     /// The step runs, with its cancel.
     Running(CancellationToken),
@@ -184,6 +194,7 @@ pub(crate) enum SiblingState {
 }
 
 /// One of the run's other live steps.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct RunSibling {
     /// The step.
     pub(crate) step: WorkflowStepKey,
@@ -192,6 +203,7 @@ pub(crate) struct RunSibling {
 }
 
 /// What stopping a run's siblings answers.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct SiblingStop {
     /// A `Canceling` for each running sibling.
     pub(crate) reports: Vec<StepReport>,
@@ -206,6 +218,7 @@ pub(crate) struct SiblingStop {
 /// settles from its own driver, and a waiting one keeps waiting on a park and is canceled on an
 /// end. The commit writes each canceled wait's `workflow.step.canceled` and clears its live
 /// columns.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn stop_siblings(
     deciding: WorkflowStepKey,
     stop: RunStop,

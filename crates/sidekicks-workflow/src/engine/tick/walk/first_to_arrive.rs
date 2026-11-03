@@ -10,6 +10,7 @@ use super::graph::RunGraph;
 
 /// A first-to-arrive node took its first main input with items: the step that readied, and the
 /// live steps on its losing branches, which are to be canceled.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct FirstToArriveWin {
     /// The node's step the win readied.
     pub(crate) deciding: WorkflowStepKey,
@@ -20,6 +21,7 @@ pub(crate) struct FirstToArriveWin {
 /// The `live` steps that lose when the node at `place` takes `winning_slot`: those whose node is an
 /// ancestor of the node's other slots and feeds nothing but those slots and other such nodes. The
 /// trigger, the node itself and every ancestor of the winning slot never lose.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(super) fn losers(
     graph: &RunGraph,
     place: usize,
@@ -71,6 +73,7 @@ pub(super) fn losers(
 
 /// Marks in `marked` every node reached from `starts` by walking back along main edges, entering
 /// only the nodes `may_enter` accepts.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn mark_ancestors(
     graph: &RunGraph,
     starts: impl Iterator<Item = usize>,

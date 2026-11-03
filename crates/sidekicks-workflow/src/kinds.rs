@@ -3,14 +3,6 @@
 //! describes what its step does; the engine acts on it, opening a wait or starting an agent run
 //! through its ports and producing the step's output from the answer.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the workflow definition store and the tick's dispatch, once the kinds register"
-    )
-)]
-
 pub(crate) mod step_context;
 
 use std::collections::HashMap;
@@ -40,6 +32,10 @@ use crate::engine::tick::node_settings::{main_input_count, main_output_count};
 use crate::kinds::step_context::StepContext;
 
 /// The param holding a command step's shell line.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the tick's dispatch of each kind")
+)]
 pub(crate) const COMMAND_PARAM: &str = "command";
 
 /// The label of the output a node that routes failures to its error output gains.
@@ -50,6 +46,10 @@ pub(crate) trait NodeExecutor: Send + Sync {
     /// Runs the step over `inputs`, one list of items per input handle in handle order. Its
     /// outputs come one list per main output, before any error output. Fails with
     /// [`StepFailure`] when the step fails or the person declines its action.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     fn execute<'step>(
         &'step self,
         context: &'step StepContext,
@@ -58,12 +58,20 @@ pub(crate) trait NodeExecutor: Send + Sync {
 
     /// What the step of `node` needs from the memory gate before it starts. The engine fills in
     /// the node's key and a quick step's input size, which a kind cannot know.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     fn admission_need(&self, _node: &WorkflowNode) -> StepAdmissionNeed {
         StepAdmissionNeed::Unweighed
     }
 
     /// Whether the step of `node` runs on the first main input that settles with items, the
     /// branches feeding its other inputs canceled; otherwise it waits for every main input.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     fn readies_on_first_input(&self, _node: &WorkflowNode) -> bool {
         false
     }
@@ -71,6 +79,10 @@ pub(crate) trait NodeExecutor: Send + Sync {
 
 /// What a step the memory gate weighs runs, as its kind declares it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the tick's dispatch of each kind")
+)]
 pub(crate) enum StepAdmissionShape {
     /// A script step, reserved at its node's learned peak, else its runtime's estimate.
     Script {
@@ -89,6 +101,10 @@ pub(crate) enum StepAdmissionShape {
 /// How a kind's step is admitted: at once, after a wait at the memory gate, or with the agent run
 /// it creates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the tick's dispatch of each kind")
+)]
 pub(crate) enum StepAdmissionNeed {
     /// The gate does not weigh the step, so it is admitted in the turn that readies it.
     Unweighed,
@@ -180,6 +196,10 @@ pub(crate) enum StepFailure {
 
 impl StepFailure {
     /// The failure's error, `None` for a decline, which carries words instead.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     pub(crate) fn error_mut(&mut self) -> Option<&mut WorkflowStepError> {
         match self {
             Self::Failed(error) | Self::EndsRun(error) => Some(error),
@@ -228,6 +248,10 @@ pub(crate) struct NodeKind {
     /// The id of the param holding the kind's shell line; `None` for a kind that runs none.
     pub(crate) shell_line_param: Option<&'static str>,
     /// What runs the kind's step.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     pub(crate) executor: Box<dyn NodeExecutor>,
 }
 
@@ -243,6 +267,10 @@ pub(crate) struct WorkflowNodeKindRules {
 
 /// Why a table of kinds could not be built.
 #[derive(Debug, thiserror::Error)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the tick's dispatch of each kind")
+)]
 pub(crate) enum NodeKindTableError {
     /// Two entries list one kind at one version.
     #[error("the kind {} is listed twice at version {}", .kind.0.as_str(), .version.get())]
@@ -277,6 +305,10 @@ impl NodeKindTable {
     /// The table of `kinds`. Fails with [`NodeKindTableError::Repeated`] when two list one kind at
     /// one version, and with [`NodeKindTableError::PerItemInputs`] when a kind that runs once per
     /// item lists any input but one main input, a tool input among them.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the tick's dispatch of each kind")
+    )]
     pub(crate) fn new(kinds: Vec<NodeKind>) -> Result<Self, NodeKindTableError> {
         let mut table: HashMap<WorkflowNodeKindId, HashMap<SafeInt<1>, NodeKind>> = HashMap::new();
         for kind in kinds {
