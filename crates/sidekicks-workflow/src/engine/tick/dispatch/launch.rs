@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::StepDispatch;
 use crate::engine::event_record::EngineFault;
-use crate::engine::ports::{StepAdmissionTicket, WorkflowNodeKey};
+use crate::engine::ports::WorkflowNodeKey;
 use crate::engine::tick::node_settings::main_inputs;
 use crate::engine::tick::{ReadyStep, RunScope, RunSnapshot};
 use crate::expressions::bindings::ExpressionBindings;
@@ -21,8 +21,8 @@ use crate::secrets::resolution::resolve_node_secrets;
 impl StepDispatch {
     /// Launches `ready`, a step of kind `kind` in the run of `scope`, reading `snapshot`: resolves
     /// its node's secrets, reads its params, opens its templates on the expression thread when it
-    /// has any, and builds its context around `cancel` and its place at the memory gate,
-    /// `admission`. Its inputs arrive already cut for an execute-once node. Reports nothing; fails
+    /// has any, and builds its context around `cancel`, holding no place at the memory gate yet.
+    /// Its inputs arrive already cut for an execute-once node. Reports nothing; fails
     /// with [`StepFailure::Failed`] when a secret, a param or a template does, recording a failed
     /// keychain or secret read with its causes in the engine's record first.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
@@ -33,7 +33,6 @@ impl StepDispatch {
         ready: &ReadyStep,
         kind: &NodeKind,
         cancel: CancellationToken,
-        admission: Option<Arc<dyn StepAdmissionTicket>>,
     ) -> Result<StepContext, StepFailure> {
         let node = scope
             .nodes
@@ -106,7 +105,7 @@ impl StepDispatch {
             secrets,
             cancel,
             redaction: Arc::clone(&scope.redaction),
-            admission,
+            admission: None,
             step_actions: Arc::clone(&self.ports.step_actions),
             processes: Arc::clone(&self.ports.processes),
             payloads: Arc::clone(&self.ports.payloads),
@@ -191,7 +190,6 @@ mod tests {
                 &ready,
                 &tool_then_main_kind(),
                 CancellationToken::new(),
-                None,
             ),
         )
         .await
@@ -295,7 +293,6 @@ mod tests {
                 &ready,
                 &tool_then_main_kind(),
                 CancellationToken::new(),
-                None,
             ),
         )
         .await

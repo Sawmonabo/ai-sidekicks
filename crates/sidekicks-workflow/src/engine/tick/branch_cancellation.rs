@@ -45,7 +45,8 @@ pub(crate) struct BranchWave {
     unsettled: usize,
 }
 
-/// What a wave answers for one report.
+/// What a wave answers for one report; a member's agent run handed back must be stopped.
+#[must_use = "an agent run handed back keeps running until it is stopped"]
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) enum WaveSettle {
     /// A member settled and others are still winding down.
@@ -212,10 +213,10 @@ mod tests {
     /// and the last closes it with one `BranchesCanceled` carrying the wave's reason and size and
     /// each member canceled in loser order, the raced `Completed` included, all at the closing
     /// settlement's instant. Mutations: write `BranchesCanceled` per member, or with another reason
-    /// or count; stamp the closing reports with fresh clock reads; close the
-    /// wave at its first settlement; write a raced `Completed` as completed; put the held loser in
-    /// the wave or give it a `Canceling`; answer `Pending` for a report that is no member's
-    /// settlement; set `siblingFailure` on a `firstToArrive` wave; order the members by settlement.
+    /// or count; stamp the closing reports with fresh clock reads; close the wave at its first
+    /// settlement; write a raced `Completed` as completed; put the held loser in the wave or give
+    /// it a `Canceling`; answer `Pending` for a report that is no member's settlement; set
+    /// `siblingFailure` on a `firstToArrive` wave; order the members by settlement.
     #[rstest]
     #[case::first_to_arrive(BranchCancelReason::FirstToArrive, false)]
     #[case::sibling_failure(BranchCancelReason::SiblingFailure, true)]
@@ -284,8 +285,13 @@ mod tests {
             hold_started_at: None,
             is_sibling_failure: false,
         });
-        let last = report("a", a_canceled);
-        let closed_at = last.at.clone();
+        // A past instant, so a closing report stamped with a fresh clock read cannot match it.
+        let closed_at = WireInstant::try_from("2025-03-04T15:00:00.000Z".to_owned())
+            .expect("the test's instant reads");
+        let last = StepReport {
+            at: closed_at.clone(),
+            ..report("a", a_canceled)
+        };
         let WaveSettle::Closed {
             reports: closing,
             run_to_stop: None,

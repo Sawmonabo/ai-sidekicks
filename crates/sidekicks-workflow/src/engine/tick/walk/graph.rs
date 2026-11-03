@@ -13,7 +13,11 @@ use sidekicks_contracts::workflow::definition::handle::{
 };
 use sidekicks_contracts::workflow::definition::refusals::WorkflowNodeHandles;
 
+use crate::engine::tick::node_settings::main_output_count;
 use crate::kinds::NodeKindTable;
+
+/// How many places one word of a node's ancestor bits holds.
+const WORD_BITS: usize = 64;
 
 /// Why a run's graph could not be built from its pinned version.
 #[derive(Debug, thiserror::Error)]
@@ -85,8 +89,13 @@ pub(crate) struct RunGraph {
     places: HashMap<WorkflowNodeId, usize>,
     /// The trigger's place.
     trigger: usize,
-    /// Each node's ancestors along forward main edges, by place, lowest first.
-    ancestors: Vec<Vec<usize>>,
+    /// Each node's feeders along forward main edges, by place, each once.
+    forward_feeders: Vec<Vec<usize>>,
+    /// Each node's ancestors along forward main edges as one bit per place, `words_per_node` words
+    /// a node, node after node, so a graph of n nodes keeps n² bits.
+    ancestor_bits: Vec<u64>,
+    /// How many 64-bit words one node's ancestor bits take.
+    words_per_node: usize,
 }
 
 impl RunGraph {
@@ -130,12 +139,6 @@ impl RunGraph {
                 })
                 .collect();
             main_inputs.sort_unstable();
-            let main_output_count = rules
-                .handles
-                .outputs
-                .iter()
-                .filter(|output| !output.is_tool())
-                .count();
             let is_disabled = node.disabled == Some(true);
             graph_nodes.push(RunGraphNode {
                 id: node.id.clone(),
@@ -152,7 +155,7 @@ impl RunGraph {
                         feeders: Vec::new(),
                     })
                     .collect(),
-                outputs: vec![Vec::new(); main_output_count],
+                outputs: vec![Vec::new(); main_output_count(&rules.handles)],
             });
             node_handles.push(rules.handles);
         }
@@ -170,15 +173,11 @@ impl RunGraph {
             };
             let source = place_of(&edge.source);
             let target = place_of(&edge.target);
-            let source_outputs = &node_handles[source].outputs;
             let output = node_handles[source]
-                .declared_position(edge.source_handle.as_str(), WorkflowHandleMode::Outputs)
-                .map(|position| {
-                    source_outputs[..position]
-                        .iter()
-                        .filter(|output| !output.is_tool())
-                        .count()
-                })
+                .outputs
+                .iter()
+                .filter(|output| !output.is_tool())
+                .position(|output| output.id_text() == edge.source_handle.as_str())
                 .ok_or_else(|| undeclared_handle(&edge.source, &edge.source_handle))?;
             let slot = node_handles[target]
                 .declared_position(edge.target_handle.as_str(), WorkflowHandleMode::Inputs)
@@ -204,12 +203,16 @@ impl RunGraph {
         let trigger = *places
             .get(trigger)
             .expect("a run's trigger is a node of its pinned version");
-        let ancestors = forward_ancestors(&graph_nodes, trigger);
+        let forward_feeders = forward_feeders(&graph_nodes, trigger);
+        let words_per_node = graph_nodes.len().div_ceil(WORD_BITS);
+        let ancestor_bits = forward_ancestor_bits(&forward_feeders, words_per_node);
         Ok(Self {
             nodes: graph_nodes,
             places,
             trigger,
-            ancestors,
+            forward_feeders,
+            ancestor_bits,
+            words_per_node,
         })
     }
 
@@ -243,17 +246,20 @@ impl RunGraph {
     /// The places of the nodes that precede the node at `place` along forward main edges, lowest
     /// first; two nodes of one loop are never each other's ancestors.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-    pub(crate) fn ancestors(&self, place: usize) -> &[usize] {
-        &self.ancestors[place]
+    pub(crate) fn ancestors(&self, place: usize) -> impl Iterator<Item = usize> + '_ {
+        let words = &self.ancestor_bits[place * self.words_per_node..][..self.words_per_node];
+        words.iter().enumerate().flat_map(|(word_index, &word)| {
+            (0..WORD_BITS)
+                .filter(move |bit| word & (1 << bit) != 0)
+                .map(move |bit| word_index * WORD_BITS + bit)
+        })
     }
 
-    /// The places of the nodes whose main outputs feed the node at `place`, with repeats.
+    /// The places of the nodes that feed the node at `place` along forward main edges, each once;
+    /// a loop's back edge is left out.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-    pub(crate) fn feeders(&self, place: usize) -> impl Iterator<Item = usize> + '_ {
-        self.nodes[place]
-            .slots
-            .iter()
-            .flat_map(|slot| slot.feeders.iter().copied())
+    pub(crate) fn forward_feeders(&self, place: usize) -> &[usize] {
+        &self.forward_feeders[place]
     }
 }
 
@@ -269,11 +275,11 @@ enum WalkMark {
     Left,
 }
 
-/// Each of `nodes`' ancestors along forward main edges, by place, lowest first. A depth-first walk
-/// from `trigger`, then from each node it has not reached in place order, following each node's
-/// targets in output order, takes every edge but those that close a loop, its back edges.
+/// Each of `nodes`' feeders along forward main edges, by place, each once. A depth-first walk from
+/// `trigger`, then from each node it has not reached in place order, following each node's targets
+/// in output order, takes every edge but those that close a loop, its back edges.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-fn forward_ancestors(nodes: &[RunGraphNode], trigger: usize) -> Vec<Vec<usize>> {
+fn forward_feeders(nodes: &[RunGraphNode], trigger: usize) -> Vec<Vec<usize>> {
     let node_count = nodes.len();
     let targets: Vec<Vec<usize>> = nodes
         .iter()
@@ -312,19 +318,30 @@ fn forward_ancestors(nodes: &[RunGraphNode], trigger: usize) -> Vec<Vec<usize>> 
             }
         }
     }
-    (0..node_count)
-        .map(|place| {
-            let mut is_ancestor = vec![false; node_count];
-            let mut pending = forward_feeders[place].clone();
-            while let Some(feeder) = pending.pop() {
-                if !is_ancestor[feeder] {
-                    is_ancestor[feeder] = true;
-                    pending.extend(&forward_feeders[feeder]);
-                }
+    for feeders in &mut forward_feeders {
+        feeders.sort_unstable();
+        feeders.dedup();
+    }
+    forward_feeders
+}
+
+/// Each node's ancestors along `forward_feeders` as `words_per_node` words of one bit per place,
+/// node after node.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+fn forward_ancestor_bits(forward_feeders: &[Vec<usize>], words_per_node: usize) -> Vec<u64> {
+    let mut bits = vec![0; forward_feeders.len() * words_per_node];
+    for (place, feeders) in forward_feeders.iter().enumerate() {
+        let words = &mut bits[place * words_per_node..][..words_per_node];
+        let mut pending = feeders.clone();
+        while let Some(feeder) = pending.pop() {
+            let (word, bit) = (feeder / WORD_BITS, 1 << (feeder % WORD_BITS));
+            if words[word] & bit == 0 {
+                words[word] |= bit;
+                pending.extend(&forward_feeders[feeder]);
             }
-            (0..node_count).filter(|&node| is_ancestor[node]).collect()
-        })
-        .collect()
+        }
+    }
+    bits
 }
 
 /// The refusal of an edge naming `handle` on `node_id`, whose kind declares no such main handle.

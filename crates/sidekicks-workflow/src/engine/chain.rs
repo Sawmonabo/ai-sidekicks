@@ -33,7 +33,13 @@ use crate::runs::gate_resolution::{RunEventKeys, WorkflowGateAnswer, gate_resolu
 
 /// What a chain's question names, read from the chain's first run.
 #[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
 pub(crate) struct ChainQuestion {
     /// The chain's first run, which asks.
     pub(crate) root: WorkflowRunId,
@@ -49,7 +55,13 @@ pub(crate) struct ChainQuestion {
 
 /// A step held behind its chain's question, and the session its run lives in.
 #[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
 pub(crate) struct ChainHeldStep {
     /// The session of the step's run.
     pub(crate) session_id: SessionId,
@@ -60,12 +72,24 @@ pub(crate) struct ChainHeldStep {
 /// An answer that keeps its chain going: an approval of the chain's question on the chain's first
 /// run, the only answer [`keep_going_statements`] takes.
 #[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
 pub(crate) struct KeepGoingAnswer(WorkflowGateAnswer);
 
 /// Why an answer cannot keep its chain going.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
-#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
 pub(crate) enum KeepGoingRefusal {
     /// The answer stops the chain rather than keeping it going.
     #[error("the answer does not approve the chain's question")]
@@ -81,7 +105,13 @@ pub(crate) enum KeepGoingRefusal {
 impl KeepGoingAnswer {
     /// `answer` as the `Keep going` of the chain whose first run is `root`. Refused unless it is
     /// on `root`, answers the chain's question and approves it.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the start's handlers and the tick, which ask and answer a chain's question"
+        )
+    )]
     pub(crate) fn new(
         root: &WorkflowRunId,
         answer: WorkflowGateAnswer,
@@ -101,11 +131,23 @@ impl KeepGoingAnswer {
 
 /// Where the kept-going update sits among [`keep_going_statements`]; a refusal there means the
 /// chain has no question left to answer, which answers `workflow.step.notWaiting`.
-#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
 pub(crate) const KEEP_GOING_STATEMENT_INDEX: usize = 0;
 
 // Only a first run holds a count, so another run's id matches nothing.
-#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
 const CHAIN_QUESTION_SQL: &str = "SELECT run.session_id, version.definition_id,
     run.workflow_version_id, json_extract(version.definition_body, '$.name'),
     run.chain_run_count, run.started_at
@@ -114,12 +156,24 @@ const CHAIN_QUESTION_SQL: &str = "SELECT run.session_id, version.definition_id,
   WHERE run.id = @root AND run.chain_run_count IS NOT NULL";
 
 // A chain answered once is not answered again: the second answer matches no row.
-#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
 const KEEP_GOING_SQL: &str = "UPDATE workflow_runs SET chain_kept_going = 1
   WHERE id = @root AND chain_run_count IS NOT NULL AND chain_kept_going = 0";
 
 // Execution indexes count per run, so the run's id breaks a tie between runs started together.
-#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
 static CHAIN_HELD_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
     let waiting = <&'static str>::from(WorkflowStepStatus::Waiting);
     let chain = <&'static str>::from(WorkflowWaitCause::Chain);
@@ -136,14 +190,26 @@ static CHAIN_HELD_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
 
 /// The wait a chain's question is asked under: its first run's own id, so a card raised again
 /// after a restart is the same card.
-#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
 pub(crate) fn chain_wait_id(root: &WorkflowRunId) -> UuidTextForm {
     UuidTextForm::new(root.text().as_str()).expect("a run id is a UUID in its text form")
 }
 
 /// What the question of the chain whose first run is `root` names; `None` when `root` is not a
 /// stored first run. Fails when the read fails or a stored value does not read as its type.
-#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
 pub(crate) fn read_chain_question(
     connection: &Connection,
     root: &WorkflowRunId,
@@ -171,12 +237,24 @@ pub(crate) fn read_chain_question(
 /// A stored workflow name that is empty or longer than a name may be.
 #[derive(Debug, thiserror::Error)]
 #[error("a stored workflow name is empty or longer than a name may be")]
-#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
 struct StoredNameOutOfBounds;
 
 /// The question's words: the workflow's name, the runs counted with thousands separators and the
 /// first run's start in `time_zone`, its hour written as `hour_field` says, both the machine's.
-#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
 pub(crate) fn chain_question_prompt(
     question: &ChainQuestion,
     time_zone: &TimeZone,
@@ -198,7 +276,13 @@ pub(crate) fn chain_question_prompt(
     clippy::wildcard_enum_match_arm,
     reason = "the hour cycle is an open union, and a cycle added to it reads as the 12-hour clock"
 )]
-#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
 fn clock_time(time: &Zoned, hour_field: HourField) -> String {
     let (hour, has_period) = match hour_field.cycle {
         HourCycle::H23 | HourCycle::Clock24 => (time.hour(), false),
@@ -215,7 +299,13 @@ fn clock_time(time: &Zoned, hour_field: HourField) -> String {
 }
 
 // `count` with a comma between each group of three digits: 2,000.
-#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
 fn grouped_thousands(count: u64) -> String {
     let digits = count.to_string();
     let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
@@ -230,7 +320,13 @@ fn grouped_thousands(count: u64) -> String {
 
 /// The card that asks `question` as `prompt`, raised on the chain's first run, in its session and
 /// under [`chain_wait_id`]; it names no step, since the question belongs to the run.
-#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
 pub(crate) fn chain_card_request(
     question: &ChainQuestion,
     prompt: ComposedText,
@@ -247,7 +343,13 @@ pub(crate) fn chain_card_request(
 /// The statements of `Keep going`: the chain's first run, the run `answer` is on, reads kept going,
 /// and `answer`'s row is appended. The write is refused at [`KEEP_GOING_STATEMENT_INDEX`] when that
 /// run is no first run or its chain was already answered.
-#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
 pub(crate) fn keep_going_statements(answer: &KeepGoingAnswer) -> Vec<WriteStatement> {
     let KeepGoingAnswer(answer) = answer;
     vec![
@@ -267,7 +369,13 @@ pub(crate) fn keep_going_statements(answer: &KeepGoingAnswer) -> Vec<WriteStatem
 /// and then their execution index, through the chain's index. The caller writes one
 /// `workflow.phase.resumed` per step, and the event of each run's new status, in the write that
 /// answers `Keep going`. Fails when the read fails or a stored value does not read as its type.
-#[cfg_attr(not(test), expect(dead_code, reason = "the engine's chain question"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the start's handlers and the tick, which ask and answer a chain's question"
+    )
+)]
 pub(crate) fn read_chain_held_steps(
     connection: &Connection,
     root: &WorkflowRunId,

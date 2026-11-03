@@ -147,7 +147,9 @@ impl NodeExecutor for ScriptedExecutor {
                     serde_json::from_value(json!({
                         "message": format!("token {SECRET} refused"),
                         "code": "workflow.test.refused",
-                        "details": { "token": SECRET, "tried": [format!("Bearer {SECRET}")] },
+                        "details": {
+                            "token": SECRET, "tried": [format!("Bearer {SECRET}")], SECRET: 1,
+                        },
                     }))
                     .expect("the test's failure reads"),
                 ))),
@@ -295,7 +297,8 @@ fn settlement_json(settlement: &StepSettlement) -> Value {
                     serde_json::to_value(error).expect("a step failure writes")
                 }
                 StepFailure::EndsRun(error) => {
-                    json!({ "endsRun": serde_json::to_value(error).expect("a step failure writes") })
+                    let error = serde_json::to_value(error).expect("a step failure writes");
+                    json!({ "endsRun": error })
                 }
                 StepFailure::Declined { words, at } => json!({ "words": words, "at": at }),
             };
@@ -630,7 +633,8 @@ async fn a_canceled_step_settles_once_its_executor_returns(#[case] is_receiver_d
 /// run's secrets: an unclosed template before any `Started`, an unlisted kind version in the
 /// dispatch's own answer with no driver, an executor's coded failure after `Started`, and an
 /// executor asking for an agent run. Mutations: send `Started` before a launch failure; leave the
-/// secret in the message; leave it in a coded failure's details; accept the agent run.
+/// secret in the message; leave it in a coded failure's details, a member's name among them;
+/// accept the agent run.
 #[rstest]
 #[case::unclosed_template(
     json!({ "params": { "bad": "={{ a" } }),
@@ -661,6 +665,7 @@ async fn a_canceled_step_settles_once_its_executor_returns(#[case] is_receiver_d
             "details": {
                 "token": CREDENTIAL_REDACTION,
                 "tried": [format!("Bearer {CREDENTIAL_REDACTION}")],
+                CREDENTIAL_REDACTION: 1,
             },
             "nodeId": "step",
         })),

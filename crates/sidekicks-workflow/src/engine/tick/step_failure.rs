@@ -75,10 +75,10 @@ pub(crate) enum StepFailureRoute {
     },
 }
 
-/// What follows `step`'s `failure` on `node`, a node of the kind `spec`, over `inputs`, one list per
-/// input handle of `spec`: the run's end for a failure that ends it; else a retry while tries are
-/// left, never for a decline; else what [`passed_on_outputs`] answers, or a park where `onError`
-/// goes on past nothing.
+/// What follows `step`'s `failure` on `node`, a node of the kind `spec`, over `inputs`, one list
+/// per input handle of `spec`: the run's end for a failure that ends it; else a retry while tries
+/// are left, never for a decline; else what [`passed_on_outputs`] answers, or a park where
+/// `onError` goes on past nothing.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) fn route_step_failure(
     node: &WorkflowNode,
@@ -439,8 +439,8 @@ mod tests {
     /// A stop cancels the running sibling into a sibling-failure wave and the held one at once,
     /// outside the wave, and keeps the waiting one on a park but cancels it on an end; settling the
     /// running one closes the wave with its cancel marked a sibling failure. Mutations: cancel a
-    /// waiting sibling on a park or keep it on an end; put the held sibling in the wave or give it a
-    /// `Canceling`; open the wave as `firstToArrive`.
+    /// waiting sibling on a park or keep it on an end; put the held sibling in the wave or give it
+    /// a `Canceling`; open the wave as `firstToArrive`.
     #[rstest]
     #[case::park(RunStop::Park, &[])]
     #[case::end(RunStop::End, &["w"])]

@@ -10,7 +10,8 @@ use sidekicks_contracts::workflow::definition::document::WorkflowNode;
 use sidekicks_contracts::workflow::definition::item::{
     WorkflowItem, WorkflowPairedItem, WorkflowPairedItems, WorkflowPinnedItem,
 };
-use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
+use sidekicks_contracts::workflow::definition::refusals::WorkflowNodeHandles;
+use sidekicks_contracts::workflow::kind::{WorkflowNodeKindSpec, WorkflowOutputHandleSpec};
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 
 /// The main inputs among a step's `inputs`, one list per input handle of `spec` in spec order: the
@@ -47,11 +48,29 @@ pub(crate) fn main_input_lengths(
     main_inputs(spec, inputs).map(Vec::len).collect()
 }
 
-/// How many main outputs a kind's executor gives: its outputs whose `is_tool()` is false. An
-/// error output a node adds comes after these, so it is not counted.
-pub(crate) fn main_output_count(spec: &WorkflowNodeKindSpec) -> usize {
-    spec.outputs
-        .as_slice()
+/// A list of output handles: a kind's own, or a node's, which adds its error output last.
+pub(crate) trait OutputHandles {
+    /// The output handles in order, tool outputs included.
+    fn output_handles(&self) -> &[WorkflowOutputHandleSpec];
+}
+
+impl OutputHandles for WorkflowNodeKindSpec {
+    fn output_handles(&self) -> &[WorkflowOutputHandleSpec] {
+        self.outputs.as_slice()
+    }
+}
+
+impl OutputHandles for WorkflowNodeHandles {
+    fn output_handles(&self) -> &[WorkflowOutputHandleSpec] {
+        &self.outputs
+    }
+}
+
+/// How many main outputs `handles` lists: its outputs whose `is_tool()` is false. A kind's spec
+/// lists only what its executor gives; a node's handles also count the error output it adds.
+pub(crate) fn main_output_count(handles: &impl OutputHandles) -> usize {
+    handles
+        .output_handles()
         .iter()
         .filter(|output| !output.is_tool())
         .count()

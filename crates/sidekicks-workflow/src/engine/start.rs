@@ -3,6 +3,7 @@
 //! the folder the run works in, the scope its steps share and the input its trigger step starts
 //! on, and the one write of the run's row with its `workflow.run.started`, which holds a run
 //! joining a chain at its limit.
+mod errors;
 #[cfg(test)]
 mod tests;
 
@@ -45,45 +46,36 @@ use sidekicks_contracts::workflow::run::trigger::{
     WorkflowTriggerKind,
 };
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::registry::HandlerError;
 use sidekicks_policy::authorizer::{Authorizer, PolicyDecision};
 use sidekicks_policy::workflow_start::{WorkflowStart, check_workflow_start};
 use sidekicks_store::data_folder::workflow_run_folder;
-use sidekicks_store::database::connection::read_pool::{
-    DatabaseReadError, DatabaseReadPool, ReadLength,
-};
+use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::appender::{
-    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
-    SessionEventLinkage,
+    SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
-use sidekicks_store::machine::registry::{MachineRegistry, MachineRegistryReadError};
+use sidekicks_store::machine::registry::MachineRegistry;
 use sidekicks_workspace::project::records::session_project_sql;
 use sidekicks_workspace::working_folder::{
-    ProjectEnvironmentReadError, SessionWorkingFolder, WorkingFolderReadError,
-    read_project_environment_rows, read_working_folder,
+    SessionWorkingFolder, read_project_environment_rows, read_working_folder,
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::definitions::kept_values::{
-    WorkflowKeptValue, WorkflowKeptValueError, WorkflowKeptValueStore,
-};
-use crate::definitions::stored_document::{
-    StoredDocumentError, parse_stored_pin_data, parse_stored_workflow_body,
-};
-use crate::definitions::versions::history::{WorkflowVersions, WorkflowVersionsError};
+use crate::definitions::kept_values::{WorkflowKeptValue, WorkflowKeptValueStore};
+use crate::definitions::stored_document::{parse_stored_pin_data, parse_stored_workflow_body};
+use crate::definitions::versions::history::WorkflowVersions;
 use crate::engine::event_record::{EngineFault, EngineRecorder};
-use crate::engine::ports::{
-    ChainAskAfterReader, PortError, RunProviderReader, StepPayloadArtifacts,
-};
+use crate::engine::ports::{ChainAskAfterReader, RunProviderReader, StepPayloadArtifacts};
 use crate::engine::tick::RunScope;
 use crate::runs::creation::{
     CHAIN_COUNT_STATEMENT_INDEX, CHAIN_ROOT_CHECK_STATEMENT_INDEX, WorkflowRunCreation,
     workflow_run_creation_statements,
 };
 use crate::secrets::redaction::RunRedaction;
+
+pub(crate) use self::errors::WorkflowRunStartError;
 
 /// The statements a start prepares on a read connection: the pinned version by its id, the
 /// session's working folder, the workflow's level and pins, its project's environment rows and
@@ -195,149 +187,6 @@ pub(crate) enum WorkflowStartOutcome {
         /// The chain's first run.
         chain_root_run_id: WorkflowRunId,
     },
-}
-
-/// Why a start did not end in an outcome; nothing of the run was written.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum WorkflowRunStartError {
-    /// The start was refused: `workflow.run.startDenied` or `workflow.run.inputRequired`.
-    #[error(transparent)]
-    Refused(#[from] DomainError),
-    /// The version did not read; `workflow.version.notFound` when no saved version has its id.
-    #[error(transparent)]
-    Version(#[from] WorkflowVersionsError),
-    /// The session's working folder did not read; `session.notFound` for a session this daemon
-    /// holds no row for.
-    #[error(transparent)]
-    Session(#[from] WorkingFolderReadError),
-    /// The version's stored body, or the workflow's pinned data, does not read.
-    #[error("the pinned workflow version or its pins do not read")]
-    StoredDocument(#[from] StoredDocumentError),
-    /// This machine's owner, whom a trigger's fire is judged as, did not read.
-    #[error(transparent)]
-    Owner(#[from] MachineRegistryReadError),
-    /// The read pool is closed, a connection did not open, or the read's task did not finish.
-    #[error(transparent)]
-    Pool(#[from] DatabaseReadError),
-    /// The workflow's level or pins, or the session's project, did not read.
-    #[error("the run's scope did not read")]
-    Scope(#[from] rusqlite::Error),
-    /// The environment rows of the session's project did not read, or its project has no row.
-    #[error(transparent)]
-    ProjectEnvironment(#[from] ProjectEnvironmentReadError),
-    /// The values the workflow keeps did not read.
-    #[error(transparent)]
-    KeptValues(#[from] WorkflowKeptValueError),
-    /// The provider the run's command steps run under did not read.
-    #[error("the run's provider could not be read")]
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the engine's run start handlers")
-    )]
-    Provider(#[source] PortError),
-    /// The run's own folder could not be made.
-    #[error("the run's own folder could not be made")]
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the engine's run start handlers")
-    )]
-    Folder(#[source] io::Error),
-    /// The trigger step's input does not write as JSON.
-    #[error("the trigger step's input does not write as JSON")]
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the engine's run start handlers")
-    )]
-    InputJson(#[source] serde_json::Error),
-    /// The payload store did not keep the trigger step's input.
-    #[error("the trigger step's input could not be stored")]
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the engine's run start handlers")
-    )]
-    Payload(#[source] PortError),
-    /// The started event broke one of its type's checks.
-    #[error("the run's started event could not be drafted")]
-    Draft(#[from] SessionEventDraftError),
-    /// The event log did not keep the start's write.
-    #[error("the run's start was not kept")]
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the engine's run start handlers")
-    )]
-    Append(#[source] SessionEventAppendError),
-    /// The chain the run joins has no stored first run at `chain_root_run_id`.
-    #[error("the chain the run joins has no stored first run {chain_root_run_id}")]
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the engine's run start handlers")
-    )]
-    ChainRootMissing {
-        /// The first run the start named.
-        chain_root_run_id: WorkflowRunId,
-    },
-    /// The start failed and the run's own folder it made could not be removed; `ended` is how it
-    /// failed.
-    #[error("the run's own folder at {} was left behind", .folder.display())]
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the engine's run start handlers")
-    )]
-    FolderLeft {
-        /// The folder.
-        folder: PathBuf,
-        /// How the start failed.
-        ended: Box<WorkflowRunStartError>,
-        /// Why the removal failed.
-        #[source]
-        removal: io::Error,
-    },
-    /// The start failed and the trigger step's input it stored could not be deleted; `ended` is how
-    /// it failed.
-    #[error("the trigger step's stored input {artifact_id} was left behind")]
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the engine's run start handlers")
-    )]
-    PayloadLeft {
-        /// The stored input.
-        artifact_id: ArtifactId,
-        /// How the start failed.
-        ended: Box<WorkflowRunStartError>,
-        /// Why the deletion failed.
-        #[source]
-        removal: PortError,
-    },
-}
-
-impl From<WorkflowRunStartError> for HandlerError {
-    /// A start's refusals, a version that is not saved and a session this daemon does not hold
-    /// answer their refusals; any other failure is a fault in the daemon.
-    fn from(error: WorkflowRunStartError) -> Self {
-        match error {
-            WorkflowRunStartError::Refused(refusal)
-            | WorkflowRunStartError::Session(WorkingFolderReadError::Refused(refusal)) => {
-                Self::Refused(refusal)
-            }
-            WorkflowRunStartError::Version(error) => error.into(),
-            WorkflowRunStartError::KeptValues(error) => error.into(),
-            fault @ (WorkflowRunStartError::Session(WorkingFolderReadError::Database(_))
-            | WorkflowRunStartError::StoredDocument(_)
-            | WorkflowRunStartError::Owner(_)
-            | WorkflowRunStartError::Pool(_)
-            | WorkflowRunStartError::Scope(_)
-            | WorkflowRunStartError::ProjectEnvironment(_)
-            | WorkflowRunStartError::Provider(_)
-            | WorkflowRunStartError::Folder(_)
-            | WorkflowRunStartError::InputJson(_)
-            | WorkflowRunStartError::Payload(_)
-            | WorkflowRunStartError::Draft(_)
-            | WorkflowRunStartError::Append(_)
-            | WorkflowRunStartError::ChainRootMissing { .. }
-            | WorkflowRunStartError::FolderLeft { .. }
-            | WorkflowRunStartError::PayloadLeft { .. }) => Self::Internal(Box::new(fault)),
-        }
-    }
 }
 
 /// What a start's checks read: the workflow, its version's body as the run needs it, and the
@@ -488,15 +337,16 @@ impl WorkflowRunStarter {
 
     /// Starts `start`'s run: checks it, prepares its folder, reads the scope its steps share,
     /// builds its trigger input, then writes its row and its `workflow.run.started` together, the
-    /// event's instant the row's start and the scope's. A run joining a chain at its limit is
-    /// held, with nothing written. Fails with
-    /// [`WorkflowRunStartError::Refused`] (`workflow.run.startDenied`,
-    /// `workflow.run.inputRequired`), [`WorkflowRunStartError::Version`]
-    /// (`workflow.version.notFound`) or [`WorkflowRunStartError::Session`] (`session.notFound`)
-    /// before anything is made, and with the other variants when a read, the provider, the folder,
-    /// the payload store or the write fails; the run's own folder and its stored trigger input go
-    /// with every outcome but a start. A held start whose folder or stored input cannot be removed
-    /// is still answered held, the removal's failure going to the engine's record.
+    /// event's instant the row's start and the scope's. A run joining a chain at its limit is held,
+    /// with nothing written. Fails with [`WorkflowRunStartError::Refused`]
+    /// (`workflow.run.startDenied`, `workflow.run.inputRequired`),
+    /// [`WorkflowRunStartError::Version`] (`workflow.version.notFound`) or
+    /// [`WorkflowRunStartError::Session`] (`session.notFound`) before anything is made, and with
+    /// the other variants when a read, the provider, the folder, the payload store or the write
+    /// fails; the run's own folder, with its workflow's runs folder once that is empty, and its
+    /// stored trigger input go with every outcome but a start. A held start whose folder or stored
+    /// input cannot be removed is still answered held, the removal's failure going to the engine's
+    /// record.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
@@ -531,7 +381,7 @@ impl WorkflowRunStarter {
             };
         }
         if let RunFolder::Own(folder) = prepared.folder
-            && let Err(removal) = tokio::fs::remove_dir_all(&folder).await
+            && let Err((folder, removal)) = remove_own_folder(folder).await
         {
             ended = match ended {
                 Ok(held) => {
@@ -548,7 +398,8 @@ impl WorkflowRunStarter {
         ended
     }
 
-    // Records what a held start could not remove, under the run id it minted.
+    // Records what a held start could not remove, under the run id it minted, then ends that run's
+    // record, since a held start makes no run.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the engine's run start handlers")
@@ -562,6 +413,7 @@ impl WorkflowRunStarter {
             .for_run(run_id, Arc::new(RunRedaction::new(&[])))
             .fault(None, EngineFault::HeldStartLeftBehind, removal)
             .await;
+        self.recorder.end_run(run_id);
     }
 
     // The checks, in order, before anything is made: a trigger's fire under the workflow start
@@ -955,8 +807,8 @@ fn start_denied(errors: &[String]) -> DomainError {
 
 // Makes `folder` new and empty: its parents as needed, then the folder itself, which must not be
 // there yet, so a removal never takes a folder another start made. A run's delete removes the
-// workflow's runs folder once it empties, so a parent gone between the two steps is made again,
-// once.
+// workflow's runs folder once it empties, so a parent gone between the two steps is made again;
+// that single retry is the bound, and a parent gone a second time fails the start.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
@@ -972,5 +824,34 @@ async fn make_own_folder(folder: &Path) -> io::Result<()> {
             tokio::fs::create_dir(folder).await
         }
         made => made,
+    }
+}
+
+// Removes a run's own `folder`, then its workflow's runs folder when that leaves it empty, so no
+// empty folder stays for a workflow whose start made no run. Fails with the folder left and why.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the engine's run start handlers")
+)]
+async fn remove_own_folder(folder: PathBuf) -> Result<(), (PathBuf, io::Error)> {
+    if let Err(removal) = tokio::fs::remove_dir_all(&folder).await {
+        return Err((folder, removal));
+    }
+    let runs_folder = folder
+        .parent()
+        .expect("a run's folder sits in its workflow's runs folder")
+        .to_path_buf();
+    match tokio::fs::remove_dir(&runs_folder).await {
+        Ok(()) => Ok(()),
+        // Another run of the workflow still has its folder there, or a run's delete took it.
+        Err(removal)
+            if matches!(
+                removal.kind(),
+                io::ErrorKind::DirectoryNotEmpty | io::ErrorKind::NotFound
+            ) =>
+        {
+            Ok(())
+        }
+        Err(removal) => Err((runs_folder, removal)),
     }
 }

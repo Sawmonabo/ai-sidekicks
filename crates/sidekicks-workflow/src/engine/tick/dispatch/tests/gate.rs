@@ -12,7 +12,7 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 use tokio::time::timeout;
 
 use super::{
-    ExecutorProbe, QUIET, Script, WAIT, completed, named_item, next_report, pin_data,
+    ExecutorProbe, QUIET, Script, WAIT, completed, failed, named_item, next_report, pin_data,
     pinned_settlement, run_step, scripted_kind, started, test_node,
 };
 use crate::engine::ports::{
@@ -217,4 +217,39 @@ async fn a_gate_step_enters_in_its_turn_and_a_cancel_ends_it(#[case] point: Canc
     assert_eq!(gate.enqueued().len(), entry_count);
     assert_eq!(gate.dropped_tickets(), entry_count);
     assert!(lock(&probe.seen).is_empty());
+}
+
+/// A gate step evaluates its params before it takes its turn in the entry line, so one whose
+/// template never closes fails while a turn taken before it is still held, never entering the
+/// gate. Mutation: take the turn before the launch.
+#[tokio::test]
+async fn a_gate_step_whose_params_do_not_evaluate_fails_before_its_turn() {
+    let probe = Arc::new(ExecutorProbe::default());
+    let node = test_node(&json!({ "params": { "bad": "={{ a" } }));
+    let database = TestDatabase::new(schema_parts());
+    let need = StepAdmissionNeed::Gate(StepAdmissionShape::Script {
+        runtime: StepScriptRuntime::Bun,
+    });
+    let (mut dispatch, mut received) = test_dispatch(
+        &database,
+        vec![scripted_kind(Script::Progress, need, &probe, false)],
+    );
+    let gate = Arc::new(ScriptedGate::new(None));
+    dispatch.ports.admission = Arc::clone(&gate) as Arc<dyn StepAdmission>;
+    let scope = Arc::new(test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]));
+    let ready = test_ready_step(&scope, &node, vec![vec![json!({ "name": "Ada" })]]);
+    let step = ready.step.clone();
+    let earlier_turn = dispatch.gate_entries.take_turn();
+    dispatch.dispatch(&scope, &test_run_snapshot(&node), ready);
+    drop(dispatch);
+
+    assert_eq!(
+        next_report(&mut received, &step).await,
+        Some(failed(&json!({
+            "message": "the template at bad is never closed", "nodeId": "step",
+        })))
+    );
+    assert_eq!(next_report(&mut received, &step).await, None);
+    assert_eq!(gate.enqueued(), Vec::new());
+    drop(earlier_turn);
 }

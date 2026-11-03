@@ -1,11 +1,8 @@
 //! A first-to-arrive node's win: the step it readies on its first main input to settle with items,
-//! and the live steps on the branches that feed only its other inputs, which lose.
-
-use std::collections::BTreeMap;
+//! and the branches that feed only its other inputs, which lose.
 
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 
-use super::LiveStep;
 use super::graph::RunGraph;
 
 /// A first-to-arrive node took its first main input with items: the step that readied, and the
@@ -18,16 +15,13 @@ pub(crate) struct FirstToArriveWin {
     pub(crate) losers: Vec<WorkflowStepKey>,
 }
 
-/// The `live` steps that lose when the node at `place` takes `winning_slot`: those whose node is an
-/// ancestor of the node's other slots and feeds nothing but those slots and other such nodes. The
-/// trigger, the node itself and every ancestor of the winning slot never lose.
+/// Which places lose when the node at `place` takes `winning_slot`, by place: the ancestors of the
+/// node's other slots that feed nothing but those slots and other such nodes. Ancestors are
+/// followed along forward edges only, so inside a loop the pass that comes back round never counts
+/// the losing branch as feeding the winner. The trigger, the node itself and every ancestor of the
+/// winning slot never lose.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-pub(super) fn losers(
-    graph: &RunGraph,
-    place: usize,
-    winning_slot: usize,
-    live: &BTreeMap<u64, LiveStep>,
-) -> Vec<WorkflowStepKey> {
+pub(super) fn losing_places(graph: &RunGraph, place: usize, winning_slot: usize) -> Vec<bool> {
     let node_count = graph.node_count();
     let slots = &graph.node(place).slots;
     let mut feeds_winner = vec![false; node_count];
@@ -63,16 +57,19 @@ pub(super) fn losers(
             continue;
         }
         is_losing[ancestor] = false;
-        dropping.extend(graph.feeders(ancestor).filter(|&feeder| is_losing[feeder]));
+        dropping.extend(
+            graph
+                .forward_feeders(ancestor)
+                .iter()
+                .copied()
+                .filter(|&feeder| is_losing[feeder]),
+        );
     }
-    live.values()
-        .filter(|live_step| is_losing[live_step.place])
-        .map(|live_step| live_step.step.clone())
-        .collect()
+    is_losing
 }
 
-/// Marks in `marked` every node reached from `starts` by walking back along main edges, entering
-/// only the nodes `may_enter` accepts.
+/// Marks in `marked` every node reached from `starts` by walking back along forward main edges,
+/// entering only the nodes `may_enter` accepts.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn mark_ancestors(
     graph: &RunGraph,
@@ -88,7 +85,7 @@ fn mark_ancestors(
         }
     }
     while let Some(node) = pending.pop() {
-        for feeder in graph.feeders(node) {
+        for &feeder in graph.forward_feeders(node) {
             if !marked[feeder] && may_enter(feeder) {
                 marked[feeder] = true;
                 pending.push(feeder);

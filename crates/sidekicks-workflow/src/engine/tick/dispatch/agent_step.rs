@@ -23,7 +23,10 @@ use crate::kinds::{StepFailure, StepOutcome, uncoded_step_error};
 
 /// What a step reads whose agent run left the memory gate's line unadmitted yet read as completed.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-const WITHDRAWN_RUN_COMPLETED: &str = "the step's agent run left the memory gate's line before it was admitted, yet read as completed";
+const WITHDRAWN_RUN_COMPLETED: &str = concat!(
+    "the step's agent run left the memory gate's line before it was admitted, ",
+    "yet read as completed"
+);
 
 impl StepDispatch {
     /// Drives `ready`, an agent step of the run of `scope`, reading `snapshot`, to its settlement:
@@ -44,7 +47,7 @@ impl StepDispatch {
         let step = ready.step.clone();
         let main_input_lengths = main_input_lengths(&kind.spec, &ready.inputs);
         let launched = self
-            .launch(&scope, &snapshot, &ready, kind, cancel.clone(), None)
+            .launch(&scope, &snapshot, &ready, kind, cancel.clone())
             .await;
         let context = match launched {
             Ok(context) => context,
@@ -169,7 +172,10 @@ impl StepDispatch {
                         }
                     }
                     start = async {
-                        started.as_mut().expect("the branch runs only while the start is watched").await
+                        started
+                            .as_mut()
+                            .expect("the branch runs only while the start is watched")
+                            .await
                     }, if started.is_some() => {
                         started = None;
                         // A run that ended before starting sends nothing; its outcome follows.
@@ -289,21 +295,19 @@ mod tests {
     use crate::schema::schema_parts;
     use crate::secrets::redaction::RunRedaction;
 
-    /// A dispatch over `database` of the agent kind, `test.step`, and `more_kinds`, whose agent
-    /// runs `runner` makes, with the receiving end of its report channel.
+    /// A dispatch over `database` of the agent kind, `test.step`, whose agent runs `runner` makes,
+    /// with the receiving end of its report channel.
     fn agent_dispatch(
         database: &TestDatabase,
         runner: &Arc<ScriptedAgentRunner>,
-        more_kinds: Vec<NodeKind>,
     ) -> (StepDispatch, mpsc::Receiver<StepReport>) {
         let probe = Arc::new(ExecutorProbe::default());
-        let mut kinds = vec![scripted_kind(
+        let kinds = vec![scripted_kind(
             Script::AskAgentRun,
             StepAdmissionNeed::OwnRun,
             &probe,
             false,
         )];
-        kinds.extend(more_kinds);
         let (mut dispatch, received) = test_dispatch(database, kinds);
         dispatch.ports.agent_steps = Arc::clone(runner) as Arc<dyn AgentStepRunner>;
         (dispatch, received)
@@ -389,7 +393,7 @@ mod tests {
     ) {
         let database = TestDatabase::new(schema_parts());
         let runner = Arc::new(ScriptedAgentRunner::new(admission, false));
-        let (dispatch, mut received) = agent_dispatch(&database, &runner, Vec::new());
+        let (dispatch, mut received) = agent_dispatch(&database, &runner);
         let node = agent_node();
         let scope = Arc::new(test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]));
         let ready = test_ready_step(&scope, &node, vec![vec![json!({ "name": "Ada" })]]);
@@ -469,7 +473,7 @@ mod tests {
             Some(StepAdmissionOutcome::Withdrawn),
             false,
         ));
-        let (dispatch, mut received) = agent_dispatch(&database, &runner, Vec::new());
+        let (dispatch, mut received) = agent_dispatch(&database, &runner);
         let node = agent_node();
         let scope = Arc::new(test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]));
         let ready = test_ready_step(&scope, &node, vec![vec![json!({ "name": "Ada" })]]);
@@ -505,7 +509,7 @@ mod tests {
             Some(StepAdmissionOutcome::Admitted),
             false,
         ));
-        let (dispatch, mut received) = agent_dispatch(&database, &runner, Vec::new());
+        let (dispatch, mut received) = agent_dispatch(&database, &runner);
         let node = agent_node();
         let mut scope = test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]);
         scope.redaction = Arc::new(RunRedaction::new(&[SecretString::from(SECRET)]));
@@ -564,7 +568,7 @@ mod tests {
         let database = TestDatabase::new(schema_parts());
         let admission = (point != CancelPoint::AtGate).then_some(StepAdmissionOutcome::Admitted);
         let runner = Arc::new(ScriptedAgentRunner::new(admission, false));
-        let (dispatch, mut received) = agent_dispatch(&database, &runner, Vec::new());
+        let (dispatch, mut received) = agent_dispatch(&database, &runner);
         let node = agent_node();
         let scope = Arc::new(test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]));
         let ready = test_ready_step(&scope, &node, vec![vec![json!({ "name": "Ada" })]]);
@@ -647,61 +651,18 @@ mod tests {
         quick_kind
     }
 
-    /// An agent step and a gate step share one entry line: the gate step dispatched once the agent
-    /// step's run is being created enters the gate only once the creation returns. Mutations:
-    /// create the run without the turn; drop the turn before the creation returns.
+    /// The entry line holds evaluated steps in the order their evaluation ended, across kinds: an
+    /// agent step whose params are still evaluating holds no turn, so a gate step dispatched after
+    /// it enters the gate first; once evaluated, the agent step takes its turn and holds it while
+    /// its run is created, so a gate step dispatched after that enters only once the creation
+    /// returns. Mutations: take the agent step's turn when it is dispatched; create the run
+    /// without the turn; drop the turn before the creation returns.
     #[tokio::test]
-    async fn an_agent_steps_creation_holds_the_entry_line_across_kinds() {
+    async fn the_entry_line_keeps_steps_in_the_order_their_evaluation_ended() {
         let database = TestDatabase::new(schema_parts());
         let runner = Arc::new(ScriptedAgentRunner::new(
             Some(StepAdmissionOutcome::Admitted),
             true,
-        ));
-        let probe = Arc::new(ExecutorProbe::default());
-        let (mut dispatch, _received) =
-            agent_dispatch(&database, &runner, vec![quick_kind(&probe)]);
-        let gate = Arc::new(ScriptedGate::new(None));
-        dispatch.ports.admission = Arc::clone(&gate) as Arc<dyn StepAdmission>;
-        let agent_node = agent_node();
-        let quick_node = test_node(&json!({ "id": "quick", "kind": "test.quick" }));
-        let scope = Arc::new(test_run_scope(
-            WorkflowRunMode::Manual,
-            vec![agent_node.clone(), quick_node.clone()],
-        ));
-        let dispatch_step = |node: &WorkflowNode| {
-            let ready = test_ready_step(&scope, node, vec![vec![json!({ "name": "Ada" })]]);
-            dispatch.dispatch(&scope, &test_run_snapshot(node), ready);
-        };
-
-        dispatch_step(&agent_node);
-        timeout(WAIT, runner.wait_for_request())
-            .await
-            .expect("the agent step's run is asked for");
-        dispatch_step(&quick_node);
-        tokio::time::sleep(QUIET).await;
-        assert_eq!(
-            gate.enqueued(),
-            Vec::new(),
-            "the gate step entered before the agent step's run was created"
-        );
-
-        runner.release_creation();
-        timeout(WAIT, gate.wait_for_entry())
-            .await
-            .expect("the gate step enters once the agent step's run is created");
-        assert_eq!(gate.enqueued().len(), 1);
-        assert_eq!(runner.requests().len(), 1);
-    }
-
-    /// An agent step whose params are still evaluating holds no turn, so a gate step dispatched
-    /// after it enters the gate first, and the agent step's run is asked for once its evaluation
-    /// ends. Mutation: take the agent step's turn when it is dispatched.
-    #[tokio::test]
-    async fn an_agent_step_evaluating_its_params_holds_up_no_gate_entry() {
-        let database = TestDatabase::new(schema_parts());
-        let runner = Arc::new(ScriptedAgentRunner::new(
-            Some(StepAdmissionOutcome::Admitted),
-            false,
         ));
         let agent_probe = Arc::new(ExecutorProbe::default());
         let held_agent_kind = scripted_kind(
@@ -717,25 +678,42 @@ mod tests {
         let gate = Arc::new(ScriptedGate::new(None));
         dispatch.ports.admission = Arc::clone(&gate) as Arc<dyn StepAdmission>;
         let agent_node = agent_node();
-        let quick_node = test_node(&json!({ "id": "quick", "kind": "test.quick" }));
+        let early_node = test_node(&json!({ "id": "early", "kind": "test.quick" }));
+        let late_node = test_node(&json!({ "id": "late", "kind": "test.quick" }));
         let scope = Arc::new(test_run_scope(
             WorkflowRunMode::Manual,
-            vec![agent_node.clone(), quick_node.clone()],
+            vec![agent_node.clone(), early_node.clone(), late_node.clone()],
         ));
-
-        for node in [&agent_node, &quick_node] {
+        let dispatch_step = |node: &WorkflowNode| {
             let ready = test_ready_step(&scope, node, vec![vec![json!({ "name": "Ada" })]]);
             dispatch.dispatch(&scope, &test_run_snapshot(node), ready);
-        }
+        };
+
+        dispatch_step(&agent_node);
+        dispatch_step(&early_node);
         timeout(WAIT, gate.wait_for_entry())
             .await
-            .expect("the gate step enters while the agent step evaluates");
+            .expect("the early gate step enters while the agent step evaluates");
         assert_eq!(runner.requests().len(), 0);
 
         agent_probe.release();
         timeout(WAIT, runner.wait_for_request())
             .await
             .expect("the agent step's run is asked for once its params evaluated");
+        dispatch_step(&late_node);
+        tokio::time::sleep(QUIET).await;
+        assert_eq!(
+            gate.enqueued().len(),
+            1,
+            "the late gate step entered before the agent step's run was created"
+        );
+
+        runner.release_creation();
+        timeout(WAIT, gate.wait_for_entry())
+            .await
+            .expect("the late gate step enters once the agent step's run is created");
+        assert_eq!(gate.enqueued().len(), 2);
+        assert_eq!(runner.requests().len(), 1);
     }
 
     /// A stop of an agent step's run that cannot be sent goes to the engine's record with its
@@ -749,7 +727,7 @@ mod tests {
             false,
         ));
         runner.fail_stops();
-        let (mut dispatch, mut received) = agent_dispatch(&database, &runner, Vec::new());
+        let (mut dispatch, mut received) = agent_dispatch(&database, &runner);
         let sink = Arc::new(KeptEngineRecords::default());
         dispatch.recorder = Arc::new(EngineRecorder::new(
             Arc::clone(&sink) as Arc<dyn EngineRecordSink>
