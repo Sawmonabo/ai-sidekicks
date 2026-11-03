@@ -1,3 +1,4 @@
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -19,8 +20,9 @@ use sidekicks_store::events::session::followers::SessionEventFollowers;
 use sidekicks_workspace::git::worktree::test_rows::{RunContextRow, insert_worktree_rows};
 
 use super::{
-    DeletedWorkflowRun, RUNS_PER_DELETE_WRITE, RunGuard, WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY,
-    WorkflowRunDeletion, WorkflowRunDeletionError, WorkflowRunNotDeletable, read_removable_runs,
+    DeletedWorkflowRun, RUNS_PER_DELETE_WRITE, RunDeletionFailures, RunGuard,
+    WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY, WorkflowRunDeletion, WorkflowRunDeletionError,
+    WorkflowRunNotDeletable, read_removable_runs,
 };
 use crate::test_rows::{TestStep, insert_run, insert_step, insert_workflow_version};
 
@@ -468,4 +470,23 @@ async fn a_bulk_delete_reads_its_second_page_after_the_first_pages_last_run() {
         .query_row("SELECT COUNT(*) FROM workflow_runs", [], |row| row.get(0))
         .expect("the test counts the runs");
     assert_eq!(left, 0);
+}
+
+/// A delete keeps its first failures whole and only counts the rest, so a bulk delete over a
+/// folder it cannot write keeps a bounded message. Mutation: keep every failure.
+#[test]
+fn a_deletes_failures_keep_the_first_few_and_count_the_rest() {
+    let mut failures = RunDeletionFailures::default();
+    for index in 0..5 {
+        failures.push(WorkflowRunDeletionError::FolderLeft {
+            folder: PathBuf::from(format!("run-{index}")),
+            removal: io::Error::other("read-only"),
+        });
+    }
+
+    assert_eq!(
+        failures.to_string(),
+        "5 failures, the first 3: the folder at run-0 was left behind; the folder at run-1 was \
+         left behind; the folder at run-2 was left behind"
+    );
 }

@@ -13,6 +13,8 @@
 mod tests;
 
 use std::borrow::Cow;
+use std::error::Error;
+use std::fmt::{self, Display};
 use std::io;
 use std::iter;
 use std::path::{Path, PathBuf};
@@ -38,7 +40,7 @@ use sidekicks_contracts::workflow::run::retention::{
 use sidekicks_contracts::workflow::run::status::{GOING_RUN_STATUSES, WorkflowRunStatus};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_std::settle_all::{SettleFailures, settle_all};
+use sidekicks_std::settle_all::DescribeEach;
 use sidekicks_store::data_folder::workflow_run_folder;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -252,14 +254,15 @@ pub(crate) enum WorkflowRunDeletionError {
     #[error("a run's Keep mark was not kept")]
     Write(#[from] WriteError),
     /// A delete's reads, writes or folder removals failed: `deleted` holds every run it did
-    /// delete, whose snapshot refs still need pruning, and the source every failure.
+    /// delete, whose snapshot refs still need pruning, and the source the first failures and how
+    /// many there were.
     #[error("deleting runs failed after {} were deleted", .deleted.len())]
     Incomplete {
         /// Every run deleted.
         deleted: Vec<DeletedWorkflowRun>,
-        /// The one failure, or every failure in the order they came.
+        /// The first failures, in the order they came, and their count.
         #[source]
-        cause: Box<SettleFailures<WorkflowRunDeletionError>>,
+        cause: Box<RunDeletionFailures>,
     },
     /// SQLite refused a read, or a stored value did not read as its type.
     #[error("a read of the workflow runs failed")]
@@ -278,6 +281,54 @@ pub(crate) enum WorkflowRunDeletionError {
         #[source]
         removal: io::Error,
     },
+}
+
+/// How many failures a delete keeps whole; past them it only counts, so a bulk delete over a folder
+/// it cannot write keeps a bounded message.
+const KEPT_DELETION_FAILURES: usize = 3;
+
+/// The failures of one delete: the first [`KEPT_DELETION_FAILURES`] kept whole, in the order they
+/// came, and how many there were in all.
+#[derive(Debug, Default)]
+pub(crate) struct RunDeletionFailures {
+    /// The first failures, each kept whole.
+    first: Vec<WorkflowRunDeletionError>,
+    /// Every failure counted, those kept among them.
+    count: usize,
+}
+
+impl RunDeletionFailures {
+    /// Counts `failure`, keeping it whole while fewer than [`KEPT_DELETION_FAILURES`] are kept.
+    fn push(&mut self, failure: WorkflowRunDeletionError) {
+        self.count += 1;
+        if self.first.len() < KEPT_DELETION_FAILURES {
+            self.first.push(failure);
+        }
+    }
+}
+
+impl Display for RunDeletionFailures {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.count == 1 {
+            return write!(formatter, "{}", DescribeEach(&self.first));
+        }
+        write!(
+            formatter,
+            "{} failures, the first {}: {}",
+            self.count,
+            self.first.len(),
+            DescribeEach(&self.first)
+        )
+    }
+}
+
+impl Error for RunDeletionFailures {
+    /// The first failure, whose own sources stay as they were.
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.first
+            .first()
+            .map(|failure| failure as &(dyn Error + 'static))
+    }
 }
 
 impl From<WorkflowRunDeletionError> for HandlerError {
@@ -449,13 +500,14 @@ impl WorkflowRunDeletion {
         match self.delete_runs(&[], &run, RunGuard::Deletable).await {
             Ok(()) => match remove_run_folder(run.folder(&self.data_folder)).await {
                 Ok(()) => Ok(run.deleted()),
-                Err((folder, removal)) => Err(WorkflowRunDeletionError::Incomplete {
-                    deleted: vec![run.deleted()],
-                    cause: Box::new(SettleFailures::One(WorkflowRunDeletionError::FolderLeft {
-                        folder,
-                        removal,
-                    })),
-                }),
+                Err((folder, removal)) => {
+                    let mut failures = RunDeletionFailures::default();
+                    failures.push(WorkflowRunDeletionError::FolderLeft { folder, removal });
+                    Err(WorkflowRunDeletionError::Incomplete {
+                        deleted: vec![run.deleted()],
+                        cause: Box::new(failures),
+                    })
+                }
             },
             Err(error) if refused_statement_index(&error).is_some() => {
                 Err(self.refusal(workflow_run_id).await)
@@ -497,8 +549,8 @@ impl WorkflowRunDeletion {
     /// Deletes every run the preview counts for deletion, each with all its rows and its own
     /// `workflow.run.deleted` and its own folder, and answers each one deleted. A run read as
     /// deletable that its guard no longer matches at its write, such as one kept since, is left.
-    /// Fails with [`WorkflowRunDeletionError::Incomplete`], holding every failure, when a read, a
-    /// write or a folder's removal fails: a failed write or removal leaves the later pages to be
+    /// Fails with [`WorkflowRunDeletionError::Incomplete`], holding the first failures and their
+    /// count, when a read, a write or a folder's removal fails: a failed write or removal leaves the later pages to be
     /// written, and a failed read ends the delete.
     #[cfg_attr(
         not(test),
@@ -517,7 +569,7 @@ impl WorkflowRunDeletion {
             older_than: bound.as_ref(),
         };
         let mut deleted = Vec::new();
-        let mut failures = Vec::new();
+        let mut failures = RunDeletionFailures::default();
         let mut after = None;
         loop {
             let read_bound = bound.clone();
@@ -564,15 +616,13 @@ impl WorkflowRunDeletion {
                 break;
             }
         }
-        let outcomes: Vec<Result<(), WorkflowRunDeletionError>> =
-            failures.into_iter().map(Err).collect();
-        match settle_all(outcomes, "deleting runs older than a bound") {
-            Ok(_) => Ok(deleted),
-            Err(cause) => Err(WorkflowRunDeletionError::Incomplete {
-                deleted,
-                cause: Box::new(cause),
-            }),
+        if failures.count == 0 {
+            return Ok(deleted);
         }
+        Err(WorkflowRunDeletionError::Incomplete {
+            deleted,
+            cause: Box::new(failures),
+        })
     }
 
     /// Sets or clears the run's Keep mark. Fails with [`WorkflowRunDeletionError::NotFound`] for a
