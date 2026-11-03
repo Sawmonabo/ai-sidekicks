@@ -725,8 +725,9 @@ async fn a_joined_services_running_continuation_is_held_and_opened_as_the_runs_t
 // opened as the pause's turn, so its listed end pauses the run. A stopping lead's is left to its
 // stop: nothing is ended or held, and the cut turn stays bound as before. Every lead keeps its
 // deliveries' binding. Killed by the continuation not held (the run never ends), by the cut turn
-// left bound (its listed end is routed), and by a pausing lead's ended continuation left out or
-// held unmarked (its listed end would end the run).
+// left bound (its listed end is routed), by a pausing lead's ended continuation left out or held
+// unmarked (its listed end would end the run), and by the pause's turn opened twice or on a
+// message.
 #[rstest]
 #[case::running(RunState::Running, false)]
 #[case::stopping(RunState::Running, true)]
@@ -757,12 +758,17 @@ async fn a_joined_services_ended_continuation_is_held_unless_a_stop_settles_its_
     );
     let calls = session.engine.calls();
     let is_pausing = run_state == RunState::Pausing;
-    assert_eq!(
-        calls
-            .iter()
-            .any(|call| matches!(call, EngineCall::StartTurn(opened, _) if *opened == run_id)),
-        is_pausing
-    );
+    let run_turn_starts: Vec<EngineCall> = calls
+        .iter()
+        .filter(|call| matches!(call, EngineCall::StartTurn(opened, _) if *opened == run_id))
+        .cloned()
+        .collect();
+    let expected_turn_starts = if is_pausing {
+        vec![EngineCall::StartTurn(run_id, None)]
+    } else {
+        Vec::new()
+    };
+    assert_eq!(run_turn_starts, expected_turn_starts);
     assert!(session.task.run_routes.binding_for(run_id).is_some());
     let established = adoption.established.expect("the session is established");
     let record = &established.record;
