@@ -119,6 +119,8 @@ mod spawner;
 #[cfg(any(test, feature = "test-support"))]
 mod stand_in_program;
 mod standard_streams;
+#[cfg(any(test, feature = "test-support"))]
+mod stop_refusing_child;
 mod system_folder;
 mod system_locale;
 mod terminal;
@@ -478,6 +480,8 @@ pub use stand_in_program::{
     StandInAnswer, StandInProgram, read_recorded_arguments, write_stand_in_program,
 };
 pub use standard_streams::set_binary_standard_streams;
+#[cfg(any(test, feature = "test-support"))]
+pub use stop_refusing_child::StopRefusingChild;
 pub use system_folder::{
     LinuxSystemFolder, MacosSystemFolder, PerSystem, SystemFolder, SystemFolders,
     WindowsSystemFolder,

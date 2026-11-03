@@ -9,7 +9,7 @@ use sidekicks_contracts::provider::account::record::{
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_platforms::real_path;
+use sidekicks_platforms::{has_file_mode, real_path};
 use sidekicks_store::data_folder::agent_memory_folder;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
@@ -197,13 +197,13 @@ fn a_claude_code_home_s_agent_memory_resolves_to_the_all_projects_folder() {
         real_path(&home.path().join("agent-memory")).expect("the link resolves"),
         real_path(&agent_memory_folder(data_folder.path())).expect("the shared folder resolves")
     );
-    let store = fs::metadata(home.path().join("store")).expect("the store folder stands");
-    assert!(store.is_dir());
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        assert_eq!(store.permissions().mode() & 0o777, 0o700);
-    }
+    let store = home.path().join("store");
+    assert!(
+        fs::metadata(&store)
+            .expect("the store folder stands")
+            .is_dir()
+    );
+    assert!(has_file_mode(&store, 0o700).expect("the store folder's mode reads"));
 }
 
 // Every registered account is signed out in its own home before the erase deletes the homes, and
