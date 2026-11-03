@@ -52,7 +52,7 @@ unsafe extern "C" {
     fn fchmodx_np(descriptor: libc::c_int, filesec: *mut c_void) -> libc::c_int;
     // `acl_t acl_get_fd_np(int, acl_type_t)`, declared in the SDK's `sys/acl.h`: the open file's
     // access list, which `acl_free` frees, or NULL with `errno` set: `ENOENT` when it has none,
-    // `EOPNOTSUPP` when its volume keeps none.
+    // `ENOTSUP` or `EOPNOTSUPP` when its volume keeps none.
     fn acl_get_fd_np(descriptor: libc::c_int, kind: libc::c_int) -> *mut c_void;
     // `int acl_get_entry(acl_t, int, acl_entry_t *)`: the list's first or next entry, answering 0,
     // or -1 once no entry is left.
@@ -108,7 +108,8 @@ pub(crate) fn grants_others_delete_child(folder: &File, user: libc::uid_t) -> io
     if acl.is_null() {
         let error = io::Error::last_os_error();
         return match error.raw_os_error() {
-            Some(libc::ENOENT | libc::EOPNOTSUPP) => Ok(false),
+            // Darwin gives `ENOTSUP` and `EOPNOTSUPP` two values, and a volume may answer either.
+            Some(libc::ENOENT | libc::ENOTSUP | libc::EOPNOTSUPP) => Ok(false),
             _ => Err(error),
         };
     }
@@ -194,8 +195,8 @@ fn apply_access_list_removal(file: &File, filesec: *mut c_void) -> io::Result<()
     // SAFETY: the descriptor is the open file's, alive for the call, and `filesec` is live.
     if unsafe { fchmodx_np(file.as_raw_fd(), filesec) } != 0 {
         let error = io::Error::last_os_error();
-        // The kernel answers `ENOTSUP` to any access list change on a volume that keeps none.
-        if error.raw_os_error() == Some(libc::ENOTSUP) {
+        // A volume that keeps no access lists answers any change with `ENOTSUP` or `EOPNOTSUPP`.
+        if matches!(error.raw_os_error(), Some(libc::ENOTSUP | libc::EOPNOTSUPP)) {
             return Ok(());
         }
         return Err(error);
