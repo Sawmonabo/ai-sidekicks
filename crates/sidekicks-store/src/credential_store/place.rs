@@ -15,8 +15,9 @@
 //! source, then records the destination alone. Each step can run again with the same result, so a
 //! move a crash stopped partway finishes in the same direction, and an item is deleted only once
 //! its copy read back. A move begun from a settled record that a call refuses is put back instead:
-//! each item it deleted is written back at its source, each copy is deleted from the destination,
-//! and the record names the source alone again, so nothing is left to finish.
+//! each item whose delete it began is written back at its source, a refused delete counted as one
+//! that may still land, each copy whose item is whole at its source is deleted from the
+//! destination, and the record names the source alone again, so nothing is left to finish.
 
 use std::path::{Path, PathBuf};
 
@@ -88,12 +89,13 @@ pub(crate) type PlaceKeychain<'place> =
 type CopiedItem = (KeychainService, String, SecretString);
 
 // How far a move got: the items copied to the destination, whether the record names the move,
-// and how many of the copied items were deleted from the source, in the order they were copied.
+// and how many of the copied items, in the order they were copied, had their delete from the
+// source begun, which may have taken effect even when it was refused.
 #[derive(Default)]
 struct MoveProgress {
     copied: Vec<CopiedItem>,
     is_recorded: bool,
-    deleted: usize,
+    removes_begun: usize,
 }
 
 /// Moves every item from the keychains `from` gives to those `to` gives, as the module doc says,
@@ -159,16 +161,20 @@ async fn copy_and_delete(
     }
     progress.is_recorded = true;
     for (service, account, _value) in &progress.copied {
-        from(*service)?.remove(account).await?;
-        progress.deleted += 1;
+        let source = from(*service)?;
+        progress.removes_begun += 1;
+        source.remove(account).await?;
     }
     write_record(path, &PlaceRecord::settled(destination)).await
 }
 
-// Puts a move from the settled `record` that `progress` describes back: each item deleted is
-// written back at its source, each copy whose item is whole at its source is deleted from the
-// destination, and once every item is whole at its source a recorded move's record is written
-// back to `record`. Answers the record written, if any, and each step that failed.
+// Puts a move from the settled `record` that `progress` describes back: each item whose delete
+// began is written back at its source from the value the move holds, through the source's queue
+// for that item, so the write lands behind a refused delete still running or answers as refused;
+// each copy whose item is whole at its source is deleted from the destination, and once every
+// item is whole at its source a recorded move's record is written back to `record`. An item not
+// written back keeps its copy, the only one left. Answers the record written, if any, and each
+// step that failed.
 async fn put_back(
     path: &Path,
     record: PlaceRecord,
@@ -179,7 +185,7 @@ async fn put_back(
     let mut failures = Vec::new();
     let mut is_whole_at_source = true;
     for (index, (service, account, value)) in progress.copied.iter().enumerate() {
-        if index < progress.deleted {
+        if index < progress.removes_begun {
             let written_back = match from(*service) {
                 Ok(source) => source.write_verified(account, value).await,
                 Err(refusal) => Err(refusal),

@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use futures::future::BoxFuture;
+use rstest::rstest;
 use secrecy::{ExposeSecret, SecretString};
 use sidekicks_contracts::daemon::secrets_place::{PlaceRecord, SecretsPlace, read_place_record};
 use sidekicks_contracts::keychain::KeychainRefusalCause;
@@ -12,11 +13,20 @@ use super::{move_items, record_path, write_record};
 use crate::credential_store::service::KeychainService;
 use crate::credential_store::{KeychainRefusal, SecretKeychain};
 
-// One place's items by service and account, with the one account whose removal it refuses.
+// How a place refuses an account's removal: before deleting its item, or after, as a delete that
+// outlived its caller's wait and landed anyway does.
+#[derive(Clone, Copy)]
+enum RemovalRefusal {
+    BeforeDelete,
+    AfterDelete,
+}
+
+// One place's items by service and account, with the one account whose removal it refuses and
+// how.
 #[derive(Clone, Default)]
 struct PlaceItems {
     items: Arc<Mutex<BTreeMap<(&'static str, String), String>>>,
-    refused_removal: Option<&'static str>,
+    refused_removal: Option<(&'static str, RemovalRefusal)>,
 }
 
 impl PlaceItems {
@@ -70,15 +80,20 @@ impl SecretKeychain for ServiceItems {
         &'call self,
         account: &'call str,
     ) -> BoxFuture<'call, Result<bool, KeychainRefusal>> {
-        let answer = if self.place.refused_removal == Some(account) {
-            Err(KeychainRefusal::of_test_keychain(
-                KeychainRefusalCause::Unavailable,
-            ))
-        } else {
-            Ok(self
+        let refusal = self
+            .place
+            .refused_removal
+            .and_then(|(refused, refusal)| (refused == account).then_some(refusal));
+        let was_held = !matches!(refusal, Some(RemovalRefusal::BeforeDelete))
+            && self
                 .items()
                 .remove(&(self.service, account.to_owned()))
-                .is_some())
+                .is_some();
+        let answer = match refusal {
+            None => Ok(was_held),
+            Some(_) => Err(KeychainRefusal::of_test_keychain(
+                KeychainRefusalCause::Unavailable,
+            )),
         };
         Box::pin(async { answer })
     }
@@ -96,10 +111,14 @@ impl SecretKeychain for ServiceItems {
 
 // A move from the keychain into the files whose second delete from the keychain is refused, so the
 // record names the move and the first item is gone from its source, is put back: both items are in
-// the keychain alone and the record names the keychain settled. Killed by the record left
-// mid-move, by the deleted item not written back, and by the copies left in the files.
+// the keychain alone and the record names the keychain settled, the refused item too when its
+// delete took effect. Killed by the record left mid-move, by the deleted item not written back, by
+// the item whose delete was refused not written back, and by the copies left in the files.
+#[rstest]
+#[case::refused_before_its_delete(RemovalRefusal::BeforeDelete)]
+#[case::refused_after_its_delete(RemovalRefusal::AfterDelete)]
 #[tokio::test]
-async fn a_move_refused_partway_is_put_back_at_its_start() {
+async fn a_move_refused_partway_is_put_back_at_its_start(#[case] removal_refusal: RemovalRefusal) {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let path = record_path(folder.path());
     let start = PlaceRecord::settled(SecretsPlace::OperatingSystem);
@@ -107,7 +126,7 @@ async fn a_move_refused_partway_is_put_back_at_its_start() {
         .await
         .expect("the test writes the record");
     let keychain = PlaceItems {
-        refused_removal: Some("second"),
+        refused_removal: Some(("second", removal_refusal)),
         ..PlaceItems::default()
     };
     let service = KeychainService::WorkflowSecrets.as_str();
