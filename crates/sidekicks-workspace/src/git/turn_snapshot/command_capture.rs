@@ -10,7 +10,6 @@
 //!   and `--exclude-standard` (the person's own excludes are no project declaration) are never
 //!   passed to the listings.
 
-use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -27,7 +26,9 @@ use crate::git::turn_snapshot::capture::{
     split_nul_terminated_listing_bytes,
 };
 use crate::git::turn_snapshot::capture_folder::CaptureFolder;
-use crate::git::turn_snapshot::capture_steps::{CaptureStepError, SnapshotCheckout, at};
+use crate::git::turn_snapshot::capture_steps::{
+    CaptureStepError, DiffTreeReadError, SnapshotCheckout, at,
+};
 use crate::git::turn_snapshot::diagnostics::{CaptureDiagnostic, CaptureStep, CommandCapturePhase};
 use crate::git::turn_snapshot::held_checkout::{CaptureRoots, CaptureStartFailure, hold_checkout};
 use crate::git::turn_snapshot::kept_index::{KeptIndex, open_kept_index};
@@ -241,44 +242,6 @@ impl CommandCaptureService {
 
 /// A failed step and why.
 type StepFailure = (CaptureStep, CaptureStepError);
-
-/// Why `diff-tree`'s raw output did not read as changes between two trees; nothing of it is kept.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum DiffTreeReadError {
-    /// A record's header ends without its NUL.
-    #[error("a diff-tree record's header ends without its NUL")]
-    UnterminatedHeader,
-    /// A record has no path, an empty one, or one that ends without its NUL.
-    #[error("a diff-tree record has no path ended by a NUL")]
-    MissingPath,
-    /// A record's header is not a colon and five fields.
-    #[error("a diff-tree record's header is not a colon and five fields")]
-    MalformedHeader,
-    /// A mode is not six octal digits.
-    #[error("a diff-tree record's mode is not six octal digits")]
-    MalformedMode,
-    /// An object id is not 40 or 64 lowercase hex digits.
-    #[error("a diff-tree record's object id is not a SHA-1 or SHA-256 id")]
-    MalformedObjectId,
-    /// A record's two object ids differ in length.
-    #[error("a diff-tree record's two object ids differ in length")]
-    MixedObjectIdLengths,
-    /// A side gives a mode with the zero id, or a real id with no mode.
-    #[error("a diff-tree record's side pairs a mode with the zero id, or an object with no mode")]
-    HalfSide,
-    /// A known letter's record lacks a side the letter needs, or holds one it must not.
-    #[error("a diff-tree record's {letter} change lacks a side it needs or holds one it must not")]
-    SidesDisagree {
-        /// The record's letter.
-        letter: String,
-    },
-    /// A change letter this reader does not take: a copy, a rename, an unmerged or unknown entry.
-    #[error("a diff-tree record carries the change letter {0}, which a capture does not read")]
-    UnreadLetter(String),
-    /// A path this system cannot name.
-    #[error("diff-tree printed a path this system cannot name")]
-    PathText(#[source] io::Error),
-}
 
 /// What one capture's steps produced, before its commit is handed over for packing.
 struct CheckoutCapture {

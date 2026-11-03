@@ -9,13 +9,14 @@ use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::{
-    CommandCaptureInput, CommandCaptureService, DiffTreeReadError, IgnoredListing, TreeChange,
-    TreeEntry, read_diff_tree_records, read_ignored_listing,
+    CommandCaptureInput, CommandCaptureService, IgnoredListing, TreeChange, TreeEntry,
+    read_diff_tree_records, read_ignored_listing,
 };
 use crate::git::process::test_repository::{commit_empty, git_in, make_test_repository};
 use crate::git::process::{GitRunner, test_git_runner};
 use crate::git::turn_snapshot::capture::{LARGE_FILE_BYTES, LargeFile};
 use crate::git::turn_snapshot::capture_folder::CaptureFolder;
+use crate::git::turn_snapshot::capture_steps::DiffTreeReadError;
 use crate::git::turn_snapshot::repack::CapturePacking;
 use crate::git::turn_snapshot::service::TurnSnapshotCaptureOutcome;
 use crate::git::turn_snapshot::service::test_support::{
