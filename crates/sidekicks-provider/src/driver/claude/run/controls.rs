@@ -626,12 +626,13 @@ mod tests {
     }
 
     // Killed by a stop that answers before Claude Code acknowledged it, so a refused stop reads
-    // done, by a stop naming anything but the command's task, and by an acknowledged stop the
-    // lead's turn is not told of in the daemon's words, or a refused one it is.
+    // done, by a stop naming anything but the command's task, by an acknowledged stop the lead's
+    // turn is not told of in the daemon's words, or a refused one it is, and by that text written
+    // into the running turn as no steer, so the next turn opens on it, not the person's message.
     #[tokio::test(start_paused = true)]
     async fn a_stop_answers_only_once_claude_code_acknowledged_it() {
         let session = ScriptedSession::new().await;
-        session.hold_lead_turn("lead");
+        let run_id = session.hold_lead_turn("lead");
         session.frame(&json!({
             "type": "assistant",
             "session_id": SCRIPTED_PROVIDER_SESSION_ID,
@@ -680,6 +681,16 @@ mod tests {
                 .contains("The user stopped `sleep 100`.")
         );
         assert_eq!(told[0]["client_composed"], json!(true));
+        let mut prompts = session
+            .start
+            .prompts
+            .lock()
+            .expect("the prompts' lock holds");
+        prompts.record_written(session.session_id, run_id, "person", false);
+        assert_eq!(
+            prompts.take_turn_opening(session.session_id).as_deref(),
+            Some("person")
+        );
     }
 
     // Killed by moving a command to the background by its task id instead of the tool call that
