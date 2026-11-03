@@ -15,6 +15,7 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
 use sidekicks_provider::driver::idle_sleep::SessionSleepState;
@@ -36,6 +37,7 @@ use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 
 use crate::provider_session::errors::ProviderSessionError;
+use crate::provider_session::held_run_continue::ClaimedContinue;
 use crate::provider_session::resumed_runs::ResumedRuns;
 use crate::provider_session::{OpenedSession, ProviderSessions, close_unrecorded, posture_of};
 
@@ -269,8 +271,12 @@ impl ProviderSessions {
                     .await);
             }
         };
-        let (held_run_continue, claims) = self
-            .claim_held_run_continue(session_id, &params.live_runs, &params.kept_schedules)
+        let ClaimedContinue {
+            held_run_continue,
+            claims,
+            answered_runs,
+        } = self
+            .claim_held_run_continue(session_id, &mut params.live_runs, &params.kept_schedules)
             .await?;
         if matches!(relaunch, Relaunch::Continue) && held_run_continue.is_none() {
             return Ok((None, ResumedSession::default()));
@@ -372,6 +378,22 @@ impl ProviderSessions {
         } else {
             claims
         };
+        // A run the continue carries on from a wait whose asks are all answered runs again before
+        // the runs are taken, so its settle reads it running; one the provider did not run on
+        // keeps its wait.
+        if !claims.is_empty()
+            && !answered_runs.is_empty()
+            && let Err(cause) = self.continue_answered_runs(answered_runs).await
+        {
+            let unmoved = ProviderSessionError::ResumedRuns { session_id, cause };
+            self.deps.binding_cursors.forget_binding(&minted_id);
+            let unmoved = if binding_id == minted_id {
+                close_unrecorded(driver.as_ref(), session_id, unmoved).await
+            } else {
+                unmoved
+            };
+            return Err(self.release_marks_after(session_id, claims, unmoved).await);
+        }
         let named_run_ids = runs.iter().map(|run| run.run_id).collect();
         // Each run the resume named is settled before the binding is recorded, so none goes live
         // on the resumed process ahead of its settlement. A failure from here on gives the
@@ -438,6 +460,17 @@ impl ProviderSessions {
 
     // Hands the provider's answer for each run `session_id`'s resume named to the resumed runs'
     // ingress, under the caller's transition lock.
+    async fn continue_answered_runs(
+        &self,
+        runs: Vec<(RunId, RunState)>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        self.deps
+            .resumed_runs
+            .require_port()?
+            .continue_answered_runs(runs)
+            .await
+    }
+
     async fn take_resumed_runs(
         &self,
         session_id: SessionId,

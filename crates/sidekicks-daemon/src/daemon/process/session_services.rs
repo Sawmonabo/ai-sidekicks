@@ -12,7 +12,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
 
 use futures::future::BoxFuture;
-use sidekicks_approval::kept_answers::KeptAnswers;
 use sidekicks_artifact::chat_file_versions::ChatFileVersions;
 use sidekicks_artifact::payload_store::PayloadStore;
 use sidekicks_artifact::plans::service::PlansService;
@@ -434,7 +433,7 @@ pub(crate) fn build_session_services(
         process_follower: Arc::clone(&idle_sleep) as Arc<dyn SessionProcessFollower>,
         execution_postures: Arc::clone(&execution_postures),
         resumed_runs: Arc::clone(&resumed_runs),
-        kept_approvals: Arc::new(KeptAnswers::new(Arc::clone(&reads), Arc::clone(&writer))),
+        kept_approvals: Arc::clone(&approvals.service) as Arc<_>,
         kept_questions: Arc::clone(&questions) as Arc<_>,
     }));
     execution_postures

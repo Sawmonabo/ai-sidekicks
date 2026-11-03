@@ -10,6 +10,7 @@ use rstest::rstest;
 use rusqlite::params;
 use sidekicks_contracts::approval::{ApprovalDecision, ApprovalRequestId};
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::driver::session_control::held_run_continue::{
     ContinueAnswer, ContinueEntry, HeldRunContinue,
@@ -82,22 +83,28 @@ async fn resume_after_answer(opening: &Opening) -> Result<(), ProviderSessionErr
     .expect("the continue takes its own lock once")
 }
 
-// While the lead still waits on the person the answer resumes nothing; once it runs, one resume
-// carries the answer, and neither a second answer's continue nor a restart carries it again.
-// Killed by the member composed while the lead is held (a resume while it waits), by the claim
-// skipped (the second continue or the restart carries the answer again), and by a continue run
-// with no member (a resume carrying `None`).
+// While the lead still waits on an ask of its own the answer resumes nothing; once its every ask
+// is answered, one resume carries the answer and moves the lead on from its wait, and neither a
+// second answer's continue nor a restart carries it again. Killed by the member composed while
+// the lead is held (a resume while it waits), by a waiting lead skipped though its asks are
+// answered (no resume), by the claim skipped (the second continue or the restart carries the
+// answer again), and by a continue run with no member (a resume carrying `None`).
 #[tokio::test]
 async fn a_kept_answer_continues_the_lead_once() {
     let (opening, carried, entry) = held_lead().await;
     set_run_state(&opening, opening.earlier_run_id, "waitingForApproval");
+    opening
+        .kept_approvals
+        .set_open_ask(opening.earlier_run_id, true);
 
     resume_after_answer(&opening)
         .await
         .expect("a held lead's continue waits");
     assert!(lock(&carried).is_empty(), "a held lead was resumed");
 
-    set_run_state(&opening, opening.earlier_run_id, "running");
+    opening
+        .kept_approvals
+        .set_open_ask(opening.earlier_run_id, false);
     resume_after_answer(&opening)
         .await
         .expect("the lead's continue resumes it");
@@ -109,6 +116,10 @@ async fn a_kept_answer_continues_the_lead_once() {
         .expect("the restart takes its own lock once")
         .expect("the restart answers");
 
+    assert_eq!(
+        opening.resumed_runs.continued(),
+        [(opening.earlier_run_id, RunState::WaitingForApproval)]
+    );
     let continued = lock(&carried).clone();
     let [Some(held_run_continue), None] = continued.as_slice() else {
         panic!("one resume carries the continue and the restart none: {continued:?}");
