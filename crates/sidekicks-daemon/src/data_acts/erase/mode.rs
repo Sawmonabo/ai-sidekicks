@@ -28,7 +28,7 @@ use crate::data_acts::mode_outcome::{
 /// an internal error naming each failure otherwise, or, when the outcome cannot be written, that
 /// failure on standard error.
 pub(crate) fn run_data_erase_mode() -> ExitCode {
-    run_data_folder_mode("erase", erase_data_folder)
+    run_data_folder_mode("erase", |folders| erase_data_folder(folders.data_folder))
 }
 
 // Takes `data_folder`, checks the keychain, then runs the erase's steps, answering every failure.

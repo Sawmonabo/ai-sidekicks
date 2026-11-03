@@ -13,6 +13,7 @@ use std::sync::Arc;
 use sidekicks_contracts::daemon::data::DaemonDataStoreUnavailableDetails;
 use sidekicks_contracts::daemon::mode_outcome::DaemonModeOutcome;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_ipc::domain_error::refusal_fields;
 use sidekicks_platforms::{create_private_folder, secret_store_offer};
@@ -25,10 +26,21 @@ use sidekicks_store::credential_store::os::{KEYCHAIN_CALL_TIMEOUT, SystemCredent
 use sidekicks_store::data_folder::data_folder;
 use sidekicks_store::data_folder::lock::{DataFolderLock, DataFolderLockError};
 
-/// Runs `act` on the home folder's data folder on a runtime of the mode's own, then writes its
-/// outcome on standard output. Exits 0 with a result and 1 with an error, or when the outcome
+/// The folders a mode acts on: the person's home folder and the data folder in it.
+pub(crate) struct ModeFolders {
+    /// The person's home folder.
+    pub(crate) home_folder: PathBuf,
+    /// The daemon's data folder in it.
+    pub(crate) data_folder: PathBuf,
+}
+
+/// Runs `act` on the home folder and its data folder on a runtime of the mode's own, then writes
+/// its outcome on standard output. Exits 0 with a result and 1 with an error, or when the outcome
 /// cannot be written, that failure on standard error; `mode` names the mode in a failure.
-pub(crate) fn run_data_folder_mode<Act>(mode: &str, act: impl FnOnce(PathBuf) -> Act) -> ExitCode
+pub(crate) fn run_data_folder_mode<Act>(
+    mode: &str,
+    act: impl FnOnce(ModeFolders) -> Act,
+) -> ExitCode
 where
     Act: Future<Output = DaemonModeOutcome<()>>,
 {
@@ -38,7 +50,10 @@ where
             .enable_all()
             .build()
         {
-            Ok(runtime) => runtime.block_on(act(data_folder(&home))),
+            Ok(runtime) => runtime.block_on(act(ModeFolders {
+                data_folder: data_folder(&home),
+                home_folder: home,
+            })),
             Err(failure) => not_started(&format!("the {mode}'s runtime did not start"), &failure),
         },
     };
@@ -117,6 +132,14 @@ pub(crate) fn login_session_secret_items(
 pub(crate) fn store_unavailable(refusal: KeychainRefusal) -> DaemonModeOutcome<()> {
     let message = describe_error(&refusal);
     let (cause, _failure) = refusal.into_cause_and_failure();
+    keychain_unavailable(cause, message)
+}
+
+/// `daemon.data.storeUnavailable` with `cause` as its field and `message` as its text.
+pub(crate) fn keychain_unavailable(
+    cause: KeychainRefusalCause,
+    message: String,
+) -> DaemonModeOutcome<()> {
     let fields: BTreeMap<String, AnyValue> =
         refusal_fields(DaemonDataStoreUnavailableDetails { cause })
             .into_iter()
