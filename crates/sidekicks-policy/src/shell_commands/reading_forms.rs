@@ -76,6 +76,13 @@ impl ReadingForms {
         if node.kind() == "heredoc_body" {
             return !self.literal_bodies.contains(&node.id());
         }
+        if node.kind() == "heredoc_start"
+            && node
+                .parent()
+                .is_none_or(|parent| parent.kind() != "heredoc_redirect")
+        {
+            self.note_misread_start(node, builder);
+        }
         let is_reading = self.is_reading_form(node, builder);
         self.is_reading &= is_reading;
         true
@@ -208,13 +215,7 @@ impl ReadingForms {
         }
         let (delimiter, word_end) = parts.read_delimiter(builder);
         let word_text = &line[start.start_byte()..word_end];
-        // The parser compares a delimiter's characters with the line's as single bytes, so one past
-        // ASCII never ends its body; the shells take apart every other `$` form and backquotes in a
-        // start, reading a quote inside one as nested or as the word's own.
-        if !word_text.is_ascii()
-            || word_text.contains('`')
-            || !holds_only_plain_parameters(word_text)
-        {
+        if !is_requotable_start(word_text) {
             return false;
         }
         // The parser ends a body at a line that only starts with the delimiter after blanks, and
@@ -232,19 +233,50 @@ impl ReadingForms {
             && word_end == start.end_byte()
             && parser_delimiter(word_text) == delimiter;
         if !is_read_as_text {
-            // A delimiter holding a quote or a newline has no single-quoted form.
-            if !delimiter.contains(['\'', '\n']) {
-                self.delimiter_requotes.push((
-                    start.start_byte(),
-                    word_end,
-                    format!("'{delimiter}'"),
-                ));
-            }
+            self.note_requote(start.start_byte(), word_end, &delimiter);
             return false;
         }
         self.literal_bodies.insert(body.id());
         ends_as_the_shell_ends()
     }
+
+    // A quoted start the parser read into no redirect, as it reads `<<E'O'F`, whose delimiter it
+    // keeps with its quotes and so never ends: noted to be requoted, so the second read takes the
+    // body as the shell does.
+    fn note_misread_start(&mut self, start: Node<'_>, builder: &mut WordBuilder<'_>) {
+        let (delimiter, word_end) = read_start_delimiter(start, builder);
+        let word_text = &builder.line()[start.start_byte()..word_end];
+        if is_requotable_start(word_text) && word_text.contains(['\'', '"', '\\']) {
+            self.note_requote(start.start_byte(), word_end, &delimiter);
+        }
+    }
+
+    // Notes the start word at `start..word_end` to be written as `delimiter` in single quotes; a
+    // delimiter holding a quote or a newline has no single-quoted form.
+    fn note_requote(&mut self, start: usize, word_end: usize, delimiter: &str) {
+        if !delimiter.contains(['\'', '\n']) {
+            self.delimiter_requotes
+                .push((start, word_end, format!("'{delimiter}'")));
+        }
+    }
+}
+
+// Whether a start word is one the reading can requote: the parser compares a delimiter's
+// characters with the line's as single bytes, so one past ASCII never ends its body; the shells
+// take apart every other `$` form and backquotes in a start, reading a quote inside one as nested
+// or as the word's own.
+fn is_requotable_start(word_text: &str) -> bool {
+    word_text.is_ascii() && !word_text.contains('`') && holds_only_plain_parameters(word_text)
+}
+
+// The delimiter as the shell reads the here-document start `start`, a word it expands nothing
+// in, and the byte the word ends at. The word is built to be read and dropped.
+fn read_start_delimiter(start: Node<'_>, builder: &mut WordBuilder<'_>) -> (String, usize) {
+    let mark = builder.piece_count();
+    let (word, word_end) = builder.push_unexpanded_word(start.start_byte());
+    let delimiter = builder.view(word).to_string();
+    builder.truncate(mark);
+    (delimiter, word_end)
 }
 
 /// A here-document redirect's start, body and end as the parser read them, and whether its `<<-`
@@ -292,13 +324,9 @@ impl<'t> HereDocumentParts<'t> {
     }
 
     /// The delimiter as the shell reads the start, a word it expands nothing in, and the byte the
-    /// start's word ends at. The word is built to be read and dropped.
+    /// start's word ends at.
     pub(super) fn read_delimiter(&self, builder: &mut WordBuilder<'_>) -> (String, usize) {
-        let mark = builder.piece_count();
-        let (word, word_end) = builder.push_unexpanded_word(self.start.start_byte());
-        let delimiter = builder.view(word).to_string();
-        builder.truncate(mark);
-        (delimiter, word_end)
+        read_start_delimiter(self.start, builder)
     }
 
     /// Whether the body and end lie where the shell reads them for `delimiter`, whose start word

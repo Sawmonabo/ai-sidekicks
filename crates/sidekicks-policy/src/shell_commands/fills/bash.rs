@@ -137,11 +137,13 @@ pub(super) fn place_fills(
         None => (line, tree),
     };
     let root = tree.root_node();
-    if root.has_error() {
-        return fills.refuse_all(&FillRefusal::NotWhole);
-    }
+    // A body the parser ends early at a line only starting with the delimiter can leave an error
+    // after it, so the end check names that line's rule first.
     if let Err(refusal) = check_here_document_ends(root, text) {
         return fills.refuse_all(&refusal);
+    }
+    if root.has_error() {
+        return fills.refuse_all(&FillRefusal::NotWhole);
     }
     let Some(placeholders) = fills.placeholders_in(text) else {
         return fills.refuse_all(&FillRefusal::UnreadPlace);
