@@ -550,8 +550,8 @@ impl WorkflowRunDeletion {
     /// `workflow.run.deleted` and its own folder, and answers each one deleted. A run read as
     /// deletable that its guard no longer matches at its write, such as one kept since, is left.
     /// Fails with [`WorkflowRunDeletionError::Incomplete`], holding the first failures and their
-    /// count, when a read, a write or a folder's removal fails: a failed write or removal leaves the later pages to be
-    /// written, and a failed read ends the delete.
+    /// count, when a read, a write or a folder's removal fails: a failed write or removal leaves
+    /// the later pages to be written, and a failed read ends the delete.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the workflow.run.purge handler")
