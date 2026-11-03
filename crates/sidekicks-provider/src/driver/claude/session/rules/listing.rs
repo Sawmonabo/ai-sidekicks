@@ -36,7 +36,7 @@ use crate::driver::claude::session::ignored_settings::{
     list_managed_settings_files, refuse_unread_settings,
 };
 use crate::driver::claude::session::settings_file::{
-    ClaudeSettingsFileError, read_claude_settings_json,
+    ClaudeSettingsFileError, hold_settings_file, read_claude_settings_json,
 };
 use crate::standing_rule_id::mint_standing_rule_id;
 
@@ -117,7 +117,8 @@ pub(crate) async fn revoke_claude_standing_rule(
         return Err(ClaudeRulesError::RuleInUneditedFile { path: listed.file });
     }
     let revoked = listed.rule.text.as_str();
-    if remove_list_entries(&listed.file, listed.list, |entry| entry == revoked).await? {
+    let hold = hold_settings_file(&listed.file).await?;
+    if remove_list_entries(&hold, &listed.file, listed.list, |entry| entry == revoked).await? {
         Ok(ProviderStandingRuleRevokeOutcome::Revoked)
     } else {
         Ok(ProviderStandingRuleRevokeOutcome::AlreadyAbsent)

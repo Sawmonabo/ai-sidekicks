@@ -33,7 +33,7 @@ use sidekicks_policy::destructive_git::covers_destructive_git;
 use sidekicks_std::bounded_wait::wait_within;
 use sidekicks_std::file::atomic_write::{AtomicWriteError, rewrite_file_in_place};
 use sidekicks_std::file::real_location::resolve_real_location;
-use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::missing_entry::MissingEntry;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
@@ -44,6 +44,7 @@ use crate::driver::codex::config_read::CodexConfigFileError;
 use crate::driver::codex::delivery::asks::CodexProjectRules;
 use crate::driver::codex::rules::evaluator::{EvaluatedRuleFile, RuleFileEvaluator};
 use crate::port::repository_reader::RepositoryReader;
+use crate::project_rule_folders::RuleFileHolds;
 
 // The folder a project keeps its Codex settings in, and in it and in every other folder Codex
 // reads settings from, the folder of rule files and the extension Codex reads.
@@ -285,6 +286,7 @@ impl CodexProjectRules for CodexProjectRuleFiles {
         codex_home: &'call Path,
         project_folder: &'call Path,
         rule: &'call ProviderAskRule,
+        hold: &'call KeyHold<'static, PathBuf>,
     ) -> BoxFuture<'call, Result<CodexProjectRuleWrite, CodexRulesError>> {
         async move {
             let repository = match self.repositories.port() {
@@ -296,6 +298,7 @@ impl CodexProjectRules for CodexProjectRuleFiles {
                 &self.sources(codex_home, project_folder),
                 common_git_folder.as_deref(),
                 rule,
+                hold,
             )
             .await
         }
@@ -306,9 +309,24 @@ impl CodexProjectRules for CodexProjectRuleFiles {
         &'call self,
         project_folder: &'call Path,
         change: &'call CodexProjectRuleWrite,
+        hold: &'call KeyHold<'static, PathBuf>,
     ) -> BoxFuture<'call, Result<(), CodexRulesError>> {
-        take_back_codex_project_rule(project_folder, change).boxed()
+        take_back_codex_project_rule(project_folder, change, hold).boxed()
     }
+}
+
+/// Holds the edit lock of the project's own rule file in each of `project_folders`, every file in
+/// one order, for a write into all of them and any take-back. Fails with `Read` where a file's
+/// location cannot be resolved.
+pub(crate) async fn hold_codex_project_rule_files(
+    project_folders: &[PathBuf],
+) -> Result<RuleFileHolds, CodexRulesError> {
+    let mut files = Vec::with_capacity(project_folders.len());
+    for project_folder in project_folders {
+        let lock_key = resolve_lock_key(&project_rule_file(project_folder)).await?;
+        files.push((project_folder.clone(), lock_key));
+    }
+    Ok(RuleFileHolds::acquire(&RULE_FILE_LOCK, files).await)
 }
 
 /// What [`write_codex_project_rule`] changed in the project's own rule file, which
@@ -322,14 +340,15 @@ pub(crate) enum CodexProjectRuleWrite {
 
 /// Writes `rule` into the project's own rule file, replacing a rule of the other sense over the
 /// same subject; a file the daemon creates is first listed in the exclude list of
-/// `common_git_folder`, the repository the project folder belongs to, where it is one. One edit at
-/// a time on the file. Refuses, with nothing written, a kind Codex keeps no project rule on, a
+/// `common_git_folder`, the repository the project folder belongs to, where it is one, under
+/// `_hold`, the file's edit lock. Refuses, with nothing written, a kind Codex keeps no project rule on, a
 /// command with no word, a host Codex would refuse and a project whose `.codex` is the Codex home.
 /// Answers what it changed, for a take-back.
 pub(crate) async fn write_codex_project_rule(
     sources: &CodexRuleSources<'_>,
     common_git_folder: Option<&Path>,
     rule: &ProviderAskRule,
+    _hold: &KeyHold<'_, PathBuf>,
 ) -> Result<CodexProjectRuleWrite, CodexRulesError> {
     let written = compose_rule_lines(rule)?;
     if written.is_empty() {
@@ -343,9 +362,6 @@ pub(crate) async fn write_codex_project_rule(
         return Err(CodexRulesError::ProjectIsCodexHome);
     }
     let file_path = project_rule_file(sources.project_folder);
-    let _hold = RULE_FILE_LOCK
-        .acquire(resolve_lock_key(&file_path).await?)
-        .await;
     let text_before = read_if_present(&file_path).await?;
     if text_before.is_none()
         && let Some(common_git_folder) = common_git_folder
@@ -369,20 +385,19 @@ pub(crate) async fn write_codex_project_rule(
 
 /// Puts the project's own rule file back as it was before [`write_codex_project_rule`] made
 /// `change`, where a write into another of the project's folders failed: the text it held written
-/// back, or the file deleted where the write made it, so a rule the write replaced stands again. No
-/// other rule file is read or touched. Fails as the file cannot be written or deleted.
+/// back, or the file deleted where the write made it, so a rule the write replaced stands again,
+/// under `_hold`, the file's edit lock held since the write. No other rule file is read or touched.
+/// Fails as the file cannot be written or deleted.
 pub(crate) async fn take_back_codex_project_rule(
     project_folder: &Path,
     change: &CodexProjectRuleWrite,
+    _hold: &KeyHold<'_, PathBuf>,
 ) -> Result<(), CodexRulesError> {
     let text_before = match change {
         CodexProjectRuleWrite::Unchanged => return Ok(()),
         CodexProjectRuleWrite::Written { text_before } => text_before,
     };
     let file_path = project_rule_file(project_folder);
-    let _hold = RULE_FILE_LOCK
-        .acquire(resolve_lock_key(&file_path).await?)
-        .await;
     match text_before {
         Some(text) => rewrite_file_in_place(&file_path, text.clone(), CODEX_RULE_FILE_MODE)
             .await
@@ -434,12 +449,7 @@ pub(crate) async fn remove_codex_project_rule(
         for (file, _) in &making {
             lock_keys.push(resolve_lock_key(&file.path).await?);
         }
-        lock_keys.sort();
-        lock_keys.dedup();
-        let mut holds = Vec::with_capacity(lock_keys.len());
-        for lock_key in lock_keys {
-            holds.push(RULE_FILE_LOCK.acquire(lock_key).await);
-        }
+        let _holds = RULE_FILE_LOCK.acquire_all(lock_keys).await;
         // Each file is read again under the holds; where one changed since, the files are read
         // and evaluated again.
         let mut is_unchanged = true;

@@ -9,11 +9,13 @@ use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
 use sidekicks_platforms::PathRules;
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use sidekicks_std::port_registration::PortRegistration;
+use tokio::sync::Notify;
 
 use super::{
     CodexProjectRule, CodexProjectRuleFiles, CodexProjectRuleWrite, CodexRuleSources,
-    CodexRulesError, RULE_EVALUATION_TIME_LIMIT, read_codex_project_rules,
-    remove_codex_project_rule, write_codex_project_rule,
+    CodexRulesError, RULE_EVALUATION_TIME_LIMIT, RULE_FILE_LOCK, hold_codex_project_rule_files,
+    read_codex_project_rules, remove_codex_project_rule, resolve_lock_key,
+    write_codex_project_rule,
 };
 use crate::driver::codex::delivery::asks::CodexProjectRules;
 use crate::project_rule_folders::write_into_project_folders;
@@ -126,7 +128,9 @@ impl Places {
         rule: &ProviderAskRule,
     ) -> Result<CodexProjectRuleWrite, CodexRulesError> {
         let paths = self.paths("home", "project");
-        write_codex_project_rule(&self.sources(&paths, true), git_folder, rule).await
+        let holds = hold_codex_project_rule_files(std::slice::from_ref(&paths.2)).await?;
+        let hold = holds.hold(&paths.2);
+        write_codex_project_rule(&self.sources(&paths, true), git_folder, rule, &hold).await
     }
 
     async fn remove_rule(&self, rule: &ProviderAskRule) -> Result<(), CodexRulesError> {
@@ -268,73 +272,113 @@ async fn a_revoke_one_of_whose_edits_would_break_its_file_changes_no_file() {
     );
 }
 
-// A block on a command stands in the daemon's own file; an allow for the same command reaches the
-// first of two project folders and fails on the second, so the rollback, through the rule files'
-// own take-back, puts the first folder's file back: the block reads again, and the person's copy
-// in the Codex home and the team's in the project are kept. Killed by a take-back that only takes
-// the allow's lines out, and by one that leaves the file as the write left it.
+// A block on a command stands in the daemon's own file. An allow for the same command lands in the
+// first of two project folders, and while its write into the second is under way, a second
+// approval's write to the same file waits. That write fails, the rollback, through the rule files'
+// own take-back, puts the file back with the block in it, and only then does the second approval's
+// allow land beside the block. Killed by a take-back that only takes the allow's lines out, by one
+// that leaves the file as the write left it, and by a write that takes and lets go of the file's
+// hold itself.
 #[tokio::test]
-async fn a_failed_writes_rollback_brings_back_the_rule_it_replaced() {
+async fn a_failed_writes_rollback_brings_back_the_rule_it_replaced_before_another_write_lands() {
     let places = Places::new();
-    // The second folder's `.codex` is the Codex home, which a write refuses.
-    let codex_home = places.path("second/.codex");
-    fs::create_dir_all(codex_home.join("rules")).expect("the folder is made");
-    let home_text = "prefix_rule(pattern=[\"rm\"])\n";
-    let home_file = places.write("second/.codex/rules/default.rules", home_text);
-    let team_text = "prefix_rule(pattern=[\"rm\"])\n";
-    let team_file = places.write("project/.codex/rules/team.rules", team_text);
+    let block = rule(
+        RememberedRuleSense::Block,
+        ProviderAskActionKind::Command,
+        "rm",
+    );
     places
-        .write_rule(
-            None,
-            &rule(
-                RememberedRuleSense::Block,
-                ProviderAskActionKind::Command,
-                "rm",
-            ),
-        )
+        .write_rule(None, &block)
         .await
         .expect("the block is written");
-    let daemon_file = rule_file(&places.path("project"));
-    let block_text = fs::read_to_string(&daemon_file).expect("the daemon's file reads");
+    let (codex_home, project) = (places.path("home"), places.path("project"));
+    let lock_key = resolve_lock_key(&rule_file(&project))
+        .await
+        .expect("the file's lock key resolves");
     let project_rules = Arc::new(CodexProjectRuleFiles {
         home_folder: places.path("person"),
         repositories: Arc::new(PortRegistration::new("repositories")),
     });
+    let (second_write_began, second_write_fails) =
+        (Arc::new(Notify::new()), Arc::new(Notify::new()));
 
-    let outcome = write_into_project_folders(
-        &[places.path("project"), places.path("second")],
-        &allow_command("rm"),
-        |project_folder, rule| {
-            let project_rules = Arc::clone(&project_rules);
-            let codex_home = codex_home.clone();
-            async move { project_rules.write(&codex_home, project_folder, rule).await }.boxed()
-        },
-        |project_folder, _rule, change| {
-            let project_rules = Arc::clone(&project_rules);
-            async move { project_rules.take_back(project_folder, change).await }.boxed()
-        },
-        Vec::new(),
-    )
-    .await;
+    let first_approval = tokio::spawn({
+        let project_rules = Arc::clone(&project_rules);
+        let codex_home = codex_home.clone();
+        let folders = vec![project.clone(), places.path("second")];
+        let began = Arc::clone(&second_write_began);
+        let fails = Arc::clone(&second_write_fails);
+        async move {
+            let holds = hold_codex_project_rule_files(&folders)
+                .await
+                .expect("the files are held");
+            write_into_project_folders(
+                &folders,
+                &allow_command("rm"),
+                |project_folder, rule| {
+                    let project_rules = Arc::clone(&project_rules);
+                    let codex_home = codex_home.clone();
+                    let hold = holds.hold(project_folder);
+                    let is_second = project_folder == folders[1];
+                    let (began, fails) = (Arc::clone(&began), Arc::clone(&fails));
+                    async move {
+                        if is_second {
+                            began.notify_one();
+                            fails.notified().await;
+                            return Err(CodexRulesError::ProjectIsCodexHome);
+                        }
+                        project_rules
+                            .write(&codex_home, project_folder, rule, &hold)
+                            .await
+                    }
+                    .boxed()
+                },
+                |project_folder, _rule, change| {
+                    let project_rules = Arc::clone(&project_rules);
+                    let hold = holds.hold(project_folder);
+                    async move { project_rules.take_back(project_folder, change, &hold).await }
+                        .boxed()
+                },
+                Vec::new(),
+            )
+            .await
+        }
+    });
+    second_write_began.notified().await;
+    // The first approval still holds the file between its write and its rollback.
+    let handles = RULE_FILE_LOCK.queue_handle_count(lock_key.clone());
+    assert!(handles > 0);
+    let second_approval = tokio::spawn({
+        let project_rules = Arc::clone(&project_rules);
+        let (codex_home, project) = (codex_home.clone(), project.clone());
+        async move {
+            let holds = hold_codex_project_rule_files(std::slice::from_ref(&project)).await?;
+            project_rules
+                .write(
+                    &codex_home,
+                    &project,
+                    &allow_command("ls"),
+                    &holds.hold(&project),
+                )
+                .await
+        }
+    });
+    RULE_FILE_LOCK.wait_for_queue_past(lock_key, handles).await;
+    second_write_fails.notify_one();
 
-    let failures = outcome.expect_err("the second folder's write is refused");
-    assert!(matches!(
-        failures.original(),
-        CodexRulesError::ProjectIsCodexHome
-    ));
+    let failures = first_approval
+        .await
+        .expect("the first approval ran")
+        .expect_err("the second folder's write fails");
     assert!(failures.cleanup_failures().is_empty());
-    assert_eq!(
-        fs::read_to_string(&daemon_file).expect("the daemon's file reads"),
-        block_text
-    );
-    assert_eq!(
-        fs::read_to_string(&home_file).expect("the home file reads"),
-        home_text
-    );
-    assert_eq!(
-        fs::read_to_string(&team_file).expect("the team file reads"),
-        team_text
-    );
+    second_approval
+        .await
+        .expect("the second approval ran")
+        .expect("the second approval's allow is written");
+    let rules = places.read_rules().await;
+    assert!(rules.contains(&block));
+    assert!(rules.contains(&allow_command("ls")));
+    assert!(!rules.contains(&allow_command("rm")));
 }
 
 #[rstest]
@@ -615,8 +659,17 @@ async fn a_project_whose_codex_folder_is_the_codex_home_reads_the_home_once_and_
             .expect("the rules read"),
         []
     );
+    let holds = hold_codex_project_rule_files(std::slice::from_ref(&paths.2))
+        .await
+        .expect("the file is held");
     assert!(matches!(
-        write_codex_project_rule(&sources, None, &allow_command("npm test")).await,
+        write_codex_project_rule(
+            &sources,
+            None,
+            &allow_command("npm test"),
+            &holds.hold(&paths.2)
+        )
+        .await,
         Err(CodexRulesError::ProjectIsCodexHome)
     ));
     assert!(matches!(

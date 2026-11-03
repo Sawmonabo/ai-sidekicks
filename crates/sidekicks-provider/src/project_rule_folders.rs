@@ -1,18 +1,63 @@
 //! Writes a project rule into each working folder of its project, so it reaches every session of
 //! the project, and takes it back out of those already written when one write fails, so no folder
-//! keeps a rule the daemon never recorded.
+//! keeps a rule the daemon never recorded. Every rule file the write reaches is held from before
+//! the first write until the last take-back, so no other edit lands between a write and its
+//! take-back.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+
+/// The edit locks of every rule file a project rule write reaches, held together for the whole
+/// write and any take-back, each file named as its caller names it.
+pub(crate) struct RuleFileHolds {
+    // Each file's hold by its name; names of one file share its hold.
+    holds: HashMap<PathBuf, Arc<KeyHold<'static, PathBuf>>>,
+}
+
+impl RuleFileHolds {
+    /// Holds `lock`'s key of each of `files`, a name and the key the lock compares, every key
+    /// taken in one order as [`KeyedLock::acquire_all`] takes them.
+    pub(crate) async fn acquire(
+        lock: &'static KeyedLock<PathBuf>,
+        files: Vec<(PathBuf, PathBuf)>,
+    ) -> Self {
+        let by_key: HashMap<PathBuf, Arc<KeyHold<'static, PathBuf>>> = lock
+            .acquire_all(files.iter().map(|(_, key)| key.clone()))
+            .await
+            .into_iter()
+            .map(|hold| (hold.key().clone(), Arc::new(hold)))
+            .collect();
+        let holds = files
+            .into_iter()
+            .map(|(name, key)| {
+                let hold = by_key.get(&key).expect("every key asked for is held");
+                (name, Arc::clone(hold))
+            })
+            .collect();
+        Self { holds }
+    }
+
+    /// The hold on the file named `name`, one of the files held.
+    pub(crate) fn hold(&self, name: &Path) -> Arc<KeyHold<'static, PathBuf>> {
+        Arc::clone(
+            self.holds
+                .get(name)
+                .expect("every file a write reaches is held before it"),
+        )
+    }
+}
 
 /// Writes `rule` into each of `project_folders` with `write`, which answers what `remove` needs to
 /// take that folder's change back. When a write fails, takes the rule back with `remove` from every
-/// folder already written, `written_already` among them (those the rule reached another way),
-/// trying each even after one removal fails; the error keeps the write's failure and each
-/// removal's.
+/// folder already written, `written_already` among them (those the rule reached another way), the
+/// last written first so a file written twice ends as it began, trying each even after one removal
+/// fails; the error keeps the write's failure and each removal's.
 pub(crate) async fn write_into_project_folders<Written, Write, Remove, WriteError, RemoveError>(
     project_folders: &[PathBuf],
     rule: &ProviderAskRule,
@@ -39,7 +84,7 @@ where
                 // Every folder is tried, so one failed removal never leaves more folders holding
                 // the rule than it must.
                 let mut removal_failures = Vec::new();
-                for (written_folder, change) in &written {
+                for (written_folder, change) in written.iter().rev() {
                     if let Err(removal_failure) = remove(written_folder, rule, change).await {
                         removal_failures.push(removal_failure);
                     }
@@ -119,10 +164,13 @@ mod tests {
             failures.cleanup_failures(),
             [FolderFailure(PathBuf::from("/work/b"))]
         );
-        // The third folder's removal still ran after the second one's failed.
+        // The first folder's removal still ran after the second one's failed.
         let removals_tried = removals_tried
             .into_inner()
             .expect("no test thread panicked holding the lock");
-        assert_eq!(removals_tried, folders[..3]);
+        assert_eq!(
+            removals_tried,
+            [&folders[2], &folders[1], &folders[0]].map(PathBuf::clone)
+        );
     }
 }

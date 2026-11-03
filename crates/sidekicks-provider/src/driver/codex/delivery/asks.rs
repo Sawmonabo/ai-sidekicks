@@ -18,6 +18,7 @@ pub(crate) mod attribution;
 pub(crate) mod questions;
 
 use std::collections::HashMap;
+use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -33,6 +34,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_policy::destructive_git::covers_destructive_git;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio_util::sync::CancellationToken;
@@ -43,7 +45,9 @@ use crate::driver::codex::attachments::compose_codex_text_input;
 use crate::driver::codex::delivery::ask_action::read_codex_ask_action;
 use crate::driver::codex::delivery::asks::questions::read_codex_question_prompts;
 use crate::driver::codex::delivery::frames::CodexFrameDelivery;
-use crate::driver::codex::rules::{CodexProjectRuleWrite, CodexRulesError};
+use crate::driver::codex::rules::{
+    CodexProjectRuleWrite, CodexRulesError, hold_codex_project_rule_files,
+};
 use crate::driver::codex::run::steer::steer_codex_run;
 use crate::driver::codex::server_requests::{
     CodexAskKind, CodexAskOwner, CodexInboundServerRequest, CodexRoutedMethod,
@@ -81,23 +85,25 @@ pub(crate) struct CodexAskOwners {
 /// Writes a project's rule into one of the project's working folders, reading the rule files Codex
 /// reads there, or takes back what it wrote.
 pub(crate) trait CodexProjectRules: Send + Sync {
-    /// Writes `rule` into `project_folder`'s own rule file, read beside the rules of `codex_home`,
-    /// the session's, answering what the write changed. Fails as the write fails or Codex would
-    /// refuse the rule.
+    /// Writes `rule` into `project_folder`'s own rule file, whose edit lock `hold` holds, read
+    /// beside the rules of `codex_home`, the session's, answering what the write changed. Fails as
+    /// the write fails or Codex would refuse the rule.
     fn write<'call>(
         &'call self,
         codex_home: &'call Path,
         project_folder: &'call Path,
         rule: &'call ProviderAskRule,
+        hold: &'call KeyHold<'static, PathBuf>,
     ) -> BoxFuture<'call, Result<CodexProjectRuleWrite, CodexRulesError>>;
 
-    /// Puts `project_folder`'s own rule file back as it was before `write` made `change`, so a rule
-    /// the write replaced stands again, leaving every other rule file as it is. Fails as the file
-    /// cannot be written or deleted.
+    /// Puts `project_folder`'s own rule file back as it was before `write` made `change`, under
+    /// `hold`, the edit lock held since the write, so a rule the write replaced stands again,
+    /// leaving every other rule file as it is. Fails as the file cannot be written or deleted.
     fn take_back<'call>(
         &'call self,
         project_folder: &'call Path,
         change: &'call CodexProjectRuleWrite,
+        hold: &'call KeyHold<'static, PathBuf>,
     ) -> BoxFuture<'call, Result<(), CodexRulesError>>;
 }
 
@@ -288,29 +294,38 @@ impl CodexAskHandOff {
         if let Some(made_rule) = made_rule
             && made_rule.rule.kind == RememberedScopeKind::Project
         {
+            let rule_not_kept = |source: Box<dyn Error + Send + Sync>| {
+                DriverError::Internal(Box::new(ProviderRuleNotKeptError { source }))
+            };
             let project_rules = &self.dependencies.project_rules;
             let codex_home = &service.home().codex_home;
+            let holds = hold_codex_project_rule_files(&made_rule.project_folders)
+                .await
+                .map_err(|error| rule_not_kept(Box::new(error)))?;
             write_into_project_folders(
                 &made_rule.project_folders,
                 &made_rule.rule,
                 |project_folder, rule| {
                     let project_rules = Arc::clone(project_rules);
                     let codex_home = codex_home.clone();
-                    async move { project_rules.write(&codex_home, project_folder, rule).await }
-                        .boxed()
+                    let hold = holds.hold(project_folder);
+                    async move {
+                        project_rules
+                            .write(&codex_home, project_folder, rule, &hold)
+                            .await
+                    }
+                    .boxed()
                 },
                 |project_folder, _rule, change| {
                     let project_rules = Arc::clone(project_rules);
-                    async move { project_rules.take_back(project_folder, change).await }.boxed()
+                    let hold = holds.hold(project_folder);
+                    async move { project_rules.take_back(project_folder, change, &hold).await }
+                        .boxed()
                 },
                 Vec::new(),
             )
             .await
-            .map_err(|error| {
-                DriverError::Internal(Box::new(ProviderRuleNotKeptError {
-                    source: Box::new(error),
-                }))
-            })?;
+            .map_err(|error| rule_not_kept(Box::new(error)))?;
         }
         Ok(())
     }

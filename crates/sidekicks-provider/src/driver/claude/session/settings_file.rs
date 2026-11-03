@@ -17,6 +17,7 @@ use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::missing_entry::MissingEntry;
 
 use crate::inbound_json::decode_inbound_json;
+use crate::project_rule_folders::RuleFileHolds;
 
 // Held on a settings file the daemon edits across its read and write, so two edits never drop each
 // other's.
@@ -113,14 +114,32 @@ pub(crate) async fn read_claude_settings_file(
 pub(crate) async fn hold_settings_file(
     file: &Path,
 ) -> Result<KeyHold<'static, PathBuf>, ClaudeSettingsFileError> {
-    let key =
-        resolve_real_location(file)
-            .await
-            .map_err(|failure| ClaudeSettingsFileError::Read {
-                path: file.to_path_buf(),
-                failure,
-            })?;
-    Ok(SETTINGS_FILE_LOCK.acquire(key).await)
+    Ok(SETTINGS_FILE_LOCK
+        .acquire(settings_lock_key(file).await?)
+        .await)
+}
+
+/// Waits for the edit lock on each of `files`, every file in one order as [`hold_settings_file`]
+/// keys it, for a write into all of them and any take-back. Fails with `Read` where a file's
+/// location cannot be resolved.
+pub(crate) async fn hold_settings_files(
+    files: &[PathBuf],
+) -> Result<RuleFileHolds, ClaudeSettingsFileError> {
+    let mut keyed_files = Vec::with_capacity(files.len());
+    for file in files {
+        keyed_files.push((file.clone(), settings_lock_key(file).await?));
+    }
+    Ok(RuleFileHolds::acquire(&SETTINGS_FILE_LOCK, keyed_files).await)
+}
+
+// A settings file as its edit lock knows it, one key for every spelling of the file.
+async fn settings_lock_key(file: &Path) -> Result<PathBuf, ClaudeSettingsFileError> {
+    resolve_real_location(file)
+        .await
+        .map_err(|failure| ClaudeSettingsFileError::Read {
+            path: file.to_path_buf(),
+            failure,
+        })
 }
 
 /// The text of `file`, whose edit lock `_hold` holds, or `None` where there is no file. Fails with

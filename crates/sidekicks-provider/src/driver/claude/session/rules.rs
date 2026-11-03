@@ -29,6 +29,7 @@ use sidekicks_platforms::PathRules;
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use sidekicks_policy::destructive_git::covers_destructive_git;
 use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_workspace::git::exclude::{ExcludeError, add_repository_exclude};
 
@@ -37,7 +38,7 @@ use crate::driver::claude::session::ignored_settings::{
 };
 use crate::driver::claude::session::settings_file::{
     ClaudeSettingsFileError, delete_settings_file, edit_settings_object, hold_settings_file,
-    read_settings_file, write_settings_file,
+    hold_settings_files, read_settings_file, write_settings_file,
 };
 use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
 use crate::project_rule_folders::write_into_project_folders;
@@ -232,7 +233,8 @@ pub(crate) fn compose_claude_project_allow_update(
 /// allow (the repository root's in the normal case), is skipped. When a later file fails, each file
 /// the daemon wrote is put back as it was and the rule's entries are taken out of
 /// `written_by_answer`. A file the daemon creates in a repository is first listed in its exclude
-/// list, each repository's list read once per call. One edit at a time on each file.
+/// list, each repository's list read once per call. Every file, `written_by_answer` among them, is
+/// held from before the first write until the last take-back, so no other edit lands between.
 pub(crate) async fn write_claude_project_rule(
     folders: &[ClaudeProjectFolder<'_>],
     home_folder: &Path,
@@ -255,6 +257,18 @@ pub(crate) async fn write_claude_project_rule(
         .map(|file| (file.to_path_buf(), ClaudeProjectRuleWrite::WrittenByAnswer))
         .into_iter()
         .collect();
+    let held_files: Vec<PathBuf> = files
+        .iter()
+        .cloned()
+        .chain(written_by_answer.map(Path::to_path_buf))
+        .collect();
+    let holds = hold_settings_files(&held_files).await.map_err(|error| {
+        CleanupFailures::new(
+            ClaudeRulesError::from(error),
+            Vec::new(),
+            "holding the project's settings files",
+        )
+    })?;
     let excluded_repositories = Arc::new(Mutex::new(HashSet::new()));
     write_into_project_folders(
         &files,
@@ -262,10 +276,12 @@ pub(crate) async fn write_claude_project_rule(
         |file: &Path, rule: &ProviderAskRule| {
             let common_git_folder = common_git_folders.get(file).cloned().flatten();
             let excluded_repositories = Arc::clone(&excluded_repositories);
+            let hold = holds.hold(file);
             async move {
                 let written = rule_entries(rule, path_rules)?;
                 let (list, other_list) = sense_lists(rule.sense);
                 edit_local_settings(
+                    &hold,
                     file,
                     common_git_folder.as_deref(),
                     &excluded_repositories,
@@ -287,7 +303,11 @@ pub(crate) async fn write_claude_project_rule(
             .boxed()
         },
         |file: &Path, rule: &ProviderAskRule, change: &ClaudeProjectRuleWrite| {
-            take_back_claude_project_rule(file, rule, path_rules, change).boxed()
+            let hold = holds.hold(file);
+            async move {
+                take_back_claude_project_rule(&hold, file, rule, path_rules, change).await
+            }
+            .boxed()
         },
         written_already,
     )
@@ -339,7 +359,8 @@ pub(crate) async fn remove_claude_project_rule(
     }
     let mut is_removed = false;
     for file in files {
-        is_removed |= remove_list_entries(&file, list, is_revoked).await?;
+        let hold = hold_settings_file(&file).await?;
+        is_removed |= remove_list_entries(&hold, &file, list, is_revoked).await?;
     }
     if is_removed {
         Ok(())
@@ -570,29 +591,30 @@ struct ListChange<'entries> {
 
 // Whether the rule was in the file and went.
 async fn remove_rule_from_file(
+    hold: &KeyHold<'_, PathBuf>,
     file: &Path,
     rule: &ProviderAskRule,
     path_rules: PathRules,
 ) -> Result<bool, ClaudeRulesError> {
     let removed = rule_entries(rule, path_rules)?;
     let (list, _) = sense_lists(rule.sense);
-    remove_list_entries(file, list, |entry| {
+    remove_list_entries(hold, file, list, |entry| {
         removed.iter().any(|revoked| revoked == entry)
     })
     .await
 }
 
 /// Takes every entry `is_revoked` picks out of the permission list `list` of the settings file
-/// `file`, one edit at a time on the file, every other byte kept; the one edit every revoke makes.
+/// `file`, whose edit lock `hold` holds, every other byte kept; the one edit every revoke makes.
 /// Answers whether any entry went, `false` for a file that is not there. Fails as the file cannot
 /// be read, is refused as not a strict JSON object with permission lists, or cannot be written.
 pub(crate) async fn remove_list_entries(
+    hold: &KeyHold<'_, PathBuf>,
     file: &Path,
     list: &str,
     is_revoked: impl Fn(&str) -> bool,
 ) -> Result<bool, ClaudeRulesError> {
-    let hold = hold_settings_file(file).await?;
-    let Some(text) = read_settings_file(&hold, file).await? else {
+    let Some(text) = read_settings_file(hold, file).await? else {
         return Ok(false);
     };
     let Some(edited) = edit_permission_lists(file, &text, |permissions, path| {
@@ -601,7 +623,7 @@ pub(crate) async fn remove_list_entries(
     else {
         return Ok(false);
     };
-    write_settings_file(&hold, file, edited, CLAUDE_LOCAL_SETTINGS_MODE).await?;
+    write_settings_file(hold, file, edited, CLAUDE_LOCAL_SETTINGS_MODE).await?;
     Ok(true)
 }
 
@@ -615,10 +637,12 @@ enum ClaudeProjectRuleWrite {
     Written { text_before: Option<String> },
 }
 
-// Puts `file` back as it was before the write that answered `change`: the text it held written
-// back, or the file deleted where the write made it, so an entry the write moved or found already
-// there stands again; the file Claude Code wrote for the answer loses only the rule's entries.
+// Puts `file`, whose edit lock `hold` holds since the write, back as it was before the write that
+// answered `change`: the text it held written back, or the file deleted where the write made it, so
+// an entry the write moved or found already there stands again; the file Claude Code wrote for the
+// answer loses only the rule's entries.
 async fn take_back_claude_project_rule(
+    hold: &KeyHold<'_, PathBuf>,
     file: &Path,
     rule: &ProviderAskRule,
     path_rules: PathRules,
@@ -627,34 +651,33 @@ async fn take_back_claude_project_rule(
     let text_before = match change {
         ClaudeProjectRuleWrite::Unchanged => return Ok(()),
         ClaudeProjectRuleWrite::WrittenByAnswer => {
-            return remove_rule_from_file(file, rule, path_rules)
+            return remove_rule_from_file(hold, file, rule, path_rules)
                 .await
                 .map(|_is_removed| ());
         }
         ClaudeProjectRuleWrite::Written { text_before } => text_before,
     };
-    let hold = hold_settings_file(file).await?;
     match text_before {
         Some(text) => {
-            write_settings_file(&hold, file, text.clone(), CLAUDE_LOCAL_SETTINGS_MODE).await?;
+            write_settings_file(hold, file, text.clone(), CLAUDE_LOCAL_SETTINGS_MODE).await?;
         }
-        None => delete_settings_file(&hold, file).await?,
+        None => delete_settings_file(hold, file).await?,
     }
     Ok(())
 }
 
 // Applies `changes` to `file`, made where missing and an entry is added (first listed in the
 // exclude list of the repository `common_git_folder` names, unless `excluded_repositories` holds
-// it already), one edit at a time on the file, the exclude step under the same hold. Answers what
-// it changed, for a take-back.
+// it already), under `hold`, the file's edit lock, the exclude step included. Answers what it
+// changed, for a take-back.
 async fn edit_local_settings(
+    hold: &KeyHold<'_, PathBuf>,
     file: &Path,
     common_git_folder: Option<&Path>,
     excluded_repositories: &Mutex<HashSet<PathBuf>>,
     changes: &[ListChange<'_>],
 ) -> Result<ClaudeProjectRuleWrite, ClaudeRulesError> {
-    let hold = hold_settings_file(file).await?;
-    let text_before = read_settings_file(&hold, file).await?;
+    let text_before = read_settings_file(hold, file).await?;
     let edited = if let Some(text) = &text_before {
         edit_permission_lists(file, text, |permissions, path| {
             apply_list_changes(permissions, path, changes)
@@ -686,7 +709,7 @@ async fn edit_local_settings(
     let Some(edited) = edited else {
         return Ok(ClaudeProjectRuleWrite::Unchanged);
     };
-    write_settings_file(&hold, file, edited, CLAUDE_LOCAL_SETTINGS_MODE).await?;
+    write_settings_file(hold, file, edited, CLAUDE_LOCAL_SETTINGS_MODE).await?;
     Ok(ClaudeProjectRuleWrite::Written { text_before })
 }
 
