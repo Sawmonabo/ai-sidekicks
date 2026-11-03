@@ -40,8 +40,7 @@ pub fn read_volume(path: &Path) -> io::Result<Volume> {
     }
     // A root read by a verbatim path comes back verbatim, and its prefix goes as `real_path`'s
     // does.
-    let (_, root_units) = root.split_last().expect("the root ends in its NUL");
-    let top = PathBuf::from(OsString::from_wide(&strip_verbatim_prefix(root_units)?));
+    let top = PathBuf::from(OsString::from_wide(&strip_verbatim_prefix(root.units())?));
     let id = String::from_utf16(&volume_guid_path(&open_for_attributes(path)?)?)
         .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))?;
     Ok(Volume {
@@ -50,11 +49,27 @@ pub fn read_volume(path: &Path) -> io::Result<Volume> {
     })
 }
 
-/// The root of the volume holding `path`, read by the path's verbatim form, so it comes back
-/// verbatim too (`\\?\C:\`, `\\?\UNC\server\share\`), as UTF-16 units ending in one NUL, the form a
-/// system call takes it in. Fails with `InvalidInput` when the path holds a NUL, and with the
-/// system's error when its volume cannot be read.
-pub(crate) fn read_volume_root(path: &Path) -> io::Result<Vec<u16>> {
+/// The root of a volume, read by a verbatim path, so it comes back verbatim too (`\\?\C:\`,
+/// `\\?\UNC\server\share\`): UTF-16 units ending in one NUL, the form a system call takes it in.
+pub(crate) struct VolumeRoot(Vec<u16>);
+
+impl VolumeRoot {
+    // The root's units without its NUL.
+    fn units(&self) -> &[u16] {
+        let (_, units) = self.0.split_last().expect("the root ends in its NUL");
+        units
+    }
+
+    // The root as a NUL-terminated string for a system call, live while `self` is.
+    fn as_ptr(&self) -> *const u16 {
+        self.0.as_ptr()
+    }
+}
+
+/// The root of the volume holding `path`, read by the path's verbatim form. Fails with
+/// `InvalidInput` when the path holds a NUL, and with the system's error when its volume cannot be
+/// read.
+pub(crate) fn read_volume_root(path: &Path) -> io::Result<VolumeRoot> {
     let mut verbatim = verbatim_path(path)?;
     verbatim.push(0);
     // A volume's root is never longer than the path inside it, plus the separator the system adds
@@ -73,14 +88,12 @@ pub(crate) fn read_volume_root(path: &Path) -> io::Result<Vec<u16>> {
         .position(|&unit| unit == 0)
         .expect("the root read ends in a NUL");
     volume_root.truncate(end + 1);
-    Ok(volume_root)
+    Ok(VolumeRoot(volume_root))
 }
 
-/// Whether the volume root `root`, NUL-terminated as [`read_volume_root`] reads it, is a network
-/// share's, a mapped drive included.
-pub(crate) fn is_remote_root(root: &[u16]) -> bool {
-    assert_eq!(root.last(), Some(&0), "a volume root ends in its NUL");
-    // SAFETY: the root is a live NUL-terminated string, as the line above holds.
+/// Whether the volume root `root` is a network share's, a mapped drive included.
+pub(crate) fn is_remote_root(root: &VolumeRoot) -> bool {
+    // SAFETY: a `VolumeRoot` is a live NUL-terminated string.
     unsafe { GetDriveTypeW(root.as_ptr()) == DRIVE_REMOTE }
 }
 
