@@ -38,15 +38,28 @@ pub fn read_volume(path: &Path) -> io::Result<Volume> {
             "a network share has no volume GUID path",
         ));
     }
-    // A root read by a verbatim path comes back verbatim, and its prefix goes as `real_path`'s
-    // does.
-    let top = PathBuf::from(OsString::from_wide(&strip_verbatim_prefix(root.units())?));
+    let top = top_of(&root)?;
     let id = String::from_utf16(&volume_guid_path(&open_for_attributes(path)?)?)
         .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))?;
     Ok(Volume {
         top,
         id: VolumeId::new(id),
     })
+}
+
+/// The root of the network share holding `path`, a real path as [`real_path`](crate::real_path)
+/// gives it, in `real_path`'s form: `\\server\share\`, or a mapped drive's root. Fails with
+/// `InvalidInput` when the path holds a NUL, and with the system's error otherwise.
+pub(crate) fn read_share_root(path: &Path) -> io::Result<PathBuf> {
+    top_of(&read_volume_root(path)?)
+}
+
+// The volume root `root` without its verbatim prefix: a root read by a verbatim path comes back
+// verbatim, and its prefix goes as `real_path`'s does.
+fn top_of(root: &VolumeRoot) -> io::Result<PathBuf> {
+    Ok(PathBuf::from(OsString::from_wide(&strip_verbatim_prefix(
+        root.units(),
+    )?)))
 }
 
 /// The root of a volume, read by a verbatim path, so it comes back verbatim too (`\\?\C:\`,

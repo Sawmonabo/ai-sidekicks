@@ -32,7 +32,10 @@ pub fn read_volume(path: &Path) -> io::Result<Volume> {
     })
 }
 
-fn read_mount_point(path: &Path) -> io::Result<PathBuf> {
+/// The mount point of the volume holding `path`, as `statfs` names it, which is a network share's
+/// root for a path on one. Fails with `InvalidInput` when the path holds a NUL, and the system's
+/// error otherwise.
+pub(crate) fn read_mount_point(path: &Path) -> io::Result<PathBuf> {
     let path = c_string(path.as_os_str())?;
     // SAFETY: an all-zero `statfs` is a valid value of plain integers and arrays.
     let mut volume: libc::statfs = unsafe { std::mem::zeroed() };

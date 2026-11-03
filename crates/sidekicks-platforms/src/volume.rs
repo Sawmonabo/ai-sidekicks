@@ -55,6 +55,37 @@ impl FromStr for VolumeId {
     }
 }
 
+/// What tells the disk holding a path from another, as [`read_volume_identity`] reads it: its
+/// volume's id, or, for a network share, which has none, the share's root.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum VolumeIdentity {
+    /// A volume with an id.
+    Volume(VolumeId),
+    /// A network share on macOS or Windows, by its root in [`real_path`](crate::real_path)'s form:
+    /// its mount point on macOS, `\\server\share\` or a mapped drive's root on Windows.
+    Share(PathBuf),
+}
+
+/// What tells the disk holding `path`, a real path as [`real_path`](crate::real_path) gives it,
+/// from another: its volume's id as [`read_volume`](crate::read_volume) reads it, or the share's
+/// root where the volume is a network share with no id (macOS and Windows; on Linux every volume
+/// has an id). Two paths read the same identity when they sit on one volume or one share. Fails as
+/// `read_volume` does, but never with `Unsupported` for a share.
+pub fn read_volume_identity(path: &Path) -> io::Result<VolumeIdentity> {
+    match crate::read_volume(path) {
+        Ok(volume) => Ok(VolumeIdentity::Volume(volume.id)),
+        #[cfg(target_os = "macos")]
+        Err(error) if error.kind() == ErrorKind::Unsupported => {
+            crate::macos::volume::read_mount_point(path).map(VolumeIdentity::Share)
+        }
+        #[cfg(target_os = "windows")]
+        Err(error) if error.kind() == ErrorKind::Unsupported => {
+            crate::windows::volume::read_share_root(path).map(VolumeIdentity::Share)
+        }
+        Err(error) => Err(error),
+    }
+}
+
 /// This user's own folder on `volume`, made or found, owner-only and hidden: `.ai-sidekicks-<user>`
 /// in the volume's top where the user may make it there, else in the highest folder above
 /// `checkout` that the user owns on the volume, below its top. `volume` was read from a file's real

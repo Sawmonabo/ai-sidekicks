@@ -519,7 +519,9 @@ pub use tool_memory_cap::TOOL_MEMORY_CAP_ENFORCEABLE;
 pub use tree_removal::remove_tree_awaited;
 #[cfg(not(target_os = "linux"))]
 pub use user_namespace::can_create_user_namespace;
-pub use volume::{NotAVolumeId, Volume, VolumeId, create_volume_folder};
+pub use volume::{
+    NotAVolumeId, Volume, VolumeId, VolumeIdentity, create_volume_folder, read_volume_identity,
+};
 pub use wake_helper::message::{UnknownWakeMessage, WakeRefusal, WakeReply, WakeRequest};
 #[cfg(not(target_os = "macos"))]
 pub use wake_helper::{WakeHelper, wake_helper};
