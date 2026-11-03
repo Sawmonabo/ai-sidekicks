@@ -12,6 +12,7 @@ use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::settle_all::settle_all;
 
+use super::held_calls::{HELD_TASK_STOP_BOUND, stop_held_tasks};
 use super::{ClaudeDriver, internal};
 use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeHeldCallSettle;
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
@@ -134,9 +135,10 @@ impl ClaudeDriver {
 
     /// Closes the session: a restart waiting for it, its idle sleep, its inbox, its controls and
     /// its reviewer's blocks go, then its process is disposed of, after any transition in flight
-    /// settles, each run it still held ends as the daemon's intended close, and the `Allow once`
-    /// presses its bindings held are let go. Its held tool-server calls still open then end as the
-    /// close ends them, unless the daemon stops; last its command channel is removed.
+    /// settles; a person's close first stops each background task of a tool server that outlives
+    /// the process. Each run it still held ends as the daemon's intended close, and the `Allow
+    /// once` presses its bindings held are let go. Its held tool-server calls still open then end
+    /// as the close ends them, unless the daemon stops; last its command channel is removed.
     pub(crate) async fn close_session(
         &self,
         params: CloseSessionParams,
@@ -165,11 +167,30 @@ impl ClaudeDriver {
                 ClaudeCloseStart::Closing(close) => {
                     // Marked first, so a `result` read before the channel closes ends its turn
                     // as the daemon's intended close.
-                    if let Some(stream) = parts.establishment.streams.get(session_id) {
+                    let stream = parts.establishment.streams.get(session_id);
+                    if let Some(stream) = &stream {
                         stream.signal_intended_close();
                     }
                     let session = close.session();
                     conversation = Some(ended_conversation_of(session));
+                    // Before the channel closes: a closed session never resumes, so a surviving
+                    // task would otherwise run on with nobody following it.
+                    if params.cause == SessionCloseCause::Person
+                        && let Some(stream) = &stream
+                    {
+                        match stream.surviving_held_tasks().await {
+                            Ok(task_ids) => {
+                                stop_held_tasks(&*session.channel, task_ids, HELD_TASK_STOP_BOUND)
+                                    .await;
+                            }
+                            Err(error) => tracing::warn!(
+                                %session_id,
+                                error = &error as &(dyn Error + 'static),
+                                "what Claude Code keeps of a closing session's background calls \
+                                 could not be read, so none of its tasks is stopped"
+                            ),
+                        }
+                    }
                     close.close_channel().await;
                     // Read once the session's task has ended, so a turn Claude Code started by
                     // itself while the close drained it is ended too.

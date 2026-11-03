@@ -2,6 +2,7 @@
 //! lock, and every live session's stream by session.
 
 use std::collections::HashMap;
+use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -15,7 +16,7 @@ use tokio::sync::oneshot;
 use tokio::time::Instant;
 
 use crate::driver::claude::delivery::commands::ClaudeHeldCommand;
-use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeKeptCallsSource;
+use crate::driver::claude::delivery::mcp_tasks::restore::{ClaudeKeptCall, ClaudeKeptCallsSource};
 use crate::driver::claude::delivery::run_readings::{ClaudeOpenTurn, ClaudeStreamSession};
 use crate::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
@@ -180,6 +181,27 @@ impl ClaudeSessionStream {
     /// The running command `task_id` of the session's own process, where its tasks hold it.
     pub(crate) fn held_command(&self, task_id: &str) -> Option<ClaudeHeldCommand> {
         self.lock().command_tasks.held_command(task_id)
+    }
+
+    /// The tasks of the tool-server calls the session's process holds that Claude Code's record
+    /// says still run, which outlive the process; none, with nothing read, when no call is held.
+    /// Fails as the read of what Claude Code keeps fails.
+    pub(crate) async fn surviving_held_tasks(&self) -> io::Result<Vec<String>> {
+        let held: Vec<(String, String)> = self
+            .lock()
+            .tool_server_tasks
+            .held_tasks()
+            .map(|(task_id, call_id)| (task_id.to_owned(), call_id.to_owned()))
+            .collect();
+        if held.is_empty() {
+            return Ok(Vec::new());
+        }
+        let kept = self.kept_calls.read().await?;
+        Ok(held
+            .into_iter()
+            .filter(|(task_id, call_id)| kept.call(call_id, task_id) == ClaudeKeptCall::Recorded)
+            .map(|(task_id, _)| task_id)
+            .collect())
     }
 
     /// Whether the lead `result` in `text` ends the session's turn, read on the process's reader.

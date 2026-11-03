@@ -166,6 +166,13 @@ impl ClaudeToolServerTasks {
         self.held.drain().collect()
     }
 
+    /// Each held call's task id and call id.
+    pub(crate) fn held_tasks(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.held
+            .iter()
+            .map(|(task_id, held)| (task_id.as_str(), held.tool_use_id.as_str()))
+    }
+
     /// Whether the call the tool server's task `task_id` runs is held open.
     pub(crate) fn holds_task(&self, task_id: &str) -> bool {
         self.held.contains_key(task_id)
