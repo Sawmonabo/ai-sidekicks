@@ -650,7 +650,6 @@ async fn a_wrapper_pairs_only_with_a_row_of_its_own_channels_process() {
     fixture.sets.command_started(start("own", "git status"));
     let apart_start = |id: &str| CommandStart {
         run_id: apart_run,
-        tool_call_id: None,
         ..start(id, "git status")
     };
     fixture.sets.command_started(apart_start("review"));
