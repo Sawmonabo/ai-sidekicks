@@ -286,7 +286,7 @@ While backups are on, data staleness on restore is bounded at **≤ 25 hours**: 
 - Local canonical event data and command receipts are the basis for rebuilds and idempotency.
 - Shared control-plane data remains separate from local execution truth.
 - Recovery outcomes must be surfaced into canonical event history and operational telemetry.
-- A session's file checkpoint copies and its capture folder live with that session outside any checkout and grow no table; they are retained when the session is archived, held in every backup, and deleted with the session when it is purged, the capture folder with its base pins. A workflow run's capture folder is kept while the run's record exists.
+- A session's file checkpoint copies and its capture folder live with that session outside any checkout and grow no table; they are retained when the session is archived, held in every backup, and deleted with the session when it is purged, the capture folder with the refs and objects it holds. A workflow run's capture folder is kept while the run's record exists.
 - A chat's managed workspace — the git-initialized folder the daemon creates in the same step as the chat, at `<home>/.ai-sidekicks/workspaces/<session-id>`, registered as a mount with a managed origin, the session record's `shape` reading `chat` — is the chat's checkout. It is deleted whole when its session is purged, kept while the session is archived, skipped by the worktree sweep, and held in every backup.
 - `Delete old data` is the only deletion of sessions besides `Delete session` on a session whose history is damaged, both whole sessions at a time; it moves a transcript's earliest cursor only for the sessions it removes, and a kept session keeps its data until it is deleted. Nothing the service runs on its own removes anything a person could see.
 
@@ -314,7 +314,7 @@ While backups are on, data staleness on restore is bounded at **≤ 25 hours**: 
 - [ ] Recovery failure is visible and auditable rather than silent.
 - [ ] A session with a damaged event opens at its last good point with the damaged rows still stored, `Continue from here` lets it take new work, and every other session takes writes throughout.
 - [ ] An undo puts back every file its dry run named, what an agent's edit tools and what its shell commands wrote alike, on every provider; names every file it skipped with the reason; and still finds its checkpoints after a daemon restart.
-- [ ] No capture writes an object or a ref into the person's `.git` other than the base pins, and an undo in a folder two sessions share puts back only its own session's changes.
+- [ ] No capture writes an object or a ref into the person's `.git`, and an undo in a folder two sessions share puts back only its own session's changes.
 - [ ] After a restart, a provider record ahead by steps that only read is added with its row and the session continues; any other mismatch, a part whose content cannot be read included, halts on one question with its named choices.
 - [ ] With `Back up automatically` off, nothing is backed up; a backup holds no credential, and a restore on another computer reads it directly, after which the person signs in to providers and links devices again.
 
