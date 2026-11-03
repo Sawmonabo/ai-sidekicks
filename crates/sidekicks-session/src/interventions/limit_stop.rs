@@ -410,7 +410,7 @@ impl InterventionService {
             "a limit's interrupt failed with no stop awaiting it"
         );
         if let LimitInterruptFailure::NoRow { .. } = failure
-            && let Err(error) = self.engine.forget_late_limit_hand(run_id, limit, cut).await
+            && let Err(error) = self.engine.forget_unawaited_hand(run_id, limit, cut).await
         {
             tracing::warn!(
                 run_id = %run_id,
