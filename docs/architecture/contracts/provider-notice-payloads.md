@@ -4,20 +4,21 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 
 Each kind of `session.notice.posted`, a notice the daemon records on a session about its provider or the place the provider runs. The driver interface they come through is in [Provider Driver Payload Contracts](./provider-driver-payloads.md).
 
-**Codex's warnings draw no flow row.** The Codex driver maps Codex's warnings and deprecations onto the first shape below; it is no row in the flow, and a Claude Code session carries none, because Claude Code sends no such signal. The names and their categories are [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s.
+**A provider's warnings draw no flow row.** The Codex driver maps Codex's warnings and deprecations onto the first shape below, and the daemon maps a provider's refusal to continue a lead its restart held onto it too; it is no row in the flow. The names and their categories are [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md)'s.
 
 ```ts
 // session.notice.posted of kind `providerWarning` (Spec-005 §Session Lifecycle): Codex's `warning`,
 // whose `message` becomes `text`, or its `deprecationNotice`, whose `summary` becomes `text` and
-// whose `details` are kept beside it. Recorded so the working line's warnings count and its list
-// survive a reload; it draws no flow row. `configWarning` and `guardianWarning` are not this kind,
-// nor is the `warning` right after `model/rerouted` in the same turn, which is that switch's
-// `sentence`.
+// whose `details` are kept beside it; or a provider's refusal to continue a lead the daemon's
+// restart held once its answers were given, its words as `text`. Recorded so the working line's
+// warnings count and its list survive a reload; it draws no flow row. `configWarning` and
+// `guardianWarning` are not this kind, nor is the `warning` right after `model/rerouted` in the
+// same turn, which is that switch's `sentence`.
 interface SessionNoticeProviderWarning {
   sessionId: SessionId;
   kind: "providerWarning";
-  source: "warning" | "deprecation";
-  text: string; // Codex's own words
+  source: "warning" | "deprecation" | "refusal";
+  text: string; // the provider's own words
   details?: string; // a deprecation's details; absent on a warning
 }
 
