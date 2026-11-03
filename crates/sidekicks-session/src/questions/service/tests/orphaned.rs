@@ -5,18 +5,20 @@ use serde_json::json;
 use sidekicks_contracts::question::QuestionAnswer;
 
 use super::{SECRET, secret_page};
-use crate::questions::kept_answers::OwedQuestionContinue;
+use crate::questions::orphaned_answers::OwedQuestionContinue;
 use crate::questions::service::test_fixture::{Fixture, choice_page};
 
 impl Fixture {
-    /// How many kept rows the database holds.
-    fn kept_rows(&self) -> i64 {
+    /// How many orphaned rows the database holds.
+    fn orphaned_rows(&self) -> i64 {
         self.database
             .reader()
-            .query_row("SELECT COUNT(*) FROM question_kept_answers", [], |row| {
-                row.get(0)
-            })
-            .expect("the kept rows count")
+            .query_row(
+                "SELECT COUNT(*) FROM question_orphaned_answers",
+                [],
+                |row| row.get(0),
+            )
+            .expect("the orphaned rows count")
     }
 }
 
@@ -30,7 +32,7 @@ impl Fixture {
 // that also takes the call's hand (the question asked again records a question), and by the
 // continue still owing an answer the question asked again took.
 #[tokio::test]
-async fn an_answer_no_held_request_takes_is_kept_and_answers_the_question_asked_again_once() {
+async fn an_answer_no_held_request_takes_is_orphaned_and_answers_the_question_asked_again_once() {
     let fixture = Fixture::new().await;
     let question_id = fixture.ask("request-1", json!([choice_page()]), true).await;
     fixture.questions.forget_held_request(&question_id);
@@ -43,7 +45,10 @@ async fn an_answer_no_held_request_takes_is_kept_and_answers_the_question_asked_
         .await
         .expect("the answer is kept, not refused");
 
-    assert_eq!(resolved.kept, Some((fixture.session_id, fixture.run_id)));
+    assert_eq!(
+        resolved.orphaned,
+        Some((fixture.session_id, fixture.run_id))
+    );
     assert_eq!(fixture.state(question_id), "answered");
     assert_eq!(fixture.run_state(), "running");
     assert_eq!(fixture.handed_count(), 0);
@@ -103,7 +108,7 @@ async fn an_answer_no_held_request_takes_is_kept_and_answers_the_question_asked_
     assert_eq!(fixture.run_state(), "waitingForInput");
 }
 
-// A secret answer given while no request holds its question writes no kept row and is answered
+// A secret answer given while no request holds its question writes no orphaned row and is answered
 // to the question asked again from memory; the continue reads it answered secretly. Killed by the
 // secret written to the row.
 #[tokio::test]
@@ -117,8 +122,11 @@ async fn a_secret_answer_is_kept_in_memory_only() {
         .await
         .expect("the answer is kept, not refused");
 
-    assert_eq!(resolved.kept, Some((fixture.session_id, fixture.run_id)));
-    assert_eq!(fixture.kept_rows(), 0);
+    assert_eq!(
+        resolved.orphaned,
+        Some((fixture.session_id, fixture.run_id))
+    );
+    assert_eq!(fixture.orphaned_rows(), 0);
     assert_eq!(fixture.state(question_id), "answered");
     let owed = fixture
         .questions
@@ -162,8 +170,8 @@ async fn a_question_asked_again_under_a_new_id_is_held_under_the_open_question_o
         )
         .await
         .expect("the answer lands");
-    assert_eq!(resolved.kept, None);
-    assert_eq!(fixture.kept_rows(), 0);
+    assert_eq!(resolved.orphaned, None);
+    assert_eq!(fixture.orphaned_rows(), 0);
     let handed = fixture.handed.lock().expect("never poisoned").clone();
     assert_eq!(handed.len(), 1);
     assert_eq!(handed[0].0, "request-2");

@@ -4,11 +4,11 @@
 //! one write settle the record `answered`, append the person's turn and move the run back to
 //! `running`, guarded so a second answer that raced the first, or the run's end, is refused whole
 //! and reads the state back. Where no provider request holds the question, as after the daemon's
-//! restart before its provider asked again, nothing goes out and the same write keeps the answer
-//! for the question asked again and the run's continue. An answer the tool server keeps for its
-//! next ask leaves the question open and its run waiting until that ask takes it, when the same
-//! one write settles it. A question a workflow wait holds gets its answers through the wait. A
-//! settled record answers its state and sends nothing.
+//! restart before its provider asked again, nothing goes out and the same write keeps it as an
+//! orphaned answer for the question asked again and the run's continue. An answer the tool server
+//! keeps for its next ask leaves the question open and its run waiting until that ask takes it,
+//! when the same one write settles it. A question a workflow wait holds gets its answers through
+//! the wait. A settled record answers its state and sends nothing.
 //!
 //! One window stays open on a provider that drops its own pending requests when its turn ends and
 //! drops a late answer with no word back: an answer that reaches the driver in that window returns
@@ -41,7 +41,7 @@ use sidekicks_store::events::session::appender::SessionEventDraft;
 use crate::driver_resolution::read_run_driver;
 use crate::questions::QuestionSettledState;
 use crate::questions::answer_text::compose_answer_text;
-use crate::questions::kept_answers::insert_kept_answer_statement;
+use crate::questions::orphaned_answers::insert_orphaned_answer_statement;
 use crate::questions::schema::QuestionState;
 use crate::questions::service::{
     HeldRequestAnswerer, KeptAnswer, QuestionError, QuestionResolution, QuestionsService,
@@ -52,9 +52,9 @@ use crate::questions::store::{
 use crate::questions::waits::QuestionWaitAnswer;
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
-// An answer no provider request took, kept by the write that settles its question: the pages of
-// the question asked again that takes it, and the answers.
-struct AnswerKeep<'a> {
+// An orphaned answer, which no provider request took, kept by the write that settles its
+// question: the pages of the question asked again that takes it, and the answers.
+struct OrphanedAnswer<'a> {
     pages: &'a [QuestionPrompt],
     answers: Vec<QuestionAnswer>,
 }
@@ -66,7 +66,8 @@ impl QuestionsService {
     /// its agent does not wait for, `question.waitingForRun` for one that still waits for its run,
     /// `question.answersIncomplete` for a list that does not answer every question and
     /// `question.answerInvalid` for an answer its question cannot take, each with nothing sent.
-    /// Names the session and run of an answer kept because no provider request held its question.
+    /// Names the session and run of an orphaned answer, kept because no provider request held its
+    /// question.
     /// Fails as the driver or the wait fails, nothing written, or as the write fails after the
     /// answer went out.
     pub async fn resolve_question(
@@ -93,7 +94,7 @@ impl QuestionsService {
                     question_id,
                     state: settled.into(),
                 },
-                kept: None,
+                orphaned: None,
             });
         }
         if !stored.is_agent_waiting {
@@ -104,7 +105,7 @@ impl QuestionsService {
         }
         let asked = asked.ok_or(QuestionError::AskedMissing { question_id })?;
         check_answers(question_id, asked_pages(&asked), &answers)?;
-        let (state, kept): (QuestionResolveState, _) = match stored.holder {
+        let (state, orphaned): (QuestionResolveState, _) = match stored.holder {
             QuestionHolder::Wait(wait_id) => (
                 self.waits
                     .require_port()?
@@ -134,7 +135,7 @@ impl QuestionsService {
         };
         Ok(QuestionResolution {
             response: QuestionResolveResponse { question_id, state },
-            kept,
+            orphaned,
         })
     }
 
@@ -155,18 +156,18 @@ impl QuestionsService {
         let message = MessageContent::new(compose_answer_text(&answers))
             .map_err(QuestionError::AnswerText)?;
         let Some(held) = self.held_request(&question_id) else {
-            let keep = AnswerKeep { pages, answers };
-            let (state, is_kept) = self
+            let orphaned = OrphanedAnswer { pages, answers };
+            let (state, is_orphaned) = self
                 .settle_answered(
                     question_id,
                     session_id,
                     run_id,
                     message,
                     device_id,
-                    Some(keep),
+                    Some(orphaned),
                 )
                 .await?;
-            return Ok((state.into(), is_kept.then_some((session_id, run_id))));
+            return Ok((state.into(), is_orphaned.then_some((session_id, run_id))));
         };
         let delivery = self
             .send_answers(run_id, held.request_id, &held.answered_by, answers)
@@ -235,22 +236,22 @@ impl QuestionsService {
         run_id: RunId,
         message: MessageContent,
         device_id: DeviceId,
-        keep: Option<AnswerKeep<'_>>,
+        orphaned: Option<OrphanedAnswer<'_>>,
     ) -> Result<(QuestionSettledState, bool), QuestionError> {
         let mut statements = vec![settle_question_statement(
             &question_id,
             QuestionSettledState::Answered,
         )];
-        let is_kept = keep.is_some();
-        let mut kept_secret = None;
-        if let Some(AnswerKeep { pages, answers }) = keep {
+        let is_orphaned = orphaned.is_some();
+        let mut orphaned_secret = None;
+        if let Some(OrphanedAnswer { pages, answers }) = orphaned {
             if answers
                 .iter()
                 .any(|answer| matches!(answer, QuestionAnswer::Secret { .. }))
             {
-                kept_secret = Some((pages, answers));
+                orphaned_secret = Some((pages, answers));
             } else {
-                statements.push(insert_kept_answer_statement(
+                statements.push(insert_orphaned_answer_statement(
                     question_id,
                     session_id,
                     run_id,
@@ -295,8 +296,8 @@ impl QuestionsService {
         let failure = match moved {
             Ok(_run) => {
                 self.forget_held_request(&question_id);
-                if let Some((pages, answers)) = kept_secret {
-                    self.kept_secrets.keep(
+                if let Some((pages, answers)) = orphaned_secret {
+                    self.orphaned_secrets.record(
                         question_id,
                         session_id,
                         run_id,
@@ -304,7 +305,7 @@ impl QuestionsService {
                         answers,
                     );
                 }
-                return Ok((QuestionSettledState::Answered, is_kept));
+                return Ok((QuestionSettledState::Answered, is_orphaned));
             }
             Err(failure) => failure,
         };

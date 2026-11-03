@@ -1,4 +1,4 @@
-//! The kept answers: an answer given while no provider request held its question, as after the
+//! The orphaned answers: an answer given while no provider request held its question, as after the
 //! daemon's restart before its provider asked again, kept so the question asked again and the
 //! run's continue each take it once.
 //!
@@ -30,36 +30,37 @@ use crate::questions::resolve::asked_pages;
 use crate::questions::service::{HeldRequestAnswerer, QuestionError, QuestionsService};
 use crate::questions::store::{read_asked, read_unsettled_held_questions};
 
-const INSERT_KEPT_ANSWER_SQL: &str = "INSERT INTO question_kept_answers
-    (question_id, session_id, run_id, answer, kept_at)
-  VALUES (@questionId, @sessionId, @runId, @answer, @keptAt)";
+const INSERT_ORPHANED_ANSWER_SQL: &str = "INSERT INTO question_orphaned_answers
+    (question_id, session_id, run_id, answer, recorded_at)
+  VALUES (@questionId, @sessionId, @runId, @answer, @recordedAt)";
 
 const CALL_HAND: HandedMark = HandedMark {
-    table: "question_kept_answers",
+    table: "question_orphaned_answers",
     key_column: "question_id",
     mark_column: "call_handed_at",
 };
 
 const CONTINUE_HAND: HandedMark = HandedMark {
-    table: "question_kept_answers",
+    table: "question_orphaned_answers",
     key_column: "question_id",
     mark_column: "continue_handed_at",
 };
 
-// The run's kept answers to a question of the same pages that no question asked again took yet.
-const KEPT_CALL_ANSWERS_SQL: &str = "SELECT kept.question_id, kept.answer, kept.kept_at
-  FROM question_kept_answers AS kept
-  JOIN questions ON questions.id = kept.question_id
-  WHERE kept.run_id = @runId AND kept.call_handed_at IS NULL
+// The run's orphaned answers to a question of the same pages that no question asked again took yet.
+const ORPHANED_CALL_ANSWERS_SQL: &str =
+    "SELECT orphaned.question_id, orphaned.answer, orphaned.recorded_at
+  FROM question_orphaned_answers AS orphaned
+  JOIN questions ON questions.id = orphaned.question_id
+  WHERE orphaned.run_id = @runId AND orphaned.call_handed_at IS NULL
     AND questions.input_digest = @inputDigest";
 
-// The session's kept answers neither a continue nor the question asked again took yet, since an
+// The session's orphaned answers neither a continue nor the question asked again took yet, since an
 // answer the question asked again took is not repeated to the agent.
-const OWED_CONTINUES_SQL: &str = "SELECT question_id, run_id, answer, kept_at
-  FROM question_kept_answers
+const OWED_CONTINUES_SQL: &str = "SELECT question_id, run_id, answer, recorded_at
+  FROM question_orphaned_answers
   WHERE session_id = @sessionId AND continue_handed_at IS NULL AND call_handed_at IS NULL";
 
-/// A kept answer a run's continue still owes its agent: the question and what the person said.
+/// An orphaned answer a run's continue still owes its agent: the question and what the person said.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OwedQuestionContinue {
     /// The question.
@@ -75,10 +76,10 @@ pub struct OwedQuestionContinue {
 /// The answers given with a secret while no request held their question, by question: held in
 /// memory only, never written, so they are lost at the daemon's next stop.
 #[derive(Default)]
-pub(crate) struct KeptSecretAnswers(Mutex<HashMap<QuestionId, KeptSecretAnswer>>);
+pub(crate) struct OrphanedSecretAnswers(Mutex<HashMap<QuestionId, OrphanedSecretAnswer>>);
 
 /// One answer given with a secret while no request held its question.
-struct KeptSecretAnswer {
+struct OrphanedSecretAnswer {
     /// The session.
     session_id: SessionId,
     /// The run that asked it.
@@ -86,7 +87,7 @@ struct KeptSecretAnswer {
     /// The digest of its pages, by which the question asked again finds it.
     input_digest: Option<Sha256Hex>,
     /// When it was kept.
-    kept_at: WireInstant,
+    recorded_at: WireInstant,
     /// The answers, secret included, until the question asked again takes them.
     answers: Option<Vec<QuestionAnswer>>,
     /// The person's turn, the secret masked, which the run's continue reads.
@@ -95,10 +96,10 @@ struct KeptSecretAnswer {
     is_continue_handed: bool,
 }
 
-impl KeptSecretAnswers {
-    /// Keeps `answers`, which hold a secret, to `question_id` of `run_id` in `session_id`, whose
+impl OrphanedSecretAnswers {
+    /// Records `answers`, which hold a secret, to `question_id` of `run_id` in `session_id`, whose
     /// pages have `input_digest`.
-    pub(crate) fn keep(
+    pub(crate) fn record(
         &self,
         question_id: QuestionId,
         session_id: SessionId,
@@ -109,11 +110,11 @@ impl KeptSecretAnswers {
         let answer_text = compose_answer_text(&answers);
         lock(&self.0).insert(
             question_id,
-            KeptSecretAnswer {
+            OrphanedSecretAnswer {
                 session_id,
                 run_id,
                 input_digest,
-                kept_at: WireInstant::now(),
+                recorded_at: WireInstant::now(),
                 answers: Some(answers),
                 answer_text,
                 is_continue_handed: false,
@@ -123,7 +124,7 @@ impl KeptSecretAnswers {
 
     // Forgets every answer kept for `session_id`.
     fn forget_session(&self, session_id: SessionId) {
-        lock(&self.0).retain(|_, kept| kept.session_id != session_id);
+        lock(&self.0).retain(|_, orphaned| orphaned.session_id != session_id);
     }
 
     // The questions of `run_id` and `input_digest` whose answers no question asked again took,
@@ -135,12 +136,12 @@ impl KeptSecretAnswers {
     ) -> Vec<(String, QuestionId)> {
         lock(&self.0)
             .iter()
-            .filter(|(_, kept)| {
-                kept.run_id == run_id
-                    && kept.input_digest.as_ref() == Some(input_digest)
-                    && kept.answers.is_some()
+            .filter(|(_, orphaned)| {
+                orphaned.run_id == run_id
+                    && orphaned.input_digest.as_ref() == Some(input_digest)
+                    && orphaned.answers.is_some()
             })
-            .map(|(question_id, kept)| (kept.kept_at.as_str().to_owned(), *question_id))
+            .map(|(question_id, orphaned)| (orphaned.recorded_at.as_str().to_owned(), *question_id))
             .collect()
     }
 
@@ -154,15 +155,17 @@ impl KeptSecretAnswers {
     fn owed(&self, session_id: SessionId) -> Vec<(String, QuestionId, RunId, String)> {
         lock(&self.0)
             .iter()
-            .filter(|(_, kept)| {
-                kept.session_id == session_id && !kept.is_continue_handed && kept.answers.is_some()
+            .filter(|(_, orphaned)| {
+                orphaned.session_id == session_id
+                    && !orphaned.is_continue_handed
+                    && orphaned.answers.is_some()
             })
-            .map(|(question_id, kept)| {
+            .map(|(question_id, orphaned)| {
                 (
-                    kept.kept_at.as_str().to_owned(),
+                    orphaned.recorded_at.as_str().to_owned(),
                     *question_id,
-                    kept.run_id,
-                    kept.answer_text.clone(),
+                    orphaned.run_id,
+                    orphaned.answer_text.clone(),
                 )
             })
             .collect()
@@ -171,17 +174,17 @@ impl KeptSecretAnswers {
     // Sets `question_id`'s continue mark to `is_handed`: whether it changed, or `None` where no
     // secret answer of it is kept.
     fn mark_continue(&self, question_id: &QuestionId, is_handed: bool) -> Option<bool> {
-        let mut kept = lock(&self.0);
-        let kept = kept.get_mut(question_id)?;
-        let is_changed = kept.is_continue_handed != is_handed;
-        kept.is_continue_handed = is_handed;
+        let mut orphaned = lock(&self.0);
+        let orphaned = orphaned.get_mut(question_id)?;
+        let is_changed = orphaned.is_continue_handed != is_handed;
+        orphaned.is_continue_handed = is_handed;
         Some(is_changed)
     }
 }
 
-/// The kept row of `answers`, plain answers to `question_id` of `run_id` in `session_id`, written
-/// in the answer's own write. Refused when the question's answer is already kept.
-pub(crate) fn insert_kept_answer_statement(
+/// The orphaned row of `answers`, plain answers to `question_id` of `run_id` in `session_id`,
+/// written in the answer's own write. Refused when the question's answer is already kept.
+pub(crate) fn insert_orphaned_answer_statement(
     question_id: QuestionId,
     session_id: SessionId,
     run_id: RunId,
@@ -189,13 +192,13 @@ pub(crate) fn insert_kept_answer_statement(
 ) -> WriteStatement {
     let answer = serde_json::to_string(answers).expect("a question's answers write as JSON");
     WriteStatement {
-        sql: Cow::Borrowed(INSERT_KEPT_ANSWER_SQL),
+        sql: Cow::Borrowed(INSERT_ORPHANED_ANSWER_SQL),
         bindings: StatementBindings::Named(vec![
             text_binding("@questionId", question_id.text().as_str()),
             text_binding("@sessionId", session_id.text().as_str()),
             text_binding("@runId", run_id.text().as_str()),
             text_binding("@answer", &answer),
-            text_binding("@keptAt", WireInstant::now().as_str()),
+            text_binding("@recordedAt", WireInstant::now().as_str()),
         ]),
         expected_row_count: Some(1),
     }
@@ -204,7 +207,7 @@ pub(crate) fn insert_kept_answer_statement(
 impl QuestionsService {
     /// Forgets the answers with a secret kept in memory for `session_id`, once a purge removed it.
     pub fn forget_purged_session(&self, session_id: SessionId) {
-        self.kept_secrets.forget_session(session_id);
+        self.orphaned_secrets.forget_session(session_id);
     }
 
     /// Whether `run_id` holds a question its agent waits on that the person has not answered yet,
@@ -219,14 +222,14 @@ impl QuestionsService {
         Ok(!unsettled.is_empty())
     }
 
-    /// Every kept answer the session's runs' continues still owe, oldest first: one the question
-    /// asked again did not take. Fails as the read fails, or where the log holds no
-    /// `question.asked` for a kept answer's question.
+    /// Every orphaned answer the session's runs' continues still owe, oldest first: one the
+    /// question asked again did not take. Fails as the read fails, or where the log holds no
+    /// `question.asked` for an orphaned answer's question.
     pub async fn owed_continues(
         &self,
         session_id: SessionId,
     ) -> Result<Vec<OwedQuestionContinue>, QuestionError> {
-        let secrets = self.kept_secrets.owed(session_id);
+        let secrets = self.orphaned_secrets.owed(session_id);
         let mut owed = self
             .reads
             .read(ReadLength::Short, move |reader| {
@@ -248,7 +251,7 @@ impl QuestionsService {
                     .collect::<rusqlite::Result<Vec<_>>>()?;
                 rows.into_iter()
                     .chain(secrets)
-                    .map(|(kept_at, question_id, run_id, answer)| {
+                    .map(|(recorded_at, question_id, run_id, answer)| {
                         let asked = read_asked(reader, session_id, &question_id)?
                             .ok_or(QuestionError::AskedMissing { question_id })?;
                         let question = asked_pages(&asked)
@@ -257,7 +260,7 @@ impl QuestionsService {
                             .collect::<Vec<_>>()
                             .join("\n");
                         Ok((
-                            kept_at,
+                            recorded_at,
                             OwedQuestionContinue {
                                 question_id,
                                 run_id,
@@ -273,11 +276,11 @@ impl QuestionsService {
         Ok(owed.into_iter().map(|(_, owed)| owed).collect())
     }
 
-    /// Claims the question's kept answer for a run's continue: true for the one caller that takes
-    /// it, false once it was taken and for a question with no kept answer. Fails as the claim's
-    /// write fails.
+    /// Claims the question's orphaned answer for a run's continue: true for the one caller that
+    /// takes it, false once it was taken and for a question with no orphaned answer. Fails as the
+    /// claim's write fails.
     pub async fn claim_continue(&self, question_id: QuestionId) -> Result<bool, QuestionError> {
-        if let Some(is_claimed) = self.kept_secrets.mark_continue(&question_id, true) {
+        if let Some(is_claimed) = self.orphaned_secrets.mark_continue(&question_id, true) {
             return Ok(is_claimed);
         }
         Ok(CONTINUE_HAND
@@ -285,11 +288,11 @@ impl QuestionsService {
             .await?)
     }
 
-    /// Gives back a continue's claim on the question's kept answer, the continue having failed
+    /// Gives back a continue's claim on the question's orphaned answer, the continue having failed
     /// before it reached the agent, so the next continue takes it. Fails as the write fails.
     pub async fn release_continue(&self, question_id: QuestionId) -> Result<(), QuestionError> {
         if self
-            .kept_secrets
+            .orphaned_secrets
             .mark_continue(&question_id, false)
             .is_some()
         {
@@ -300,24 +303,24 @@ impl QuestionsService {
             .await?)
     }
 
-    /// Hands the oldest kept answer of `run_id` to a question of `input_digest`'s pages, that no
-    /// question asked again took yet, to `request_id` through `answered_by`, its mark claimed
+    /// Hands the oldest orphaned answer of `run_id` to a question of `input_digest`'s pages, that
+    /// no question asked again took yet, to `request_id` through `answered_by`, its mark claimed
     /// first; answers the question it answered, or `None` where no such answer is kept. Fails as
     /// the read, the claim or the hand fails; a hand that fails after its claim is not repeated.
-    pub(super) async fn hand_kept_answer(
+    pub(super) async fn hand_orphaned_answer(
         &self,
         run_id: RunId,
         request_id: &str,
         input_digest: Sha256Hex,
         answered_by: &HeldRequestAnswerer,
     ) -> Result<Option<QuestionId>, QuestionError> {
-        let mut candidates = self.kept_secrets.call_candidates(run_id, &input_digest);
+        let mut candidates = self.orphaned_secrets.call_candidates(run_id, &input_digest);
         let mut rows = self
             .reads
             .read(ReadLength::Short, move |reader| {
                 Ok::<_, QuestionError>(
                     reader
-                        .prepare_cached(KEPT_CALL_ANSWERS_SQL)?
+                        .prepare_cached(ORPHANED_CALL_ANSWERS_SQL)?
                         .query_map(
                             named_params! {
                                 "@runId": run_id.text().as_str(),
@@ -328,8 +331,8 @@ impl QuestionsService {
                                     text_column(row, 0, |text| QuestionId::new(&text))?;
                                 let answers: Vec<QuestionAnswer> =
                                     text_column(row, 1, |text| serde_json::from_str(&text))?;
-                                let kept_at: String = row.get(2)?;
-                                Ok((question_id, (kept_at, answers)))
+                                let recorded_at: String = row.get(2)?;
+                                Ok((question_id, (recorded_at, answers)))
                             },
                         )?
                         .collect::<rusqlite::Result<HashMap<_, _>>>()?,
@@ -338,7 +341,7 @@ impl QuestionsService {
             .await?;
         candidates.extend(
             rows.iter()
-                .map(|(question_id, (kept_at, _))| (kept_at.clone(), *question_id)),
+                .map(|(question_id, (recorded_at, _))| (recorded_at.clone(), *question_id)),
         );
         candidates.sort_by(|(left, _), (right, _)| left.cmp(right));
         for (_, question_id) in candidates {
@@ -352,7 +355,7 @@ impl QuestionsService {
                     }
                     answers
                 }
-                None => match self.kept_secrets.take_call(&question_id) {
+                None => match self.orphaned_secrets.take_call(&question_id) {
                     Some(answers) => answers,
                     None => continue,
                 },

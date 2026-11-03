@@ -5,7 +5,7 @@
 //! the answer and kept on the record with the digest of its pages, so a request its provider sends
 //! again after the daemon's restart, under the same id or a new one, is held again for its open
 //! question, with no second record and the run unmoved; one whose question was answered meanwhile
-//! is handed the kept answer once.
+//! is handed the orphaned answer once.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -52,7 +52,7 @@ use sidekicks_store::events::session::appender::{
 
 use crate::driver_resolution::LiveRunDriverError;
 use crate::questions::QuestionSettledState;
-use crate::questions::kept_answers::KeptSecretAnswers;
+use crate::questions::orphaned_answers::OrphanedSecretAnswers;
 use crate::questions::schema::QuestionState;
 use crate::questions::store::{
     insert_question_statement, question_input_digest, read_open_questions_asked_again,
@@ -70,8 +70,9 @@ mod tests;
 
 /// The statements [`QuestionsService`] prepares on a read connection: a record, its pages,
 /// whether its run has an interrupt recorded, which held questions are still open, the open
-/// questions a request sent again returns to, the kept answers a question asked again takes, the
-/// kept answers a session's continues owe, and a session's open questions that came on a request.
+/// questions a request sent again returns to, the orphaned answers a question asked again takes,
+/// the orphaned answers a session's continues owe, and a session's open questions that came on a
+/// request.
 pub const QUESTION_STATEMENT_CAPACITY: usize = 8;
 
 // Whether a person's or the daemon's interrupt of the run was asked for or carried out.
@@ -188,19 +189,20 @@ pub enum QuestionError {
     /// SQLite refused a read, or a stored column does not read as its type.
     #[error("a read of the question rows failed")]
     Database(#[from] rusqlite::Error),
-    /// A kept answer's mark was not written.
-    #[error("a kept answer's mark was not written")]
+    /// An orphaned answer's mark was not written.
+    #[error("an orphaned answer's mark was not written")]
     Write(#[from] WriteError),
 }
 
-/// What `question.resolve` came to: its response, and, where the answer was kept because no
+/// What `question.resolve` came to: its response, and, for an orphaned answer, kept because no
 /// provider request held its question, the session and run whose continue owes it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QuestionResolution {
     /// The record's settled state, or `kept` for an answer a tool server kept for its next ask.
     pub response: QuestionResolveResponse,
-    /// The session and run of an answer kept because no provider request held its question.
-    pub kept: Option<(SessionId, RunId)>,
+    /// The session and run of an orphaned answer, kept because no provider request held its
+    /// question.
+    pub orphaned: Option<(SessionId, RunId)>,
 }
 
 /// Records the questions the drivers hand, answers them and cancels the ones they withdraw.
@@ -216,7 +218,7 @@ pub struct QuestionsService {
     // Each open held question's provider request; never locked across an await.
     held_requests: Mutex<HashMap<QuestionId, HeldRequest>>,
     // The answers given with a secret while no request held their question, never written.
-    pub(super) kept_secrets: KeptSecretAnswers,
+    pub(super) orphaned_secrets: OrphanedSecretAnswers,
     // Told each time a request is held or a question's record lands, so a test awaits either
     // instead of polling.
     #[cfg(test)]
@@ -236,7 +238,7 @@ pub(super) enum QuestionRecording {
 }
 
 impl QuestionsService {
-    /// A service writing through `appender`, reading through `reads`, marking kept answers'
+    /// A service writing through `appender`, reading through `reads`, marking orphaned answers'
     /// hands through `writer`, moving runs through `engine` and reaching each run's provider
     /// through its driver in `providers`.
     pub fn new(
@@ -255,7 +257,7 @@ impl QuestionsService {
             waits: PortRegistration::new("question waits"),
             question_lock: KeyedLock::new(),
             held_requests: Mutex::new(HashMap::new()),
-            kept_secrets: KeptSecretAnswers::default(),
+            orphaned_secrets: OrphanedSecretAnswers::default(),
             #[cfg(test)]
             held_or_recorded: tokio::sync::Notify::new(),
         }
@@ -289,9 +291,9 @@ impl QuestionsService {
     /// kept. An open one its agent waits on, whose request no held question has, that the run's
     /// open question came on or asks that question's pages, is that question asked again: its
     /// request is held for it, with no second record and the run unmoved; where the run's question
-    /// of those pages was answered while no request held it, the kept answer goes to this request
-    /// once, with nothing recorded. Answers the id and the state recorded; fails as the read, the
-    /// draft, the move, the write or the kept answer's hand fails, the hold let go.
+    /// of those pages was answered while no request held it, the orphaned answer goes to this
+    /// request once, with nothing recorded. Answers the id and the state recorded; fails as the
+    /// read, the draft, the move, the write or the orphaned answer's hand fails, the hold let go.
     pub(super) async fn record(
         &self,
         question: ProviderQuestion,
@@ -329,7 +331,7 @@ impl QuestionsService {
                 Some(question_id) => Some(question_id),
                 None => match input_digest {
                     Some(input_digest) => {
-                        self.hand_kept_answer(run_id, &request_id, input_digest, &answered_by)
+                        self.hand_orphaned_answer(run_id, &request_id, input_digest, &answered_by)
                             .await?
                     }
                     None => None,

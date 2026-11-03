@@ -1,11 +1,11 @@
 //! The questions service's tests: a held question's answer and the refusals that send nothing,
 //! each way a question ends unanswered, a question's turn while its run waits on another, the
 //! queued answers of a question its agent does not wait for, a tool server's kept answer, and the
-//! answer kept while no request held its question.
+//! orphaned answer, kept while no request held its question.
 
 mod answers;
 mod endings;
-mod kept;
+mod orphaned;
 mod queued_answers;
 mod run_turn;
 mod tool_server;

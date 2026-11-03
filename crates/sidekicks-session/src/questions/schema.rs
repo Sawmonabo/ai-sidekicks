@@ -4,8 +4,8 @@
 //! Both are projections of the `question.*`, `user.message.sent` and `agent.queueItem.*` events,
 //! written in each event's own write and rebuilt from the log. A record's pages stay in its
 //! `question.asked` event, read from there when an answer is checked, and a secret answer is never
-//! written anywhere. Beside them, the kept answers: an answer given while no provider request held
-//! its question, kept so the question asked again and the run's continue each take it once; a
+//! written anywhere. Beside them, the orphaned answers: an answer given while no provider request
+//! held its question, kept so the question asked again and the run's continue each take it once; a
 //! record answered with a secret is kept in memory only.
 
 use serde::Deserialize;
@@ -78,17 +78,17 @@ CREATE INDEX idx_question_answer_items_question ON question_answer_items(questio
 -- Each answer given while no provider request held its question, as the JSON of its answers,
 -- written in the answer's own write; each hand claims its mark before the answer goes out. No
 -- REFERENCES: the questions are rebuilt from the log, and this row outlives a rebuild.
-CREATE TABLE question_kept_answers (
+CREATE TABLE question_orphaned_answers (
   question_id         TEXT PRIMARY KEY,
   session_id          TEXT NOT NULL,
   run_id              TEXT NOT NULL,
   answer              TEXT NOT NULL,
-  kept_at             TEXT NOT NULL,
+  recorded_at         TEXT NOT NULL,
   call_handed_at      TEXT,                    -- the question asked again took it
   continue_handed_at  TEXT                     -- the run's continue took it
 ) STRICT;
 
-CREATE INDEX idx_question_kept_answers_session ON question_kept_answers(session_id);
+CREATE INDEX idx_question_orphaned_answers_session ON question_orphaned_answers(session_id);
 "
     )
 }

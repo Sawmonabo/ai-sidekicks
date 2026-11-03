@@ -4,7 +4,7 @@
 //! request held its question.
 
 pub(crate) mod answer_text;
-pub mod kept_answers;
+pub mod orphaned_answers;
 pub mod projection;
 pub(crate) mod resolve;
 pub(crate) mod restart;
