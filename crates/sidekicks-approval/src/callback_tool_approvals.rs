@@ -210,9 +210,10 @@ impl CallbackToolApprovalSeam for CallbackToolApprovals {
     }
 }
 
-// The person's answer on the daemon's own card, as a step reads it: approved runs, declined
+// The person's answer on the daemon's own card, for a step's card and an agent tool's alike, in
+// the step's verdict, which `settle_card` maps onto an agent's call: approved runs, declined
 // carries the words they typed and the decline's instant, and a card that ended with its run or
-// session refuses. Fails when the daemon stops before the card settles.
+// session refuses in a step's words. Fails when the daemon stops before the card settles.
 async fn answer_of(card: RaisedCard) -> Result<StepActionVerdict, CallbackToolApprovalError> {
     match card.settled.settled().await {
         RaisedRequestSettlement::Approved => Ok(StepActionVerdict::Allowed),
