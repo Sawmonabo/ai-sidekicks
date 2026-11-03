@@ -10,6 +10,7 @@ use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension, named_params};
 use sidekicks_contracts::event::envelope::EventEnvelope;
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::run::control::AgentRunRolledBackEvent;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
@@ -72,11 +73,19 @@ pub struct RunEventAttribution {
 struct RunFold {
     standing: EpochPosition,
     turns: SupersededTurns,
-    // The turn each tool call opened in, held until a later row of the call reads it or the run
-    // ends; a row after that reads the opening from the log, so the map holds only calls still
-    // open.
+    // The turn each tool call opened in, held until the call's result, error or move to the
+    // background takes it or the run ends; a row after that reads the opening from the log, so
+    // the map holds only calls still open.
     opened_tool_calls: HashMap<String, EpochPosition>,
 }
+
+// The rows that end a tool call's held opening: its result, its error and its move to the
+// background.
+const TOOL_CALL_CLOSING_EVENT_TYPES: [&str; 3] = [
+    SessionEventType::AgentToolCallCompleted.as_str(),
+    SessionEventType::AgentToolCallFailed.as_str(),
+    SessionEventType::AgentToolCallBackgrounded.as_str(),
+];
 
 /// The statements a read of where a run stands prepares: its rollbacks and its turn starts.
 pub const RUN_STANDING_STATEMENT_CAPACITY: usize = 2;
@@ -343,9 +352,10 @@ impl SessionTurnAttribution {
         })
     }
 
-    // The turn a row of the run belongs to. A row of a tool call ends its held opening, whether it
-    // is the call's result, its error or the provider's move of it to the background; a later row
-    // of that call, a background call's close among them, reads the opening from the log.
+    // The turn a row of the run belongs to. The call's result, its error or the provider's move of
+    // it to the background ends the call's held opening, and a later one of those, a background
+    // call's close among them, reads the opening from the log; a command's ending, the call's one
+    // other row, reads the held opening and leaves it held.
     fn source_of<DamagedFrom>(
         &self,
         reads: &RunTurnReads<'_, DamagedFrom>,
@@ -361,7 +371,11 @@ impl SessionTurnAttribution {
         let Some(tool_call_id) = tool_call_id else {
             return Ok(stamped_source.unwrap_or(fold.standing));
         };
-        let held = fold.opened_tool_calls.remove(tool_call_id);
+        let held = if TOOL_CALL_CLOSING_EVENT_TYPES.contains(&event.event_type.as_str()) {
+            fold.opened_tool_calls.remove(tool_call_id)
+        } else {
+            fold.opened_tool_calls.get(tool_call_id).copied()
+        };
         if let Some(source) = stamped_source.or(held) {
             return Ok(source);
         }
