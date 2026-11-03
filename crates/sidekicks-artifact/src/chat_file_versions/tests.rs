@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use futures::future::BoxFuture;
+use rusqlite::params;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::artifacts::operations::{
     ArtifactListEntry, ArtifactPayloadSelection, ArtifactReadRequest, ArtifactReadResponse,
@@ -20,6 +21,7 @@ use sidekicks_workspace::managed::write_watcher::{
     ManagedWorkspaceReport, ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
     ManagedWritesWatermark,
 };
+use sidekicks_workspace::test_rows::insert_held_managed_mount;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 
@@ -88,23 +90,20 @@ async fn fixture() -> Fixture {
     let workspaces = tempfile::tempdir().expect("the test makes a temporary folder");
     let workspace = workspaces.path().join(store.session_id.to_string());
     std::fs::create_dir_all(&workspace).expect("the test makes the chat's workspace");
-    store
-        .database
-        .reader()
-        .execute_batch(&format!(
-            "INSERT INTO repo_mounts (id, machine_id, local_path, canonical_root, origin, \
-             managed_session_id, attached_at, updated_at) VALUES ('{FOLDER_MOUNT_ID}', 'machine', \
-             '{root}', '{root}', 'managed', '{session}', '2026-10-14T09:00:00.000Z', \
-             '2026-10-14T09:00:00.000Z');
-             INSERT INTO managed_folder_holds (repo_mount_id, session_id) \
-             VALUES ('{FOLDER_MOUNT_ID}', '{session}');
-             INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, created_at, \
-             updated_at) VALUES ('founding', '{session}', '{FOLDER_MOUNT_ID}', 'boundRoot', \
-             '2026-10-14T09:30:00.000Z', '2026-10-14T09:30:00.000Z')",
-            root = workspace.display(),
-            session = store.session_id,
-        ))
-        .expect("the chat's folder, its hold and its workspace are admitted");
+    let rows = store.database.reader();
+    insert_held_managed_mount(
+        &rows,
+        FOLDER_MOUNT_ID,
+        &workspace,
+        store.session_id.text().as_str(),
+    );
+    rows.execute(
+        "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, created_at, \
+         updated_at) VALUES ('founding', ?1, ?2, 'boundRoot', '2026-10-14T09:30:00.000Z', \
+         '2026-10-14T09:30:00.000Z')",
+        params![store.session_id.text().as_str(), FOLDER_MOUNT_ID],
+    )
+    .expect("the chat's workspace is admitted");
     let watermark = Arc::new(CountingWatermark {
         reader: Mutex::new(store.database.reader()),
         stored: Mutex::default(),

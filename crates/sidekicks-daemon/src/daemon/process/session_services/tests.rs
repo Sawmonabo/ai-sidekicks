@@ -70,6 +70,7 @@ use sidekicks_workspace::managed::write_watcher::{
     ManagedWorkspaceReport, ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
 };
 use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate, RunSetupGateError};
+use sidekicks_workspace::test_rows::insert_held_managed_mount;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -375,20 +376,12 @@ async fn the_stop_records_every_write_sent_before_it() {
     let workspace = managed_workspaces_folder(fixture.home.path()).join(session_id.to_string());
     std::fs::create_dir_all(&workspace).expect("the test makes the chat's workspace");
     // The chat's folder is its managed mount, which the chat holds.
-    fixture
-        .database
-        .reader()
-        .execute_batch(&format!(
-            "INSERT INTO repo_mounts (id, machine_id, local_path, canonical_root, origin, \
-             managed_session_id, attached_at, updated_at) VALUES ('{mount}', 'machine', \
-             '{root}', '{root}', 'managed', '{session_id}', '2026-10-14T09:00:00.000Z', \
-             '2026-10-14T09:00:00.000Z');
-             INSERT INTO managed_folder_holds (repo_mount_id, session_id) \
-             VALUES ('{mount}', '{session_id}');",
-            mount = mint_uuid_v7(),
-            root = workspace.display(),
-        ))
-        .expect("the chat's folder and its hold are admitted");
+    insert_held_managed_mount(
+        &fixture.database.reader(),
+        &mint_uuid_v7().to_string(),
+        &workspace,
+        session_id.text().as_str(),
+    );
     let writes = fixture.writes.take().expect("the writes are sent once");
     for index in 0..WRITES {
         let name = format!("note-{index}.txt");

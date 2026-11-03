@@ -148,7 +148,7 @@ sidekicks-std = { workspace = true, features = ["test-support"] }
 sidekicks-store = { workspace = true, features = ["test-support"] }
 # The workflow rows the tests build on.
 sidekicks-workflow = { workspace = true, features = ["test-support"] }
-# The git runner the tests script.
+# The git runner the tests script, and the chat folder rows they admit.
 sidekicks-workspace = { workspace = true, features = ["test-support"] }
 # The paused clock the local gateway's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
