@@ -139,6 +139,7 @@ fn start(id: &str, name: &str) -> CommandStart {
         session_id: session(),
         command_id: command(id),
         run_id: RunId::new(RUN).expect("a run id"),
+        tool_call_id: None,
         binding_id: binding("binding-a"),
         name: NonEmptyText::new(name.to_owned()).expect("a name"),
         started_at: WireInstant::now(),
@@ -649,6 +650,7 @@ async fn a_wrapper_pairs_only_with_a_row_of_its_own_channels_process() {
     fixture.sets.command_started(start("own", "git status"));
     let apart_start = |id: &str| CommandStart {
         run_id: apart_run,
+        tool_call_id: None,
         ..start(id, "git status")
     };
     fixture.sets.command_started(apart_start("review"));

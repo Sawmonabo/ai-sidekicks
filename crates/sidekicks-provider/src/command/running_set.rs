@@ -557,6 +557,7 @@ impl RunningCommandSets {
             session_id,
             run_id: row.start.run_id,
             command_id: row.start.command_id,
+            tool_call_id: row.start.tool_call_id,
             ending,
             exit_code,
             duration_ms: SafeInt::new(duration_ms).expect("a command runs far less than 2^53 ms"),
@@ -594,6 +595,7 @@ impl RunningCommandPublisher for RunningCommandSets {
                 || (row.start.process_id.is_none() && start.process_id.is_some());
             row.start.line = row.start.line.take().or(start.line);
             row.start.process_id = row.start.process_id.take().or(start.process_id);
+            row.start.tool_call_id = row.start.tool_call_id.take().or(start.tool_call_id);
             let was_waiting = row.wrapper == RowWrapper::Waiting;
             commands.pair_waiting_wrapper(&mut row);
             let is_paired = was_waiting && row.wrapper != RowWrapper::Waiting;
