@@ -7,6 +7,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::command::{AgentCommandEndedPayload, CommandEnding};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::mpsc;
@@ -56,10 +57,12 @@ fn started(task_id: &str, task_type: &str, tool_use_id: &str) -> Value {
 }
 
 // Fails when a cause of Claude Code's own stop is read as an ordinary end, so the row reads
-// finished, or its summary is dropped; when a completed task reads as stopped; or when a row's line
-// is not the text Claude Code's shell line runs, so no wrapper pairs with it. Mutations: in
+// finished, or its summary is dropped; when a completed task reads as stopped; when a row's line
+// is not the text Claude Code's shell line runs, so no wrapper pairs with it; or when the row
+// takes no call from its start, so its ending names none. Mutations: in
 // `ClaudeCommandTasks::read_frame`, `is_stopped_by_provider` read off `reason`, or `false`; the
-// summary kept for every status; `line` set to the raw command.
+// summary kept for every status; `line` set to the raw command; in `ClaudeCommandTasks::start`,
+// a new task's `tool_call_id` set to `None`.
 #[rstest]
 #[case::time_limit("stopped", None, true)]
 #[case::worker_restart("stopped", Some("worker_restart"), true)]
@@ -86,6 +89,10 @@ fn a_stopped_command_task_ends_stopped_by_the_provider_with_its_summary(
         panic!("a shell task starts a row");
     };
     assert_eq!(start.line.as_deref(), Some("npm test > /dev/null"));
+    assert_eq!(
+        start.tool_call_id.as_ref().map(ToolCallId::as_str),
+        Some("call-1")
+    );
     assert_eq!(
         tasks
             .held_command("task-1")
@@ -223,10 +230,11 @@ async fn a_staged_reviews_commands_are_rows_under_its_run_ending_with_its_proces
     assert!(!sets.has_running_commands(fixed_session_id()));
 }
 
-// Fails when a task the background set listed before its start keeps no line once its start
-// names the call, so no wrapper pairs with its row, or when a second start of a task already
-// paired starts it again. Mutations: in `ClaudeCommandTasks::start`, return `None` for a task
-// already held; fill nothing in; drop the check for a held task's call.
+// Fails when a task the background set listed before its start keeps no line or call once its
+// start names the call, so no wrapper pairs with its row and its ending names no call, or when a
+// second start of a task already paired starts it again. Mutations: in
+// `ClaudeCommandTasks::start`, return `None` for a task already held; fill nothing in; a held
+// task's `tool_call_id` set to `None`; drop the check for a held task's call.
 #[test]
 fn a_task_listed_before_its_start_takes_its_calls_line_from_the_start() {
     let mut tasks = ClaudeCommandTasks::default();
@@ -257,6 +265,10 @@ fn a_task_listed_before_its_start_takes_its_calls_line_from_the_start() {
         panic!("the later start gives the listed task its line");
     };
     assert_eq!(start.line.as_deref(), Some("npm test > /dev/null"));
+    assert_eq!(
+        start.tool_call_id.as_ref().map(ToolCallId::as_str),
+        Some("call-1")
+    );
     assert_eq!(
         tasks
             .held_command("task-1")
