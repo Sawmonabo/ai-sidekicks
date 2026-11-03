@@ -38,7 +38,7 @@ use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 use sidekicks_store::events::session::read::SessionEventReads;
 
 use super::RunQueue;
-use crate::delivery::reordered_of;
+use crate::delivery::{UndoHoldId, reordered_of};
 use crate::error::QueueError;
 
 // The session's lead runs made after `@run_id` that have left `queued`, oldest first: a run id is
@@ -63,15 +63,17 @@ static LATER_LEAD_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
 pub struct UndoHold {
     session_id: SessionId,
     undo_key: ClientUuid,
+    // Its own among the session's holds, so a retry under the same key holds apart from it.
+    hold_id: UndoHoldId,
     // The queue the drop lets the hold go through; empty once a release took the hold.
     queue: Weak<RunQueue>,
 }
 
 impl UndoHold {
     // Takes the hold for a release, so its drop lets nothing go.
-    fn take(mut self) -> (SessionId, ClientUuid) {
+    fn take(mut self) -> (SessionId, ClientUuid, UndoHoldId) {
         self.queue = Weak::new();
-        (self.session_id, self.undo_key.clone())
+        (self.session_id, self.undo_key.clone(), self.hold_id)
     }
 }
 
@@ -80,15 +82,19 @@ impl Drop for UndoHold {
         let Some(queue) = self.queue.upgrade() else {
             return;
         };
-        let (session_id, undo_key) = (self.session_id, self.undo_key.clone());
+        let (session_id, undo_key, hold_id) =
+            (self.session_id, self.undo_key.clone(), self.hold_id);
         if tokio::runtime::Handle::try_current().is_err() {
             // Off the runtime nothing can open the lead's next turn, so the hold alone goes.
-            queue.delivery.release_undo_hold(session_id, &undo_key);
+            queue.delivery.release_undo_hold(session_id, hold_id);
             return;
         }
         let releases = queue.releases.clone();
         releases.spawn(async move {
-            if let Err(error) = queue.let_go_undo_hold(session_id, undo_key, None).await {
+            if let Err(error) = queue
+                .let_go_undo_hold(session_id, undo_key, hold_id, None)
+                .await
+            {
                 tracing::error!(
                     session_id = %session_id,
                     error = &error as &(dyn std::error::Error + 'static),
@@ -191,14 +197,16 @@ impl RunQueue {
     /// call is waited out. A send meanwhile is recorded and waits.
     pub async fn hold_for_undo(&self, session_id: SessionId, undo_key: ClientUuid) -> UndoHold {
         let hold = self.session_lock.hold_session(session_id).await;
-        // Made before the key goes in, with no await between, so a hold canceled while it waits
-        // out a hand in flight still lets its key go.
+        // Made before the hold goes in, with no await between, so a hold canceled while it waits
+        // out a hand in flight still lets itself go.
+        let hold_id = self.delivery.mint_undo_hold_id();
         let undo_hold = UndoHold {
             session_id,
-            undo_key: undo_key.clone(),
+            undo_key,
+            hold_id,
             queue: self.this.clone(),
         };
-        self.delivery.hold_for_undo(&hold, undo_key).await;
+        self.delivery.hold_for_undo(&hold, hold_id).await;
         undo_hold
     }
 
@@ -299,7 +307,7 @@ impl RunQueue {
         resend: Option<SessionRestoreResend>,
         device_id: DeviceId,
     ) -> Result<(), QueueError> {
-        let (session_id, undo_key) = hold.take();
+        let (session_id, undo_key, hold_id) = hold.take();
         let queue = self
             .this
             .upgrade()
@@ -309,6 +317,7 @@ impl RunQueue {
                 .let_go_undo_hold(
                     session_id,
                     undo_key,
+                    hold_id,
                     resend.map(|resend| (resend, device_id)),
                 )
                 .await
@@ -320,12 +329,13 @@ impl RunQueue {
         }
     }
 
-    // Lets go the hold `undo_key` took on `session_id` as `release_undo_hold` says, with `resend`
-    // sent from its device first.
+    // Lets go the hold `hold_id` the undo `undo_key` took on `session_id` as `release_undo_hold`
+    // says, with `resend` sent from its device first under that key.
     async fn let_go_undo_hold(
         &self,
         session_id: SessionId,
         undo_key: ClientUuid,
+        hold_id: UndoHoldId,
         resend: Option<(SessionRestoreResend, DeviceId)>,
     ) -> Result<(), QueueError> {
         let mut first_failure = None;
@@ -355,7 +365,7 @@ impl RunQueue {
                     Err(error) => first_failure = Some(error),
                 }
             }
-            if self.delivery.release_undo_hold(session_id, &undo_key) {
+            if self.delivery.release_undo_hold(session_id, hold_id) {
                 match self.open_after_undo(&queue_hold, resent).await {
                     Ok(resumes) => resumes,
                     Err(error) => {
