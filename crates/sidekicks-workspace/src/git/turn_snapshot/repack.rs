@@ -180,8 +180,8 @@ impl CapturePacking {
     }
 
     /// Forgets what this daemon run keeps of the capture folders under the owner folder
-    /// `owner_folder`, for an owner whose folder was removed: how many packs each folder's last fold
-    /// left and when a fold there failed.
+    /// `owner_folder`, for an owner whose folder was removed: how many packs each folder's last
+    /// fold left and when a fold there failed.
     pub fn forget_owner(&self, owner_folder: &Path) {
         lock(&self.packs_left_by_fold).retain(|folder, _| !folder.starts_with(owner_folder));
         lock(&self.failed_folds).retain(|folder, _| !folder.starts_with(owner_folder));
