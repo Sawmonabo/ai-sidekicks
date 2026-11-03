@@ -110,10 +110,8 @@ pub(super) fn keep_through_delayed_expansion(line: &str, references: &[Range<usi
                 is_operator_end = true;
                 is_text = false;
             }
-            // cmd.exe ends the name at a `/` or `+` too, which starts the arguments: `dir/w`.
-            (CharacterReading::Unquoted, '/' | '+') if place == CommandPlace::Name => {
-                place = CommandPlace::Arguments;
-            }
+            // The name runs on through `/` and `+`, as in `dir/w`: cmd.exe splits them from it only
+            // when it runs the command, after delayed expansion has read the name whole.
             (CharacterReading::Unquoted, ' ' | '\t' | ';' | ',' | '=' | '\u{b}' | '\u{c}') => {
                 place = match place {
                     CommandPlace::Name => CommandPlace::Arguments,
