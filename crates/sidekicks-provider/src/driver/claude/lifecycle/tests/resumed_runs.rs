@@ -3,8 +3,8 @@
 //! pausing, or stops, and a held lead's continue on a live process.
 
 use std::sync::Arc;
-use std::time::Duration;
 
+use futures::FutureExt as _;
 use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::approval::{ApprovalDecision, ApprovalRequestId};
@@ -23,6 +23,7 @@ use crate::driver::claude::run::routes::ClaudeChildRunRoute;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::{ScriptedDriver, resume_params};
 use crate::driver::claude::session::scripted::{binding_id, hand_scripted_frame, settle};
+use crate::driver::claude::session::slots::ClaudeResumeSlot;
 use crate::driver::claude::session::transport::user_message::ClaudeWriteDelivery;
 use crate::driver::session_control::held_run_continue::{
     ContinueAnswer, ContinueEntry, HeldRunContinue,
@@ -303,7 +304,7 @@ async fn a_continued_turn_runs_on_its_run_and_ends_as_that_turn() {
 // (`StillRunning`), by a held helper answered `Gone`, by a waiting run its stop waits on read as
 // held (`Waiting` in the stopping case), by a pausing lead taken as the run in progress
 // (`StillRunning`) or as a lead a process is owed for (a start recorded), and by the claim kept
-// (the follow-up resume waits on the slot past its timeout).
+// (the slot cannot be claimed at once).
 #[rstest]
 #[case::lead_waits_on_an_ask(RunState::WaitingForApproval, None, false)]
 #[case::helper_waits_on_a_question(RunState::Running, Some(RunState::WaitingForInput), false)]
@@ -370,16 +371,23 @@ async fn a_session_whose_runs_all_wait_or_stop_starts_no_process(
         "no process starts"
     );
 
-    let resumed = tokio::time::timeout(
-        Duration::from_secs(60),
-        fixture.driver.resume_session(ResumeSessionParams {
+    // Claimed at once: a claim the deferral kept would hold the next resume waiting on the slot.
+    let claim = establishment
+        .slots
+        .claim_resume(session_id)
+        .now_or_never()
+        .expect("the deferred resume freed the slot")
+        .expect("the slot holds no quarantined process");
+    assert!(matches!(claim, ClaudeResumeSlot::Claimed(_)));
+    drop(claim);
+    let resumed = fixture
+        .driver
+        .resume_session(ResumeSessionParams {
             live_runs: vec![lead_run(new_run_id(), vec![open_turn(1)])],
             ..resume_params(session_id)
-        }),
-    )
-    .await
-    .expect("the deferred resume freed the slot")
-    .expect("the resume answers");
+        })
+        .await
+        .expect("the resume answers");
     assert!(matches!(resumed, DriverResumeResult::Resumed { .. }));
     fixture.next_start().await;
 }
