@@ -372,7 +372,8 @@ fn in_expression_issue(place: &[IssuePathSegment]) -> WorkflowParamIssue {
 }
 
 // A repeating collection holds a list of records and a single one a record, which an absent value
-// holds empty so its required fields are still found; any other value holds nothing to check.
+// holds empty so its required fields are still found; a value of any other shape is refused at
+// its place.
 fn check_collection(
     spec: &WorkflowCollectionParamSpec,
     value: Option<&Value>,
@@ -380,22 +381,40 @@ fn check_collection(
     issues: &mut Vec<WorkflowParamIssue>,
 ) {
     if spec.multiple == Some(true) {
-        if let Some(Value::Array(entries)) = value {
-            for (index, entry) in entries.iter().enumerate() {
-                if let Value::Object(fields) = entry {
+        match value {
+            Some(Value::Array(entries)) => {
+                for (index, entry) in entries.iter().enumerate() {
                     let entry_place = step_into(place, IssuePathSegment::index(index));
-                    check_field_list(fields, &spec.fields, &entry_place, issues);
+                    if let Value::Object(fields) = entry {
+                        check_field_list(fields, &spec.fields, &entry_place, issues);
+                    } else {
+                        issues.push(not_a_record_issue(entry_place));
+                    }
                 }
             }
+            Some(_) => issues.push(WorkflowParamIssue {
+                path: place.to_vec(),
+                message: "expected a list of the collection's entries".to_owned(),
+                rule: None,
+            }),
+            None => {}
         }
     } else {
         match value {
             Some(Value::Object(fields)) => {
                 check_field_list(fields, &spec.fields, place, issues);
             }
+            Some(_) => issues.push(not_a_record_issue(place.to_vec())),
             None => check_field_list(&Map::new(), &spec.fields, place, issues),
-            Some(_) => {}
         }
+    }
+}
+
+fn not_a_record_issue(path: Vec<IssuePathSegment>) -> WorkflowParamIssue {
+    WorkflowParamIssue {
+        path,
+        message: "expected a record of the collection's fields".to_owned(),
+        rule: None,
     }
 }
 
@@ -607,6 +626,38 @@ mod tests {
                 (json!(["approvalMode"]), WorkflowDefinitionRule::UnknownKey),
             ]
         );
+    }
+
+    // A collection's value of the wrong shape is refused at its place with no finding: a single
+    // collection given text, a repeating one given a record, and an entry that is no record.
+    // Mutations: let each shape pass.
+    #[rstest]
+    #[case::a_single_collection_given_text(json!({ "auth": "a" }), json!(["auth"]))]
+    #[case::a_repeating_collection_given_a_record(
+        json!({ "headers": { "name": "a" } }),
+        json!(["headers"])
+    )]
+    #[case::an_entry_that_is_no_record(
+        json!({ "headers": [{ "name": "a" }, "b"] }),
+        json!(["headers", 1])
+    )]
+    fn a_collection_of_the_wrong_shape_is_refused(#[case] params: Value, #[case] path: Value) {
+        let specs: Vec<WorkflowParamSpec> = serde_json::from_value(json!([
+            {
+                "id": "auth", "label": "Auth", "type": "collection",
+                "fields": [{ "id": "user", "label": "User", "type": "string" }],
+            },
+            {
+                "id": "headers", "label": "Headers", "type": "collection", "multiple": true,
+                "fields": [{ "id": "name", "label": "Name", "type": "string" }],
+            },
+        ]))
+        .expect("the specs read");
+        let params = params.as_object().expect("the params are an object");
+        let issues = check_workflow_node_params(params, &specs);
+        assert_eq!(issues.len(), 1, "{issues:?}");
+        assert_eq!(path_of(&issues[0]), path, "{issues:?}");
+        assert_eq!(issues[0].rule, None, "{issues:?}");
     }
 
     // A number pasted into a secret parameter is refused without quoting it, so the value reaches

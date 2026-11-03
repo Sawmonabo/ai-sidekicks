@@ -48,8 +48,8 @@ pub(super) fn check_node_params(
                     rules.push(rule);
                 }
             }
-            // A value no finding names is a reference that does not read as one; of those, a tool
-            // binding is refused as the request's read would refuse it.
+            // A value no finding names is a reference or a collection that does not read as one;
+            // of those, a tool binding is refused as the request's read would refuse it.
             None => {
                 if let Some((place, binding)) = tool_binding_at(specs, &params, &issue.path)
                     && !bindings.iter().any(|(found, _)| *found == place)
