@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use rstest::rstest;
 use serde_json::json;
+use sidekicks_contracts::approval::ApprovalDecision;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
@@ -14,12 +15,16 @@ use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_platforms::PathRules;
 
 use super::{resume_params, start_params};
 use crate::driver::claude::run::routes::ClaudeChildRunRoute;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::driver::claude::session::scripted::{binding_id, hand_scripted_frame, settle};
+use crate::driver::session_control::held_run_continue::{
+    ContinueAnswer, ContinueEntry, HeldRunContinue,
+};
 use crate::driver::session_control::{
     CloseSessionParams, DriverResumeResult, LiveRunResume, OpenTurnResume, ProviderTurnAnswer,
     ResumeSessionParams, ResumedRunAnswer,
@@ -392,4 +397,115 @@ async fn a_session_whose_runs_all_wait_or_stop_starts_no_process(
     .expect("the resume answers");
     assert!(matches!(resumed, DriverResumeResult::Resumed { .. }));
     fixture.next_start().await;
+}
+
+// A resume carrying a held lead's continue spawns the process that continues the lead with the
+// person's answers as its words: a helper's approval names the helper and asks the lead to continue
+// it by message to its id. Killed by the continue ignored (Claude Code's own words stand) and by
+// the words left off the spawn.
+#[tokio::test(start_paused = true)]
+async fn a_held_lead_s_continue_carries_the_answers_to_its_process() {
+    let fixture = ScriptedDriver::new();
+    let session_id = closed_session(&fixture).await;
+    let (lead, helper) = (new_run_id(), new_run_id());
+    let helper_answer = ContinueEntry {
+        run_id: helper,
+        subagent_id: Some(SubagentId::new("helper-1".to_owned()).expect("a helper id fits")),
+        answer: ContinueAnswer::Approval {
+            subject: "rm -rf build".to_owned(),
+            tool_name: Some("Bash".to_owned()),
+            decision: ApprovalDecision::Approved,
+            decline_reason: None,
+            edited_action: None,
+        },
+    };
+
+    let resumed = fixture
+        .driver
+        .resume_session(ResumeSessionParams {
+            live_runs: vec![lead_run(lead, vec![open_turn(1)]), helper_run(helper, lead)],
+            held_run_continue: Some(HeldRunContinue {
+                lead_run_id: lead,
+                entries: vec![helper_answer],
+                missed_fires: Vec::new(),
+            }),
+            ..resume_params(session_id)
+        })
+        .await
+        .expect("the resume answers");
+    let started = fixture.next_start().await;
+
+    assert!(matches!(resumed, DriverResumeResult::Resumed { .. }));
+    let value = |name| PathRules::Posix.environment_value(&started.environment, name);
+    assert_eq!(value("CLAUDE_CODE_RESUME_INTERRUPTED_TURN"), Some("1"));
+    assert_eq!(
+        value("CLAUDE_CODE_RESUME_PROMPT"),
+        Some(
+            "While the app restarted, the person answered what you were waiting on:\n\
+             Your helper helper-1 asked to approve Bash: rm -rf build. The person approved it. \
+             Continue that helper with SendMessage to its id helper-1, not by starting a new one."
+        )
+    );
+}
+
+// A resume the session's live process answers sends a held lead's continue to that process as the
+// lead's next message, never ending it, and answers the lead still running so its answers stay
+// taken. Killed by the send dropped (no message reaches the process and the lead answers gone).
+#[tokio::test(start_paused = true)]
+async fn a_live_process_is_sent_a_held_lead_s_answers_as_its_next_message() {
+    let fixture = ScriptedDriver::new();
+    let session_id = closed_session(&fixture).await;
+    let channel = Arc::new(ScriptedChannel::default());
+    fixture.starts.script_session(Arc::clone(&channel));
+    let params = resume_params(session_id);
+    fixture
+        .driver
+        .restart_session(params.clone())
+        .await
+        .expect("the restart answers");
+    fixture.next_start().await;
+    let lead = new_run_id();
+    let lead_answer = ContinueEntry {
+        run_id: lead,
+        subagent_id: None,
+        answer: ContinueAnswer::Question {
+            question: "Which branch?".to_owned(),
+            answer: "main".to_owned(),
+        },
+    };
+
+    let resumed = fixture
+        .driver
+        .resume_session(ResumeSessionParams {
+            live_runs: vec![lead_run(lead, vec![open_turn(2)])],
+            held_run_continue: Some(HeldRunContinue {
+                lead_run_id: lead,
+                entries: vec![lead_answer],
+                missed_fires: Vec::new(),
+            }),
+            ..params
+        })
+        .await
+        .expect("the resume answers");
+
+    let DriverResumeResult::Resumed { runs, .. } = resumed else {
+        unreachable!("the live process answers the resume: {resumed:?}")
+    };
+    assert_eq!(runs, [answer(lead, ProviderTurnAnswer::StillRunning)]);
+    assert!(
+        fixture.starts.take_started().is_empty(),
+        "no process starts"
+    );
+    let contents: Vec<_> = channel
+        .user_frames()
+        .into_iter()
+        .map(|frame| frame["message"]["content"].clone())
+        .collect();
+    assert_eq!(
+        contents,
+        [json!(
+            "While the app restarted, the person answered what you were waiting on:\n\
+             You asked: Which branch?. The person answered: main."
+        )]
+    );
 }

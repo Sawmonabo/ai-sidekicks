@@ -48,9 +48,9 @@ use tokio_util::sync::CancellationToken;
 use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
 use crate::driver::idle_sleep::KeptSchedule;
 use crate::driver::mcp_server::status::McpServerStatusProducer;
-use crate::driver::session_control::continuation::HeldRunContinue;
+use crate::driver::session_control::held_run_continue::HeldRunContinue;
 
-pub mod continuation;
+pub mod held_run_continue;
 
 /// The longest account or plan descriptor an authentication probe keeps, in code points; a longer
 /// one is cut, and dropping it loses only words, never the probe's status.
@@ -179,7 +179,9 @@ pub struct ResumeSessionParams {
     /// for in [`DriverResumeResult::Resumed`]'s `runs`.
     pub live_runs: Vec<LiveRunResume>,
     /// The person's answers a lead the restart held on them now continues with, its continue
-    /// claimed for this resume; `None` where nothing is owed.
+    /// claimed for this resume; `None` where nothing is owed. A driver that answers `Resumed` sends
+    /// them on the lead's turn and answers that lead `StillRunning`; a lead answered otherwise
+    /// has its answers given back for the next resume.
     pub held_run_continue: Option<HeldRunContinue>,
 }
 
