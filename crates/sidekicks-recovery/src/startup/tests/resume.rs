@@ -180,6 +180,12 @@ impl PassFixture {
     fn insert_helper(&self, session_id: SessionId, lead: RunId) -> RunId {
         let helper = test_run_id();
         insert_running_run(&self.store.database, session_id, helper);
+        self.make_helper_of(helper, lead);
+        helper
+    }
+
+    // Makes the written run `helper` one the provider of `lead` dispatched beneath it.
+    fn make_helper_of(&self, helper: RunId, lead: RunId) {
         self.store
             .database
             .reader()
@@ -192,7 +198,6 @@ impl PassFixture {
                 ],
             )
             .expect("the test makes the run a helper");
-        helper
     }
 
     // Opens `run_id`'s first turn in `session_id`, under the provider's id `provider_turn_id`
@@ -683,8 +688,10 @@ async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interru
 // entry), by the restart's own words written (the detail differs), by the failure detail winning
 // over the run's stop (the stopping run reads `failed`), by the stopping helper's arm dropped or
 // the stops read per run as each settles, after the lead's end discharged the stop its helper
-// waits on (the helper reads `failed`), by the entry never cleared, by the refused session's runs
-// left out (no call), and by `is_for_stop` set alike for both.
+// waits on (the helper settled after its lead reads `failed`, whichever of the two pairs, one
+// helper written after its lead and one before, settles in that order), by the entry never
+// cleared, by the refused session's runs left out (no call), and by `is_for_stop` set alike for
+// every lead.
 #[tokio::test]
 async fn a_refused_resume_fails_its_run_and_lists_it_until_the_sessions_next_run() {
     let mut refusing = resuming_driver(|_params| DriverResumeResult::Failed {
@@ -702,11 +709,21 @@ async fn a_refused_resume_fails_its_run_and_lists_it_until_the_sessions_next_run
     insert_running_run(&fixture.store.database, session_id, stopping_run);
     fixture.record_person_interrupt(stopping_run);
     let cut_helper = fixture.insert_helper(session_id, stopping_run);
+    // A second stopping lead whose helper was written before it.
+    let early_helper = test_run_id();
+    insert_running_run(&fixture.store.database, session_id, early_helper);
+    let later_lead = test_run_id();
+    insert_running_run(&fixture.store.database, session_id, later_lead);
+    fixture.record_person_interrupt(later_lead);
+    fixture.make_helper_of(early_helper, later_lead);
     fixture
         .open_turn(session_id, run_id, Some("turn-failed"))
         .await;
     fixture
         .open_turn(session_id, stopping_run, Some("turn-stopping"))
+        .await;
+    fixture
+        .open_turn(session_id, later_lead, Some("turn-later"))
         .await;
 
     fixture
@@ -723,22 +740,28 @@ async fn a_refused_resume_fails_its_run_and_lists_it_until_the_sessions_next_run
         panic!("the run failed once: {failed:?}");
     };
     assert_eq!(failed["providerFailureDetail"], json!(REFUSED_DETAIL));
-    assert_eq!(
-        stored_run_state(&fixture.store.database, &stopping_run).0,
-        "interrupted"
-    );
-    assert_eq!(fixture.run_trigger(session_id, stopping_run), None);
-    assert_eq!(
-        stored_run_state(&fixture.store.database, &cut_helper).0,
-        "interrupted"
-    );
-    assert_eq!(
-        fixture.run_trigger(session_id, cut_helper).as_deref(),
-        Some("daemonRestart")
-    );
+    for (lead, helper) in [(stopping_run, cut_helper), (later_lead, early_helper)] {
+        assert_eq!(
+            stored_run_state(&fixture.store.database, &lead).0,
+            "interrupted",
+            "{lead}"
+        );
+        assert_eq!(fixture.run_trigger(session_id, lead), None, "{lead}");
+        assert_eq!(
+            stored_run_state(&fixture.store.database, &helper).0,
+            "interrupted",
+            "{helper}"
+        );
+        assert_eq!(
+            fixture.run_trigger(session_id, helper).as_deref(),
+            Some("daemonRestart"),
+            "{helper}"
+        );
+    }
     let mut kept = vec![
         kept_turn(run_id, "turn-failed", false),
         kept_turn(stopping_run, "turn-stopping", true),
+        kept_turn(later_lead, "turn-later", true),
     ];
     kept.sort_by_key(|run| run.run_id);
     assert_eq!(ended_kept_turns(&kept_ends).1, kept);
