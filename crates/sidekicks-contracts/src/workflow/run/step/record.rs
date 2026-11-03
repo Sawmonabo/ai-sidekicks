@@ -151,6 +151,10 @@ pub enum WorkflowStepResolutionKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
+#[schemars(extend("allOf" = [{
+    "if": { "type": "object", "required": ["declineReason"] },
+    "then": { "type": "object", "properties": { "kind": { "const": "declined" } } },
+}]))]
 pub struct WorkflowStepResolution {
     /// How the person answered.
     pub kind: WorkflowStepResolutionKind,
@@ -778,20 +782,25 @@ mod tests {
     use serde_json::json;
 
     use super::WorkflowStepResolution;
+    use crate::schema::closed_schema_for;
 
-    /// A decline reason is kept on a declined resolution and refused on any other. Mutations: drop
-    /// the check; refuse the reason on a declined resolution too.
+    /// A decline reason is kept on a declined resolution and refused on any other, by the garde
+    /// check and the schema alike. Mutations: drop the check or the schema's `if`; refuse the
+    /// reason on a declined resolution too.
     #[test]
     fn a_decline_reason_rides_only_a_declined_resolution() {
-        let resolution = |kind: &str| -> WorkflowStepResolution {
-            serde_json::from_value(json!({
+        let schema = closed_schema_for::<WorkflowStepResolution>().expect("the schema writes");
+        let check = jsonschema::validator_for(&schema).expect("the schema builds a check");
+        for (kind, is_taken) in [("declined", true), ("approved", false)] {
+            let json = json!({
                 "kind": kind,
                 "at": "2020-01-01T09:05:00.000Z",
                 "declineReason": "use the test database",
-            }))
-            .expect("the resolution reads")
-        };
-        assert!(resolution("declined").validate().is_ok());
-        assert!(resolution("approved").validate().is_err());
+            });
+            let resolution: WorkflowStepResolution =
+                serde_json::from_value(json.clone()).expect("the resolution reads");
+            assert_eq!(resolution.validate().is_ok(), is_taken, "garde: {kind}");
+            assert_eq!(check.is_valid(&json), is_taken, "schema: {kind}");
+        }
     }
 }
