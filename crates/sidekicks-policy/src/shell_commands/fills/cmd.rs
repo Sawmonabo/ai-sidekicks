@@ -1,6 +1,7 @@
-//! cmd.exe's own reading of a filled line: the `^` it reads as an escape before a fill, and the
-//! text its delayed expansion would change, which the launch escapes so the command gets the text
-//! as written. cmd.exe's first phase sets each defined `%…%` reference's value in its place; the
+//! cmd.exe's own reading of a filled line: the `^` it reads as an escape before a fill, the
+//! modifier text of a `%NAME:…%` reference, which its first phase reads as text, and the text its
+//! delayed expansion would change, which the launch escapes so the command gets the text as
+//! written. cmd.exe's first phase sets each defined `%…%` reference's value in its place; the
 //! second then removes each `^` outside double quotes, keeping the character after it as text,
 //! and reads a value's characters as the line's own; delayed expansion then reads again each
 //! piece of a command holding a `!`, the command name, the arguments as one piece and each
@@ -27,6 +28,24 @@ pub(super) fn follows_a_cmd_escape(text: &str, at: usize) -> bool {
         }
     }
     is_escaping
+}
+
+/// Whether the fill at `placeholder` in `line` sits in the modifier text of a `%NAME:…%`
+/// reference, the text after the name's `:` where a `~` substring or `=` substitution form
+/// stands: cmd.exe's first phase reads it as the form's own text, so the value never reaches the
+/// command. Any `%` may open such a reference, since only the launch knows which names are
+/// defined.
+pub(super) fn is_in_reference_modifier(line: &str, placeholder: &Range<usize>) -> bool {
+    line[..placeholder.start]
+        .match_indices('%')
+        .any(|(start, _)| {
+            reference_at(line, start).is_some_and(|reference| {
+                !reference.name.is_empty()
+                    && reference
+                        .modifier
+                        .is_some_and(|modifier| modifier.contains(&placeholder.start))
+            })
+        })
 }
 
 /// How cmd.exe's second phase takes one character of the line.
@@ -130,6 +149,16 @@ enum Segment<'line> {
     /// An author's `%…%` reference to a defined variable, and the value the first phase sets in
     /// its place.
     Variable { written: &'line str, value: String },
+}
+
+/// A `%…%` reference cmd.exe's first phase reads where its name is defined, in bytes of the line.
+struct ReferenceText {
+    /// The name, between the opening `%` and the first `%` or `:` after it.
+    name: Range<usize>,
+    /// The modifier text between the name's `:` and the next `%`, if a `:` ends the name.
+    modifier: Option<Range<usize>>,
+    /// Just past the closing `%`.
+    end: usize,
 }
 
 /// `line` with the author's `^` and `!` written so cmd.exe's delayed expansion hands the command
@@ -466,40 +495,58 @@ fn first_phase<'line>(line: &'line str, environment: &[(&str, &str)]) -> Vec<Seg
     while let Some(offset) = line[from..].find('%') {
         let start = from + offset;
         from = start + 1;
-        let Some(name_end) = line[from..].find(['%', ':']).map(|end| from + end) else {
+        let Some(reference) = reference_at(line, start) else {
             continue;
         };
-        let Some(value) = variable_value(environment, &line[from..name_end]) else {
+        let Some(value) = variable_value(environment, &line[reference.name]) else {
             continue;
         };
-        let (end, value) = if line[name_end..].starts_with('%') {
-            (name_end + 1, value.to_owned())
-        } else {
-            let form_start = name_end + 1;
-            let Some(form_end) = line[form_start..].find('%').map(|end| form_start + end) else {
-                continue;
-            };
-            let Some(value) = form_value(value, &line[form_start..form_end]) else {
-                continue;
-            };
-            (form_end + 1, value)
+        let value = match reference.modifier {
+            None => value.to_owned(),
+            Some(modifier) => {
+                let Some(value) = form_value(value, &line[modifier]) else {
+                    continue;
+                };
+                value
+            }
         };
         segments.push(Segment::Written {
             start: written_from,
             text: &line[written_from..start],
         });
         segments.push(Segment::Variable {
-            written: &line[start..end],
+            written: &line[start..reference.end],
             value,
         });
-        written_from = end;
-        from = end;
+        written_from = reference.end;
+        from = reference.end;
     }
     segments.push(Segment::Written {
         start: written_from,
         text: &line[written_from..],
     });
     segments
+}
+
+/// The reference cmd.exe's first phase reads from the `%` at `start` in `line` where its name is
+/// defined; `None` where no later `%` closes it.
+fn reference_at(line: &str, start: usize) -> Option<ReferenceText> {
+    let name_start = start + 1;
+    let name_end = name_start + line[name_start..].find(['%', ':'])?;
+    if line[name_end..].starts_with('%') {
+        return Some(ReferenceText {
+            name: name_start..name_end,
+            modifier: None,
+            end: name_end + 1,
+        });
+    }
+    let modifier_start = name_end + 1;
+    let modifier_end = modifier_start + line[modifier_start..].find('%')?;
+    Some(ReferenceText {
+        name: name_start..name_end,
+        modifier: Some(modifier_start..modifier_end),
+        end: modifier_end + 1,
+    })
 }
 
 /// The value `environment` holds for `name`, names compared as Windows compares them, ignoring

@@ -137,6 +137,13 @@ pub enum FillRefusal {
          double quotes, where cmd.exe reads `^` as plain text"
     )]
     CmdCaret,
+    /// The modifier text of cmd.exe's `%NAME:…%` reference, which its first phase reads as the
+    /// text of a `~` substring or `=` substitution form.
+    #[error(
+        "sits in the modifier text of cmd.exe's `%NAME:~…%` or `%NAME:…=…%`, where nothing \
+         expands"
+    )]
+    CmdReferenceModifier,
     /// A csh here-document's body, whose substituted text csh reads again.
     #[error("sits in a csh here-document, whose substituted text csh reads again")]
     CshHereDocumentBody,
@@ -214,7 +221,7 @@ impl CommandLineFills {
     /// first refusal among them. Runs inside one read of the reading bound.
     pub fn check_for_save(&self, reader: &mut ShellLineReader) -> Vec<Result<(), FillRefusal>> {
         let bash = bash::place_fills(reader, self);
-        let cmd = self.refuse_after_cmd_escapes(bash.clone());
+        let cmd = self.refuse_cmd_only_places(bash.clone());
         let powershell = powershell::place_fills(reader, self);
         let csh = csh::place_fills(reader, self);
         bash.into_iter()
@@ -244,7 +251,7 @@ impl CommandLineFills {
     ) -> Result<String, RefusedFill> {
         let placings = match shell {
             ShellGrammar::Posix(_) => bash::place_fills(reader, self),
-            ShellGrammar::Cmd => self.refuse_after_cmd_escapes(bash::place_fills(reader, self)),
+            ShellGrammar::Cmd => self.refuse_cmd_only_places(bash::place_fills(reader, self)),
             ShellGrammar::PowerShell => powershell::place_fills(reader, self),
             ShellGrammar::Csh => csh::place_fills(reader, self),
             ShellGrammar::Fish => vec![Ok(FillPlace::Bare); self.placeholders.len()],
@@ -288,14 +295,17 @@ impl CommandLineFills {
         })
     }
 
-    /// The bash reading's `placings` as cmd.exe takes them: a fill right after a `^` that cmd.exe
-    /// reads as an escape, which would quote the reference's first character, refused.
-    fn refuse_after_cmd_escapes(&self, placings: Vec<FillPlacing>) -> Vec<FillPlacing> {
+    /// The bash reading's `placings` as cmd.exe takes them: a fill in a `%NAME:…%` reference's
+    /// modifier text, which never reaches the command, refused, and then a fill right after a `^`
+    /// that cmd.exe reads as an escape, which would quote the reference's first character.
+    fn refuse_cmd_only_places(&self, placings: Vec<FillPlacing>) -> Vec<FillPlacing> {
         placings
             .into_iter()
             .zip(&self.placeholders)
             .map(|(placing, placeholder)| {
-                if cmd::follows_a_cmd_escape(&self.line, placeholder.start) {
+                if cmd::is_in_reference_modifier(&self.line, placeholder) {
+                    Err(FillRefusal::CmdReferenceModifier)
+                } else if cmd::follows_a_cmd_escape(&self.line, placeholder.start) {
                     Err(FillRefusal::CmdCaret)
                 } else {
                     placing
@@ -469,8 +479,8 @@ mod tests {
         assert_eq!(save(line, LIMIT), vec![Ok(())]);
     }
 
-    // Each place a save refuses, with the rule that refuses it: the first reading's, bash, then
-    // PowerShell, then csh. Arithmetic and name words refuse through a substitution too, since the
+    // Each place a save refuses, with the rule that refuses it: the first reading's, bash, its
+    // cmd.exe form, then PowerShell, then csh. Arithmetic and name words refuse through a substitution too, since the
     // shell evaluates its output there.
     #[rstest]
     #[case::single_quotes("echo '{{ x }}'", FillRefusal::NotExpanding)]
@@ -486,6 +496,9 @@ mod tests {
     })]
     #[case::a_cmd_escape("echo ^{{ x }}", FillRefusal::CmdCaret)]
     #[case::a_cmd_escape_after_an_escaped_quote("echo ^\"^{{ x }}^\"", FillRefusal::CmdCaret)]
+    #[case::a_cmd_substitution_search("echo %PATH:{{ x }}=y%", FillRefusal::CmdReferenceModifier)]
+    #[case::a_cmd_substitution_text("echo \"%PATH:a={{ x }}%\"", FillRefusal::CmdReferenceModifier)]
+    #[case::a_cmd_substring("echo %PATH:~{{ x }}%", FillRefusal::CmdReferenceModifier)]
     #[case::arithmetic_expansion("echo $(( {{ x }} ))", FillRefusal::Arithmetic)]
     #[case::arithmetic_expansion_quoted("echo $(( \"{{ x }}\" ))", FillRefusal::Arithmetic)]
     #[case::arithmetic_command("(( {{ x }} ))", FillRefusal::Arithmetic)]
