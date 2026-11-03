@@ -420,8 +420,8 @@ mod tests {
     const LIMIT: usize = 4_096;
 
     // A cmd launch's environment: names spelled in another case than the lines spell them, a
-    // value holding a `^` and one holding a `!`.
-    const CMD_ENVIRONMENT: &[(&str, &str)] = &[("Target", "C:\\a^b"), ("Bang", "a!b")];
+    // value holding a `^`, one holding a `!` and one a lone `"`.
+    const CMD_ENVIRONMENT: &[(&str, &str)] = &[("Target", "C:\\a^b"), ("Bang", "a!b"), ("q", "\"")];
 
     // The fills of a command step's line, written as its param holds it after the `=`.
     fn fills_of(line: &str) -> CommandLineFills {
@@ -701,8 +701,10 @@ mod tests {
     // environment defines, its substring and substitution forms included, is written in its
     // delayed form, escaped outside quotes for the second phase, so its value keeps its `^` and
     // `!`; an undefined one stays as written, and the first reading goes on from after its first
-    // `%`, so a defined name can start at its second. A piece holding a variable whose value has a
-    // `!` is read again, and a redirection's target without a `!` keeps a defined name as written.
+    // `%`, so a defined name can start at its second. A value is read as the line's own text, so
+    // one that cmd.exe reads as an escape or a quote keeps its reference as written, and a piece
+    // holding a variable whose value has a `!` is read again; a redirection's target without a `!`
+    // keeps a defined name as written.
     #[rstest]
     #[case::a_defined_name(
         "copy {{ x }} \"%TARGET%\"",
@@ -714,7 +716,7 @@ mod tests {
     )]
     #[case::a_defined_name_after_an_undefined_one(
         "copy {{ x }} %SOURCE%TARGET%",
-        "copy \"!SIDEKICKS_VALUE_1!\" %SOURCE!TARGET!"
+        "copy \"!SIDEKICKS_VALUE_1!\" %SOURCE%TARGET%"
     )]
     #[case::a_substring_form(
         "copy {{ x }} \"%TARGET:~0,4%\"",
@@ -727,6 +729,10 @@ mod tests {
     #[case::a_value_holding_a_mark(
         "echo {{ x }} & echo \"^a\" %BANG%",
         "echo \"!SIDEKICKS_VALUE_1!\" & echo \"^^a\" !BANG!"
+    )]
+    #[case::a_value_opening_quotes(
+        "type %Q% & echo \"^a\" {{ x }}",
+        "type %Q% & echo \"^a\" \"!SIDEKICKS_VALUE_1!\""
     )]
     #[case::a_target_not_read_again(
         "copy {{ x }} b > \"%TARGET%\"",
