@@ -804,8 +804,8 @@ fn start_denied(errors: &[String]) -> DomainError {
 
 // Makes `folder` new and empty: its parents as needed, then the folder itself, which must not be
 // there yet, so a removal never takes a folder another start made. A run's delete removes the
-// workflow's runs folder once it empties, so a parent gone between the two steps is made again,
-// once.
+// workflow's runs folder once it empties, so a parent gone between the two steps is made again;
+// that single retry is the bound, and a parent gone a second time fails the start.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the engine's run start handlers")
