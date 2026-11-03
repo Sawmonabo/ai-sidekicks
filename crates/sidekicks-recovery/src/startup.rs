@@ -7,11 +7,11 @@
 //! no resume took are then settled: failed as no provider session came back, or with the
 //! provider's own words where it refused the resume, each of those then listed for the person until
 //! the session's next run starts, and a lead the person paused kept paused; the questions the
-//! tool-server client asked, whose requests the restart ended, are withdrawn. No write is taken until
-//! the pass has listed the sessions it rebuilds and those whose runs it ends; from then each listed
-//! session alone refuses the calls that name it until it is rebuilt and settled, so every other
-//! session takes its writes while the pass goes on. A session whose rebuild fails is healed: the
-//! store's files are copied aside untouched, once a pass and once for the same damage across
+//! tool-server client asked, whose requests the restart ended, are withdrawn. No write is taken
+//! until the pass has listed the sessions it rebuilds and those whose runs it ends; from then each
+//! listed session alone refuses the calls that name it until it is rebuilt and settled, so every
+//! other session takes its writes while the pass goes on. A session whose rebuild fails is healed:
+//! the store's files are copied aside untouched, once a pass and once for the same damage across
 //! starts, and the rebuild runs again; one that still fails opens at its last good point, or reads
 //! damaged when none of it can be read, and is never written. The pass never fails: a pass that
 //! fails leaves the service blocked, or a session damaged, and says why in the service log. The
