@@ -22,6 +22,7 @@ use crate::driver::claude::run::routes::ClaudeChildRunRoute;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::{ScriptedDriver, resume_params};
 use crate::driver::claude::session::scripted::{binding_id, hand_scripted_frame, settle};
+use crate::driver::claude::session::transport::user_message::ClaudeWriteDelivery;
 use crate::driver::session_control::held_run_continue::{
     ContinueAnswer, ContinueEntry, HeldRunContinue,
 };
@@ -495,4 +496,63 @@ async fn a_live_process_is_sent_a_held_lead_s_answers_as_its_next_message() {
              You asked: Which branch?. The person answered: main."
         )]
     );
+}
+
+// A held lead's continue whose message the live process never took leaves the stream reading the
+// turn it read before, whether the write surely failed or may have reached the process. Killed by
+// the continued turn left open on the failed write.
+#[rstest]
+#[case::unsent(ClaudeWriteDelivery::Unsent)]
+#[case::indeterminate(ClaudeWriteDelivery::Indeterminate)]
+#[tokio::test(start_paused = true)]
+async fn a_failed_continue_write_leaves_the_stream_s_turn_as_it_was(
+    #[case] delivery: ClaudeWriteDelivery,
+) {
+    let fixture = ScriptedDriver::new();
+    let session_id = fixture.closed_session().await;
+    let channel = Arc::new(ScriptedChannel::default());
+    fixture.starts.script_session(Arc::clone(&channel));
+    let params = resume_params(session_id);
+    fixture
+        .driver
+        .restart_session(params.clone())
+        .await
+        .expect("the restart answers");
+    fixture.next_start().await;
+    let stream = fixture
+        .driver
+        .composed_parts()
+        .expect("the pieces are composed")
+        .establishment
+        .streams
+        .get(session_id)
+        .expect("the live session has a stream");
+    let before = stream.open_turn();
+    let lead = new_run_id();
+    channel.fail_next_user_write(delivery);
+
+    fixture
+        .driver
+        .resume_session(ResumeSessionParams {
+            live_runs: vec![lead_run(lead, vec![open_turn(2)])],
+            held_run_continue: Some(HeldRunContinue {
+                lead_run_id: lead,
+                entries: vec![ContinueEntry {
+                    run_id: lead,
+                    subagent_id: None,
+                    answer: ContinueAnswer::Question {
+                        question_id: QuestionId::try_from(mint_uuid_v7())
+                            .expect("a minted UUID is a question's id"),
+                        question: "Which branch?".to_owned(),
+                        answer: "main".to_owned(),
+                    },
+                }],
+                missed_fires: Vec::new(),
+            }),
+            ..params
+        })
+        .await
+        .expect_err("the continue's write fails");
+
+    assert_eq!(stream.open_turn(), before);
 }

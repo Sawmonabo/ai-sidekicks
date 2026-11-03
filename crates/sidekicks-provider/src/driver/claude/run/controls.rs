@@ -261,7 +261,7 @@ impl ClaudeRunControls {
     /// the lead takes the session's turn again on the turn's binding, the stream reads on as that
     /// turn, and `answers`, the person's answers, go as its next message. Fails `NoLiveSession`,
     /// `SessionTurnInFlight` while another run or a command holds the turn, and as the write
-    /// fails, the lead then let go of the turn.
+    /// fails, the lead then let go of the turn and the stream reading the turn it read before.
     pub(crate) async fn continue_held_lead(
         &self,
         session_id: SessionId,
@@ -282,7 +282,9 @@ impl ClaudeRunControls {
             .routes
             .hold_turn(run_id, session_id, turn.run.binding_id.clone())
             .map_err(|_held| unavailable(ClaudeSessionUnavailableReason::SessionTurnInFlight))?;
-        stream.continue_turn(turn.run, turn.turn_number, turn.provider_turn_id);
+        // Continued before the write, so the process's first frames for the answers, which can
+        // arrive before the write returns, read as the lead's turn.
+        let before = stream.continue_turn(turn.run, turn.turn_number, turn.provider_turn_id);
         let written = self
             .write_message(
                 &live,
@@ -297,6 +299,7 @@ impl ClaudeRunControls {
             .await;
         if written.is_err() {
             self.start.routes.unbind_run(run_id);
+            stream.restore_turn(before);
         }
         written
     }
