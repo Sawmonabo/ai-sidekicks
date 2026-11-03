@@ -66,8 +66,9 @@ pub(crate) struct RunGraphNode {
     pub(crate) id: WorkflowNodeId,
     /// Whether the node is switched off, so its rounds are skipped and pass their first input on.
     pub(crate) is_disabled: bool,
-    /// Whether the node is of the loop kind, each of whose steps starts a pass of its loop.
-    pub(crate) is_loop: bool,
+    /// For a node of the loop kind, each of whose steps starts a pass of its loop, the main output
+    /// that starts its body; `None` for any other node.
+    pub(crate) loop_output: Option<usize>,
     /// Whether the node's step runs on the first main input that settles with items, the branches
     /// feeding its other inputs canceled; never for a disabled node, whose rounds wait for every
     /// input.
@@ -144,7 +145,7 @@ impl RunGraph {
             graph_nodes.push(RunGraphNode {
                 id: node.id.clone(),
                 is_disabled,
-                is_loop: kind.is_some_and(|kind| kind.is_loop),
+                loop_output: kind.and_then(|kind| kind.loop_output),
                 readies_on_first_input: !is_disabled
                     && kind.is_some_and(|kind| kind.executor.readies_on_first_input(node)),
                 input_count: rules.handles.inputs.len(),
@@ -266,10 +267,10 @@ impl RunGraph {
 /// the back edges that close a loop. Each group of nodes that all reach one another holds a loop;
 /// its back edges are those from inside it into its loop nodes fed from outside it, or into all its
 /// loop nodes where none is, and the group is searched again without them for a loop inside the
-/// body. Where several loop nodes are fed from outside, only the outermost are cut first: those
-/// whose cut alone leaves every other such node still in a loop, so an inner loop keeps the outer
-/// body's edge into it as its entry; where none is outermost, as two loops each in a loop without
-/// the other, all are cut. No order of nodes or edges decides which edge closes a loop.
+/// body. Where several loop nodes are fed from outside, one inside another's body, reached from
+/// that one's loop output while that one is not inside its own, is inner, and only the others are
+/// cut first, so an inner loop keeps the outer body's edge into it as its entry; where none is
+/// outer, all are cut. No order of nodes or edges decides which edge closes a loop.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn forward_feeders(nodes: &[RunGraphNode]) -> Vec<Vec<usize>> {
     let mut feeders: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
@@ -284,13 +285,13 @@ fn forward_feeders(nodes: &[RunGraphNode]) -> Vec<Vec<usize>> {
     }
     let mut groups = vec![(0..nodes.len()).collect::<BTreeSet<usize>>()];
     while let Some(members) = groups.pop() {
-        for inside in looping_groups(&members, &feeders, None) {
+        for inside in looping_groups(&members, &feeders) {
             // A group holding no loop node, which the save refuses, is cut at every node, so the
             // search ends whatever graph it is handed.
             let loops: Vec<usize> = inside
                 .iter()
                 .copied()
-                .filter(|&place| nodes[place].is_loop)
+                .filter(|&place| nodes[place].loop_output.is_some())
                 .collect();
             let candidates = if loops.is_empty() {
                 inside.iter().copied().collect()
@@ -306,25 +307,21 @@ fn forward_feeders(nodes: &[RunGraphNode]) -> Vec<Vec<usize>> {
                 0 => candidates,
                 1 => entered,
                 _ => {
-                    let outermost: Vec<usize> = entered
+                    let bodies: Vec<BTreeSet<usize>> = entered
                         .iter()
-                        .copied()
-                        .filter(|&header| {
-                            let still_looping: BTreeSet<usize> =
-                                looping_groups(&inside, &feeders, Some(header))
-                                    .into_iter()
-                                    .flatten()
-                                    .collect();
-                            entered
-                                .iter()
-                                .all(|&other| other == header || still_looping.contains(&other))
-                        })
+                        .map(|&header| loop_body(nodes, &inside, header))
                         .collect();
-                    if outermost.is_empty() {
-                        entered
-                    } else {
-                        outermost
-                    }
+                    let outer: Vec<usize> = entered
+                        .iter()
+                        .zip(&bodies)
+                        .filter(|&(&header, body)| {
+                            entered.iter().zip(&bodies).all(|(&other, other_body)| {
+                                !other_body.contains(&header) || body.contains(&other)
+                            })
+                        })
+                        .map(|(&header, _)| header)
+                        .collect();
+                    if outer.is_empty() { entered } else { outer }
                 }
             };
             // Each member is fed from inside, so every pass cuts at least one edge and ends.
@@ -337,23 +334,15 @@ fn forward_feeders(nodes: &[RunGraphNode]) -> Vec<Vec<usize>> {
     feeders
 }
 
-/// The groups of more than one of `members` that all reach one another along `feeders`, each
-/// edge into `cut` from another member left out.
+/// The groups of more than one of `members` that all reach one another along `feeders`.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-fn looping_groups(
-    members: &BTreeSet<usize>,
-    feeders: &[Vec<usize>],
-    cut: Option<usize>,
-) -> Vec<BTreeSet<usize>> {
+fn looping_groups(members: &BTreeSet<usize>, feeders: &[Vec<usize>]) -> Vec<BTreeSet<usize>> {
     let mut group: DiGraph<usize, ()> = DiGraph::with_capacity(members.len(), members.len());
     let indices: HashMap<usize, NodeIndex> = members
         .iter()
         .map(|&place| (place, group.add_node(place)))
         .collect();
     for &target in members {
-        if cut == Some(target) {
-            continue;
-        }
         for feeder in &feeders[target] {
             if let Some(&feeder_index) = indices.get(feeder) {
                 group.add_edge(feeder_index, indices[&target], ());
@@ -366,6 +355,35 @@ fn looping_groups(
         .filter(|component| component.len() >= 2)
         .map(|component| component.iter().map(|&index| group[index]).collect())
         .collect()
+}
+
+/// The members of `inside` the node at `header` reaches from its loop output along main edges
+/// without coming back through it: its loop's body within the group, empty for a node with no
+/// loop output.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+fn loop_body(nodes: &[RunGraphNode], inside: &BTreeSet<usize>, header: usize) -> BTreeSet<usize> {
+    let mut body = BTreeSet::new();
+    let mut pending: Vec<usize> = nodes[header]
+        .loop_output
+        .map(|output| {
+            nodes[header].outputs[output]
+                .iter()
+                .map(|target| target.node)
+                .collect()
+        })
+        .unwrap_or_default();
+    while let Some(place) = pending.pop() {
+        if place != header && inside.contains(&place) && body.insert(place) {
+            pending.extend(
+                nodes[place]
+                    .outputs
+                    .iter()
+                    .flatten()
+                    .map(|target| target.node),
+            );
+        }
+    }
+    body
 }
 
 /// Each node's ancestors along `forward_feeders`, one bit per place.

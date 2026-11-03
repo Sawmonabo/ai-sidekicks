@@ -241,7 +241,7 @@ pub(crate) fn coded_step_error(
     })
 }
 
-/// One kind's version: its spec, the param holding its shell line, whether it is the loop, and
+/// One kind's version: its spec, the param holding its shell line, the loop's loop output, and
 /// its executor.
 pub(crate) struct NodeKind {
     /// The kind's spec, as the catalog lists it.
@@ -249,10 +249,11 @@ pub(crate) struct NodeKind {
     /// The id of the param holding the kind's shell line, one the spec lists, so a save holds it to
     /// its spec like any other param; `None` for a kind that runs none.
     pub(crate) shell_line_param: Option<&'static str>,
-    /// Whether the kind is the loop, whose one input takes both the loop's entry and the edge its
-    /// body's last node wires back, so an edge from its body into it closes the loop.
+    /// For the loop kind, the index among its main outputs of its loop output, which starts its
+    /// body on each pass; `None` for any other kind. The loop's one input takes both its entry and
+    /// the edge its body's last node wires back, so an edge from its body into it closes the loop.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-    pub(crate) is_loop: bool,
+    pub(crate) loop_output: Option<usize>,
     /// What runs the kind's step.
     #[cfg_attr(
         not(test),
@@ -402,7 +403,7 @@ pub(crate) fn test_kind(
     NodeKind {
         spec: serde_json::from_value(spec).expect("the test kind's spec reads"),
         shell_line_param,
-        is_loop: false,
+        loop_output: None,
         executor,
     }
 }

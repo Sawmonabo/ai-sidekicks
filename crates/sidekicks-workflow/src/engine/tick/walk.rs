@@ -352,7 +352,7 @@ impl RunWalk {
         overtaken_by: &BTreeSet<usize>,
     ) -> Option<u64> {
         let graph = &self.graph;
-        if graph.node(target.node).is_loop
+        if graph.node(target.node).loop_output.is_some()
             && overtaken_by
                 .iter()
                 .any(|&win| graph.is_ancestor(target.node, self.wins[win].place))
@@ -658,7 +658,7 @@ impl RunWalk {
         mut overtaken_by: BTreeSet<usize>,
         turn: &mut WalkTurn,
     ) {
-        if self.graph.node(place).is_loop {
+        if self.graph.node(place).loop_output.is_some() {
             overtaken_by.retain(|&win| !self.graph.is_ancestor(place, self.wins[win].place));
             self.close_passed_rounds(place);
         }
