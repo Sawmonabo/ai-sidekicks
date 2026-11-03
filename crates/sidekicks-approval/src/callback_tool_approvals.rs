@@ -22,7 +22,9 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use serde_json::{Map, Value};
+use sidekicks_contracts::approval::ApprovalDecision;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
 use sidekicks_provider::callback_tools::host::{
     CallbackToolApprovalBasis, CallbackToolApprovalOutcome, CallbackToolApprovalSeam,
@@ -237,18 +239,32 @@ async fn settle_card(
     card: RaisedCard,
 ) -> Result<CallbackToolApprovalOutcome, CallbackToolPortError> {
     Ok(match answer_of(card).await? {
-        StepActionVerdict::Allowed => CallbackToolApprovalOutcome::Allow {
+        StepActionVerdict::Allowed => decided_outcome(ApprovalDecision::Approved, None),
+        StepActionVerdict::Declined { words, .. } => {
+            decided_outcome(ApprovalDecision::Rejected, words)
+        }
+        StepActionVerdict::Refused { .. } => deny_by_policy(CANCELED_REFUSAL),
+    })
+}
+
+/// What a call reads of the person's `decision` on the daemon's own card: approved runs, and
+/// declined carries the words they typed, `decline_reason`, where they typed any.
+pub(crate) fn decided_outcome(
+    decision: ApprovalDecision,
+    decline_reason: Option<NonEmptyText>,
+) -> CallbackToolApprovalOutcome {
+    match decision {
+        ApprovalDecision::Approved => CallbackToolApprovalOutcome::Allow {
             basis: CallbackToolApprovalBasis::UserGrant,
         },
-        StepActionVerdict::Declined { words, .. } => CallbackToolApprovalOutcome::Deny {
+        ApprovalDecision::Rejected => CallbackToolApprovalOutcome::Deny {
             basis: CallbackToolApprovalBasis::UserRefusal,
-            reason: words.map_or_else(
+            reason: decline_reason.map_or_else(
                 || DECLINED_REFUSAL.to_owned(),
                 |words| words.as_str().to_owned(),
             ),
         },
-        StepActionVerdict::Refused { .. } => deny_by_policy(CANCELED_REFUSAL),
-    })
+    }
 }
 
 fn deny_by_policy(reason: &str) -> CallbackToolApprovalOutcome {

@@ -10,6 +10,7 @@
 // The member names are the published file's own, in snake case, because the
 // file is read by tools outside this package as well.
 import { z } from "zod";
+import { Sha256HexSchema } from "./internal/sha256-hex.js";
 import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
 /** The longest release version string accepted, e.g. `0.1.0`. */
@@ -29,8 +30,6 @@ export const ReleaseVersionSchema: z.ZodType<string, string> = z
 /** The longest artifact name or artifact URL a manifest carries. */
 export const RELEASE_MANIFEST_FIELD_MAX_LEN = 2048;
 
-const SHA256_HEX = /^[0-9a-f]{64}$/u;
-
 /** One published artifact: where to fetch it and the SHA-256 of its bytes, in lowercase hex. */
 export interface ReleaseManifestArtifact {
   url: string;
@@ -41,7 +40,7 @@ export interface ReleaseManifestArtifact {
 export const ReleaseManifestArtifactSchema: z.ZodType<ReleaseManifestArtifact> = z
   .object({
     url: z.url({ protocol: /^https$/u }).max(RELEASE_MANIFEST_FIELD_MAX_LEN),
-    sha256: z.string().regex(SHA256_HEX, { message: "sha256 is 64 lowercase hex digits." }),
+    sha256: Sha256HexSchema,
   })
   .strict();
 

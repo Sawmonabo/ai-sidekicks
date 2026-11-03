@@ -863,6 +863,7 @@ async fn compose_resting_side_question_copy(
             command_channel: None,
             context,
             continues_interrupted_turn: false,
+            resume_prompt: None,
         },
         &ClaudeSpawnLegServices::of(&sources),
     )

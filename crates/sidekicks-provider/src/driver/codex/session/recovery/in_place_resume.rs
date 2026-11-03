@@ -1,6 +1,7 @@
 //! One conversation's resume in place, run on its session's task: the call that carries it there,
 //! with the binding and function legs it resumes under, the turn ends the resume lists as over
-//! that the daemon still owed the session, and the session's helpers reopened on the new
+//! that the daemon still owed the session, the person's answers carried to the lead a restart
+//! held where the person's restart brought them, and the session's helpers reopened on the new
 //! connection, each registered on its service first.
 
 use std::error::Error;
@@ -13,6 +14,8 @@ use super::CodexWriterLeft;
 use crate::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::calls::{CodexSessionCallDependencies, CodexSessionTask};
+use crate::driver::codex::session::establishment::answer_steer::CodexAnswerSteers;
+use crate::driver::codex::session::establishment::continuation::CodexHeldLeadContinue;
 use crate::driver::codex::session::establishment::helpers::{
     order_parents_first, reopen_registered_codex_helper,
 };
@@ -38,14 +41,21 @@ pub(crate) struct CodexInPlaceResumeCall {
     pub(crate) function_legs: ResumeFunctionLegs,
     /// Whether a refusing writer let the conversation go.
     pub(crate) writer_left: CodexWriterLeft,
+    /// The person's answers the session's held lead is owed, where the person's restart carries
+    /// them.
+    pub(crate) held_lead_continue: Option<CodexHeldLeadContinue>,
+    /// Sends the answers' steer to a held lead whose continuation Codex still runs.
+    pub(crate) answer_steers: Arc<CodexAnswerSteers>,
 }
 
 /// Resumes the session's conversation in place on the session's task, then ends each turn the
 /// session still owed an end that the resume lists as over: its `turn/completed` was sent while
 /// the daemon was not connected, and Codex sends none again. Once resumed, each helper whose child
 /// run is still bound is reopened, since Codex attaches a running helper only to the connections
-/// open as it started, and one whose newest turn is over has its owed end routed. Answers the
-/// resume's outcome and the frames its routing released.
+/// open as it started, and one whose newest turn is over has its owed end routed. The person's
+/// answers the call carries go to the held lead as an adoption carries them, its answer in the
+/// outcome set still running where they reached it. Answers the resume's outcome and the frames
+/// its routing released.
 pub(crate) async fn resume_codex_session_in_place(
     task: &mut CodexSessionTask<'_>,
     dependencies: &CodexSessionCallDependencies,
@@ -57,8 +67,10 @@ pub(crate) async fn resume_codex_session_in_place(
         binding_id,
         function_legs,
         writer_left,
+        held_lead_continue,
+        answer_steers,
     } = resume;
-    let resumed = establishment
+    let mut resumed = establishment
         .resume_in_place(task, service, binding_id, function_legs, writer_left)
         .await;
     let mut routed = resumed.routed;
@@ -72,6 +84,19 @@ pub(crate) async fn resume_codex_session_in_place(
         .await,
     );
     if matches!(resumed.outcome.result, DriverResumeResult::Resumed { .. }) {
+        if let Some(held) = &held_lead_continue
+            && let Some(answer_steer) = establishment
+                .continue_held_lead_in_place(
+                    task.record,
+                    resumed.status,
+                    &resumed.listed_turns,
+                    held,
+                    &mut resumed.outcome.result,
+                )
+                .await
+        {
+            answer_steers.send(answer_steer, task.record.inbound.clone());
+        }
         routed.extend(reopen_bound_codex_helpers(task, dependencies).await);
     }
     (resumed.outcome, routed)

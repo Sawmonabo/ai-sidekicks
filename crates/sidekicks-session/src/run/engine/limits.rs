@@ -521,7 +521,7 @@ impl RunEngine {
     /// report or return from a wait hands the interrupt again; the spend limit is never owed, the
     /// budget accountant's next call sending it. Fails as the run's read fails, the cut withdrawn
     /// and the limit left owed.
-    pub(crate) async fn forget_late_limit_hand(
+    pub(crate) async fn forget_unawaited_hand(
         &self,
         run_id: RunId,
         limit: RunLimit,

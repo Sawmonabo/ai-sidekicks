@@ -250,11 +250,14 @@ fn assert_unanswered(error: CodexError, code: RefusalCode) {
 }
 
 // Kills: the overloaded or draining answer left on the `Internal` arm, or the connection closed on
-// either, which would cut the session's running turns.
+// either, which would cut the session's running turns; a draining answer's reason not read (the
+// case whose words say nothing of draining) or, where it carries no reason, its words not read
+// (the case of a release that sends none).
 #[rstest]
 #[case::overloaded(
     json!({ "code": -32001, "message": "Server overloaded; retry later." }),
-    Some("Server overloaded; retry later.")
+    Some("Server overloaded; retry later."),
+    false
 )]
 #[case::draining(
     json!({
@@ -262,13 +265,29 @@ fn assert_unanswered(error: CodexError, code: RefusalCode) {
         "message": "Server is draining; retry after reconnecting",
         "data": { "reason": "serverShuttingDown" },
     }),
-    Some("Server is draining; retry after reconnecting")
+    Some("Server is draining; retry after reconnecting"),
+    true
 )]
-#[case::refused(json!({ "code": -32600, "message": "missing field `threadId`" }), None)]
+#[case::draining_by_its_reason_alone(
+    json!({
+        "code": -32600,
+        "message": "retry after reconnecting",
+        "data": { "reason": "serverShuttingDown" },
+    }),
+    Some("retry after reconnecting"),
+    true
+)]
+#[case::draining_with_no_reason(
+    json!({ "code": -32600, "message": "Server is draining; retry after reconnecting" }),
+    Some("Server is draining; retry after reconnecting"),
+    true
+)]
+#[case::refused(json!({ "code": -32600, "message": "missing field `threadId`" }), None, false)]
 #[tokio::test]
 async fn overloaded_and_draining_answers_refuse_the_request_and_keep_the_connection(
     #[case] answer: Value,
     #[case] unavailable_words: Option<&str>,
+    #[case] is_draining_answer: bool,
 ) {
     let (connection, mut service, events) = connect(usize::MAX, None);
     let params = json!({});
@@ -297,10 +316,7 @@ async fn overloaded_and_draining_answers_refuse_the_request_and_keep_the_connect
             .expect("no test thread panicked")
             .is_empty()
     );
-    assert_eq!(
-        is_draining,
-        answer["data"]["reason"] == "serverShuttingDown"
-    );
+    assert_eq!(is_draining, is_draining_answer);
     match (unavailable_words, driver_error) {
         (Some(words), DriverError::Refused(refusal)) => {
             assert_eq!(refusal.code, RefusalCode::ProviderUnavailable);

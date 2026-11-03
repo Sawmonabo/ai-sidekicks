@@ -9,7 +9,7 @@ pub(crate) mod context;
 mod errors;
 pub(crate) mod figures;
 mod fork;
-mod resume;
+pub(crate) mod resume;
 pub(crate) mod spawn_sources;
 
 use std::error::Error;
@@ -193,6 +193,9 @@ pub(crate) struct ClaudeResumeAnswer {
     /// Whether the resume started a process: `false` when it failed or answered the session's
     /// live process.
     pub(crate) has_started_process: bool,
+    /// The held lead's turn the session's live process continues and the person's answers it
+    /// continues with, which the caller sends before it answers; `None` with nothing to send.
+    pub(crate) live_turn_to_continue: Option<(ClaudeContinuedTurn, String)>,
 }
 
 /// What a resume or create asks a spawn to start with, beside its legs.
@@ -375,6 +378,10 @@ impl ClaudeSessionEstablishment {
                 command_channel,
                 context,
                 continues_interrupted_turn: request.continued_turn.is_some(),
+                resume_prompt: request
+                    .continued_turn
+                    .as_ref()
+                    .and_then(|turn| turn.prompt.clone()),
             },
             &ClaudeSpawnLegServices::of(sources),
         )

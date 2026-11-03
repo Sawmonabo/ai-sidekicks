@@ -249,6 +249,11 @@ impl ApprovalFixture {
     }
 }
 
+/// Answers that every provider ask is held by a live call, as the intake does while its call waits.
+pub(crate) fn held_by_a_live_call(_run_id: RunId, _ask_id: &NonEmptyText) -> bool {
+    true
+}
+
 /// A value read from `value`, as a client or the daemon would send it.
 pub(crate) fn from_json<T: DeserializeOwned>(value: Value) -> T {
     serde_json::from_value(value).expect("the test's value reads as its type")
@@ -412,7 +417,7 @@ async fn one_answer_settles_a_card(
         | SecondAnswer::SameIdOtherWords => {
             let resolved = fixture
                 .service
-                .resolve(&first, device())
+                .resolve(&first, device(), held_by_a_live_call)
                 .await
                 .expect("the first answer is recorded");
             Some(resolved.response)
@@ -437,7 +442,10 @@ async fn one_answer_settles_a_card(
             json!({ "declineReason": "not today" }),
         ),
     };
-    let outcome = fixture.service.resolve(&again, device()).await;
+    let outcome = fixture
+        .service
+        .resolve(&again, device(), held_by_a_live_call)
+        .await;
     match code {
         None => {
             let replayed = outcome.expect("the replay is answered");

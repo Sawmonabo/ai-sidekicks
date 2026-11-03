@@ -230,6 +230,7 @@ impl SeamFixture {
             .resolve(&request, device())
             .await
             .expect("the card is answered")
+            .response
     }
 
     /// The check of a command step at Ask on the fixture's run.
@@ -378,6 +379,31 @@ async fn a_call_of_the_apps_own_tools_is_gated_by_the_sessions_level() {
         failure.downcast_ref::<CallbackToolApprovalError>(),
         Some(CallbackToolApprovalError::Stopped)
     ));
+}
+
+// A call of the app's own tools whose wait was let go, as a restart lets it go, leaves its card
+// standing: the person's answer to it is kept, the same call made again settles by that answer with
+// no card, and the next one raises a card of its own. Killed by reading every card as awaited,
+// which leaves the answer unkept and raises a card for the call made again, and by a claim of the
+// orphaned answer that is not checked, which settles the next call too.
+#[tokio::test]
+async fn a_callback_card_answered_with_no_waiter_settles_the_call_made_again() {
+    let fixture = SeamFixture::new().await;
+    fixture.set_level("ask");
+    fixture.resolve_posture().await;
+    let (let_go, card) = fixture.raise().await;
+    let_go.abort();
+    assert!(let_go.await.is_err_and(|failure| failure.is_cancelled()));
+    fixture
+        .answer(&card, json!({ "decision": "approved" }))
+        .await;
+
+    assert_eq!(
+        fixture.decide(SEND_TOOL, &fixture.unasked).await,
+        allow(CallbackToolApprovalBasis::UserGrant)
+    );
+    assert_eq!(fixture.asks.pending_cards(), Vec::<String>::new());
+    let (_waiting, _card) = fixture.raise().await;
 }
 
 // Through the host, a provider that runs the app's tools unasked, and whose capabilities lack

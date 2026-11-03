@@ -167,6 +167,9 @@ pub(crate) struct CodexFrameDispatch {
     pub(crate) turns_ended: Vec<CodexTurnMove>,
     /// Each turn task list that changed, whole, in frame order.
     pub(crate) turn_tasks: Vec<TurnTasksUpdate>,
+    /// The leads whose held continuation ended without carrying the person's answers, whose
+    /// continue the queue gives back.
+    pub(crate) continues_given_back: Vec<RunId>,
 }
 
 /// How a turn's run stands when one of its frames arrives.

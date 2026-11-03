@@ -198,13 +198,27 @@ impl CodexSessionEstablishment {
             step_bound: composed.step_bound,
         };
         // After every step that can fail, so a failed adoption never leaves a continuation running.
-        let continued = self
+        let held_run_continue = params.held_run_continue.as_ref();
+        let mut continued = self
             .continue_cut_runs(
                 &mut record,
                 &connection,
                 &params.live_runs,
                 &resumed,
                 &binding,
+                held_run_continue,
+            )
+            .await;
+        let answer_steer = self
+            .continue_held_lead(
+                &mut record,
+                &connection,
+                &params.live_runs,
+                resumed.status,
+                &resumed.listed_turns,
+                &binding,
+                held_run_continue,
+                &mut continued,
             )
             .await;
         answer_continued_runs(&mut result, &continued);
@@ -237,6 +251,7 @@ impl CodexSessionEstablishment {
             )),
             listed_turns: resumed.listed_turns,
             helpers: restored,
+            answer_steer,
         };
         Ok((result, established))
     }

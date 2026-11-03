@@ -9,6 +9,7 @@
 import { z } from "zod";
 
 import { decodedByteLength } from "./internal/base64.js";
+import { Sha256HexSchema } from "./internal/sha256-hex.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
@@ -36,7 +37,6 @@ import {
   PLATFORM_DESCRIPTION_MAX_LEN,
   TRUST_STATEMENT_KINDS,
   TrustSignerSchema,
-  TrustStatementHashSchema,
   TrustStatementSchema,
   type ChannelPublicKey,
   type DeviceId,
@@ -328,7 +328,7 @@ export interface DeviceStatementListRequest {
 export const DeviceStatementListRequestSchema: z.ZodType<
   DeviceStatementListRequest,
   DeviceStatementListRequest
-> = z.object({ after: TrustStatementHashSchema.nullable() }).strict();
+> = z.object({ after: Sha256HexSchema.nullable() }).strict();
 
 /** Statements in chain order. */
 export interface DeviceStatementListResponse {
@@ -387,7 +387,7 @@ export const DeviceTrustedListResponseSchema: z.ZodType<DeviceTrustedListRespons
           platform: PlatformSchema,
           identityKey: IdentityPublicKeySchema,
           channelKey: ChannelPublicKeySchema,
-          trustedBy: TrustStatementHashSchema,
+          trustedBy: Sha256HexSchema,
           revokedAt: isoDateTimeSchema.nullable(),
         })
         .strict(),

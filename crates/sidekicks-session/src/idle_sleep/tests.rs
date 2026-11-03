@@ -371,6 +371,7 @@ async fn a_recurring_job_sleeps_and_wakes_the_session_before_its_run() {
         schedules: vec![KeptSchedule::Recurring {
             cron: "0 * * * *".to_owned(),
             next_fire_at: Some(next_run),
+            expires_at: next_run + SignedDuration::from_hours(24),
         }],
         ..IdleSleepHolds::default()
     };
@@ -399,6 +400,7 @@ async fn a_session_whose_fires_were_not_stored_stays_awake_until_they_are() {
         schedules: vec![KeptSchedule::Recurring {
             cron: "0 * * * *".to_owned(),
             next_fire_at: Some(Timestamp::now() + SignedDuration::from_hours(3)),
+            expires_at: Timestamp::now() + SignedDuration::from_hours(24),
         }],
         ..IdleSleepHolds::default()
     };
@@ -457,13 +459,16 @@ async fn the_start_wakes_only_a_session_with_a_job_ahead_on_its_schedule() {
             .reader()
             .execute(
                 "INSERT INTO session_kept_schedules
-                   (session_id, position, fires_at, cron, next_fire_at)
-                 VALUES (?1, 0, ?2, ?3, ?4)",
+                   (session_id, position, fires_at, cron, next_fire_at, expires_at)
+                 VALUES (?1, 0, ?2, ?3, ?4, ?5)",
                 params![
                     session_id.text().as_str(),
                     fires_at.map(instant),
                     fires_at.is_none().then_some("0 * * * *"),
                     next.map(instant),
+                    fires_at
+                        .is_none()
+                        .then(|| instant(next_run + SignedDuration::from_hours(24))),
                 ],
             )
             .expect("the test stores a kept schedule");
@@ -499,15 +504,24 @@ async fn the_start_wakes_only_a_session_with_a_job_ahead_on_its_schedule() {
 }
 
 // A recurring job's wake comes two minutes before its schedule's next match in the computer's
-// zone, the provider's own next run used while it is still ahead. Killed by a wake at the match,
-// by the provider's figure read past its time, and by a match read in another zone.
+// zone, the provider's own next run used while it is still ahead, and a job that expires first
+// wakes nothing. Killed by a wake at the match, by the provider's figure read past its time, by a
+// match read in another zone, and by a match read past the job's expiry.
 #[test]
 fn a_recurring_wake_comes_two_minutes_before_the_next_match() {
     let zone = TimeZone::get("America/New_York").expect("the zone database knows New York");
     let now: Timestamp = "2026-10-28T12:00:00Z".parse().expect("a test instant");
-    let job = |next_fire_at: Option<Timestamp>| KeptSchedule::Recurring {
-        cron: "0 9 * * *".to_owned(),
-        next_fire_at,
+    let job_expiring =
+        |next_fire_at: Option<Timestamp>, expires_at: Timestamp| KeptSchedule::Recurring {
+            cron: "0 9 * * *".to_owned(),
+            next_fire_at,
+            expires_at,
+        };
+    let job = |next_fire_at: Option<Timestamp>| {
+        job_expiring(
+            next_fire_at,
+            "2026-11-04T12:00:00Z".parse().expect("a test instant"),
+        )
     };
     let past: Timestamp = "2026-10-28T11:00:00Z".parse().expect("a test instant");
     let ahead: Timestamp = "2026-10-28T15:00:00Z".parse().expect("a test instant");
@@ -521,4 +535,9 @@ fn a_recurring_wake_comes_two_minutes_before_the_next_match() {
         next_wake_at(&[job(Some(ahead))], now, &zone),
         Some("2026-10-28T14:58:00Z".parse().expect("a test instant"))
     );
+    let expired_before_its_match = job_expiring(
+        None,
+        "2026-10-28T12:30:00Z".parse().expect("a test instant"),
+    );
+    assert_eq!(next_wake_at(&[expired_before_its_match], now, &zone), None);
 }
