@@ -380,9 +380,11 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
     let request = match &existing {
         Some(account) => ProviderAccountSignInRequest::Registered(RegisteredAccountSignIn {
             account_id: account.account_id.clone(),
+            arm: None,
         }),
         None => ProviderAccountSignInRequest::New(NewAccountSignIn {
             provider: provider("claude"),
+            arm: None,
         }),
     };
 
@@ -618,6 +620,7 @@ async fn a_sign_in_whose_home_changed_under_it_writes_nothing() {
     );
     let request = ProviderAccountSignInRequest::Registered(RegisteredAccountSignIn {
         account_id: account.account_id.clone(),
+        arm: None,
     });
     let started = broker
         .start(request.clone(), SignInOrigin::ThisMachine)
@@ -711,6 +714,7 @@ async fn a_cancel_while_the_flow_starts_cancels_it_once_started() {
     );
     let request = ProviderAccountSignInRequest::Registered(RegisteredAccountSignIn {
         account_id: account.account_id.clone(),
+        arm: None,
     });
     // The home held keeps the attempt starting until the cancel is asked.
     let home_hold = home_lock.hold(account.account_id.clone()).await;
@@ -777,6 +781,7 @@ async fn a_sign_in_waits_out_a_renewal_and_marks_its_home_while_the_flow_runs() 
     );
     let request = ProviderAccountSignInRequest::Registered(RegisteredAccountSignIn {
         account_id: account.account_id.clone(),
+        arm: None,
     });
     let renewal = home_lock.hold(account.account_id.clone()).await;
 

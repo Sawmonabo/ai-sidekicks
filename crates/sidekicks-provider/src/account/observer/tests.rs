@@ -292,6 +292,7 @@ async fn a_probe_during_a_sign_in_writes_nothing_and_the_sign_in_saves() {
         .start(
             ProviderAccountSignInRequest::Registered(RegisteredAccountSignIn {
                 account_id: account_id.clone(),
+                arm: None,
             }),
             SignInOrigin::ThisMachine,
         )

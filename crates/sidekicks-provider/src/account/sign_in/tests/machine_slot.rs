@@ -105,6 +105,7 @@ async fn broker_over(
 fn new_codex_account() -> ProviderAccountSignInRequest {
     ProviderAccountSignInRequest::New(NewAccountSignIn {
         provider: provider("codex"),
+        arm: None,
     })
 }
 

@@ -323,6 +323,19 @@ pub struct ProviderAccountCredentialHomeResetResponse {
     pub health_state: ProviderAccountHealthState,
 }
 
+/// Which of a provider's sign-in flows runs: the one that calls back to a browser on this machine,
+/// or the device-code flow a browser on any device finishes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ProviderSignInArm {
+    /// The provider's browser flow, finished by a browser on this machine that reaches its
+    /// callback.
+    Browser,
+    /// The provider's device-code flow: an address and a code the person enters from a browser on
+    /// any device, taken when they pick it or no browser here reaches them.
+    DeviceCode,
+}
+
 /// Signs in an account already registered, into its own home.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -330,6 +343,15 @@ pub struct ProviderAccountCredentialHomeResetResponse {
 pub struct RegisteredAccountSignIn {
     /// The account.
     pub account_id: ProviderAccountId,
+    /// The arm to run. Absent, it is the browser arm at this machine and device code from another
+    /// device, where `browser` is refused.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ProviderSignInArm")]
+    pub arm: Option<ProviderSignInArm>,
 }
 
 /// Adds an account through its provider's sign-in: the daemon mints the id and the home, and
@@ -340,6 +362,15 @@ pub struct RegisteredAccountSignIn {
 pub struct NewAccountSignIn {
     /// The provider.
     pub provider: ProviderId,
+    /// The arm to run. Absent, it is the browser arm at this machine and device code from another
+    /// device, where `browser` is refused.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ProviderSignInArm")]
+    pub arm: Option<ProviderSignInArm>,
 }
 
 /// Starts the provider's own interactive sign-in, for a registered account or a new one.
@@ -478,6 +509,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ProviderAccountCredentialSealRefusedDetails>().checked(),
         Definition::read::<ProviderAccountCredentialHomeResetRequest>().checked(),
         Definition::read::<ProviderAccountCredentialHomeResetResponse>().checked(),
+        Definition::read::<ProviderSignInArm>(),
         Definition::read::<ProviderAccountSignInRequest>().checked(),
         Definition::read::<ProviderAccountSignInResponse>().checked(),
         Definition::read::<ProviderAccountSignInInFlightDetails>().checked(),

@@ -60,6 +60,7 @@ async fn a_stop_cancels_a_new_accounts_open_flow_and_removes_its_home() {
         .start(
             ProviderAccountSignInRequest::New(NewAccountSignIn {
                 provider: provider("claude"),
+                arm: None,
             }),
             SignInOrigin::ThisMachine,
         )
