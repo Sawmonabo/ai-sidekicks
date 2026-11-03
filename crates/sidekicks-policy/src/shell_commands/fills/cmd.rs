@@ -60,8 +60,14 @@ enum CommandPlace {
 /// `line` with the author's `^` and `!` written so cmd.exe's delayed expansion hands the command
 /// the text the first reading leaves, in each piece of a command that holds a `!` and so is read
 /// again; a piece without one is left as written, since delayed expansion skips it. The ranges in
-/// `references`, the fills' `!V!` references in line order, stay as they are.
-pub(super) fn keep_through_delayed_expansion(line: &str, references: &[Range<usize>]) -> String {
+/// `references`, the fills' `!V!` references in line order, stay as they are. In a piece read
+/// again the author's `%NAME%` is written `!NAME!` when `is_defined` answers that the launch's
+/// environment defines `NAME`, so delayed expansion hands its value over unscanned.
+pub(super) fn keep_through_delayed_expansion(
+    line: &str,
+    references: &[Range<usize>],
+    is_defined: &dyn Fn(&str) -> bool,
+) -> String {
     let characters: Vec<(usize, char)> = line.char_indices().collect();
     let mut readings = Vec::with_capacity(characters.len());
     let mut pieces: Vec<bool> = Vec::new();
@@ -155,9 +161,27 @@ pub(super) fn keep_through_delayed_expansion(line: &str, references: &[Range<usi
         }
         readings.push((reading, piece));
     }
+    let mut variables = defined_variables(line, is_defined).into_iter().peekable();
     let mut kept = String::with_capacity(line.len());
-    for (&(_, character), &(reading, piece)) in characters.iter().zip(&readings) {
-        if piece.is_some_and(|piece| pieces[piece]) {
+    let mut kept_to = 0;
+    for (&(at, character), &(reading, piece)) in characters.iter().zip(&readings) {
+        if at < kept_to {
+            continue;
+        }
+        let is_read_again = piece.is_some_and(|piece| pieces[piece]);
+        let variable = variables.next_if(|variable| variable.start == at);
+        // The first reading sets `%NAME%`'s value in as text, whose `^` and `!` delayed expansion
+        // would then remove; `!NAME!` sets it in after that scan.
+        if let Some(variable) = variable
+            && is_read_again
+        {
+            kept.push('!');
+            kept.push_str(&line[variable.start + 1..variable.end - 1]);
+            kept.push('!');
+            kept_to = variable.end;
+            continue;
+        }
+        if is_read_again {
             kept.push_str(match (reading, character) {
                 // Inside quotes the first reading keeps `^^` and `^!`, which delayed expansion
                 // reads as the `^` or `!` alone.
@@ -178,6 +202,35 @@ pub(super) fn keep_through_delayed_expansion(line: &str, references: &[Range<usi
         kept.push(character);
     }
     kept
+}
+
+/// The `%NAME%` references in `line` whose value cmd.exe's first reading sets in, in line order:
+/// those whose name `is_defined` answers for. An undefined one stays as written and the scan goes
+/// on from the character after its first `%`; a defined `%NAME:…%` form is passed over whole.
+fn defined_variables(line: &str, is_defined: &dyn Fn(&str) -> bool) -> Vec<Range<usize>> {
+    let mut variables = Vec::new();
+    let mut from = 0;
+    while let Some(offset) = line[from..].find('%') {
+        let start = from + offset;
+        let name_start = start + 1;
+        from = name_start;
+        let Some(name_end) = line[name_start..]
+            .find(['%', ':'])
+            .map(|end| name_start + end)
+        else {
+            continue;
+        };
+        if !is_defined(&line[name_start..name_end]) {
+            continue;
+        }
+        if line[name_end..].starts_with('%') {
+            variables.push(start..name_end + 1);
+            from = name_end + 1;
+        } else if let Some(form_end) = line[name_end..].find('%') {
+            from = name_end + form_end + 1;
+        }
+    }
+    variables
 }
 
 /// A new piece of a command, holding no `!` yet; its index.
