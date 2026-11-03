@@ -1,9 +1,10 @@
-//! A node's reference parameters and its secret references, checked against the parameter list of
-//! the node's kind. A reference names a record kept elsewhere, so a parameter never carries a
-//! nested node or a tool's policy, and a `secret://` reference stands only in a parameter the kind
-//! marks sensitive, never inside an expression. The check reads only its arguments: the builder
-//! runs it through the WebAssembly export, and the daemon's save calls it for each node with its
-//! kind's parameter list.
+//! A node's parameters checked against the parameter list of the node's kind: a required parameter
+//! left empty, a member the kind does not list, a reference, tool binding or collection that does
+//! not read as one, and a secret reference out of place. A reference names a record kept
+//! elsewhere, so a parameter never carries a nested node or a tool's policy, and a `secret://`
+//! reference stands only in a parameter the kind marks sensitive, never inside an expression. The
+//! check reads only its arguments: the builder runs it through the WebAssembly export, and the
+//! daemon's save calls it for each node with its kind's parameter list.
 
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
@@ -40,8 +41,9 @@ pub struct WorkflowParamIssue {
     pub path: Vec<IssuePathSegment>,
     /// The fault.
     pub message: String,
-    /// The finding the save raises for the value: a secret outside a sensitive parameter or
-    /// inside an expression; absent for a reference that does not read as one.
+    /// The finding the save raises for the value: `paramMissing`, `unknownKey`,
+    /// `secretOutsideSensitiveField` or `secretInExpression`; absent for a reference, a tool
+    /// binding or a collection that does not read as one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "WorkflowDefinitionRule")]
     pub rule: Option<WorkflowDefinitionRule>,
@@ -62,9 +64,10 @@ pub struct WorkflowNodeParamsCheckInput {
 
 /// Checks one node's parameters against its kind's parameter list, walking into collections, and
 /// returns every value refused: a reference that is not one (a secret outside the `secret://`
-/// form, an id that is not one, a tool binding carrying a nested node or a policy), a `secret://`
-/// value in a parameter the kind does not mark sensitive, an expression naming `secret://`, a
-/// required parameter left empty while it is drawn, and a member the kind does not list.
+/// form, an id that is not one, a tool binding carrying a nested node or a policy), a collection
+/// of the wrong shape, a `secret://` value in a parameter the kind does not mark sensitive, an
+/// expression naming `secret://`, a required parameter left empty while it is drawn, and a member
+/// the kind does not list.
 pub fn check_workflow_node_params(
     params: &Map<String, Value>,
     specs: &[WorkflowParamSpec],
