@@ -23,10 +23,12 @@ impl Fixture {
 // An answer given while no request holds its question, as after a restart, settles it answered,
 // writes the person's turn and moves the run back to `running` with nothing sent, and keeps the
 // answer: the same pages asked again under a new request are answered with it once, through the
-// driver, with no second record, and a third ask records a question of its own. The continue owes
-// it until the question asked again takes it. Killed by the old refusal kept, by the claim left
-// unwritten (the third ask is answered too), by the run left waiting, and by the continue still
-// owing an answer the question asked again took.
+// driver, with no second record, and a third ask records a question of its own. A continue's
+// claim leaves the question asked again its answer, and once given back the continue owes it no
+// longer, the question asked again having taken it. Killed by the old refusal kept, by the claim
+// left unwritten (the third ask is answered too), by the run left waiting, by a continue's claim
+// that also takes the call's hand (the question asked again records a question), and by the
+// continue still owing an answer the question asked again took.
 #[tokio::test]
 async fn an_answer_no_held_request_takes_is_kept_and_answers_the_question_asked_again_once() {
     let fixture = Fixture::new().await;
@@ -59,6 +61,13 @@ async fn an_answer_no_held_request_takes_is_kept_and_answers_the_question_asked_
             answer: "Beta".to_owned(),
         }]
     );
+    assert!(
+        fixture
+            .questions
+            .claim_continue(question_id)
+            .await
+            .expect("the continue's claim is written")
+    );
 
     let asked_again = fixture.ask("request-2", json!([choice_page()]), true).await;
 
@@ -72,6 +81,11 @@ async fn an_answer_no_held_request_takes_is_kept_and_answers_the_question_asked_
         [QuestionAnswer::Picked { labels }] if labels.as_slice()[0].as_str() == "Beta"
     ));
     assert_eq!(fixture.run_state(), "running");
+    fixture
+        .questions
+        .release_continue(question_id)
+        .await
+        .expect("the continue's claim is given back");
     assert_eq!(
         fixture
             .questions
