@@ -281,7 +281,13 @@ This supplement EXTENDs the Phase-1 resolver and trust-envelope modules and the 
   - **Acceptance:** every working tree of one repository resolves to one identical canonical root; no resolution returns a git directory, a bare repository's object store, or a root the supplied path does not sit inside; and outside the named `--separate-git-dir` residual, no directory that merely points at a repository's common directory resolves as a working tree of that repository unless git lists it as one.
   - **Spec coverage:** Spec-007 §Repo Identity And Common-Directory Keying (V1 Definition) (identity keys on the git common directory; canonical root is the main checkout's working-tree root; resolution surfaces both the repository identity and the enclosing working tree's own root), [Spec-007 §Required Behavior](../specs/007-repo-attachment-and-workspace-binding.md#required-behavior) (canonical root resolution and persistence basis), [Spec-007 §Implementation Notes](../specs/007-repo-attachment-and-workspace-binding.md#implementation-notes) (never assume the user-selected path is the repo root)
   - **Verifies invariant:** I-006-11, I-006-12, I-006-1
-  - **Consumes:** `GitRunner` / `PathRealpathResolver` seams and the system's `PathRules` + `queryCanonicalToplevel` + `RepoRootResolutionError` ← Plan-006 Phase 1 T1.5; `toComparableComponents` / `isContainedWithin` / `componentsEqual` ← Plan-006 Phase 1 T1.6; system `git` binary supporting `--git-common-dir`, `worktree list --porcelain` and `--path-format=absolute` (git ≥ 2.31 — the governing floor, per the git 2.31 release notes; environment dependency, not a contract symbol)
+  - **Consumes:** `GitRunner` / `PathRealpathResolver` seams and the system's `PathRules` + `queryCanonicalToplevel` + `RepoRootResolutionError` ← Plan-006 Phase 1 T1.5; `toComparableComponents` / `isContainedWithin` / `componentsEqual` ← Plan-006 Phase 1 T1.6; system `git` binary supporting `--git-common-dir`, `worktree list --porcelain` and `--path-format=absolute` (git ≥ 2.31, per the git 2.31 release notes; environment dependency, not a contract symbol). A git feature a later release brought has a floor of its own, read from the installed git's version, and only that feature is refused below it:
+
+    | Feature | First release | Below it |
+    | --- | --- | --- |
+    | `repack --geometric`, which folds a capture folder's packs | 2.32 | the capture folders' packs are not folded |
+    | `core.fsync` with its `reference` component, which a capture's writes set | 2.36 | every capture is refused |
+    | `sparse-checkout check-rules`, which a capture in a sparse checkout runs | 2.41 | a capture in a sparse checkout is refused |
 
 - **T-006-2B-2 — Listed-working-tree admission at the pick.**
   - **Files:** `crates/sidekicks-workspace/src/trust_envelope.rs` (EXTEND), the `tests` module of `crates/sidekicks-workspace/src/trust_envelope.rs` (EXTEND)

@@ -18,7 +18,7 @@ use super::test_log::counted_log;
 use crate::questions::schema::schema_parts;
 use crate::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
 use crate::run::engine::test_fixture::insert_running_run;
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeWriter};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions, RunWriter};
 
 // Commits run `run_id` of a fresh session in `state` through `writer`, as a run state change's
 // write leaves the run's row.
@@ -71,7 +71,7 @@ async fn committed_changes_move_the_count_by_the_states_they_leave_and_enter() {
     // Written past the writer, so no commit has counted it yet.
     assert_eq!(*count.borrow(), 0);
 
-    let changes = RunStateChangeWriter::new(
+    let changes = RunWriter::new(
         Arc::new(DatabaseReadPool::new(
             database.path(),
             RUN_ENGINE_STATEMENT_CAPACITY,
@@ -86,13 +86,13 @@ async fn committed_changes_move_the_count_by_the_states_they_leave_and_enter() {
     };
     // A companion that changes no row where it expects one, so it refuses the write after the
     // state's swap ran.
-    let refusing = || RunStateChangeCompanions {
+    let refusing = || RunWriteCompanions {
         statements: vec![WriteStatement {
             sql: Cow::Borrowed("UPDATE runs SET state = state WHERE 0"),
             bindings: StatementBindings::None,
             expected_row_count: Some(1),
         }],
-        ..RunStateChangeCompanions::default()
+        ..RunWriteCompanions::default()
     };
     let steps = [
         (RunStateEntry::Pausing, Ok(RunState::Pausing), 1, false),
@@ -113,7 +113,7 @@ async fn committed_changes_move_the_count_by_the_states_they_leave_and_enter() {
         let companions = if is_companion_refused {
             refusing()
         } else {
-            RunStateChangeCompanions::default()
+            RunWriteCompanions::default()
         };
         let written = changes
             .write(RunStateChange::new(run_id, entry.clone()), companions, None)

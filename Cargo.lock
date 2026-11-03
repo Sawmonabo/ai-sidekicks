@@ -7210,9 +7210,9 @@ dependencies = [
 
 [[package]]
 name = "reflink-copy"
-version = "0.1.30"
+version = "0.1.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9dd7ab4af0363d5ccfd2838d782a28196cf32a5cc2e4fe3c5dc83f2be588b8b"
+checksum = "3dd31f458a66eeda05a9e837fc5f0effbaacbe8565868ecae5b37bf0544c19f5"
 dependencies = [
  "cfg-if",
  "libc",
@@ -9026,6 +9026,7 @@ name = "sidekicks-session"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "base16ct 1.0.0",
  "base64 0.23.1",
  "blake3",
  "bytes",
@@ -9112,6 +9113,7 @@ dependencies = [
  "serde",
  "serde-saphyr",
  "serde_json",
+ "sha2 0.11.1",
  "sidekicks-contracts",
  "sidekicks-platforms",
  "tempfile",

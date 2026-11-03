@@ -136,8 +136,8 @@ pub(crate) enum CrashMonitorEndFailure {
 /// watermark a clean end stores, the renames' name pushes, the highlighter, the terminals, the
 /// provider accounts' sign-ins, the start's sweep of new accounts' homes and the account observer,
 /// the scheduler, the working-folder watch, the projects list, the search index, the drivers, the
-/// git trees a failed call left and, last, the kept worktrees' reads. Answers each step's failure,
-/// every step having run.
+/// turn end captures under way, the git trees a failed call left and, last, the kept worktrees'
+/// reads. Answers each step's failure, every step having run.
 pub(crate) async fn stop_work(
     process: &mut DaemonProcess,
     intent: DaemonStopIntent,
@@ -311,6 +311,10 @@ pub(crate) async fn stop_work(
                 .into_iter()
                 .map(DaemonStopFailure::Driver),
         );
+    }
+    // After the drivers, so no turn ends past here; each capture under way is waited out whole.
+    if let Some(turn_capturing) = process.turn_capturing.take() {
+        turn_capturing.stop().await;
     }
     if let Some(git) = &process.git {
         git.wait_for_tree_ends().await;

@@ -225,6 +225,7 @@ impl ClaudeDriver {
                 Arc::clone(&services.caller_processes),
                 Arc::clone(&services.input_waits),
                 Arc::clone(&services.ports.command_output),
+                Arc::clone(&services.ports.command_capture),
             )),
             ports: Arc::clone(&services.ports),
         });

@@ -189,9 +189,7 @@ pub(crate) async fn remove_session_storage_folder(
     session_id: SessionId,
 ) -> io::Result<()> {
     let folder = session_storage_folder(data_folder, &session_id);
-    tokio::task::spawn_blocking(move || sidekicks_platforms::remove_tree(&folder))
-        .await
-        .map_err(io::Error::other)?
+    sidekicks_platforms::remove_tree_awaited(&folder).await
 }
 
 // Renders `source_session_id`'s transcript into a new file beside `file_path`, named

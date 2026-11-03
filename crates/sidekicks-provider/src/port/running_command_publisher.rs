@@ -7,6 +7,7 @@ use serde_json::json;
 use sidekicks_contracts::command::{CommandId, ExitCode};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -24,6 +25,9 @@ pub(crate) struct CommandStart {
     pub(crate) command_id: CommandId,
     /// The run that started it.
     pub(crate) run_id: RunId,
+    /// The tool call that started it, where the provider named one, which its ending carries so
+    /// the ending finds its opening.
+    pub(crate) tool_call_id: Option<ToolCallId>,
     /// The binding of the run that started the command, which its ending is appended on.
     pub(crate) binding_id: RuntimeBindingId,
     /// The command as the agent ran it.

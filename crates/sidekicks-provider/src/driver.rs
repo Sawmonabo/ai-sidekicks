@@ -72,7 +72,7 @@ pub(crate) mod prior_usage;
 pub(crate) mod question_answers;
 pub mod registry;
 pub(crate) mod reorder_buffer;
-pub(crate) mod rewind;
+pub mod rewind;
 pub mod run_control;
 pub mod schema;
 pub mod session_control;

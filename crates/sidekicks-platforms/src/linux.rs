@@ -6,25 +6,29 @@
 //! descriptor's path, the wakes of a folder's and a file's watch, whether a terminal's program
 //! waits for input, the daemon's process containment and its shell start's writer check, a session
 //! child's start, whether the machine runs on AC power, the machine's wakes from sleep, a
-//! wall-clock timer, an address's opening in the application registered for it and the shells
-//! the live test opens on a folder.
+//! wall-clock timer, an address's opening in the application registered for it, the mark on a
+//! running program's path once its file is replaced, the volume holding a path: its top and its id,
+//! and the shells the live test opens on a folder.
 
 pub(crate) mod address_opening;
 pub(crate) mod caller_process;
 pub(crate) mod descriptor_path;
 pub(crate) mod input_wait;
 pub(crate) mod memory;
+pub(crate) mod mount_info;
 pub(crate) mod pinned_process;
 pub(crate) mod power_source;
 pub(crate) mod process_containment;
 pub(crate) mod process_start;
 pub(crate) mod processes;
+pub(crate) mod running_program;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) mod scratch_volume;
 pub(crate) mod session_child;
 pub(crate) mod shell_start_confirmation;
 pub(crate) mod user_namespace;
 pub(crate) mod user_scope;
+pub(crate) mod volume;
 pub(crate) mod wake_watch;
 pub(crate) mod wall_clock_timer;
 pub(crate) mod watch;

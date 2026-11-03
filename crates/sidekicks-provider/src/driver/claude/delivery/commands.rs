@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex, Weak};
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use sidekicks_contracts::command::CommandId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -42,6 +43,7 @@ use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
+use crate::port::command_capture::CommandCapture;
 use crate::port::running_command_publisher::{
     CommandStart, ProviderCommandEnd, ReseedScope, RunningCommandPublisher,
 };
@@ -402,6 +404,7 @@ impl ClaudeCommandTasks {
                 return None;
             }
             task.tool_use_id = Some(frame.tool_use_id()?.to_owned());
+            task.start.tool_call_id = tool_call_id_of(frame, session_id);
             task.start.line = command.as_deref().map(bash_line_text);
             return Some(task.start.clone());
         }
@@ -410,6 +413,7 @@ impl ClaudeCommandTasks {
             session_id,
             command_id: CommandId::new(task_id.to_owned())?,
             run_id: run?.run_id,
+            tool_call_id: tool_call_id_of(frame, session_id),
             binding_id: run?.binding_id.clone(),
             name: command_name(frame.description.as_deref(), command.as_deref(), task_id)?,
             started_at: WireInstant::now(),
@@ -466,6 +470,7 @@ impl ClaudeCommandTasks {
                     session_id,
                     command_id: CommandId::new(task_id.to_owned())?,
                     run_id: run.run_id,
+                    tool_call_id: None,
                     binding_id: run.binding_id.clone(),
                     name: command_name(entry.description.as_deref(), None, task_id)?,
                     started_at: WireInstant::now(),
@@ -502,14 +507,15 @@ pub(crate) struct ClaudeCommandPrograms {
 
 /// Every session's command channel, one per session from its first spawn to its close: where
 /// each opens, the programs its commands run under, how a party's place under the provider's
-/// process is read, how a command's wait for input is read, and the running commands each
-/// channel's records reach.
+/// process is read, how a command's wait for input is read, the running commands each channel's
+/// records reach and the capture around each line's command.
 pub(crate) struct ClaudeCommandChannels {
     root: PathBuf,
     programs: ClaudeCommandPrograms,
     caller_processes: Arc<dyn CallerProcessReader>,
     input_waits: Arc<dyn InputWaitReader>,
     command_output: Arc<PortRegistration<Arc<RunningCommandSets>>>,
+    command_capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>,
     sessions: Mutex<HashMap<SessionId, Arc<ClaudeCommandChannel>>>,
     // Each session's channels apart from its own, while their callers hold them.
     apart: Mutex<HashMap<SessionId, Vec<Weak<ClaudeCommandChannel>>>>,
@@ -542,6 +548,7 @@ impl ClaudeCommandChannels {
         caller_processes: Arc<dyn CallerProcessReader>,
         input_waits: Arc<dyn InputWaitReader>,
         command_output: Arc<PortRegistration<Arc<RunningCommandSets>>>,
+        command_capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>,
     ) -> Self {
         Self {
             root: command_channel_root(data_folder),
@@ -549,6 +556,7 @@ impl ClaudeCommandChannels {
             caller_processes,
             input_waits,
             command_output,
+            command_capture,
             sessions: Mutex::default(),
             apart: Mutex::default(),
         }
@@ -690,6 +698,7 @@ impl ClaudeCommandChannels {
                 .map(|run| ClaudeApartRunCommands::new(session_id, run, Arc::clone(&sets))),
             sets,
             input_waits: Arc::clone(&self.input_waits),
+            command_capture: Arc::clone(&self.command_capture),
             watch: Mutex::new(Some(watch)),
             follower: Mutex::new(None),
         }))
@@ -717,6 +726,7 @@ pub(crate) struct ClaudeCommandChannel {
     apart_run: Option<ClaudeApartRunCommands>,
     sets: Arc<RunningCommandSets>,
     input_waits: Arc<dyn InputWaitReader>,
+    command_capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>,
     watch: Mutex<Option<FolderArrivalWatch>>,
     follower: Mutex<Option<JoinHandle<()>>>,
 }
@@ -765,6 +775,7 @@ impl ClaudeCommandChannel {
             watch,
             Arc::clone(&self.sets),
             Arc::clone(&self.input_waits),
+            Arc::clone(&self.command_capture),
         );
         *lock(&self.follower) = Some(tokio::spawn(async move {
             // The watch failing ends the following; the commands' rows keep what the provider
@@ -801,6 +812,22 @@ fn is_command_task(task_type: Option<&str>) -> bool {
         ]
         .contains(&task_type)
     })
+}
+
+// The tool call a command task's `frame` names as its start, where it names one a row can carry;
+// one it cannot carry is logged, as the row's ending then names no call.
+fn tool_call_id_of(frame: &ClaudeTaskFrame, session_id: SessionId) -> Option<ToolCallId> {
+    let tool_use_id = frame.tool_use_id()?;
+    ToolCallId::new(tool_use_id.to_owned())
+        .inspect_err(|_| {
+            tracing::warn!(
+                session_id = %session_id,
+                tool_use_id = %tool_use_id,
+                "a Claude Code command task's call id is not one a tool call can carry, so its \
+                 ending names no call"
+            );
+        })
+        .ok()
 }
 
 // A command's name on its row: Claude Code's description of it, else its line, else its id.

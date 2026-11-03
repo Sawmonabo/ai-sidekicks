@@ -1,6 +1,7 @@
 //! What the engine holds per live run, under one lock never held across an await: the runs no
 //! driver has yet, the runs being continued, the provider changes and terminal writes in flight,
-//! and what a live run's turn carries; and the guards that settle each entry on every exit path.
+//! what a live run's turn carries and the sessions an undo's rollback write holds; and the guards
+//! that settle each entry on every exit path.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -11,6 +12,7 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::run::subagent::SubagentId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::{Notify, SetOnce, SetOnceError};
@@ -58,6 +60,13 @@ pub(super) struct ContinuingRun {
     pub(super) settled: SetOnce<()>,
 }
 
+/// An undo's rollback write on a session, in progress from the provider's confirmed cut until the
+/// write lands or fails.
+pub(super) struct UndoWrite {
+    /// Set once the write has ended, on every path.
+    pub(super) ended: SetOnce<()>,
+}
+
 /// A provider's change of a run that passed its check for a continue, in flight until its write
 /// lands or is refused.
 pub(super) struct ProviderChange {
@@ -85,11 +94,11 @@ pub(super) struct LimitCut {
     pub(super) stop_id: u64,
 }
 
-/// Every map is bounded by the live runs: an entry leaves when its run, its start, its continue,
-/// its write, its turn or its last waiter ends, on every exit path. A turn's cuts are bounded by
-/// the stops in flight or landed with a row, each leaving when its stop withdraws it or its turn's
-/// end is written, so they can outlive their run's end until then; a provider process's exit and
-/// a restart's settle end every open turn of the run.
+/// Every map is bounded by the live runs, and the undo writes by the undos in flight: an entry
+/// leaves when its run, its start, its continue, its write, its turn or its last waiter ends, on
+/// every exit path. A turn's cuts are bounded by the stops in flight or landed with a row, each
+/// leaving when its stop withdraws it or its turn's end is written, so they can outlive their run's
+/// end until then; a provider process's exit and a restart's settle end every open turn of the run.
 #[derive(Default)]
 pub(super) struct LiveRuns {
     /// The runs no driver has yet.
@@ -129,6 +138,8 @@ pub(super) struct LiveRuns {
     /// Each live helper's own run by the binding its readings come on and its provider's id, from
     /// its first usage report until the run ends.
     pub(super) helper_runs: HashMap<(RuntimeBindingId, SubagentId), RunId>,
+    /// Each session's undo rollback writes in progress, oldest first, each until it ends.
+    pub(super) undo_writes: HashMap<SessionId, Vec<Arc<UndoWrite>>>,
     /// The identity the next limit stop's cut takes.
     pub(super) next_stop_id: AtomicU64,
 }

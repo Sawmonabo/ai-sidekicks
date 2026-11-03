@@ -65,10 +65,20 @@ pub fn is_held_file_error(error: &io::Error) -> bool {
         || error.raw_os_error() == Some(WSAEACCES)
 }
 
-/// The error's system code as Windows types it, which std holds as an `i32`; `None` when the
-/// error carries no system code.
+// The high half of an HRESULT that wraps a Win32 code (`HRESULT_FROM_WIN32`): the failure bit and
+// facility 7. reflink-copy's `DeviceIoControl` calls answer in this form.
+const WIN32_HRESULT_HIGH_HALF: u32 = 0x8007_0000;
+
+// The high half of an HRESULT, which holds its failure bit and its facility.
+const HRESULT_HIGH_HALF_MASK: u32 = 0xFFFF_0000;
+
+/// The error's Win32 code as Windows types it, plain or read from the low half of the HRESULT that
+/// wraps it; `None` when the error carries no system code.
 pub(crate) fn win32_code(error: &io::Error) -> Option<u32> {
-    error
-        .raw_os_error()
-        .and_then(|code| u32::try_from(code).ok())
+    let code = error.raw_os_error()?.cast_unsigned();
+    if code & HRESULT_HIGH_HALF_MASK == WIN32_HRESULT_HIGH_HALF {
+        Some(code & !HRESULT_HIGH_HALF_MASK)
+    } else {
+        Some(code)
+    }
 }

@@ -56,7 +56,7 @@ use crate::run::pause::{RunPauseControl, RunPauseError};
 use crate::run::provider_choice::{
     PROVIDER_CHOICE_STATEMENT_CAPACITY, ProviderChoiceAnswerOrigin, ProviderChoiceResolver,
 };
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 // Records an `accepted` interrupt of the harness's run at `limit`, naming the cut `turn_number`,
 // accepted at version 1, as its write would, and answers its id.
@@ -450,13 +450,7 @@ async fn an_accepted_limit_reads_the_run_before_it_dispatches(
         RunAfterAccept::EndedAndContinued => {
             let ended = harness
                 .engine
-                .end_run_for_interrupt(
-                    harness.run_id,
-                    1,
-                    None,
-                    None,
-                    RunStateChangeCompanions::default(),
-                )
+                .end_run_for_interrupt(harness.run_id, 1, None, None, RunWriteCompanions::default())
                 .await
                 .expect("the person's interrupt ends the run");
             assert!(ended);

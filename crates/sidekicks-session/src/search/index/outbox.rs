@@ -14,7 +14,7 @@ use rusqlite::Connection;
 use rusqlite::types::Value;
 use sidekicks_search::index::{GroupMembers, IndexBatch, IndexRowKind, RemovedOwner};
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
-use sidekicks_store::database::stored_column::{rowid_column, text_column};
+use sidekicks_store::database::stored_column::{text_column, unsigned_integer_column};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 use crate::search::index::batch_builder::IndexBatchBuilder;
@@ -139,7 +139,7 @@ impl<'connection> OutboxReader<'connection> {
     pub(crate) fn highest_id_given(&self) -> rusqlite::Result<u64> {
         self.reader
             .prepare_cached(HIGHEST_ID_GIVEN_SQL)?
-            .query_row([], |row| rowid_column(row, 0))
+            .query_row([], |row| unsigned_integer_column(row, 0))
     }
 
     /// The next batch past the outbox id `after_id`, read in one read transaction, so the
@@ -164,8 +164,12 @@ impl<'connection> OutboxReader<'connection> {
     /// Every group's members as the database holds them now.
     pub(crate) fn read_every_group_members(&self) -> rusqlite::Result<Vec<GroupMembers>> {
         let mut statement = self.reader.prepare_cached(EVERY_GROUP_MEMBER_SQL)?;
-        let members =
-            statement.query_map([], |row| Ok((rowid_column(row, 0)?, rowid_column(row, 1)?)))?;
+        let members = statement.query_map([], |row| {
+            Ok((
+                unsigned_integer_column(row, 0)?,
+                unsigned_integer_column(row, 1)?,
+            ))
+        })?;
         let mut groups: Vec<GroupMembers> = Vec::new();
         for member in members {
             let (group_key, session_key) = member?;
@@ -268,10 +272,10 @@ impl<'connection> OutboxReader<'connection> {
         let mut statement = self.reader.prepare_cached(ENTRIES_SQL.as_str())?;
         let entries = statement.query_map([sqlite_rowid(after_id)], |row| {
             Ok(OutboxEntry {
-                id: rowid_column(row, 0)?,
-                index_key: rowid_column(row, 1)?,
+                id: unsigned_integer_column(row, 0)?,
+                index_key: unsigned_integer_column(row, 1)?,
                 kind: text_column(row, 2, |word| word.parse::<IndexRowKind>())?,
-                owner_key: rowid_column(row, 3)?,
+                owner_key: unsigned_integer_column(row, 3)?,
                 operation: text_column(row, 4, |word| word.parse::<OutboxOperation>())?,
             })
         })?;
@@ -286,8 +290,9 @@ impl<'connection> OutboxReader<'connection> {
 
     fn group_members(&self, group_key: u64) -> rusqlite::Result<Vec<u64>> {
         let mut statement = self.reader.prepare_cached(GROUP_MEMBERS_SQL)?;
-        let session_keys =
-            statement.query_map([sqlite_rowid(group_key)], |row| rowid_column(row, 0))?;
+        let session_keys = statement.query_map([sqlite_rowid(group_key)], |row| {
+            unsigned_integer_column(row, 0)
+        })?;
         session_keys.collect()
     }
 }

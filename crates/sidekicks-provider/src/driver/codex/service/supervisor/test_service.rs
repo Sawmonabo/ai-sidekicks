@@ -241,6 +241,7 @@ pub(crate) fn test_codex_service_dependencies(
             spawner: spawner.clone(),
         }),
         command_output: Arc::new(PortRegistration::new("running commands")),
+        command_capture: Arc::new(PortRegistration::new("command capture")),
         wrapper_program: command_wrapper_program_path(&link_folder),
         askpass_program: command_askpass_program_path(&link_folder),
     });

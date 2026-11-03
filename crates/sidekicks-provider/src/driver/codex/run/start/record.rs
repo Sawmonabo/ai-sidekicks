@@ -13,12 +13,14 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use serde_json::Value;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::attachments::compose_codex_message_input;
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
+use crate::driver::codex::delivery::memory::CodexStartingTurn;
 use crate::driver::codex::output_speed::{
     CodexSettledOutputSpeed, arm_codex_run_output_speed, compose_codex_service_tier,
     resolve_codex_output_speed_level,
@@ -298,11 +300,19 @@ pub(crate) async fn begin_codex_turn_start(
         dependencies.adoptions.undo(record, adoption);
         return CodexTurnBeginAnswer::Refused(error);
     }
-    // Frames of the turn that arrive before Codex answers belong to this run.
-    record
-        .delivery
-        .starting_turn_run_ids
-        .push_back(begin.run_id);
+    // Frames of the turn that arrive before Codex answers belong to this run, and the turn is
+    // opened by the first message the start carries.
+    let opening = run_turn.as_ref().and_then(|(_, accepted)| {
+        accepted
+            .input
+            .client_message_ids
+            .first()
+            .and_then(|message_id| QueueItemId::new(message_id).ok())
+    });
+    record.delivery.starting_turns.push_back(CodexStartingTurn {
+        run_id: begin.run_id,
+        opening,
+    });
     let params = run_turn.as_ref().map(|(params, _)| params.clone());
     CodexTurnBeginAnswer::Ready(Box::new(CodexTurnSend {
         connection,
@@ -393,14 +403,15 @@ pub(crate) async fn settle_codex_turn_start(
     outcome: CodexTurnStartOutcome,
 ) -> Result<Option<CodexSettledOutputSpeed>, CodexError> {
     let record = &mut *task.record;
-    if let Some(at) = record
+    // Still starting when Codex answered before the turn's first frame, which carries its opening
+    // to the route below.
+    let opening = record
         .delivery
-        .starting_turn_run_ids
+        .starting_turns
         .iter()
-        .position(|starting| *starting == run_id)
-    {
-        record.delivery.starting_turn_run_ids.remove(at);
-    }
+        .position(|starting| starting.run_id == run_id)
+        .and_then(|at| record.delivery.starting_turns.remove(at))
+        .and_then(|starting| starting.opening);
     let turn_id = match outcome {
         CodexTurnStartOutcome::Started { turn_id } => turn_id,
         CodexTurnStartOutcome::NotStarted(error) => {
@@ -442,7 +453,7 @@ pub(crate) async fn settle_codex_turn_start(
         }
         None => (None, None),
     };
-    if route_accepted_turn(&dependencies.run_routes, record, run_id, &turn_id) {
+    if route_accepted_turn(&dependencies.run_routes, record, run_id, &turn_id, opening) {
         if let Some(input) = input {
             record.turn_input_by_turn_id.insert(turn_id, input);
         }
@@ -481,13 +492,15 @@ pub(crate) fn apply_run_turn_acceptance(
     (settled, run_turn.input)
 }
 
-/// Records an accepted turn's boundary and routes it to its run; `false` for a turn already over,
-/// which gets no route, since nothing would ever retire it.
+/// Records an accepted turn's boundary and routes it to its run with `opening`, the queue item
+/// whose message opened it; `false` for a turn already over, which gets no route, since nothing
+/// would ever retire it.
 pub(crate) fn route_accepted_turn(
     run_routes: &CodexRunRoutes,
     record: &mut CodexSessionRecord,
     run_id: RunId,
     turn_id: &str,
+    opening: Option<QueueItemId>,
 ) -> bool {
     // Appended at acceptance, not completion: a completion-time ledger would omit interrupted and
     // failed turns and misname later positions.
@@ -502,10 +515,28 @@ pub(crate) fn route_accepted_turn(
         return false;
     }
     if record.active_turn_run(turn_id).is_none() {
-        record.add_active_turn(turn_id.to_owned(), run_id);
-        run_routes.bind_run(run_id, record.session_id);
+        add_run_turn(run_routes, record, turn_id.to_owned(), run_id, opening);
     }
     true
+}
+
+/// Routes the live turn `turn_id` to `run_id` as the newest, with the message that opened it, and
+/// binds the run to the record's session.
+pub(crate) fn add_run_turn(
+    run_routes: &CodexRunRoutes,
+    record: &mut CodexSessionRecord,
+    turn_id: String,
+    run_id: RunId,
+    opening: Option<QueueItemId>,
+) {
+    if let Some(opening) = opening {
+        record
+            .delivery
+            .turn_opening_by_turn_id
+            .insert(turn_id.clone(), opening);
+    }
+    record.add_active_turn(turn_id, run_id);
+    run_routes.bind_run(run_id, record.session_id);
 }
 
 // A start that left no turn running: a fork owed meanwhile goes on, since no turn's end will come

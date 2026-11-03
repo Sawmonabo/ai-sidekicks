@@ -1,8 +1,8 @@
 //! A file's facts on Windows, read from one handle opened through any link, which asks only to
-//! read attributes, so it leaves SQLite's locks on the file alone, and when an entry last changed
-//! by any write.
+//! read attributes, so it leaves SQLite's locks on the file alone, or from a handle already open,
+//! and when an entry last changed by any write.
 
-use std::fs::{Metadata, OpenOptions};
+use std::fs::{File, Metadata, OpenOptions};
 use std::io;
 use std::os::windows::fs::OpenOptionsExt;
 use std::path::Path;
@@ -21,24 +21,55 @@ use crate::windows::file_information::read_information;
 // epoch.
 const UNIX_EPOCH_INTERVALS: i128 = 116_444_736_000_000_000;
 
+// The mode of a file whose read-only attribute is set: read for everyone.
+const READ_ONLY_MODE: u32 = 0o444;
+
+// The mode of a file whose read-only attribute is clear: read and write for everyone.
+const WRITABLE_MODE: u32 = 0o666;
+
 /// The facts of the file at `path`, read from one handle opened through any link: its volume
-/// serial and 128-bit file id, its size, and its last write and change times. Fails with the
-/// system's error from the open or a read, `NotFound` when nothing is there.
+/// serial and 128-bit file id, its size, its link count, and its last write and change times.
+/// Fails with the system's error from the open or a read, `NotFound` when nothing is there.
 pub fn file_facts(path: &Path) -> io::Result<FileFacts> {
-    // Opened as `entry_identity` opens an entry, but through a link to its target.
-    let opened = OpenOptions::new()
+    file_facts_of(&open_for_attributes(path)?)
+}
+
+/// Opens the file or folder at `path` through any link only to read its attributes, as
+/// `entry_identity` opens an entry but through a link to its target: every share mode, so it leaves
+/// other handles' locks alone, and backup semantics, without which a folder does not open. Fails
+/// with the system's error from the open.
+pub(crate) fn open_for_attributes(path: &Path) -> io::Result<File> {
+    OpenOptions::new()
         .access_mode(FILE_READ_ATTRIBUTES)
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-        .open(path)?;
-    let identity = open_file_identity(&opened)?;
-    let times: FILE_BASIC_INFO = read_information(&opened, FileBasicInfo)?;
-    let standard: FILE_STANDARD_INFO = read_information(&opened, FileStandardInfo)?;
+        .open(path)
+}
+
+/// The facts of the open file `file`, read through its handle, never its path, so they are the very
+/// file's the handle holds even once another file takes its name; the handle needs the right to
+/// read attributes, which any read open has. Fails with the system's error from a read.
+pub fn file_facts_of(file: &File) -> io::Result<FileFacts> {
+    let identity = open_file_identity(file)?;
+    let times: FILE_BASIC_INFO = read_information(file, FileBasicInfo)?;
+    let standard: FILE_STANDARD_INFO = read_information(file, FileStandardInfo)?;
     Ok(FileFacts {
         identity,
         size: u64::try_from(standard.EndOfFile).map_err(io::Error::other)?,
+        link_count: u64::from(standard.NumberOfLinks),
         modified: nanoseconds(times.LastWriteTime),
         changed: nanoseconds(times.ChangeTime),
+    })
+}
+
+/// The open file `file`'s permissions as a Unix mode: `0o444` when its read-only attribute is set,
+/// else `0o666`, the only permission Windows keeps on a file's own attributes. Fails with the
+/// system's error from the read.
+pub fn file_mode_of(file: &File) -> io::Result<u32> {
+    Ok(if file.metadata()?.permissions().readonly() {
+        READ_ONLY_MODE
+    } else {
+        WRITABLE_MODE
     })
 }
 

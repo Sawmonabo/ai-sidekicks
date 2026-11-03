@@ -48,6 +48,7 @@ impl RunningCommandSets {
             session_id,
             command_id: CommandId::new("test-command".to_owned()).expect("a command id"),
             run_id,
+            tool_call_id: None,
             binding_id: RuntimeBindingId::new(TEST_COMMAND_BINDING.to_owned())
                 .expect("a binding id"),
             name: NonEmptyText::new("sleep 600".to_owned()).expect("a command name"),

@@ -18,7 +18,7 @@ use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 use super::RecordingTaskAnswer;
 use crate::questions::service::HeldRequestAnswerer;
 use crate::questions::service::test_fixture::{Fixture, HandedAnswers, choice_page, failed};
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 /// A tool server's answerer that records what it is sent into `sent`.
 fn task_answer(sent: &HandedAnswers) -> Arc<dyn ToolServerQuestionAnswer> {
@@ -156,7 +156,7 @@ async fn a_question_asked_while_its_run_waits_opens_once_the_first_answer_moves_
         tokio::join!(
             fixture.engine.transition(
                 RunStateChange::new(fixture.run_id, failed()),
-                RunStateChangeCompanions::default(),
+                RunWriteCompanions::default(),
             ),
             &mut third
         )

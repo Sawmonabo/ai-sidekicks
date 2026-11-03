@@ -7,8 +7,8 @@ use std::io;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::Path;
 
-// Read, write and enter for the owner alone.
-const PRIVATE_FOLDER_MODE: u32 = 0o700;
+/// Read, write and enter for the owner alone.
+pub(crate) const PRIVATE_FOLDER_MODE: u32 = 0o700;
 
 /// Makes `folder` and every missing folder above it readable by its owner alone, and sets that mode
 /// on `folder` again, since a folder that already existed keeps its own. Fails with the system's

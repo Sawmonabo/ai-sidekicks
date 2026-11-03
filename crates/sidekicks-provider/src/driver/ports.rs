@@ -24,6 +24,7 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::DaemonTurnBindingResolver;
 use crate::driver::session_control::DriverResumeResult;
 use crate::driver::{ProviderAccountReader, SessionSpawnContextResolver};
+use crate::port::command_capture::CommandCapture;
 use crate::port::context_reading_publisher::ContextReadingPublisher;
 use crate::port::held_tool_calls::HeldToolCallReads;
 use crate::port::in_process_tool_servers::InProcessToolServers;
@@ -180,6 +181,10 @@ pub struct DriverPorts {
     /// and follows each command's channel into; a command reported before it is registered is
     /// dropped.
     pub command_output: Arc<PortRegistration<Arc<RunningCommandSets>>>,
+    /// The capture around each command an agent runs through the wrapper's line form; while it is
+    /// unregistered a wrapper is answered `Go` at once and its command is captured by nobody, as
+    /// the readings ports drop theirs.
+    pub command_capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>,
     /// The turn readings each run's working line reads; a reading made before it is registered is
     /// dropped.
     pub turn_readings: Arc<PortRegistration<Arc<dyn TurnReadingPublisher>>>,
@@ -265,6 +270,7 @@ impl DriverPorts {
             process_gone: Arc::new(PortRegistration::new("process gone")),
             usage: Arc::new(PortRegistration::new("usage")),
             command_output: Arc::new(PortRegistration::new("command output")),
+            command_capture: Arc::new(PortRegistration::new("command capture")),
             turn_readings: Arc::new(PortRegistration::new("turn readings")),
             context_readings: Arc::new(PortRegistration::new("context readings")),
             session_message_readings: Arc::new(PortRegistration::new("session message readings")),

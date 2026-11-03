@@ -251,6 +251,7 @@ impl ClaudeRunControls {
                 },
                 message.id.to_string(),
                 attachment_blocks,
+                false,
             )
             .await?;
         }
@@ -261,7 +262,8 @@ impl ClaudeRunControls {
     /// the lead takes the session's turn again on the turn's binding, the stream reads on as that
     /// turn, and `answers`, the person's answers, go as its next message. Fails `NoLiveSession`,
     /// `SessionTurnInFlight` while another run or a command holds the turn, and as the write
-    /// fails, the lead then let go of the turn and the stream reading the turn it read before.
+    /// fails, the lead then let go of the turn, the stream reading the turn it read before and the
+    /// answers recorded dropped, so no later turn waits on them.
     pub(crate) async fn continue_held_lead(
         &self,
         session_id: SessionId,
@@ -285,6 +287,7 @@ impl ClaudeRunControls {
         // Continued before the write, so the process's first frames for the answers, which can
         // arrive before the write returns, read as the lead's turn.
         let before = stream.continue_turn(turn.run, turn.turn_number, turn.provider_turn_id);
+        let message_uuid = mint_uuid_v7().to_string();
         let written = self
             .write_message(
                 &live,
@@ -293,13 +296,15 @@ impl ClaudeRunControls {
                     text: answers,
                     origin: OutboundTextOrigin::SystemNarration,
                 },
-                mint_uuid_v7().to_string(),
+                message_uuid.clone(),
                 Vec::new(),
+                true,
             )
             .await;
         if written.is_err() {
             self.start.routes.unbind_run(run_id);
             stream.restore_turn(before);
+            lock(&self.start.prompts).record_dropped(session_id, &message_uuid);
         }
         written
     }
@@ -548,8 +553,9 @@ impl ClaudeRunControls {
                 .await?;
             return Ok(());
         };
+        // Written into the turn running, it is a steer and opens no turn of its own.
         let live = self.start.live_session(session_id)?;
-        self.write_message(&live, lead.run_id, &text, message_uuid, Vec::new())
+        self.write_message(&live, lead.run_id, &text, message_uuid, Vec::new(), true)
             .await
     }
 
@@ -565,8 +571,8 @@ impl ClaudeRunControls {
         background_claude_task(&live, tool_use_id).await
     }
 
-    // Writes one message for `run_id`, recorded before the write since Claude Code may report it
-    // taken first; a write that never left is dropped again.
+    // Writes one message for `run_id`, a steer into its running turn or not, recorded before the
+    // write since Claude Code may report it taken first; a write that never left is dropped again.
     async fn write_message(
         &self,
         live: &LiveClaudeSession,
@@ -574,9 +580,10 @@ impl ClaudeRunControls {
         text: &OutboundText,
         message_uuid: String,
         attachment_blocks: Vec<ClaudeUserContentBlock>,
+        is_steer: bool,
     ) -> Result<(), DriverError> {
         let session_id = live.session_id;
-        lock(&self.start.prompts).record_written(session_id, run_id, &message_uuid, false);
+        lock(&self.start.prompts).record_written(session_id, run_id, &message_uuid, is_steer);
         let frame = compose_claude_user_frame(text, message_uuid.clone(), attachment_blocks);
         match live.channel.write_user_frame(frame).await {
             ClaudeWriteAttempt::Written => Ok(()),
@@ -664,12 +671,13 @@ mod tests {
 
     // Killed by a stop that answers before Claude Code acknowledged it, so a refused stop reads
     // done, by a stop naming anything but the command's task, by an acknowledged stop the lead's
-    // turn is not told of in the daemon's words, or a refused or cut one it is, and by a stop whose
-    // write was cut leaving the process running.
+    // turn is not told of in the daemon's words, or a refused or cut one it is, by that text
+    // written into the running turn as no steer, so the next turn opens on it, not the person's
+    // message, and by a stop whose write was cut leaving the process running.
     #[tokio::test(start_paused = true)]
     async fn a_stop_answers_only_once_claude_code_acknowledged_it() {
         let session = ScriptedSession::new().await;
-        session.hold_lead_turn("lead");
+        let run_id = session.hold_lead_turn("lead");
         session.frame(&json!({
             "type": "assistant",
             "session_id": SCRIPTED_PROVIDER_SESSION_ID,
@@ -729,6 +737,16 @@ mod tests {
                 .contains("The user stopped `sleep 100`.")
         );
         assert_eq!(told[0]["client_composed"], json!(true));
+        let mut prompts = session
+            .start
+            .prompts
+            .lock()
+            .expect("the prompts' lock holds");
+        prompts.record_written(session.session_id, run_id, "person", false);
+        assert_eq!(
+            prompts.take_turn_opening(session.session_id).as_deref(),
+            Some("person")
+        );
     }
 
     // Killed by moving a command to the background by its task id instead of the tool call that

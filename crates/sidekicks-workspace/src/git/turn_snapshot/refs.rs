@@ -5,8 +5,9 @@ use sidekicks_contracts::run::id::RunId;
 
 use crate::git::turn_snapshot::retention::RunContextKey;
 
-// Not `refs/heads/`, so snapshots stay out of branch history, pull request preparation and diffs.
-const SNAPSHOT_REF_ROOT: &str = "refs/sidekicks/runs";
+/// Every snapshot ref sits under this prefix, trailing slash included. Not `refs/heads/`, so
+/// snapshots stay out of branch history, pull request preparation and diffs.
+pub(crate) const SNAPSHOT_REFS_PREFIX: &str = "refs/sidekicks/runs/";
 
 /// Stops `refs/replace/<oid>` swapping another object for a frozen id, on the git calls that read
 /// an object id back. With a replace ref on the base, an unpinned seed silently loses a path that
@@ -16,7 +17,7 @@ pub(crate) const USE_REPLACE_REFS_PIN: [&str; 2] = ["-c", "core.useReplaceRefs=f
 /// The prefix under which every snapshot ref of one run sits, with its trailing slash, so a listing
 /// of `run-A/` never reaches `run-AB`. A run's id is a UUID, so it is a safe ref path component.
 pub(crate) fn build_run_snapshot_ref_prefix(run_key: RunContextKey) -> String {
-    format!("{SNAPSHOT_REF_ROOT}/{run_key}/")
+    format!("{SNAPSHOT_REFS_PREFIX}{run_key}/")
 }
 
 /// The ref one turn's snapshot is written to. The epoch segment keeps a re-execution after a

@@ -93,6 +93,7 @@ fn build_test_engine(
             database.path(),
             RUN_ENGINE_STATEMENT_CAPACITY,
         )),
+        read_damaged_from_sequence: Arc::new(|_: &SessionId| None),
         event_log,
         execution_postures: Arc::new(ExecutionPostureService::new(
             home,

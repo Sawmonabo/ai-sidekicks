@@ -327,6 +327,7 @@ impl NameWalk<'_> {
                     | GitError::OutputTooLarge { .. }
                     | GitError::Read(_)
                     | GitError::PathText(_)
+                    | GitError::UnreadableVersion
                     | GitError::NotStartable => describe_error(&failure),
                 };
                 return Ok(AddOutcome::Made(MadeTree {

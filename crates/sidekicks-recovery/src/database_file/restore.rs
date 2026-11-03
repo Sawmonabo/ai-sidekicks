@@ -29,12 +29,12 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_platforms::{create_private_folder, flush_folder, remove_tree, rename_replacing};
 use sidekicks_std::error_description::describe_error;
+use sidekicks_std::file::time_precision::probe_time_precision;
 use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::standard_error::write_error_line;
 use sidekicks_std::standard_output::write_json_line;
 use sidekicks_store::backup_mirror::{
     MIRROR_FOLDER_NAME, MIRROR_ROOTS_FILE_NAME, MirrorError, MirrorRoot, bring_level,
-    probe_time_precision,
 };
 use sidekicks_store::data_folder::data_folder;
 use sidekicks_store::data_folder::lock::{DataFolderLock, DataFolderLockError, HeldDataFolder};

@@ -101,6 +101,7 @@ async fn port_over_a_leg(
     )));
     let binding_cursors = Arc::new(RunBindingCursors::new(
         Arc::clone(&pool),
+        Arc::new(|_: &SessionId| None),
         Arc::new(store),
         Arc::clone(&epochs),
     ));

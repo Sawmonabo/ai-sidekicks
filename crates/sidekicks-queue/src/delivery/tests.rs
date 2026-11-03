@@ -1,10 +1,11 @@
 //! The delivery's tests, over a test database holding a session and its running lead run bound to
 //! the table's first provider, whose driver is a stand-in, by behavior: hands, take-backs, the
-//! interrupt's end, and messages a provider process or a resume keeps.
+//! interrupt's end, messages a provider process or a resume keeps, and the undo's hold.
 
 mod hands;
 mod interrupt_end;
 mod kept_messages;
+mod undo_hold;
 mod withdraws;
 
 use std::collections::HashSet;
@@ -105,6 +106,10 @@ impl OpeningMessages for OpeningStandIn {
             .lock()
             .expect("the test's openings are readable")
             .contains(&item.id)
+    }
+
+    fn take_reserved(&self, _run_id: RunId) -> Option<QueueItemId> {
+        None
     }
 }
 

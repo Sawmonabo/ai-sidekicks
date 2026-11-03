@@ -49,6 +49,14 @@
               (`GetNamedPipeServerProcessId`), a Windows AF_UNIX socket's peer read (`WSAIoctl` of \
               `SIO_AF_UNIX_GETPEERPID`) and the mark that lets `async-io` drive it (`IoSafe`), the \
               run folder's owner and access list (`GetSecurityInfo`, `GetAce`, `IsWellKnownSid`), \
+              Windows' volume GUID path read of an open file or folder \
+              (`GetFinalPathNameByHandleW`), macOS's volume reads (`statfs`'s mount point and \
+              `getattrlist`'s volume UUID), access list removal (`filesec_init`, \
+              `filesec_set_property`, `fchmodx_np`, `filesec_free`) and access list read \
+              (`acl_get_fd_np`, `acl_get_entry` and its entry reads, `acl_free`, \
+              `mbr_uid_to_uuid`), the Windows user folder's \
+              make with its security descriptor (`CreateDirectoryW`) and its hidden mark \
+              (`SetFileInformationByHandle`), \
               a Windows child's output read at its exit (`CancelIoEx`, `PeekNamedPipe`), the \
               daemon's process containment (Windows' kill-on-close job through `CreateJobObjectW`, \
               `SetInformationJobObject` and `AssignProcessToJobObject`, and Linux's `poll` of its \
@@ -72,6 +80,7 @@ mod c_string_array;
 mod caller_process;
 mod child_command;
 mod child_tree;
+mod clone_refusal;
 mod code_signature;
 mod credential_store;
 mod entry_identity;
@@ -136,6 +145,7 @@ mod tool_memory_cap;
 mod tree_removal;
 #[cfg(not(target_os = "linux"))]
 mod user_namespace;
+mod volume;
 mod wake_helper;
 mod wake_watch;
 mod wall_clock;
@@ -164,6 +174,7 @@ pub use child_tree::{
     ChildTree, ChildTreeOutput, ChildTreeOutputError, read_bounded_to_end,
     read_stderr_left_at_exit, start_child_tree,
 };
+pub use clone_refusal::{CAN_CLONE_INTO_OPEN_FILE, CloneRefusal};
 #[cfg(not(target_os = "macos"))]
 pub use code_signature::DesktopClientRequirement;
 pub use code_signature::{CodeSignatureError, SignatureCheck};
@@ -220,11 +231,15 @@ pub use linux::processes::list_user_process_ids;
 #[cfg(target_os = "linux")]
 pub use linux::read_command_argument_limit;
 #[cfg(target_os = "linux")]
+pub(crate) use linux::running_program::is_program_path_marked_replaced;
+#[cfg(target_os = "linux")]
 pub use linux::session_child::{SessionChild, start_session_child};
 #[cfg(target_os = "linux")]
 pub use linux::user_namespace::can_create_user_namespace;
 #[cfg(target_os = "linux")]
 pub use linux::user_scope::leave_daemon_scope;
+#[cfg(target_os = "linux")]
+pub use linux::volume::read_volume;
 #[cfg(target_os = "linux")]
 pub use linux::windowless_app::launch_app_windowless;
 #[cfg(target_os = "linux")]
@@ -279,6 +294,8 @@ pub use macos::session_child::{SessionChild, start_session_child};
 #[cfg(target_os = "macos")]
 pub use macos::sign_in_move::{SignInMove, sign_in_move};
 #[cfg(target_os = "macos")]
+pub use macos::volume::read_volume;
+#[cfg(target_os = "macos")]
 pub use macos::wake_helper::{
     WAKE_HELPER_SOCKET_PATH,
     program::{PowerEvents, SystemPowerEvents, WakeBookings, answer_wake_connection},
@@ -321,6 +338,8 @@ pub use posix::child_command::{
     wrap_leading_child_command,
 };
 #[cfg(unix)]
+pub use posix::clone_refusal::read_clone_refusal;
+#[cfg(unix)]
 pub use posix::command_wrapper::{
     RawStandardInput, TerminalOutputWatch, blocking_terminal_master, end_as_child_ended,
     end_by_stop_signal, end_terminal_session, exec_command, exec_with_secret, name_program,
@@ -355,7 +374,7 @@ pub use posix::error_codes::{
     is_resource_busy,
 };
 #[cfg(unix)]
-pub use posix::file_facts::{entry_changed_at, file_facts};
+pub use posix::file_facts::{entry_changed_at, file_facts, file_facts_of, file_mode_of};
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::file_system::DOES_HELD_FILE_REFUSE_RENAME;
 #[cfg(all(unix, any(test, feature = "test-support")))]
@@ -450,6 +469,8 @@ pub use posix::thread_cpu_time::thread_cpu_time;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::uptime::uptime_line;
 #[cfg(unix)]
+pub(crate) use posix::volume_folder::{create_user_folder_in, is_owned_by_user};
+#[cfg(unix)]
 pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
 pub use powershell_literal::quote_powershell_literal;
 #[cfg(any(test, feature = "test-support"))]
@@ -467,6 +488,8 @@ pub use program_start::{ProgramStart, program_start};
 pub use recreate_link::recreate_link;
 pub use regular_file_open::RegularFileOpen;
 pub use run_folder::{DaemonRunFolder, RunFolderRefused, askpass_socket_path};
+#[cfg(not(target_os = "linux"))]
+pub(crate) use running_program::replaced_mark::is_program_path_marked_replaced;
 pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program_path};
 #[cfg(any(test, feature = "test-support"))]
 pub use scratch_volume::{ScratchVolume, scratch_volume};
@@ -517,6 +540,9 @@ pub use tool_memory_cap::TOOL_MEMORY_CAP_ENFORCEABLE;
 pub use tree_removal::remove_tree_awaited;
 #[cfg(not(target_os = "linux"))]
 pub use user_namespace::can_create_user_namespace;
+pub use volume::{
+    NotAVolumeId, Volume, VolumeId, VolumeIdentity, create_volume_folder, read_volume_identity,
+};
 pub use wake_helper::message::{UnknownWakeMessage, WakeRefusal, WakeReply, WakeRequest};
 #[cfg(not(target_os = "macos"))]
 pub use wake_helper::{WakeHelper, wake_helper};
@@ -546,6 +572,8 @@ pub use windows::child_command::{
     prepare_child_command, wrap_child_command, wrap_group_child_command,
     wrap_leading_child_command,
 };
+#[cfg(target_os = "windows")]
+pub use windows::clone_refusal::{CloneVolumeReadFailure, read_clone_refusal};
 #[cfg(target_os = "windows")]
 pub use windows::command_argument_limit::read_command_argument_limit;
 #[cfg(target_os = "windows")]
@@ -579,7 +607,7 @@ pub use windows::error_codes::{
     is_resource_busy,
 };
 #[cfg(target_os = "windows")]
-pub use windows::file_facts::{entry_changed_at, file_facts};
+pub use windows::file_facts::{entry_changed_at, file_facts, file_facts_of, file_mode_of};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::file_system::DOES_HELD_FILE_REFUSE_RENAME;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
@@ -690,6 +718,10 @@ pub use windows::terminal::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::thread_cpu_time::thread_cpu_time;
+#[cfg(target_os = "windows")]
+pub(crate) use windows::volume::folder::{create_user_folder_in, is_owned_by_user};
+#[cfg(target_os = "windows")]
+pub use windows::volume::read_volume;
 #[cfg(target_os = "windows")]
 pub use windows::windowless_app::launch_app_windowless;
 #[cfg(target_os = "windows")]

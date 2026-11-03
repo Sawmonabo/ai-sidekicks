@@ -599,6 +599,9 @@ refusal_codes! {
     /// A change the session's state does not take: a `provisioning` session is neither archived,
     /// closed nor converted, and a `purgeRequested` one, being deleted, takes no change.
     SessionChangeRefused = "session.changeRefused" (FailedPrecondition, 409);
+    /// An undo or its dry run named a checkpoint whose turn a later undo cut away, so the history
+    /// it stands in no longer exists.
+    SessionCheckpointSuperseded = "session.checkpoint.superseded" (FailedPrecondition, 409);
     /// A conversion stopped after the repository was attached.
     SessionConversionIncomplete = "session.conversion.incomplete" (Internal, 500);
     /// `session.convert` named a session that is not a chat, a chat with no managed workspace to

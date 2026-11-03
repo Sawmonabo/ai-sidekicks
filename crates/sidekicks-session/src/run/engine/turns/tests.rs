@@ -22,7 +22,9 @@ use crate::run::engine::tests::{
     turn_started_at,
 };
 use crate::run::refusals::RunRefusal;
-use crate::run::state_change::RunStateChangeCompanions;
+use crate::run::state_change::RunWriteCompanions;
+
+mod checkpoints;
 
 // Killed by the append not writing an event's turn number, which lets every guard pass on a
 // NULL column, by the start guard reading `=` for `>=`, which lets a start numbered below the
@@ -157,7 +159,7 @@ async fn a_step_stop_retried_after_a_failed_interrupt_writes_one_reached_event()
             1,
             Some(RunLimit::StepLimit),
             Some(turn(1)),
-            RunStateChangeCompanions::default(),
+            RunWriteCompanions::default(),
         )
         .await
         .expect("the run ends at its limit");
@@ -458,7 +460,7 @@ async fn a_step_interrupt_handed_again_cuts_the_open_turn_whichever_end_lands_fi
             1,
             Some(RunLimit::StepLimit),
             Some(turn(2)),
-            RunStateChangeCompanions::default(),
+            RunWriteCompanions::default(),
         )
     };
     if is_run_end_first {
