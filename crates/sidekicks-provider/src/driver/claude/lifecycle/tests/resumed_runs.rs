@@ -1,6 +1,7 @@
 //! What a resume answers of each run it names, the turn of the run in progress a fresh process
 //! continues on that run, and the resume that starts no process where every run waits or stops.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use rstest::rstest;
@@ -17,6 +18,7 @@ use sidekicks_platforms::PathRules;
 
 use super::start_params;
 use crate::driver::claude::run::routes::ClaudeChildRunRoute;
+use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::{ScriptedDriver, resume_params};
 use crate::driver::claude::session::scripted::{binding_id, hand_scripted_frame, settle};
 use crate::driver::session_control::held_run_continue::{
@@ -378,7 +380,7 @@ async fn a_session_whose_runs_all_wait_or_stop_starts_no_process(
 #[tokio::test(start_paused = true)]
 async fn a_held_lead_s_continue_carries_the_answers_to_its_process() {
     let fixture = ScriptedDriver::new();
-    let session_id = closed_session(&fixture).await;
+    let session_id = fixture.closed_session().await;
     let (lead, helper) = (new_run_id(), new_run_id());
     let helper_answer = ContinueEntry {
         run_id: helper,
@@ -426,7 +428,7 @@ async fn a_held_lead_s_continue_carries_the_answers_to_its_process() {
 #[tokio::test(start_paused = true)]
 async fn a_live_process_is_sent_a_held_lead_s_answers_as_its_next_message() {
     let fixture = ScriptedDriver::new();
-    let session_id = closed_session(&fixture).await;
+    let session_id = fixture.closed_session().await;
     let channel = Arc::new(ScriptedChannel::default());
     fixture.starts.script_session(Arc::clone(&channel));
     let params = resume_params(session_id);
