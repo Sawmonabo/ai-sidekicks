@@ -754,7 +754,11 @@ async fn a_tool_servers_background_call_closes_on_its_task_notification() {
         "message": {
             "role": "user",
             "content": [
-                {"type": "tool_result", "tool_use_id": "call-1", "content": "Running in the background"},
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "call-1",
+                    "content": "Running in the background",
+                },
             ],
         },
     }));
