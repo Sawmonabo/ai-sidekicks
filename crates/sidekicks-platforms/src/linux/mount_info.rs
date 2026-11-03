@@ -52,6 +52,8 @@ pub(crate) fn mount_holding<'a>(mount_info: &'a str, path: &Path) -> Option<Moun
         let next = entries
             .iter()
             .enumerate()
+            // The first step takes the shallowest of the mounts whose parent the table does not
+            // list as the namespace's root.
             .filter(|(_, entry)| match parent_id {
                 Some(parent_id) => entry.parent_id == parent_id,
                 None => !ids.contains(&entry.parent_id),

@@ -3,6 +3,7 @@
 //! no clones. So the two ends' volumes are compared first, by their volume GUID paths, and only
 //! after the clone has failed.
 
+use std::error::Error;
 use std::fs::File;
 use std::io::{self, ErrorKind};
 use std::path::Path;
@@ -46,7 +47,16 @@ pub fn read_clone_refusal(
         let folder_volume = volume_guid_path(&open_for_attributes(folder)?)?;
         // A source whose volume has no GUID path, a network share's, is on another volume than a
         // folder whose volume has one.
-        Ok(volume_guid_path(source).is_ok_and(|source_volume| source_volume == folder_volume))
+        match volume_guid_path(source) {
+            Ok(source_volume) => Ok(source_volume == folder_volume),
+            Err(error) => {
+                tracing::debug!(
+                    error = &error as &(dyn Error + 'static),
+                    "a clone's source has no volume GUID path, so it reads as on another volume"
+                );
+                Ok(false)
+            }
+        }
     })
 }
 

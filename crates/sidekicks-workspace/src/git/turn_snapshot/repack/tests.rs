@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime};
 
 use jiff::Timestamp;
 use rstest::rstest;
+use sidekicks_platforms::{is_superuser, make_unwritable};
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
@@ -184,18 +185,15 @@ async fn a_repository_with_no_commit_is_captured_and_packed() {
     assert_eq!(counted(&git, capture_folder.folder(), "count").await, 0);
 }
 
-// Fails when the fold writes a bitmap (a `pack.writeBitmaps` setting then fails it), writes
-// `info/refs` or `objects/info/packs`, folds nothing, or copies an object the folder only borrows.
-#[tokio::test]
-async fn a_fold_merges_the_folders_own_packs_and_nothing_it_borrows() {
-    let git = test_git_runner();
-    let root = tempfile::tempdir().expect("the temporary folder is made");
-    let (repository, _) = repository_with_a_commit(&git, root.path()).await;
-    let common = read_git_common_folder(&git, None, &repository, None)
+// A repository with a commit under `root` and its capture folder for an owner, the folder holding
+// eleven packs of one blob each, one past the fold's threshold, and no loose object.
+async fn folder_with_eleven_packs(git: &GitRunner, root: &Path) -> (PathBuf, PathBuf) {
+    let (repository, _) = repository_with_a_commit(git, root).await;
+    let common = read_git_common_folder(git, None, &repository, None)
         .await
         .expect("the repository's git folder is read");
-    let owner = root.path().join("owner");
-    let capture_folder = CaptureFolder::open_or_create(&git, None, &owner, &common)
+    let owner = root.join("owner");
+    let capture_folder = CaptureFolder::open_or_create(git, None, &owner, &common)
         .await
         .expect("the capture folder is made");
     let folder = capture_folder.folder().to_path_buf();
@@ -227,7 +225,17 @@ async fn a_fold_merges_the_folders_own_packs_and_nothing_it_borrows() {
         .await
         .expect("the blob is packed");
     }
-    answer_in_git_folder(&git, &folder, &["prune-packed"], &[]).await;
+    answer_in_git_folder(git, &folder, &["prune-packed"], &[]).await;
+    (repository, folder)
+}
+
+// Fails when the fold writes a bitmap (a `pack.writeBitmaps` setting then fails it), writes
+// `info/refs` or `objects/info/packs`, folds nothing, or copies an object the folder only borrows.
+#[tokio::test]
+async fn a_fold_merges_the_folders_own_packs_and_nothing_it_borrows() {
+    let git = test_git_runner();
+    let root = tempfile::tempdir().expect("the temporary folder is made");
+    let (repository, folder) = folder_with_eleven_packs(&git, root.path()).await;
     answer_in_git_folder(&git, &folder, &["config", "pack.writeBitmaps", "true"], &[]).await;
     let borrowed = answer(
         &git,
@@ -257,6 +265,32 @@ async fn a_fold_merges_the_folders_own_packs_and_nothing_it_borrows() {
     assert!(in_folder_alone.is_err(), "the borrowed blob is not copied");
     assert!(!folder.join("info").join("refs").exists());
     assert!(!folder.join("objects").join("info").join("packs").exists());
+}
+
+// Fails when a failed fold is not kept, so the next capture folds the folder again at once rather
+// than an hour later.
+#[tokio::test]
+async fn a_failed_fold_keeps_the_next_fold_waiting() {
+    // Root writes into a folder whatever its mode.
+    if is_superuser() {
+        return;
+    }
+    let git = test_git_runner();
+    let root = tempfile::tempdir().expect("the temporary folder is made");
+    let (_, folder) = folder_with_eleven_packs(&git, root.path()).await;
+    let packing = CapturePacking::new(git.clone());
+    let lock = KeyedLock::new();
+    let hold = lock.acquire(PathBuf::from("fold")).await;
+    let unwritable = make_unwritable(&folder.join("objects").join("pack"))
+        .expect("the pack folder is made unwritable");
+
+    let failed = packing.fold_held(None, &folder, &hold).await;
+    drop(unwritable);
+    let again = packing.fold_held(None, &folder, &hold).await;
+
+    assert!(failed.is_err(), "the fold fails, got {failed:?}");
+    assert!(again.is_ok(), "got {again:?}");
+    assert_eq!(counted(&git, &folder, "packs").await, 11);
 }
 
 // Fails on an off-by-one at the threshold, when the packs the last fold left are ignored, so

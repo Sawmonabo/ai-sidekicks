@@ -41,7 +41,8 @@ pub fn read_volume(path: &Path) -> io::Result<Volume> {
     })
 }
 
-// The device node `source` as `UUID=<uuid>` when a link in `by_uuid_folder` resolves to it, else
+// The device node `source` as `UUID=<uuid>` when a link in `by_uuid_folder` resolves to it, the
+// smallest name where several do, so the folder's listing order cannot change the id; else
 // `source` itself, as for a node or a folder of links this system lacks.
 fn stable_source<'a>(by_uuid_folder: &Path, source: &'a str) -> io::Result<Cow<'a, str>> {
     let device = match real_path(Path::new(source)) {
@@ -54,22 +55,25 @@ fn stable_source<'a>(by_uuid_folder: &Path, source: &'a str) -> io::Result<Cow<'
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Cow::Borrowed(source)),
         Err(error) => return Err(error),
     };
+    let mut named: Option<String> = None;
     for link in links {
         let link = link?;
         // A link whose device went since the listing names no device.
         match real_path(&link.path()) {
             Ok(target) if target == device => {
-                return Ok(Cow::Owned(format!(
-                    "UUID={}",
-                    link.file_name().to_string_lossy()
-                )));
+                let name = link.file_name().to_string_lossy().into_owned();
+                if named.as_ref().is_none_or(|smallest| name < *smallest) {
+                    named = Some(name);
+                }
             }
             Ok(_) => {}
             Err(error) if error.kind() == ErrorKind::NotFound => {}
             Err(error) => return Err(error),
         }
     }
-    Ok(Cow::Borrowed(source))
+    Ok(named.map_or(Cow::Borrowed(source), |name| {
+        Cow::Owned(format!("UUID={name}"))
+    }))
 }
 
 #[cfg(test)]

@@ -66,7 +66,7 @@ async fn the_running_git_names_a_version_that_reads() {
 #[case::changed_program_is_read_again(KeptProgramFacts::Changed)]
 #[case::unreadable_program_is_read_again(KeptProgramFacts::Unreadable)]
 #[tokio::test]
-async fn a_refusal_reads_the_build_again_only_after_the_program_changed(
+async fn a_refusal_reads_the_build_again_only_when_the_program_changed_or_cannot_be_read(
     #[case] kept_facts: KeptProgramFacts,
 ) {
     let running = test_git_runner()

@@ -2,7 +2,7 @@
 //! its owner alone or found and made so again, and refused where a link, a file or another user's
 //! folder holds the name, or where another account could swap the folder for its own.
 
-use std::fs::{self, File, OpenOptions, Permissions};
+use std::fs::{self, File, Metadata, OpenOptions, Permissions};
 use std::io::{self, ErrorKind};
 use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
@@ -22,12 +22,16 @@ const GROUP_OR_OTHER_WRITE_BITS: u32 = 0o022;
 // The sticky bit, which keeps others from renaming or removing an entry they do not own.
 const STICKY_BIT: u32 = 0o1000;
 
+// The root account's id, which may rename any entry whatever a place's mode says.
+const ROOT_USER_ID: u32 = 0;
+
 /// Makes or finds this user's folder `.ai-sidekicks-<uid>` in `place`, readable by its owner alone,
 /// with no access list entry it inherited, and answers its path; a folder the user made earlier
 /// with other bits is made private again. Answers `None` where `place` refuses the make (`EACCES`,
-/// `EPERM`, `EROFS`), where others may write in `place` and it has no sticky bit, so another
-/// account could rename the folder and plant its own, or where a link, a file or another user's
-/// folder holds the name; fails with any other error.
+/// `EPERM`, `EROFS`), where another account could rename the folder and plant its own (a place
+/// owned by an account but this user and root, one others may write in with no sticky bit, or on
+/// macOS one whose access list grants another account `delete_child`), or where a link, a file or
+/// another user's folder holds the name; fails with any other error.
 pub(crate) fn create_user_folder_in(place: &Path) -> io::Result<Option<PathBuf>> {
     let user = getuid();
     let name = user_folder_name(user);
@@ -42,8 +46,13 @@ pub(crate) fn create_user_folder_in(place: &Path) -> io::Result<Option<PathBuf>>
         Err(error) if is_refusal(&error) => return Ok(None),
         Err(error) => return Err(error),
     };
-    let place_mode = opened_place.metadata()?.mode();
-    if place_mode & GROUP_OR_OTHER_WRITE_BITS != 0 && place_mode & STICKY_BIT == 0 {
+    if !is_held_by_user(&opened_place.metadata()?, user.as_raw()) {
+        return Ok(None);
+    }
+    // An access list entry grants what the mode does not show.
+    #[cfg(target_os = "macos")]
+    if crate::macos::access_control_list::grants_others_delete_child(&opened_place, user.as_raw())?
+    {
         return Ok(None);
     }
     match mkdirat(&opened_place, name.as_str(), Mode::S_IRWXU) {
@@ -80,6 +89,16 @@ pub(crate) fn create_user_folder_in(place: &Path) -> io::Result<Option<PathBuf>>
     #[cfg(target_os = "macos")]
     crate::macos::access_control_list::remove_access_control_list(&opened)?;
     Ok(Some(place.join(name)))
+}
+
+// Whether the place whose facts are `place_facts` keeps others from renaming its entries, by its
+// owner and mode: it is owned by `user` or root, and no other account may write in it unless its
+// sticky bit is set.
+fn is_held_by_user(place_facts: &Metadata, user: u32) -> bool {
+    let owner = place_facts.uid();
+    let mode = place_facts.mode();
+    (owner == user || owner == ROOT_USER_ID)
+        && (mode & GROUP_OR_OTHER_WRITE_BITS == 0 || mode & STICKY_BIT != 0)
 }
 
 /// Whether this user owns `folder`, read without following a link. Fails with the read's error.
@@ -210,6 +229,46 @@ mod tests {
             !listing.contains("everyone"),
             "the folder holds no inherited entry: {listing}"
         );
+    }
+
+    // Fails when the access list read goes, so a place whose list lets every account rename its
+    // entries gets a folder, or when it refuses the user's own entry or one only passed down.
+    #[cfg(target_os = "macos")]
+    #[rstest]
+    #[case::everyone_may_rename(false, "allow delete_child", false)]
+    #[case::the_user_may_rename(true, "allow delete_child", true)]
+    #[case::only_passed_down(false, "allow delete_child,only_inherit,directory_inherit", true)]
+    fn a_place_whose_access_list_lets_another_account_rename_gets_no_folder(
+        #[case] is_users_entry: bool,
+        #[case] grant: &str,
+        #[case] is_folder_made: bool,
+    ) {
+        let place = tempfile::tempdir().expect("a scratch folder");
+        fs::set_permissions(place.path(), Permissions::from_mode(0o755))
+            .expect("the place's mode is set");
+        let account = if is_users_entry {
+            let user = std::process::Command::new("/usr/bin/id")
+                .arg("-un")
+                .output()
+                .expect("id runs");
+            String::from_utf8(user.stdout)
+                .expect("the user's name is text")
+                .trim()
+                .to_owned()
+        } else {
+            "everyone".to_owned()
+        };
+        let granted = std::process::Command::new("/bin/chmod")
+            .args(["+a", &format!("{account} {grant}")])
+            .arg(place.path())
+            .status()
+            .expect("chmod runs");
+        assert!(granted.success(), "the place's entry is set");
+
+        let made = create_user_folder_in(place.path()).expect("the place is read");
+
+        assert_eq!(made.is_some(), is_folder_made);
+        assert_eq!(user_folder(place.path()).exists(), is_folder_made);
     }
 
     // Fails when a place that refuses the make answers an error rather than no folder.
