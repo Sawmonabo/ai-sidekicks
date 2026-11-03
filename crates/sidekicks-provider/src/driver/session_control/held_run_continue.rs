@@ -18,13 +18,22 @@ pub struct HeldRunContinue {
     /// What the lead and the helpers beneath it were answered, oldest first; never empty.
     pub entries: Vec<ContinueEntry>,
     /// The session's timed fires whose time passed while the lead was held.
-    pub missed_fires: Vec<KeptSchedule>,
+    pub missed_fires: Vec<MissedFire>,
+}
+
+/// A timed fire whose time passed while its lead was held, so it never ran.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MissedFire {
+    /// When it was due.
+    pub due_at: Timestamp,
+    /// The schedule of the recurring job it was a run of; `None` for a single fire.
+    pub cron: Option<String>,
 }
 
 impl HeldRunContinue {
     /// The continue of `lead_run_id` with `entries`, naming each of the session's
-    /// `kept_schedules` whose fire is already past now: a single fire, or a recurring job's next
-    /// run as the provider last said it.
+    /// `kept_schedules` whose fire, as the provider stated it, is already past now; a recurring job
+    /// the provider named no time for has no run known to have come due.
     pub fn new(
         lead_run_id: RunId,
         entries: Vec<ContinueEntry>,
@@ -33,13 +42,14 @@ impl HeldRunContinue {
         let now = Timestamp::now();
         let missed_fires = kept_schedules
             .iter()
-            .filter(|schedule| match schedule {
-                KeptSchedule::Once { fires_at } => *fires_at <= now,
-                KeptSchedule::Recurring { next_fire_at, .. } => {
-                    next_fire_at.is_some_and(|fire_at| fire_at <= now)
-                }
+            .filter_map(|schedule| {
+                let due_at = schedule.stated_fire_at().filter(|fire| *fire <= now)?;
+                let cron = match schedule {
+                    KeptSchedule::Once { .. } => None,
+                    KeptSchedule::Recurring { cron, .. } => Some(cron.clone()),
+                };
+                Some(MissedFire { due_at, cron })
             })
-            .cloned()
             .collect();
         Self {
             lead_run_id,
@@ -149,21 +159,15 @@ pub fn compose_continuation_text(
         }
         lines.push(line);
     }
-    for fire in &held_run_continue.missed_fires {
-        lines.push(match fire {
-            KeptSchedule::Once { fires_at } => {
-                format!("A scheduled run due at {fires_at} did not run while you waited.")
-            }
-            KeptSchedule::Recurring { cron, next_fire_at } => next_fire_at.map_or_else(
-                || format!("A run of the schedule {cron} did not run while you waited."),
-                |fire_at| {
-                    format!(
-                        "A run of the schedule {cron} due at {fire_at} did not run while you \
-                         waited."
-                    )
-                },
-            ),
-        });
+    for MissedFire { due_at, cron } in &held_run_continue.missed_fires {
+        lines.push(cron.as_ref().map_or_else(
+            || format!("A scheduled run due at {due_at} did not run while you waited."),
+            |cron| {
+                format!(
+                    "A run of the schedule {cron} due at {due_at} did not run while you waited."
+                )
+            },
+        ));
     }
     lines.join("\n")
 }

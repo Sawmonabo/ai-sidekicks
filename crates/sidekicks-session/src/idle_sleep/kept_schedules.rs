@@ -71,11 +71,10 @@ fn shifted(instant: Timestamp, margin: SignedDuration) -> Timestamp {
 // The schedule's next fire after `now`: a one-shot fire not yet past, or a recurring job's next
 // run, the provider's own figure while it is ahead and its schedule's next match otherwise.
 fn next_fire(schedule: &KeptSchedule, now: Timestamp, zone: &TimeZone) -> Option<Timestamp> {
+    let stated = schedule.stated_fire_at().filter(|fire| *fire > now);
     match schedule {
-        KeptSchedule::Once { fires_at } => (*fires_at > now).then_some(*fires_at),
-        KeptSchedule::Recurring { cron, next_fire_at } => next_fire_at
-            .filter(|fire| *fire > now)
-            .or_else(|| next_match(cron, now, zone)),
+        KeptSchedule::Once { .. } => stated,
+        KeptSchedule::Recurring { cron, .. } => stated.or_else(|| next_match(cron, now, zone)),
     }
 }
 

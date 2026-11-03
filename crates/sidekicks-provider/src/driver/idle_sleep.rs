@@ -35,6 +35,17 @@ pub enum KeptSchedule {
     },
 }
 
+impl KeptSchedule {
+    /// When the provider said it fires: a single fire's time, or a recurring job's next run where
+    /// the provider named one; `None` for a job it named no time for.
+    pub fn stated_fire_at(&self) -> Option<Timestamp> {
+        match self {
+            Self::Once { fires_at } => Some(*fires_at),
+            Self::Recurring { next_fire_at, .. } => *next_fire_at,
+        }
+    }
+}
+
 /// Where a sleep or a wake left a session: its provider's process up, or stopped with its
 /// conversation kept for the next wake.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
