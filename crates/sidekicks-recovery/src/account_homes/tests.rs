@@ -16,7 +16,7 @@ use sidekicks_provider::driver::contract::account::ProviderAccountLegs;
 use sidekicks_provider::driver::schema::schema_parts;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
-use super::remove_unadmitted_homes;
+use super::LeftoverMintedHomes;
 
 fn claude() -> ProviderId {
     ProviderId::new("claude".to_owned()).expect("the Claude Code provider id")
@@ -72,13 +72,13 @@ async fn a_start_removes_only_the_homes_minted_for_accounts_no_row_took() {
         .expect("the admitted account is marked");
     let legs = Arc::new(RecordedSignOuts::refusing(refused.account_id().clone()));
 
-    remove_unadmitted_homes(
-        &registry,
-        &HashMap::from([(claude(), Arc::clone(&legs) as Arc<dyn ProviderAccountLegs>)]),
-        data_folder.path().to_path_buf(),
-        Duration::from_secs(5),
-    )
-    .await;
+    LeftoverMintedHomes::read(&registry, data_folder.path().to_path_buf())
+        .await
+        .remove_unadmitted(
+            &HashMap::from([(claude(), Arc::clone(&legs) as Arc<dyn ProviderAccountLegs>)]),
+            Duration::from_secs(5),
+        )
+        .await;
 
     let mut signed_out: Vec<_> = legs.signed_out().into_iter().map(|(id, _)| id).collect();
     signed_out.sort();

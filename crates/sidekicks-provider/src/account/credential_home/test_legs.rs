@@ -14,11 +14,13 @@ use crate::driver::contract::account::{
 use crate::driver::contract::error::DriverError;
 
 /// Account legs whose sign-out records the account and folders it ran for and succeeds, but for
-/// the account `refused` names, whose provider refuses it.
+/// the account `refused` names, whose provider refuses it, and but for hanging legs, whose
+/// provider never answers.
 #[derive(Default)]
 pub struct RecordedSignOuts {
     signed_out: Mutex<Vec<(ProviderAccountId, ProviderAccountFolders)>>,
     refused: Option<ProviderAccountId>,
+    is_hanging: bool,
 }
 
 impl RecordedSignOuts {
@@ -26,6 +28,14 @@ impl RecordedSignOuts {
     pub fn refusing(refused: ProviderAccountId) -> Self {
         Self {
             refused: Some(refused),
+            ..Self::default()
+        }
+    }
+
+    /// Legs whose provider never answers a sign-out.
+    pub fn hanging() -> Self {
+        Self {
+            is_hanging: true,
             ..Self::default()
         }
     }
@@ -46,11 +56,15 @@ impl ProviderAccountLegs for RecordedSignOuts {
         folders: ProviderAccountFolders,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
         let is_refused = self.refused.as_ref() == Some(&provider_account_id);
+        let is_hanging = self.is_hanging;
         self.signed_out
             .lock()
             .expect("the record is not poisoned")
             .push((provider_account_id, folders));
         Box::pin(async move {
+            if is_hanging {
+                std::future::pending::<()>().await;
+            }
             if is_refused {
                 return Err(DriverError::Internal(
                     "the provider refused the sign-out".into(),

@@ -1,5 +1,6 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use rusqlite::params;
 use serde_json::json;
@@ -20,10 +21,14 @@ use sidekicks_contracts::wire::integer::{SafeInt, SafeSignedInt};
 use sidekicks_contracts::wire::number::{NonNegativeNumber, Number};
 use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, create_missing_private_folders};
+use sidekicks_provider::account::credential_home::test_legs::RecordedSignOuts;
 use sidekicks_provider::account::observer::AccountTurnObserver;
-use sidekicks_provider::account::registry::PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY;
+use sidekicks_provider::account::registry::{
+    PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY, open_test_registry,
+};
 use sidekicks_provider::account::sign_in::ProviderAccountNotificationPublisher;
 use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
+use sidekicks_provider::driver::contract::account::ProviderAccountLegs;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::test_driver_services;
@@ -32,7 +37,7 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, open_database,
 };
-use sidekicks_store::database::writer::test_file::test_envelope;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope};
 use sidekicks_store::events::session::followers::CommittedEvent;
 use tokio::runtime::Handle;
 use tokio_util::sync::CancellationToken;
@@ -40,11 +45,18 @@ use tokio_util::sync::CancellationToken;
 use super::TestHome;
 use crate::daemon::process::provider_accounts::{
     collect_provider_account_legs, follow_usage_event, publish_usage_window,
+    start_minted_home_sweep,
 };
+use crate::daemon::process::stop::{DaemonStopFailure, end_start_tasks};
 use crate::daemon::schema::schema_parts;
+use crate::data_acts::erase::ACCOUNT_SIGN_OUT_BOUND;
 
 // The stored account's id.
 const ACCOUNT_ID: &str = "0123456789abcdef0123456789abcdef";
+
+// The longest a test waits on the start's sweep of new accounts' homes, well within one sign-out's
+// bound.
+const SWEEP_WAIT: Duration = Duration::from_secs(10);
 
 // The account a client lists is the row the registry holds: `provider.account.list`, called
 // through the typed client against the daemon's served table, answers the stored account. Killed by
@@ -106,6 +118,50 @@ async fn a_client_lists_the_provider_accounts_the_registry_holds() {
         .map(|account| account.account_id().as_str())
         .collect();
     assert_eq!(account_ids, [ACCOUNT_ID]);
+}
+
+// A start with two homes a stop left minted for new accounts goes on while their sign-outs hang,
+// the two sign-outs run at once, and the stop ends the sweep still running at its bound. Killed by
+// the sweep awaited on the start's path (the start outlasts its wait), by the sign-outs run one
+// after another (the second has not begun within the wait) and by a stop that waits for the sweep
+// past its bound (it answers no failure once the sign-outs overrun theirs).
+#[tokio::test]
+async fn a_start_goes_on_while_the_sign_outs_of_new_accounts_homes_hang() {
+    let database = TestDatabase::new(schema_parts());
+    let data_folder = tempfile::tempdir().expect("a data folder");
+    let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
+    let claude = ProviderId::new("claude".to_owned()).expect("a provider id");
+    for _ in 0..2 {
+        registry
+            .mint(claude.clone())
+            .expect("a new account is minted");
+    }
+    let legs = Arc::new(RecordedSignOuts::hanging());
+
+    let sweep = tokio::time::timeout(
+        SWEEP_WAIT,
+        start_minted_home_sweep(
+            &registry,
+            &HashMap::from([(claude, Arc::clone(&legs) as Arc<dyn ProviderAccountLegs>)]),
+            data_folder.path().to_path_buf(),
+            ACCOUNT_SIGN_OUT_BOUND,
+        ),
+    )
+    .await
+    .expect("the start goes on while the sign-outs hang");
+    tokio::time::timeout(SWEEP_WAIT, async {
+        while legs.signed_out().len() < 2 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("both sign-outs run at once");
+    let failures = end_start_tasks([("sweep", sweep)], Duration::ZERO).await;
+
+    assert!(matches!(
+        failures.as_slice(),
+        [DaemonStopFailure::StartTaskRunning("sweep")]
+    ));
 }
 
 // The plane takes every act the drivers' account legs offer: over the real drivers, each

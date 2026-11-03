@@ -1,14 +1,15 @@
 //! The provider account plane at the daemon's start: the account registry, the accounts reader the
 //! drivers resolve folders through, the token custody and its sweep of what a stop left, the sweep
-//! of what each provider's stopped sign-in move left, the background observer over each provider's
-//! own legs, the sign-in broker and the sources the `provider.account.*` methods act through, the
-//! current-account switch, and the machine's wake helper where the system has one; and, once the
-//! recovery pass has run, the observer's schedule, its follow of each metered turn and each run's
-//! end, the publishing of each quota reading the window projection keeps, and the move of each
-//! session a stop left on another account than its provider's current one.
+//! of what each provider's stopped sign-in move left, the background sweep of the homes a stop left
+//! minted for new accounts, the background observer over each provider's own legs, the sign-in
+//! broker and the sources the `provider.account.*` methods act through, the current-account switch,
+//! and the machine's wake helper where the system has one; and, once the recovery pass has run, the
+//! observer's schedule, its follow of each metered turn and each run's end, the publishing of each
+//! quota reading the window projection keeps, and the move of each session a stop left on another
+//! account than its provider's current one.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -45,7 +46,7 @@ use sidekicks_provider::driver::contract::account::{
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_queue::provider_session::ProviderSessions;
-use sidekicks_recovery::account_homes::remove_unadmitted_homes;
+use sidekicks_recovery::account_homes::LeftoverMintedHomes;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::usage_record::UsageRecord;
 use sidekicks_std::scheduler::Scheduler;
@@ -58,14 +59,19 @@ use sidekicks_store::events::session::followers::{
 };
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use tokio::runtime::Handle;
+use tokio::task::JoinHandle;
 
 use crate::daemon::process::start_error::DaemonStartError;
+use crate::daemon::process::stop::{DaemonStopFailure, end_start_tasks};
 use crate::data_acts::erase::ACCOUNT_SIGN_OUT_BOUND;
 use crate::ipc::handlers::provider_account::ProviderAccountMethodSources;
 use crate::ipc::handlers::provider_account::notifications::ProviderAccountNotifications;
 use crate::orchestration::account_switch::{
     AccountSwitch, AccountSwitchDeps, SessionAccountMoveRecord,
 };
+
+// What the background sweep of new accounts' homes does, as a stop that ends it names it.
+const MINTED_HOME_SWEEP_TASK: &str = "sweep of the homes a stop left minted for new accounts";
 
 // The wake helper's program, which the service ships beside its own.
 const WAKE_HELPER_PROGRAM_NAME: &str = "sidekicks-wake-helper";
@@ -122,8 +128,9 @@ pub(crate) struct ProviderAccountPlane {
 }
 
 /// Builds the account plane over `start` and sweeps the provider tokens a stop left, then what
-/// each provider's stopped sign-in move left; a failed sweep is logged, and the next start sweeps
-/// what it left. Runs inside the daemon's runtime.
+/// each provider's stopped sign-in move left, and begins in the background the sweep of the homes
+/// a stop left minted for new accounts, which the start never waits on; a failed sweep is logged,
+/// and the next start sweeps what it left. Runs inside the daemon's runtime.
 pub(crate) async fn build_provider_account_plane(
     start: ProviderAccountPlaneStart<'_>,
 ) -> ProviderAccountPlane {
@@ -182,7 +189,7 @@ pub(crate) async fn build_provider_account_plane(
         );
     }
     remove_sign_in_move_leftovers(&account_legs, &registry).await;
-    remove_unadmitted_homes(
+    let minted_home_sweep = start_minted_home_sweep(
         &registry,
         &account_legs,
         data_folder.to_path_buf(),
@@ -265,8 +272,23 @@ pub(crate) async fn build_provider_account_plane(
             machine_device_id,
             reads,
             publisher,
+            minted_home_sweep: Some(minted_home_sweep),
         },
     }
+}
+
+/// Reads the homes a stop left minted for new accounts before any sign-in can mint another, then
+/// signs out and removes on a task of its own those no row took, each sign-out within `bound`, so
+/// the start never waits on a provider's sign-out. Answers that task.
+pub(super) async fn start_minted_home_sweep(
+    registry: &ProviderAccountRegistry,
+    account_legs: &HashMap<ProviderId, Arc<dyn ProviderAccountLegs>>,
+    data_folder: PathBuf,
+    bound: Duration,
+) -> JoinHandle<()> {
+    let leftovers = LeftoverMintedHomes::read(registry, data_folder).await;
+    let account_legs = account_legs.clone();
+    tokio::spawn(async move { leftovers.remove_unadmitted(&account_legs, bound).await })
 }
 
 // Removes what each provider's stopped sign-in move left beside its accounts, logging each
@@ -350,8 +372,8 @@ pub(super) fn collect_provider_account_legs(providers: &ProviderRegistry) -> Pro
 }
 
 /// The background observer, and its follow of each metered turn and each quota reading once
-/// started, beside the sign-ins the stop ends and the switch that moves the sessions a stop left
-/// behind.
+/// started, beside the sign-ins and the sweep of new accounts' homes the stop ends and the switch
+/// that moves the sessions a stop left behind.
 pub(crate) struct ProviderAccountObservation {
     observer: Arc<ProviderAccountObserver>,
     usage_events: Option<FollowerAttachment>,
@@ -361,6 +383,8 @@ pub(crate) struct ProviderAccountObservation {
     // The window projection's reads, and where each reading it keeps goes out.
     reads: Arc<DatabaseReadPool>,
     publisher: Arc<ProviderAccountNotifications>,
+    // The start's sweep of the homes a stop left minted for new accounts, until the stop ends it.
+    minted_home_sweep: Option<JoinHandle<()>>,
 }
 
 impl ProviderAccountObservation {
@@ -401,6 +425,22 @@ impl ProviderAccountObservation {
     /// account's minted home removed, answering whether all did.
     pub(crate) async fn end_sign_ins(&self, bound: Duration) -> bool {
         self.sign_in.stop(bound).await
+    }
+
+    /// Waits up to `bound` for the start's sweep of the homes a stop left minted for new accounts,
+    /// ending it then; a home it did not reach stays marked for the next start. Answers the sweep
+    /// when it ended abnormally or ran past the bound.
+    pub(crate) async fn end_minted_home_sweep(
+        &mut self,
+        bound: Duration,
+    ) -> Vec<DaemonStopFailure> {
+        end_start_tasks(
+            self.minted_home_sweep
+                .take()
+                .map(|sweep| (MINTED_HOME_SWEEP_TASK, sweep)),
+            bound,
+        )
+        .await
     }
 
     /// Ends the follow and every account's job, timer and the wake watch; a read under way
