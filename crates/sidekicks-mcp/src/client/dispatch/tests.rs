@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use rusqlite::params_from_iter;
 use serde_json::{Value, json};
 use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
@@ -7,6 +8,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::port::question::test_card::QuestionCard;
+use sidekicks_store::database::statement::StatementBindings;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use tokio::time::{Duration, Instant};
@@ -23,7 +25,7 @@ use crate::client::test_server::{
     Reply, Responder, TestServer, contact, method_not_found, start_test_server, test_client,
     text_result, track_call, tracked_end, v1_initialize_result, v1_status_reply, v1_task,
 };
-use crate::command_receipts::CommandReceiptStore;
+use crate::command_receipts::{CommandReceiptStore, background_statement};
 use crate::schema::schema_parts;
 
 /// How long [`until`] waits for its condition before it fails the test.
@@ -44,7 +46,6 @@ pub(super) struct StoredReceipt {
 /// server's address.
 pub(super) struct Fixture {
     database: TestDatabase,
-    pub(super) writer: Arc<DatabaseWriter>,
     pub(super) dispatch: McpToolDispatch,
     pub(super) client: McpClient,
     pub(super) card: Arc<QuestionCard>,
@@ -68,7 +69,6 @@ impl Fixture {
         let (client, card) = test_client();
         Self {
             database,
-            writer,
             dispatch,
             client,
             card,
@@ -112,6 +112,22 @@ impl Fixture {
             self.client.standing_connection(self.session_id, &self.name),
             server,
         )
+    }
+
+    /// Moves the call of `command_id` to the background as the tool route does, through a
+    /// connection of the test's own: awaiting the writer's thread would let the paused clock jump
+    /// to the call's next timer meanwhile.
+    pub(super) fn move_to_background(&self, command_id: &str) {
+        let statement = background_statement(command_id);
+        let StatementBindings::Positional(values) = statement.bindings else {
+            unreachable!("the background statement binds by position")
+        };
+        let moved = self
+            .database
+            .reader()
+            .execute(&statement.sql, params_from_iter(values))
+            .expect("the call moves to the background");
+        assert_eq!(moved, 1, "one claimed receipt moves to the background");
     }
 
     /// Every receipt row.
