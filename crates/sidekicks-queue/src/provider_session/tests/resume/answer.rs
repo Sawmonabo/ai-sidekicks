@@ -171,14 +171,18 @@ enum AcceptedResumeFailure {
     RunsUnsettled,
     // Recording the binding the resume ran under fails.
     BindingUnrecorded,
+    // Settling the runs fails where the process was already up and answered on its own binding.
+    RunsUnsettledOnProcessUp,
 }
 
 // A continue whose resume the provider accepted, but whose runs could not be settled or whose
-// binding could not be recorded, gives its answer back, so the next continue carries it again.
-// Killed by the give-back on that path dropped (the second continue resumes nothing).
+// binding could not be recorded, gives its answer back, so the next continue carries it again, a
+// process already up included. Killed by the give-back on that path dropped (the second continue
+// resumes nothing).
 #[rstest]
 #[case::runs_unsettled(AcceptedResumeFailure::RunsUnsettled)]
 #[case::binding_unrecorded(AcceptedResumeFailure::BindingUnrecorded)]
+#[case::runs_unsettled_on_process_up(AcceptedResumeFailure::RunsUnsettledOnProcessUp)]
 #[tokio::test]
 async fn a_continue_failed_after_its_resume_owes_its_answer_to_the_next(
     #[case] failure: AcceptedResumeFailure,
@@ -188,6 +192,10 @@ async fn a_continue_failed_after_its_resume_owes_its_answer_to_the_next(
         AcceptedResumeFailure::RunsUnsettled => opening.resumed_runs.set_refused(is_failing),
         AcceptedResumeFailure::BindingUnrecorded => {
             opening.is_row_taken.store(is_failing, Ordering::SeqCst);
+        }
+        AcceptedResumeFailure::RunsUnsettledOnProcessUp => {
+            *lock(&opening.came_up_on) = Some(opening.predecessor_id.clone());
+            opening.resumed_runs.set_refused(is_failing);
         }
     };
     fail(true);
