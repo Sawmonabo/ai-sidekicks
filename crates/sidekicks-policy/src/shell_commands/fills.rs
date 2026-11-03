@@ -19,6 +19,7 @@
 //! of the value.
 
 mod bash;
+mod cmd;
 mod csh;
 mod powershell;
 
@@ -229,7 +230,8 @@ impl CommandLineFills {
     /// The line `shell` runs, built from the template's own text with each fill replaced by its
     /// variable's reference in that shell's form for the fill's place: the bash reading places it
     /// for a POSIX shell and cmd.exe, the PowerShell reading for PowerShell and the csh scan for
-    /// csh, and fish takes `"$V"` everywhere. Fails with the first fill the reading refuses. Runs
+    /// csh, and fish takes `"$V"` everywhere; under cmd.exe the author's `^` and `!` are escaped
+    /// where delayed expansion would read them. Fails with the first fill the reading refuses. Runs
     /// inside one read of the reading bound.
     pub fn fill_for_launch(
         &self,
@@ -244,6 +246,7 @@ impl CommandLineFills {
             ShellGrammar::Fish => vec![Ok(FillPlace::Bare); self.placeholders.len()],
         };
         let mut filled = String::with_capacity(self.line.len());
+        let mut references = Vec::with_capacity(self.placeholders.len());
         let mut kept_from = 0;
         // Where the string a fill opened closes, in bytes of the line.
         let mut string_end = None;
@@ -256,7 +259,9 @@ impl CommandLineFills {
                 kept_from = end;
             }
             filled.push_str(&self.line[kept_from..placeholder.start]);
+            let reference_start = filled.len();
             filled.push_str(&reference(shell, place, number));
+            references.push(reference_start..filled.len());
             if let FillPlace::OpensString { rest_length } = place {
                 string_end = Some(placeholder.end + rest_length);
             }
@@ -268,7 +273,13 @@ impl CommandLineFills {
             kept_from = end;
         }
         filled.push_str(&self.line[kept_from..]);
-        Ok(filled)
+        Ok(match shell {
+            ShellGrammar::Cmd => cmd::keep_through_delayed_expansion(&filled, &references),
+            ShellGrammar::Posix(_)
+            | ShellGrammar::Fish
+            | ShellGrammar::Csh
+            | ShellGrammar::PowerShell => filled,
+        })
     }
 
     /// The bash reading's `placings` as cmd.exe takes them: a fill right after a `^` that cmd.exe
@@ -278,7 +289,7 @@ impl CommandLineFills {
             .into_iter()
             .zip(&self.placeholders)
             .map(|(placing, placeholder)| {
-                if follows_a_cmd_escape(&self.line, placeholder.start) {
+                if cmd::follows_a_cmd_escape(&self.line, placeholder.start) {
                     Err(FillRefusal::CmdCaret)
                 } else {
                     placing
@@ -363,25 +374,6 @@ fn is_escaped(text: &str, at: usize, escape: u8) -> bool {
         .take_while(|&&byte| byte == escape)
         .count();
     run % 2 == 1
-}
-
-/// Whether the byte before `at` in `text` is a `^` cmd.exe reads as an escape: one outside double
-/// quotes and not itself escaped. Inside `"…"` cmd.exe reads `^` as plain text, so a regex anchor
-/// such as `grep "^{{ x }}"` stands.
-fn follows_a_cmd_escape(text: &str, at: usize) -> bool {
-    let mut is_quoted = false;
-    let mut is_escaping = false;
-    for &byte in &text.as_bytes()[..at] {
-        if std::mem::take(&mut is_escaping) {
-            continue;
-        }
-        match byte {
-            b'"' => is_quoted = !is_quoted,
-            b'^' if !is_quoted => is_escaping = true,
-            _ => {}
-        }
-    }
-    is_escaping
 }
 
 /// The name of the variable `$NAME` the text before `at` ends with, which reads the placeholder
@@ -627,6 +619,32 @@ mod tests {
         #[case] filled: &str,
     ) {
         assert_eq!(launch(line, grammar(program)), Ok(filled.to_owned()));
+    }
+
+    // cmd.exe's delayed expansion reads again each piece of a command holding a `!`, the arguments
+    // as one piece, so a launch escapes the author's `^` and `!` there, inside quotes and out, and
+    // leaves a redirection's target and another command without a `!` as written.
+    #[rstest]
+    #[case::a_caret_in_a_string("grep \"^{{ x }}\" file", "grep \"^^!SIDEKICKS_VALUE_1!\" file")]
+    #[case::a_caret_before_text_in_a_string(
+        "grep \"^a {{ x }}\" file",
+        "grep \"^^a !SIDEKICKS_VALUE_1!\" file"
+    )]
+    #[case::an_escaped_caret("echo ^^{{ x }}", "echo ^^^^\"!SIDEKICKS_VALUE_1!\"")]
+    #[case::an_exclamation_mark("echo \"a!\" {{ x }}", "echo \"a^!\" \"!SIDEKICKS_VALUE_1!\"")]
+    #[case::a_redirections_target(
+        "grep \"^a\" {{ x }} > \"^b\"",
+        "grep \"^^a\" \"!SIDEKICKS_VALUE_1!\" > \"^b\""
+    )]
+    #[case::another_command(
+        "echo \"^a\" & echo {{ x }}",
+        "echo \"^a\" & echo \"!SIDEKICKS_VALUE_1!\""
+    )]
+    fn a_cmd_launch_keeps_the_written_text_through_delayed_expansion(
+        #[case] line: &str,
+        #[case] filled: &str,
+    ) {
+        assert_eq!(launch(line, ShellGrammar::Cmd), Ok(filled.to_owned()));
     }
 
     // The places a launch refuses with the rule that names them: a quote inside a substitution
