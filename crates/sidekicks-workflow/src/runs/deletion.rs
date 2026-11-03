@@ -38,6 +38,7 @@ use sidekicks_contracts::workflow::run::retention::{
 use sidekicks_contracts::workflow::run::status::{GOING_RUN_STATUSES, WorkflowRunStatus};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::data_folder::workflow_run_folder;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -250,15 +251,15 @@ pub(crate) enum WorkflowRunDeletionError {
     /// The writer did not keep the Keep mark.
     #[error("a run's Keep mark was not kept")]
     Write(#[from] WriteError),
-    /// A delete's read, write or folder removal failed: `deleted` holds every run it did delete,
-    /// whose snapshot refs still need pruning, and the source the first failure.
+    /// A delete's reads, writes or folder removals failed: `deleted` holds every run it did
+    /// delete, whose snapshot refs still need pruning, and the source every failure.
     #[error("deleting runs failed after {} were deleted", .deleted.len())]
     Incomplete {
         /// Every run deleted.
         deleted: Vec<DeletedWorkflowRun>,
-        /// The first failure.
+        /// The one failure, or every failure in the order they came.
         #[source]
-        cause: Box<WorkflowRunDeletionError>,
+        cause: Box<SettleFailures<WorkflowRunDeletionError>>,
     },
     /// SQLite refused a read, or a stored value did not read as its type.
     #[error("a read of the workflow runs failed")]
@@ -444,7 +445,7 @@ impl WorkflowRunDeletion {
                 Ok(()) => Ok(run.deleted()),
                 Err(cause) => Err(WorkflowRunDeletionError::Incomplete {
                     deleted: vec![run.deleted()],
-                    cause: Box::new(cause),
+                    cause: Box::new(SettleFailures::One(cause)),
                 }),
             },
             Err(error) if refused_statement_index(&error).is_some() => {
@@ -487,9 +488,9 @@ impl WorkflowRunDeletion {
     /// Deletes every run the preview counts for deletion, each with all its rows and its own
     /// `workflow.run.deleted` and its own folder, and answers each one deleted. A run read as
     /// deletable that its guard no longer matches at its write, such as one kept since, is left.
-    /// Fails with [`WorkflowRunDeletionError::Incomplete`] when a read, a write or a folder's
-    /// removal fails: a failed write or removal leaves the later pages to be written, and a failed
-    /// read ends the delete.
+    /// Fails with [`WorkflowRunDeletionError::Incomplete`], holding every failure, when a read, a
+    /// write or a folder's removal fails: a failed write or removal leaves the later pages to be
+    /// written, and a failed read ends the delete.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the workflow.run.purge handler")
@@ -507,7 +508,7 @@ impl WorkflowRunDeletion {
             older_than: bound.as_ref(),
         };
         let mut deleted = Vec::new();
-        let mut failure = None;
+        let mut failures = Vec::new();
         let mut after = None;
         loop {
             let read_bound = bound.clone();
@@ -524,7 +525,7 @@ impl WorkflowRunDeletion {
             let page = match read {
                 Ok(page) => page,
                 Err(error) => {
-                    failure.get_or_insert(error);
+                    failures.push(error);
                     break;
                 }
             };
@@ -540,23 +541,23 @@ impl WorkflowRunDeletion {
                     Ok(chunk_deleted) => {
                         for run in chunk_deleted {
                             if let Err(error) = remove_run_folder(&self.data_folder, &run).await {
-                                failure.get_or_insert(error);
+                                failures.push(error);
                             }
                             deleted.push(run.deleted());
                         }
                     }
-                    Err(error) => {
-                        failure.get_or_insert(error);
-                    }
+                    Err(error) => failures.push(error),
                 }
             }
             if is_last_page {
                 break;
             }
         }
-        match failure {
-            None => Ok(deleted),
-            Some(cause) => Err(WorkflowRunDeletionError::Incomplete {
+        let outcomes: Vec<Result<(), WorkflowRunDeletionError>> =
+            failures.into_iter().map(Err).collect();
+        match settle_all(outcomes, "deleting runs older than a bound") {
+            Ok(_) => Ok(deleted),
+            Err(cause) => Err(WorkflowRunDeletionError::Incomplete {
                 deleted,
                 cause: Box::new(cause),
             }),
