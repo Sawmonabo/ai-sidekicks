@@ -480,14 +480,12 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
-    use serde_json::json;
     use sidekicks_platforms::PathRules;
 
     use super::{
         ClaudeConversation, ClaudeConversationFolders, ClaudeConversationOutline,
         delete_claude_conversations, find_claude_taken_messages, read_claude_conversation_outline,
     };
-    use crate::driver::claude::session::process::CLAUDE_OUTPUT_LINE_MAX_BYTES;
     use crate::driver::claude::session::rules::{ClaudeProjectFolder, ClaudeRepository};
     use crate::driver::claude::spawn::environment::compose_claude_scratch_folder;
 
@@ -522,31 +520,6 @@ mod tests {
                 .await
                 .is_err()
         );
-    }
-
-    // Killed by reading a line whole however long it is (the `take` bound removed): the entry past
-    // the ceiling would be read and answered as taken.
-    #[tokio::test]
-    async fn a_line_past_the_ceiling_is_skipped_and_the_next_entry_still_reads() {
-        let folder = tempfile::tempdir().expect("a scratch folder");
-        let file = folder.path().join("conversation.jsonl");
-        let padding = "x".repeat(CLAUDE_OUTPUT_LINE_MAX_BYTES);
-        fs::write(
-            &file,
-            format!(
-                "{}\n{}\n",
-                json!({"type": "user", "uuid": "too-long", "message": {"content": padding}}),
-                json!({"type": "user", "uuid": "kept", "message": {"content": "steer"}}),
-            ),
-        )
-        .expect("the conversation is written");
-        let asked = ["too-long".to_owned(), "kept".to_owned()];
-
-        let taken = find_claude_taken_messages(&file, &asked)
-            .await
-            .expect("the file reads");
-
-        assert_eq!(taken, vec!["kept".to_owned()]);
     }
 
     #[tokio::test]

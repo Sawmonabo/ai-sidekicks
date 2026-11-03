@@ -1,79 +1,34 @@
-//! A terminal session's transcript read for the messages awaited in it: the appended bytes split
-//! into lines, each line read for the members a reply wait uses, and each line folded into what
-//! became of each message, which started a turn, joined one under way, or has no record yet.
+//! A terminal session's transcript read for the messages awaited in it: each line the appended
+//! bytes complete read for the members a reply wait uses, and folded into what became of each
+//! message, which started a turn, joined one under way, or has no record yet.
 
 use std::cell::OnceCell;
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::ops::ControlFlow;
 
-use bytes::BytesMut;
 use serde::Deserialize;
-use tokio_util::codec::{AnyDelimiterCodec, Decoder as _};
 use uuid::Uuid;
 
 use crate::driver::claude::session::conversation_file::ConversationEntry;
-use crate::driver::claude::session::process::CLAUDE_OUTPUT_LINE_MAX_BYTES;
-use crate::inbound_json::decode_inbound_json;
+use crate::driver::claude::session::conversation_file::lines::{
+    ConversationLine, ConversationLines,
+};
 use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
 use crate::port::session_message_reading_publisher::SessionMessageReading;
 
-/// A transcript's bytes, handed in as they come, split into lines read as entries.
-pub(super) struct TranscriptLines {
-    file: PathBuf,
-    codec: AnyDelimiterCodec,
-    buffer: BytesMut,
-    // Where in the file the next bytes handed in start.
-    offset: u64,
-    is_skip_logged: bool,
-}
-
-impl TranscriptLines {
-    /// The lines of `file` from `offset`, where the first bytes handed in start.
-    pub(super) fn new(file: &Path, offset: u64) -> Self {
-        Self {
-            file: file.to_path_buf(),
-            codec: AnyDelimiterCodec::new_with_max_length(
-                b"\n".to_vec(),
-                Vec::new(),
-                CLAUDE_OUTPUT_LINE_MAX_BYTES,
-            ),
-            buffer: BytesMut::new(),
-            offset,
-            is_skip_logged: false,
-        }
-    }
-
-    /// The entries of the lines `chunk` completes, the file's next bytes; the bytes before
-    /// `lowest_start` are skipped unread, and a line past the ceiling is skipped, logged once.
-    pub(super) fn take(&mut self, chunk: &[u8], lowest_start: u64) -> Vec<TranscriptLine> {
-        let skipped = usize::try_from(lowest_start.saturating_sub(self.offset))
-            .unwrap_or(usize::MAX)
-            .min(chunk.len());
-        self.offset += chunk.len() as u64;
-        if skipped > 0 {
-            // A line begun before the skip cannot be read whole.
-            self.buffer.clear();
-        }
-        self.buffer.extend_from_slice(&chunk[skipped..]);
-        let mut lines = Vec::new();
-        loop {
-            match self.codec.decode(&mut self.buffer) {
-                Ok(Some(line)) => lines.extend(read_line(&line)),
-                Ok(None) => return lines,
-                // The codec only fails at the ceiling, and drops that line's rest itself.
-                Err(_) => {
-                    if !self.is_skip_logged {
-                        self.is_skip_logged = true;
-                        tracing::warn!(
-                            file = %self.file.display(),
-                            "a line of a Claude Code transcript passed the line ceiling, so it \
-                             was skipped"
-                        );
-                    }
-                }
-            }
-        }
-    }
+/// The transcript lines `chunk`, the transcript's next bytes handed to `lines`, completes; the
+/// bytes before `lowest_start` are skipped unread.
+pub(super) fn take_transcript_lines(
+    lines: &mut ConversationLines,
+    chunk: &[u8],
+    lowest_start: u64,
+) -> Vec<TranscriptLine> {
+    let mut read = Vec::new();
+    let _whole = lines.take::<PeerEntry>(chunk, lowest_start, |line| {
+        read.push(transcript_line(line));
+        ControlFlow::Continue(())
+    });
+    read
 }
 
 /// One transcript line as a reply wait reads it.
@@ -105,19 +60,16 @@ fn is_person_prompt(text: &str) -> bool {
         .is_some_and(|entry| entry.is_person_prompt())
 }
 
-// The line's entry, or `None` for a line that is not one JSON object.
-fn read_line(line: &[u8]) -> Option<TranscriptLine> {
-    let text = decode_inbound_json(line);
-    let mut deserializer = serde_json::Deserializer::from_str(&text);
-    let entry = PeerEntry::read(&mut deserializer).ok().flatten()?;
-    deserializer.end().ok()?;
+// The line as a reply wait reads it, its text kept for a `user` record no peer started.
+fn transcript_line(line: ConversationLine<'_, PeerEntry>) -> TranscriptLine {
+    let entry = line.entry;
     let prompt_text = (entry.entry_type.as_deref() == Some("user") && entry.turn_origin.is_none())
-        .then(|| text.into_owned());
-    Some(TranscriptLine {
+        .then(|| line.text.to_owned());
+    TranscriptLine {
         entry,
         prompt_text,
         starts_turn: OnceCell::new(),
-    })
+    }
 }
 
 // The members of a transcript entry a reply wait reads, each read leniently.
@@ -332,9 +284,12 @@ fn read_uuid(text: &str) -> Option<Uuid> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use serde_json::{Value, json};
 
-    use super::{AwaitedMessage, TranscriptLine, read_line};
+    use super::{AwaitedMessage, TranscriptLine, take_transcript_lines};
+    use crate::driver::claude::session::conversation_file::lines::ConversationLines;
     use crate::port::session_message_reading_publisher::SessionMessageReading;
 
     const MESSAGE: &str = "6f1c1e0a-0000-4000-8000-0000000000a1";
@@ -343,7 +298,10 @@ mod tests {
     const LAST_REPLY: &str = "6f1c1e0a-0000-4000-8000-000000000003";
 
     fn line(record: &Value) -> TranscriptLine {
-        read_line(record.to_string().as_bytes()).expect("the record is one JSON object")
+        let mut lines = ConversationLines::new(Path::new("transcript.jsonl"), 0);
+        take_transcript_lines(&mut lines, format!("{record}\n").as_bytes(), 0)
+            .pop()
+            .expect("the record is one JSON object")
     }
 
     fn peer_start() -> TranscriptLine {
