@@ -66,6 +66,8 @@ pub(crate) struct RunGraphNode {
     pub(crate) id: WorkflowNodeId,
     /// Whether the node is switched off, so its rounds are skipped and pass their first input on.
     pub(crate) is_disabled: bool,
+    /// Whether the node is of the loop kind, each of whose steps starts a pass of its loop.
+    pub(crate) is_loop: bool,
     /// Whether the node's step runs on the first main input that settles with items, the branches
     /// feeding its other inputs canceled; never for a disabled node, whose rounds wait for every
     /// input.
@@ -117,7 +119,6 @@ impl RunGraph {
             .collect();
         let mut node_handles: Vec<WorkflowNodeHandles> = Vec::with_capacity(sorted.len());
         let mut graph_nodes = Vec::with_capacity(sorted.len());
-        let mut is_loop = Vec::with_capacity(sorted.len());
         for node in &sorted {
             let rules = kinds
                 .kind_rules(node)
@@ -140,10 +141,10 @@ impl RunGraph {
             main_inputs.sort_unstable();
             let is_disabled = node.disabled == Some(true);
             let kind = kinds.kind_of(node);
-            is_loop.push(kind.is_some_and(|kind| kind.is_loop));
             graph_nodes.push(RunGraphNode {
                 id: node.id.clone(),
                 is_disabled,
+                is_loop: kind.is_some_and(|kind| kind.is_loop),
                 readies_on_first_input: !is_disabled
                     && kind.is_some_and(|kind| kind.executor.readies_on_first_input(node)),
                 input_count: rules.handles.inputs.len(),
@@ -202,7 +203,7 @@ impl RunGraph {
         let trigger = *places
             .get(trigger)
             .expect("a run's trigger is a node of its pinned version");
-        let forward_feeders = forward_feeders(&graph_nodes, &is_loop);
+        let forward_feeders = forward_feeders(&graph_nodes);
         let ancestors = forward_ancestors(&forward_feeders);
         Ok(Self {
             nodes: graph_nodes,
@@ -247,6 +248,12 @@ impl RunGraph {
         self.ancestors[place].ones()
     }
 
+    /// Whether the node at `ancestor` precedes the node at `place` along forward main edges.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(crate) fn is_ancestor(&self, ancestor: usize, place: usize) -> bool {
+        self.ancestors[place].contains(ancestor)
+    }
+
     /// The places of the nodes that feed the node at `place` along forward main edges, each once;
     /// a loop's back edge is left out.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
@@ -256,13 +263,12 @@ impl RunGraph {
 }
 
 /// Each of `nodes`' feeders along forward main edges, by place, each once: every main edge but
-/// the back edges that close a loop, `is_loop` telling which places hold the loop kind. Each group
-/// of nodes that all reach one another holds a loop; its back edges are those from inside it into
-/// its loop nodes fed from outside it, or into all its loop nodes where none is, and the group is
-/// searched again without them for a loop inside the body. No order of nodes or edges decides
-/// which edge closes a loop.
+/// the back edges that close a loop. Each group of nodes that all reach one another holds a loop;
+/// its back edges are those from inside it into its loop nodes fed from outside it, or into all its
+/// loop nodes where none is, and the group is searched again without them for a loop inside the
+/// body. No order of nodes or edges decides which edge closes a loop.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-fn forward_feeders(nodes: &[RunGraphNode], is_loop: &[bool]) -> Vec<Vec<usize>> {
+fn forward_feeders(nodes: &[RunGraphNode]) -> Vec<Vec<usize>> {
     let mut feeders: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
     for (place, node) in nodes.iter().enumerate() {
         for target in node.outputs.iter().flatten() {
@@ -299,7 +305,7 @@ fn forward_feeders(nodes: &[RunGraphNode], is_loop: &[bool]) -> Vec<Vec<usize>> 
             let loops: Vec<usize> = inside
                 .iter()
                 .copied()
-                .filter(|&place| is_loop[place])
+                .filter(|&place| nodes[place].is_loop)
                 .collect();
             let candidates = if loops.is_empty() {
                 inside.iter().copied().collect()
