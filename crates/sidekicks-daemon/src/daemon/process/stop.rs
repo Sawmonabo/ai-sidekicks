@@ -47,6 +47,10 @@ pub(crate) enum DaemonStopFailure {
     /// The providers' registration did not end cleanly.
     #[error(transparent)]
     ProvidersRegistration(#[from] ProvidersRegistrationStopFailure),
+    /// Sign-ins were still settling when the drain bound ran out; the next start removes a new
+    /// account's home one left.
+    #[error("sign-ins were still settling when the stop's drain bound ran out")]
+    SignInsRunning,
     /// The scheduler's task ended abnormally.
     #[error("the scheduler ended abnormally")]
     Scheduler(#[source] JoinError),
@@ -250,8 +254,13 @@ pub(crate) async fn stop_work(
         let drain = session.terminals.drain(remaining()).await;
         tracing::info!("{}", describe_drain(drain));
     }
-    // Before the scheduler, whose jobs and timers it holds.
     if let Some(provider_accounts) = &mut process.provider_accounts {
+        // Before the drivers, whose services the flows run on, and before the observer, which a
+        // finished sign-in hands its account.
+        if !provider_accounts.end_sign_ins(remaining()).await {
+            failures.push(DaemonStopFailure::SignInsRunning);
+        }
+        // Before the scheduler, whose jobs and timers it holds.
         provider_accounts.stop();
     }
     // Before the drivers, since a job it runs may still call into them.

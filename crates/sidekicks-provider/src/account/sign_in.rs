@@ -18,17 +18,13 @@
 //! - The registry stays un-evented: completion is a wire notification, never a session event.
 
 use std::collections::{HashMap, HashSet};
-use std::error::Error;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-use futures::StreamExt as _;
-use futures::future::BoxFuture;
-use futures::stream::BoxStream;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::{
-    BillingMode, CredentialGeneration, PROVIDER_SIGN_IN_ATTEMPT_ID_MAX_LEN,
-    PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN, ProviderAccountId, ProviderAccountNotification,
-    ProviderSignInOutcome,
+    PROVIDER_SIGN_IN_ATTEMPT_ID_MAX_LEN, PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN,
+    ProviderAccountId, ProviderAccountNotification,
 };
 use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderAccountSignInInFlightDetails,
@@ -42,16 +38,15 @@ use sidekicks_ipc::registry::HandlerError;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::random_hex::random_hex;
 use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 
+use self::attempt::{Reservation, abandon};
 use crate::account::credential_home::CredentialHome;
 use crate::account::errors::ProviderAccountRegistryError;
-use crate::account::home_lock::{AccountHomeLock, SigningInMark};
-use crate::account::registry::{
-    AccountAdmission, MintedAccount, ProviderAccountRegistry, RegisteredAccount,
-};
-use crate::driver::contract::account::{
-    ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs, SignInOrigin,
-};
+use crate::account::home_lock::AccountHomeLock;
+use crate::account::registry::{MintedAccount, ProviderAccountRegistry, RegisteredAccount};
+use crate::driver::contract::account::{ProviderSignInInput, ProviderSignInLegs, SignInOrigin};
 use crate::driver::contract::error::DriverError;
 
 /// One sign-in attempt's daemon-minted id.
@@ -188,7 +183,8 @@ impl From<ProviderSignInError> for HandlerError {
 }
 
 /// The sign-in broker over the registry and each provider's sign-in legs. Its attempts live in
-/// memory and run on tasks spawned on the current tokio runtime, so it must run inside one.
+/// memory and run on its own tracked tasks on the current tokio runtime, so it must run inside
+/// one, and the daemon's stop ends them through [`Self::stop`].
 pub struct ProviderSignInBroker {
     attempt: AttemptServices,
     legs: HashMap<ProviderId, Arc<dyn ProviderSignInLegs>>,
@@ -215,6 +211,8 @@ impl ProviderSignInBroker {
                 home_lock,
                 accounts_in_flight,
                 attempts: Arc::new(Mutex::new(LiveAttempts::default())),
+                tasks: TaskTracker::new(),
+                stopping: CancellationToken::new(),
             },
             legs,
         }
@@ -279,7 +277,9 @@ impl ProviderSignInBroker {
             }
         };
         let (answer, answered) = oneshot::channel();
-        tokio::spawn(reservation.run_attempt(legs, origin, answer));
+        self.attempt
+            .tasks
+            .spawn(reservation.run_attempt(legs, origin, answer));
         answered
             .await
             .map_err(|_ended| ProviderSignInError::StartEnded)?
@@ -347,6 +347,18 @@ impl ProviderSignInBroker {
         Ok(input.cancel().await?)
     }
 
+    /// Ends every attempt, as the daemon's stop does: one still waiting for its account's home
+    /// starts nothing, and an open flow is canceled through its provider's own cancel and settles
+    /// as canceled, a new account's minted home removed; then waits up to `bound` for every
+    /// attempt to settle, answering whether all did.
+    pub async fn stop(&self, bound: Duration) -> bool {
+        self.attempt.stopping.cancel();
+        self.attempt.tasks.close();
+        tokio::time::timeout(bound, self.attempt.tasks.wait())
+            .await
+            .is_ok()
+    }
+
     fn legs_of(
         &self,
         provider: &ProviderId,
@@ -359,8 +371,8 @@ impl ProviderSignInBroker {
 }
 
 /// What an attempt reaches beyond its own flow: the registry, the notification publisher, the
-/// watcher of a signed-in account, the lock on account homes, the accounts in flight and the
-/// broker's live attempts.
+/// watcher of a signed-in account, the lock on account homes, the accounts in flight, the
+/// broker's live attempts, the tasks they run on and the broker's stop.
 #[derive(Clone)]
 struct AttemptServices {
     registry: Arc<ProviderAccountRegistry>,
@@ -369,6 +381,8 @@ struct AttemptServices {
     home_lock: Arc<AccountHomeLock>,
     accounts_in_flight: Arc<AccountsInFlight>,
     attempts: Arc<Mutex<LiveAttempts>>,
+    tasks: TaskTracker,
+    stopping: CancellationToken,
 }
 
 impl AttemptServices {
@@ -506,379 +520,6 @@ enum AttemptStage {
     Settling,
 }
 
-/// An account's sign-in slot and its listed attempt, held from the start until the attempt
-/// settles. Every path that ends it before a row took its minted home removes that home first,
-/// and dropped, it unlists the attempt and frees the slot, so a failed or abandoned start leaves
-/// none of them.
-struct Reservation {
-    _in_flight_guard: InFlightGuard,
-    // The home's mark as signing in, from the flow's start until it ends.
-    signing_in: Option<SigningInMark>,
-    services: AttemptServices,
-    attempt_id: AttemptId,
-    account_id: ProviderAccountId,
-    home: CredentialHome,
-    minted: Option<MintedAccount>,
-    // A registered account's credential generation as its flow started, which its end must
-    // still find; `None` for a new account, whose home no one else knows.
-    started_generation: Option<CredentialGeneration>,
-}
-
-impl Reservation {
-    // Takes the account's home once a renewal running there has ended, marks it as signing in,
-    // notes a registered account's credential generation, starts the flow in it, lets the home go
-    // and answers `answer` whether the flow started, then runs the attempt to its end. A caller
-    // that stopped waiting before the home was free starts nothing; one that stopped after leaves
-    // the started flow to run to its end.
-    async fn run_attempt(
-        mut self,
-        legs: Arc<dyn ProviderSignInLegs>,
-        origin: SignInOrigin,
-        mut answer: oneshot::Sender<Result<ProviderAccountSignInResponse, ProviderSignInError>>,
-    ) {
-        let home_lock = Arc::clone(&self.services.home_lock);
-        let hold = tokio::select! {
-            hold = home_lock.hold(self.account_id.clone()) => hold,
-            () = answer.closed() => {
-                self.release().await;
-                return;
-            }
-        };
-        self.signing_in = Some(home_lock.mark_signing_in(self.account_id.clone()));
-        if self.minted.is_none() {
-            let read = self.services.registry.read(self.account_id.clone()).await;
-            match read {
-                Ok(account) => self.started_generation = Some(account.credential_generation),
-                Err(error) => {
-                    self.release().await;
-                    drop(hold);
-                    let _unheard = answer.send(Err(error.into()));
-                    return;
-                }
-            }
-        }
-        let started = legs
-            .start_sign_in(self.account_id.clone(), self.home.clone(), origin)
-            .await;
-        drop(hold);
-        let ProviderSignInHandle {
-            verification_uri,
-            user_code,
-            expires_at,
-            is_browser_opened_by_provider,
-            code_prompts,
-            input,
-            completion,
-        } = match started {
-            Ok(handle) => handle,
-            Err(error) => {
-                // Freed first, so the caller finds no slot and no minted home left.
-                self.release().await;
-                let _unheard = answer.send(Err(error.into()));
-                return;
-            }
-        };
-        let input: Arc<dyn ProviderSignInInput> = Arc::from(input);
-        let (attempt, is_cancel_asked) = self.open(Arc::clone(&input));
-        let publisher = Arc::clone(&attempt.reservation.services.publisher);
-        let _unheard = answer.send(Ok(ProviderAccountSignInResponse {
-            attempt_id: attempt.reservation.attempt_id.clone(),
-            verification_uri,
-            user_code,
-            expires_at,
-            is_browser_opened_by_provider,
-        }));
-        if is_cancel_asked && let Err(error) = input.cancel().await {
-            tracing::warn!(
-                error = &error as &(dyn Error + 'static),
-                "a sign-in canceled while it started was not canceled"
-            );
-        }
-        let ended = attempt.run(legs, code_prompts, completion).await;
-        publisher.publish(ended);
-    }
-
-    // Removes the minted home no row took, then unlists the attempt and frees the slot.
-    async fn release(mut self) {
-        if let Some(minted) = self.minted.take() {
-            abandon(Arc::clone(&self.services.registry), minted).await;
-        }
-    }
-
-    // Hands the listed attempt its flow's input, so a code submit and a cancel reach it, with
-    // whether a cancel was asked while the flow started.
-    fn open(self, input: Arc<dyn ProviderSignInInput>) -> (Attempt, bool) {
-        let stage = AttemptStage::Open {
-            input,
-            is_waiting_for_code: false,
-        };
-        let started = std::mem::replace(
-            &mut lock(&self.services.attempts)
-                .attempts
-                .get_mut(&self.attempt_id)
-                .expect("an attempt listed at its reservation stays listed until it settles")
-                .stage,
-            stage,
-        );
-        let is_cancel_asked = matches!(
-            started,
-            AttemptStage::Starting {
-                is_cancel_asked: true
-            }
-        );
-        (Attempt { reservation: self }, is_cancel_asked)
-    }
-}
-
-impl Drop for Reservation {
-    fn drop(&mut self) {
-        lock(&self.services.attempts)
-            .attempts
-            .remove(&self.attempt_id);
-    }
-}
-
-/// An open attempt, run to its one end on its own task; its reservation frees the account's slot
-/// once the attempt has settled.
-struct Attempt {
-    reservation: Reservation,
-}
-
-impl Attempt {
-    // Reports each wait for a code until the flow ends, then settles the account and answers the
-    // end's notification.
-    async fn run(
-        mut self,
-        legs: Arc<dyn ProviderSignInLegs>,
-        mut code_prompts: BoxStream<'static, ()>,
-        mut completion: BoxFuture<'static, ProviderSignInEnd>,
-    ) -> ProviderAccountNotification {
-        let end = loop {
-            tokio::select! {
-                biased;
-                end = &mut completion => break end,
-                Some(()) = code_prompts.next() => self.mark_waiting_for_code(),
-            }
-        };
-        // The flow has ended, so a renewal may run in the home again once its hold is free.
-        drop(self.reservation.signing_in.take());
-        // Settling from the flow's end: no code submit or cancel reaches it and it no longer holds
-        // the machine's one slot, while a start on its account meets it by name until it settles.
-        {
-            let mut live = lock(&self.reservation.services.attempts);
-            let attempt = live
-                .attempts
-                .get_mut(&self.reservation.attempt_id)
-                .expect("an attempt listed at its reservation stays listed until it settles");
-            attempt.is_one_per_machine = false;
-            attempt.stage = AttemptStage::Settling;
-        }
-        let (outcome, failure_reason) = self.settle(legs.as_ref(), end).await;
-        let Self { reservation } = self;
-        let attempt_id = reservation.attempt_id.clone();
-        let account_id = reservation.account_id.clone();
-        drop(reservation);
-        ProviderAccountNotification::SignInCompleted {
-            attempt_id,
-            account_id,
-            outcome,
-            failure_reason: failure_reason.map(failure_reason_text),
-        }
-    }
-
-    fn mark_waiting_for_code(&self) {
-        let services = &self.reservation.services;
-        let attempt_id = &self.reservation.attempt_id;
-        let is_live = match lock(&services.attempts)
-            .attempts
-            .get_mut(attempt_id)
-            .map(|attempt| &mut attempt.stage)
-        {
-            Some(AttemptStage::Open {
-                is_waiting_for_code,
-                ..
-            }) => {
-                *is_waiting_for_code = true;
-                true
-            }
-            Some(AttemptStage::Starting { .. } | AttemptStage::Settling) | None => false,
-        };
-        if is_live {
-            services
-                .publisher
-                .publish(ProviderAccountNotification::SignInCodeRequested {
-                    attempt_id: attempt_id.clone(),
-                });
-        }
-    }
-
-    // Takes the status read after a finished flow and writes what it found; a new account that
-    // ends any other way loses its minted home.
-    async fn settle(
-        &mut self,
-        legs: &dyn ProviderSignInLegs,
-        end: ProviderSignInEnd,
-    ) -> (ProviderSignInOutcome, Option<&'static str>) {
-        let settled = match end {
-            ProviderSignInEnd::Finished => self.observe(legs).await,
-            ProviderSignInEnd::Failed => (
-                ProviderSignInOutcome::Failed,
-                Some("The sign-in did not finish"),
-            ),
-            ProviderSignInEnd::Expired => (ProviderSignInOutcome::Expired, None),
-            ProviderSignInEnd::Canceled => (ProviderSignInOutcome::Canceled, None),
-        };
-        if let Some(minted) = self.reservation.minted.take() {
-            abandon(Arc::clone(&self.reservation.services.registry), minted).await;
-        }
-        settled
-    }
-
-    // Reads who signed in and stores it under the home's hold: a new account's row only where the
-    // provider named it, with billing `unknown` and the kind of sign-in read, and a registered
-    // account's reading and kind always, unless its credential generation moved since the flow
-    // started, publishing the row written. A written row takes the minted account, so its home
-    // stays.
-    async fn observe(
-        &mut self,
-        legs: &dyn ProviderSignInLegs,
-    ) -> (ProviderSignInOutcome, Option<&'static str>) {
-        let reservation = &mut self.reservation;
-        let home_lock = Arc::clone(&reservation.services.home_lock);
-        let hold = home_lock.hold(reservation.account_id.clone()).await;
-        let observation = match legs
-            .observe_sign_in(reservation.account_id.clone(), reservation.home.clone())
-            .await
-        {
-            Ok(observation) => observation,
-            Err(error) => {
-                tracing::warn!(
-                    error = &error as &(dyn Error + 'static),
-                    "the status read after a sign-in failed"
-                );
-                return (
-                    ProviderSignInOutcome::Failed,
-                    Some("The account could not be checked after the sign-in"),
-                );
-            }
-        };
-        let registry = &reservation.services.registry;
-        if let Some(started_generation) = reservation.started_generation {
-            match registry.read(reservation.account_id.clone()).await {
-                Ok(account) if account.credential_generation == started_generation => {}
-                Ok(_) => {
-                    return (
-                        ProviderSignInOutcome::Failed,
-                        Some("The account changed during the sign-in"),
-                    );
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        error = &error as &(dyn Error + 'static),
-                        "a signed-in account was not read before its sign-in was saved"
-                    );
-                    return (
-                        ProviderSignInOutcome::Failed,
-                        Some("The account could not be saved after the sign-in"),
-                    );
-                }
-            }
-        }
-        let written = match &reservation.minted {
-            Some(_) if !observation.is_account_named => None,
-            Some(minted) => Some(
-                registry
-                    .admit(
-                        minted,
-                        &AccountAdmission {
-                            display_label: None,
-                            billing_mode: BillingMode::Unknown,
-                            health: Some(observation.health),
-                            observed_auth_mode: observation.observed_auth_mode,
-                        },
-                    )
-                    .await
-                    .map(|_| ()),
-            ),
-            None => Some(
-                registry
-                    .record_sign_in(
-                        &reservation.account_id,
-                        &observation.health,
-                        observation.observed_auth_mode,
-                    )
-                    .await
-                    .map(|_| ()),
-            ),
-        };
-        drop(hold);
-        let changed = match &written {
-            Some(Ok(())) => {
-                if observation.is_account_named {
-                    reservation.minted = None;
-                }
-                match registry.read(reservation.account_id.clone()).await {
-                    Ok(account) => Some(account),
-                    Err(error) => {
-                        tracing::warn!(
-                            error = &error as &(dyn Error + 'static),
-                            "a signed-in account was not read, so it is not published or observed \
-                             until the next start"
-                        );
-                        None
-                    }
-                }
-            }
-            Some(Err(_)) | None => None,
-        };
-        if let Some(account) = &changed {
-            reservation
-                .services
-                .publisher
-                .publish(ProviderAccountNotification::AccountChanged {
-                    account: account.to_provider_account(),
-                });
-        }
-        match written {
-            Some(Ok(())) if observation.is_account_named => {
-                if let Some(account) = &changed {
-                    reservation.services.watcher.watch_signed_in(account);
-                }
-                (ProviderSignInOutcome::Succeeded, None)
-            }
-            Some(Ok(())) | None => (
-                ProviderSignInOutcome::Failed,
-                Some("The provider did not name the account"),
-            ),
-            Some(Err(error)) => {
-                tracing::warn!(
-                    error = &error as &(dyn Error + 'static),
-                    "a sign-in's account was not saved"
-                );
-                (
-                    ProviderSignInOutcome::Failed,
-                    Some("The account could not be saved after the sign-in"),
-                )
-            }
-        }
-    }
-}
-
-// Removes, on a blocking thread, the home of an account no sign-in admitted, keeping the failure
-// in the service log.
-async fn abandon(registry: Arc<ProviderAccountRegistry>, minted: MintedAccount) {
-    let removed = tokio::task::spawn_blocking(move || registry.abandon(minted)).await;
-    let error: Box<dyn Error + Send + Sync> = match removed {
-        Ok(Ok(())) => return,
-        Ok(Err(error)) => Box::new(error),
-        Err(error) => Box::new(error),
-    };
-    tracing::warn!(
-        error = &*error as &(dyn Error + 'static),
-        "a sign-in's minted home was not removed"
-    );
-}
-
 fn mint_attempt_id() -> Result<AttemptId, ProviderSignInError> {
     let id = random_hex(ATTEMPT_ID_BYTES).map_err(ProviderSignInError::Mint)?;
     Ok(AttemptId::new(id).expect("a hexadecimal id of a fixed length is an attempt id"))
@@ -888,5 +529,6 @@ fn failure_reason_text(reason: &'static str) -> FailureReason {
     FailureReason::new(reason.to_owned()).expect("a fixed failure reason is within its cap")
 }
 
+mod attempt;
 #[cfg(test)]
 pub(crate) mod tests;

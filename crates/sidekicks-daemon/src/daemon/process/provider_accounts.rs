@@ -10,6 +10,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde::Deserialize as _;
 use sidekicks_contracts::event::registry::SessionEventType;
@@ -44,6 +45,7 @@ use sidekicks_provider::driver::contract::account::{
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_queue::provider_session::ProviderSessions;
+use sidekicks_recovery::account_homes::remove_unadmitted_homes;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::usage_record::UsageRecord;
 use sidekicks_std::scheduler::Scheduler;
@@ -58,6 +60,7 @@ use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use tokio::runtime::Handle;
 
 use crate::daemon::process::start_error::DaemonStartError;
+use crate::data_acts::erase::ACCOUNT_SIGN_OUT_BOUND;
 use crate::ipc::handlers::provider_account::ProviderAccountMethodSources;
 use crate::ipc::handlers::provider_account::notifications::ProviderAccountNotifications;
 use crate::orchestration::account_switch::{
@@ -179,6 +182,13 @@ pub(crate) async fn build_provider_account_plane(
         );
     }
     remove_sign_in_move_leftovers(&account_legs, &registry).await;
+    remove_unadmitted_homes(
+        &registry,
+        &account_legs,
+        data_folder.to_path_buf(),
+        ACCOUNT_SIGN_OUT_BOUND,
+    )
+    .await;
     let home_lock = Arc::new(AccountHomeLock::default());
     let accounts_in_flight = Arc::new(AccountsInFlight::default());
     let live_turns: Arc<dyn AccountLiveTurns> = binding_cursors;
@@ -228,7 +238,7 @@ pub(crate) async fn build_provider_account_plane(
         methods: ProviderAccountMethodSources {
             accounts: Arc::clone(&registry),
             providers,
-            sign_in,
+            sign_in: Arc::clone(&sign_in),
             accounts_in_flight,
             token_custody,
             observer: Arc::clone(&observer),
@@ -250,6 +260,7 @@ pub(crate) async fn build_provider_account_plane(
         observation: ProviderAccountObservation {
             observer,
             usage_events: None,
+            sign_in,
             account_switch,
             machine_device_id,
             reads,
@@ -339,10 +350,12 @@ pub(super) fn collect_provider_account_legs(providers: &ProviderRegistry) -> Pro
 }
 
 /// The background observer, and its follow of each metered turn and each quota reading once
-/// started, beside the switch that moves the sessions a stop left behind.
+/// started, beside the sign-ins the stop ends and the switch that moves the sessions a stop left
+/// behind.
 pub(crate) struct ProviderAccountObservation {
     observer: Arc<ProviderAccountObserver>,
     usage_events: Option<FollowerAttachment>,
+    sign_in: Arc<ProviderSignInBroker>,
     account_switch: Arc<AccountSwitch>,
     machine_device_id: DeviceId,
     // The window projection's reads, and where each reading it keeps goes out.
@@ -382,6 +395,12 @@ impl ProviderAccountObservation {
             )?)
         }));
         Ok(())
+    }
+
+    /// Cancels every sign-in under way and waits up to `bound` for each to settle, a new
+    /// account's minted home removed, answering whether all did.
+    pub(crate) async fn end_sign_ins(&self, bound: Duration) -> bool {
+        self.sign_in.stop(bound).await
     }
 
     /// Ends the follow and every account's job, timer and the wake watch; a read under way

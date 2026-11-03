@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 use std::fs;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
-use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::{
     BillingMode, ProviderAccountHealthState, ProviderAccountId,
 };
@@ -13,6 +12,7 @@ use sidekicks_platforms::{has_file_mode, real_path};
 use sidekicks_store::data_folder::agent_memory_folder;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
+use super::test_legs::RecordedSignOuts;
 use super::{
     CredentialHomeCondition, classify_credential_home, create_credential_home,
     reset_credential_home, sign_out_every_home,
@@ -24,80 +24,11 @@ use crate::account::registry::{
 };
 use crate::account::resolver::credential_home_folders;
 use crate::driver::ProviderAccountFolders;
-use crate::driver::contract::account::{
-    ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObserveLegs, ProviderSignInLegs,
-    ProviderSwitchLegs, ProviderTokenLimitsLegs, ProviderTokenStatusLegs, ProviderWindowTurnLegs,
-};
-use crate::driver::contract::error::DriverError;
+use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::schema::schema_parts;
 
 fn claude() -> ProviderId {
     ProviderId::new("claude".to_owned()).expect("the Claude Code provider id")
-}
-
-/// Account legs whose sign-out records the account and folders it ran for and succeeds, but for
-/// the account `refused` names, whose provider refuses it.
-#[derive(Default)]
-pub(crate) struct RecordedSignOuts {
-    signed_out: Mutex<Vec<(ProviderAccountId, ProviderAccountFolders)>>,
-    refused: Option<ProviderAccountId>,
-}
-
-impl ProviderAccountLegs for RecordedSignOuts {
-    fn sign_out_home(
-        &self,
-        provider_account_id: ProviderAccountId,
-        folders: ProviderAccountFolders,
-    ) -> BoxFuture<'_, Result<(), DriverError>> {
-        let is_refused = self.refused.as_ref() == Some(&provider_account_id);
-        self.signed_out
-            .lock()
-            .expect("the record is not poisoned")
-            .push((provider_account_id, folders));
-        Box::pin(async move {
-            if is_refused {
-                return Err(DriverError::Internal(
-                    "the provider refused the sign-out".into(),
-                ));
-            }
-            Ok(())
-        })
-    }
-
-    fn remove_sign_in_move_leftovers<'call>(
-        &'call self,
-        _registry: &'call ProviderAccountRegistry,
-    ) -> BoxFuture<'call, Result<Vec<std::io::Error>, DriverError>> {
-        unreachable!("the reset sweeps nothing")
-    }
-
-    fn observe_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderObserveLegs>> {
-        None
-    }
-
-    fn memory_import_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderMemoryImportLegs>> {
-        None
-    }
-
-    fn switch_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderSwitchLegs>> {
-        None
-    }
-
-    fn window_turn_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderWindowTurnLegs>> {
-        None
-    }
-
-    fn token_limits_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderTokenLimitsLegs>> {
-        None
-    }
-
-    fn sign_in_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderSignInLegs>> {
-        None
-    }
-
-    fn token_status_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderTokenStatusLegs>> {
-        None
-    }
 }
 
 // A Claude Code account admitted signed in.
@@ -151,10 +82,7 @@ async fn a_reset_leaves_a_husked_home_that_reads_signed_out_and_keeps_its_folder
     .await
     .expect("the home is reset");
 
-    assert_eq!(
-        *legs.signed_out.lock().expect("the record is not poisoned"),
-        [(account.account_id.clone(), folders)]
-    );
+    assert_eq!(legs.signed_out(), [(account.account_id.clone(), folders)]);
     let mut names: Vec<_> = fs::read_dir(home)
         .expect("the home's folder is still there")
         .map(|entry| entry.expect("an entry reads").file_name())
@@ -217,10 +145,7 @@ async fn every_home_is_signed_out_and_a_refused_one_is_answered() {
     let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
     let first = admit_signed_in(&registry).await;
     let second = admit_signed_in(&registry).await;
-    let legs = Arc::new(RecordedSignOuts {
-        refused: Some(second.account_id.clone()),
-        ..RecordedSignOuts::default()
-    });
+    let legs = Arc::new(RecordedSignOuts::refusing(second.account_id.clone()));
 
     let failed = sign_out_every_home(
         &registry,
@@ -237,11 +162,7 @@ async fn every_home_is_signed_out_and_a_refused_one_is_answered() {
             .collect::<Vec<_>>(),
         [&second.account_id]
     );
-    let mut signed_out = legs
-        .signed_out
-        .lock()
-        .expect("the record is not poisoned")
-        .clone();
+    let mut signed_out = legs.signed_out();
     signed_out.sort_by(|left, right| left.0.as_str().cmp(right.0.as_str()));
     let mut expected = [first, second].map(|account| {
         let folders = credential_home_folders(&claude(), &account.credential_home);

@@ -1,8 +1,8 @@
 //! An account's credential home: the folder the daemon makes for each account under its own data
 //! folder, readable by its owner alone, where the provider's own tooling keeps that account's
 //! sign-in; whether a registered account's home is there to run in; its reset, the provider's
-//! own sign-out followed by the home emptied in place; and the sign-out of every home before
-//! `Erase all data` deletes them.
+//! own sign-out followed by the home emptied in place; the sign-out of every home before
+//! `Erase all data` deletes them; and the mark a new account's home carries until a row takes it.
 //!
 //! Where the provider keeps its agents' memory in its home, that folder is a link to the daemon's
 //! own agent-memory folder, made with the home and again after each reset, so every account's
@@ -289,5 +289,8 @@ async fn run_on_blocking_thread(
         .map_err(ProviderAccountRegistryError::CredentialHome)
 }
 
+pub mod minted;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_legs;
 #[cfg(test)]
 pub(crate) mod tests;

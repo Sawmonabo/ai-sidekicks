@@ -40,6 +40,7 @@ use sidekicks_store::database::statement::{
 };
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
+use crate::account::credential_home::minted::{clear_minted_mark, mark_minted};
 use crate::account::credential_home::{
     CredentialHome, create_credential_home, remove_credential_home,
 };
@@ -327,8 +328,9 @@ impl ProviderAccountRegistry {
         }
     }
 
-    /// Mints a new `provider` account's id and makes its home, writing no row. Fails when the
-    /// system gives no random bytes or the home cannot be made.
+    /// Mints a new `provider` account's id and makes its home, marked as minted until a row takes
+    /// it, writing no row. Fails when the system gives no random bytes or the home cannot be made
+    /// or marked.
     pub fn mint(
         &self,
         provider: ProviderId,
@@ -339,6 +341,10 @@ impl ProviderAccountRegistry {
         .expect("a hexadecimal id of a fixed length is an account id");
         let home = create_credential_home(&self.data_folder, &provider, &account_id)
             .map_err(ProviderAccountRegistryError::CredentialHome)?;
+        if let Err(error) = mark_minted(&home, &provider) {
+            remove_credential_home(&home).map_err(ProviderAccountRegistryError::CredentialHome)?;
+            return Err(ProviderAccountRegistryError::CredentialHome(error));
+        }
         Ok(MintedAccount {
             account_id,
             provider,
@@ -350,7 +356,8 @@ impl ProviderAccountRegistry {
     /// current account, and answers it. Fails with
     /// [`ProviderAccountRegistryError::DisplayLabelTaken`] for a name another account of the
     /// provider holds, and when the write is not kept, including for an account already
-    /// admitted; the minted home stays for the caller to abandon.
+    /// admitted; the minted home stays for the caller to abandon. A written row takes the home's
+    /// minted mark away.
     pub async fn admit(
         &self,
         minted: &MintedAccount,
@@ -393,6 +400,13 @@ impl ProviderAccountRegistry {
             }])
             .await
             .map_err(label_refusal_or_failure)?;
+        // The row names the home now, so a start's sweep keeps it with its mark or without.
+        if let Err(error) = clear_minted_mark(&minted.home) {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "an admitted account's home kept its minted mark; the next start clears it"
+            );
+        }
         self.read(minted.account_id.clone()).await
     }
 
@@ -805,9 +819,9 @@ pub fn credential_generation(index: usize, stored: i64) -> rusqlite::Result<Cred
 pub(crate) struct StoredValueRefused(pub(crate) &'static str);
 
 /// A registry over the test `database` with homes minted under `data_folder`, and the writer it
-/// shares, for the account tests.
-#[cfg(test)]
-pub(crate) async fn open_test_registry(
+/// shares, for the account tests here and in the crates above.
+#[cfg(any(test, feature = "test-support"))]
+pub async fn open_test_registry(
     database: &sidekicks_store::database::writer::test_file::TestDatabase,
     data_folder: &std::path::Path,
 ) -> (ProviderAccountRegistry, Arc<DatabaseWriter>) {

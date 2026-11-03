@@ -22,7 +22,7 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::ProviderAccountRemovalError;
 use crate::account::credential_home::reset_credential_home;
-use crate::account::credential_home::tests::RecordedSignOuts;
+use crate::account::credential_home::test_legs::RecordedSignOuts;
 use crate::account::home_lock::AccountHomeLock;
 use crate::account::observer::AccountLiveTurns;
 use crate::account::registry::tests::register;

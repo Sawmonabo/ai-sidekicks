@@ -45,6 +45,7 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
 
 mod machine_slot;
+mod stop;
 
 /// The provider's own prompt, which only a broker forwarding raw text would let out.
 const PROMPT_LINE: &str = "Paste code here if prompted";

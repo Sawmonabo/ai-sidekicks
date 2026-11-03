@@ -44,7 +44,8 @@ pub(crate) type AccountsSignOut = Arc<
         + Sync,
 >;
 
-/// How long each account's sign-out may take before the erase goes on without it.
+/// How long a provider's own sign-out of one account may take before the erase, or the start's
+/// sweep of new accounts' homes, goes on without it.
 pub(crate) const ACCOUNT_SIGN_OUT_BOUND: Duration = Duration::from_secs(30);
 
 /// What the erase acts on.
