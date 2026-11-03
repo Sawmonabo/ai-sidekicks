@@ -1,5 +1,5 @@
 use serde_json::json;
-use sidekicks_contracts::provider::settings::ProviderProtectedPath;
+use sidekicks_contracts::provider::settings::rules::ProviderProtectedPath;
 
 use super::read_claude_protected_paths;
 use crate::driver::claude::session::rules::listing::ClaudeRuleProject;

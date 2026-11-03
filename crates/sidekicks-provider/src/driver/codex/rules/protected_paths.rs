@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use sidekicks_contracts::provider::settings::ProviderProtectedPath;
+use sidekicks_contracts::provider::settings::rules::ProviderProtectedPath;
 
 use super::listing::{CodexRuleListingSources, listable_path, listable_text};
 use super::{CODEX_PROJECT_SETTINGS_FOLDER, CodexRulesError, is_codex_home_project};

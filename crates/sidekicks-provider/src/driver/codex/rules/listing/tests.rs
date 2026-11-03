@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use sidekicks_contracts::provider::settings::{
+use sidekicks_contracts::provider::settings::rules::{
     ProviderStandingRule, ProviderStandingRuleRevokeOutcome, ProviderStandingRuleScope,
 };
 

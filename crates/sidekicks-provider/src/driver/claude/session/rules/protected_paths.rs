@@ -13,7 +13,8 @@
 use std::path::Path;
 
 use serde_json::{Map, Value};
-use sidekicks_contracts::provider::settings::{PROVIDER_RULE_TEXT_MAX_LEN, ProviderProtectedPath};
+use sidekicks_contracts::provider::settings::PROVIDER_RULE_TEXT_MAX_LEN;
+use sidekicks_contracts::provider::settings::rules::ProviderProtectedPath;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::ClaudeRulesError;

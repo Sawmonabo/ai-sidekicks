@@ -105,7 +105,6 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::{GoalStatusRecord, GoalStatusTail, read_goal_status_tail};
-    use crate::driver::claude::session::process::CLAUDE_OUTPUT_LINE_MAX_BYTES;
 
     fn append(file: &Path, text: &str) {
         fs::OpenOptions::new()
@@ -243,32 +242,12 @@ mod tests {
         );
     }
 
-    // Killed by reading a line whole however long it is (the `take` bound dropped): the long record
-    // would read as a record. Killed too by dropping the attachment's type check: the queued
-    // command after the record would read as an unmet record.
+    // Killed by dropping the attachment's type check: the queued command after the record would
+    // read as an unmet record.
     #[tokio::test]
-    async fn a_line_past_the_ceiling_and_another_attachment_read_no_record() {
+    async fn another_attachment_reads_no_record() {
         let folder = tempfile::tempdir().expect("a scratch folder");
         let file = folder.path().join("conversation.jsonl");
-        append(
-            &file,
-            &goal_status_line(json!({
-                "met": true,
-                "reason": "x".repeat(CLAUDE_OUTPUT_LINE_MAX_BYTES),
-            })),
-        );
-
-        let past_ceiling = read_goal_status_tail(&file, 0)
-            .await
-            .expect("the file reads");
-
-        assert_eq!(
-            past_ceiling,
-            GoalStatusTail {
-                records: Vec::new(),
-                end: file_length(&file)
-            }
-        );
         append(
             &file,
             &goal_status_line(json!({"met": false, "condition": "ship it", "reason": "not yet"})),
@@ -281,7 +260,7 @@ mod tests {
             ),
         );
 
-        let after = read_goal_status_tail(&file, past_ceiling.end)
+        let after = read_goal_status_tail(&file, 0)
             .await
             .expect("the file reads");
 

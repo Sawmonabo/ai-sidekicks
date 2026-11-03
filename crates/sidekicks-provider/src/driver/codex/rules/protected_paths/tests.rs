@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use sidekicks_contracts::provider::settings::ProviderProtectedPath;
+use sidekicks_contracts::provider::settings::rules::ProviderProtectedPath;
 
 use super::read_codex_protected_paths;
 use crate::driver::codex::rules::CodexRulesError;

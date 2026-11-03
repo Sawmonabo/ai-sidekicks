@@ -24,10 +24,11 @@ use sidekicks_std::port_registration::PortRegistration;
 use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
 use tokio::sync::{mpsc, oneshot};
 
-use self::fold::{AwaitedMessage, TranscriptLines};
+use self::fold::{AwaitedMessage, take_transcript_lines};
 use self::project_key::claude_project_key;
 use crate::driver::claude::live_sessions::ClaudeLiveSession;
 use crate::driver::claude::session::conversation_file::find_claude_conversation_file;
+use crate::driver::claude::session::conversation_file::lines::ConversationLines;
 use crate::port::session_message_reading_publisher::{
     SessionMessageReading, SessionMessageReadingPublisher,
 };
@@ -258,14 +259,14 @@ impl ClaudePeerReplies {
         };
         let mut reader = tokio::fs::File::open(&file).await?;
         reader.seek(SeekFrom::Start(start_offset)).await?;
-        let mut lines = TranscriptLines::new(&file, start_offset);
+        let mut lines = ConversationLines::new(&file, start_offset);
         let mut buffer = vec![0_u8; NOTICE_READ_LIMIT];
         loop {
             let count = reader.read(&mut buffer).await?;
             if count == 0 {
                 return Ok(());
             }
-            let read = lines.take(&buffer[..count], start_offset);
+            let read = take_transcript_lines(&mut lines, &buffer[..count], start_offset);
             let delivered = self.with_message(key, message_id, |message| {
                 read.iter()
                     .filter_map(|line| message.fold(message_id, line))
@@ -415,7 +416,7 @@ async fn follow_transcript(
         },
     };
     let mut watch = FileAppendWatch::watch(&file).await?;
-    let mut lines = TranscriptLines::new(&file, 0);
+    let mut lines = ConversationLines::new(&file, 0);
     loop {
         let drained = if let Some(drained) = pending.take() {
             drained
@@ -511,13 +512,13 @@ async fn await_arrival(
 fn fold_chunk(
     replies: &Weak<ClaudePeerReplies>,
     key: &TranscriptKey,
-    lines: &mut TranscriptLines,
+    lines: &mut ConversationLines,
     chunk: &[u8],
 ) -> bool {
     let Some(replies) = replies.upgrade() else {
         return false;
     };
-    let read = lines.take(chunk, replies.lowest_start(key));
+    let read = take_transcript_lines(lines, chunk, replies.lowest_start(key));
     if read.is_empty() {
         return true;
     }
