@@ -179,7 +179,7 @@ impl StepDispatch {
             scope.mode,
             scope.pin_data.as_ref(),
             node,
-            main_output_count(&kind.spec),
+            main_output_count(kind.spec.outputs.as_slice()),
         );
         if let Some(mut outputs) = pinned {
             shape_outputs(

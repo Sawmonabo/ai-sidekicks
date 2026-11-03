@@ -648,8 +648,8 @@ impl WorkflowDefinitionStore {
         }))
     }
 
-    // Every graph and expression finding and a held name are refused together, so the author sees
-    // them all at once.
+    // Every graph, param and expression finding and a held name are refused together, so the
+    // author sees them all at once.
     async fn refuse_findings(
         &self,
         document: &WorkflowDocument,

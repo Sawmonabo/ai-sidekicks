@@ -229,7 +229,10 @@ impl StepDispatch {
                     log_lines: records.log_lines,
                 },
                 Ok(AgentStepOutcome::Completed { items, cost }) => {
-                    let mut outputs = place_on_first_output(items, main_output_count(&kind.spec));
+                    let mut outputs = place_on_first_output(
+                        items,
+                        main_output_count(kind.spec.outputs.as_slice()),
+                    );
                     shape_outputs(node, &main_input_lengths, &mut outputs);
                     scrub_outputs(&mut outputs, &scope.redaction);
                     StepSettlement::Completed {

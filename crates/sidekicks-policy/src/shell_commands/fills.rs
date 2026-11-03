@@ -19,6 +19,7 @@
 //! of the value.
 
 mod bash;
+mod cmd;
 mod csh;
 mod powershell;
 
@@ -79,7 +80,8 @@ pub enum FillRefusal {
     },
     /// Single quotes, `$'…'`, a quoted here-document's body or a PowerShell verbatim string.
     #[error(
-        "sits in single quotes, `$'…'`, a quoted here-document or a verbatim string, where nothing expands"
+        "sits in single quotes, `$'…'`, a quoted here-document or a verbatim string, where \
+         nothing expands"
     )]
     NotExpanding,
     /// Shell arithmetic, which evaluates the value as an expression.
@@ -228,7 +230,8 @@ impl CommandLineFills {
     /// The line `shell` runs, built from the template's own text with each fill replaced by its
     /// variable's reference in that shell's form for the fill's place: the bash reading places it
     /// for a POSIX shell and cmd.exe, the PowerShell reading for PowerShell and the csh scan for
-    /// csh, and fish takes `"$V"` everywhere. Fails with the first fill the reading refuses. Runs
+    /// csh, and fish takes `"$V"` everywhere; under cmd.exe the author's `^` and `!` are escaped
+    /// where delayed expansion would read them. Fails with the first fill the reading refuses. Runs
     /// inside one read of the reading bound.
     pub fn fill_for_launch(
         &self,
@@ -243,6 +246,7 @@ impl CommandLineFills {
             ShellGrammar::Fish => vec![Ok(FillPlace::Bare); self.placeholders.len()],
         };
         let mut filled = String::with_capacity(self.line.len());
+        let mut references = Vec::with_capacity(self.placeholders.len());
         let mut kept_from = 0;
         // Where the string a fill opened closes, in bytes of the line.
         let mut string_end = None;
@@ -255,7 +259,9 @@ impl CommandLineFills {
                 kept_from = end;
             }
             filled.push_str(&self.line[kept_from..placeholder.start]);
+            let reference_start = filled.len();
             filled.push_str(&reference(shell, place, number));
+            references.push(reference_start..filled.len());
             if let FillPlace::OpensString { rest_length } = place {
                 string_end = Some(placeholder.end + rest_length);
             }
@@ -267,7 +273,13 @@ impl CommandLineFills {
             kept_from = end;
         }
         filled.push_str(&self.line[kept_from..]);
-        Ok(filled)
+        Ok(match shell {
+            ShellGrammar::Cmd => cmd::keep_through_delayed_expansion(&filled, &references),
+            ShellGrammar::Posix(_)
+            | ShellGrammar::Fish
+            | ShellGrammar::Csh
+            | ShellGrammar::PowerShell => filled,
+        })
     }
 
     /// The bash reading's `placings` as cmd.exe takes them: a fill right after a `^` that cmd.exe
@@ -277,7 +289,7 @@ impl CommandLineFills {
             .into_iter()
             .zip(&self.placeholders)
             .map(|(placing, placeholder)| {
-                if follows_a_cmd_escape(&self.line, placeholder.start) {
+                if cmd::follows_a_cmd_escape(&self.line, placeholder.start) {
                     Err(FillRefusal::CmdCaret)
                 } else {
                     placing
@@ -364,25 +376,6 @@ fn is_escaped(text: &str, at: usize, escape: u8) -> bool {
     run % 2 == 1
 }
 
-/// Whether the byte before `at` in `text` is a `^` cmd.exe reads as an escape: one outside double
-/// quotes and not itself escaped. Inside `"…"` cmd.exe reads `^` as plain text, so a regex anchor
-/// such as `grep "^{{ x }}"` stands.
-fn follows_a_cmd_escape(text: &str, at: usize) -> bool {
-    let mut is_quoted = false;
-    let mut is_escaping = false;
-    for &byte in &text.as_bytes()[..at] {
-        if std::mem::take(&mut is_escaping) {
-            continue;
-        }
-        match byte {
-            b'"' => is_quoted = !is_quoted,
-            b'^' if !is_quoted => is_escaping = true,
-            _ => {}
-        }
-    }
-    is_escaping
-}
-
 /// The name of the variable `$NAME` the text before `at` ends with, which reads the placeholder
 /// as more of that name; `None` when it ends with none.
 fn variable_before(text: &str, at: usize) -> Option<&str> {
@@ -443,8 +436,8 @@ mod tests {
 
     // Each place a save accepts: a word, a word joined to unquoted text, a substitution's word, a
     // string's text, a substitution inside a string, escaped quotes around a fill, which every
-    // reading takes as text beside a bare word, and a `^` inside double quotes, which cmd.exe
-    // reads as plain text.
+    // reading takes as text beside a bare word, a `^` inside double quotes, which cmd.exe reads as
+    // plain text, and a `^` cmd.exe's own `^` escapes.
     #[rstest]
     #[case::a_bare_word("echo {{ x }}")]
     #[case::joined_to_an_option("echo --name={{ x }}")]
@@ -454,6 +447,7 @@ mod tests {
     #[case::between_escaped_quotes("echo \\\"{{ x }}\\\"")]
     #[case::an_unexported_value("export -n a={{ x }}")]
     #[case::a_caret_in_a_string("grep \"^{{ x }}\" file")]
+    #[case::an_escaped_caret("echo ^^{{ x }}")]
     fn a_save_accepts_a_fill_where_every_reading_expands_it(#[case] line: &str) {
         assert_eq!(save(line, LIMIT), vec![Ok(())]);
     }
@@ -474,6 +468,7 @@ mod tests {
         name: "HOME".to_owned()
     })]
     #[case::a_cmd_escape("echo ^{{ x }}", FillRefusal::CmdCaret)]
+    #[case::a_cmd_escape_after_an_escaped_quote("echo ^\"^{{ x }}^\"", FillRefusal::CmdCaret)]
     #[case::arithmetic_expansion("echo $(( {{ x }} ))", FillRefusal::Arithmetic)]
     #[case::arithmetic_expansion_quoted("echo $(( \"{{ x }}\" ))", FillRefusal::Arithmetic)]
     #[case::arithmetic_command("(( {{ x }} ))", FillRefusal::Arithmetic)]
@@ -549,8 +544,8 @@ mod tests {
         );
     }
 
-    // Each shell's reference for a bare word and for a string's text, read from the line the template
-    // wrote, never from a placeholder.
+    // Each shell's reference for a bare word and for a string's text, read from the line the
+    // template wrote, never from a placeholder.
     #[rstest]
     #[case::posix("bash", "echo \"${SIDEKICKS_VALUE_1}\" \"a ${SIDEKICKS_VALUE_2}\"")]
     #[case::powershell(
@@ -628,9 +623,35 @@ mod tests {
         assert_eq!(launch(line, grammar(program)), Ok(filled.to_owned()));
     }
 
-    // The places a launch refuses with the rule that names them: a quote inside a substitution inside
-    // a string, a here-document's quoted body as each requoted start reads, a body line that begins
-    // with the delimiter, and csh's body, backquotes and comment.
+    // cmd.exe's delayed expansion reads again each piece of a command holding a `!`, the arguments
+    // as one piece, so a launch escapes the author's `^` and `!` there, inside quotes and out, and
+    // leaves a redirection's target and another command without a `!` as written.
+    #[rstest]
+    #[case::a_caret_in_a_string("grep \"^{{ x }}\" file", "grep \"^^!SIDEKICKS_VALUE_1!\" file")]
+    #[case::a_caret_before_text_in_a_string(
+        "grep \"^a {{ x }}\" file",
+        "grep \"^^a !SIDEKICKS_VALUE_1!\" file"
+    )]
+    #[case::an_escaped_caret("echo ^^{{ x }}", "echo ^^^^\"!SIDEKICKS_VALUE_1!\"")]
+    #[case::an_exclamation_mark("echo \"a!\" {{ x }}", "echo \"a^!\" \"!SIDEKICKS_VALUE_1!\"")]
+    #[case::a_redirections_target(
+        "grep \"^a\" {{ x }} > \"^b\"",
+        "grep \"^^a\" \"!SIDEKICKS_VALUE_1!\" > \"^b\""
+    )]
+    #[case::another_command(
+        "echo \"^a\" & echo {{ x }}",
+        "echo \"^a\" & echo \"!SIDEKICKS_VALUE_1!\""
+    )]
+    fn a_cmd_launch_keeps_the_written_text_through_delayed_expansion(
+        #[case] line: &str,
+        #[case] filled: &str,
+    ) {
+        assert_eq!(launch(line, ShellGrammar::Cmd), Ok(filled.to_owned()));
+    }
+
+    // The places a launch refuses with the rule that names them: a quote inside a substitution
+    // inside a string, a here-document's quoted body as each requoted start reads, a body line that
+    // begins with the delimiter, and csh's body, backquotes and comment.
     #[rstest]
     #[case::single_quotes_in_a_substitution(
         "echo \"$(echo '{{ x }}')\"",

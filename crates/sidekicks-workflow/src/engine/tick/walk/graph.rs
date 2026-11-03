@@ -155,7 +155,7 @@ impl RunGraph {
                         feeders: Vec::new(),
                     })
                     .collect(),
-                outputs: vec![Vec::new(); main_output_count(&rules.handles)],
+                outputs: vec![Vec::new(); main_output_count(&rules.handles.outputs)],
             });
             node_handles.push(rules.handles);
         }

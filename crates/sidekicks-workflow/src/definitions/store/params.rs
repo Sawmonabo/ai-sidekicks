@@ -40,7 +40,7 @@ pub(super) fn check_node_params(
         .map(|(id, value)| (id.clone(), value.0.clone()))
         .collect();
     let mut rules: Vec<WorkflowDefinitionRule> = Vec::new();
-    let mut binding_places: Vec<Vec<IssuePathSegment>> = Vec::new();
+    let mut bindings: Vec<(Vec<IssuePathSegment>, &Value)> = Vec::new();
     for issue in check_workflow_node_params(&params, specs) {
         match issue.rule {
             Some(rule) => {
@@ -48,20 +48,19 @@ pub(super) fn check_node_params(
                     rules.push(rule);
                 }
             }
-            // A value no finding names is a reference that does not read as one; of those, a tool
-            // binding is refused as the request's read would refuse it.
+            // A value no finding names is a reference or a collection that does not read as one;
+            // of those, a tool binding is refused as the request's read would refuse it.
             None => {
-                if let Some(place) = tool_binding_place(specs, &issue.path)
-                    && !binding_places.contains(&place)
+                if let Some((place, binding)) = tool_binding_at(specs, &params, &issue.path)
+                    && !bindings.iter().any(|(found, _)| *found == place)
                 {
-                    binding_places.push(place);
+                    bindings.push((place, binding));
                 }
             }
         }
     }
     let mut unreadable = Vec::new();
-    for place in binding_places {
-        let binding = value_at(&params, &place).expect("the check refused a value the node holds");
+    for (place, binding) in bindings {
         let json = serde_json::to_vec(binding).expect("a JSON value writes");
         if let Err(refused) = check_received::<WorkflowToolBinding>(&json, Vec::new()) {
             for issue in received_issues(refused)? {
@@ -86,48 +85,48 @@ pub(super) fn check_node_params(
     })
 }
 
-// The place of the tool binding param at or above `path`, a dotted place the check names, as the
-// steps into the node's params: a member per param and an index per entry of a repeating
-// collection. `None` where the param there is no tool binding.
-fn tool_binding_place(specs: &[WorkflowParamSpec], path: &str) -> Option<Vec<IssuePathSegment>> {
-    let mut steps = path.split('.');
+// The tool binding param at or above `path`, a place the check names: its place, as the steps
+// into the node's params, a member per param and an index per entry of a repeating collection,
+// and the value `params` holds there. `None` where the param there is no tool binding.
+fn tool_binding_at<'params>(
+    specs: &[WorkflowParamSpec],
+    params: &'params Map<String, Value>,
+    path: &[IssuePathSegment],
+) -> Option<(Vec<IssuePathSegment>, &'params Value)> {
+    let mut steps = path.iter();
     let mut specs = specs;
+    let mut values = params;
     let mut place = Vec::new();
     loop {
-        let id = steps.next()?;
-        place.push(IssuePathSegment::Member(id.to_owned()));
+        let step = steps.next()?;
+        let IssuePathSegment::Member(id) = step else {
+            return None;
+        };
+        place.push(step.clone());
+        let value = values.get(id)?;
         match specs.iter().find(|spec| match spec {
             WorkflowParamSpec::Leaf(leaf) => leaf.id.0.as_str() == id,
             WorkflowParamSpec::Collection(collection) => collection.id.0.as_str() == id,
         })? {
             WorkflowParamSpec::Leaf(leaf) => {
-                return (leaf.param_type == WorkflowParamType::McpTool).then_some(place);
+                return (leaf.param_type == WorkflowParamType::McpTool).then_some((place, value));
             }
             WorkflowParamSpec::Collection(collection) => {
-                if collection.multiple == Some(true) {
-                    let index = steps.next()?.parse::<usize>().ok()?;
-                    place.push(IssuePathSegment::index(index));
-                }
+                let fields = if collection.multiple == Some(true) {
+                    let step = steps.next()?;
+                    let IssuePathSegment::Index(index) = step else {
+                        return None;
+                    };
+                    place.push(step.clone());
+                    value.get(usize::try_from(index.get()).ok()?)?
+                } else {
+                    value
+                };
+                values = fields.as_object()?;
                 specs = &collection.fields;
             }
         }
     }
-}
-
-// The value `params` holds at `place`.
-fn value_at<'params>(
-    params: &'params Map<String, Value>,
-    place: &[IssuePathSegment],
-) -> Option<&'params Value> {
-    let (first, rest) = place.split_first()?;
-    let IssuePathSegment::Member(id) = first else {
-        return None;
-    };
-    rest.iter()
-        .try_fold(params.get(id)?, |value, step| match step {
-            IssuePathSegment::Member(name) => value.get(name),
-            IssuePathSegment::Index(index) => value.get(usize::try_from(index.get()).ok()?),
-        })
 }
 
 // The finding of `rule` marking `node_id`. Each named rule is the tag of the finding of its name
