@@ -7,13 +7,15 @@ use rstest::rstest;
 use sidekicks_contracts::provider::account::record::{
     ProviderAccountHealthState, ProviderAuthMode,
 };
-use sidekicks_contracts::provider::account::sign_in::PROVIDER_SIGN_IN_CODE_MAX_LEN;
+use sidekicks_contracts::provider::account::sign_in::{
+    PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderSignInArm,
+};
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::file::atomic_write::write_file_atomically;
 
 use crate::account::credential_home::CredentialHome;
 use crate::driver::claude::account::{ClaudeAccountLegs, test_account_legs};
-use crate::driver::contract::account::{ProviderSignInEnd, ProviderSignInLegs, SignInOrigin};
+use crate::driver::contract::account::{ProviderSignInEnd, ProviderSignInLegs};
 use crate::driver::diagnostics::RecordedEvents;
 use crate::driver::test_registry::test_driver_services;
 use crate::runtime_binding::test_store::test_provider_account_id;
@@ -100,14 +102,14 @@ fn code() -> FreeFormText<PROVIDER_SIGN_IN_CODE_MAX_LEN> {
 }
 
 // Killed by reading the output as lines (the prompt ends none, so no prompt arrives before the
-// code), by a dropped removal list, by a browser opener set from the wrong origin, by a
-// provider-opened browser claimed on another device, and by a logged code.
+// code), by a dropped removal list, by the no-op browser opener tied to anything but the arm, by a
+// provider-opened browser claimed on the device-code arm, and by a logged code.
 #[rstest]
-#[case::another_device(SignInOrigin::AnotherDevice, "/usr/bin/true")]
-#[case::this_machine(SignInOrigin::ThisMachine, OWN_BROWSER)]
+#[case::device_code(ProviderSignInArm::DeviceCode, "/usr/bin/true")]
+#[case::browser(ProviderSignInArm::Browser, OWN_BROWSER)]
 #[tokio::test]
 async fn a_sign_in_shows_its_address_waits_for_a_code_and_finishes_on_it(
-    #[case] origin: SignInOrigin,
+    #[case] arm: ProviderSignInArm,
     #[case] browser: &str,
 ) {
     let root = tempfile::tempdir().expect("a scratch folder is made");
@@ -120,13 +122,13 @@ async fn a_sign_in_shows_its_address_waits_for_a_code_and_finishes_on_it(
     let _recording = recorded.record_until_dropped();
 
     let mut handle = legs
-        .start_sign_in(test_provider_account_id(), home(root.path()), origin)
+        .start_sign_in(test_provider_account_id(), home(root.path()), arm)
         .await
         .expect("the sign-in starts");
     assert_eq!(handle.verification_uri.as_str(), SIGN_IN_ADDRESS);
     assert_eq!(
         handle.is_browser_opened_by_provider,
-        origin == SignInOrigin::ThisMachine
+        arm == ProviderSignInArm::Browser
     );
     tokio::time::timeout(WAIT, handle.code_prompts.next())
         .await
@@ -189,7 +191,7 @@ async fn a_refused_code_is_a_second_wait_and_an_address_on_another_host_is_refus
         .start_sign_in(
             test_provider_account_id(),
             home(root.path()),
-            SignInOrigin::AnotherDevice,
+            ProviderSignInArm::DeviceCode,
         )
         .await
         .expect("the sign-in starts");
@@ -222,7 +224,7 @@ async fn a_refused_code_is_a_second_wait_and_an_address_on_another_host_is_refus
     legs.start_sign_in(
         test_provider_account_id(),
         home(elsewhere.path()),
-        SignInOrigin::AnotherDevice,
+        ProviderSignInArm::DeviceCode,
     )
     .await
     .err()
@@ -319,7 +321,7 @@ async fn the_installed_claude_code_finishes_a_sign_in_from_another_device_on_a_w
         .start_sign_in(
             test_provider_account_id(),
             home(root.path()),
-            SignInOrigin::AnotherDevice,
+            ProviderSignInArm::DeviceCode,
         )
         .await
         .expect("the installed Claude Code starts its sign-in");

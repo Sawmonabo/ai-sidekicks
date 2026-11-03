@@ -32,7 +32,7 @@ use sidekicks_contracts::provider::account::record::{
 };
 use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderAccountRegisterResponse, ProviderAccountSignInResponse,
-    ProviderSignInCancelStatus,
+    ProviderSignInArm, ProviderSignInCancelStatus,
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
@@ -71,7 +71,7 @@ use sidekicks_provider::account::wake_helper::{
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::contract::account::{
     ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs, ProviderSignInObservation,
-    ProviderTokenStatusLegs, SignInOrigin,
+    ProviderTokenStatusLegs,
 };
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
@@ -352,7 +352,7 @@ impl ProviderSignInLegs for EndlessSignIn {
         &self,
         _provider_account_id: ProviderAccountId,
         _home: CredentialHome,
-        _origin: SignInOrigin,
+        _arm: ProviderSignInArm,
     ) -> BoxFuture<'_, Result<ProviderSignInHandle, DriverError>> {
         async {
             Ok(ProviderSignInHandle {

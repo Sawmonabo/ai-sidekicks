@@ -1,6 +1,9 @@
 //! The sign-in broker: runs a provider's own interactive sign-in in one account's home through
 //! that provider's sign-in legs, and settles every attempt in exactly one end.
 //!
+//! - The arm is the one the request names, else the browser arm at this machine and the
+//!   device-code arm from another device, whose browser cannot reach a callback here; another
+//!   device naming the browser arm is refused.
 //! - One attempt per account at a time, and one per provider of those that hold what the machine
 //!   has only one of, such as a fixed callback port; a start refused for an open attempt names it.
 //!   The account's home is held only while the flow starts and while the status read after it is
@@ -41,12 +44,13 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+use self::arm::resolve_sign_in_arm;
 use self::attempt::{Reservation, abandon};
 use crate::account::credential_home::CredentialHome;
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::home_lock::AccountHomeLock;
 use crate::account::registry::{MintedAccount, ProviderAccountRegistry, RegisteredAccount};
-use crate::driver::contract::account::{ProviderSignInInput, ProviderSignInLegs, SignInOrigin};
+use crate::driver::contract::account::{ProviderSignInInput, ProviderSignInLegs};
 use crate::driver::contract::error::DriverError;
 
 /// One sign-in attempt's daemon-minted id.
@@ -57,6 +61,16 @@ type FailureReason = FreeFormText<PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN>;
 
 // The random bytes of a minted attempt id, written as hexadecimal.
 const ATTEMPT_ID_BYTES: usize = 16;
+
+/// Where a sign-in was started, which bounds the arm it may run on: a browser on another device
+/// cannot reach a provider's callback on this machine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SignInOrigin {
+    /// This machine's own client.
+    ThisMachine,
+    /// A linked device.
+    AnotherDevice,
+}
 
 /// Where the account plane sends the wire-only notifications of `provider.account.subscribe`. It
 /// never blocks or fails back into the plane, and keeps nothing.
@@ -131,6 +145,10 @@ pub enum ProviderSignInError {
     /// No sign-in legs are registered for the provider.
     #[error("the provider's sign-in cannot be brokered")]
     Unsupported,
+    /// A sign-in from another device named the browser arm, whose callback that device's browser
+    /// cannot reach.
+    #[error("a browser sign-in cannot be finished from another device")]
+    BrowserFromAnotherDevice,
     /// The system gave no random bytes for the attempt's id.
     #[error("the sign-in attempt's id could not be minted")]
     Mint(#[source] getrandom::Error),
@@ -148,7 +166,8 @@ pub enum ProviderSignInError {
 impl From<ProviderSignInError> for HandlerError {
     /// An open attempt in the way refuses `provider.account.signInInFlight` with details naming
     /// it and its account, and a switch or a reset in flight refuses it with none; a provider
-    /// with no legs refuses `provider.account.signInUnsupported`; the registry's and the driver's
+    /// with no legs and the browser arm from another device refuse
+    /// `provider.account.signInUnsupported`; the registry's and the driver's
     /// failures answer as their own conversions say, and a failed mint is the daemon's.
     fn from(error: ProviderSignInError) -> Self {
         match error {
@@ -171,6 +190,11 @@ impl From<ProviderSignInError> for HandlerError {
             ),
             ProviderSignInError::Unsupported => Self::Refused(DomainError::new(
                 "The provider's sign-in cannot be brokered",
+                RefusalCode::ProviderAccountSignInUnsupported,
+            )),
+            ProviderSignInError::BrowserFromAnotherDevice => Self::Refused(DomainError::new(
+                "A browser sign-in cannot be finished from another device; sign in with a device \
+                 code instead",
                 RefusalCode::ProviderAccountSignInUnsupported,
             )),
             ProviderSignInError::Registry(error) => error.into(),
@@ -219,8 +243,10 @@ impl ProviderSignInBroker {
     }
 
     /// Starts the provider's own sign-in for `request`'s account, or for a new account whose id
-    /// and home it mints, on the arm `origin` calls for, once the account's home is free, and
-    /// answers what the person needs. Fails with [`ProviderSignInError::AttemptOpen`] while the
+    /// and home it mints, on the arm `request` names or, naming none, the one `origin` calls for,
+    /// once the account's home is free, and answers what the person needs. Fails with
+    /// [`ProviderSignInError::BrowserFromAnotherDevice`], before anything is read or minted, where
+    /// another device names the browser arm; [`ProviderSignInError::AttemptOpen`] while the
     /// account has an open attempt, or while the start holds what the machine has only one of and
     /// another of the provider's open attempts holds it; [`ProviderSignInError::InFlight`] while
     /// the account has a switch onto it or its home's reset in flight;
@@ -233,6 +259,11 @@ impl ProviderSignInBroker {
         request: ProviderAccountSignInRequest,
         origin: SignInOrigin,
     ) -> Result<ProviderAccountSignInResponse, ProviderSignInError> {
+        let requested_arm = match &request {
+            ProviderAccountSignInRequest::Registered(registered) => registered.arm,
+            ProviderAccountSignInRequest::New(new) => new.arm,
+        };
+        let arm = resolve_sign_in_arm(requested_arm, origin)?;
         let attempt_id = mint_attempt_id()?;
         let (legs, reservation) = match request {
             ProviderAccountSignInRequest::Registered(registered) => {
@@ -243,7 +274,7 @@ impl ProviderSignInBroker {
                     .reserve(
                         attempt_id,
                         account.provider,
-                        legs.is_one_per_machine(origin),
+                        legs.is_one_per_machine(arm),
                         account.account_id,
                         account.credential_home,
                         None,
@@ -253,7 +284,7 @@ impl ProviderSignInBroker {
             }
             ProviderAccountSignInRequest::New(new) => {
                 let legs = self.legs_of(&new.provider)?;
-                let is_one_per_machine = legs.is_one_per_machine(origin);
+                let is_one_per_machine = legs.is_one_per_machine(arm);
                 // The machine's one slot is checked before a home is minted, so a start it
                 // refuses makes none; the reservation checks it again in the same hold it lists.
                 if let Some(refusal) = lock(&self.attempt.attempts)
@@ -279,7 +310,7 @@ impl ProviderSignInBroker {
         let (answer, answered) = oneshot::channel();
         self.attempt
             .tasks
-            .spawn(reservation.run_attempt(legs, origin, answer));
+            .spawn(reservation.run_attempt(legs, arm, answer));
         answered
             .await
             .map_err(|_ended| ProviderSignInError::StartEnded)?
@@ -529,6 +560,7 @@ fn failure_reason_text(reason: &'static str) -> FailureReason {
     FailureReason::new(reason.to_owned()).expect("a fixed failure reason is within its cap")
 }
 
+mod arm;
 mod attempt;
 #[cfg(test)]
 pub(crate) mod tests;

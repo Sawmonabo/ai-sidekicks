@@ -11,7 +11,9 @@ use sidekicks_contracts::provider::account::record::{
     BillingMode, CredentialGeneration, ProviderAccountId, ProviderAccountNotification,
     ProviderSignInOutcome,
 };
-use sidekicks_contracts::provider::account::sign_in::ProviderAccountSignInResponse;
+use sidekicks_contracts::provider::account::sign_in::{
+    ProviderAccountSignInResponse, ProviderSignInArm,
+};
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot;
 
@@ -23,7 +25,7 @@ use crate::account::credential_home::CredentialHome;
 use crate::account::home_lock::SigningInMark;
 use crate::account::registry::{AccountAdmission, MintedAccount, ProviderAccountRegistry};
 use crate::driver::contract::account::{
-    ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs, SignInOrigin,
+    ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs,
 };
 
 /// An account's sign-in slot and its listed attempt, held from the start until the attempt
@@ -52,14 +54,14 @@ pub(super) struct Reservation {
 
 impl Reservation {
     // Takes the account's home once a renewal running there has ended, marks it as signing in,
-    // notes a registered account's credential generation, starts the flow in it, lets the home go
-    // and answers `answer` whether the flow started, then runs the attempt to its end. A caller
-    // that stopped waiting before the home was free, or the broker's stop meanwhile, starts
+    // notes a registered account's credential generation, starts the flow on `arm` in it, lets the
+    // home go and answers `answer` whether the flow started, then runs the attempt to its end. A
+    // caller that stopped waiting before the home was free, or the broker's stop meanwhile, starts
     // nothing; a caller that stopped after leaves the started flow to run to its end.
     pub(super) async fn run_attempt(
         mut self,
         legs: Arc<dyn ProviderSignInLegs>,
-        origin: SignInOrigin,
+        arm: ProviderSignInArm,
         mut answer: oneshot::Sender<Result<ProviderAccountSignInResponse, ProviderSignInError>>,
     ) {
         let home_lock = Arc::clone(&self.services.home_lock);
@@ -89,7 +91,7 @@ impl Reservation {
             }
         }
         let started = legs
-            .start_sign_in(self.account_id.clone(), self.home.clone(), origin)
+            .start_sign_in(self.account_id.clone(), self.home.clone(), arm)
             .await;
         drop(hold);
         let ProviderSignInHandle {

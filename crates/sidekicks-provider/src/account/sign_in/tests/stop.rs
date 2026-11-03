@@ -20,8 +20,8 @@ use super::{
 };
 use crate::account::home_lock::AccountHomeLock;
 use crate::account::registry::open_test_registry;
-use crate::account::sign_in::ProviderSignInBroker;
-use crate::driver::contract::account::{ProviderSignInLegs, SignInOrigin};
+use crate::account::sign_in::{ProviderSignInBroker, SignInOrigin};
+use crate::driver::contract::account::ProviderSignInLegs;
 use crate::driver::schema::schema_parts;
 
 // The longest the stop waits for the attempts to settle.

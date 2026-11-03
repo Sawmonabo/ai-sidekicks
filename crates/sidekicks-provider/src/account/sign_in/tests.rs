@@ -15,7 +15,8 @@ use sidekicks_contracts::provider::account::record::{
 };
 use sidekicks_contracts::provider::account::sign_in::{
     NewAccountSignIn, PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderAccountSignInRequest,
-    ProviderSignInCancelStatus, ProviderSignInCodeSubmitStatus, RegisteredAccountSignIn,
+    ProviderSignInArm, ProviderSignInCancelStatus, ProviderSignInCodeSubmitStatus,
+    RegisteredAccountSignIn,
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::web_address::HttpsAddress;
@@ -28,7 +29,7 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::{
     AccountsInFlight, AttemptId, ProviderAccountNotificationPublisher, ProviderSignInBroker,
-    ProviderSignInError, SignedInAccountWatcher,
+    ProviderSignInError, SignInOrigin, SignedInAccountWatcher,
 };
 use crate::account::credential_home::CredentialHome;
 use crate::account::home_lock::AccountHomeLock;
@@ -39,7 +40,7 @@ use crate::account::registry::{
 };
 use crate::driver::contract::account::{
     ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs,
-    ProviderSignInObservation, SignInOrigin,
+    ProviderSignInObservation,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
@@ -134,7 +135,7 @@ pub(crate) struct ScriptedLegs {
     pub(crate) flows: mpsc::UnboundedSender<ScriptedFlow>,
     /// Each home a flow started in.
     pub(crate) homes: Mutex<Vec<PathBuf>>,
-    /// Whether a sign-in at this machine holds what the machine has only one of.
+    /// Whether a browser sign-in holds what the machine has only one of.
     pub(crate) holds_machine_slot: bool,
 }
 
@@ -143,7 +144,7 @@ impl ProviderSignInLegs for ScriptedLegs {
         &self,
         provider_account_id: ProviderAccountId,
         home: CredentialHome,
-        _origin: SignInOrigin,
+        _arm: ProviderSignInArm,
     ) -> BoxFuture<'_, Result<ProviderSignInHandle, DriverError>> {
         lock(&self.homes).push(home.path().to_owned());
         if matches!(self.status, Status::Unsupported) {
@@ -206,8 +207,8 @@ impl ProviderSignInLegs for ScriptedLegs {
         .boxed()
     }
 
-    fn is_one_per_machine(&self, origin: SignInOrigin) -> bool {
-        self.holds_machine_slot && origin == SignInOrigin::ThisMachine
+    fn is_one_per_machine(&self, arm: ProviderSignInArm) -> bool {
+        self.holds_machine_slot && arm == ProviderSignInArm::Browser
     }
 }
 

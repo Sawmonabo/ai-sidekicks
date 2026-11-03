@@ -25,13 +25,13 @@ use super::test_fixture::{Fixture, ScriptedLegs, claude, figures, new_clock, rea
 use super::window_store::read_usage_windows;
 use super::{AccountReadAnswer, AccountTurnObserver as _, ProviderAccountObserver, ReadAsker};
 use crate::account::registry::{HealthObservation, HealthObserver};
-use crate::account::sign_in::ProviderSignInBroker;
 use crate::account::sign_in::tests::{
     RecordingWatcher, ScriptedLegs as ScriptedSignIns, Status as SignInStatus,
 };
+use crate::account::sign_in::{ProviderSignInBroker, SignInOrigin};
 use crate::driver::contract::account::{
     ObservedAccountIdentity, ProviderAccountFigures, ProviderObservation, ProviderSignInEnd,
-    ProviderSignInLegs, SignInOrigin,
+    ProviderSignInLegs,
 };
 use crate::driver::schema::schema_parts;
 

@@ -13,7 +13,7 @@ use sidekicks_contracts::provider::account::record::{
     ProviderAccountId, ProviderAccountNotification,
 };
 use sidekicks_contracts::provider::account::sign_in::{
-    NewAccountSignIn, ProviderAccountSignInRequest, ProviderSignInCancelStatus,
+    NewAccountSignIn, ProviderAccountSignInRequest, ProviderSignInArm, ProviderSignInCancelStatus,
 };
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
@@ -23,9 +23,9 @@ use super::{
 };
 use crate::account::credential_home::CredentialHome;
 use crate::account::registry::open_test_registry;
-use crate::account::sign_in::{ProviderSignInBroker, ProviderSignInError};
+use crate::account::sign_in::{ProviderSignInBroker, ProviderSignInError, SignInOrigin};
 use crate::driver::contract::account::{
-    ProviderSignInHandle, ProviderSignInLegs, ProviderSignInObservation, SignInOrigin,
+    ProviderSignInHandle, ProviderSignInLegs, ProviderSignInObservation,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
@@ -42,12 +42,12 @@ impl ProviderSignInLegs for FirstStartFails {
         &self,
         provider_account_id: ProviderAccountId,
         home: CredentialHome,
-        origin: SignInOrigin,
+        arm: ProviderSignInArm,
     ) -> BoxFuture<'_, Result<ProviderSignInHandle, DriverError>> {
         if !self.has_failed.swap(true, Ordering::SeqCst) {
             return async { Err(DriverError::Internal("the flow could not start".into())) }.boxed();
         }
-        self.inner.start_sign_in(provider_account_id, home, origin)
+        self.inner.start_sign_in(provider_account_id, home, arm)
     }
 
     fn observe_sign_in(
@@ -58,13 +58,13 @@ impl ProviderSignInLegs for FirstStartFails {
         self.inner.observe_sign_in(provider_account_id, home)
     }
 
-    fn is_one_per_machine(&self, origin: SignInOrigin) -> bool {
-        self.inner.is_one_per_machine(origin)
+    fn is_one_per_machine(&self, arm: ProviderSignInArm) -> bool {
+        self.inner.is_one_per_machine(arm)
     }
 }
 
-// Scripted legs of `codex` whose sign-ins at this machine hold the machine's one slot, each flow
-// started going to the answered receiver.
+// Scripted legs of `codex` whose browser sign-ins hold the machine's one slot, each flow started
+// going to the answered receiver.
 fn machine_slot_legs() -> (ScriptedLegs, mpsc::UnboundedReceiver<ScriptedFlow>) {
     let (flow_sender, flows) = mpsc::unbounded();
     let legs = ScriptedLegs {

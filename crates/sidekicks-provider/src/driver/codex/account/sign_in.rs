@@ -1,7 +1,7 @@
 //! Codex's own interactive `ChatGPT` sign-in on one account's home: `account/login/start` sent on a
-//! connection of its own to the service of that home, the browser arm for a sign-in at this machine
-//! and the device-code arm for one from another device, run to the completion Codex sends for this
-//! login; and the status read that names who signed in once it ended. The broker keeps one browser
+//! connection of its own to the service of that home on the arm the broker gives, `chatgpt` for the
+//! browser arm and `chatgptDeviceCode` for the device-code arm, run to the completion Codex sends
+//! for this login; and the status read that names who signed in once it ended. The broker keeps one browser
 //! sign-in per machine, since Codex's callback listens on one port the machine shares.
 
 use std::error::Error;
@@ -15,7 +15,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, PROVIDER_SIGN_IN_USER_CODE_MAX_LEN,
-    PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN, ProviderSignInCancelStatus,
+    PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN, ProviderSignInArm, ProviderSignInCancelStatus,
 };
 use sidekicks_contracts::web_address::HttpsAddress;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -37,7 +37,7 @@ use crate::driver::codex::transport::connection::{CodexAppServerConnection, read
 use crate::driver::codex::transport::login_notices::{LoginNotice, LoginNotices};
 use crate::driver::contract::account::{
     ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInObservation,
-    SignInOrigin, read_sign_in_address,
+    read_sign_in_address,
 };
 use crate::driver::contract::error::DriverError;
 
@@ -98,20 +98,11 @@ impl From<CodexAccountSignInError> for DriverError {
     }
 }
 
-/// The arm a sign-in runs on: the browser arm at this machine, the device-code arm from another
-/// device.
-#[derive(Clone, Copy)]
-enum LoginArm {
-    Browser,
-    DeviceCode,
-}
-
-impl LoginArm {
-    fn ceiling(self) -> Duration {
-        match self {
-            Self::Browser => BROWSER_CEILING,
-            Self::DeviceCode => DEVICE_CODE_CEILING,
-        }
+// How long Codex waits on `arm` before failing the login itself.
+fn login_ceiling(arm: ProviderSignInArm) -> Duration {
+    match arm {
+        ProviderSignInArm::Browser => BROWSER_CEILING,
+        ProviderSignInArm::DeviceCode => DEVICE_CODE_CEILING,
     }
 }
 
@@ -146,21 +137,16 @@ struct LoginCompleted {
 }
 
 /// Starts Codex's own sign-in for `provider_account_id`'s `home` on the service of that home,
-/// a short-lived one started there where none serves, held until the sign-in ends: the browser arm
-/// at this machine, which the broker keeps to one per machine, and the device-code arm from
-/// another device. Fails
-/// with the driver's error where the service cannot start or Codex refuses the start or answers an
-/// address off its own sign-in host, the login then canceled.
+/// a short-lived one started there where none serves, held until the sign-in ends, on `arm`: the
+/// browser arm, which the broker keeps to one per machine, or the device-code arm. Fails with the
+/// driver's error where the service cannot start or Codex refuses the start or answers an address
+/// off its own sign-in host, the login then canceled.
 pub(super) async fn start_codex_sign_in(
     legs: &CodexAccountLegs,
     provider_account_id: ProviderAccountId,
     home: CredentialHome,
-    origin: SignInOrigin,
+    arm: ProviderSignInArm,
 ) -> Result<ProviderSignInHandle, DriverError> {
-    let arm = match origin {
-        SignInOrigin::ThisMachine => LoginArm::Browser,
-        SignInOrigin::AnotherDevice => LoginArm::DeviceCode,
-    };
     let home_service = legs.take_home_service(provider_account_id, home.path().to_path_buf());
     let (notices, received) = LoginNotices::open(LOGIN_COMPLETED_METHOD);
     let connection = match home_service
@@ -268,11 +254,11 @@ struct ShownLogin {
 // another host is canceled.
 async fn start_login(
     connection: &CodexAppServerConnection,
-    arm: LoginArm,
+    arm: ProviderSignInArm,
 ) -> Result<(String, ShownLogin), DriverError> {
     let params = match arm {
-        LoginArm::Browser => CodexLoginAccountParams::Chatgpt {},
-        LoginArm::DeviceCode => CodexLoginAccountParams::ChatgptDeviceCode {},
+        ProviderSignInArm::Browser => CodexLoginAccountParams::Chatgpt {},
+        ProviderSignInArm::DeviceCode => CodexLoginAccountParams::ChatgptDeviceCode {},
     };
     let reply = connection
         .request(CODEX_LOGIN_START_METHOD, &params)
@@ -385,7 +371,7 @@ struct Login {
     inputs: mpsc::Receiver<CancelInput>,
     end: oneshot::Sender<ProviderSignInEnd>,
     home_service: HomeService,
-    arm: LoginArm,
+    arm: ProviderSignInArm,
 }
 
 impl Login {
@@ -394,7 +380,7 @@ impl Login {
     // callback port of the one browser sign-in the broker keeps per machine is free once the
     // broker hears it.
     async fn run(mut self) {
-        let ceiling = self.arm.ceiling();
+        let ceiling = login_ceiling(self.arm);
         let bound = tokio::time::sleep(ceiling + BOUND_MARGIN);
         tokio::pin!(bound);
         let mut is_input_open = true;

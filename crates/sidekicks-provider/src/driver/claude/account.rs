@@ -22,6 +22,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use secrecy::SecretString;
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
+use sidekicks_contracts::provider::account::sign_in::ProviderSignInArm;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_platforms::{PathRules, Spawner};
@@ -41,7 +42,7 @@ use crate::driver::contract::account::{
     MemoryImportStore, ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObserveLegs,
     ProviderSignInHandle, ProviderSignInLegs, ProviderSignInObservation, ProviderSwitchLegs,
     ProviderTokenLimitsLegs, ProviderTokenStatusLegs, ProviderWindowTurnLegs, SessionAccountMove,
-    SessionToMove, SignInOrigin,
+    SessionToMove,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
@@ -220,9 +221,9 @@ impl ProviderSignInLegs for ClaudeAccountLegs {
         &self,
         _provider_account_id: ProviderAccountId,
         home: CredentialHome,
-        origin: SignInOrigin,
+        arm: ProviderSignInArm,
     ) -> BoxFuture<'_, Result<ProviderSignInHandle, DriverError>> {
-        sign_in::start_claude_sign_in(self, home, origin).boxed()
+        sign_in::start_claude_sign_in(self, home, arm).boxed()
     }
 
     fn observe_sign_in(

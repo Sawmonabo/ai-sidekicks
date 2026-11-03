@@ -16,7 +16,7 @@ use memchr::memmem;
 use process_wrap::tokio::ChildWrapper;
 use sidekicks_contracts::provider::account::record::ProviderAuthMode;
 use sidekicks_contracts::provider::account::sign_in::{
-    PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderSignInCancelStatus,
+    PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderSignInArm, ProviderSignInCancelStatus,
 };
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{ChildEnd, wrap_child_command};
@@ -41,7 +41,7 @@ use crate::driver::claude::spawn::launch::control_only::{
 };
 use crate::driver::contract::account::{
     ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInObservation,
-    SignInOrigin, read_sign_in_address,
+    read_sign_in_address,
 };
 use crate::driver::contract::error::DriverError;
 use crate::spawned_version::ResolvedProviderExecutable;
@@ -74,8 +74,8 @@ const STOP_GRACE: Duration = Duration::from_secs(5);
 /// The variable naming the program Claude Code opens its sign-in page with.
 const BROWSER_VARIABLE: &str = "BROWSER";
 
-/// A program that opens nothing and succeeds, so a sign-in finished on another device opens no
-/// browser on this machine.
+/// A program that opens nothing and succeeds, so a device-code sign-in opens no browser on this
+/// machine.
 const NO_BROWSER: &str = "/usr/bin/true";
 
 /// The most of one error output line held, far above the refusal line's length; a longer line is
@@ -161,14 +161,15 @@ fn claude_home_folders(home: &CredentialHome) -> ClaudeAccountFolders {
 }
 
 /// Starts `claude auth login --claudeai` on `home`'s folders and answers once it wrote its sign-in
-/// address; on `AnotherDevice` its browser opener is a program that opens nothing. Fails with the
+/// address; on the device-code arm its browser opener is a program that opens nothing, so the
+/// person reaches the address and pastes the code back from any device. Fails with the
 /// resolve's error as the environment cannot be composed, and with `DriverError::Internal` where
 /// the command cannot start or writes no address on Claude Code's own host within the wait, the
 /// command then stopped.
 pub(super) async fn start_claude_sign_in(
     legs: &ClaudeAccountLegs,
     home: CredentialHome,
-    origin: SignInOrigin,
+    arm: ProviderSignInArm,
 ) -> Result<ProviderSignInHandle, DriverError> {
     let folders = claude_home_folders(&home);
     let scope = SignInScope::read(&legs.base_environment);
@@ -182,7 +183,7 @@ pub(super) async fn start_claude_sign_in(
         &legs.data_folder.to_string_lossy(),
         Path::new(&folders.config_folder),
     );
-    Ok(start_flow(legs, executable, working_folder, origin, &scope.hosts).await?)
+    Ok(start_flow(legs, executable, working_folder, arm, &scope.hosts).await?)
 }
 
 /// Reads who signed in on `home` after a sign-in there, through a process that keeps nothing run
@@ -230,7 +231,7 @@ async fn start_flow(
     legs: &ClaudeAccountLegs,
     executable: ResolvedProviderExecutable,
     working_folder: PathBuf,
-    origin: SignInOrigin,
+    arm: ProviderSignInArm,
     hosts: &[String],
 ) -> Result<ProviderSignInHandle, ClaudeSignInError> {
     tokio::fs::create_dir_all(&working_folder)
@@ -246,7 +247,7 @@ async fn start_flow(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if origin == SignInOrigin::AnotherDevice {
+    if arm == ProviderSignInArm::DeviceCode {
         command.env(BROWSER_VARIABLE, NO_BROWSER);
     }
     let daemon_pid = std::process::id();
@@ -301,7 +302,7 @@ async fn start_flow(
         verification_uri,
         user_code: None,
         expires_at: None,
-        is_browser_opened_by_provider: origin == SignInOrigin::ThisMachine,
+        is_browser_opened_by_provider: arm == ProviderSignInArm::Browser,
         code_prompts: Box::pin(code_prompts),
         input: Box::new(ClaudeSignInInput { inputs }),
         completion: async move { completion.await.unwrap_or(ProviderSignInEnd::Failed) }.boxed(),

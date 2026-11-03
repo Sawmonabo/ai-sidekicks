@@ -7,7 +7,9 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::{
     ProviderAccountHealthState, ProviderAuthMode,
 };
-use sidekicks_contracts::provider::account::sign_in::ProviderSignInCancelStatus;
+use sidekicks_contracts::provider::account::sign_in::{
+    ProviderSignInArm, ProviderSignInCancelStatus,
+};
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::writer::test_file::TestDatabase;
@@ -22,7 +24,7 @@ use crate::driver::codex::service::supervisor::test_service::{
     start_scripted_codex_service,
 };
 use crate::driver::codex::session::side_questions::test_copies::{CopySocket, accept_copy};
-use crate::driver::contract::account::{ProviderSignInEnd, ProviderSignInLegs, SignInOrigin};
+use crate::driver::contract::account::{ProviderSignInEnd, ProviderSignInLegs};
 use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
 use crate::driver::test_registry::NothingServed;
@@ -77,10 +79,11 @@ fn completed(login_id: Option<&str>, success: bool) -> Value {
         "params": {"loginId": login_id, "success": success, "error": null}})
 }
 
-// Killed by a completion with no id or another id taken as this login's, and by a device code or
-// bound dropped from the handle.
+// Killed by the arm read from anything but the argument (Codex is sent `chatgpt`), by a completion
+// with no id or another id taken as this login's, and by a device code or bound dropped from the
+// handle.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_device_sign_in_shows_its_code_and_ends_only_on_its_own_completion() {
+async fn a_device_code_sign_in_runs_the_arm_it_is_given_and_ends_only_on_its_own_completion() {
     let scripted = start_scripted_codex_service();
     let Some(listener) = bind_test_listener(scripted.service.socket_path()) else {
         return;
@@ -101,7 +104,7 @@ async fn a_device_sign_in_shows_its_code_and_ends_only_on_its_own_completion() {
         .start_sign_in(
             test_provider_account_id(),
             home(&scripted),
-            SignInOrigin::AnotherDevice,
+            ProviderSignInArm::DeviceCode,
         )
         .await
         .expect("the sign-in starts");
@@ -162,7 +165,7 @@ async fn a_browser_start_meeting_a_held_callback_port_is_refused_as_in_use() {
         .start_sign_in(
             test_provider_account_id(),
             home(&scripted),
-            SignInOrigin::ThisMachine,
+            ProviderSignInArm::Browser,
         )
         .await;
 
@@ -177,15 +180,15 @@ async fn a_browser_start_meeting_a_held_callback_port_is_refused_as_in_use() {
 }
 
 // Killed by Codex declaring no machine slot, which lets two browser sign-ins collide on Codex's one
-// callback port, and by one declared from another device, which refuses a device-code start for no
-// reason.
+// callback port, and by one declared for the device-code arm, which refuses a device-code start for
+// no reason.
 #[tokio::test(flavor = "multi_thread")]
-async fn only_a_sign_in_at_this_machine_holds_the_machine_s_one_callback_port() {
+async fn only_a_browser_sign_in_holds_the_machine_s_one_callback_port() {
     let scripted = start_scripted_codex_service();
     let (legs, _registry) = legs_holding(&scripted).await;
 
-    assert!(legs.is_one_per_machine(SignInOrigin::ThisMachine));
-    assert!(!legs.is_one_per_machine(SignInOrigin::AnotherDevice));
+    assert!(legs.is_one_per_machine(ProviderSignInArm::Browser));
+    assert!(!legs.is_one_per_machine(ProviderSignInArm::DeviceCode));
 }
 
 // Killed by a cancel that sends nothing to Codex, which would hold its sign-in until it timed out,
@@ -232,7 +235,7 @@ async fn a_cancel_sends_codex_s_own_cancel_for_this_login(
         .start_sign_in(
             test_provider_account_id(),
             home(&scripted),
-            SignInOrigin::AnotherDevice,
+            ProviderSignInArm::DeviceCode,
         )
         .await
         .expect("the sign-in starts");
