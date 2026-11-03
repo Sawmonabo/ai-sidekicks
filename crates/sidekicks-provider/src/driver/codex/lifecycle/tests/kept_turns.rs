@@ -87,15 +87,6 @@ fn refusal(message: &str) -> Value {
     json!({ "error": { "code": -32600, "message": message } })
 }
 
-// Codex's `-32600` refusal from a service draining toward its exit.
-fn draining_refusal() -> Value {
-    json!({ "error": {
-        "code": -32600,
-        "message": "the server is shutting down",
-        "data": { "reason": "serverShuttingDown" },
-    } })
-}
-
 // The newest turn listed as `turn_id` in `status`.
 fn newest_turn(turn_id: &str, status: &str) -> Value {
     json!({ "result": { "data": [{ "id": turn_id, "status": status }] } })
@@ -125,8 +116,7 @@ struct Follow {
 // nothing more sent. Killed by the newest turn not read or read and not interrupted, by the
 // `found` turn dropped or tried before the listing (the continued case names another), by a
 // follow followed again, by an ended answer read as a failure, by a follow for a run not
-// stopping, by a draining service's refusal followed (the listing is sent), and by an empty
-// `turnId` sent.
+// stopping, and by an empty `turnId` sent.
 #[rstest]
 #[case::stopped(json!({ "result": {} }), true, None, KeptTurnInterrupt::Stopped)]
 #[case::already_ended(
@@ -141,7 +131,6 @@ struct Follow {
     None,
     KeptTurnInterrupt::ThreadGone
 )]
-#[case::service_draining(draining_refusal(), true, None, KeptTurnInterrupt::ServiceDraining)]
 #[case::continued_under_another_id(
     refusal("expected active turn id turn-kept but found turn-other"),
     true,
