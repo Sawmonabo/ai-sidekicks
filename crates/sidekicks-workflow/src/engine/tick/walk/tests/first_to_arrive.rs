@@ -219,13 +219,13 @@ fn a_won_round_takes_only_its_own_pass_and_a_same_turn_loser_never_runs() {
 /// A loser readied in a later turn than its win, from a step the win overtook, is canceled, and
 /// that step's other descendants never feed the winner a second round: the trigger feeds A, Y and
 /// P; A and Z feed M's first main slot, Y feeds Z and B's first slot, P feeds B's second, and B
-/// feeds M's second. Inside a loop, a step the win overtook feeds the loop node before M nothing,
+/// feeds M's second. Inside a loop, a step the win overtook feeds the loop node holding M nothing,
 /// so it never starts a new pass, while the loop node's round, decided in the win's visit after
 /// it, is never overtaken and starts one, whose feeds win again. Mutations: leave a step or round
 /// the win overtook unread at its decision (B readied by the flush); let a feed the win overtook
 /// open another round (M readied again from Z); admit the loop's new pass from a step the win
-/// overtook (L readied from Y); let the win overtake the round of a loop node before it (M never
-/// runs on pass 1).
+/// overtook (L readied from Y); let the win overtake the round of the loop node holding it (M
+/// never runs on pass 1).
 #[test]
 fn a_loser_readied_in_a_later_turn_never_runs_and_the_winner_runs_once_a_pass() {
     let (mut walk, start_turn) = start(
@@ -472,18 +472,21 @@ fn a_loops_next_pass_keeps_a_round_a_live_step_of_its_last_pass_still_fills() {
     );
 }
 
-/// A win overtakes its losing branches and what leads into its node on its pass, but not a step
-/// that leads into it only through a loop node before it. First, the trigger feeds the loop node
-/// L and S, which also feeds L; L feeds A and B, A feeds M's first main slot and B its second, and
-/// M wires back into L: A wins M while S is live, and S's feed then starts L's next pass. Second,
-/// the trigger feeds A, W and B; A and W feed M's first main slot and B its second, and W also
-/// feeds the loop node L2, whose done output feeds M's first slot and whose loop output feeds Q,
-/// which wires back into L2: after A wins, W's late feeds ready nothing. Third, the trigger feeds
-/// A, P and F's first slot, P feeds F's second, F feeds the loop node L2, whose loop output feeds
-/// Q, which feeds M's second slot and wires back into L2, and A feeds M's first: after A wins, the
-/// flush cancels F's half-filled round. Mutations: let the win overtake every live step of its
-/// loop passes (S's feed into L dropped); leave out every place before a loop node that precedes M
-/// (M readied again from W); leave the losing places out of what the win overtakes (F readied).
+/// A win overtakes its losing branches and what leads into its node on its pass, a loop node
+/// before it that does not hold it among them, but not a step that leads into it only through the
+/// loop node holding it. First, the trigger feeds the loop node L and S, which also feeds L; L
+/// feeds A and B, A feeds M's first main slot and B its second, and M wires back into L: A wins M
+/// while S is live, and S's feed then starts L's next pass. Second, the trigger feeds A, B and V; A
+/// feeds M's first main slot and B its second, and V feeds the loop node L2, whose done output
+/// feeds M's first slot and whose loop output feeds Q, which wires back into L2: A wins M while L2
+/// is live, Q's feed still starts L2's next pass, and L2's later done output readies nothing.
+/// Third, the trigger feeds A, P and F's first slot, P feeds F's second, F feeds the loop node L2,
+/// whose loop output feeds Q, which feeds M's second slot and wires back into L2, and A feeds M's
+/// first: after A wins, the flush cancels F's half-filled round. Mutations: let the win overtake
+/// every live step of its loop passes (S's feed into L dropped); leave out every loop node before
+/// M (M readied again from L2's done output); drop a feed the win overtook into every loop node
+/// before M (Q's feed into L2 dropped); leave the losing places out of what the win overtakes (F
+/// readied).
 #[test]
 fn a_win_overtakes_its_losing_branches_and_what_leads_into_its_node() {
     let (mut walk, start_turn) = start(
@@ -524,35 +527,40 @@ fn a_win_overtakes_its_losing_branches_and_what_leads_into_its_node() {
         vec![
             node("trigger", "test.trigger", 0, false),
             node("A", "test.step", 1, false),
-            node("W", "test.step", 2, false),
-            node("B", "test.step", 3, false),
+            node("B", "test.step", 2, false),
+            node("V", "test.step", 3, false),
             node("L2", "test.loop", 4, false),
             node("Q", "test.step", 5, false),
             node("M", "test.first", 6, false),
         ],
         &[
             edge("trigger", 0, "A", 0),
-            edge("trigger", 0, "W", 0),
             edge("trigger", 0, "B", 0),
+            edge("trigger", 0, "V", 0),
             edge("A", 0, "M", 0),
-            edge("W", 0, "M", 0),
             edge("B", 0, "M", 1),
-            edge("W", 0, "L2", 0),
+            edge("V", 0, "L2", 0),
             edge("L2", 0, "M", 0),
             edge("L2", 1, "Q", 0),
             edge("Q", 0, "L2", 0),
         ],
     );
     let trigger_turn = walk.settle(&readied(&start_turn, "trigger"), &[1]);
+    let v_turn = walk.settle(&readied(&trigger_turn, "V"), &[1]);
+    assert_eq!(describe(&v_turn), ["ready L2 run 0 exec 4 from V:0@3"]);
     assert_eq!(
         describe(&walk.settle(&readied(&trigger_turn, "A"), &[1])),
         [
-            "ready M run 0 exec 4 from A:0@1 - -",
-            "win M exec 4 losers [B@3]"
+            "ready M run 0 exec 5 from A:0@1 - -",
+            "win M exec 5 losers [B@2]"
         ]
     );
+    let l2_turn = walk.settle(&readied(&v_turn, "L2"), &[0, 1]);
+    assert_eq!(describe(&l2_turn), ["ready Q run 0 exec 6 from L2:1@4"]);
+    let q_turn = walk.settle(&readied(&l2_turn, "Q"), &[1]);
+    assert_eq!(describe(&q_turn), ["ready L2 run 1 exec 7 from Q:0@6"]);
     assert_eq!(
-        describe(&walk.settle(&readied(&trigger_turn, "W"), &[1])),
+        describe(&walk.settle(&readied(&q_turn, "L2"), &[1, 0])),
         Vec::<String>::new()
     );
 

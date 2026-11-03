@@ -97,6 +97,8 @@ pub(crate) struct RunGraph {
     /// Each node's ancestors along forward main edges as one bit per place, so a graph of n nodes
     /// keeps n² bits.
     ancestors: Vec<FixedBitSet>,
+    /// Each loop node's body as one bit per place, by place; empty for any other node.
+    loop_bodies: Vec<FixedBitSet>,
 }
 
 impl RunGraph {
@@ -206,12 +208,19 @@ impl RunGraph {
             .expect("a run's trigger is a node of its pinned version");
         let forward_feeders = forward_feeders(&graph_nodes);
         let ancestors = forward_ancestors(&forward_feeders);
+        let loop_bodies = (0..graph_nodes.len())
+            .map(|place| match graph_nodes[place].loop_output {
+                Some(_) => loop_body(&graph_nodes, |_| true, place),
+                None => FixedBitSet::new(),
+            })
+            .collect();
         Ok(Self {
             nodes: graph_nodes,
             places,
             trigger,
             forward_feeders,
             ancestors,
+            loop_bodies,
         })
     }
 
@@ -249,10 +258,11 @@ impl RunGraph {
         self.ancestors[place].ones()
     }
 
-    /// Whether the node at `ancestor` precedes the node at `place` along forward main edges.
+    /// Whether the node at `place` is in the body of the loop node at `loop_place`, so it runs
+    /// once a pass of that loop; never when `loop_place` holds no loop node.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-    pub(crate) fn is_ancestor(&self, ancestor: usize, place: usize) -> bool {
-        self.ancestors[place].contains(ancestor)
+    pub(crate) fn is_in_loop_body(&self, place: usize, loop_place: usize) -> bool {
+        self.loop_bodies[loop_place].contains(place)
     }
 
     /// The places of the nodes that feed the node at `place` along forward main edges, each once;
@@ -307,16 +317,16 @@ fn forward_feeders(nodes: &[RunGraphNode]) -> Vec<Vec<usize>> {
                 0 => candidates,
                 1 => entered,
                 _ => {
-                    let bodies: Vec<BTreeSet<usize>> = entered
+                    let bodies: Vec<FixedBitSet> = entered
                         .iter()
-                        .map(|&header| loop_body(nodes, &inside, header))
+                        .map(|&header| loop_body(nodes, |place| inside.contains(&place), header))
                         .collect();
                     let outer: Vec<usize> = entered
                         .iter()
                         .zip(&bodies)
                         .filter(|&(&header, body)| {
                             entered.iter().zip(&bodies).all(|(&other, other_body)| {
-                                !other_body.contains(&header) || body.contains(&other)
+                                !other_body.contains(header) || body.contains(other)
                             })
                         })
                         .map(|(&header, _)| header)
@@ -357,12 +367,16 @@ fn looping_groups(members: &BTreeSet<usize>, feeders: &[Vec<usize>]) -> Vec<BTre
         .collect()
 }
 
-/// The members of `inside` the node at `header` reaches from its loop output along main edges
-/// without coming back through it: its loop's body within the group, empty for a node with no
-/// loop output.
+/// The nodes `is_inside` accepts that the node at `header` reaches from its loop output along main
+/// edges without coming back through it, one bit per place: its loop's body among them, empty for
+/// a node with no loop output.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-fn loop_body(nodes: &[RunGraphNode], inside: &BTreeSet<usize>, header: usize) -> BTreeSet<usize> {
-    let mut body = BTreeSet::new();
+fn loop_body(
+    nodes: &[RunGraphNode],
+    is_inside: impl Fn(usize) -> bool,
+    header: usize,
+) -> FixedBitSet {
+    let mut body = FixedBitSet::with_capacity(nodes.len());
     let mut pending: Vec<usize> = nodes[header]
         .loop_output
         .map(|output| {
@@ -373,7 +387,7 @@ fn loop_body(nodes: &[RunGraphNode], inside: &BTreeSet<usize>, header: usize) ->
         })
         .unwrap_or_default();
     while let Some(place) = pending.pop() {
-        if place != header && inside.contains(&place) && body.insert(place) {
+        if place != header && is_inside(place) && !body.put(place) {
             pending.extend(
                 nodes[place]
                     .outputs
