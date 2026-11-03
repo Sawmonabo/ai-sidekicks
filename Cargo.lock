@@ -8743,6 +8743,7 @@ version = "0.0.0"
 dependencies = [
  "async-trait",
  "axum",
+ "base16ct 1.0.0",
  "base64 0.23.1",
  "blake3",
  "bytes",

@@ -11,9 +11,9 @@
 //!   any of its other requests is asked, so none flashes on the card.
 //! - A task's input requests past the first 16 are ignored, as Claude Code ignores them.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::error::Error;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -25,28 +25,30 @@ use rmcp::model::{
 use rmcp::service::ServiceError;
 use serde_json::{Value, json};
 use sidekicks_contracts::question::QuestionAnswer;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_provider::mcp::elicitation_form::compose_elicitation_content;
-use sidekicks_provider::port::question::ToolServerQuestionAnswer;
-use sidekicks_std::mutex_lock::lock;
+use sidekicks_provider::port::question::{ToolServerAnswerDelivery, ToolServerQuestionAnswer};
 use tokio::sync::watch;
 
 use crate::client::calls::TrackedCall;
 use crate::client::connection::McpServerConnection;
+use crate::client::connection::standing::McpStandingConnection;
 use crate::client::poll::{PollStep, follow_task as poll_until_end};
-use crate::client::requests::ServerRequests;
+use crate::client::tasks::watches::{QuestionOutcome, QuestionTake, TaskWatch};
 use crate::client::tasks::{
-    McpTaskContact, McpTaskGeneration, McpTaskHandleSink, McpToolCall, McpToolCallEnd,
-    McpToolCallError, QuestionOutcome, QuestionTake, observe_mcp_task_acceptance,
+    McpServerEndpoint, McpTaskContact, McpTaskGeneration, McpTaskHandleSink, McpToolCall,
+    McpToolCallEnd, McpToolCallError, observe_mcp_task_acceptance,
 };
 
 /// The most input requests of one task the client answers; the rest are ignored.
 const MAX_TASK_INPUT_REQUESTS: usize = 16;
 
-/// Calls `call`'s tool, answering its rounds of input and following a task to its end. Fails as
-/// a round fails, when the server asks for sampling or more rounds than a call drives, or answers
-/// another request's result.
+/// Calls `call`'s tool, answering its rounds of input and following a task to its end, whose
+/// answers go over `standing`'s live connection. Fails as a round fails, when the server asks for
+/// sampling or more rounds than a call drives, or answers another request's result.
 pub(super) async fn call_tool(
     connection: &McpServerConnection,
+    standing: &McpStandingConnection,
     in_flight: &TrackedCall<'_>,
     call: McpToolCall,
     sink: &dyn McpTaskHandleSink,
@@ -69,12 +71,15 @@ pub(super) async fn call_tool(
                 }
                 observe_mcp_task_acceptance(
                     sink,
+                    connection,
                     call.dispatch.clone(),
                     McpTaskGeneration::V2,
                     &mcp_task_id,
                 )
                 .await;
-                return Ok(follow_task(connection, &call, &mcp_task_id, contact).await);
+                return Ok(
+                    follow_task(connection, standing, call.run_id, &mcp_task_id, contact).await,
+                );
             }
             CallToolResponse::Complete(result) => {
                 let Value::Object(result) = serde_json::to_value(result)
@@ -146,51 +151,48 @@ fn empty_roots() -> Value {
     json!({ "roots": [] })
 }
 
-/// Follows `call`'s task `mcp_task_id` to its end, its questions asked in the call's run.
+/// Follows run `run_id`'s task `mcp_task_id` to its end, its questions asked in that run and
+/// answered over `standing`'s live connection; a follow on a server at an address that its
+/// connection's close cut leaves its watch, with the keys asked, to be re-bound.
 pub(super) async fn follow_task(
     connection: &McpServerConnection,
-    call: &McpToolCall,
+    standing: &McpStandingConnection,
+    run_id: RunId,
     mcp_task_id: &str,
     contact: &watch::Sender<McpTaskContact>,
 ) -> McpToolCallEnd {
-    let watch = connection
-        .scope
-        .task_watches
-        .watch(&connection.scope, call, mcp_task_id);
-    let asked = Mutex::new(HashSet::new());
-    let end = poll_until_end(&watch.wake, contact, || {
-        poll_once(connection, mcp_task_id, &asked)
+    let watch =
+        connection
+            .scope
+            .task_watches
+            .watch(&connection.scope, run_id, mcp_task_id, contact);
+    let end = poll_until_end(&watch.wake, &watch.contact, |_| {
+        poll_once(connection, standing, mcp_task_id, &watch)
     })
     .await;
-    watch.finish().await;
+    watch.end(&end, &connection.endpoint).await;
     end
 }
 
-/// One poll: the task's state, answering each of its first 16 input requests not answered yet,
-/// or canceling the task when one of them is a kind the client does not take.
+/// One poll: the task's state, answering each of its first 16 input requests not asked yet in
+/// `watch`, or canceling the task when one of them is a kind the client does not take.
 #[expect(
     clippy::wildcard_enum_match_arm,
-    reason = "rmcp marks the task payload and the input request non-exhaustive, so their states \
-              and kinds cannot all be named"
+    reason = "rmcp marks the input request non-exhaustive, so its kinds cannot all be named"
 )]
 async fn poll_once(
     connection: &McpServerConnection,
+    standing: &McpStandingConnection,
     mcp_task_id: &str,
-    asked: &Mutex<HashSet<String>>,
-) -> Result<PollStep<McpToolCallEnd>, ServiceError> {
+    watch: &TaskWatch<'_>,
+) -> Result<PollStep, ServiceError> {
     let reply = connection.requests.get_task(mcp_task_id).await?;
     let suggested_interval_ms = reply.task.task.poll_interval_ms;
-    let input_requests = match reply.task.payload {
-        TaskPayload::Completed { result } => {
-            return Ok(PollStep::End(McpToolCallEnd::Answered { result }));
-        }
-        TaskPayload::Failed { error } => {
-            return Ok(PollStep::End(McpToolCallEnd::Failed { error }));
-        }
-        TaskPayload::Cancelled => return Ok(PollStep::End(McpToolCallEnd::Canceled)),
-        TaskPayload::InputRequired { input_requests } => input_requests,
+    let input_requests = match read_terminal_payload(reply.task.payload) {
+        Ok(end) => return Ok(PollStep::End(end)),
+        Err(TaskPayload::InputRequired { input_requests }) => input_requests,
         // `working`, and any state a later rmcp adds to its open set, waits for the next poll.
-        _ => {
+        Err(_) => {
             return Ok(PollStep::Wait {
                 suggested_interval_ms,
             });
@@ -221,16 +223,41 @@ async fn poll_once(
         }
     }
     for (key, input) in taken {
-        let is_asked = lock(asked).contains(&key);
         // A request the card refused, as a run already waiting on a question refuses one, is
         // asked again on a later poll.
-        if !is_asked && answer_input_request(connection, mcp_task_id, &key, input).await {
-            lock(asked).insert(key);
+        if !watch.is_asked(&key)
+            && answer_input_request(connection, standing, mcp_task_id, &key, input).await
+        {
+            watch.mark_asked(&key);
         }
     }
     Ok(PollStep::Wait {
         suggested_interval_ms,
     })
+}
+
+/// The end of task `mcp_task_id` from one `tasks/get`, as its follow reads a terminal state;
+/// `None` for any other state. Fails as the request fails.
+pub(super) async fn read_task_end(
+    connection: &McpServerConnection,
+    mcp_task_id: &str,
+) -> Result<Option<McpToolCallEnd>, ServiceError> {
+    let reply = connection.requests.get_task(mcp_task_id).await?;
+    Ok(read_terminal_payload(reply.task.payload).ok())
+}
+
+/// The end a terminal task payload carries; any other payload is handed back.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "rmcp marks the task payload non-exhaustive, so its open states cannot all be named"
+)]
+fn read_terminal_payload(payload: TaskPayload) -> Result<McpToolCallEnd, TaskPayload> {
+    match payload {
+        TaskPayload::Completed { result } => Ok(McpToolCallEnd::Answered { result }),
+        TaskPayload::Failed { error } => Ok(McpToolCallEnd::Failed { error }),
+        TaskPayload::Cancelled => Ok(McpToolCallEnd::Canceled),
+        open => Err(open),
+    }
 }
 
 /// One input request of a task the client takes.
@@ -256,10 +283,12 @@ async fn cancel_for_unsupported_input(connection: &McpServerConnection, mcp_task
     }
 }
 
-/// Answers one input request of the task: an elicitation's form asked on the questions card, a
-/// roots request answered with an empty list; true once it needs no answer again.
+/// Answers one input request of the task: an elicitation's form asked on the questions card and
+/// answered over `standing`'s live connection, a roots request answered with an empty list over
+/// the polling connection; true once it needs no answer again.
 async fn answer_input_request(
     connection: &McpServerConnection,
+    standing: &McpStandingConnection,
     mcp_task_id: &str,
     key: &str,
     input: TaskInput,
@@ -291,7 +320,8 @@ async fn answer_input_request(
         }
     };
     let answer = Arc::new(V2TaskAnswer {
-        requests: connection.requests.clone(),
+        standing: standing.clone(),
+        endpoint: connection.endpoint.clone(),
         mcp_task_id: mcp_task_id.to_owned(),
         key: key.to_owned(),
         params: params.clone(),
@@ -305,6 +335,7 @@ async fn answer_input_request(
             &params,
             answer,
             QuestionTake::Now,
+            None,
         )
         .await
         .is_some_and(|taken| taken.is_some())
@@ -315,9 +346,11 @@ fn input_response(mcp_task_id: &str, key: &str, response: Value) -> UpdateTaskPa
     UpdateTaskParams::new(mcp_task_id, BTreeMap::from([(key.to_owned(), response)]))
 }
 
-/// The answer to one input request of a 2026-07-28 task, sent as `tasks/update`.
+/// The answer to one input request of a 2026-07-28 task, sent as `tasks/update` over the live
+/// connection of the endpoint that accepted the task.
 struct V2TaskAnswer {
-    requests: ServerRequests,
+    standing: McpStandingConnection,
+    endpoint: McpServerEndpoint,
     mcp_task_id: String,
     key: String,
     params: Value,
@@ -327,17 +360,34 @@ impl ToolServerQuestionAnswer for V2TaskAnswer {
     fn answer(
         &self,
         answers: Vec<QuestionAnswer>,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<ToolServerAnswerDelivery, Box<dyn Error + Send + Sync>>> {
         let content = compose_elicitation_content(&self.params, &answers);
         let response = json!({ "action": "accept", "content": Value::Object(content) });
         let params = input_response(&self.mcp_task_id, &self.key, response);
-        async move {
-            self.requests
-                .update_task(params)
-                .await
-                .map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>)
+        self.send(params).boxed()
+    }
+}
+
+impl V2TaskAnswer {
+    /// Sends `params` over the live connection of the task's endpoint, and once more over a
+    /// connection a Reconnect put in place of one that closed under it; a sent answer is
+    /// delivered. Fails at once, sending nothing, when no connection of the endpoint is live, and
+    /// as the request fails otherwise.
+    async fn send(
+        &self,
+        params: UpdateTaskParams,
+    ) -> Result<ToolServerAnswerDelivery, Box<dyn Error + Send + Sync>> {
+        let connection = self.standing.live(&self.endpoint)?;
+        let sent = connection.requests.update_task(params.clone()).await;
+        if matches!(sent, Err(ServiceError::TransportClosed)) {
+            let replacement = self.standing.live(&self.endpoint)?;
+            if !Arc::ptr_eq(&replacement, &connection) {
+                replacement.requests.update_task(params).await?;
+                return Ok(ToolServerAnswerDelivery::Delivered);
+            }
         }
-        .boxed()
+        sent?;
+        Ok(ToolServerAnswerDelivery::Delivered)
     }
 }
 
@@ -346,84 +396,12 @@ mod tests {
     use serde_json::{Map, Value, json};
     use tokio::time::{Duration, timeout};
 
-    use crate::client::tasks::{McpTaskGeneration, McpTaskHandleObservation, McpToolCallEnd};
+    use crate::client::tasks::{McpTaskGeneration, McpToolCallEnd};
     use crate::client::test_server::{
-        CountingSink, Reply, Responder, TestServer, board_accepted, board_answer, board_form,
-        contact, method_not_found, open_test_server, test_client, text_result, track_call,
-        track_dispatch,
+        CountingSink, TestServer, board_accepted, board_answer, board_form,
+        call_tool_as_dispatched, completed, contact, input_required, open_test_server, test_client,
+        track_call, track_task_handle, tracked_end, v2_task_server,
     };
-
-    /// A 2026-07-28 server declaring tasks, whose `tools/call` starts task `task-1` and whose
-    /// `tasks/get` answers the task's state from `state`, given the poll's number and the
-    /// `tasks/update` and `tasks/cancel` requests received so far.
-    fn v2_task_server(
-        mut state: impl FnMut(usize, usize, usize) -> Value + Send + 'static,
-    ) -> Responder {
-        let (mut polls, mut updates, mut cancels) = (0, 0, 0);
-        Box::new(move |method, _params| match method {
-            "server/discover" => Reply::Answer(json!({ "result": {
-                "resultType": "complete",
-                "supportedVersions": ["2026-07-28"],
-                "capabilities": {
-                    "tools": {},
-                    "extensions": { "io.modelcontextprotocol/tasks": {} },
-                },
-                "ttlMs": 0,
-                "cacheScope": "private",
-            } })),
-            "tools/call" => {
-                let mut created = v2_task(&json!({ "status": "working" }));
-                created["resultType"] = json!("task");
-                Reply::Answer(json!({ "result": created }))
-            }
-            "tasks/get" => {
-                polls += 1;
-                let mut task = v2_task(&state(polls, updates, cancels));
-                task["resultType"] = json!("complete");
-                Reply::Answer(json!({ "result": task }))
-            }
-            "tasks/update" => {
-                updates += 1;
-                Reply::Answer(json!({ "result": {} }))
-            }
-            "tasks/cancel" => {
-                cancels += 1;
-                Reply::Answer(json!({ "result": {} }))
-            }
-            _ => method_not_found(),
-        })
-    }
-
-    /// Task `task-1` with `state`'s status and payload members.
-    fn v2_task(state: &Value) -> Value {
-        let mut task = json!({
-            "taskId": "task-1",
-            "createdAt": "2026-10-24T12:00:00Z",
-            "lastUpdatedAt": "2026-10-24T12:00:00Z",
-            "ttlMs": 60_000,
-            "pollIntervalMs": 5_000,
-        });
-        task.as_object_mut()
-            .expect("an object")
-            .extend(state.as_object().expect("an object").clone());
-        task
-    }
-
-    /// A task waiting on the elicitations `keys`, each asking [`board_form`].
-    fn input_required(keys: &[&str]) -> Value {
-        let requests: Map<String, Value> = keys
-            .iter()
-            .map(|key| {
-                let request = json!({ "method": "elicitation/create", "params": board_form() });
-                ((*key).to_owned(), request)
-            })
-            .collect();
-        json!({ "status": "input_required", "inputRequests": requests })
-    }
-
-    fn completed() -> Value {
-        json!({ "status": "completed", "result": text_result("tracked") })
-    }
 
     fn updates(server: &TestServer) -> Vec<Value> {
         server
@@ -431,15 +409,6 @@ mod tests {
             .into_iter()
             .map(|(_, request)| request["params"].clone())
             .collect()
-    }
-
-    fn answered() -> McpToolCallEnd {
-        McpToolCallEnd::Answered {
-            result: text_result("tracked")
-                .as_object()
-                .expect("an object")
-                .clone(),
-        }
     }
 
     // Mutations: move `observe_mcp_task_acceptance` after `follow_task`; in `poll_once`, drop
@@ -476,22 +445,18 @@ mod tests {
         };
 
         let (end, (first, second)) = timeout(Duration::from_secs(600), async {
-            tokio::join!(connection.call_tool(call, &sink, &contact), person)
+            tokio::join!(
+                call_tool_as_dispatched(&connection, call, &sink, &contact),
+                person
+            )
         })
         .await
         .expect("both questions are asked and the task ends");
 
-        assert_eq!(end.expect("the call ends"), answered());
+        assert_eq!(end.expect("the call ends"), tracked_end());
         assert_eq!(
             sink.recorded(),
-            vec![(
-                0,
-                McpTaskHandleObservation {
-                    dispatch: track_dispatch(),
-                    mcp_task_id: "task-1".to_owned(),
-                    mcp_task_generation: McpTaskGeneration::V2,
-                }
-            )],
+            vec![(0, track_task_handle(McpTaskGeneration::V2))],
             "the handle is recorded before the first poll"
         );
         assert_eq!(card.taken().len(), 2, "no input is asked twice");
@@ -561,7 +526,7 @@ mod tests {
 
         let end = timeout(
             Duration::from_secs(60),
-            connection.call_tool(track_call(), &sink, &contact),
+            call_tool_as_dispatched(&connection, track_call(), &sink, &contact),
         )
         .await
         .expect("the canceled task ends");
@@ -600,12 +565,12 @@ mod tests {
 
         let end = timeout(
             Duration::from_secs(60),
-            connection.call_tool(track_call(), &sink, &contact),
+            call_tool_as_dispatched(&connection, track_call(), &sink, &contact),
         )
         .await
         .expect("the task ends");
 
-        assert_eq!(end.expect("the call ends"), answered());
+        assert_eq!(end.expect("the call ends"), tracked_end());
         let expected: Vec<(String, Value)> = (0..16)
             .map(|number| (format!("r{number:02}"), json!({ "roots": [] })))
             .collect();

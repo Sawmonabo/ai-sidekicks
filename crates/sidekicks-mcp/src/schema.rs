@@ -9,8 +9,8 @@ use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 use sidekicks_store::database::sql_list::{sql_list_of, sql_list_of_every};
 
 use crate::binding::store::PROJECT_SWITCH_SCOPES;
-use crate::client::tasks::McpTaskGeneration;
 use crate::client::tasks::recorder::MCP_TASK_ID_MAX_LENGTH;
+use crate::client::tasks::{McpServerEndpoint, McpTaskGeneration};
 use crate::command_receipts::{CommandAcceptance, CommandOutcome};
 
 /// A governance mutation's receipt status: written `pending` before the provider is touched, and
@@ -48,6 +48,12 @@ fn command_receipts_schema_sql() -> String {
         sql_list_of_every::<CommandOutcome>()
     );
     let task_generations = sql_list_of_every::<McpTaskGeneration>();
+    let stdio_endpoint = McpServerEndpoint::STDIO;
+    let address_endpoint_glob = format!(
+        "{}{}",
+        McpServerEndpoint::ADDRESS_PREFIX,
+        "[0-9a-f]".repeat(McpServerEndpoint::ADDRESS_DIGEST_HEX_LEN)
+    );
     format!(
         "
 -- ---------------------------------------------------------------------------
@@ -56,15 +62,16 @@ fn command_receipts_schema_sql() -> String {
 CREATE TABLE command_receipts (
   id                   TEXT PRIMARY KEY,
   command_id           TEXT NOT NULL UNIQUE,      -- the client-supplied idempotency key
-  run_id               TEXT,
+  run_id               TEXT NOT NULL,
   status               TEXT NOT NULL CHECK(status IN ({receipt_statuses})),
-  -- The two-phase commit: started_at is set once by the claim's compare-and-set, completed_at by
-  -- the terminal write. Claimed and not completed is in flight.
+  -- started_at is set in the write that records the command, and completed_at by its end's write.
+  -- Started and not completed is in flight.
   started_at           TEXT,
   completed_at         TEXT,
   -- The receiver-generated task id from a task-augmented call's acceptance, the one handle the
-  -- call is resumed by after a restart. NULL until the acceptance is stored, so a crash before it
-  -- leaves the call halted, never run again. Untrusted peer output, bounded in code points.
+  -- call is resumed by after a restart. NULL until the acceptance is stored; a call a restart
+  -- finds with no handle is never run again, and its run goes on, told the outcome is unknown.
+  -- Untrusted peer output, bounded in code points.
   mcp_task_id          TEXT
                        CHECK(mcp_task_id IS NULL OR (length(mcp_task_id) > 0
                          AND length(mcp_task_id) <= {MCP_TASK_ID_MAX_LENGTH}
@@ -72,14 +79,26 @@ CREATE TABLE command_receipts (
   -- The task's protocol generation, set exactly when mcp_task_id is and in the same statement,
   -- since a task is resumed by its generation.
   mcp_task_generation  TEXT CHECK(mcp_task_generation IN ({task_generations})),
-  -- 1 once a task-augmented call's result has reached the conversation, so a result that arrives
-  -- after a restart is delivered once.
+  -- The name of the server the task was accepted on; a resume reaches only that server.
+  mcp_server_name      TEXT,
+  -- Which server the task was accepted on, by its endpoint; a resume reaches only that server.
+  mcp_server_endpoint  TEXT CHECK(mcp_server_endpoint IS NULL
+                         OR mcp_server_endpoint = '{stdio_endpoint}'
+                         OR mcp_server_endpoint GLOB '{address_endpoint_glob}'),
+  -- 1 once the call moved to the background, so its result is owed a delivery.
+  backgrounded         INTEGER NOT NULL DEFAULT 0 CHECK(backgrounded IN (0, 1)),
+  -- 1 once a backgrounded call's result has reached the conversation, so a result that arrives
+  -- after a restart is delivered once; only a backgrounded call's result is owed a delivery.
   delivered            INTEGER NOT NULL DEFAULT 0 CHECK(delivered IN (0, 1)),
   created_at           TEXT NOT NULL,
-  CHECK((mcp_task_generation IS NULL) = (mcp_task_id IS NULL))
+  -- The task's handle, generation, server name and endpoint are set together or NULL together.
+  CHECK((mcp_task_id IS NULL) = (mcp_task_generation IS NULL)
+    AND (mcp_task_id IS NULL) = (mcp_server_name IS NULL)
+    AND (mcp_task_id IS NULL) = (mcp_server_endpoint IS NULL)),
+  CHECK(delivered <= backgrounded)
 ) STRICT;
 
-CREATE INDEX idx_command_receipts_run ON command_receipts(run_id) WHERE run_id IS NOT NULL;
+CREATE INDEX idx_command_receipts_run ON command_receipts(run_id);
 -- The in-flight receipts the restart's sweep reads.
 CREATE INDEX idx_command_receipts_inflight ON command_receipts(run_id)
   WHERE started_at IS NOT NULL AND completed_at IS NULL;
