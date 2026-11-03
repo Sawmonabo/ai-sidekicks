@@ -24,6 +24,7 @@ use sidekicks_session::groups::service::SessionGroupService;
 use sidekicks_session::links::service::SessionLinkService;
 use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::readings::context::ContextReadings;
+use sidekicks_session::readings::tool_call_status::ToolCallStatuses;
 use sidekicks_session::readings::turn::TurnReadings;
 use sidekicks_session::related::ranking::SessionRelatedRanking;
 use sidekicks_session::review_note::store::SessionReviewNoteStore;
@@ -58,6 +59,7 @@ use crate::daemon::retention_methods::{RetentionMethodsDeps, register_retention_
 use crate::daemon::status_methods::{StatusMethodsDeps, register_status_methods};
 use crate::highlight::colorer::CodeHighlighter;
 use crate::ipc::handlers::agent::command::{CommandMethodSources, register_command_methods};
+use crate::ipc::handlers::agent::tool_call_status::register_tool_call_status_subscribe;
 use crate::ipc::handlers::agent::turn::register_turn_methods;
 use crate::ipc::handlers::approval::{ApprovalMethodSources, register_approval_methods};
 use crate::ipc::handlers::attention::register_attention_methods;
@@ -132,6 +134,9 @@ pub(crate) struct MethodTableServices {
     pub(crate) command_methods: Arc<CommandMethodSources>,
     /// Each run's latest turn readings, which the turn subscriptions follow.
     pub(crate) turn_readings: Arc<TurnReadings>,
+    /// The status line under each running tool call, which the tool call status subscription
+    /// follows.
+    pub(crate) tool_call_statuses: Arc<ToolCallStatuses>,
     /// Each session's latest context reading, which the context subscription follows.
     pub(crate) context_readings: Arc<ContextReadings>,
     /// Every driver, which the session event subscription reads each provider's descriptor from.
@@ -240,6 +245,7 @@ pub(crate) fn register_method_tables(
     register_run_queue(builder, &services.run_queue)?;
     register_command_methods(builder, &services.command_methods)?;
     register_turn_methods(builder, &services.turn_readings)?;
+    register_tool_call_status_subscribe(builder, &services.tool_call_statuses)?;
     register_run_state_subscribe(
         builder,
         Arc::clone(&services.event_log),

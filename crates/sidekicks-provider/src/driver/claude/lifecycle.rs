@@ -3,6 +3,7 @@
 //! after the drivers are registered, on the first call that needs a session.
 
 mod controls;
+mod held_calls;
 mod runs;
 mod sessions;
 #[cfg(test)]
@@ -376,6 +377,7 @@ impl ClaudeDriver {
             command_output: Arc::clone(&ports.command_output),
             turn_readings: Arc::clone(&ports.turn_readings),
             context: Arc::clone(&context_readings),
+            tool_call_statuses: Arc::clone(&ports.tool_call_statuses),
             goal_endings: Arc::clone(&goal_endings),
             session_message_readings: Arc::clone(&ports.session_message_readings),
         }));

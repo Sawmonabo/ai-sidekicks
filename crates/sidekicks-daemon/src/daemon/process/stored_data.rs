@@ -129,6 +129,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
         sessions: Arc::clone(&session_services.sessions),
         context_readings: Arc::clone(&session_services.context_readings),
         turn_readings: Arc::clone(&session_services.turn_readings),
+        tool_call_statuses: Arc::clone(&session_services.tool_call_statuses),
         execution_postures,
     }));
     let damaged_history = Arc::new(DamagedHistory::new(DamagedHistoryDeps {

@@ -2,7 +2,7 @@
 //! reports, in start order, paired with the wrapper that runs it where one does, so its output,
 //! input wait and askpass prompt reach its row. Every change reaches the session's subscribers as
 //! the whole set, a command's output is kept only as its live tail, and each command's ending is
-//! appended once on the session's binding at the time it ends, so a fork move changes nothing.
+//! appended once, after its run if need be, on the binding of the run that started the command.
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
@@ -34,7 +34,7 @@ use crate::port::running_command_publisher::{
     CommandStart, ProviderCommandEnd, ReseedScope, RunningCommandParams, RunningCommandPublisher,
     WriteCommandInputParams, command_act_unsupported,
 };
-use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
+use crate::run::delivery::{InboundDelivery, LateAppendableRow};
 
 mod drawing;
 mod feed;
@@ -52,14 +52,16 @@ pub(crate) use refusals::takes_no_input;
 #[cfg(any(test, feature = "test-support"))]
 mod test_support;
 #[cfg(any(test, feature = "test-support"))]
-pub use test_support::unbound_running_command_sets;
+pub use test_support::{TEST_COMMAND_BINDING, unbound_running_command_sets};
 #[cfg(test)]
 mod tests;
 
-/// The binding a session runs on now, where it has one.
+/// The binding a session runs on now, where it has one, which the person's acts on its commands go
+/// to.
 pub type SessionBindingLookup = Arc<dyn Fn(&SessionId) -> Option<RuntimeBindingId> + Send + Sync>;
 
-/// Where a command's ending is appended: the session's event log, through the binding it runs on.
+/// Where a command's ending is appended: the session's event log, on the binding of the run that
+/// started the command, after that run if need be.
 pub trait CommandEndingAppender: Send + Sync {
     /// Appends `ending` on `binding_id`, `summary` as its body; a failure is logged, since the
     /// provider's stream cannot take it back.
@@ -78,11 +80,8 @@ impl<Dispatch: InboundDispatch + ?Sized> CommandEndingAppender for Dispatch {
         ending: AgentCommandEndedPayload,
         summary: Option<String>,
     ) -> BoxFuture<'_, ()> {
-        let dispatched = self.dispatch(InboundDelivery::SessionRow {
-            binding: DeliveryBinding {
-                binding_id,
-                operation: None,
-            },
+        let dispatched = self.dispatch(InboundDelivery::AfterRunRow {
+            binding_id,
             row: LateAppendableRow::AgentCommandEnded(ending),
             content: summary,
         });
@@ -252,8 +251,8 @@ enum RowEnd {
 }
 
 impl RunningCommandSets {
-    /// Running sets that append each ending through `endings` on the binding `binding_of` answers
-    /// for its session when the command ends.
+    /// Running sets that append each ending through `endings` on the binding its command started
+    /// on; `binding_of` answers the binding a session runs on now, which its commands' acts go to.
     pub fn new(binding_of: SessionBindingLookup, endings: Arc<dyn CommandEndingAppender>) -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -452,6 +451,11 @@ impl RunningCommandSets {
         Ok(())
     }
 
+    /// The binding the session runs on now, which a stop of its commands goes to.
+    pub fn binding_now(&self, session_id: &SessionId) -> Option<RuntimeBindingId> {
+        (self.binding_of)(session_id)
+    }
+
     // What an act on `command_id` hands the driver: the session's binding now. Refused
     // `provider.unavailable` for a session bound to no provider now.
     fn command_params(
@@ -459,7 +463,7 @@ impl RunningCommandSets {
         session_id: SessionId,
         command_id: &CommandId,
     ) -> Result<RunningCommandParams, DomainError> {
-        let binding_id = (self.binding_of)(&session_id).ok_or_else(|| {
+        let binding_id = self.binding_now(&session_id).ok_or_else(|| {
             DomainError::new(
                 "The session runs on no provider now.",
                 RefusalCode::ProviderUnavailable,
@@ -563,10 +567,7 @@ impl RunningCommandSets {
             content_encoding: None,
         };
         let summary = summary.filter(|_| ending == CommandEnding::Failed);
-        let Some(binding_id) = (self.binding_of)(&session_id) else {
-            tracing::warn!("a command ended in a session bound to no provider");
-            return;
-        };
+        let binding_id = row.start.binding_id;
         let endings = Arc::clone(&self.endings);
         tokio::spawn(async move { endings.append(binding_id, payload, summary).await });
     }

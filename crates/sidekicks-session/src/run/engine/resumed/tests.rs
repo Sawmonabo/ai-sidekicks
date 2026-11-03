@@ -15,7 +15,9 @@ use sidekicks_provider::driver::session_control::ProviderTurnAnswer;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::pause_point::ArmedPause;
 use sidekicks_store::database::statement::DATABASE_NOW_SQL;
-use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::database::writer::test_file::{
+    TestDatabase, insert_test_event, test_session_id,
+};
 use sidekicks_store::events::log_service::test_fixture::open_log;
 use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_workspace::run_setup_gates::{
@@ -30,6 +32,8 @@ use crate::run::engine::tests::{
 };
 use crate::run::read::{LiveRun, RunRead};
 use crate::run::restart::ResumedRunMove;
+
+use super::read_open_turn_steps;
 
 // The step bound the session sets where a case counts its turn's steps.
 const SESSION_STEP_BOUND: i64 = 3;
@@ -398,6 +402,50 @@ async fn a_resumed_run_moves_as_its_state_before_and_its_providers_answer_decide
             );
         }
     }
+}
+
+// Killed by a count of rows (4 steps) and by a count of call ids that drops the row naming no call
+// (2 steps).
+#[test]
+fn a_held_call_settled_then_ended_counts_one_step() {
+    let database = TestDatabase::new(schema_parts());
+    let writer = database.opener()().expect("the test creates its database");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    let write = |event_type: &str, mut payload: serde_json::Value| {
+        payload["sessionId"] = json!(session_id);
+        payload["runId"] = json!(run_id);
+        insert_test_event(
+            &writer,
+            session_id,
+            json!({ "type": event_type, "payload": payload }),
+            None,
+            "2026-10-14T09:00:00.000Z",
+        );
+    };
+    write(
+        "agent.turn.started",
+        json!({ "runVersion": 1, "turnNumber": 1 }),
+    );
+    // The daemon settles the held call, then its provider's own ending arrives.
+    write(
+        "agent.toolCall.failed",
+        json!({ "toolName": "Bash", "toolCallId": "call-1", "endCause": "stopped" }),
+    );
+    write(
+        "agent.toolCall.completed",
+        json!({ "toolName": "Bash", "toolCallId": "call-1" }),
+    );
+    write(
+        "agent.toolCall.completed",
+        json!({ "toolName": "edit", "toolCallId": "call-2" }),
+    );
+    write("agent.toolCall.completed", json!({ "toolName": "edit" }));
+
+    let open_turn = read_open_turn_steps(&database.reader(), &run_id)
+        .expect("the open turn reads")
+        .expect("turn 1 is open");
+    assert_eq!(open_turn.steps, 3);
 }
 
 // A helper whose provider ended its turn stands on that end under its lead's pending stop, since

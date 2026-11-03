@@ -3,7 +3,6 @@
 
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::driver::session_control::{EndKeptTurnsParams, KeptRunTurns};
-use sidekicks_session::run::stored_leg::read_session_leg;
 use tokio_util::sync::CancellationToken;
 
 use crate::provider_session::ProviderSessions;
@@ -21,19 +20,16 @@ impl ProviderSessions {
         runs: Vec<KeptRunTurns>,
         stop: CancellationToken,
     ) -> Result<(), ProviderSessionError> {
-        let Some(leg) = read_session_leg(&self.deps.pool, session_id).await? else {
+        let Some(stored) = self.read_stored_conversation(session_id).await? else {
             return Ok(());
         };
-        let Some(conversation) = leg.resume_handle else {
-            return Ok(());
-        };
-        let driver = self.deps.providers.lookup(&leg.provider_name)?;
-        driver
+        stored
+            .driver
             .end_kept_turns(EndKeptTurnsParams {
                 session_id,
-                provider_account_id: leg.spawn_config.provider_account_id,
-                conversation,
-                runtime_metadata: leg.runtime_metadata,
+                provider_account_id: stored.provider_account_id,
+                conversation: stored.conversation,
+                runtime_metadata: stored.runtime_metadata,
                 runs,
                 stop,
             })

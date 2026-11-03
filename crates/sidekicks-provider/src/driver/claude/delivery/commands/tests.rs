@@ -13,14 +13,21 @@ use tokio::sync::mpsc;
 
 use super::apart_run::ClaudeApartRunCommands;
 use super::{ClaudeCommandFact, ClaudeCommandTasks, ClaudeTaskFrame};
-use crate::command::running_set::{CommandEndingAppender, RunningCommandSets};
+use crate::command::running_set::{
+    CommandEndingAppender, RunningCommandSets, TEST_COMMAND_BINDING,
+};
 use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
+use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::test_registry::fixed_session_id;
 use crate::port::running_command_publisher::{ReseedScope, RunningCommandPublisher as _};
 
 fn run_id() -> RunId {
     RunId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5e").expect("a valid run id")
+}
+
+fn binding(id: &str) -> RuntimeBindingId {
+    RuntimeBindingId::new(id.to_owned()).expect("a binding id")
 }
 
 fn read(
@@ -29,7 +36,11 @@ fn read(
     frame: &Value,
 ) -> Option<ClaudeCommandFact> {
     let frame = ClaudeTaskFrame::read(&frame.to_string()).expect("a task frame");
-    tasks.read_frame(kind, &frame, fixed_session_id(), Some(run_id()))
+    let run = ClaudeBoundRun {
+        run_id: run_id(),
+        binding_id: binding("binding-1"),
+    };
+    tasks.read_frame(kind, &frame, fixed_session_id(), Some(&run))
 }
 
 fn started(task_id: &str, task_type: &str, tool_use_id: &str) -> Value {
@@ -125,49 +136,55 @@ fn a_task_that_runs_no_command_makes_no_row(#[case] task_type: &str) {
     assert!(fact.is_none());
 }
 
+// An ending as the set appends it: the binding it goes on, and its payload.
+type Appended = (RuntimeBindingId, AgentCommandEndedPayload);
+
 // Endings sent to the test as the set appends them.
-struct SentEndings(mpsc::UnboundedSender<AgentCommandEndedPayload>);
+struct SentEndings(mpsc::UnboundedSender<Appended>);
 
 impl CommandEndingAppender for SentEndings {
     fn append(
         &self,
-        _binding_id: RuntimeBindingId,
+        binding_id: RuntimeBindingId,
         ending: AgentCommandEndedPayload,
         _summary: Option<String>,
     ) -> BoxFuture<'_, ()> {
-        self.0.send(ending).unwrap_or(());
+        self.0.send((binding_id, ending)).unwrap_or(());
         async {}.boxed()
     }
 }
 
 // The next ending the set appends, or a failure once a second has passed without one.
-async fn next_ending(
-    endings: &mut mpsc::UnboundedReceiver<AgentCommandEndedPayload>,
-) -> AgentCommandEndedPayload {
+async fn next_ending(endings: &mut mpsc::UnboundedReceiver<Appended>) -> Appended {
     tokio::time::timeout(Duration::from_secs(1), endings.recv())
         .await
         .expect("a row ends")
         .expect("the set keeps its appender")
 }
 
-// Fails when the review's task frames make no row, or make one under another run; when its
-// background list ends the session process's own background rows, or leaves its own unlisted one
-// running; when the session process's whole list or its end ends the review's rows; and when a row
-// the review left open outlives its process. Mutations: in `ClaudeApartRunCommands::read_frame`,
-// return before the task frame is read, or publish the `Listed` fact as the set's reseed; in
-// `ClaudeApartRunCommands::new`, mark no apart run; in `RunningCommandSets::commands_listed` or
-// `provider_exited`, drop the apart-run check; in `ClaudeApartRunCommands::end`, end nothing.
+// Fails when the review's task frames make no row, or make one under another run or ending on
+// another binding; when its background list ends the session process's own background rows, or
+// leaves its own unlisted one running; when the session process's whole list or its end ends the
+// review's rows; and when a row the review left open outlives its process. Mutations: in
+// `ClaudeApartRunCommands::read_frame`, return before the task frame is read, pass the session's
+// binding or the lookup's in place of the review run's, or publish the `Listed` fact as the set's
+// reseed; in `ClaudeApartRunCommands::new`, mark no apart run; in
+// `RunningCommandSets::commands_listed` or `provider_exited`, drop the apart-run check; in
+// `ClaudeApartRunCommands::end`, end nothing.
 #[tokio::test]
 async fn a_staged_reviews_commands_are_rows_under_its_run_ending_with_its_process() {
     let (sender, mut endings) = mpsc::unbounded_channel();
-    let binding_id = RuntimeBindingId::new("binding-1".to_owned()).expect("a binding id");
     let sets = Arc::new(RunningCommandSets::new(
-        Arc::new(move |_session: &SessionId| Some(binding_id.clone())),
+        Arc::new(|_session: &SessionId| Some(binding("binding-1"))),
         Arc::new(SentEndings(sender)),
     ));
     sets.start_test_command(fixed_session_id(), run_id());
-    let review_run = RunId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5f").expect("a valid run id");
-    let review = ClaudeApartRunCommands::new(fixed_session_id(), review_run, Arc::clone(&sets));
+    let review_run = ClaudeBoundRun {
+        run_id: RunId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5f").expect("a valid run id"),
+        binding_id: binding("review-binding"),
+    };
+    let review =
+        ClaudeApartRunCommands::new(fixed_session_id(), review_run.clone(), Arc::clone(&sets));
     let calls = json!({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "id": "call-1", "name": "Bash", "input": {"command": "sleep 60"}},
         {"type": "tool_use", "id": "call-2", "name": "Bash", "input": {"command": "npm test"}},
@@ -194,11 +211,14 @@ async fn a_staged_reviews_commands_are_rows_under_its_run_ending_with_its_proces
     review.end();
     let left_open = next_ending(&mut endings).await;
 
-    for (ending, command_id) in [(unlisted, "task-1"), (left_open, "task-2")] {
-        assert_eq!(ending.run_id, review_run);
+    for ((bound, ending), command_id) in [(unlisted, "task-1"), (left_open, "task-2")] {
+        assert_eq!(bound, review_run.binding_id);
+        assert_eq!(ending.run_id, review_run.run_id);
         assert_eq!(ending.command_id.as_str(), command_id);
         assert_eq!(ending.ending, CommandEnding::Failed);
     }
+    let (session_bound, session_unlisted) = session_unlisted;
+    assert_eq!(session_bound, binding(TEST_COMMAND_BINDING));
     assert_eq!(session_unlisted.run_id, run_id());
     assert!(!sets.has_running_commands(fixed_session_id()));
 }

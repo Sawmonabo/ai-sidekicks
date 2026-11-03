@@ -14,7 +14,6 @@ use sidekicks_contracts::event::declared_variants::RunAgentOutputPayload;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
-use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::events::SessionNotice;
 use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
@@ -224,7 +223,7 @@ impl ClaudeSessionControls {
             .open_staged_worktree(None, &live.spawn_bound_legs.working_directory)
             .await?;
         let (legs, command_channel) = match self
-            .compose_review_legs(live, run.run_id, worktree.folder().to_path_buf())
+            .compose_review_legs(live, run.clone(), worktree.folder().to_path_buf())
             .await
         {
             Ok(composed) => composed,
@@ -287,17 +286,17 @@ impl ClaudeSessionControls {
     }
 
     /// The legs the review's one-turn process starts on in `worktree_folder`, and the channel of
-    /// its own its commands reach as rows under `run_id`, where one opens, which the caller closes
-    /// once the process ended. Fails as the channel cannot be opened.
+    /// its own its commands reach as rows under `run`, ending on its binding, where one opens,
+    /// which the caller closes once the process ended. Fails as the channel cannot be opened.
     pub(crate) async fn compose_review_legs(
         &self,
         live: &LiveClaudeSession,
-        run_id: RunId,
+        run: ClaudeBoundRun,
         worktree_folder: PathBuf,
     ) -> io::Result<(ClaudeSpawnBoundLegs, Option<Arc<ClaudeCommandChannel>>)> {
         let command_channel = self
             .command_channels
-            .open_apart(live.session_id, run_id)
+            .open_apart(live.session_id, run)
             .await?;
         let legs = one_turn_legs(live, Some(worktree_folder), command_channel.clone());
         Ok((legs, command_channel))

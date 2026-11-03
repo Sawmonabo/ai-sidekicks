@@ -7,6 +7,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::mutex_lock::lock;
 
 use super::daemon_ends::ClaudeDaemonEndSettlement;
+use crate::driver::claude::session::scripted::held_calls::{helper_started, init};
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
 };
@@ -19,16 +20,10 @@ use crate::run::posture::compose_execution_posture;
 use crate::run::state_entry::RunStateEntry;
 use crate::run::turn_end::TurnOutcome;
 
+mod exit;
+mod held_calls;
+mod resume;
 mod usage;
-
-pub(super) fn init() -> Value {
-    json!({
-        "type": "system",
-        "subtype": "init",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "model": "opus",
-    })
-}
 
 pub(super) fn result(members: &Value) -> Value {
     let mut frame = json!({
@@ -42,17 +37,6 @@ pub(super) fn result(members: &Value) -> Value {
         frame.extend(members.clone());
     }
     frame
-}
-
-pub(super) fn helper_started(task_id: &str, task_type: &str, tool_use_id: &str) -> Value {
-    json!({
-        "type": "system",
-        "subtype": "task_started",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "task_id": task_id,
-        "task_type": task_type,
-        "tool_use_id": tool_use_id,
-    })
 }
 
 fn tool_call(message_id: &str, tool_use_id: &str, agent_id: Option<&str>) -> Value {
@@ -464,92 +448,6 @@ async fn a_result_of_an_unlisted_subtype_or_none_fails_its_run_once_and_is_repor
         recorded.field_on("driver.normalize.unmappedWireKind", "raw_wire_type"),
         [raw_wire_type]
     );
-}
-
-// Fails when a tool server's background call closes on the stand-in result Claude Code sends at
-// once rather than on its task's notification, or when the call, or another task running no
-// command that the background set lists, does not hold the session awake while it runs.
-// Mutations: `user` passing no held calls; `take_task_frame` not releasing the held call;
-// `background_work` leaving out the held calls or the listed tasks.
-#[tokio::test(start_paused = true)]
-async fn a_tool_servers_background_call_closes_on_its_task_notification() {
-    let session = ScriptedSession::new().await;
-    session.hold_lead_turn("lead");
-    let closed_calls = |session: &ScriptedSession| {
-        session
-            .engine
-            .deliveries()
-            .into_iter()
-            .filter(|delivery| {
-                matches!(
-                    delivery.row,
-                    Some(
-                        LateAppendableRow::AgentToolCallCompleted(_)
-                            | LateAppendableRow::AgentToolCallFailed(_)
-                    )
-                )
-            })
-            .count()
-    };
-
-    session.frame(&init());
-    session.frame(&json!({
-        "type": "assistant",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "message": {
-            "id": "message-1",
-            "role": "assistant",
-            "content": [
-                {"type": "tool_use", "id": "call-1", "name": "mcp__files__export", "input": {}},
-            ],
-        },
-    }));
-    session.frame(&helper_started("task-1", "mcp_task", "call-1"));
-    session.frame(&json!({
-        "type": "user",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "message": {
-            "role": "user",
-            "content": [
-                {
-                    "type": "tool_result",
-                    "tool_use_id": "call-1",
-                    "content": "Running in the background",
-                },
-            ],
-        },
-    }));
-    session.frame(&json!({
-        "type": "system",
-        "subtype": "background_tasks_changed",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "tasks": [
-            {"task_id": "task-1", "task_type": "mcp_task"},
-            {"task_id": "workflow-1", "task_type": "local_workflow"},
-        ],
-    }));
-    settle().await;
-    assert_eq!(closed_calls(&session), 0);
-    assert_eq!(session.stream.background_work(), 3);
-
-    session.frame(&json!({
-        "type": "system",
-        "subtype": "task_notification",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "task_id": "task-1",
-        "tool_use_id": "call-1",
-        "status": "completed",
-        "summary": "Exported",
-    }));
-    session.frame(&json!({
-        "type": "system",
-        "subtype": "background_tasks_changed",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "tasks": [],
-    }));
-    settle().await;
-    assert_eq!(closed_calls(&session), 1);
-    assert_eq!(session.stream.background_work(), 0);
 }
 
 // A `tool_name` call's pre-tool hook, the helper `agent_id`'s or, with none, the lead's.

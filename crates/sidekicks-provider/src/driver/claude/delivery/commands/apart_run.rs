@@ -13,6 +13,7 @@ use super::{ClaudeCommandFact, ClaudeCommandTasks, ClaudeHeldCommand, ClaudeTask
 use crate::command::running_set::RunningCommandSets;
 use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
+use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::port::running_command_publisher::{ProviderCommandEnd, RunningCommandPublisher};
 
@@ -33,24 +34,28 @@ pub(crate) struct ClaudeApartCommand {
     pub(crate) command: ClaudeHeldCommand,
 }
 
-/// One apart process's command tasks, each a row under `run_id` in its session's running
-/// commands, and the process once it is up.
+/// One apart process's command tasks, each a row under `run` in its session's running commands
+/// whose ending is appended on the run's binding, and the process once it is up.
 pub(crate) struct ClaudeApartRunCommands {
     session_id: SessionId,
-    run_id: RunId,
+    run: ClaudeBoundRun,
     sets: Arc<RunningCommandSets>,
     tasks: Mutex<ClaudeCommandTasks>,
     process: Mutex<Option<Arc<dyn ClaudeProcessChannel>>>,
 }
 
 impl ClaudeApartRunCommands {
-    /// The commands of a process of `session_id` that runs only `run_id`, reported to `sets`,
-    /// which leave them alone at the session's own process's whole list and end.
-    pub(super) fn new(session_id: SessionId, run_id: RunId, sets: Arc<RunningCommandSets>) -> Self {
-        sets.apart_run_started(session_id, run_id);
+    /// The commands of a process of `session_id` that runs only `run`, reported to `sets`, which
+    /// leave them alone at the session's own process's whole list and end.
+    pub(super) fn new(
+        session_id: SessionId,
+        run: ClaudeBoundRun,
+        sets: Arc<RunningCommandSets>,
+    ) -> Self {
+        sets.apart_run_started(session_id, run.run_id);
         Self {
             session_id,
-            run_id,
+            run,
             sets,
             tasks: Mutex::default(),
             process: Mutex::new(None),
@@ -59,7 +64,7 @@ impl ClaudeApartRunCommands {
 
     /// The one run the process runs.
     pub(super) fn run_id(&self) -> RunId {
-        self.run_id
+        self.run.run_id
     }
 
     /// The process is up: its commands' stops and moves go to it until it ends.
@@ -100,7 +105,7 @@ impl ClaudeApartRunCommands {
             .filter(|(_, task)| task.start.is_backgrounded)
             .map(|(task_id, task)| (task_id.clone(), task.start.command_id.clone()))
             .collect();
-        match tasks.read_frame(&kind, &frame, self.session_id, Some(self.run_id)) {
+        match tasks.read_frame(&kind, &frame, self.session_id, Some(&self.run)) {
             // The set's own reseed would end the session process's background rows too, so the
             // list's changes are told row by row.
             Some(ClaudeCommandFact::Listed { listed, .. }) => {
@@ -127,6 +132,6 @@ impl ClaudeApartRunCommands {
             self.sets
                 .command_ended(self.session_id, task.start.command_id, STOPPED_BY_PROVIDER);
         }
-        self.sets.apart_run_ended(self.session_id, self.run_id);
+        self.sets.apart_run_ended(self.session_id, self.run.run_id);
     }
 }
