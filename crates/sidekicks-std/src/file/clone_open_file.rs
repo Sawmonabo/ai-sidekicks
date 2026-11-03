@@ -23,17 +23,20 @@ pub enum CloneOpenFileError {
     Failed(#[source] io::Error),
 }
 
-/// What a failed clone names as its operation when removing what it left fails too.
+// What a failed clone names as its operation when removing what it left fails too.
 const CLONING: &str = "cloning the file";
 
 /// Clones the open file `source` into a new file at `destination`, which takes the source's
 /// permissions, never as a byte copy and never over an entry already there; a failed clone leaves
-/// nothing at the path. Fails with [`CloneOpenFileError::Refused`] when the copy's place is on
-/// another volume or the volume makes no clones, else with [`CloneOpenFileError::Failed`] holding
-/// the clone's error, of its own kind, wrapping the removal's failure too when the clone was made
-/// (as before setting its permissions failed) and could not be removed, a refused clone among them.
-/// `source` is a regular file: on Linux and Windows the clone answers any other kind of source
-/// with `InvalidInput`, which hides an entry already at the path, so that entry would be removed.
+/// nothing at the path unless removing what it left there fails. Fails with
+/// [`CloneOpenFileError::Refused`] when the copy's place is on another volume or the volume makes
+/// no clones, else with [`CloneOpenFileError::Failed`] holding the clone's error, of its own kind.
+/// The removal runs after every failure but an entry already at the path, so it also runs when the
+/// clone made no file at all; when it fails (the clone was made and setting its permissions failed,
+/// or the folder refuses the removal), the answer is `Failed`, a refused clone's included, wrapping
+/// the removal's failure beside the clone's. `source` is a regular file: on Linux and Windows the
+/// clone answers any other kind of source with `InvalidInput`, which hides an entry already at the
+/// path, so that entry would be removed.
 pub fn clone_open_file(source: &File, destination: &Path) -> Result<(), CloneOpenFileError> {
     reflink_copy::reflink_file_to_path(source, destination).map_err(|error| {
         // The entry already there is another's, so it stays.
@@ -41,7 +44,7 @@ pub fn clone_open_file(source: &File, destination: &Path) -> Result<(), CloneOpe
             return CloneOpenFileError::Failed(error);
         }
         // The clone's permissions are set once its file is made, so a failure there, refusal or
-        // not, leaves it.
+        // not, leaves that file at `destination` for this removal.
         let (error, removal_failures, operation) =
             remove_temporary_after(error, destination, CLONING).into_parts();
         if !removal_failures.is_empty() {
