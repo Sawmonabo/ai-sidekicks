@@ -26,6 +26,7 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::ThreadLoadedListParams;
 use crate::driver::codex::exec_relay::{CODEX_EXECUTOR_ARGUMENTS, CodexExecRelay, RelayedThread};
 use crate::driver::codex::native_program::resolve_codex_native_program;
+use crate::driver::codex::privacy::read_codex_privacy;
 use crate::driver::codex::service::command_line::{
     CodexServiceCommandLineInput, compose_codex_service_arguments,
 };
@@ -550,13 +551,17 @@ pub(super) fn read_service_version(
 }
 
 // The launch of a service on the native program the build runs, with the launcher's variables
-// set, in the dedicated empty working folder.
+// set, in the dedicated empty working folder. Every service carries the privacy choices read now
+// from the person's own Codex folder, last, so they win over any switch before them, whichever
+// home it runs on. Fails as that read does.
 async fn compose_launch(
     service: &CodexService,
     executable: &ResolvedProviderExecutable,
-    additional_config_overrides: Vec<String>,
+    mut additional_config_overrides: Vec<String>,
     launch_socket: &Path,
 ) -> Result<CodexProcessLaunch, StartFailure> {
+    let privacy = read_codex_privacy(&service.dependencies().personal_home).await?;
+    additional_config_overrides.extend(privacy.config_overrides());
     let arguments = compose_codex_service_arguments(&CodexServiceCommandLineInput {
         listen_address: service.listen_address(launch_socket),
         additional_config_overrides,

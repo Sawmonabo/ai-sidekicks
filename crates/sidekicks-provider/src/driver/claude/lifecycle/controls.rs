@@ -27,7 +27,6 @@ use super::{ClaudeDriver, ClaudeSessionParts, internal};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::capabilities::resolve_claude_model_catalog;
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
-use crate::driver::claude::frame_routing::read_prior_emitted;
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::controls::{
     ClaudeCopyComposition, ClaudeSideQuestionCopy, claude_full_model_id, without_credential_prompts,
@@ -39,15 +38,17 @@ use crate::driver::claude::session::errors::{
 use crate::driver::claude::session::establishment::context::resolve_claude_spawn_context;
 use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
 use crate::driver::claude::session::permission_level::{
-    ClaudeStartingLevelSources, can_run_claude_level, is_offered_on_system, list_claude_modes,
-    move_claude_permission_level, read_claude_sandbox_support, read_claude_starting_level,
+    can_run_claude_level, is_offered_on_system, list_claude_modes, move_claude_permission_level,
+    read_claude_sandbox_support, read_claude_starting_level,
 };
 use crate::driver::claude::session::permissions::{
     ClaudeProjectRuleRemoval, read_claude_session_rules, resend_claude_permissions,
     revoke_claude_project_rule,
 };
 use crate::driver::claude::session::restart::ClaudeSessionStanding;
-use crate::driver::claude::session::settings_file::read_claude_settings_file;
+use crate::driver::claude::session::settings_file::{
+    ClaudeSettingsSources, read_claude_settings_file,
+};
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::readings::ClaudeSessionFolderReadRequest;
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
@@ -67,6 +68,7 @@ use crate::driver::contract::params_and_results::{
     GetCapabilitiesResult, ListModelsParams, ListModesParams, ProviderReportedLevel,
 };
 use crate::driver::diagnostics::DriverDiagnosticKind;
+use crate::driver::prior_usage::read_prior_emitted;
 use crate::driver::read_current_account;
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, DriverAuthProbeResult,
@@ -135,7 +137,7 @@ impl ClaudeDriver {
         let project_folder = claude_project_folder(&params.working_folder, repository.as_ref());
         let account_settings_file = account_config_folder(&environment).join(SETTINGS_FILE_NAME);
         let starting = read_claude_starting_level(
-            &ClaudeStartingLevelSources {
+            &ClaudeSettingsSources {
                 managed_settings_folder: managed_settings_folder.as_deref(),
                 project_folder: &project_folder,
                 home_folder: &self.sources.home_folder,
@@ -870,6 +872,7 @@ async fn compose_resting_side_question_copy(
     let declaration = read_claude_initialize_declaration(catalog.initialize.as_deref());
     let parent_cumulative = read_prior_emitted(
         &sources.ports.usage,
+        DESCRIPTOR.provider_id(),
         resume.session_id,
         &resume.resume_handle,
     )

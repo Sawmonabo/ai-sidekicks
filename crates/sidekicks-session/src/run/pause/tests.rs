@@ -2,6 +2,8 @@
 //! whose driver is a stand-in: the order a call is refused in, a resume whose answer never came,
 //! a run ended under the driver call, and the provider's reports held while a resume runs.
 
+mod owed_continuation;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

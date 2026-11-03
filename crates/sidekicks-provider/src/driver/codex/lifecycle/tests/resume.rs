@@ -6,9 +6,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
@@ -36,7 +36,9 @@ use crate::driver::session_control::{
     DriverResumeResult, LiveRunResume, OpenTurnResume, ProviderTurnAnswer, ResumeSessionParams,
     ResumedRunAnswer,
 };
-use crate::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
+use crate::driver::test_registry::{
+    new_agent_id, new_run_id, new_session_id, test_driver_services,
+};
 use crate::port::context_reading_publisher::ContextReadingPublisher;
 use crate::port::permission_ask::test_port::RecordedAsks;
 use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
@@ -81,7 +83,7 @@ fn resume_params(
 ) -> ResumeSessionParams {
     compose_resume_session_params(
         session_id,
-        AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
+        new_agent_id(),
         binding,
         mint_runtime_binding_id(),
         FreeFormText::new("gpt-5".to_owned()).expect("a model"),
@@ -135,8 +137,7 @@ impl ResumeHarness {
                 .register(Arc::clone(&engine) as _)
                 .is_ok()
         );
-        let agent_id =
-            AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id");
+        let agent_id = new_agent_id();
         assert!(
             ports
                 .daemon_turn_bindings
@@ -391,12 +392,16 @@ async fn a_loaded_conversation_is_joined_as_it_runs() {
                     .expect("a minted UUID is an event id"),
             }],
             subagent_id: None,
+            is_stopping: false,
+            run_state: RunState::Running,
         },
         LiveRunResume {
             run_id: helper_run,
             parent_run_id: Some(lead_run),
             open_turns: Vec::new(),
             subagent_id: Some(SubagentId::new(HELPER_THREAD.to_owned()).expect("a helper id")),
+            is_stopping: false,
+            run_state: RunState::Running,
         },
     ];
     let mut resumes = Vec::new();
@@ -496,6 +501,7 @@ async fn a_loaded_conversation_is_joined_as_it_runs() {
                 EngineCall::StartTurn(..)
                 | EngineCall::CountStep(_)
                 | EngineCall::RecordTurnEnd(..)
+                | EngineCall::RecordDaemonTurnEnd(..)
                 | EngineCall::StartDaemonTurn(_)
                 | EngineCall::EndTurnOnProcessExit(_)
                 | EngineCall::EndTurnOnClose(_) => None,

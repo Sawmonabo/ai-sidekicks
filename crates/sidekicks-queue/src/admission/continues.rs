@@ -212,7 +212,7 @@ impl QueueAdmission {
         let session_id = *hold.key();
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         let agent_id = read_lead_agent_through::<QueueError>(&self.deps.pool, session_id).await?;
-        let run_config = self.lead_run_config(session_id)?;
+        let run_config = self.lead_run_config(session_id).await?;
         self.deps
             .recorder
             .record_next_run(

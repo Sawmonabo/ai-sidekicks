@@ -1,7 +1,10 @@
-//! A caller process reader a test scripts: one responsible process, one parent and one signature
-//! verdict for every process.
+//! A caller process reader a test scripts: one responsible process and one signature verdict for
+//! every process, each process's parent and program, and one parent for every process it names
+//! none for.
 
+use std::collections::HashMap;
 use std::io;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::FutureExt as _;
@@ -11,13 +14,17 @@ use sidekicks_platforms::{ParentProcess, PinnedProcess, ResponsibleProcess, Sign
 
 use crate::caller_process::contract::{CallerProcessReader, PeerRead};
 
-/// A reader answering one responsible process, one parent and one signature verdict for every
-/// process, and recording whether a signature was read.
+/// A reader answering one responsible process and one signature verdict for every process, each
+/// process's parent and program by its id, and recording whether a signature was read.
 pub struct ScriptedReader {
     /// The responsible process every read answers.
     pub responsible: ResponsibleProcess,
-    /// The parent every read answers.
+    /// The parent every read of a process `parents` does not name answers.
     pub parent: ParentProcess,
+    /// Each process's parent, by its id.
+    pub parents: HashMap<u32, ParentProcess>,
+    /// Each process's program, by its id; a process it does not name reads as ended.
+    pub programs: HashMap<u32, PathBuf>,
     /// Whether every signature check answers as the desktop client's.
     pub is_desktop_client: bool,
     /// Set once a signature was read.
@@ -31,9 +38,10 @@ impl CallerProcessReader for ScriptedReader {
 
     fn read_parent_process(
         &self,
-        _process: PinnedProcess,
+        process: PinnedProcess,
     ) -> BoxFuture<'_, io::Result<ParentProcess>> {
-        futures::future::ready(Ok(self.parent.clone())).boxed()
+        let parent = self.parents.get(&process.id()).unwrap_or(&self.parent);
+        futures::future::ready(Ok(parent.clone())).boxed()
     }
 
     fn read_responsible_process(
@@ -41,6 +49,13 @@ impl CallerProcessReader for ScriptedReader {
         _process: PinnedProcess,
     ) -> BoxFuture<'_, io::Result<ResponsibleProcess>> {
         futures::future::ready(Ok(self.responsible.clone())).boxed()
+    }
+
+    fn read_program_path(
+        &self,
+        process: PinnedProcess,
+    ) -> BoxFuture<'_, io::Result<Option<PathBuf>>> {
+        futures::future::ready(Ok(self.programs.get(&process.id()).cloned())).boxed()
     }
 
     fn check_desktop_client(

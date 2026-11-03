@@ -194,7 +194,7 @@ async fn fixture() -> Fixture {
     )));
     let read_damaged_from_sequence: Arc<DamagedFromSequenceReader> =
         Arc::new(|_: &SessionId| None::<i64>);
-    let configuration = ConfigurationStore::open(Arc::clone(&log.writer), &reads)
+    let configuration = ConfigurationStore::open(Arc::clone(&log.writer), Arc::clone(&reads))
         .await
         .expect("the configuration opens");
     let token_limits = PortRegistration::new("run token limits");

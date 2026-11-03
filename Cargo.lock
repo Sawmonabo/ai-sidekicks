@@ -8391,6 +8391,18 @@ dependencies = [
 [[package]]
 name = "sidekicks-agent"
 version = "0.0.0"
+dependencies = [
+ "garde",
+ "jiff",
+ "jsonschema",
+ "rstest",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "sidekicks-contracts",
+ "sidekicks-provider",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "sidekicks-approval"
@@ -8731,6 +8743,7 @@ version = "0.0.0"
 dependencies = [
  "async-trait",
  "axum",
+ "base16ct 1.0.0",
  "base64 0.23.1",
  "blake3",
  "bytes",
@@ -8876,6 +8889,7 @@ dependencies = [
  "opentelemetry-proto",
  "process-wrap",
  "proptest",
+ "prost",
  "regex",
  "regex-lite",
  "reqwest",
@@ -8886,6 +8900,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
+ "sha1",
  "sha2 0.11.1",
  "sha3 0.12.0",
  "shlex",
@@ -8911,6 +8926,7 @@ dependencies = [
  "typify",
  "unicode-normalization",
  "url",
+ "uuid",
  "zeroize",
  "zstd",
 ]

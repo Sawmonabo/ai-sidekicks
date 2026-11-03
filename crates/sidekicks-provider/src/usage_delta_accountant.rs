@@ -30,7 +30,7 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 use sidekicks_contracts::context_window::ContextWindowSource;
-use sidekicks_contracts::event::usage::UsageContainment;
+use sidekicks_contracts::event::usage::{UsageContainment, UsageCostSource};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::cost::UsdMicros;
@@ -395,22 +395,6 @@ pub(crate) fn compose_one_turn_spend(
         cache_write_tokens: figure(delta.axis_deltas.cache_write_input)?,
         reasoning_tokens: figure(delta.axis_deltas.reasoning_output)?,
     })
-}
-
-/// Where a cost update's figure came from.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the pricing step sets each request's cost and its source through this ladder"
-    )
-)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum UsageCostSource {
-    /// The provider's own figure.
-    ProviderReported,
-    /// The price list's entry for the model's exact id, applied to the full breakdown.
-    DerivedExact,
 }
 
 /// A price list's answer for one request: whole micro-dollars from the provider's full breakdown,

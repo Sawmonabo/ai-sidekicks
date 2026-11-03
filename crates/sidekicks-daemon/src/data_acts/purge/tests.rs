@@ -62,6 +62,7 @@ use super::{SessionPurge, SessionPurgeDeps, SessionPurgeOutcome};
 use crate::daemon::schema::schema_parts;
 
 mod erasure;
+mod hand_offs;
 mod races_and_failures;
 
 // Text no row of the daemon writes on its own, and shorter than a body the log stores compressed.

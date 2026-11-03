@@ -151,7 +151,7 @@ mod wsl;
 
 pub use atomic_write::{
     AtomicWriteError, LeftoverSweep, atomic_write_target_of, create_file_atomically,
-    remove_atomic_write_leftovers, replace_file_atomically,
+    remove_atomic_write_leftovers, replace_file_atomically, replace_file_atomically_while,
 };
 pub use base_environment::{BaseEnvironmentSource, base_environment_source};
 pub use bash_start::{BashStart, BashStartInput, start_bash};
@@ -198,6 +198,7 @@ pub use linux::SHELL_FOLDER_PROBES;
 #[cfg(target_os = "linux")]
 pub use linux::caller_process::{
     read_parent_process, read_peer_process, read_peer_process as unix_domain_peer_process,
+    read_program_path,
 };
 #[cfg(target_os = "linux")]
 pub use linux::descriptor_path::read_descriptor_path;
@@ -246,7 +247,7 @@ pub use macos::SHELL_FOLDER_PROBES;
 #[cfg(target_os = "macos")]
 pub use macos::caller_process::{
     read_parent_process, read_peer_process, read_peer_process as unix_domain_peer_process,
-    read_responsible_process,
+    read_program_path, read_responsible_process,
 };
 #[cfg(target_os = "macos")]
 pub use macos::code_signature::DesktopClientRequirement;
@@ -367,11 +368,11 @@ pub use posix::file_system::DOES_HELD_FILE_REFUSE_RENAME;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::file_system::{
     CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableEntry, UnremovableFile, UnwritableEntry,
-    is_superuser, make_unreadable, make_unwritable,
+    is_superuser, make_file_link, make_unreadable, make_unwritable,
 };
 #[cfg(unix)]
 pub use posix::file_system::{
-    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, make_folder_link,
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, file_mode, has_file_mode, make_folder_link,
     open_regular_file, remove_tree, rename_replacing,
 };
 #[cfg(unix)]
@@ -528,7 +529,9 @@ pub use wake_helper::{WakeHelper, wake_helper};
 pub use wake_helper::{WakeHelperError, WakeHelperStatus};
 pub use wake_watch::WakeWatchError;
 pub use wall_clock::{WallClock, WallClockWait};
-pub use watch::{FileAppendWatch, FolderArrivalWait, FolderArrivalWatch};
+pub use watch::{
+    FileAppendWatch, FolderArrivalWait, FolderArrivalWatch, WATCHES_ARRIVALS_AND_APPENDS,
+};
 pub use windowless_app::WindowlessLaunch;
 #[cfg(target_os = "windows")]
 pub use windows::allocator::{
@@ -538,7 +541,8 @@ pub use windows::allocator::{
 pub use windows::askpass::askpass_listener;
 #[cfg(target_os = "windows")]
 pub use windows::caller_process::{
-    read_parent_process, read_peer_process, unix_domain_listener_process, unix_domain_peer_process,
+    read_parent_process, read_peer_process, read_program_path, unix_domain_listener_process,
+    unix_domain_peer_process,
 };
 #[cfg(target_os = "windows")]
 pub use windows::child_command::{
@@ -587,11 +591,11 @@ pub use windows::file_system::DOES_HELD_FILE_REFUSE_RENAME;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::file_system::{
     CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableEntry, UnremovableFile, UnwritableEntry,
-    is_superuser, make_unreadable, make_unwritable,
+    is_superuser, make_file_link, make_unreadable, make_unwritable,
 };
 #[cfg(target_os = "windows")]
 pub use windows::file_system::{
-    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, make_folder_link,
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, file_mode, has_file_mode, make_folder_link,
     open_regular_file, remove_tree, rename_replacing,
 };
 #[cfg(target_os = "windows")]

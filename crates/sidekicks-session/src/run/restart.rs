@@ -2,11 +2,13 @@
 //! person had asked to stop it or it was a child held when the daemon went down, interrupted or
 //! stopped with its limit when its log still owes one, left alone when it is queued behind a
 //! message still waiting to start it or is a lead the person paused, a lead's pause under way
-//! reached, failed otherwise. A run with open turns ends them as the daemon's own report, each turn
-//! a limit's interrupt row names with that limit's cause, the newest in the run's own write. And
+//! reached, failed otherwise; a provider's helper beneath a run whose stop wins reads interrupted,
+//! cut by the restart. A run with open turns ends them as the daemon's own report, each turn a
+//! limit's interrupt row names with that limit's cause, the newest in the run's own write. And
 //! how a run moves once a resume succeeded, from its state before the restart and what its
 //! provider holds of its turn: left while the provider runs or ends its turn or the run rests,
-//! paused out of `pausing`, and interrupted with `daemonRestart` where its turn is gone.
+//! paused out of `pausing`, and interrupted with `daemonRestart` where its turn is gone; a run
+//! a pending stop waits on, or a helper beneath one, is never resumed past that stop.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -26,8 +28,10 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{
     InterruptInterventionRecord, InterventionId, InterventionState, InterventionType, RunLimit,
 };
+use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::session_control::ProviderTurnAnswer;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
@@ -50,7 +54,8 @@ use crate::run::state_change::RunWriteCompanions;
 // run never holds one.
 static SELECT_PENDING_INTERRUPTS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT id, state, device_id, payload FROM interventions
+        "SELECT id, state, device_id, payload, expected_run_version, client_idempotency_key
+  FROM interventions
   WHERE target_run_id = @run_id
     AND type = '{}'
     AND state IN ('{}', '{}')
@@ -58,6 +63,16 @@ static SELECT_PENDING_INTERRUPTS_SQL: LazyLock<String> = LazyLock::new(|| {
         <&'static str>::from(InterventionType::Interrupt),
         <&'static str>::from(InterventionState::Requested),
         <&'static str>::from(InterventionState::Accepted)
+    )
+});
+
+// The run a provider's helper was dispatched beneath, whose process it runs in; no row for a run
+// reached any other way.
+static SELECT_HELPER_LEAD_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT parent_run_id FROM runs
+  WHERE run_id = @run_id AND reached_by = '{}'",
+        <&'static str>::from(ChildRunProvenance::ProviderSubagent)
     )
 });
 
@@ -137,8 +152,9 @@ static SELECT_TURN_CUTS_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// An interrupt a restart found with no outcome: its row, the state it leaves, who asked, and its
-/// stored record, which says whether the daemon was stopping the run at a limit.
+/// An interrupt a restart found with no outcome: its row, the state it leaves, who asked, its
+/// stored record, which says whether the daemon was stopping the run at a limit, and the version
+/// and key it was asked under.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PendingInterrupt {
     /// The intervention.
@@ -149,6 +165,10 @@ pub(crate) struct PendingInterrupt {
     pub(crate) actor: InterventionActor,
     /// Its stored record: a person's, or the daemon's own stop at a limit.
     pub(crate) record: InterruptInterventionRecord,
+    /// The run version it was asked against.
+    pub(crate) expected_run_version: SafeInt<0>,
+    /// The key it was asked under.
+    pub(crate) client_idempotency_key: ClientUuid,
 }
 
 /// An open turn the log shows a limit cut, with the highest-ranked limit whose mark names it: what
@@ -162,10 +182,10 @@ pub(crate) struct TurnCut {
 }
 
 /// What a restart reads of a live run to decide how it settles: its pending interrupts, the limit
-/// it still owes, every open turn a limit's interrupt row names as cut, and whether a message
-/// still waits in the queue for it. A turn's cause is its cut's and the row is a cut's one mark,
-/// so a restart ends each turn with the live path's limit, except where the turn's end races its
-/// stop's row.
+/// it still owes, every open turn a limit's interrupt row names as cut, whether it is stopping, and
+/// whether a message still waits in the queue for it. A turn's cause is its cut's and the row is a
+/// cut's one mark, so a restart ends each turn with the live path's limit, except where the turn's
+/// end races its stop's row.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RestartFacts {
     /// The run's interrupts with no outcome yet, in the order they were asked for.
@@ -175,6 +195,10 @@ pub(crate) struct RestartFacts {
     pub(crate) owed_limit: Option<RunLimit>,
     /// Each open turn a limit's interrupt row names as cut, oldest first.
     pub(crate) turn_cuts: Vec<TurnCut>,
+    /// Whether a stop wins over the run, its own or that of the run a provider's helper was
+    /// dispatched beneath, as read before any run of the session settled; never for a queued
+    /// run.
+    pub(crate) is_stopping: bool,
     /// Whether a queued message targets the run, which starts it when its queue reaches it.
     pub(crate) has_queued_item: bool,
 }
@@ -220,12 +244,14 @@ pub(crate) struct RestartDecision {
 }
 
 /// Reads what [`decide_restart_settlement`] needs of `run` on `reader`: a queued run's waiting
-/// messages, any other run's pending interrupts, the limit it still owes and its open turns'
-/// cuts. Fails when SQLite refuses a read or a stored row does not read as its type, an
-/// interrupt's record among them.
+/// messages, any other run's pending interrupts, the limit it still owes and its open turns' cuts,
+/// beside `is_stopping`, which the caller read before any run of the session settled, since a
+/// lead's own settle discharges the stop its helper waits on. Fails when SQLite refuses a read or
+/// a stored row does not read as its type, an interrupt's record among them.
 pub(crate) fn read_restart_facts(
     reader: &Connection,
     run: &LiveRun,
+    is_stopping: bool,
 ) -> rusqlite::Result<RestartFacts> {
     if run.run.state == RunState::Queued {
         let has_queued_item = !QueueItemReader::new(reader)
@@ -235,6 +261,7 @@ pub(crate) fn read_restart_facts(
             pending_interrupts: Vec::new(),
             owed_limit: None,
             turn_cuts: Vec::new(),
+            is_stopping: false,
             has_queued_item,
         });
     }
@@ -243,6 +270,7 @@ pub(crate) fn read_restart_facts(
         pending_interrupts,
         owed_limit,
         turn_cuts: read_turn_cuts(reader, &run.run_id)?,
+        is_stopping,
         has_queued_item: false,
     })
 }
@@ -356,12 +384,45 @@ pub(crate) fn settlement_by_stops(
         .map(limit_settlement)
 }
 
+/// Whether a stop of `run_id`'s own settles it at a restart, as [`settlement_by_stops`] reads its
+/// stops on `reader`; a lead's stop never counts for its helper. Fails when SQLite refuses a read
+/// or a stored row does not read as its type, a pending interrupt's record among them.
+pub fn read_has_own_stop(reader: &Connection, run_id: &RunId) -> rusqlite::Result<bool> {
+    let (pending_interrupts, owed_limit) = read_run_stops(reader, run_id)?;
+    Ok(settlement_by_stops(&pending_interrupts, owed_limit).is_some())
+}
+
+/// Whether `run_id` is stopping at a restart, read on `reader`: its own stops settle it, as
+/// [`read_has_own_stop`] reads them, or it is a provider's helper, at any depth, beneath a run
+/// whose stops do, since that stop ends the process the helper runs in. Fails when SQLite refuses a
+/// read or a stored row does not read as its type, a pending interrupt's record among them.
+pub fn read_is_run_stopping(reader: &Connection, run_id: &RunId) -> rusqlite::Result<bool> {
+    let mut run_id = *run_id;
+    loop {
+        if read_has_own_stop(reader, &run_id)? {
+            return Ok(true);
+        }
+        let lead = reader
+            .prepare_cached(&SELECT_HELPER_LEAD_SQL)?
+            .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
+                optional_text_column(row, 0, |text| RunId::new(&text))
+            })
+            .optional()?
+            .flatten();
+        match lead {
+            Some(lead) => run_id = lead,
+            None => return Ok(false),
+        }
+    }
+}
+
 /// Decides how `run` settles, or `None` for a run left as it is. A queued run is left while a
 /// message waits to start it and fails otherwise, since nothing else will. Any other run settles
-/// by its stops; with none, a child held in a pause the restart orphaned reads interrupted and
-/// continues from its own box, a paused lead stays paused, a pausing lead becomes paused, and any
-/// other run fails. Whatever settles the run, each open turn a limit's interrupt row names keeps
-/// that limit's cause.
+/// by its stops; with none, a provider's helper beneath a run whose stop wins reads interrupted
+/// with `daemonRestart`, cut by the restart, since that stop never reaches it; a child held in a
+/// pause the restart orphaned reads interrupted and continues from its own box, a paused lead
+/// stays paused, a pausing lead becomes paused, and any other run fails. Whatever settles the run,
+/// each open turn a limit's interrupt row names keeps that limit's cause.
 pub(crate) fn decide_restart_settlement(
     run: &LiveRun,
     facts: &RestartFacts,
@@ -375,6 +436,10 @@ pub(crate) fn decide_restart_settlement(
     // The person's pending interrupt, if any, is applied by the token limit's end in its write.
     let settlement = match settlement_by_stops(&facts.pending_interrupts, facts.owed_limit) {
         Some(settlement) => settlement,
+        // Stopping with no stop of its own: a helper whose lead's stop wins.
+        None if facts.is_stopping => RestartSettlement::Interrupted {
+            trigger: Some(InterruptReason::DaemonRestart),
+        },
         None => match (run.run.state, run.parent_run_id.is_some()) {
             (RunState::Paused | RunState::Pausing, true) => RestartSettlement::Interrupted {
                 trigger: Some(InterruptReason::DaemonRestart),
@@ -398,11 +463,12 @@ pub(crate) fn decide_restart_settlement(
 
 /// How a resume that succeeded moves a run a restart left live.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ResumedRunMove {
-    /// Left as it is: queued, resting, or waiting on its provider's own end of the turn or of
-    /// its ask.
+pub enum ResumedRunMove {
+    /// Left as it is: queued, resting, waiting on its provider's own end of the turn or of its
+    /// ask, or held on the person, whose answer continues it.
     Left,
-    /// Left as it is with its provider running its turn again, so the limits it owes go again.
+    /// Left as it is with its provider running its turn again, so the limits it owes and its
+    /// pending interrupts, a person's or a limit's, go again.
     Running,
     /// `pausing → paused`; its open turns end interrupted with `daemonRestart` where the turn is
     /// gone, and are otherwise left to the provider's own end.
@@ -410,19 +476,25 @@ pub(crate) enum ResumedRunMove {
         /// Whether the provider holds no turn of the run.
         is_turn_gone: bool,
     },
-    /// Its turn is gone: settled by its stops, else interrupted with `daemonRestart`.
+    /// Its turn is gone, or a stop it waits on wins over the resume: settled by its stops, else
+    /// interrupted with `daemonRestart`.
     TurnGone,
 }
 
-/// Decides how a resume that succeeded moves a run that read `state_before` before the restart,
-/// a child where `is_child`, from what its provider holds of its turn. A queued run is left
-/// whatever the answer. A turn still running leaves the run as it is, the provider going on; a
-/// turn its provider ended leaves the run to that end, except that `pausing` reaches its
-/// boundary. A gone turn interrupts the run, except that a lead's pause holds: `paused` stays and
-/// `pausing` becomes `paused`; a child's gone turn interrupts it in any state.
+/// Decides how a resume that succeeded moves a run that read `state_before` before the restart, a
+/// child where `is_child` and one a pending stop waits on where `is_stopping`, from what its
+/// provider holds of its turn. A queued run is left whatever the answer. A stop wins over the
+/// resume before any pause: a stopping run whose turn still runs, `paused` aside, goes on with the
+/// limits it owes and its pending interrupts handed again, and any other stopping run
+/// settles by its stops. A run held on the person is left as it is, its card or question kept. A
+/// turn still running leaves the run as it is, the provider going on; a turn its provider ended
+/// leaves the run to that end, except that `pausing` reaches its boundary. A gone turn interrupts
+/// the run, except that a lead's pause holds: `paused` stays and `pausing` becomes `paused`; a
+/// child's gone turn interrupts it in any state.
 pub(crate) fn decide_resumed_move(
     state_before: RunState,
     is_child: bool,
+    is_stopping: bool,
     answer: ProviderTurnAnswer,
 ) -> ResumedRunMove {
     match (state_before, answer) {
@@ -434,6 +506,16 @@ pub(crate) fn decide_resumed_move(
             | RunState::Failed,
             _,
         ) => ResumedRunMove::Left,
+        // A paused run's stop is never handed to a turn still running there: the stop ends it.
+        (
+            RunState::Starting
+            | RunState::Running
+            | RunState::WaitingForApproval
+            | RunState::WaitingForInput
+            | RunState::Pausing,
+            ProviderTurnAnswer::StillRunning,
+        ) if is_stopping => ResumedRunMove::Running,
+        _ if is_stopping => ResumedRunMove::TurnGone,
         (_, ProviderTurnAnswer::Gone) if is_child => ResumedRunMove::TurnGone,
         (RunState::Starting | RunState::Running, ProviderTurnAnswer::StillRunning) => {
             ResumedRunMove::Running
@@ -460,7 +542,10 @@ pub(crate) fn decide_resumed_move(
             | RunState::Paused,
             ProviderTurnAnswer::StillRunning | ProviderTurnAnswer::EndedByProvider,
         )
-        | (RunState::Paused, ProviderTurnAnswer::Gone) => ResumedRunMove::Left,
+        | (RunState::Paused, ProviderTurnAnswer::Gone)
+        // A run held on the person keeps its card or question; a pausing or paused lead answers
+        // `Waiting` only when its state moved after the driver read it, and is left as it now is.
+        | (_, ProviderTurnAnswer::Waiting) => ResumedRunMove::Left,
     }
 }
 
@@ -505,10 +590,10 @@ pub(crate) fn limit_turn_cause(limit: RunLimit) -> TurnEndCause {
     }
 }
 
-// The interrupts of `run_id` that have no outcome yet, read on `reader`, oldest first. Fails when
-// SQLite refuses the read or a stored column does not read as its type; a stored record that is
-// neither a person's interrupt nor the daemon's at a limit fails it too.
-fn read_pending_interrupts(
+/// The interrupts of `run_id` that have no outcome yet, read on `reader`, oldest first. Fails when
+/// SQLite refuses the read or a stored column does not read as its type; a stored record that is
+/// neither a person's interrupt nor the daemon's at a limit fails it too.
+pub(crate) fn read_pending_interrupts(
     reader: &Connection,
     run_id: &RunId,
 ) -> rusqlite::Result<Vec<PendingInterrupt>> {
@@ -526,6 +611,8 @@ fn read_pending_interrupts(
                 record: text_column(row, 3, |text| {
                     serde_json::from_str::<InterruptInterventionRecord>(&text)
                 })?,
+                expected_run_version: safe_int_column(row, 4)?,
+                client_idempotency_key: text_column(row, 5, ClientUuid::new)?,
             })
         })?
         .collect()

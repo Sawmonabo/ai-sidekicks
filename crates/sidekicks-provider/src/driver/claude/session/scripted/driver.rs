@@ -7,13 +7,12 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use secrecy::SecretString;
 use serde_json::{Map, json};
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::{
@@ -23,15 +22,16 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::Scheduler;
+use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use tempfile::TempDir;
-use tokio::sync::Notify;
+use tokio::sync::{Notify, watch};
 
 use super::channel::ScriptedChannel;
 use super::daemon_services::{
@@ -50,7 +50,9 @@ use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::ports::SessionRelaunchListener;
 use crate::driver::schema::schema_parts;
 use crate::driver::session_control::{CreateSessionParams, DriverResumeResult, SessionAccountPin};
-use crate::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
+use crate::driver::test_registry::{
+    new_agent_id, new_run_id, new_session_id, test_driver_services,
+};
 use crate::driver::{
     AccountFoldersError, CommandSandboxAvailability, CurrentProviderAccount, DriverServices,
     MissingSandboxPrerequisite, ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext,
@@ -291,7 +293,7 @@ impl SessionRelaunchListener for RecordedRelaunches {
     ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
         let binding_id = match result {
             DriverResumeResult::Resumed { binding_id, .. } => Some(binding_id),
-            DriverResumeResult::Failed { .. } => None,
+            DriverResumeResult::Failed { .. } | DriverResumeResult::Deferred { .. } => None,
         };
         lock(&self.taken).push((session_id, binding_id));
         self.reported.notify_waiters();
@@ -334,6 +336,9 @@ pub(crate) struct ScriptedDriver {
     pub(crate) step_bound: Arc<Mutex<Option<SafeInt<1>>>>,
     /// The shared services it was built over.
     pub(crate) services: DriverServices,
+    /// The wall clock its scheduler runs on, set to the present at the build; a job set for an
+    /// instant falls due only once a test moves it there.
+    pub(crate) wall_clock: Arc<TestWallClock>,
     /// The person's home.
     pub(crate) home: PathBuf,
     /// The folder every session runs in.
@@ -410,6 +415,8 @@ impl ScriptedDriver {
         let attachments = Arc::new(ScriptedAttachments::default());
         let bindings = Arc::new(TakenBindingWrites::default());
         let accounts = Arc::new(ScriptedAccounts::default());
+        let wall_clock = Arc::new(TestWallClock::default());
+        wall_clock.set_now(SystemTime::now());
         let base = DriverServices {
             attachments: attachments.clone(),
             staged_changes: scripted_staged_changes(),
@@ -426,6 +433,11 @@ impl ScriptedDriver {
                 folder.path().join("session-token"),
             )),
             runtime_bindings: Arc::clone(&bindings) as _,
+            scheduler: Arc::new(Scheduler::start(
+                Arc::clone(&wall_clock) as _,
+                None,
+                watch::channel(0).1,
+            )),
             ..test_driver_services()
         };
         let ports = &base.ports;
@@ -505,6 +517,7 @@ impl ScriptedDriver {
             advisors,
             step_bound,
             services: base,
+            wall_clock,
             home,
             work,
             folder,
@@ -615,7 +628,7 @@ pub(crate) fn end_turn_of(
 pub(crate) fn create_params(session_id: SessionId) -> CreateSessionParams {
     CreateSessionParams {
         session_id,
-        agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
+        agent_id: new_agent_id(),
         config: Map::new(),
         model: ProviderToken::new("opus".to_owned()).expect("the model fits"),
         effort: None,

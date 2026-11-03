@@ -92,8 +92,9 @@ fn contains(bytes: &[u8], text: &str) -> bool {
 // receipt outside the delete's write or naming another range, a count of live runs that only run
 // state changes move (the purged run stays counted), a purge that keeps the session's storage
 // folder (its capture folder and the run's snapshot refs stay), a window's shadow links left (the
-// windows' delete is refused, so the session is not removed), and a session's shadows, volume
-// folders or kept undo outcomes left.
+// windows' delete is refused, so the session is not removed), a session's shadows, volume folders
+// or kept undo outcomes left, and any of the messaging deletes left out (its row on the session, at
+// either end of a pair, stays, and the reminder's note keeps the marker).
 #[tokio::test]
 async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log() {
     let fixture = purge_fixture().await;
@@ -176,6 +177,40 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
             ],
         )
         .expect("the test records a key a `Send now` spent");
+    let (session_text, survivor_text) = (session_id.text(), survivor.text());
+    let (session, other) = (session_text.as_str(), survivor_text.as_str());
+    let (lower, higher) = if session < other {
+        (session, other)
+    } else {
+        (other, session)
+    };
+    let at = "2026-10-02T00:00:30.000Z";
+    for (sql, row) in [
+        (
+            "INSERT INTO session_exchanges (session_id, peer_session_id, messages_since_user_wrote,
+               started_at, updated_at) VALUES (?1, ?2, 1, ?3, ?3)",
+            [lower, higher, at],
+        ),
+        (
+            "INSERT INTO session_paused_message_queue (target_session_id, arrival_sequence,
+               source_session_id, source_event_id, arrived_at) VALUES (?1, 1, ?2, 'e-1', ?3)",
+            [other, session, at],
+        ),
+        (
+            "INSERT INTO session_waits (session_id, tool_call_id, awaited_session_id, form,
+               created_at) VALUES (?1, 'call-1', ?2, 'held', ?3)",
+            [other, session, at],
+        ),
+        (
+            "INSERT INTO session_reminders (id, session_id, note, set_at, due_at)
+               VALUES ('r-1', ?1, ?2, ?3, ?3)",
+            [session, MARKER, at],
+        ),
+    ] {
+        reader
+            .execute(sql, row)
+            .expect("the test stores a messaging row");
+    }
     let (checkpoint_id, window_id, shadow_id) = (
         mint_uuid_v7().to_string(),
         mint_uuid_v7().to_string(),
@@ -202,9 +237,7 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
              INSERT INTO session_restores (client_idempotency_key, session_id, outcome,
                created_at)
              VALUES ('{restore_key}', '{session}', '{{\"note\":\"{MARKER}\"}}', '{at}');",
-            session = session_id.text().as_str(),
             lead_run = lead_run_id.text().as_str(),
-            at = "2026-10-02T00:00:30.000Z",
             restore_key = mint_uuid_v7(),
         ))
         .expect("the test records a checkpoint, an open window, its shadow and an undo's outcome");
@@ -278,6 +311,17 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
         ("checkpoint_shadows WHERE session_id = ?1", session),
         ("checkpoint_volume_folders WHERE session_id = ?1", session),
         ("session_restores WHERE session_id = ?1", session),
+        // The session's messaging rows, at either end of a pair.
+        (
+            "session_exchanges WHERE session_id = ?1 OR peer_session_id = ?1",
+            session,
+        ),
+        (
+            "session_paused_message_queue WHERE source_session_id = ?1",
+            session,
+        ),
+        ("session_waits WHERE awaited_session_id = ?1", session),
+        ("session_reminders WHERE session_id = ?1", session),
     ] {
         let left: i64 = reader
             .query_row(&format!("SELECT COUNT(*) FROM {rows}"), [id], |row| {

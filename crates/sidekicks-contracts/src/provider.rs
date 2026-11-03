@@ -1,10 +1,12 @@
-//! Providers: ids, accounts, driver declarations, drivers, settings, installs, imports, tools.
+//! Providers: ids, accounts, driver declarations, drivers, the hook method, settings, installs,
+//! imports, tools.
 
 use crate::typescript::TypeScriptModule;
 
 pub mod account;
 pub mod declaration;
 pub mod driver;
+pub mod hook;
 pub mod id;
 pub mod import;
 pub mod install;

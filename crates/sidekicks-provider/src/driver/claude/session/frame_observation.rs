@@ -23,6 +23,7 @@ use crate::driver::claude::session::transport::declarations::{
 };
 use crate::driver::claude::tools::normalize_claude_mcp_server_init_census;
 use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
+use crate::record_readers::filter_non_empty;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 // The hook events whose run Claude Code reports while it starts, which `initialize`'s wait does
@@ -58,6 +59,8 @@ pub(crate) struct ClaudeStreamFrameRead {
     #[serde(default, deserialize_with = "read_lenient")]
     parent_task_id: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
+    subagent_type: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
     is_backgrounded: Option<bool>,
     #[serde(default, deserialize_with = "read_lenient")]
     patch: Option<ClaudeTaskPatch>,
@@ -66,7 +69,7 @@ pub(crate) struct ClaudeStreamFrameRead {
     #[serde(default, deserialize_with = "read_lenient")]
     usage: Option<ClaudeTokenUsage>,
     #[serde(default, deserialize_with = "read_lenient")]
-    commands: Option<LenientList<ClaudeListedCommand>>,
+    commands: Option<LenientList<ClaudeChangedCommand>>,
     #[serde(default, deserialize_with = "read_lenient")]
     slash_commands: Option<LenientList<String>>,
     #[serde(default, deserialize_with = "read_lenient")]
@@ -135,9 +138,9 @@ struct ClaudeTokenUsage {
     output_tokens: Option<Box<RawValue>>,
 }
 
-// One entry of a whole `/` list.
+// One entry of the whole `/` list a `system/commands_changed` frame carries.
 #[derive(Deserialize)]
-struct ClaudeListedCommand {
+struct ClaudeChangedCommand {
     #[serde(default, deserialize_with = "read_lenient")]
     name: Option<String>,
 }
@@ -148,7 +151,7 @@ lenient_object!(
     ClaudeResultBlock,
     ClaudeTaskPatch,
     ClaudeTokenUsage,
-    ClaudeListedCommand
+    ClaudeChangedCommand
 );
 
 impl ClaudeStreamFrameRead {
@@ -171,7 +174,7 @@ impl ClaudeStreamFrameRead {
         if self.frame_type() != "system" {
             return None;
         }
-        let hook_id = non_empty(self.hook_id.clone())?;
+        let hook_id = filter_non_empty(self.hook_id.clone())?;
         match self.subtype.as_deref() {
             Some("hook_started")
                 if self
@@ -208,7 +211,7 @@ impl ClaudeStreamFrameRead {
             .flatten()
             .and_then(|message| {
                 Some(ClaudeMessageUsageObservation {
-                    message_id: non_empty(message.id.clone())?,
+                    message_id: filter_non_empty(message.id.clone())?,
                     counts: read_token_counts(message.usage.as_ref()?)?,
                 })
             });
@@ -219,7 +222,7 @@ impl ClaudeStreamFrameRead {
                 commands
                     .0
                     .iter()
-                    .filter_map(|command| non_empty(command.name.clone()))
+                    .filter_map(|command| filter_non_empty(command.name.clone()))
                     .collect()
             });
         let subagent_lifecycle = self.read_helper_lifecycle(&frame_kind);
@@ -231,13 +234,13 @@ impl ClaudeStreamFrameRead {
                     .0
                     .iter()
                     .filter(|block| block.block_type.as_deref() == Some("tool_result"))
-                    .filter_map(|block| non_empty(block.tool_use_id.clone()))
+                    .filter_map(|block| filter_non_empty(block.tool_use_id.clone()))
                     .collect()
             })
             .unwrap_or_default();
         let backgrounded_helper_id = (frame_kind == "system/task_updated"
             && self.patch.as_ref().and_then(|patch| patch.is_backgrounded) == Some(true))
-        .then(|| non_empty(self.task_id.clone()))
+        .then(|| filter_non_empty(self.task_id.clone()))
         .flatten();
         let handshake = (frame_kind == "system/init").then(|| self.read_handshake());
         let compaction_boundary = (frame_kind == "system/compact_boundary"
@@ -249,7 +252,8 @@ impl ClaudeStreamFrameRead {
             boundary_position: None,
         });
         ClaudeInboundFrameObservation {
-            subagent_id: non_empty(self.agent_id).or_else(|| non_empty(self.parent_tool_use_id)),
+            subagent_id: filter_non_empty(self.agent_id)
+                .or_else(|| filter_non_empty(self.parent_tool_use_id)),
             frame_kind,
             cumulative_usage,
             message_usage,
@@ -265,8 +269,8 @@ impl ClaudeStreamFrameRead {
     fn read_handshake(&self) -> ClaudeHandshakeDeclaration {
         ClaudeHandshakeDeclaration {
             fast_mode: ClaudeFastModeDeclaration {
-                fast_mode_state: non_empty(self.fast_mode_state.clone()),
-                fast_mode_disabled_reason: non_empty(self.fast_mode_disabled_reason.clone()),
+                fast_mode_state: filter_non_empty(self.fast_mode_state.clone()),
+                fast_mode_disabled_reason: filter_non_empty(self.fast_mode_disabled_reason.clone()),
             },
             slash_commands: list_of(self.slash_commands.as_ref()),
             skills: list_of(self.skills.as_ref()),
@@ -282,7 +286,7 @@ impl ClaudeStreamFrameRead {
     // A helper's start from its `task_started`, and its end from the `task_notification` of the
     // task the frame names; a background command's task reads as no helper.
     fn read_helper_lifecycle(&self, frame_kind: &str) -> Option<ClaudeSubagentLifecycleSignal> {
-        let subagent_id = non_empty(self.task_id.clone())?;
+        let subagent_id = filter_non_empty(self.task_id.clone())?;
         let signal = match frame_kind {
             "system/task_started" if self.task_type.as_deref() == Some(CLAUDE_HELPER_TASK_TYPE) => {
                 ClaudeSubagentSignal::SubagentStart
@@ -293,8 +297,11 @@ impl ClaudeStreamFrameRead {
         Some(ClaudeSubagentLifecycleSignal {
             signal,
             subagent_id,
-            parent_tool_use_id: non_empty(self.tool_use_id.clone()),
-            parent_task_id: non_empty(self.parent_task_id.clone()),
+            parent_tool_use_id: filter_non_empty(self.tool_use_id.clone()),
+            parent_task_id: filter_non_empty(self.parent_task_id.clone()),
+            subagent_type: (signal == ClaudeSubagentSignal::SubagentStart)
+                .then(|| filter_non_empty(self.subagent_type.clone()))
+                .flatten(),
             is_foreground: self.is_backgrounded == Some(false),
         })
     }
@@ -320,8 +327,4 @@ fn read_count(member: Option<&RawValue>) -> Option<u64> {
 
 fn list_of(list: Option<&LenientList<String>>) -> Vec<String> {
     list.map(|list| list.0.clone()).unwrap_or_default()
-}
-
-fn non_empty(text: Option<String>) -> Option<String> {
-    text.filter(|text| !text.is_empty())
 }

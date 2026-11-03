@@ -229,6 +229,7 @@ mod tests {
             },
             ask_id: None,
             tool_call_id: None,
+            input_digest: None,
             state: ApprovalState::Approved,
             created_at: at.clone(),
             updated_at: at,

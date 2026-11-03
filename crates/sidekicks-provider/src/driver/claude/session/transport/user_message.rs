@@ -1,10 +1,12 @@
 //! The user message a Claude Code process reads on its input in streaming-input mode: the words,
 //! with any pictures as their own blocks, under the uuid a withdraw and a conversation cut address
-//! it by; and how far a failed write of one got.
+//! it by; the reset words refused before one is written; and how far a failed write of one got.
 
 use std::io;
 
 use serde::{Deserialize, Serialize};
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_ipc::domain_error::DomainError;
 
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 
@@ -148,6 +150,33 @@ pub(crate) fn compose_claude_user_frame(
     }
 }
 
+/// The first tokens Claude Code runs as its own command that clears the conversation, matched
+/// whole and in this case.
+const CLAUDE_RESET_WORDS: [&str; 3] = ["/clear", "/reset", "/new"];
+
+/// The sentence a message refused as a reset carries.
+pub(crate) const CLAUDE_RESET_REFUSAL_SENTENCE: &str =
+    "A session is not reset in place. Start a new session instead.";
+
+/// Whether unmarked text, a person's or a driver command's, would reset the session: its whole
+/// first token, ending at the text's end or at whitespace, is a reset word. Leading whitespace,
+/// another case or a longer word reaches the model as written, as does narration, whose composed
+/// mark stops a command from running, so a caller skips the check for narration.
+pub(crate) fn is_reset_request(text: &str) -> bool {
+    text.split(char::is_whitespace)
+        .next()
+        .is_some_and(|first_token| CLAUDE_RESET_WORDS.contains(&first_token))
+}
+
+/// The `session.message.resetRefused` refusal of a message that would reset the session, which
+/// is never reset in place.
+pub(crate) fn reset_refusal() -> DomainError {
+    DomainError::new(
+        CLAUDE_RESET_REFUSAL_SENTENCE,
+        RefusalCode::SessionMessageResetRefused,
+    )
+}
+
 /// How far a failed write got: nothing written, or anything at or after the hand-off, since a
 /// partial line can be read as a whole message.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -171,4 +200,35 @@ pub(crate) enum ClaudeWriteAttempt {
         /// Why.
         cause: io::Error,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::is_reset_request;
+
+    // Killed by dropping the check (every refused row passes), by a prefix match (`/clearance`
+    // and `/news` are refused), by a case-insensitive match (`/CLEAR` is), by trimming leading
+    // whitespace (` /clear` is) and by reading a later line (`/clear` on the second line is).
+    #[rstest]
+    #[case::clear("/clear", true)]
+    #[case::reset("/reset", true)]
+    #[case::new("/new", true)]
+    #[case::before_a_space("/clear now", true)]
+    #[case::before_a_tab("/new\tx", true)]
+    #[case::before_a_line_break("/reset\nand go on", true)]
+    #[case::another_case("/CLEAR", false)]
+    #[case::longer_word("/clearance", false)]
+    #[case::longer_new("/news", false)]
+    #[case::leading_whitespace(" /clear", false)]
+    #[case::no_slash("clear", false)]
+    #[case::empty("", false)]
+    #[case::second_line("go on\n/clear", false)]
+    fn a_reset_request_is_a_whole_first_token_that_is_a_reset_word(
+        #[case] text: &str,
+        #[case] is_refused: bool,
+    ) {
+        assert_eq!(is_reset_request(text), is_refused, "{text:?}");
+    }
 }

@@ -14,14 +14,13 @@ use std::time::Duration;
 
 use futures::FutureExt;
 use serde_json::Value;
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::provider::driver::capabilities::{CredentialPolicyRef, ExecutionPosture};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
@@ -65,7 +64,7 @@ use crate::driver::claude::session::transport::inbound::{
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::session_control::CreateSessionParams;
-use crate::driver::test_registry::{new_run_id, new_session_id};
+use crate::driver::test_registry::{new_agent_id, new_run_id, new_session_id};
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::runtime_binding::test_store::{spawned_build, test_provider_account_id};
@@ -99,7 +98,7 @@ pub(crate) fn scripted_live_session(
     let choices = unreadable_claude_command_choices("unread");
     LiveClaudeSession {
         session_id,
-        agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
+        agent_id: new_agent_id(),
         provider_session_id: SCRIPTED_PROVIDER_SESSION_ID.to_owned(),
         channel,
         spawn_binding: ClaudeSpawnBinding {
@@ -189,6 +188,8 @@ pub(crate) struct ScriptedSession {
     pub(crate) interventions: Arc<ClaudeInterventions>,
     /// The words waiting for each helper.
     pub(crate) helper_steers: Arc<Mutex<ClaudeHelperSteers>>,
+    /// The wall clock the driver's scheduler runs on, which a test moves.
+    pub(crate) wall_clock: Arc<TestWallClock>,
     listener: Arc<dyn ClaudeProcessListener>,
     control_frames: Mutex<ClaudeControlFrameReader>,
     // The home, working folder and database the session's start read from.
@@ -215,6 +216,7 @@ impl ScriptedSession {
             ports,
             usage,
             attachments,
+            wall_clock,
             folder,
             database,
             ..
@@ -265,6 +267,7 @@ impl ScriptedSession {
             requests: Arc::clone(&services.requests),
             interventions: Arc::clone(&parts.interventions),
             helper_steers: Arc::clone(&services.helper_steers),
+            wall_clock,
             parts,
             listener: started.listener,
             control_frames: Mutex::new(control_frames),
@@ -339,6 +342,7 @@ impl ScriptedSession {
                 agent_id: agent_id.to_owned(),
                 parent_run_id,
                 binding_id: binding_id("helper"),
+                is_refused: false,
             },
         );
         run_id

@@ -60,6 +60,8 @@ pub(crate) struct RecordedDelivery {
     pub(crate) is_daemon_interrupt_end: bool,
     /// The run a child run delivery starts beneath.
     pub(crate) parent_run_id: Option<RunId>,
+    /// The helper a child run delivery is for.
+    pub(crate) subagent: Option<crate::run::delivery::ChildRunSubagent>,
     /// The row a session row delivery appends.
     pub(crate) row: Option<LateAppendableRow>,
     /// The session a notice names.
@@ -80,6 +82,8 @@ pub(crate) enum EngineCall {
     CountStep(RunId),
     /// A turn's end that moves no run.
     RecordTurnEnd(RunId, TurnOutcome),
+    /// A turn's end the daemon wrote with no provider frame, by the turn's number.
+    RecordDaemonTurnEnd(RunId, SafeInt<1>, TurnOutcome),
     /// A turn the daemon or the provider started itself, as the minted run.
     StartDaemonTurn(RunId),
     /// A run's turn ended on its process's exit.
@@ -121,6 +125,7 @@ impl RecordingRunEngine {
                 EngineCall::StartTurn(..)
                 | EngineCall::CountStep(_)
                 | EngineCall::RecordTurnEnd(..)
+                | EngineCall::RecordDaemonTurnEnd(..)
                 | EngineCall::StartDaemonTurn(_)
                 | EngineCall::EndTurnOnProcessExit(_)
                 | EngineCall::EndTurnOnClose(_) => None,
@@ -145,6 +150,19 @@ impl RecordingRunEngine {
             .collect()
     }
 
+    /// Whether each run lifecycle delivery for `run_id` so far ends the daemon's own interrupt, in
+    /// order.
+    pub(crate) fn daemon_interrupt_ends_of_run(&self, run_id: RunId) -> Vec<bool> {
+        self.deliveries()
+            .into_iter()
+            .filter(|delivery| {
+                delivery.kind == "runLifecycle"
+                    && delivery.change.as_ref().map(|change| change.run_id) == Some(run_id)
+            })
+            .map(|delivery| delivery.is_daemon_interrupt_end)
+            .collect()
+    }
+
     /// The run of the first turn the daemon or the provider started on a session itself, if any.
     pub(crate) fn first_daemon_turn_run(&self) -> Option<RunId> {
         self.calls().into_iter().find_map(|call| match call {
@@ -153,6 +171,7 @@ impl RecordingRunEngine {
             | EngineCall::StartTurn(..)
             | EngineCall::CountStep(_)
             | EngineCall::RecordTurnEnd(..)
+            | EngineCall::RecordDaemonTurnEnd(..)
             | EngineCall::EndTurnOnProcessExit(_)
             | EngineCall::EndTurnOnClose(_) => None,
         })
@@ -343,6 +362,20 @@ impl RunHost for RecordingRunEngine {
         async { Ok(true) }.boxed()
     }
 
+    fn record_daemon_turn_end(
+        &self,
+        run_id: RunId,
+        turn_number: SafeInt<1>,
+        outcome: TurnOutcome,
+    ) -> BoxFuture<'_, Result<bool, RunHostError>> {
+        self.record(EngineCall::RecordDaemonTurnEnd(
+            run_id,
+            turn_number,
+            outcome,
+        ));
+        async { Ok(true) }.boxed()
+    }
+
     fn record_settled_output_speed(
         &self,
         _session_id: SessionId,
@@ -412,6 +445,7 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
         ended_turn_number: None,
         is_daemon_interrupt_end: false,
         parent_run_id: None,
+        subagent: None,
         row: None,
         session_id: None,
         payload: None,
@@ -441,10 +475,12 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
         InboundDelivery::ChildRun {
             binding,
             parent_run_id,
+            subagent,
         } => {
             recorded.kind = "childRun";
             recorded.binding_id = Some(binding.binding_id.clone());
             recorded.parent_run_id = Some(*parent_run_id);
+            recorded.subagent = Some(subagent.clone());
         }
         InboundDelivery::RunMarker { binding, .. } => {
             recorded.kind = "runMarker";
@@ -468,8 +504,11 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
             recorded.payload = Some(match row {
                 SessionScopedRow::SideQuestionAnswered(payload) => payload_of(payload),
                 SessionScopedRow::UsageTokenCountRecorded(payload) => payload_of(payload),
+                SessionScopedRow::UsageCostUpdated(costs) => payload_of(costs),
                 SessionScopedRow::AdvisorChanged(payload) => payload_of(payload),
                 SessionScopedRow::OutputStyleChanged(payload) => payload_of(payload),
+                SessionScopedRow::GoalUpdated(payload) => payload_of(payload),
+                SessionScopedRow::GoalCleared(payload) => payload_of(payload),
             });
         }
         InboundDelivery::MachineEvent { row } => {

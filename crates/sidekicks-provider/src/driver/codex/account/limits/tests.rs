@@ -33,7 +33,9 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::contract::account::{ProviderObservation, ProviderObserveLegs};
 use crate::driver::schema::schema_parts;
 use crate::driver::test_registry::NothingServed;
-use crate::port::usage_sink::{MeteredUsage, ProviderQuotaWindow, UsageSink};
+use crate::port::usage_sink::{
+    MeteredUsage, PricedRequest, ProviderQuotaWindow, RecordedUsage, UsageSink,
+};
 use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
@@ -65,8 +67,15 @@ impl UsageSink for RecordedWindows {
     fn record_metered(
         &self,
         _metered: MeteredUsage,
+    ) -> BoxFuture<'_, Result<Option<RecordedUsage>, Box<dyn Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
+    }
+
+    fn record_cost(
+        &self,
+        _request: PricedRequest,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        async { Ok(()) }.boxed()
+        async { Err("the recorded windows price no request".into()) }.boxed()
     }
 
     fn record_quota_windows(

@@ -237,6 +237,45 @@ async fn an_edit_keeps_every_other_byte_and_a_block_moves_the_allow_out() {
     );
 }
 
+// A block on a command stands in the first folder's file; an allow for the same command moves it
+// out and lands there, then fails on the second folder's file, which is no settings object, so the
+// rollback puts the first file back byte for byte with the block in it. Killed by a take-back that
+// only takes the allow's entries out.
+#[tokio::test]
+async fn a_failed_writes_rollback_brings_back_the_entry_it_moved() {
+    let first = tempfile::tempdir().expect("a project folder");
+    let second = tempfile::tempdir().expect("a project folder");
+    let home = tempfile::tempdir().expect("a home folder");
+    let block_text = "{\"permissions\": {\"deny\": [\"Bash(rm *)\"]}}";
+    for (folder, text) in [(first.path(), block_text), (second.path(), "[]")] {
+        let file = local_settings(folder);
+        fs::create_dir_all(file.parent().expect("the file has a folder"))
+            .expect("the folder is made");
+        fs::write(&file, text).expect("the file is written");
+    }
+    let folders = [first.path(), second.path()].map(|working_folder| ClaudeProjectFolder {
+        working_folder,
+        repository: None,
+    });
+
+    let outcome = write_claude_project_rule(
+        &folders,
+        home.path(),
+        PathRules::Posix,
+        &allow_command("rm"),
+        None,
+    )
+    .await;
+
+    let failure = outcome.expect_err("the second file is refused");
+    assert!(matches!(
+        failure.original(),
+        ClaudeRulesError::SettingsFile(ClaudeSettingsFileError::Refused { .. })
+    ));
+    assert!(failure.cleanup_failures().is_empty());
+    assert_eq!(read(&local_settings(first.path())), block_text);
+}
+
 #[rstest]
 #[case::a_comment("{\"permissions\": {} // mine\n}")]
 #[case::a_trailing_comma("{\"permissions\": {\"allow\": [],}}")]
@@ -273,8 +312,11 @@ async fn a_file_that_is_not_a_strict_settings_object_is_refused_unchanged(#[case
     assert_eq!(read(&file), text);
 }
 
+// Killed by a revoke that edits a managed file or a drop-in, that clears the person's files while
+// a managed file keeps the rule, that leaves the shared, user or local file's copy, or that
+// answers a rule no file holds as removed.
 #[tokio::test]
-async fn a_revoke_of_a_rule_a_file_the_daemon_does_not_edit_keeps_names_it_and_changes_nothing() {
+async fn a_revoke_clears_every_file_the_person_keeps_and_is_refused_where_managed_keeps_it() {
     let folder = tempfile::tempdir().expect("a project folder");
     let config_folder = tempfile::tempdir().expect("a config folder");
     let shared_file = folder.path().join(".claude").join("settings.json");
@@ -307,9 +349,13 @@ async fn a_revoke_of_a_rule_a_file_the_daemon_does_not_edit_keeps_names_it_and_c
         "{\"permissions\": {\"allow\": [\"Bash(just *)\"]}}",
     )
     .expect("the drop-in is written");
-    // The local file holds the rule the shared file keeps, which the revoke leaves in place.
-    let local_text = "{\"permissions\": {\"allow\": [\"Bash(npm test *)\"]}}";
-    fs::write(local_settings(folder.path()), local_text).expect("the local file is written");
+    // The local file holds the rule the shared file keeps, and the managed one the drop-in keeps.
+    fs::write(
+        local_settings(folder.path()),
+        "{\"permissions\": {\"allow\": [\"Bash(npm test *)\", \"Bash(just *)\"]}}",
+    )
+    .expect("the local file is written");
+    let managed_text = read(&managed_file);
     let other_folder = tempfile::tempdir().expect("another project folder");
     let folders = [folder.path(), other_folder.path()].map(|working_folder| ClaudeProjectFolder {
         working_folder,
@@ -337,14 +383,8 @@ async fn a_revoke_of_a_rule_a_file_the_daemon_does_not_edit_keeps_names_it_and_c
         nowhere,
     ] = <[_; 5]>::try_from(outcomes).expect("five revokes ran");
 
-    assert!(matches!(
-        in_shared_file,
-        Err(ClaudeRulesError::RuleInUneditedFile { path }) if path == shared_file
-    ));
-    assert!(matches!(
-        in_user_file,
-        Err(ClaudeRulesError::RuleInUneditedFile { path }) if path == user_file
-    ));
+    assert!(in_shared_file.is_ok(), "{in_shared_file:?}");
+    assert!(in_user_file.is_ok(), "{in_user_file:?}");
     assert!(matches!(
         in_managed_file,
         Err(ClaudeRulesError::RuleInUneditedFile { path }) if path == managed_file
@@ -354,7 +394,11 @@ async fn a_revoke_of_a_rule_a_file_the_daemon_does_not_edit_keeps_names_it_and_c
         Err(ClaudeRulesError::RuleInUneditedFile { path }) if path == drop_in_file
     ));
     assert!(matches!(nowhere, Err(ClaudeRulesError::RuleNotFound)));
-    assert_eq!(read(&local_settings(folder.path())), local_text);
+    assert!(!read(&shared_file).contains("npm test"));
+    assert!(!read(&user_file).contains("cargo build"));
+    let local_text = read(&local_settings(folder.path()));
+    assert!(!local_text.contains("npm test") && local_text.contains("Bash(just *)"));
+    assert_eq!(read(&managed_file), managed_text);
     assert!(!local_settings(other_folder.path()).exists());
 }
 

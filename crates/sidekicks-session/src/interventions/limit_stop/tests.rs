@@ -2,6 +2,8 @@
 //! test harness: its row, its bound and late outcome, its read before the dispatch, and the
 //! hand of a limit a run owes once the provider runs again.
 
+mod restart;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
@@ -56,14 +58,15 @@ use crate::run::provider_choice::{
 };
 use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
-// Records an `accepted` interrupt of the harness's run at `limit`, accepted at version 1, as
-// its write would, and answers its id.
-fn record_accepted_row(harness: &Harness, limit: RunLimit) -> InterventionId {
-    let record = serde_json::to_string(&LimitInterruptRecord {
-        limit,
-        turn_number: None,
-    })
-    .expect("a limit's record serializes");
+// Records an `accepted` interrupt of the harness's run at `limit`, naming the cut `turn_number`,
+// accepted at version 1, as its write would, and answers its id.
+fn record_accepted_row(
+    harness: &Harness,
+    limit: RunLimit,
+    turn_number: Option<SafeInt<1>>,
+) -> InterventionId {
+    let record = serde_json::to_string(&LimitInterruptRecord { limit, turn_number })
+        .expect("a limit's record serializes");
     let id = mint_uuid_v7().to_string();
     harness
         .database
@@ -205,7 +208,7 @@ async fn a_limits_row_is_never_refused_and_its_failure_says_what_it_left(
 #[tokio::test]
 async fn a_second_interrupt_of_one_limit_is_refused_while_one_is_pending() {
     let harness = harness(MockProviderDriver::new()).await;
-    record_accepted_row(&harness, RunLimit::SpendLimit);
+    record_accepted_row(&harness, RunLimit::SpendLimit, None);
 
     let handed = harness
         .service
@@ -442,7 +445,7 @@ async fn an_accepted_limit_reads_the_run_before_it_dispatches(
     #[case] is_handed: bool,
 ) {
     let harness = harness(MockProviderDriver::new()).await;
-    let intervention_id = record_accepted_row(&harness, limit);
+    let intervention_id = record_accepted_row(&harness, limit, None);
     match run_after_accept {
         RunAfterAccept::EndedAndContinued => {
             let ended = harness

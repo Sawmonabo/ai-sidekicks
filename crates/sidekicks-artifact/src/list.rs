@@ -1,7 +1,11 @@
 //! A session's artifact list: every plan the agent finished, with the state word its plan record
 //! holds, and every file and folder a chat wrote, listed once with its newest version and how many
-//! versions it has. Any other artifact (an attachment, a client's log or diff) is no entry. A
-//! hand-off's seed plan, written again in the fresh session, lists there as accepted.
+//! versions it has. Any other artifact (an attachment, a client's log or diff) is no entry.
+//!
+//! A hand-off's seed plan, written again in the fresh session, lists there as accepted, from the
+//! fresh session's hand-off row once the planning session's purge has deleted the plan row. A plan
+//! manifest with neither row is no entry, since an entry needs its title. A fresh session whose
+//! hand-off ended before its first turn keeps its seed manifest, which lists the plan's own word.
 
 use std::sync::LazyLock;
 
@@ -19,15 +23,20 @@ use crate::manifest_write::{MANIFEST_COLUMN_COUNT, MANIFEST_COLUMNS, read_manife
 use crate::refusals::ArtifactError;
 
 // The session's plans, oldest first, each with the word its record holds, or accepted where this
-// session is the one the plan was handed off to.
+// session is the one the plan was handed off to. A seed plan whose plan row is gone takes its title
+// from this session's hand-off row and lists accepted; a plan manifest with neither row is left
+// out, since an entry's title is required.
 static PLAN_ENTRIES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {MANIFEST_COLUMNS}, plans.id, plans.title,
-       CASE WHEN plans.fresh_session_id = manifests.session_id THEN '{accepted}'
-            ELSE plans.state END
+        "SELECT {MANIFEST_COLUMNS}, manifests.plan_id, COALESCE(plans.title, hand_off.title),
+       CASE WHEN plans.id IS NULL OR plans.fresh_session_id = manifests.session_id
+            THEN '{accepted}' ELSE plans.state END
   FROM artifact_manifests AS manifests
-  JOIN plans ON plans.id = manifests.plan_id
-  WHERE manifests.session_id = @sessionId
+  LEFT JOIN plans ON plans.id = manifests.plan_id
+  LEFT JOIN session_hand_offs AS hand_off
+    ON hand_off.session_id = manifests.session_id AND hand_off.plan_id = manifests.plan_id
+  WHERE manifests.session_id = @sessionId AND manifests.plan_id IS NOT NULL
+    AND (plans.id IS NOT NULL OR hand_off.session_id IS NOT NULL)
   ORDER BY manifests.created_at, manifests.id",
         accepted = <&'static str>::from(PlanState::Accepted)
     )

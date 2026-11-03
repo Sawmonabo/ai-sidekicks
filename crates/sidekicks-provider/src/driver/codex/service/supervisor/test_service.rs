@@ -247,6 +247,7 @@ pub(crate) fn test_codex_service_dependencies(
         program,
         data_folder: folder.join("data"),
         logs_folder: folder.join("logs"),
+        personal_home: folder.join("personal"),
         additional_config_overrides: Vec::new(),
         startup_timeout: CODEX_SERVICE_STARTUP_TIMEOUT,
         dispatches_hook_mode: TEST_DISPATCHES_HOOK_MODE,
@@ -346,8 +347,18 @@ pub(crate) fn start_scripted_terminal_service() -> ScriptedCodexService {
     )
 }
 
-// A service of `kind` on a home of `home_kind` whose connection the test scripts, a start of its
-// own running `program`, telling `events` what happens to it.
+/// Starts a service on the person's own folder that is not the daemon's, which it only joins, its
+/// connection scripted by the test. Must be called within a runtime.
+#[cfg(test)]
+pub(crate) fn start_scripted_joined_service() -> ScriptedCodexService {
+    start_scripted_codex_service_on(
+        CodexHomeKind::PersonalFolder,
+        CodexServiceKind::Joined,
+        Arc::new(UnstartedProgram),
+        Arc::new(UnheardEvents),
+    )
+}
+
 /// Starts the switching service, on the switching home under its data folder, whose connection
 /// the test scripts. Must be called within a runtime.
 #[cfg(test)]
@@ -360,6 +371,8 @@ pub(crate) fn start_scripted_switching_service() -> ScriptedCodexService {
     )
 }
 
+// A service of `kind` on a home of `home_kind` whose connection the test scripts, a start of its
+// own running `program`, telling `events` what happens to it.
 fn start_scripted_codex_service_on(
     home_kind: CodexHomeKind,
     kind: CodexServiceKind,

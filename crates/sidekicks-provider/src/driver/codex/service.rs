@@ -14,7 +14,7 @@ mod process;
 pub(super) mod program;
 mod record;
 pub(super) mod registry;
-mod socket_link;
+pub(super) mod socket_link;
 mod start_lock;
 pub(super) mod supervisor;
 pub(super) mod switching;

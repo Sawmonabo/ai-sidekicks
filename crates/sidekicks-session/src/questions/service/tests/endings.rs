@@ -3,7 +3,7 @@
 
 use rstest::rstest;
 use serde_json::{Value, json};
-use sidekicks_contracts::question::QuestionSettledState;
+use sidekicks_contracts::question::QuestionResolveState;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::port::question::ProviderQuestionWithdrawal;
@@ -11,7 +11,7 @@ use sidekicks_provider::run::state_entry::RunStateEntry;
 
 use crate::questions::service::test_fixture::{Fixture, choice_page, failed};
 use crate::questions::service::{HeldRequestAnswerer, QuestionRecording};
-use crate::run::engine::test_fixture::stored_run_state;
+use crate::run::engine::test_fixture::{is_run_stopping, stored_run_state};
 use crate::run::read::{LiveRun, RunRead};
 use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
@@ -130,6 +130,7 @@ async fn a_held_question_ends_canceled_with_its_runs_reason(
                         parent_run_id: None,
                         reached_by: None,
                     },
+                    is_run_stopping(&fixture.database, &fixture.run_id),
                     "not resumed",
                     None,
                 )
@@ -169,7 +170,7 @@ async fn an_answer_whose_run_ends_meanwhile_reads_canceled_and_lets_the_request_
 
     assert_eq!(
         state.expect("the answer reads the run's end"),
-        QuestionSettledState::Canceled
+        QuestionResolveState::Canceled
     );
     assert_eq!(fixture.handed_count(), 1);
     assert!(fixture.questions.held_request(&question_id).is_none());

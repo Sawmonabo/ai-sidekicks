@@ -7,7 +7,6 @@
 //! A command whose service was restarted while it ran is ended by the relay at its process's end,
 //! since the new service never reports the old one's items.
 
-mod bearer_token;
 mod command_acts;
 mod endpoint;
 mod executor;
@@ -32,9 +31,9 @@ use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::{OnceCell, mpsc};
 use tokio::task::JoinHandle;
 
-use self::bearer_token::RelayBearerToken;
 use self::endpoint::RelayEndpoint;
 use self::executor::{CodexExecutor, ProcessEnd};
+use crate::bearer_token::BearerToken;
 use crate::command::channel::CommandChannel;
 use crate::command::running_set::RunningCommandSets;
 use crate::command::waiting_checks::InputWaitReader;
@@ -223,7 +222,7 @@ impl CodexExecRelay {
             let executor = CodexExecutor::start(&self.dependencies.spawner, command).await?;
             self.take_executor(executor);
         }
-        let token = RelayBearerToken::mint().map_err(|error| CodexError::Transport {
+        let token = BearerToken::mint().map_err(|error| CodexError::Transport {
             detail: "The Codex relay's token could not be minted.".to_owned(),
             cause: Some(Box::new(error)),
         })?;

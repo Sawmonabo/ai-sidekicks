@@ -36,15 +36,16 @@ impl ListRowSql {
     /// The reads, with the waiting-plan condition `plan_holds` answers.
     pub(super) fn new(plan_holds: &dyn PlanHolds) -> Self {
         // One session's list facts and the row's position in the table, which the opening read
-        // pages by. A chat's document count is kept on its managed mount's row, so no folder is
-        // walked here.
+        // pages by. A chat's document count is kept on the row of the managed mount it holds, so
+        // every chat holding one folder lists its one count and no folder is walked here.
         let row = format!(
             "SELECT s.rowid, s.id, s.shape, s.state, s.name, s.first_message_preview, s.branch,
                 s.pinned_at, s.muted_at, s.last_activity_at, g.id, g.name,
                 {} AS project_id,
                 {} AS activity,
-                (SELECT mount.document_count FROM repo_mounts AS mount
-                  WHERE mount.managed_session_id = s.id) AS document_count
+                (SELECT mount.document_count FROM managed_folder_holds AS hold
+                   JOIN repo_mounts AS mount ON mount.id = hold.repo_mount_id
+                  WHERE hold.session_id = s.id) AS document_count
            FROM sessions AS s LEFT JOIN session_groups AS g ON g.id = s.group_id",
             session_project_sql("s.id"),
             session_activity_sql(

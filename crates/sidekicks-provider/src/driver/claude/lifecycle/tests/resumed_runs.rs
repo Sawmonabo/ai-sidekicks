@@ -1,11 +1,13 @@
-//! What a resume answers of each run it names, and the turn of the run in progress a fresh process
-//! continues on that run.
+//! What a resume answers of each run it names, the turn of the run in progress a fresh process
+//! continues on that run, and the resume that starts no process where every run waits or stops.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::ProviderTurnId;
@@ -32,6 +34,8 @@ fn lead_run(run_id: RunId, open_turns: Vec<OpenTurnResume>) -> LiveRunResume {
         parent_run_id: None,
         open_turns,
         subagent_id: None,
+        is_stopping: false,
+        run_state: RunState::Running,
     }
 }
 
@@ -42,6 +46,8 @@ fn helper_run(run_id: RunId, parent_run_id: RunId) -> LiveRunResume {
         parent_run_id: Some(parent_run_id),
         open_turns: vec![open_turn(1)],
         subagent_id: Some(SubagentId::new("helper-1".to_owned()).expect("a helper id fits")),
+        is_stopping: false,
+        run_state: RunState::Running,
     }
 }
 
@@ -119,6 +125,7 @@ async fn a_resume_the_live_process_answers_holds_only_the_turn_it_runs() {
             agent_id: "helper-1".to_owned(),
             parent_run_id: held,
             binding_id: binding_id("lead"),
+            is_refused: false,
         },
     );
     let named = |run_id| LiveRunResume {
@@ -126,6 +133,8 @@ async fn a_resume_the_live_process_answers_holds_only_the_turn_it_runs() {
         parent_run_id: None,
         open_turns: Vec::new(),
         subagent_id: None,
+        is_stopping: false,
+        run_state: RunState::Running,
     };
 
     let resumed = fixture
@@ -303,4 +312,84 @@ async fn a_continued_turn_runs_on_its_run_and_ends_as_that_turn() {
             Some(SafeInt::<1>::new(2).expect("a turn number")),
         )]
     );
+}
+
+// A session whose runs in progress all wait on the person or stop starts no process: the resume is
+// deferred with each run's answer, a held run `Waiting` and a stopping one `Gone`, and the slot is
+// freed, so a later resume of a lead with work spawns. Killed by the spawn kept (a start recorded),
+// by a held lead continued (`StillRunning`), by a held helper answered `Gone`, by a stopping lead's
+// helper read as held (`Waiting` in the stopping case), and by the claim kept (the follow-up resume
+// waits on the slot past its timeout).
+#[rstest]
+#[case::lead_waits_on_an_ask(RunState::WaitingForApproval, None, false)]
+#[case::helper_waits_on_a_question(RunState::Running, Some(RunState::WaitingForInput), false)]
+#[case::helper_is_paused(RunState::Running, Some(RunState::Paused), false)]
+#[case::lead_and_helper_stop(RunState::Running, Some(RunState::Running), true)]
+#[tokio::test(start_paused = true)]
+async fn a_session_whose_runs_all_wait_or_stop_starts_no_process(
+    #[case] lead_state: RunState,
+    #[case] helper_state: Option<RunState>,
+    #[case] is_stopping: bool,
+) {
+    let fixture = ScriptedDriver::new();
+    let session_id = closed_session(&fixture).await;
+    let lead = new_run_id();
+    let mut live_runs = vec![LiveRunResume {
+        is_stopping,
+        run_state: lead_state,
+        ..lead_run(lead, vec![open_turn(1)])
+    }];
+    let helper = new_run_id();
+    if let Some(helper_state) = helper_state {
+        live_runs.push(LiveRunResume {
+            is_stopping,
+            run_state: helper_state,
+            ..helper_run(helper, lead)
+        });
+    }
+    let establishment = &fixture
+        .driver
+        .composed_parts()
+        .expect("composed")
+        .establishment;
+
+    let deferred = establishment
+        .resume(ResumeSessionParams {
+            live_runs: live_runs.clone(),
+            ..resume_params(session_id)
+        })
+        .await
+        .expect("the resume answers");
+
+    let held = if is_stopping {
+        ProviderTurnAnswer::Gone
+    } else {
+        ProviderTurnAnswer::Waiting
+    };
+    let expected: Vec<_> = live_runs
+        .iter()
+        .map(|run| answer(run.run_id, held))
+        .collect();
+    assert_eq!(
+        deferred.result,
+        DriverResumeResult::Deferred { runs: expected }
+    );
+    assert!(!deferred.has_started_process);
+    assert!(
+        fixture.starts.take_started().is_empty(),
+        "no process starts"
+    );
+
+    let resumed = tokio::time::timeout(
+        Duration::from_secs(60),
+        fixture.driver.resume_session(ResumeSessionParams {
+            live_runs: vec![lead_run(new_run_id(), vec![open_turn(1)])],
+            ..resume_params(session_id)
+        }),
+    )
+    .await
+    .expect("the deferred resume freed the slot")
+    .expect("the resume answers");
+    assert!(matches!(resumed, DriverResumeResult::Resumed { .. }));
+    fixture.next_start().await;
 }

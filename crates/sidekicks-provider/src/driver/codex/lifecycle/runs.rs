@@ -1,6 +1,7 @@
 //! A Codex run's calls: its session's settle, its start, interrupt, steer, pause and continue, a
 //! retry of its held turn on a faster model, the answer to an ask it raised, `Allow once` on a
-//! block of Codex's own reviewer, and the skills a person picked for its message.
+//! block of Codex's own reviewer, the skills a person picked for its message, and the source its
+//! session's command list is read from.
 
 use std::path::Path;
 
@@ -9,12 +10,14 @@ use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
 
 use super::CodexDriver;
+use crate::driver::codex::commands::CodexCommandSource;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
     RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::error_causes::session_process_unavailable;
+use crate::driver::ports::resolve_run_folder;
 use crate::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, FasterModelRetryOutcome,
     FasterModelRetryParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams, PickedSkill,
@@ -116,43 +119,46 @@ impl CodexDriver {
         Ok(self.parts()?.controls.override_denial(params).await?)
     }
 
+    /// What `session_id`'s command list is read from: the live session's own source, else the
+    /// service of `provider_account_id`, the account the session's runs are admitted against,
+    /// started if it is not, over the folder the session's runs work in, with no run. Fails as the
+    /// folder cannot be resolved and as the service cannot start.
+    pub(super) async fn resolve_command_source(
+        &self,
+        session_id: SessionId,
+        provider_account_id: ProviderAccountId,
+    ) -> Result<CodexCommandSource, DriverError> {
+        if let Some(source) = self.views.command_source(session_id) {
+            return Ok(source);
+        }
+        let run_folder = resolve_run_folder(&self.spawn_contexts, session_id).await?;
+        let service = self.registry.service_for(&provider_account_id).await?;
+        service
+            .ensure_started(service.dependencies().startup_timeout)
+            .await?;
+        Ok(CodexCommandSource {
+            session_id,
+            service,
+            provider_account_id,
+            working_directory: run_folder.to_string_lossy().into_owned(),
+            run_id: None,
+        })
+    }
+
     /// The skills `picks` names as Codex lists them for the session, each by its name and the
-    /// file it loads it from, in the order picked: the live session's listing, else a read on
-    /// the service of `provider_account_id`, the account the session's runs are admitted
-    /// against, over the folder the session's runs work in. Fails with
-    /// [`DriverError::SkillNotListed`] for a pick Codex does not list in that folder, and as the
-    /// read fails.
+    /// file it loads it from, in the order picked, read from the session's command source. Fails
+    /// with [`DriverError::SkillNotListed`] for a pick Codex does not list in that folder, and as
+    /// the read fails.
     pub(crate) async fn resolve_skill_picks(
         &self,
         session_id: SessionId,
         provider_account_id: ProviderAccountId,
         picks: Vec<QueuedSkillPick>,
     ) -> Result<Vec<PickedSkill>, DriverError> {
-        let listed = if let Some(source) = self.views.command_source(session_id) {
-            self.provider_commands
-                .read_skill_files(
-                    session_id,
-                    &source.service,
-                    provider_account_id,
-                    Path::new(&source.working_directory),
-                )
-                .await?
-        } else {
-            let run_folder = self
-                .spawn_contexts
-                .require_port()
-                .map_err(|error| DriverError::Internal(Box::new(error)))?
-                .resolve_run_folder(session_id)
-                .await
-                .map_err(DriverError::Internal)?;
-            let service = self.registry.service_for(&provider_account_id).await?;
-            service
-                .ensure_started(service.dependencies().startup_timeout)
-                .await?;
-            self.provider_commands
-                .read_skill_files(session_id, &service, provider_account_id, &run_folder)
-                .await?
-        };
+        let source = self
+            .resolve_command_source(session_id, provider_account_id)
+            .await?;
+        let listed = self.provider_commands.read_skill_files(&source).await?;
         picks
             .iter()
             .map(|pick| {

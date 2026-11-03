@@ -21,7 +21,7 @@ pub mod projection;
 pub mod provider_choice;
 pub mod read;
 pub mod refusals;
-pub(crate) mod restart;
+pub mod restart;
 pub(crate) mod schema;
 pub mod session_posture;
 pub mod start_request;

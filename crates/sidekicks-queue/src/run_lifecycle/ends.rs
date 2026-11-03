@@ -148,7 +148,7 @@ impl QueueRunLifecycle {
                 )
             })
             .await?;
-        let run_config = self.deps.admission.lead_run_config(session_id)?;
+        let run_config = self.deps.admission.lead_run_config(session_id).await?;
         recorder
             .record_next_run(
                 lead_run_queued(

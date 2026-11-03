@@ -1,21 +1,23 @@
 //! The runs a provider starts itself in a session's open process: a subagent the provider started
-//! beneath a live run, queued beneath its parent, and the turn it started on an interrupted run
-//! with messages it kept from that run's interrupted turn. Each passes every setup gate at the
-//! posture the session's process runs at now before `running` is written, stamped with the posture
-//! the gates resolved.
+//! beneath a live run, queued beneath its parent with its agent tree node written in the same
+//! append, and the turn it started on an interrupted run with messages it kept from that run's
+//! interrupted turn. Each passes every setup gate at the posture the session's process runs at now
+//! before `running` is written, stamped with the posture the gates resolved.
 
 use std::sync::Weak;
 
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queued::{
-    AgentRunQueuedNewState, AgentRunQueuedPayload, ChildRunProvenance, RunQueuedSessionAgentPayload,
+    AgentRunQueuedNewState, AgentRunQueuedPayload, ChildRunProvenance, ProviderChildStart,
+    RunQueuedSessionAgentPayload,
 };
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::run_control::InterruptRunRequest;
-use sidekicks_provider::run::delivery::RunSetupRefusal;
+use sidekicks_provider::run::delivery::{ChildRunSubagent, RunSetupRefusal};
 use sidekicks_provider::run::posture::ExecutionPostureRejection;
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_std::mutex_lock::lock;
@@ -23,50 +25,97 @@ use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::events::session::appender::SessionEventDraft;
 use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGateError};
 
-use crate::driver_resolution::read_run_driver;
+use crate::agent_tree::projection::{ProviderChildNodeWrite, provider_child_node_statement};
+use crate::agent_tree::store::{find_node, mint_child_handle};
+use crate::driver_resolution::{LiveRunDriverError, read_run_driver};
 use crate::run::agent::RunAgentReader;
 use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::live::ContinuingGuard;
 use crate::run::engine::start::{has_left_interrupted, setup_failure_message};
 use crate::run::engine::{LiveAppend, RunEngine, SubagentRunStart, with_cleanup_failures};
 use crate::run::projection::insert_queued_run_statement;
-use crate::run::read::{RunRead, RunStateReader};
+use crate::run::read::{RunRead, RunStateReader, read_run_provider};
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 impl RunEngine {
-    /// Starts the run of a subagent the provider started beneath `parent_run_id`, sharing its
-    /// process and so its provider and account: `agent.run.queued` naming the parent, the parent's
-    /// agent, which asked its provider for the subagent, and the account the parent was admitted
-    /// against, then `starting`, every setup gate at the posture the session's open process runs at
+    /// Starts the run of the subagent `subagent` the provider started beneath `parent_run_id`,
+    /// sharing its process and so its provider and account: `agent.run.queued` naming the parent,
+    /// the parent's agent, which asked its provider for the subagent, the account the parent was
+    /// admitted against and the subagent's node, which the same append writes or binds to this
+    /// run, then `starting`, every setup gate at the posture the session's open process runs at
     /// now, and `running` stamped with the posture the gates resolved. A gate's refusal ends the
     /// run `failed` with no posture stamped and answers [`SubagentRunStart::Refused`]. Returns
     /// `None` with nothing written when the parent has ended, and `None`, what its gates took let
     /// go, when the subagent's run ended some other way while its gates ran; fails with
-    /// [`RunRefusal::NotFound`] for a parent the daemon has no run for, with
+    /// [`RunRefusal::NotFound`] for a parent the daemon has no run for, with a driver error for a
+    /// parent with no binding on its chain, with the append's error when the node is refused, with
     /// [`RunEngineError::NoSessionPosture`], the run ended `failed`, when no posture of the
     /// session's open process can be read, and when a refused run's end is not written.
     pub(crate) async fn start_provider_subagent_run(
         &self,
         parent_run_id: RunId,
+        subagent: ChildRunSubagent,
     ) -> Result<Option<SubagentRunStart>, RunEngineError> {
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        let (session_id, agent_id, admitted_provider_account_id) = self
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                let parent = RunStateReader::new(reader)
-                    .read_run(&parent_run_id)?
-                    .ok_or(RunEngineError::Refused(RunRefusal::NotFound {
-                        run_id: parent_run_id,
-                    }))?;
-                let agents = RunAgentReader::new(reader);
-                Ok::<_, RunEngineError>((
-                    parent.session_id,
-                    agents.read_agent(&parent.session_id, &parent_run_id)?,
-                    agents.read_admitted_account(&parent.session_id, &parent_run_id)?,
-                ))
-            })
-            .await?;
+        let subagent_id = subagent.subagent_id.clone();
+        let parent_subagent_id = subagent.parent_subagent_id.clone();
+        let (session_id, agent_id, admitted_provider_account_id, provider, node, parent_node) =
+            self.pool
+                .read(ReadLength::Short, move |reader| {
+                    let parent = RunStateReader::new(reader)
+                        .read_run(&parent_run_id)?
+                        .ok_or(RunEngineError::Refused(RunRefusal::NotFound {
+                            run_id: parent_run_id,
+                        }))?;
+                    let agents = RunAgentReader::new(reader);
+                    let provider = read_run_provider(reader, &parent_run_id)?
+                        .ok_or(LiveRunDriverError::Unbound {
+                            run_id: parent_run_id,
+                        })?
+                        .provider;
+                    let node =
+                        find_node(reader, parent.session_id, &provider, subagent_id.as_str())?;
+                    let parent_node = match &parent_subagent_id {
+                        Some(parent_subagent_id) => find_node(
+                            reader,
+                            parent.session_id,
+                            &provider,
+                            parent_subagent_id.as_str(),
+                        )?,
+                        None => None,
+                    };
+                    Ok::<_, RunEngineError>((
+                        parent.session_id,
+                        agents.read_agent(&parent.session_id, &parent_run_id)?,
+                        agents.read_admitted_account(&parent.session_id, &parent_run_id)?,
+                        provider,
+                        node,
+                        parent_node,
+                    ))
+                })
+                .await?;
+        // Fixed before the append, whose build may run again: the event and the node's row share
+        // one instant, and a later start keeps the handle its first one minted.
+        let started_at = WireInstant::now();
+        let parent_child_handle = parent_node.map(|parent| parent.child_handle);
+        let node_write = match &node {
+            Some(_) => ProviderChildNodeWrite::BindNewestRun,
+            None => ProviderChildNodeWrite::Insert {
+                parent_child_handle: parent_child_handle.clone(),
+            },
+        };
+        let provider_child = ProviderChildStart {
+            child_handle: node.map_or_else(mint_child_handle, |node| node.child_handle),
+            provider,
+            subagent_id: subagent.subagent_id,
+            parent_subagent_id: subagent.parent_subagent_id,
+            parent_child_handle,
+            name: subagent.name,
+            role: subagent.role,
+            provider_path: subagent.provider_path,
+            start_call_id: subagent.start_call_id,
+        };
         let appended = self
             .append_while_live(parent_run_id, |parent| {
                 let queued = AgentRunQueuedPayload::SessionAgent(RunQueuedSessionAgentPayload {
@@ -76,6 +125,7 @@ impl RunEngine {
                     new_state: AgentRunQueuedNewState::Value,
                     agent_id,
                     resolved_agent: None,
+                    provider_child: Some(Box::new(provider_child.clone())),
                     parent_run_id: Some(parent_run_id),
                     reached_by: Some(ChildRunProvenance::ProviderSubagent),
                     effective_run_config: None,
@@ -83,12 +133,22 @@ impl RunEngine {
                     admitted_provider_account_id: admitted_provider_account_id.clone(),
                 });
                 Ok(LiveAppend {
-                    statements: vec![insert_queued_run_statement(&queued)],
+                    statements: vec![
+                        insert_queued_run_statement(&queued),
+                        provider_child_node_statement(
+                            parent.session_id,
+                            run_id,
+                            &provider_child,
+                            &started_at,
+                            node_write.clone(),
+                        ),
+                    ],
                     draft: SessionEventDraft::of_session(
                         parent.session_id,
                         &SessionEvent::AgentRunQueued(queued),
                     )?,
                     preceding_events: Vec::new(),
+                    occurred_at: Some(started_at.clone()),
                 })
             })
             .await?;

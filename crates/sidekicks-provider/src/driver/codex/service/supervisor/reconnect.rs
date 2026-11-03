@@ -5,6 +5,8 @@
 
 use std::time::Duration;
 
+use sidekicks_std::retry::jitter::scale_to_unit;
+
 /// How long a connection stays up before its next drop counts from the first wait again; a drop
 /// sooner keeps the grown wait, so a service that takes a connection and drops it at once is not
 /// dialed every second.
@@ -27,13 +29,7 @@ const JITTER_SHARE: f64 = 0.2;
 pub(crate) fn reconnect_wait(attempt: u32, sample: u64) -> Duration {
     let exponent = i32::try_from(attempt).unwrap_or(i32::MAX);
     let base = (FIRST_WAIT_SECONDS * WAIT_GROWTH.powi(exponent)).min(LONGEST_BASE_SECONDS);
-    // The sample's top 53 bits as a uniform fraction in [0, 1].
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "a 53-bit integer is exact as a 64-bit float"
-    )]
-    let fraction = (sample >> 11) as f64 / ((1_u64 << 53) - 1) as f64;
-    let jitter = 1.0 - JITTER_SHARE + 2.0 * JITTER_SHARE * fraction;
+    let jitter = 1.0 - JITTER_SHARE + 2.0 * JITTER_SHARE * scale_to_unit(sample);
     Duration::from_secs_f64(base * jitter)
 }
 

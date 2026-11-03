@@ -2,13 +2,16 @@
 //! `usage.tokenCount.recorded` row on the run the reading belongs to, or on the session for a side
 //! question's, and each quota window a provider pushed or an account's own limits read answered
 //! one `usage.rateLimit.updated` row under the machine's sentinel session, both stamped with the
-//! account's credential generation read at the write. A row the provider attributes to one of its turns is stamped with the turn that opened,
-//! so it ranks there wherever it arrives. Each run's reports are taken one at a time against a
-//! tally the engine keeps from the run's first report, seeded once from the log, so a restart
-//! never counts a run from zero and no report reads the run's rows again. A run past its token
-//! limit is stopped on a task of its own, so a report never waits on a driver.
+//! account's credential generation read at the write. A row the provider attributes to one of its
+//! turns is stamped with the turn that opened, so it ranks there wherever it arrives. A priced
+//! request becomes one `usage.cost.updated` per account its rows were charged to, on the session
+//! with no binding, so a request priced after its run ended is recorded all the same. Each run's
+//! reports are taken one at a time against a tally the engine keeps from the run's first report,
+//! seeded once from the log, so a restart never counts a run from zero and no report reads the
+//! run's rows again. A run past its token limit is stopped on a task of its own, so a report never
+//! waits on a driver.
 
-mod reads;
+pub(crate) mod reads;
 #[cfg(test)]
 mod tests;
 
@@ -18,27 +21,31 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::event::usage::{
-    DEFAULT_RATE_LIMIT_ID, UsageRateLimitUpdatedPayload, UsageRateLimitWindowKey,
-    UsageTokenCountRecordedPayload,
+    DEFAULT_RATE_LIMIT_ID, UsageCostSource, UsageCostUpdatedPayload, UsagePricedEvent,
+    UsageRateLimitUpdatedPayload, UsageRateLimitWindowKey, UsageTokenCountRecordedPayload,
 };
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentId;
+use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::{SafeInt, SafeSignedInt};
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::number::Number;
-use sidekicks_contracts::wire::text::BoundedText;
-use sidekicks_provider::driver::run_control::HelperTokenLimitParams;
+use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
+use sidekicks_provider::driver::run_control::HelperStopParams;
 use sidekicks_provider::port::usage_sink::{
-    MeteredUsage, MeteredUsageOwner, ProviderQuotaWindow, UsageSink,
+    MeteredUsage, MeteredUsageOwner, PricedRequest, PricedUsageRow, ProviderQuotaWindow,
+    RecordedUsage, UsageSink,
 };
 use sidekicks_provider::run::delivery::{
-    DeliveryBinding, InboundDelivery, LateAppendableRow, MachineScopedRow, SessionScopedRow,
+    DeliveryBinding, InboundDelivery, InboundOutcome, LateAppendableRow, MachineScopedRow,
+    SessionScopedRow,
 };
 use sidekicks_provider::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts};
 use sidekicks_store::database::connection::read_pool::{
@@ -146,8 +153,12 @@ impl UsageRecord {
         self.stops.wait().await;
     }
 
-    // Records one metered reading and holds its run to its token limit.
-    async fn record(&self, metered: MeteredUsage) -> Result<(), UsageRecordError> {
+    // Records one metered reading and holds its run to its token limit, answering the row written
+    // and where it was charged; `None` where the dispatch wrote nothing.
+    async fn record(
+        &self,
+        metered: MeteredUsage,
+    ) -> Result<Option<RecordedUsage>, UsageRecordError> {
         let MeteredUsage {
             session_id,
             binding_id,
@@ -192,12 +203,13 @@ impl UsageRecord {
         let mut payload = usage_row(session_id, &target, helper.clone(), &delta)?;
         let Some(run_id) = target.run_id else {
             // A side question's usage belongs to the session, counted toward no run.
-            self.dispatch
+            let outcome = self
+                .dispatch
                 .dispatch(InboundDelivery::SessionEvent {
-                    row: SessionScopedRow::UsageTokenCountRecorded(payload),
+                    row: SessionScopedRow::UsageTokenCountRecorded(Box::new(payload)),
                 })
                 .await?;
-            return Ok(());
+            return Ok(recorded_usage(&outcome, target, helper));
         };
         let slot = self.engine.run_usage_tally(run_id);
         let mut tally = slot.lock().await;
@@ -222,22 +234,61 @@ impl UsageRecord {
             }
         }
         let row_tokens = row_token_count(&payload);
-        self.dispatch
+        let outcome = self
+            .dispatch
             .dispatch(InboundDelivery::SessionRow {
                 binding: DeliveryBinding {
                     binding_id,
                     operation: None,
                 },
-                row: LateAppendableRow::UsageTokenCountRecorded(payload),
+                row: LateAppendableRow::UsageTokenCountRecorded(Box::new(payload)),
                 content: None,
             })
             .await?;
+        let recorded = recorded_usage(&outcome, target, helper.clone());
         // A run that has ended is stopped by no limit.
         let Some(tally) = tally.as_mut() else {
-            return Ok(());
+            return Ok(recorded);
         };
         tally.token_count = tally.token_count.saturating_add(row_tokens);
         self.hold_to_token_limit(tally, &slot, session_id, run_id, helper);
+        Ok(recorded)
+    }
+
+    // Writes one `usage.cost.updated` per account `request`'s rows name, in the order the accounts
+    // first appear, on the session with no binding, all in one write, so a failure keeps none.
+    async fn record_request_cost(&self, request: PricedRequest) -> Result<(), UsageRecordError> {
+        let PricedRequest {
+            session_id,
+            model_id,
+            cost_source,
+            rows,
+        } = request;
+        let mut accounts: Vec<(ProviderAccountId, Vec<PricedUsageRow>)> = Vec::new();
+        for row in rows {
+            let account_id = &row.row.provider_account_id;
+            match accounts
+                .iter_mut()
+                .find(|(account, _)| account == account_id)
+            {
+                Some((_, account_rows)) => account_rows.push(row),
+                None => accounts.push((account_id.clone(), vec![row])),
+            }
+        }
+        let payloads = accounts
+            .into_iter()
+            .map(|(_, account_rows)| {
+                cost_row(session_id, model_id.clone(), cost_source, account_rows)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let Some(costs) = BoundedVec::new(payloads) else {
+            return Ok(());
+        };
+        self.dispatch
+            .dispatch(InboundDelivery::SessionEvent {
+                row: SessionScopedRow::UsageCostUpdated(costs),
+            })
+            .await?;
         Ok(())
     }
 
@@ -305,7 +356,7 @@ impl UsageRecord {
                 let stopped = match helper {
                     None => engine.stop_at_token_limit(run_id, token_limit).await,
                     Some(subagent_id) => {
-                        let params = HelperTokenLimitParams {
+                        let params = HelperStopParams {
                             session_id,
                             run_id,
                             subagent_id,
@@ -396,8 +447,15 @@ impl UsageSink for UsageRecord {
     fn record_metered(
         &self,
         metered: MeteredUsage,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<Option<RecordedUsage>, Box<dyn Error + Send + Sync>>> {
         async move { self.record(metered).await.map_err(Into::into) }.boxed()
+    }
+
+    fn record_cost(
+        &self,
+        request: PricedRequest,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async move { self.record_request_cost(request).await.map_err(Into::into) }.boxed()
     }
 
     fn record_quota_windows(
@@ -466,6 +524,79 @@ fn usage_row(
         credential_generation: target.credential_generation,
         model_id: None,
         subagent_id: helper,
+        request_key: None,
+        speed: None,
+        processing_region: None,
+        cache_write_extended_tokens: None,
+        web_search_requests: None,
+        thread_speed: None,
+        source_epoch: None,
+        source_position: None,
+    })
+}
+
+// What `outcome` wrote of a row on `target`, attributed to `helper` where one is named; `None`
+// where nothing was written.
+fn recorded_usage(
+    outcome: &InboundOutcome,
+    target: MeteredTarget,
+    helper: Option<SubagentId>,
+) -> Option<RecordedUsage> {
+    outcome.event_id().map(|event_id| RecordedUsage {
+        event_id: event_id.clone(),
+        run_id: target.run_id,
+        provider_account_id: target.provider_account_id,
+        subagent_id: helper,
+    })
+}
+
+// One account's `usage.cost.updated` of a request: each of `rows`' events with its share, their
+// sum, and the run and the helper every row was charged to, each `None` where the rows disagree.
+// Unstamped, since each token row carries its own stamp.
+fn cost_row(
+    session_id: SessionId,
+    model_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    cost_source: UsageCostSource,
+    rows: Vec<PricedUsageRow>,
+) -> Result<UsageCostUpdatedPayload, UsageRecordError> {
+    let mut charged_to: Option<(Option<RunId>, Option<SubagentId>)> = None;
+    let mut total: u64 = 0;
+    let mut priced_events = Vec::with_capacity(rows.len());
+    for PricedUsageRow {
+        row,
+        cost_usd_micros,
+    } in rows
+    {
+        total = total
+            .checked_add(cost_usd_micros.0.get())
+            .ok_or(UsageRecordError::FigureOutOfRange)?;
+        match &mut charged_to {
+            None => charged_to = Some((row.run_id, row.subagent_id)),
+            Some((run_id, subagent_id)) => {
+                if *run_id != row.run_id {
+                    *run_id = None;
+                }
+                if *subagent_id != row.subagent_id {
+                    *subagent_id = None;
+                }
+            }
+        }
+        priced_events.push(UsagePricedEvent {
+            event_id: row.event_id,
+            cost_usd_micros,
+        });
+    }
+    let (run_id, subagent_id) =
+        charged_to.expect("each account's rows hold the row that named the account");
+    Ok(UsageCostUpdatedPayload {
+        session_id,
+        run_id,
+        cost_usd_micros: UsdMicros(SafeInt::new(total).ok_or(UsageRecordError::FigureOutOfRange)?),
+        model_id: Some(model_id),
+        subagent_id,
+        cost_source,
+        priced_events: BoundedVec::new(priced_events)
+            .expect("each account's rows hold the row that named the account"),
         source_epoch: None,
         source_position: None,
     })

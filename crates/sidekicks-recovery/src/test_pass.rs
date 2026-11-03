@@ -46,6 +46,8 @@ use sidekicks_queue::provider_session::test_opening::{
     test_opening_composer,
 };
 use sidekicks_queue::provider_session::{ProviderSessions, ProviderSessionsDeps};
+use sidekicks_session::interventions::service::test_fixture::test_intervention_service;
+use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::test_fixture::{insert_running_run, test_engine_with};
@@ -335,10 +337,21 @@ impl PassFixture {
         }
     }
 
-    /// The pass over the fixture's services, moving `status`.
+    /// The pass over the fixture's services, moving `status`, with a questions service that holds
+    /// no request, as a restart's holds none.
     pub(crate) fn pass(&self, status: Arc<RecoveryStatusTracker>) -> StartupRecovery {
         let store = &self.store;
         let services = self.services(Arc::clone(&status));
+        // The withdrawal reaches no driver, so the questions service needs none.
+        let questions = Arc::new(QuestionsService::new(
+            Arc::clone(&store.appender),
+            Arc::clone(&services.reads),
+            Arc::clone(&self.engine),
+            Arc::new(ProviderRegistry::register_from(
+                &[],
+                &test_driver_services(),
+            )),
+        ));
         StartupRecovery::new(StartupRecoveryDeps {
             machine_id: MachineId::new("machine-1".to_owned()).expect("the test's machine id"),
             reads: services.reads,
@@ -348,6 +361,7 @@ impl PassFixture {
             damaged_history: services.damaged_history,
             restart_settle: services.restart_settle,
             provider_sessions: Arc::clone(&self.provider_sessions),
+            questions,
             status,
             damage: services.damage,
             database_path: store.database.path(),
@@ -583,6 +597,33 @@ impl PassFixture {
         id
     }
 
+    /// Records a question of `run_id` in `session_id`, its agent waiting, that waits for its run,
+    /// asked under `request_id`, and answers its id.
+    pub(crate) fn record_question_waiting_for_run(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+        request_id: &str,
+    ) -> String {
+        let id = mint_uuid_v7().to_string();
+        self.store
+            .database
+            .reader()
+            .execute(
+                "INSERT INTO questions (id, session_id, run_id, provider_request_id,
+                   is_agent_waiting, state)
+                 VALUES (?1, ?2, ?3, ?4, 1, 'waitingForRun')",
+                params![
+                    id,
+                    session_id.text().as_str(),
+                    run_id.text().as_str(),
+                    request_id
+                ],
+            )
+            .expect("the test records the question");
+        id
+    }
+
     /// Records `run_id`'s binding on the table's provider at `provider_index`, holding the
     /// conversation a resume brings back, and answers its id.
     pub(crate) async fn bind_resumable(
@@ -623,7 +664,9 @@ pub(crate) fn insert_runs(database: &TestDatabase, session: SessionId, runs: &[(
 }
 
 // The provider sessions over `store`'s database, resuming on `providers` and recording bindings in
-// `bindings`, each resume's runs settled through recovery's finalize over `engine`.
+// `bindings`, each resume's runs settled through recovery's finalize over `engine`, with an
+// interventions service wired to `engine` handing a pending interrupt again, a person's or a
+// limit's.
 fn resuming_provider_sessions(
     store: &ArtifactTestStore,
     engine: &Arc<RunEngine>,
@@ -642,6 +685,12 @@ fn resuming_provider_sessions(
                 Arc::clone(providers),
             ),
             providers: Arc::clone(providers),
+            interventions: test_intervention_service(
+                Arc::clone(&store.reads),
+                Arc::clone(&store.event_log),
+                engine,
+                Arc::clone(providers),
+            ),
         })) as Arc<dyn ResumedRunsIngress>)
         .expect("a new port holds no ingress yet");
     Arc::new(ProviderSessions::new(ProviderSessionsDeps {

@@ -91,6 +91,10 @@ interface ApprovalRequestedPayload {
   // Activity rows carry as `payload.toolCallId` (Spec-005 §Tool Activity), so that row draws its
   // held mark and `Declined`; bounded as those rows bound it
   toolCallId?: string;
+  // The SHA-256 of the asked call's tool name and input as canonical JSON, by which a call made
+  // again after a restart finds this card; absent where the input has no canonical form or the
+  // card has no call. Lower-case hex over the RFC 8785 bytes of `{ input, toolName }`.
+  inputDigest?: string;
 }
 // approval.approved and approval.rejected
 interface ApprovalResolvedPayload {

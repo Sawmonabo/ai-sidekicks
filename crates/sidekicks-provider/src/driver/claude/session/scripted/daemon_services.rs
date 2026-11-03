@@ -13,7 +13,6 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use futures::future::ready;
 use serde_json::{Map, Value};
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -41,12 +40,18 @@ use crate::driver::ports::{DriverPorts, MessageTakenListener, ProcessGoneListene
 use crate::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver,
 };
+use crate::driver::test_registry::new_agent_id;
 use crate::port::permission_ask::{
     PermissionAskPort, ProviderPermissionAsk, ProviderPermissionAskWithdrawal,
 };
 use crate::port::repository_reader::{RepositoryReader, RepositoryReading};
 use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
-use crate::port::usage_sink::{MeteredUsage, ProviderQuotaWindow, UsageSink};
+use crate::port::session_message_reading_publisher::{
+    SessionMessageReading, SessionMessageReadingPublisher,
+};
+use crate::port::usage_sink::{
+    MeteredUsage, PricedRequest, ProviderQuotaWindow, RecordedUsage, UsageSink,
+};
 use crate::runtime_binding::store::RuntimeBindingRebind;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::usage_delta_accountant::UsageAxisCounts;
@@ -66,11 +71,13 @@ pub(crate) enum PortCall {
     ProcessGone(SessionId),
 }
 
-/// Approval ports and the queue's intake of taken messages, each recording what reaches it.
+/// Approval ports, the queue's intake of taken messages and the session message readings, each
+/// recording what reaches it.
 #[derive(Default)]
 pub(crate) struct RecordingPorts {
     calls: Mutex<Vec<PortCall>>,
     taken: Mutex<Vec<(String, RunId)>>,
+    message_readings: Mutex<Vec<SessionMessageReading>>,
 }
 
 impl RecordingPorts {
@@ -82,6 +89,11 @@ impl RecordingPorts {
     /// The messages reported taken so far, with the run each was reported under.
     pub(crate) fn taken(&self) -> Vec<(String, RunId)> {
         lock(&self.taken).clone()
+    }
+
+    /// The session message readings published so far, in order.
+    pub(crate) fn message_readings(&self) -> Vec<SessionMessageReading> {
+        lock(&self.message_readings).clone()
     }
 
     fn record(&self, call: PortCall) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
@@ -131,8 +143,15 @@ impl MessageTakenListener for RecordingPorts {
     }
 }
 
-/// Registers what a scripted driver composes over: `recording` as the approval ports and the
-/// queue's intake, every daemon turn on one binding, and a machine with no repositories.
+impl SessionMessageReadingPublisher for RecordingPorts {
+    fn publish(&self, reading: SessionMessageReading) {
+        lock(&self.message_readings).push(reading);
+    }
+}
+
+/// Registers what a scripted driver composes over: `recording` as the approval ports, the queue's
+/// intake and the session message readings, every daemon turn on one binding, and a machine with
+/// no repositories.
 pub(super) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<RecordingPorts>) {
     ports
         .daemon_turn_bindings
@@ -154,6 +173,10 @@ pub(super) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<Recor
         .message_taken
         .register(recording.clone())
         .expect("the intake registers once");
+    ports
+        .session_message_readings
+        .register(recording.clone())
+        .expect("the message readings register once");
 }
 
 /// A usage record that keeps each metered delta and each set of quota windows, and answers one set
@@ -186,9 +209,16 @@ impl UsageSink for RecordingUsage {
     fn record_metered(
         &self,
         metered: MeteredUsage,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<Option<RecordedUsage>, Box<dyn Error + Send + Sync>>> {
         lock(&self.metered).push(metered);
-        ready(Ok(())).boxed()
+        ready(Ok(None)).boxed()
+    }
+
+    fn record_cost(
+        &self,
+        _request: PricedRequest,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        ready(Err("the scripted usage record prices no request".into())).boxed()
     }
 
     fn read_prior_emitted(
@@ -293,8 +323,7 @@ impl DaemonTurnBindingResolver for ScriptedBindings {
         async {
             Ok(DaemonTurnBinding {
                 binding_id: binding_id("daemon-turn"),
-                agent_id: AgentId::new(&mint_uuid_v7().to_string())
-                    .expect("a minted UUID is an agent id"),
+                agent_id: new_agent_id(),
                 step_bound: None,
             })
         }
@@ -348,7 +377,13 @@ impl CallbackToolExecutor for NoCallbackTools {
         &self,
         _invocation: CallbackToolInvocation,
     ) -> BoxFuture<'_, Result<CallbackToolResult, CallbackToolPortError>> {
-        async { Ok(CallbackToolResult::Completed { output: None }) }.boxed()
+        async {
+            Ok(CallbackToolResult::Completed {
+                output: None,
+                session_links: Vec::new(),
+            })
+        }
+        .boxed()
     }
 }
 

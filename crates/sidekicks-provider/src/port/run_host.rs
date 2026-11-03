@@ -1,7 +1,7 @@
 //! The run engine as a driver reaches it: a turn opened and numbered, a step counted, a turn's end
-//! that moves no run, a settled output speed, a turn the daemon or its provider starts on a session
-//! itself, the turns a process left as it exited or its session closed, and a session's stored
-//! leg.
+//! that moves no run, its provider's or the daemon's own, a settled output speed, a turn the daemon
+//! or its provider starts on a session itself, the turns a process left as it exited or its session
+//! closed, and a session's stored leg.
 
 #[cfg(test)]
 pub(crate) mod test_host;
@@ -18,7 +18,7 @@ use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::run::start_request::DaemonTurnStartRequest;
-use crate::run::turn_end::{ProviderTurnEnd, StartedTurn};
+use crate::run::turn_end::{ProviderTurnEnd, StartedTurn, TurnOutcome};
 use crate::runtime_binding::store::RuntimeBinding;
 
 /// A failure the run engine reports to a driver, kept whole.
@@ -49,6 +49,16 @@ pub trait RunHost: Send + Sync {
         &self,
         run_id: RunId,
         turn_end: ProviderTurnEnd,
+    ) -> BoxFuture<'_, Result<bool, RunHostError>>;
+
+    /// Ends turn `turn_number` of `run_id` as the daemon writes it with no provider frame, moving
+    /// no run; answers whether the end was written, an end the turn already holds kept. Fails as
+    /// the run's read or the end's write fails.
+    fn record_daemon_turn_end(
+        &self,
+        run_id: RunId,
+        turn_number: SafeInt<1>,
+        outcome: TurnOutcome,
     ) -> BoxFuture<'_, Result<bool, RunHostError>>;
 
     /// Records the output speed `run_id`'s process settled at. Fails as its write fails.

@@ -26,7 +26,8 @@ use crate::driver::codex::event_normalizer::{
 };
 use crate::driver::codex::mcp::status_list::list_codex_mcp_server_statuses;
 use crate::driver::codex::service::supervisor::routing::{
-    read_codex_child_thread_announcement, read_codex_frame_thread_id,
+    CodexHelperNames, read_codex_child_thread_announcement, read_codex_frame_thread_id,
+    read_codex_helper_names,
 };
 use crate::driver::codex::session::state::{CODEX_THREAD_FRAME_ROUTER_CONFIG, CodexSessionRecord};
 use crate::driver::codex::token_usage::read_codex_token_usage;
@@ -243,10 +244,10 @@ impl CodexSessionRouting {
         routed
     }
 
-    /// Registers again a helper of the session's conversation that a resume found loaded, beneath
-    /// the conversation, its usage based on `prior_emitted_cumulative`, what was already metered
-    /// on it, and delivers the frames that waited for it. Starts no child run: the helper's run
-    /// is the one it already holds.
+    /// Registers again a helper of the session's conversation that an adoption restored, running
+    /// or with its newest turn over, beneath the conversation, its usage based on
+    /// `prior_emitted_cumulative`, what was already metered on it, and delivers the frames that
+    /// waited for it. Starts no child run: the helper's run is the one it already holds.
     pub(crate) async fn restore_helper_thread(
         &mut self,
         delivery: &CodexFrameDelivery,
@@ -322,12 +323,14 @@ impl CodexSessionRouting {
                 released_frames,
             } = self.router.register_child_thread(announcement)
             {
+                let names = read_codex_helper_names(&params);
                 self.start_registered_child(
                     delivery,
                     record,
                     &child_thread_id,
                     parent_thread_id.as_deref(),
                     &attribution,
+                    names,
                 )
                 .await;
                 for frame in released_frames {
@@ -344,8 +347,9 @@ impl CodexSessionRouting {
     }
 
     // A helper registered once: its usage based at zero and, for a subagent, its child run
-    // started. A repeated announcement keeps the base, since re-basing would meter reported spend
-    // again, and starts nothing, since a second start would show the helper twice.
+    // started under the names Codex gave it. A repeated announcement keeps the base, since
+    // re-basing would meter reported spend again, and starts nothing, since a second start would
+    // show the helper twice.
     async fn start_registered_child(
         &mut self,
         delivery: &CodexFrameDelivery,
@@ -353,6 +357,7 @@ impl CodexSessionRouting {
         child_thread_id: &str,
         parent_thread_id: Option<&str>,
         attribution: &ChildSpendAttribution,
+        names: CodexHelperNames,
     ) {
         if self.accountant.has_thread(child_thread_id) {
             report(
@@ -372,7 +377,13 @@ impl CodexSessionRouting {
             (attribution, parent_thread_id)
         {
             delivery
-                .start_child(record, child_thread_id, parent_thread_id, subagent_id)
+                .start_child(
+                    record,
+                    child_thread_id,
+                    parent_thread_id,
+                    subagent_id,
+                    names,
+                )
                 .await;
         }
     }
@@ -467,7 +478,8 @@ impl CodexSessionRouting {
     }
 
     // Lets go of a helper whose turn ended: its router entry and usage base, and for a subagent
-    // its child run.
+    // its child run. A held helper's turn ends as the daemon's instead, the helper kept here and
+    // its run left waiting on the person.
     async fn complete_child_on_terminal(
         &mut self,
         delivery: &CodexFrameDelivery,
@@ -480,6 +492,15 @@ impl CodexSessionRouting {
         let Some(thread_id) = &frame.thread_id else {
             return;
         };
+        // Params that do not read as an object name no turn, which ends nothing held.
+        let turn_members: Map<String, Value> =
+            serde_json::from_str(frame.params.get()).unwrap_or_default();
+        if delivery
+            .end_held_helper_turn(record, thread_id, &turn_members)
+            .await
+        {
+            return;
+        }
         let is_subagent = matches!(
             self.router.child_attribution_for(thread_id),
             Some(ChildSpendAttribution::Subagent { .. })
@@ -490,7 +511,7 @@ impl CodexSessionRouting {
         self.accountant.release_thread(thread_id);
         if is_subagent {
             delivery
-                .complete_child(record, thread_id, &frame.params)
+                .complete_child(record, thread_id, &frame.params, &turn_members)
                 .await;
         }
     }

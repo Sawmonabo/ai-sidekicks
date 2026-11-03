@@ -15,7 +15,9 @@ use sidekicks_store::events::log_service::test_fixture::open_log;
 use super::{limit_record, record_interrupt, running_at};
 use crate::questions::schema::schema_parts;
 use crate::run::engine::RunEngine;
-use crate::run::engine::test_fixture::{append, insert_running_run, stored_run_state, test_engine};
+use crate::run::engine::test_fixture::{
+    append, insert_running_run, is_run_stopping, stored_run_state, test_engine,
+};
 use crate::run::engine::tests::{
     SETTLE_WAIT, TestLimitInterrupter, continue_request, events, hand_limit_interrupter,
     provider_end, started_turn, step_stop, stored_events, token_limit, turn, turn_started_at,
@@ -171,6 +173,7 @@ async fn a_restart_ends_each_turn_of_a_log_with_the_cause_the_live_path_writes(
     test_engine(&restart_database, restart_log.service, home.path())
         .settle_run_after_restart(
             &running_at(session_id, run_id, run_version),
+            is_run_stopping(&restart_database, &run_id),
             "not resumed",
             None,
         )

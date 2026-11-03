@@ -50,6 +50,18 @@ pub(crate) enum CodexTeardownStep {
     ServiceStop,
 }
 
+/// Why a goal notification drew no goal row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, IntoStaticStr)]
+#[strum(serialize_all = "camelCase")]
+pub(crate) enum CodexGoalDropReason {
+    /// It is about a conversation other than the session's own, a helper's.
+    OtherThread,
+    /// Its goal names no objective a session goal can hold.
+    NoObjective,
+    /// Its goal's status is none of the words the protocol names.
+    UnknownStatus,
+}
+
 /// A port the daemon wired that the driver hands deliveries to.
 #[expect(
     dead_code,
@@ -338,6 +350,17 @@ pub(crate) enum CodexTransportDiagnostic {
         /// The session it came on.
         session_id: SessionId,
     },
+    /// A goal notification that drew no goal row, by why.
+    GoalNotificationDropped {
+        /// The frame's method.
+        method: String,
+        /// The session it came on.
+        session_id: SessionId,
+        /// The conversation it named, or `None` when it named none.
+        thread_id: Option<String>,
+        /// Why it drew no row.
+        reason: CodexGoalDropReason,
+    },
     /// A frame whose run no live route, interrupt or starting turn names, so nothing is written.
     UnattributedTurnFrame {
         /// The frame's method.
@@ -603,6 +626,18 @@ impl CodexTransportDiagnostic {
                 method = method.as_str(),
                 session_id = %session_id,
                 "a Codex notice the service log keeps"
+            ),
+            Self::GoalNotificationDropped {
+                method,
+                session_id,
+                thread_id,
+                reason,
+            } => tracing::warn!(
+                method = method.as_str(),
+                session_id = %session_id,
+                thread_id = thread_id.as_deref(),
+                reason = <&str>::from(*reason),
+                "a Codex goal notification drew no goal row"
             ),
             Self::UnattributedTurnFrame { method, turn_id } => tracing::warn!(
                 method = method.as_str(),

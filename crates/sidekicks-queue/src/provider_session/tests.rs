@@ -2,7 +2,8 @@
 //! provider sessions and its changes. The openings and the bindings they record are tested in
 //! `opening`, a closed or purging session's refusals in `ended_session`, a restart and a process
 //! gone in `restart`, the controls that act on the process in `controls`, and a run bound after a
-//! resume and the idle sleep's wake in `resume`.
+//! resume and the idle sleep's wake in `resume`; a start whose provider is missing posts the
+//! session's `providerMissing` notice in `opening`, `resume` and `ended_session`.
 
 mod controls;
 mod ended_session;
@@ -10,6 +11,7 @@ mod opening;
 mod restart;
 mod resume;
 
+use std::io;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -21,16 +23,22 @@ use rusqlite::params;
 use serde_json::json;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::controls::events::SessionNotice;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::contract::error::DriverError;
+use sidekicks_provider::driver::error_causes::ExecutableUnresolvable;
 use sidekicks_provider::driver::session_control::{
-    DriverResumeResult, ResumeSessionParams, answer_every_run_gone,
+    DriverResumeResult, ProviderTurnAnswer, ResumeSessionParams, ResumedRunAnswer,
+    answer_every_run_gone,
 };
 use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
 use sidekicks_provider::run::posture::ExecutionPostureService;
@@ -60,8 +68,8 @@ use sidekicks_store::events::session::followers::SessionEventFollowers;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use super::test_opening::{
-    RecordedProcessFollowing, RecordedResumedRuns, record_first_provider_capabilities,
-    test_execution_postures, test_opening_composer,
+    RecordedProcessFollowing, RecordedResumedRuns, first_provider,
+    record_first_provider_capabilities, test_execution_postures, test_opening_composer,
 };
 use super::{
     GitFolderReadError, ProviderSessionGitFolderReader, ProviderSessionOpeningComposer,
@@ -77,6 +85,9 @@ const WAIT: Duration = Duration::from_secs(5);
 /// How long a resume that would land inside a close is given to land there.
 const CLOSE_HELD: Duration = Duration::from_millis(500);
 
+/// The place the fixture's session runs in, as its directory row stores it.
+const TEST_PLACE: &str = r#"{"distro":"Ubuntu"}"#;
+
 /// What runs inside the fixture's driver resume, given the params it was handed.
 type ResumeHook = Box<dyn Fn(&ResumeSessionParams) + Send + Sync>;
 
@@ -88,8 +99,11 @@ type ClosedAppendHook = Box<dyn Fn() + Send + Sync>;
 // or on `came_up_on` once a test sets it, checking that binding's cursor is open as it runs, and
 // closes at once, counting each close; each event changes the session's directory row, so a close
 // leaves the session reading closed. Once a test sets `is_row_taken`, a resume first records a row
-// under the binding it runs on, so the queue's own record of it fails; once it sets `git_folder`,
-// an opening names that git folder. The resumed runs' stand-in records each resume's runs, and
+// under the binding it runs on, so the queue's own record of it fails; once it sets `is_deferred`,
+// a resume starts no process and answers every run waiting; once it sets `git_folder`, an opening
+// names that git folder, and once it sets `provider`, that provider; once it sets
+// `is_provider_missing`, a resume or restart answers the provider not installed. The session
+// runs in `TEST_PLACE`. The resumed runs' stand-in records each resume's runs, and
 // whether the binding last handed out had a row as they reached it.
 struct Opening {
     database: TestDatabase,
@@ -101,7 +115,10 @@ struct Opening {
     handed_ids: Arc<Mutex<Vec<RuntimeBindingId>>>,
     came_up_on: Arc<Mutex<Option<RuntimeBindingId>>>,
     is_row_taken: Arc<AtomicBool>,
+    is_deferred: Arc<AtomicBool>,
     git_folder: Arc<Mutex<Option<FilesystemPath>>>,
+    provider: Arc<Mutex<Option<ProviderId>>>,
+    is_provider_missing: Arc<AtomicBool>,
     closes: Arc<AtomicUsize>,
     sessions: Arc<ProviderSessions>,
     execution_postures: Arc<ExecutionPostureService>,
@@ -129,7 +146,12 @@ impl Opening {
         let session_id = test_session_id();
         let earlier_run_id = new_run_id();
         let run_id = new_run_id();
-        insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
+        insert_session_row(
+            &database.reader(),
+            session_id.text().as_str(),
+            None,
+            Some(TEST_PLACE),
+        );
         insert_running_run(&database, session_id, earlier_run_id);
         insert_running_run(&database, session_id, run_id);
         queue_on_test_account(&database, session_id, run_id);
@@ -187,22 +209,43 @@ impl Opening {
         let handed_ids = Arc::new(Mutex::new(Vec::new()));
         let came_up_on = Arc::new(Mutex::new(None::<RuntimeBindingId>));
         let is_row_taken = Arc::new(AtomicBool::new(false));
+        let is_deferred = Arc::new(AtomicBool::new(false));
         let closes = Arc::new(AtomicUsize::new(0));
         let git_folder = Arc::new(Mutex::new(None));
+        let provider = Arc::new(Mutex::new(None));
+        let is_provider_missing = Arc::new(AtomicBool::new(false));
         let execution_postures = test_execution_postures();
         let on_resume: Arc<dyn Fn(&ResumeSessionParams) + Send + Sync> = Arc::from(on_resume);
         // The resume and the restart answer alike.
         let answer_relaunch = || {
             let (epochs, store) = (Arc::clone(&epochs), Arc::clone(&store));
             let (came_up_on, is_row_taken) = (Arc::clone(&came_up_on), Arc::clone(&is_row_taken));
-            let on_resume = Arc::clone(&on_resume);
+            let (on_resume, is_deferred, is_provider_missing) = (
+                Arc::clone(&on_resume),
+                Arc::clone(&is_deferred),
+                Arc::clone(&is_provider_missing),
+            );
             move |params: ResumeSessionParams| {
                 assert_eq!(params.resume_handle, "conversation-1");
                 assert!(
                     lock(&epochs).binding(&params.binding_id).is_ok(),
                     "the resume's cursor is open before the process runs"
                 );
+                if is_provider_missing.load(Ordering::SeqCst) {
+                    return async { Err(unresolvable_provider(false)) }.boxed();
+                }
                 on_resume(&params);
+                if is_deferred.load(Ordering::SeqCst) {
+                    let runs = params
+                        .live_runs
+                        .iter()
+                        .map(|run| ResumedRunAnswer {
+                            run_id: run.run_id,
+                            turn: ProviderTurnAnswer::Waiting,
+                        })
+                        .collect();
+                    return async move { Ok(DriverResumeResult::Deferred { runs }) }.boxed();
+                }
                 let binding_id = lock(&came_up_on)
                     .clone()
                     .unwrap_or_else(|| params.binding_id.clone());
@@ -284,7 +327,7 @@ impl Opening {
             )),
             binding_cursors,
             providers,
-            compose_opening: recording_composer(&handed_ids, &git_folder),
+            compose_opening: recording_composer(&handed_ids, &git_folder, &provider),
             read_git_folder: recording_git_folder(&git_folder),
             transition_lock: Arc::clone(changes.transition_lock()),
             process_follower: Arc::clone(&following) as Arc<dyn SessionProcessFollower>,
@@ -304,7 +347,10 @@ impl Opening {
             handed_ids,
             came_up_on,
             is_row_taken,
+            is_deferred,
             git_folder,
+            provider,
+            is_provider_missing,
             closes,
             sessions,
             execution_postures,
@@ -322,6 +368,36 @@ impl Opening {
             .cloned()
             .expect("an opening handed its process a binding")
     }
+
+    // The one notice a start on `provider` posts for the session in `TEST_PLACE`.
+    fn provider_missing_notice(&self, provider: ProviderId) -> SessionNotice {
+        SessionNotice::ProviderMissing {
+            session_id: self.session_id,
+            provider,
+            place: Some(serde_json::from_str::<Place>(TEST_PLACE).expect("the test's place")),
+        }
+    }
+}
+
+// The failure a driver answers when the provider's command names no build: a bare name no search
+// found, the provider not installed, or a path the person typed that does not run.
+fn unresolvable_provider(is_typed_path: bool) -> DriverError {
+    DriverError::from(ExecutableUnresolvable {
+        provider: first_provider(),
+        requested_command: if is_typed_path {
+            "/opt/provider/missing".to_owned()
+        } else {
+            "missing".to_owned()
+        },
+        is_typed_path,
+        is_build_found: false,
+        cause: io::Error::from(io::ErrorKind::NotFound),
+    })
+}
+
+// A provider no driver of the fixture answers.
+fn unregistered_provider() -> ProviderId {
+    ProviderId::new("unregistered".to_owned()).expect("a provider id")
 }
 
 // Writes `run_id`'s `agent.run.queued` admitted against the test's account, as its admission
@@ -360,20 +436,25 @@ struct OpeningWatch {
 }
 
 // The test composer's opening, its callbacks recording each binding they are bound to, on
-// `git_folder` once one is set.
+// `git_folder` and `provider` once each is set.
 fn recording_composer(
     handed_ids: &Arc<Mutex<Vec<RuntimeBindingId>>>,
     git_folder: &Arc<Mutex<Option<FilesystemPath>>>,
+    provider: &Arc<Mutex<Option<ProviderId>>>,
 ) -> ProviderSessionOpeningComposer {
     let composer = test_opening_composer();
     let (handed_ids, git_folder) = (Arc::clone(handed_ids), Arc::clone(git_folder));
+    let provider = Arc::clone(provider);
     Arc::new(move |session_id, provider_account_id| {
         let (composer, handed_ids) = (Arc::clone(&composer), Arc::clone(&handed_ids));
-        let git_folder = lock(&git_folder).clone();
+        let (git_folder, provider) = (lock(&git_folder).clone(), lock(&provider).clone());
         async move {
             let mut opening = composer(session_id, provider_account_id).await?;
             if let Some(git_folder) = git_folder {
                 opening.git_folder = git_folder;
+            }
+            if let Some(provider) = provider {
+                opening.provider = provider;
             }
             opening.function_legs_for = Arc::new(move |binding_id| {
                 lock(&handed_ids).push(binding_id.clone());

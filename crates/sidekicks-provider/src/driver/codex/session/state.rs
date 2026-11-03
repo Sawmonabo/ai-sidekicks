@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::{BoxFuture, Shared};
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
@@ -132,6 +133,8 @@ impl CodexUnechoedSteers {
 pub(crate) struct CodexSessionRecord {
     /// The session.
     pub(crate) session_id: SessionId,
+    /// The session's lead agent, whose goal the conversation's own goal is.
+    pub(crate) lead_agent_id: AgentId,
     /// The service the conversation is loaded on; a move onto a new build replaces it in place.
     pub(crate) service: Arc<CodexService>,
     /// The queue the services the session runs on send its frames and asks to.
@@ -192,6 +195,10 @@ pub(crate) struct CodexSessionRecord {
     pub(crate) last_steer_send: Option<Shared<BoxFuture<'static, ()>>>,
     /// Runs asked to pause whose turn has a step in flight, by that turn's id.
     pub(crate) pause_run_id_by_turn_id: HashMap<String, RunId>,
+    /// Turns Codex continued a lead's cut work in while the lead waited on the person: each ends
+    /// as the daemon's, never its run's, until a steer of the person's words reaches it. A helper
+    /// held on the person at the adoption has its newest turn here where Codex lists it over.
+    pub(crate) held_continuation_turn_ids: HashSet<String>,
     /// Runs whose turn was interrupted to pause them, by that turn's id: its interrupted end is
     /// the pause taking effect, never the run's end.
     pub(crate) paused_run_id_by_interrupted_turn_id: HashMap<String, RunId>,
@@ -218,6 +225,8 @@ pub(crate) struct CodexSessionRecord {
 pub(crate) struct CodexEstablishedConversation {
     /// The session.
     pub(crate) session_id: SessionId,
+    /// The session's lead agent.
+    pub(crate) lead_agent_id: AgentId,
     /// The service the conversation is loaded on.
     pub(crate) service: Arc<CodexService>,
     /// The queue the session's frames and asks go to.
@@ -256,6 +265,7 @@ impl CodexSessionRecord {
     pub(crate) fn new(established: CodexEstablishedConversation) -> Self {
         Self {
             session_id: established.session_id,
+            lead_agent_id: established.lead_agent_id,
             service: established.service,
             inbound: established.inbound,
             thread_id: established.thread_id,
@@ -283,6 +293,7 @@ impl CodexSessionRecord {
             prompt_hook_runs_by_turn_id: HashMap::new(),
             last_steer_send: None,
             pause_run_id_by_turn_id: HashMap::new(),
+            held_continuation_turn_ids: HashSet::new(),
             paused_run_id_by_interrupted_turn_id: HashMap::new(),
             continues_awaiting_pause: HashMap::new(),
             turn_input_by_turn_id: HashMap::new(),

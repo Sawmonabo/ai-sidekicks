@@ -36,7 +36,7 @@ static BLANK_TURN_ERROR_FALLBACK: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_
 
 /// The turn statuses Codex sends, read from its open string; any other word reads as none, which
 /// a settled turn reports and fails its run on.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum CodexTurnStatus {
     /// The turn ran to its end.
     Completed,

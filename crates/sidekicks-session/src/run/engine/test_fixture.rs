@@ -25,6 +25,8 @@ use crate::plan_holds::{NoPlanHolds, PlanHolds};
 use crate::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
 use crate::run::provider_choice::held::HeldChoiceAnswers;
 use crate::run::provider_choice::{PROVIDER_CHOICE_STATEMENT_CAPACITY, ProviderChoiceResolver};
+#[cfg(test)]
+use crate::run::restart::read_is_run_stopping;
 use crate::run::session_posture::SessionPostureSource;
 
 /// An engine on `database`, appending through `event_log`, with no registered driver, no
@@ -185,6 +187,13 @@ pub fn stored_run_state(database: &TestDatabase, run_id: &RunId) -> (String, i64
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .expect("the test reads the run's row")
+}
+
+/// Whether a stop wins over `run_id`, read as a restart's caller reads it before any run of the
+/// session settles.
+#[cfg(test)]
+pub(crate) fn is_run_stopping(database: &TestDatabase, run_id: &RunId) -> bool {
+    read_is_run_stopping(&database.reader(), run_id).expect("the test reads the run's stops")
 }
 
 /// Ends `run_id` `stopped` in the database at `path`, as an end landing beside the engine's

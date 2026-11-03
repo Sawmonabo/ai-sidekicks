@@ -39,6 +39,40 @@ use crate::provider_session::{
     ProviderSessionGitFolderReader, ProviderSessionOpening, ProviderSessionOpeningComposer,
 };
 
+/// Each `providerMissing` notice posted in the database `reader` reads, in the order posted.
+#[cfg(test)]
+pub(crate) fn read_provider_missing_notices(
+    reader: &rusqlite::Connection,
+) -> Vec<sidekicks_contracts::session::controls::events::SessionNotice> {
+    use sidekicks_contracts::event::registry::SessionEventType;
+    use sidekicks_contracts::session::controls::events::{
+        SessionNotice, SessionNoticePostedPayload,
+    };
+
+    reader
+        .prepare("SELECT payload FROM session_events WHERE type = ?1 ORDER BY sequence")
+        .expect("the test reads the notices")
+        .query_map([SessionEventType::SessionNoticePosted.as_str()], |row| {
+            row.get::<_, String>(0)
+        })
+        .expect("the notices read")
+        .map(|payload| {
+            serde_json::from_str::<SessionNoticePostedPayload>(&payload.expect("each notice reads"))
+                .expect("a stored notice parses")
+        })
+        .filter_map(|posted| {
+            if let SessionNoticePostedPayload::Notice(
+                notice @ SessionNotice::ProviderMissing { .. },
+            ) = posted
+            {
+                Some(notice)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 /// The table's first provider.
 pub(crate) fn first_provider() -> ProviderId {
     ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id is a provider id")

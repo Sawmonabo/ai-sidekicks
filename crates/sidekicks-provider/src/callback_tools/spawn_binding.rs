@@ -15,11 +15,9 @@ use crate::driver::callback_tool::{CallbackToolDispatcher, CallbackToolInvocatio
 /// calls with. Dropping it releases the spawn's registry; a spawn that never established calls
 /// [`CallbackToolSpawnBinding::rollback`] instead.
 #[must_use = "dropping the binding releases the spawn's callback-tool registry"]
-pub(crate) struct CallbackToolSpawnBinding {
-    /// Whether the spawn offers its tools, and which.
-    pub(crate) admission: CallbackToolAdmission,
-    /// Answers each call; bound even on a withholding, so a stray call is a recorded refusal.
-    pub(crate) dispatcher: CallbackToolDispatcher,
+pub struct CallbackToolSpawnBinding {
+    admission: CallbackToolAdmission,
+    dispatcher: CallbackToolDispatcher,
     host: Arc<CallbackToolHost>,
     session_id: SessionId,
     token: CallbackToolRegistryToken,
@@ -27,6 +25,17 @@ pub(crate) struct CallbackToolSpawnBinding {
 }
 
 impl CallbackToolSpawnBinding {
+    /// Whether the spawn offers its tools, and which.
+    pub fn admission(&self) -> &CallbackToolAdmission {
+        &self.admission
+    }
+
+    /// The dispatcher that answers the spawn's calls; bound even on a withholding, so a stray call
+    /// is a recorded refusal.
+    pub fn dispatcher(&self) -> &CallbackToolDispatcher {
+        &self.dispatcher
+    }
+
     /// Undoes the spawn's registry after the spawn failed, restoring the one it replaced, which a
     /// driver may still be using; with none replaced it is the same as dropping the binding.
     pub(crate) fn rollback(mut self) {
@@ -47,7 +56,7 @@ impl Drop for CallbackToolSpawnBinding {
 
 /// Installs the registry `request` asks for and binds its dispatcher to that installation, so a
 /// later spawn's registry never answers this spawn's calls.
-pub(crate) fn bind_callback_tools_for_spawn(
+pub fn bind_callback_tools_for_spawn(
     host: &Arc<CallbackToolHost>,
     request: CallbackToolSpawnRequest,
 ) -> CallbackToolSpawnBinding {
@@ -97,7 +106,8 @@ mod tests {
     const SESSION: &str = "0192f3a4-5b6c-7d8e-9f01-23456789abcd";
     const TOOL: &str = "search";
 
-    /// The seam, executor and sink at once: the seam allows by policy, or fails when told to.
+    /// The seam, executor and sink at once: the seam allows by policy, or fails when told to; the
+    /// executor completes; the sink takes every record.
     struct TestPorts {
         is_seam_failing: bool,
     }
@@ -123,7 +133,13 @@ mod tests {
             &self,
             _invocation: CallbackToolInvocation,
         ) -> BoxFuture<'_, Result<CallbackToolResult, CallbackToolPortError>> {
-            async { Ok(CallbackToolResult::Completed { output: None }) }.boxed()
+            async {
+                Ok(CallbackToolResult::Completed {
+                    output: None,
+                    session_links: Vec::new(),
+                })
+            }
+            .boxed()
         }
     }
 
@@ -144,7 +160,8 @@ mod tests {
         let seam: Option<Arc<dyn CallbackToolApprovalSeam>> =
             is_seam_failing.map(|_| Arc::clone(&ports) as Arc<dyn CallbackToolApprovalSeam>);
         let executor: Arc<dyn CallbackToolExecutor> = Arc::clone(&ports) as _;
-        Arc::new(CallbackToolHost::new(executor, ports, seam))
+        let sink: Arc<dyn CallbackToolActivitySink> = Arc::clone(&ports) as _;
+        Arc::new(CallbackToolHost::new(executor, sink, seam))
     }
 
     fn bind(host: &Arc<CallbackToolHost>) -> CallbackToolSpawnBinding {
@@ -173,7 +190,7 @@ mod tests {
             session_id: SessionId::new(SESSION).expect("the text is a UUID"),
             run_id: RunId::new("0192f0c8-7a3e-7b4c-9d2e-3f4a5b6c7d8e").expect("the text is a UUID"),
         };
-        (binding.dispatcher)(invocation)
+        (binding.dispatcher())(invocation)
             .now_or_never()
             .expect("the test doubles answer at once")
     }
@@ -205,7 +222,7 @@ mod tests {
 
             let withheld = bind(&host_with(None));
             assert!(matches!(
-                withheld.admission,
+                withheld.admission(),
                 CallbackToolAdmission::Withheld { .. }
             ));
             assert!(matches!(call(&withheld), Denied { .. }));

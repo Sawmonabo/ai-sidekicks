@@ -1,7 +1,8 @@
 //! The params and results of the driver operations that act on one live run: a steer or an
 //! interrupt, pause and continue, withdrawing a waiting message, overruling a reviewer's block,
 //! answering a provider's choice and resending a held turn on a faster model; and the binding the
-//! run queue opens for a turn the daemon starts itself.
+//! run queue opens for a turn the daemon starts itself; and stopping a helper alone and
+//! re-attaching a session's helpers after a restart.
 
 use std::error::Error;
 
@@ -16,6 +17,7 @@ use sidekicks_contracts::provider::driver::methods::{
     PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_REASON_MAX_LEN,
 };
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::provider_choice::{RunRefusalChoice, RunUsageCreditsChoice};
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
@@ -194,7 +196,8 @@ pub struct WaitingMessage {
 }
 
 /// Params of `resume_run`: the paused or pausing run to continue from where it stopped, with the
-/// messages that waited for it in send order, delivered as it continues.
+/// messages that waited for it in send order, delivered as it continues, and whether the daemon's
+/// restart cut the run's turn short of its pause, so the continue owes that work first.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResumeRunParams {
     /// The session.
@@ -203,6 +206,9 @@ pub struct ResumeRunParams {
     pub run_id: RunId,
     /// The messages that waited for it, in send order.
     pub messages: Vec<WaitingMessage>,
+    /// Set where the daemon's restart cut the run's turn while it was pausing, so the continue owes
+    /// that cut work its continuation before the messages.
+    pub is_continuation_owed: bool,
 }
 
 /// Params of `find_taken_messages`: messages a resume of the run sent with no answer back, by the
@@ -334,8 +340,8 @@ pub struct RunToolBoundary {
     pub run_id: RunId,
 }
 
-/// Why a helper is stopped alone while its lead goes on; each reason gives the sentence the helper
-/// reads as its next tool use is refused.
+/// Why a helper is stopped; each reason gives the sentence the helper reads as its next tool use is
+/// refused.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HelperStopReason {
     /// The helper's own run passed its token limit.
@@ -345,6 +351,8 @@ pub enum HelperStopReason {
         /// The setup's refusal, whose cause the sentence names.
         refusal: RunSetupRefusal,
     },
+    /// The person stopped the helper from the console with every other running agent; final.
+    StopAll,
 }
 
 impl HelperStopReason {
@@ -365,20 +373,68 @@ impl HelperStopReason {
                 "Stopped: the run could not be set up, because {}. Report what you did and stop.",
                 refusal.cause
             ),
+            Self::StopAll => {
+                "Stopped: the person stopped this agent from the console. It will not \
+                 be resumed; stop now."
+                    .to_owned()
+            }
         }
     }
 }
 
-/// Params of `stop_helper_at_token_limit`: the helper whose own run passed its token limit, which
-/// stops alone while its lead goes on.
+/// Params of a helper's stop: the helper whose own run stops alone while its lead goes on.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HelperTokenLimitParams {
+pub struct HelperStopParams {
     /// The session.
     pub session_id: SessionId,
     /// The helper's own run.
     pub run_id: RunId,
     /// The provider's id of the helper on its lead's run.
     pub subagent_id: SubagentId,
+}
+
+/// How the provider took the stop of one helper; an error or a passed deadline is the call's `Err`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HelperStopOutcome {
+    /// The helper was stopped for good.
+    Stopped,
+    /// The helper's running turn was interrupted, and its provider can continue it.
+    Interrupted,
+    /// The helper was found interrupted and left so.
+    AlreadyInterrupted,
+    /// The helper had ended, or its provider no longer holds it.
+    AlreadyEnded,
+}
+
+/// Params of `reattach_helpers`: the helpers a session's tree held live before a restart, with
+/// their ancestors, given parents first. The daemon owns that order, so a driver takes them as
+/// given.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReattachHelpersParams {
+    /// The session.
+    pub session_id: SessionId,
+    /// The helpers, parents first.
+    pub helpers: Vec<ReattachedHelper>,
+}
+
+/// One helper a driver re-attaches after a restart, as the session's tree holds it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReattachedHelper {
+    /// The helper's newest own run, which its later turns go on.
+    pub run_id: RunId,
+    /// The run that run was started beneath.
+    pub parent_run_id: RunId,
+    /// The provider's id of the helper.
+    pub subagent_id: SubagentId,
+    /// The provider's id of the helper it runs under; `None` under the lead.
+    pub parent_subagent_id: Option<SubagentId>,
+    /// The provider's call that started its newest own run, where the provider names one.
+    pub start_call_id: Option<ToolCallId>,
+    /// Its path in its provider's tree; `None` on a provider that keeps no tree paths.
+    pub provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// Whether its own run was live before the restart. An ancestor included only for its place in
+    /// the tree was not.
+    pub was_live: bool,
 }
 
 /// The binding a turn the daemon starts on a session itself runs on, and the session's agent.

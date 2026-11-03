@@ -5,12 +5,13 @@ use std::sync::Arc;
 
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
-use sidekicks_platforms::Spawner;
+use sidekicks_platforms::{Spawner, WallClockTimer};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::driver::ProviderRegistration;
 use sidekicks_provider::driver::child_records::UnrecordedChildren;
 use sidekicks_provider::driver::test_registry::NothingServed;
 use sidekicks_session::attention::changes::attention_changes_after_commits;
+use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::test_fixture::open_log;
@@ -73,6 +74,11 @@ impl TestStart {
                 ),
                 base_environment,
                 shell_lines: Arc::new(ShellLineReadingBound::new(SHELL_LINE_LIMIT)),
+                scheduler: Arc::new(Scheduler::start(
+                    Arc::new(WallClockTimer::new().expect("the test arms a wall clock")),
+                    None,
+                    tokio::sync::watch::channel(0).1,
+                )),
                 caller_processes: Arc::new(
                     ProcessTableReader::for_this_program().expect("this program's reader builds"),
                 ),

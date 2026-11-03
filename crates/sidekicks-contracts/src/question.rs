@@ -401,25 +401,28 @@ pub struct QuestionResolveRequest {
     pub answers: BoundedVec<QuestionAnswer, 1, { usize::MAX }>,
 }
 
-/// A settled question's state: answered, or canceled with the turn that held it.
+/// The state `question.resolve` replies with: the record answered or canceled, or the answer kept
+/// for the tool server's next ask.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub enum QuestionSettledState {
+pub enum QuestionResolveState {
     /// Answered.
     Answered,
-    /// Canceled with its turn.
+    /// Canceled with the turn that held it.
     Canceled,
+    /// The answer is kept for the tool server's next ask; the question stays open.
+    Kept,
 }
 
-/// The `question.resolve` result: the record's settled state.
+/// The `question.resolve` result: the record's settled state, or the kept answer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct QuestionResolveResponse {
     /// The question.
     pub question_id: QuestionId,
-    /// Its state.
-    pub state: QuestionSettledState,
+    /// The record's settled state, or `kept` for an answer kept for the tool server's next ask.
+    pub state: QuestionResolveState,
 }
 
 /// Why `question.answerInvalid` refused one answer, carried as its `reason`: a secret for a plain
@@ -475,7 +478,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<QuestionAnswer>(),
         Definition::read::<QuestionAnswerInvalidReason>(),
         Definition::read::<QuestionResolveRequest>().checked(),
-        Definition::read::<QuestionSettledState>(),
+        Definition::read::<QuestionResolveState>(),
         Definition::read::<QuestionResolveResponse>(),
     ],
     constants: &[],

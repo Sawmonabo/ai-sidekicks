@@ -149,6 +149,28 @@ impl<'de> Visitor<'de> for LenientVisitor<bool> {
     skip_other_shapes!(@map);
 }
 
+impl<'de> Visitor<'de> for LenientVisitor<u64> {
+    type Value = Option<u64>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("any JSON value")
+    }
+
+    fn visit_u64<E: de::Error>(self, value: u64) -> Result<Self::Value, E> {
+        Ok(Some(value))
+    }
+
+    skip_other_shapes!(
+        visit_bool(bool),
+        visit_str(&str),
+        visit_i64(i64),
+        visit_f64(f64),
+        visit_unit()
+    );
+    skip_other_shapes!(@seq);
+    skip_other_shapes!(@map);
+}
+
 impl Lenient for String {
     fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error> {
         deserializer.deserialize_any(LenientVisitor::<Self>(PhantomData))
@@ -156,6 +178,12 @@ impl Lenient for String {
 }
 
 impl Lenient for bool {
+    fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error> {
+        deserializer.deserialize_any(LenientVisitor::<Self>(PhantomData))
+    }
+}
+
+impl Lenient for u64 {
     fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error> {
         deserializer.deserialize_any(LenientVisitor::<Self>(PhantomData))
     }

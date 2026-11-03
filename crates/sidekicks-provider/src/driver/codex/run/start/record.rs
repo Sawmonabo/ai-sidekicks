@@ -108,7 +108,7 @@ pub(crate) struct CodexAcceptedTurn {
 }
 
 /// What a run's own turn changes on the record once Codex accepts it.
-struct CodexAcceptedRunTurn {
+pub(crate) struct CodexAcceptedRunTurn {
     /// The model the conversation runs on from the turn on.
     model: String,
     /// The output speed the conversation is asked to run at from the turn on.
@@ -325,10 +325,10 @@ pub(crate) async fn begin_codex_turn_start(
     }))
 }
 
-// A run's turn as `turn/start` carries it, and what the turn changes once Codex accepts it: the
-// run's level wins and the conversation's request is the fallback, each resolved against the
-// model's tier list afresh, since the catalog can change.
-async fn compose_run_turn(
+/// A run's turn as `turn/start` carries it, and what the turn changes once Codex accepts it: the
+/// run's level wins and the conversation's request is the fallback, each resolved against the
+/// model's tier list afresh, since the catalog can change. Fails as the catalog read fails.
+pub(crate) async fn compose_run_turn(
     record: &CodexSessionRecord,
     connection: &CodexAppServerConnection,
     turn: CodexTurnRequest,
@@ -360,6 +360,8 @@ async fn compose_run_turn(
         )),
         model: turn.model,
         client_user_message_id: turn.client_message_ids.first().cloned(),
+        turn_trigger: None,
+        root_turn_id: None,
         output_schema: turn.output_schema,
         // The collaboration mode carries the turn's effort.
         effort: None,
@@ -444,26 +446,13 @@ pub(crate) async fn settle_codex_turn_start(
             cause: None,
         });
     }
-    let mut settled = None;
-    let mut input = None;
-    if let Some(run_turn) = accepted.run_turn {
-        // The provider applies a turn's model and tier from that turn on, so the conversation now
-        // holds them, and a resume after a crash sends them again.
-        record.thread_settings.model = run_turn.model;
-        record.output_speed_request = run_turn.output_speed_request;
-        settled = arm_codex_run_output_speed(
-            record,
-            turn_id.clone(),
-            run_id,
-            run_turn.sent_output_speed.as_deref(),
-        );
-        for client_message_id in &run_turn.input.client_message_ids {
-            record
-                .turn_id_by_client_message_id
-                .insert(client_message_id.clone(), turn_id.clone());
+    let (settled, input) = match accepted.run_turn {
+        Some(run_turn) => {
+            let (settled, input) = apply_run_turn_acceptance(record, run_id, &turn_id, run_turn);
+            (settled, Some(input))
         }
-        input = Some(run_turn.input);
-    }
+        None => (None, None),
+    };
     if route_accepted_turn(&dependencies.run_routes, record, run_id, &turn_id, opening) {
         if let Some(input) = input {
             record.turn_input_by_turn_id.insert(turn_id, input);
@@ -473,6 +462,34 @@ pub(crate) async fn settle_codex_turn_start(
         note_start_settled(dependencies, record);
     }
     Ok(settled)
+}
+
+/// Applies run `run_id`'s own turn `turn_id`, which Codex accepted, to the record: the conversation
+/// takes the turn's model and speed request, the run is armed to report the speed it settles at,
+/// and each of its messages maps to the turn. Answers the speed report of a turn already over, and
+/// the turn's input, which a faster-model retry sends again.
+pub(crate) fn apply_run_turn_acceptance(
+    record: &mut CodexSessionRecord,
+    run_id: RunId,
+    turn_id: &str,
+    run_turn: CodexAcceptedRunTurn,
+) -> (Option<CodexSettledOutputSpeed>, CodexTurnInput) {
+    // The provider applies a turn's model and tier from that turn on, so the conversation now
+    // holds them, and a resume after a crash sends them again.
+    record.thread_settings.model = run_turn.model;
+    record.output_speed_request = run_turn.output_speed_request;
+    let settled = arm_codex_run_output_speed(
+        record,
+        turn_id.to_owned(),
+        run_id,
+        run_turn.sent_output_speed.as_deref(),
+    );
+    for client_message_id in &run_turn.input.client_message_ids {
+        record
+            .turn_id_by_client_message_id
+            .insert(client_message_id.clone(), turn_id.to_owned());
+    }
+    (settled, run_turn.input)
 }
 
 /// Records an accepted turn's boundary and routes it to its run with `opening`, the queue item

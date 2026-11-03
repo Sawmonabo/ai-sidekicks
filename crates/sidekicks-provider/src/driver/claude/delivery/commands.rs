@@ -45,6 +45,7 @@ use crate::port::command_capture::CommandCapture;
 use crate::port::running_command_publisher::{
     CommandStart, ProviderCommandEnd, ReseedScope, RunningCommandPublisher,
 };
+use crate::record_readers::filter_non_empty;
 
 /// The `task_type` of a helper's task.
 pub(crate) const CLAUDE_HELPER_TASK_TYPE: &str = "local_agent";
@@ -130,22 +131,22 @@ impl ClaudeTaskFrame {
 
     /// The task, where the frame names one.
     pub(crate) fn task_id(&self) -> Option<&str> {
-        non_empty(self.task_id.as_deref())
+        filter_non_empty(self.task_id.as_deref())
     }
 
     /// The task's kind as Claude Code names it, where the frame names one.
     pub(crate) fn task_type(&self) -> Option<&str> {
-        non_empty(self.task_type.as_deref())
+        filter_non_empty(self.task_type.as_deref())
     }
 
     /// The tool call that started the task, where the frame names it.
     pub(crate) fn tool_use_id(&self) -> Option<&str> {
-        non_empty(self.tool_use_id.as_deref())
+        filter_non_empty(self.tool_use_id.as_deref())
     }
 
     /// The helper's task that started this one, where a helper did.
     pub(crate) fn parent_task_id(&self) -> Option<&str> {
-        non_empty(self.parent_task_id.as_deref())
+        filter_non_empty(self.parent_task_id.as_deref())
     }
 
     /// How a finished task ended: `completed`, `failed` or `stopped`.
@@ -155,7 +156,7 @@ impl ClaudeTaskFrame {
 
     /// Claude Code's summary of a finished task.
     pub(crate) fn summary(&self) -> Option<&str> {
-        non_empty(self.summary.as_deref())
+        filter_non_empty(self.summary.as_deref())
     }
 
     /// The files a tool server's finished task returned by reference, as sent.
@@ -268,6 +269,15 @@ impl ClaudeCommandTasks {
         })
     }
 
+    /// The ids of the running command tasks that belong to `run_id`.
+    pub(crate) fn command_ids_of_run(&self, run_id: RunId) -> Vec<String> {
+        self.tasks
+            .iter()
+            .filter(|(_, task)| task.start.run_id == run_id)
+            .map(|(task_id, _)| task_id.clone())
+            .collect()
+    }
+
     /// What `frame`, of `kind`, changes in `session_id`'s running commands; `run_id` is the run a
     /// task it starts belongs to. A task of a helper, a workflow or a tool server, or one of no
     /// kind, is no command; a later start of a task the background set already listed gives that
@@ -327,6 +337,11 @@ impl ClaudeCommandTasks {
     /// background set listed.
     pub(crate) fn listed_other_tasks(&self) -> usize {
         self.listed_other_tasks
+    }
+
+    /// Whether any command task still runs.
+    pub(crate) fn has_running_task(&self) -> bool {
+        !self.tasks.is_empty()
     }
 
     /// Forgets every command task: the session's process is gone, and its commands with it.
@@ -394,21 +409,21 @@ impl ClaudeCommandTasks {
         let entries = frame.tasks.as_ref().map_or(&[][..], |tasks| &tasks.0);
         self.listed_other_tasks = entries
             .iter()
-            .filter(|entry| non_empty(entry.task_id.as_deref()).is_some())
-            .filter(|entry| !is_command_task(non_empty(entry.task_type.as_deref())))
+            .filter(|entry| filter_non_empty(entry.task_id.as_deref()).is_some())
+            .filter(|entry| !is_command_task(filter_non_empty(entry.task_type.as_deref())))
             .count();
         let listed_ids: Vec<&str> = entries
             .iter()
-            .filter(|entry| is_command_task(non_empty(entry.task_type.as_deref())))
-            .filter_map(|entry| non_empty(entry.task_id.as_deref()))
+            .filter(|entry| is_command_task(filter_non_empty(entry.task_type.as_deref())))
+            .filter_map(|entry| filter_non_empty(entry.task_id.as_deref()))
             .collect();
         self.tasks.retain(|task_id, task| {
             !task.start.is_backgrounded || listed_ids.contains(&&**task_id)
         });
         let mut listed = Vec::new();
         for entry in entries {
-            let Some(task_id) = non_empty(entry.task_id.as_deref())
-                .filter(|_| is_command_task(non_empty(entry.task_type.as_deref())))
+            let Some(task_id) = filter_non_empty(entry.task_id.as_deref())
+                .filter(|_| is_command_task(filter_non_empty(entry.task_type.as_deref())))
             else {
                 continue;
             };
@@ -785,10 +800,6 @@ fn environment_text(value: OsString) -> io::Result<String> {
             format!("the path {} is no text", value.to_string_lossy()),
         )
     })
-}
-
-fn non_empty(text: Option<&str>) -> Option<&str> {
-    text.filter(|text| !text.is_empty())
 }
 
 #[cfg(test)]

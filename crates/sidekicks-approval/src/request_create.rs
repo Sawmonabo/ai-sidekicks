@@ -9,6 +9,7 @@ use sidekicks_contracts::approval::{ApprovalCategory, ApprovalScope};
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::mcp::server::{McpServerName, McpToolName};
 use sidekicks_contracts::provider::tool_call::ToolCallId;
+use sidekicks_contracts::release_manifest::Sha256Hex;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::JsonRecord;
@@ -113,12 +114,17 @@ pub(crate) struct ApprovalRequestCreateRequest {
 }
 
 /// What only the daemon knows about where an ask came from, passed beside the request and never in
-/// it: the daemon's own id of the provider ask it was minted for, and the tool call the ask holds,
-/// whose row draws its held mark. A card the daemon raises itself carries neither.
+/// it: the daemon's own id of the provider ask it was minted for, the tool call the ask holds,
+/// whose row draws its held mark, and the digest of that call's tool name and input. A card the
+/// daemon raises itself carries no provider ask id, and one over a workflow step's action no call.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ApprovalRequestOrigin {
     /// The daemon's own id of the provider ask.
     pub(crate) ask_id: Option<NonEmptyText>,
     /// The tool call the ask holds.
     pub(crate) tool_call_id: Option<ToolCallId>,
+    /// The SHA-256 of the call's tool name and input as canonical JSON, by which a call made again
+    /// after a restart finds the card; `None` where the card holds no call or its input has no
+    /// canonical form.
+    pub(crate) input_digest: Option<Sha256Hex>,
 }

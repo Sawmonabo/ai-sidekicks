@@ -400,7 +400,7 @@ mod tests {
     use tokio::io::AsyncReadExt as _;
 
     use super::{LOGGED_LINE_MAX_BYTES, McpStdioServer, StdioProcess, error_output_line_text};
-    use crate::client::connection::{McpConnectionError, McpServerConnection};
+    use crate::client::connection::{McpConnectionError, McpConnectionStart, McpServerConnection};
     use crate::client::test_server::{
         Reply, method_not_found, start_test_server, test_client, test_scope, v1_initialize_result,
     };
@@ -497,7 +497,7 @@ mod tests {
                 "tools/list" => Reply::Answer(json!({ "result": { "tools": [] } })),
                 _ => method_not_found(),
             }),
-            Some(process),
+            McpConnectionStart::stdio(None, Some(process)),
         )
         .await;
         let connection = opened.expect("the connection opens");
