@@ -295,8 +295,8 @@ pub fn check_workflow_graph<S: BuildHasher>(
 /// The findings a connection dragged onto the document adds, which the builder refuses while it
 /// is dragged: the edge's own rules, the cycle it closes (the edge closing a loop body excepted)
 /// and the input limit it passes. One graph is built over the document's edges and the
-/// connection, which takes the place of an edge the document holds equal to it, so it is never its
-/// own repeat; a cycle is the connection's when the connection is a `main` edge whose two ends it
+/// connection, which takes the place of the edge the document holds under its id, so it is never
+/// its own repeat; a cycle is the connection's when the connection is a `main` edge whose two ends it
 /// holds, and an input past its limit when it is the connection's target handle and the connection
 /// is not refused for its own fault. Empty when the connection is accepted.
 pub fn check_workflow_connection<S: BuildHasher>(
@@ -308,7 +308,7 @@ pub fn check_workflow_connection<S: BuildHasher>(
 ) -> Vec<WorkflowDefinitionFinding> {
     let edges_with_connection: Vec<WorkflowEdge> = edges
         .iter()
-        .filter(|held| *held != edge)
+        .filter(|held| held.id != edge.id)
         .chain(iter::once(edge))
         .cloned()
         .collect();

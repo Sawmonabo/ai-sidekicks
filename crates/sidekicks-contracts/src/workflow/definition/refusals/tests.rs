@@ -249,6 +249,13 @@ fn the_graph_check_finds_what_the_save_refuses(
     repeated_main_edge("a", "b"),
     json!([{ "rule": "edgeDuplicate", "nodeIds": ["a", "b"] }]),
 )]
+// The edge `l-n` dragged off one handle onto another stands in place of the copy it moved from.
+#[case::an_edge_dragged_to_another_handle(
+    json!([node("l", "flow.loopItems"), node("n", "output.notify")]),
+    json!([main_edge("t", "l"), edge("l", "outputs/main/0", "n", "inputs/main/0")]),
+    edge("l", "outputs/main/1", "n", "inputs/main/0"),
+    json!([]),
+)]
 fn the_connection_check_refuses_what_the_edge_adds(
     #[case] nodes: Value,
     #[case] edges: Value,
