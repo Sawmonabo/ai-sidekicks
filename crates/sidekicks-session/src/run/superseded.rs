@@ -32,11 +32,11 @@ pub struct StoredRollbackMismatchError {
     pub(crate) cause: serde_json::Error,
 }
 
-/// Why a run's superseded turns could not be read.
+/// Why superseded turns could not be read, a run's or a session's.
 #[derive(Debug, thiserror::Error)]
 pub enum SupersededTurnsReadError {
     /// SQLite refused a read, or a payload column is not JSON.
-    #[error("a database read for the run failed")]
+    #[error("a database read of the superseded turns failed")]
     Database(#[from] rusqlite::Error),
     /// A stored rollback does not match its contract.
     #[error(transparent)]
