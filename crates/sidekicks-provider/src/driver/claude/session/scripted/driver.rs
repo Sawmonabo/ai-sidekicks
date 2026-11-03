@@ -692,5 +692,6 @@ pub(crate) fn resume_params(session_id: SessionId) -> ResumeSessionParams {
         on_mcp_server_status: None,
         kept_schedules: Vec::new(),
         live_runs: Vec::new(),
+        held_run_continue: None,
     }
 }

@@ -25,9 +25,31 @@ use crate::spawn_environment::{
 const CLAUDE_SCRATCH_FOLDER: &str = "claude-scratch";
 const HOME_SCRATCH_FOLDERS: &str = "homes";
 
-/// The environment key that has a resumed Claude Code process continue the turn its conversation
-/// left interrupted, which it otherwise leaves as it is.
+/// The key that has a resumed Claude Code process continue the turn its conversation left
+/// interrupted, which it otherwise leaves as it is.
 pub(crate) const CLAUDE_RESUME_INTERRUPTED_TURN_KEY: &str = "CLAUDE_CODE_RESUME_INTERRUPTED_TURN";
+
+/// The key that has the continued turn keep the tool calls the interruption cut off, marked so.
+pub(crate) const CLAUDE_RESUME_SHOWS_CUT_OFF_CALLS_KEY: &str =
+    "CLAUDE_CODE_RESUME_SHOWS_CUT_OFF_CALLS";
+
+/// The key whose value replaces the words Claude Code sends to continue the interrupted turn.
+pub(crate) const CLAUDE_RESUME_PROMPT_KEY: &str = "CLAUDE_CODE_RESUME_PROMPT";
+
+/// The key bounding how old the conversation's last message may be for its turn to continue; a
+/// positive bound replaces the six hours Claude Code holds some turns to.
+pub(crate) const CLAUDE_RESUME_MAX_AGE_KEY: &str = "CLAUDE_CODE_RESUME_INTERRUPTED_TURN_MAX_AGE_MS";
+
+// The largest finite double, in milliseconds, so a turn interrupted however long ago continues.
+const CLAUDE_RESUME_ANY_AGE_MS: &str = "1.7976931348623157e308";
+
+// Every key that continues an interrupted turn, which only the resume's own process carries.
+const CLAUDE_RESUME_INTERRUPTED_TURN_KEYS: [&str; 4] = [
+    CLAUDE_RESUME_INTERRUPTED_TURN_KEY,
+    CLAUDE_RESUME_SHOWS_CUT_OFF_CALLS_KEY,
+    CLAUDE_RESUME_PROMPT_KEY,
+    CLAUDE_RESUME_MAX_AGE_KEY,
+];
 
 /// The variable naming the descriptor of the pipe a pasted token is handed on, which only the
 /// daemon's start sets.
@@ -196,14 +218,29 @@ pub(crate) fn compose_claude_process_environment(
     )
 }
 
-/// `environment` without the key that continues an interrupted turn, which a resume sets on the
-/// one process it starts, so no later process started from the same environment continues it.
+/// The keys a resumed process continues its interrupted turn with: the turn continued however old,
+/// its cut-off calls shown, and `prompt` as the words it continues with, where given; without one,
+/// Claude Code's own words stand.
+pub(crate) fn interrupted_turn_resume_environment(prompt: Option<&str>) -> Vec<(String, String)> {
+    [
+        (CLAUDE_RESUME_INTERRUPTED_TURN_KEY, Some("1")),
+        (CLAUDE_RESUME_SHOWS_CUT_OFF_CALLS_KEY, Some("1")),
+        (CLAUDE_RESUME_MAX_AGE_KEY, Some(CLAUDE_RESUME_ANY_AGE_MS)),
+        (CLAUDE_RESUME_PROMPT_KEY, prompt),
+    ]
+    .into_iter()
+    .filter_map(|(name, value)| Some((name.to_owned(), value?.to_owned())))
+    .collect()
+}
+
+/// `environment` without the keys that continue an interrupted turn, which a resume sets on the one
+/// process it starts, so no later process started from the same environment continues it.
 pub(crate) fn without_interrupted_turn_resume(
     environment: Vec<(String, String)>,
 ) -> Vec<(String, String)> {
     environment
         .into_iter()
-        .filter(|(name, _)| name != CLAUDE_RESUME_INTERRUPTED_TURN_KEY)
+        .filter(|(name, _)| !CLAUDE_RESUME_INTERRUPTED_TURN_KEYS.contains(&name.as_str()))
         .collect()
 }
 
@@ -220,6 +257,7 @@ mod tests {
     use super::{
         CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE, ClaudeAccountFolders,
         ClaudeProcessEnvironmentRequest, ClaudeProcessHome, compose_claude_process_environment,
+        interrupted_turn_resume_environment, without_interrupted_turn_resume,
     };
     use crate::driver::claude::DESCRIPTOR;
     use crate::driver::claude::account::credentials::{
@@ -339,6 +377,99 @@ mod tests {
             );
             assert_eq!(value("CLAUDE_CODE_TMPDIR"), Some("/data/read"));
         }
+    }
+
+    // A resume continues its turn however old, its cut-off calls kept, with the words it is given
+    // and Claude Code's own where it is given none. Killed by any key dropped, by the age written
+    // as anything but the largest finite double, and by the prompt key set with no words.
+    #[test]
+    fn a_resume_continues_its_turn_with_the_words_it_is_given() {
+        let pairs = |prompt| {
+            interrupted_turn_resume_environment(prompt)
+                .into_iter()
+                .map(|(name, value)| format!("{name}={value}"))
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            pairs(Some("The person approved it.")),
+            [
+                "CLAUDE_CODE_RESUME_INTERRUPTED_TURN=1",
+                "CLAUDE_CODE_RESUME_SHOWS_CUT_OFF_CALLS=1",
+                "CLAUDE_CODE_RESUME_INTERRUPTED_TURN_MAX_AGE_MS=1.7976931348623157e308",
+                "CLAUDE_CODE_RESUME_PROMPT=The person approved it.",
+            ]
+        );
+        assert_eq!(
+            pairs(None),
+            [
+                "CLAUDE_CODE_RESUME_INTERRUPTED_TURN=1",
+                "CLAUDE_CODE_RESUME_SHOWS_CUT_OFF_CALLS=1",
+                "CLAUDE_CODE_RESUME_INTERRUPTED_TURN_MAX_AGE_MS=1.7976931348623157e308",
+            ]
+        );
+    }
+
+    // Only the resume's own process continues an interrupted turn: a shell's keys reach no process,
+    // the resume's own keys win over them, and a later process started from the resume's
+    // environment carries none. Killed by any of the four left off the withheld names, and by the
+    // strip limited to the first key.
+    #[test]
+    fn no_process_but_the_resume_s_own_continues_an_interrupted_turn() {
+        let resume_keys = [
+            "CLAUDE_CODE_RESUME_INTERRUPTED_TURN",
+            "CLAUDE_CODE_RESUME_SHOWS_CUT_OFF_CALLS",
+            "CLAUDE_CODE_RESUME_INTERRUPTED_TURN_MAX_AGE_MS",
+            "CLAUDE_CODE_RESUME_PROMPT",
+        ];
+        let base: Vec<_> = resume_keys
+            .iter()
+            .map(|name| ((*name).to_owned(), "shell".to_owned()))
+            .collect();
+        let reserved_names = ReservedEnvironmentNames::of_providers(&[]);
+        let folders = ClaudeAccountFolders {
+            config_folder: "/accounts/one/config".to_owned(),
+            credential_store_folder: "/accounts/one/credentials".to_owned(),
+        };
+        let environment = |mandated_pairs: &[(String, String)]| {
+            let request = ClaudeProcessEnvironmentRequest {
+                session: SessionEnvironment {
+                    base: &base,
+                    every_project_rows: &[],
+                    project_rows: &[],
+                    reserved_names: &reserved_names,
+                    rules: PathRules::Posix,
+                },
+                deny_env_vars: &[],
+                home: ClaudeProcessHome::Account { folders: &folders },
+                data_folder: "/data",
+            };
+            compose_claude_process_environment(request, mandated_pairs)
+                .expect("the environment builds")
+        };
+        let resume_values = |environment: &[(String, String)]| {
+            resume_keys.map(|name| {
+                PathRules::Posix
+                    .environment_value(environment, name)
+                    .map(str::to_owned)
+            })
+        };
+
+        assert_eq!(resume_values(&environment(&[])), [None, None, None, None]);
+        let resumed = environment(&interrupted_turn_resume_environment(Some("words")));
+        assert_eq!(
+            resume_values(&resumed),
+            [
+                Some("1".to_owned()),
+                Some("1".to_owned()),
+                Some("1.7976931348623157e308".to_owned()),
+                Some("words".to_owned()),
+            ]
+        );
+        assert_eq!(
+            resume_values(&without_interrupted_turn_resume(resumed)),
+            [None, None, None, None]
+        );
     }
 
     // A person's row naming either question switch is refused at save, as every name the app sets

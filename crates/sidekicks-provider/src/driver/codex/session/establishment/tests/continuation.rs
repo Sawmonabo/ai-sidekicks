@@ -24,6 +24,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::codex::session::establishment::CodexEstablishedSession;
 use crate::driver::codex::session::test_fixture::TestCodexSession;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
+use crate::driver::session_control::held_run_continue::HeldRunContinue;
 use crate::driver::session_control::{
     DriverResumeResult, LiveRunResume, OpenTurnResume, ProviderTurnAnswer,
 };
@@ -132,7 +133,7 @@ pub(super) struct HelperScript {
 impl AdoptionScript {
     // The conversation held unloaded and read idle with no page, its turns `listed_turns`, each
     // `turn/start` answered with `turn_start_answer`.
-    fn unloaded(listed_turns: Value, turn_start_answer: Value) -> Self {
+    pub(super) fn unloaded(listed_turns: Value, turn_start_answer: Value) -> Self {
         Self {
             is_loaded: false,
             status: "idle",
@@ -164,6 +165,16 @@ pub(super) async fn adopt(
     live_runs: Vec<LiveRunResume>,
     answers: AdoptionScript,
 ) -> Adoption {
+    Box::pin(adopt_continuing(session, live_runs, None, answers)).await
+}
+
+// Adopts as `adopt` does, the resume carrying `held_run_continue`.
+pub(super) async fn adopt_continuing(
+    session: &mut TestCodexSession,
+    live_runs: Vec<LiveRunResume>,
+    held_run_continue: Option<HeldRunContinue>,
+    answers: AdoptionScript,
+) -> Adoption {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let establishment = session.establishment(folder.path());
     session.scripted.report_version("codex-cli 0.163.0");
@@ -177,7 +188,7 @@ pub(super) async fn adopt(
         .create(input)
         .await
         .expect("the binding is recorded");
-    let params = compose_resume_session_params(
+    let mut params = compose_resume_session_params(
         new_session_id(),
         new_agent_id(),
         &binding,
@@ -195,6 +206,7 @@ pub(super) async fn adopt(
         live_runs,
     )
     .expect("the binding resumes");
+    params.held_run_continue = held_run_continue;
     let AdoptionScript {
         is_loaded,
         status,
@@ -709,22 +721,20 @@ async fn a_joined_services_running_continuation_is_held_and_opened_as_the_runs_t
 
 // A continuation Codex already ended on a joined service is held for a running lead with no stop
 // pending, unopened, so its listed end, routed as the session opens, opens it and ends the run:
-// the cut turn ends in the log and the run answers ended. A stopping lead's is left to its stop:
-// nothing is ended or held, and the cut turn stays bound as before. A pausing lead's is not taken
-// either: the lead answers gone, so the daemon ends its cut turn as the pause owes, with that turn
-// unbound and the lead's deliveries' binding kept for the person's continue. Every lead keeps
-// that binding. Killed by the continuation not held (the run never ends), by the cut turn left
-// bound (its listed end is routed), and by a pausing lead's ended continuation taken (the lead
-// answers ended, its continuation held).
+// the cut turn ends in the log and the run answers ended. A pausing lead's is held the same way,
+// opened as the pause's turn, so its listed end pauses the run. A stopping lead's is left to its
+// stop: nothing is ended or held, and the cut turn stays bound as before. Every lead keeps its
+// deliveries' binding. Killed by the continuation not held (the run never ends), by the cut turn
+// left bound (its listed end is routed), and by a pausing lead's ended continuation left out or
+// held unmarked (its listed end would end the run).
 #[rstest]
-#[case::running(RunState::Running, false, ProviderTurnAnswer::EndedByProvider)]
-#[case::stopping(RunState::Running, true, ProviderTurnAnswer::EndedByProvider)]
-#[case::pausing(RunState::Pausing, false, ProviderTurnAnswer::Gone)]
+#[case::running(RunState::Running, false)]
+#[case::stopping(RunState::Running, true)]
+#[case::pausing(RunState::Pausing, false)]
 #[tokio::test(start_paused = true)]
 async fn a_joined_services_ended_continuation_is_held_unless_a_stop_settles_its_run(
     #[case] run_state: RunState,
     #[case] is_stopping: bool,
-    #[case] lead_answer: ProviderTurnAnswer,
 ) {
     let mut session = TestCodexSession::start_on(start_scripted_joined_service()).await;
     let run_id = new_run_id();
@@ -741,23 +751,31 @@ async fn a_joined_services_ended_continuation_is_held_unless_a_stop_settles_its_
     )
     .await;
 
-    assert_eq!(adoption.answer_of(run_id), lead_answer);
+    assert_eq!(
+        adoption.answer_of(run_id),
+        ProviderTurnAnswer::EndedByProvider
+    );
     let calls = session.engine.calls();
-    assert!(
-        !calls
+    let is_pausing = run_state == RunState::Pausing;
+    assert_eq!(
+        calls
             .iter()
-            .any(|call| matches!(call, EngineCall::StartTurn(opened, _) if *opened == run_id))
+            .any(|call| matches!(call, EngineCall::StartTurn(opened, _) if *opened == run_id)),
+        is_pausing
     );
     assert!(session.task.run_routes.binding_for(run_id).is_some());
     let established = adoption.established.expect("the session is established");
     let record = &established.record;
-    if is_stopping || run_state == RunState::Pausing {
+    assert_eq!(
+        record
+            .paused_run_id_by_interrupted_turn_id
+            .get(CONTINUATION_TURN),
+        is_pausing.then_some(&run_id)
+    );
+    if is_stopping {
         assert_eq!(turn_ends(&calls), (Vec::new(), Vec::new()));
         assert_eq!(record.active_turn_run(CONTINUATION_TURN), None);
-        assert_eq!(
-            record.active_turn_run(CUT_TURN),
-            is_stopping.then_some(run_id)
-        );
+        assert_eq!(record.active_turn_run(CUT_TURN), Some(run_id));
     } else {
         assert_eq!(turn_ends(&calls), (vec![cut_turn_end(run_id)], Vec::new()));
         assert_eq!(record.active_turn_run(CONTINUATION_TURN), Some(run_id));

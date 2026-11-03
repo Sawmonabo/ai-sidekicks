@@ -132,7 +132,7 @@ pub(crate) fn read_claude_task_list_change(call: &ToolCallRecord<'_>) -> Option<
 }
 
 /// The lead's running turn as the working line reads it: its tokens received and its task list.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct ClaudeTurnReadings {
     turn: Option<(RunId, ProviderTurnId)>,
     open_message: Option<String>,

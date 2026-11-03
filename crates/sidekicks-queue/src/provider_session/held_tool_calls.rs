@@ -22,7 +22,7 @@ impl ProviderSessions {
         session_id: SessionId,
     ) -> Result<(), ProviderSessionError> {
         let _hold = self.deps.transition_lock.acquire(session_id).await;
-        if self.lock_opened().contains_key(&session_id) {
+        if self.is_opened(session_id) {
             return Ok(());
         }
         let is_closed =

@@ -597,6 +597,11 @@ pub(crate) async fn apply_codex_routed_frames(
                     listener.message_given_back(session_id, &message_id.to_string());
                 }
             }
+            if let Some(listener) = intake.ports.continue_given_back.port() {
+                for lead_run_id in dispatch.continues_given_back.iter().copied() {
+                    listener.continue_given_back(session_id, lead_run_id);
+                }
+            }
             if let Some(turn_end) = ended.turn_end {
                 record_turn_end(intake.engine.as_ref(), ended.run_id, turn_end).await;
             }

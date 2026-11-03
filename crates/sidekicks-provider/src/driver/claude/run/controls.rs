@@ -34,6 +34,7 @@ use crate::driver::claude::run::start::{
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
 };
+use crate::driver::claude::session::establishment::resume::ClaudeContinuedTurn;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::ClaudeControlRequest;
@@ -255,6 +256,54 @@ impl ClaudeRunControls {
             .await?;
         }
         Ok(())
+    }
+
+    /// Continues, on the session's live process, the turn of a lead the restart held on the person:
+    /// the lead takes the session's turn again on the turn's binding, the stream reads on as that
+    /// turn, and `answers`, the person's answers, go as its next message. Fails `NoLiveSession`,
+    /// `SessionTurnInFlight` while another run or a command holds the turn, and as the write
+    /// fails, the lead then let go of the turn and the stream reading the turn it read before.
+    pub(crate) async fn continue_held_lead(
+        &self,
+        session_id: SessionId,
+        turn: ClaudeContinuedTurn,
+        answers: String,
+    ) -> Result<(), DriverError> {
+        let live = self.start.live_session(session_id)?;
+        let run_id = turn.run.run_id;
+        let unavailable = |reason| {
+            DriverError::from(claude_session_unavailable(reason, session_id, Some(run_id)))
+        };
+        let stream = self
+            .start
+            .streams
+            .get(session_id)
+            .ok_or_else(|| unavailable(ClaudeSessionUnavailableReason::NoLiveSession))?;
+        self.start
+            .routes
+            .hold_turn(run_id, session_id, turn.run.binding_id.clone())
+            .map_err(|_held| unavailable(ClaudeSessionUnavailableReason::SessionTurnInFlight))?;
+        // Continued before the write, so the process's first frames for the answers, which can
+        // arrive before the write returns, read as the lead's turn.
+        let before = stream.continue_turn(turn.run, turn.turn_number, turn.provider_turn_id);
+        let written = self
+            .write_message(
+                &live,
+                run_id,
+                &OutboundText {
+                    text: answers,
+                    origin: OutboundTextOrigin::SystemNarration,
+                },
+                mint_uuid_v7().to_string(),
+                Vec::new(),
+                true,
+            )
+            .await;
+        if written.is_err() {
+            self.start.routes.unbind_run(run_id);
+            stream.restore_turn(before);
+        }
+        written
     }
 
     /// Takes back a steer: one held behind a `Send now` is withdrawn with nothing sent; one

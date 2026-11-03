@@ -45,6 +45,7 @@ use sidekicks_queue::provider_session::test_opening::{
     test_git_folder_reader, test_opening_composer,
 };
 use sidekicks_queue::run_token_limit::RunTokenLimitReader;
+use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::plan_holds::PlanHolds;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
@@ -264,6 +265,7 @@ async fn fixture() -> Fixture {
             test_provider_account_id(),
         )),
         token_limits,
+        halted_runs: Arc::new(RecoveryStatusTracker::new()),
         scheduler,
         mcp_status: Arc::new(McpServerStatusTracker::new(
             Arc::new(McpNoticeBoard::default()),

@@ -269,12 +269,31 @@ impl CodexFrameDelivery {
                 report_unattributed("turn/completed", Some(&turn_id));
             }
             Some(turn_run) => {
+                let answer_steer = record.answer_steer_by_turn_id.remove(&turn_id);
+                let is_answer_steer_unechoed = answer_steer.is_some_and(|message_id| {
+                    record
+                        .unechoed_steers_by_turn_id
+                        .get(&turn_id)
+                        .is_some_and(|unechoed| {
+                            unechoed.steers.iter().any(|(_, sent)| *sent == message_id)
+                        })
+                });
                 if turn_run.ending == CodexTurnEnding::Live
+                    && !is_answer_steer_unechoed
                     && record.held_continuation_turn_ids.remove(&turn_id)
                 {
+                    // Ended before the answers' steer was sent: they go in a turn of their own.
+                    if answer_steer.is_some() {
+                        record.answer_turn_owed_run_ids.insert(turn_run.run_id);
+                    }
                     self.end_held_continuation(record, &turn_id, &turn_run)
                         .await;
                 } else if turn_run.ending == CodexTurnEnding::Live {
+                    // Codex was handed the answers' steer and ended the turn without taking it.
+                    if is_answer_steer_unechoed {
+                        record.held_continuation_turn_ids.remove(&turn_id);
+                        dispatch.continues_given_back.push(turn_run.run_id);
+                    }
                     self.deliver_terminal(record, gate, &frame, &turn_id, &turn_run, dispatch)
                         .await;
                 } else if turn_run.ending == CodexTurnEnding::Interrupted {

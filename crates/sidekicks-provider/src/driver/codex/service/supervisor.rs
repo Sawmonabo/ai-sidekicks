@@ -486,8 +486,21 @@ impl CodexService {
     ) -> Result<CodexAppServerConnection, CodexError> {
         self.ensure_started(self.dependencies.startup_timeout)
             .await?;
+        self.dial_detached_connection(&self.socket.path, events, self.dependencies.startup_timeout)
+            .await
+    }
+
+    /// Dials a connection that belongs to no session on whatever listens at `socket`, with no
+    /// start, its handshake answered within `bound`; its notifications and close go to `events`.
+    /// Fails as the dial or the handshake fails.
+    pub(crate) async fn dial_detached_connection(
+        &self,
+        socket: &Path,
+        events: Arc<dyn CodexConnectionEvents>,
+        bound: Duration,
+    ) -> Result<CodexAppServerConnection, CodexError> {
         let (sender, receiver) = dial_codex_service_socket(
-            &self.socket.path,
+            socket,
             CodexSocketWait::Never,
             &self.dependencies.provider_services,
             &CancellationToken::new(),
@@ -498,7 +511,7 @@ impl CodexService {
             receiver,
             self.detached_connection_handlers(events),
             CODEX_CLIENT_NAME,
-            self.dependencies.startup_timeout,
+            bound,
         )
         .await?;
         Ok(connection)

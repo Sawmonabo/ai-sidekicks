@@ -38,6 +38,7 @@ use sidekicks_queue::memory_gate::{
 };
 use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
 use sidekicks_queue::run_token_limit::RunTokenLimitReader;
+use sidekicks_queue::service::answer_continue::HaltedRunRecord;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::projection_rebuild::ProjectionRebuildService;
 use sidekicks_recovery::restart_settle::{RestartSettle, RestartSettleDeps};
@@ -473,6 +474,7 @@ pub(crate) async fn register_method_inputs(
         daemon_program: daemon_program.to_path_buf(),
         provider_accounts: Arc::clone(&providers.ports.provider_accounts),
         token_limits: Arc::new(token_limits),
+        halted_runs: Arc::clone(&database.status) as Arc<dyn HaltedRunRecord>,
         scheduler: Arc::clone(&scheduler),
         mcp_status,
         mcp_first_observations: mcp_first_observations.boxed(),
@@ -507,6 +509,7 @@ pub(crate) async fn register_method_inputs(
             queue_admission: session.queue.admission(),
             queue_delivery: session.queue.delivery(),
             process_gone: session.queue.process_gone_listener(),
+            continue_given_back: session.queue.continue_given_back_listener(),
             permission_asks: Arc::clone(&session.approvals.asks),
             questions: Arc::clone(&session.questions),
             plans: Arc::clone(&session.plans),
@@ -745,6 +748,7 @@ pub(crate) async fn register_method_inputs(
                 permission_asks: Arc::clone(&session.approvals.asks),
                 rules: Arc::clone(&session.approvals.rules),
                 reviewer_denials: Arc::clone(&session.approvals.denials),
+                queue: Arc::clone(&session.queue),
             }),
             run_control: RunControlServices {
                 interventions: Arc::clone(&session.interventions),

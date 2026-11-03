@@ -80,7 +80,7 @@ pub(crate) struct QueueRunLifecycleDeps {
     /// Hands live runs their messages and settles an ended run's hands.
     pub(crate) delivery: QueueDelivery,
     /// Forgets the provider session of a session closed, or whose process is gone with no restart
-    /// pending.
+    /// pending, and tells whether a session's process is open, which a hand waits for.
     pub(crate) provider_sessions: Arc<ProviderSessions>,
     /// Weighed again at each run state change.
     pub(crate) memory_gate: Arc<MemoryGate>,
@@ -334,7 +334,7 @@ impl QueueRunLifecycle {
         hold: &KeyHold<'_, SessionId>,
         run_id: RunId,
     ) -> Result<(), QueueError> {
-        self.deps.delivery.hand_waiting(hold, run_id).await?;
+        self.hand_waiting(hold, run_id).await?;
         self.continue_interrupted_run(hold, run_id, false).await?;
         self.settle_ended_run(*hold.key(), run_id);
         Ok(())
@@ -485,7 +485,7 @@ impl QueueRunLifecycle {
                 // again.
                 admission.settled(run_id).await;
                 let hold = self.deps.session_lock.hold_session(session_id).await;
-                self.deps.delivery.hand_waiting(&hold, run_id).await?;
+                self.hand_waiting(&hold, run_id).await?;
                 Ok(())
             }
         }
@@ -651,12 +651,32 @@ impl QueueRunLifecycle {
                     admission.resume(run_id);
                     admission.settled(run_id).await;
                     let hold = self.deps.session_lock.hold_session(session_id).await;
-                    self.deps.delivery.hand_waiting(&hold, run_id).await?;
+                    self.hand_waiting(&hold, run_id).await?;
                 }
                 RunState::Starting | RunState::Pausing => {}
             }
         }
         Ok(())
+    }
+
+    // Hands the live run `run_id` what waits for it, under `hold`, unless no process of its session
+    // is open in this daemon, as for a lead the restart held on the person, or the run waits on an
+    // ask of its own the person has not answered; a helper's ask beneath it withholds nothing. A
+    // withheld message is handed at the run's next move to running. Fails as the hand or the ask's
+    // read fails.
+    async fn hand_waiting(
+        &self,
+        hold: &KeyHold<'_, SessionId>,
+        run_id: RunId,
+    ) -> Result<(), QueueError> {
+        let session_id = *hold.key();
+        let provider_sessions = &self.deps.provider_sessions;
+        if !provider_sessions.is_opened(session_id)
+            || provider_sessions.has_open_ask(session_id, run_id).await?
+        {
+            return Ok(());
+        }
+        Ok(self.deps.delivery.hand_waiting(hold, run_id).await?)
     }
 
     // Makes `run_id` the session's resting run, letting go the one that rested before.

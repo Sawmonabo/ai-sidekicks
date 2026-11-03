@@ -21,6 +21,7 @@ use crate::driver::claude::session::conversation_file::{
 };
 use crate::driver::claude::session::conversation_home::read_claude_conversation_home;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
+use crate::driver::claude::session::establishment::ClaudeResumeAnswer;
 use crate::driver::claude::session::naming::{
     name_claude_session, stored_claude_conversation, tell_claude_session_name,
 };
@@ -53,18 +54,22 @@ impl ClaudeDriver {
     }
 
     /// Resumes a session's conversation in a fresh process, every failure on the `Failed` arm and
-    /// a resume whose runs all wait on the person or stop on the `Deferred` one.
+    /// a resume whose runs in progress all wait on the person, are pausing, or stop on the
+    /// `Deferred` one; a live process that answers it is sent the person's answers on the held
+    /// lead's turn. Fails as that send fails.
     pub(crate) async fn resume_session(
         &self,
         params: ResumeSessionParams,
     ) -> Result<DriverResumeResult, DriverError> {
-        let establishment = &self.parts()?.establishment;
-        Ok(establishment.resume(params).await?.result)
+        let session_id = params.session_id;
+        let answer = self.parts()?.establishment.resume(params).await?;
+        self.send_held_lead_answers(session_id, answer).await
     }
 
     /// The person's restart of a session whose process stayed down: its crash window and any
     /// restart still waiting are dropped, it resumes, and the person is told it runs again only
-    /// when a process started, not when a live one answered it or every run waits or stops.
+    /// when a process started, not when a live one answered it or every run in progress waits on
+    /// the person, is pausing, or stops.
     pub(crate) async fn restart_session(
         &self,
         params: ResumeSessionParams,
@@ -75,6 +80,22 @@ impl ClaudeDriver {
         let answer = parts.establishment.resume(params).await?;
         if answer.has_started_process {
             parts.restarts.report_restarted(session_id, true).await;
+        }
+        self.send_held_lead_answers(session_id, answer).await
+    }
+
+    // `answer`'s result, once the live process it answered on is sent the person's answers on the
+    // held lead's turn it names, where it names one. Fails as that send fails.
+    async fn send_held_lead_answers(
+        &self,
+        session_id: SessionId,
+        answer: ClaudeResumeAnswer,
+    ) -> Result<DriverResumeResult, DriverError> {
+        if let Some((turn, answers)) = answer.live_turn_to_continue {
+            self.parts()?
+                .run_controls
+                .continue_held_lead(session_id, turn, answers)
+                .await?;
         }
         Ok(answer.result)
     }

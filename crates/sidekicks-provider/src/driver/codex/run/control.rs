@@ -43,12 +43,13 @@ use crate::driver::codex::run::turn_interrupt::interrupt_codex_turn;
 use crate::driver::codex::session::background_terminals::end_codex_running_commands;
 use crate::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::establishment::continuation::CODEX_CONTINUATION_TEXT;
 use crate::driver::codex::session::fork::config_change::CodexConfigForks;
 use crate::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInbound, CodexSessionInboundSender,
 };
 use crate::driver::codex::session::slots::CodexSessionSlots;
-use crate::driver::codex::session::state::CodexSessionRecord;
+use crate::driver::codex::session::state::{CodexSessionRecord, CodexTurnMessage};
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
@@ -172,7 +173,9 @@ impl CodexRunControl {
     /// Continues a run with the messages that waited for it, files and all: a pause not yet taken
     /// effect is dropped and the messages steered into the turn still running, one whose
     /// interrupt is on its way continues once that turn ended, and a paused run starts its next
-    /// turn with them. Fails as the steer or the turn's start fails.
+    /// turn with them, after Codex's continuation words where the daemon's restart cut the run's
+    /// turn while it was pausing, so the cut work is taken up first. Fails as the steer or the
+    /// turn's start fails.
     pub(crate) async fn resume_run(&self, params: ResumeRunParams) -> Result<(), DriverError> {
         let session_id = params.session_id;
         self.dependencies.config_forks.join(session_id).await;
@@ -330,7 +333,8 @@ impl CodexRunControl {
         Ok(())
     }
 
-    // Starts a paused run's next turn with the messages that waited for it and their files, then
+    // Starts a paused run's next turn with the messages that waited for it and their files, after
+    // Codex's continuation words where the continue owes the cut work its continuation, then
     // settles as taken the messages earlier continues of the run kept with no answer back.
     async fn continue_run(
         &self,
@@ -345,8 +349,15 @@ impl CodexRunControl {
                 cause: None,
             });
         };
-        let mut messages = Vec::with_capacity(params.messages.len());
+        let mut messages = Vec::with_capacity(params.messages.len() + 1);
         let mut client_message_ids = Vec::with_capacity(params.messages.len());
+        if params.is_continuation_owed {
+            messages.push(CodexTurnMessage {
+                text: CODEX_CONTINUATION_TEXT.to_owned(),
+                skills: Vec::new(),
+                attachments: Vec::new(),
+            });
+        }
         for message in &params.messages {
             messages.push(
                 resolve_codex_turn_message(

@@ -42,6 +42,8 @@ use crate::driver::codex::session::calls::{
 };
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::establishment::answer_steer::CodexAnswerSteers;
+use crate::driver::codex::session::establishment::continuation::CodexHeldLeadContinue;
 use crate::driver::codex::session::establishment::{
     CodexInPlaceOutcome, CodexSessionEstablishment, compose_failed_resume,
 };
@@ -97,6 +99,8 @@ pub(crate) struct CodexServiceRecoveryDependencies {
     pub(crate) run_ends: Arc<dyn RunHost>,
     /// The run engine's dispatch, which takes the sessions' notices and a lost run's end.
     pub(crate) dispatch: Arc<dyn InboundDispatch>,
+    /// Sends the person's answers to a held lead whose continuation Codex still runs.
+    pub(crate) answer_steers: Arc<CodexAnswerSteers>,
     /// Lets a block's `Allow once` be pressed again once its process ended.
     pub(crate) reviewer_denials: Arc<PortRegistration<Arc<dyn ReviewerDenialPort>>>,
     /// The queue's intake of a session whose process ended.
@@ -119,6 +123,8 @@ struct RecoveryState {
     held_by_crash_loop: HashMap<CodexServiceId, HashSet<SessionId>>,
     // The sessions whose person's restart waits for the resume the restart's recovery makes.
     restart_waits: HashMap<CodexServiceId, Vec<(SessionId, oneshot::Sender<DriverResumeResult>)>>,
+    // The answers each person's restart carries to its session's held lead, until its resume.
+    restart_continues: HashMap<SessionId, CodexHeldLeadContinue>,
     // The build a terminal service's planned restart moves its sessions to.
     pending_build_change: HashMap<CodexServiceId, ProviderBuildChange>,
     // The services a build move left, waiting for their held conversations to be let go.
@@ -358,16 +364,21 @@ impl CodexServiceRecovery {
 
     /// The person's restart of `session_id`'s service: one its crash loop left down starts again
     /// and its recovery resumes every conversation on it, this session's among them, whose result
-    /// it answers; on a service that runs, the session's conversation is resumed in place. `None`
-    /// when the session holds no live record on the service. Fails as the start fails.
+    /// it answers; on a service that runs, the session's conversation is resumed in place. Either
+    /// resume carries `held_lead_continue` to the session's held lead. `None` when the session
+    /// holds no live record on the service. Fails as the start fails.
     pub(crate) async fn restart_for_person(
         &self,
         service: &Arc<CodexService>,
         session_id: SessionId,
+        held_lead_continue: Option<CodexHeldLeadContinue>,
     ) -> Result<Option<DriverResumeResult>, CodexError> {
         let (answer, answered) = oneshot::channel();
         let is_crash_looped = {
             let mut state = self.lock();
+            if let Some(held) = held_lead_continue {
+                state.restart_continues.insert(session_id, held);
+            }
             let is_crash_looped = state.held_by_crash_loop.contains_key(&service.id());
             if is_crash_looped {
                 state
@@ -383,20 +394,25 @@ impl CodexServiceRecovery {
             .ensure_started(service.dependencies().startup_timeout)
             .await
         {
-            if let Some(waits) = self.lock().restart_waits.get_mut(&service.id()) {
+            let mut state = self.lock();
+            state.restart_continues.remove(&session_id);
+            if let Some(waits) = state.restart_waits.get_mut(&service.id()) {
                 waits.retain(|(waiting, _)| *waiting != session_id);
             }
             return Err(error);
         }
         if is_crash_looped {
             // Dropped unanswered when the recovery found no record of the session.
-            return Ok(answered.await.ok());
+            let answered = answered.await.ok();
+            self.lock().restart_continues.remove(&session_id);
+            return Ok(answered);
         }
         let Some(inbound) = service
             .attached_sessions()
             .into_iter()
             .find(|inbound| inbound.session_id() == session_id)
         else {
+            self.lock().restart_continues.remove(&session_id);
             return Ok(None);
         };
         Ok(self
@@ -493,7 +509,10 @@ impl CodexServiceRecovery {
                 .settle_resume(session_id, generation);
         }
         let claim = claimed.ok()?;
-        let outcome = self.resume_claimed(service, inbound, writer_left).await?;
+        let held_lead_continue = self.lock().restart_continues.remove(&session_id);
+        let outcome = self
+            .resume_claimed(service, inbound, writer_left, held_lead_continue)
+            .await?;
         Some(self.settle_resumed(service, inbound, claim, outcome).await)
     }
 
@@ -532,7 +551,8 @@ impl CodexServiceRecovery {
     // The resume itself, the session's slot already claimed, under a binding whose cursor the
     // session directory opened first, so what the resumed conversation delivers at once is taken;
     // a binding that cannot be opened, the directory unregistered among the causes, fails the
-    // relaunch with no resume, as the live service's refusal. A session that closed or was
+    // relaunch with no resume, as the live service's refusal. The resume carries
+    // `held_lead_continue` to the session's held lead. A session that closed or was
     // established anew meanwhile answers `None`, its opened binding forgotten through a failed
     // relaunch.
     async fn resume_claimed(
@@ -540,6 +560,7 @@ impl CodexServiceRecovery {
         service: &Arc<CodexService>,
         inbound: &CodexSessionInboundSender,
         writer_left: CodexWriterLeft,
+        held_lead_continue: Option<CodexHeldLeadContinue>,
     ) -> Option<CodexInPlaceOutcome> {
         let session_id = inbound.session_id();
         let binding_id = mint_runtime_binding_id();
@@ -571,6 +592,8 @@ impl CodexServiceRecovery {
             binding_id,
             function_legs,
             writer_left,
+            held_lead_continue,
+            answer_steers: Arc::clone(&self.dependencies.answer_steers),
         };
         let resumed = call_codex_session(inbound, |reply| CodexSessionCall::ResumeInPlace {
             resume: Box::new(resume),
@@ -794,6 +817,8 @@ pub(crate) fn drop_codex_turns(
     }
     record.continues_awaiting_pause.clear();
     record.held_continuation_turn_ids.clear();
+    record.answer_steer_by_turn_id.clear();
+    record.answer_turn_owed_run_ids.clear();
     record.pause_run_id_by_turn_id.clear();
     record.interrupting_turn_ids.clear();
     record.turn_input_by_turn_id.clear();

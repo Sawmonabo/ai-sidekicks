@@ -7,7 +7,8 @@
 //! named run still live is then finalized from the state it was stored in before the restart, and
 //! one its provider runs on has each of its pending interrupts handed again, a person's or a
 //! limit's, so a stop asked before the restart still reaches its turn; a live run the answer
-//! leaves out is left to the restart settle.
+//! leaves out is left to the restart settle. A run the resume's continue carries on from a wait
+//! whose asks are all answered is moved to running before its runs are taken.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -22,6 +23,7 @@ use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::run_control::{FindTakenMessagesParams, TakenMessages};
 use sidekicks_provider::driver::session_control::ProviderTurnAnswer;
+use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_queue::delivery::{DeliveryError, QueueDelivery};
 use sidekicks_queue::provider_session::resumed_runs::{ResumedRuns, ResumedRunsIngress};
 use sidekicks_session::driver_resolution::{LiveRunDriverError, read_run_driver};
@@ -30,7 +32,9 @@ use sidekicks_session::queue_store::QueueItemReader;
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::errors::RunEngineError;
 use sidekicks_session::run::read::RunStateReader;
+use sidekicks_session::run::refusals::RunRefusal;
 use sidekicks_session::run::restart::ResumedRunMove;
+use sidekicks_session::run::state_change::{RunStateChange, RunWriteCompanions};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -227,6 +231,39 @@ impl ResumedRunsIngress for ResumedRunsFinalize {
         resumed: ResumedRuns,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         async move { self.finalize(resumed).await.map_err(Into::into) }.boxed()
+    }
+
+    fn continue_answered_runs(
+        &self,
+        runs: Vec<(RunId, RunState)>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async move {
+            for (run_id, waiting) in runs {
+                let moved = self
+                    .deps
+                    .run_engine
+                    .transition(
+                        RunStateChange {
+                            expected_state: Some(waiting),
+                            ..RunStateChange::new(
+                                run_id,
+                                RunStateEntry::Running {
+                                    execution_posture: None,
+                                },
+                            )
+                        },
+                        RunWriteCompanions::default(),
+                    )
+                    .await;
+                match moved {
+                    // A run that moved since is left as it now is.
+                    Ok(_) | Err(RunEngineError::Refused(RunRefusal::InvalidTransition { .. })) => {}
+                    Err(failure) => return Err(failure.into()),
+                }
+            }
+            Ok(())
+        }
+        .boxed()
     }
 }
 

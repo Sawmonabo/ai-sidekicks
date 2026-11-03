@@ -124,6 +124,9 @@ pub(crate) async fn run_codex_session_call(
             turn_id,
             message_id,
         } => withdraw_codex_steer(task.record, &turn_id, message_id),
+        CodexSessionCall::TakeAnswerTurnOwed { run_id, reply } => {
+            let _unheard = reply.send(task.record.answer_turn_owed_run_ids.remove(&run_id));
+        }
         CodexSessionCall::WaitForTurns { wait, reply } => {
             let _unheard = reply.send(task.waiters.wait(task.record, wait));
         }

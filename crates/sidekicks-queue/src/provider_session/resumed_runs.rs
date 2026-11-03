@@ -1,9 +1,13 @@
 //! The provider's answer for each live run a session's resume named, handed on before the resumed
-//! binding is recorded, so each run is settled before it goes live on the resumed process.
+//! binding is recorded, so each run is settled before it goes live on the resumed process; a run
+//! the resume's continue carries on from a wait whose asks are all answered is moved to running
+//! first.
 
 use std::error::Error;
 
 use futures::future::BoxFuture;
+use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::driver::session_control::ResumedRunAnswer;
 
@@ -25,5 +29,13 @@ pub trait ResumedRunsIngress: Send + Sync {
     fn take_resumed_runs(
         &self,
         resumed: ResumedRuns,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+
+    /// Moves each of `runs`, waiting on the person in the state named beside it with every ask
+    /// answered, to `running`, as the resume's continue carries its answers on; a run that moved
+    /// since is left as it is. Called before the runs are taken. Fails as a move's write fails.
+    fn continue_answered_runs(
+        &self,
+        runs: Vec<(RunId, RunState)>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
 }

@@ -1,10 +1,12 @@
 //! The opening tests open a session's provider session with: the table's first provider at a
-//! read-only posture over the root, an idle sleep standing in that records each opening, and a
-//! resumed runs' ingress standing in that records each resume's runs; the queue's own tests also
-//! record that provider's contract version.
+//! read-only posture over the root, an idle sleep standing in that records each opening, a resumed
+//! runs' ingress standing in that records each resume's runs, and orphaned answers standing in that
+//! owe what a test gives them; the queue's own tests also record that provider's contract version.
 
+use std::collections::HashSet;
 use std::error::Error;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
@@ -15,6 +17,8 @@ use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -34,9 +38,13 @@ use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 
+use crate::provider_session::held_run_continue::{
+    OrphanedAnswerFuture, OrphanedAnswerSource, OwedAnswer,
+};
 use crate::provider_session::resumed_runs::{ResumedRuns, ResumedRunsIngress};
 use crate::provider_session::{
-    ProviderSessionGitFolderReader, ProviderSessionOpening, ProviderSessionOpeningComposer,
+    OpenedSession, ProviderSessionGitFolderReader, ProviderSessionOpening,
+    ProviderSessionOpeningComposer, ProviderSessions,
 };
 
 /// Each `providerMissing` notice posted in the database `reader` reads, in the order posted.
@@ -44,10 +52,22 @@ use crate::provider_session::{
 pub(crate) fn read_provider_missing_notices(
     reader: &rusqlite::Connection,
 ) -> Vec<sidekicks_contracts::session::controls::events::SessionNotice> {
+    use sidekicks_contracts::session::controls::events::SessionNotice;
+
+    read_notices(reader)
+        .into_iter()
+        .filter(|notice| matches!(notice, SessionNotice::ProviderMissing { .. }))
+        .collect()
+}
+
+/// Each session notice of the common kinds posted in the database `reader` reads, in the order
+/// posted.
+#[cfg(test)]
+pub(crate) fn read_notices(
+    reader: &rusqlite::Connection,
+) -> Vec<sidekicks_contracts::session::controls::events::SessionNotice> {
     use sidekicks_contracts::event::registry::SessionEventType;
-    use sidekicks_contracts::session::controls::events::{
-        SessionNotice, SessionNoticePostedPayload,
-    };
+    use sidekicks_contracts::session::controls::events::SessionNoticePostedPayload;
 
     reader
         .prepare("SELECT payload FROM session_events WHERE type = ?1 ORDER BY sequence")
@@ -61,10 +81,7 @@ pub(crate) fn read_provider_missing_notices(
                 .expect("a stored notice parses")
         })
         .filter_map(|posted| {
-            if let SessionNoticePostedPayload::Notice(
-                notice @ SessionNotice::ProviderMissing { .. },
-            ) = posted
-            {
+            if let SessionNoticePostedPayload::Notice(notice) = posted {
                 Some(notice)
             } else {
                 None
@@ -118,6 +135,25 @@ pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
     })
 }
 
+impl ProviderSessions {
+    /// Records `session_id`'s process opened in this daemon on the table's first provider,
+    /// read-only over the root, as a test's live lead stands once its process opened.
+    pub fn record_test_opening(&self, session_id: SessionId) {
+        let root = FilesystemPath::new("/".to_owned()).expect("the root is a path");
+        self.record_opened(
+            session_id,
+            OpenedSession {
+                provider: first_provider(),
+                execution_posture: compose_execution_posture(
+                    PermissionLevel::Readonly,
+                    root.clone(),
+                ),
+                git_folder: root,
+            },
+        );
+    }
+}
+
 /// Reads every session's git folder as the root, as [`test_opening_composer`] composes it.
 pub fn test_git_folder_reader() -> ProviderSessionGitFolderReader {
     Arc::new(|_session_id| {
@@ -159,10 +195,13 @@ pub fn test_execution_postures() -> Arc<ExecutionPostureService> {
 pub type ResumedRunsHook = Box<dyn Fn(&ResumedRuns) + Send + Sync>;
 
 /// A resumed runs' ingress standing in for the provider sessions' tests, settling nothing and
-/// recording each resume's runs it was handed, after running its hook on them.
+/// recording each resume's runs it was handed, after running its hook on them, and each run it
+/// was asked to move on from an answered wait; while refused, it fails each take instead.
 pub struct RecordedResumedRuns {
     taken: Mutex<Vec<ResumedRuns>>,
+    continued: Mutex<Vec<(RunId, RunState)>>,
     on_take: ResumedRunsHook,
+    is_refused: AtomicBool,
 }
 
 impl RecordedResumedRuns {
@@ -170,13 +209,25 @@ impl RecordedResumedRuns {
     pub fn new(on_take: ResumedRunsHook) -> Self {
         Self {
             taken: Mutex::new(Vec::new()),
+            continued: Mutex::new(Vec::new()),
             on_take,
+            is_refused: AtomicBool::new(false),
         }
+    }
+
+    /// Fails every take from now on while `is_refused`, as a settle whose write fails.
+    pub fn set_refused(&self, is_refused: bool) {
+        self.is_refused.store(is_refused, Ordering::SeqCst);
     }
 
     /// Each resume's runs it was handed, in order.
     pub fn taken(&self) -> Vec<ResumedRuns> {
         lock(&self.taken).clone()
+    }
+
+    /// Each run it was asked to move on from an answered wait, with the wait, in order.
+    pub fn continued(&self) -> Vec<(RunId, RunState)> {
+        lock(&self.continued).clone()
     }
 
     /// The resumed runs' port with this stand-in registered on it.
@@ -199,8 +250,19 @@ impl ResumedRunsIngress for RecordedResumedRuns {
         &self,
         resumed: ResumedRuns,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        if self.is_refused.load(Ordering::SeqCst) {
+            return async { Err("the resumed runs' settle failed".into()) }.boxed();
+        }
         (self.on_take)(&resumed);
         lock(&self.taken).push(resumed);
+        async { Ok(()) }.boxed()
+    }
+
+    fn continue_answered_runs(
+        &self,
+        runs: Vec<(RunId, RunState)>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        lock(&self.continued).extend(runs);
         async { Ok(()) }.boxed()
     }
 }
@@ -221,4 +283,74 @@ pub(crate) fn record_first_provider_capabilities(providers: &ProviderRegistry, i
             },
         )
         .expect("the first provider is registered");
+}
+
+/// Orphaned answers standing in for the provider sessions' tests: they owe each answer a test gives
+/// them until a continue claims it, and owe it again once that continue gives it back; a run holds
+/// an open ask while a test says so.
+pub struct OrphanedAnswersStandIn<Id> {
+    owed: Mutex<Vec<OwedAnswer<Id>>>,
+    claimed: Mutex<Vec<Id>>,
+    open_asks: Mutex<HashSet<RunId>>,
+}
+
+impl<Id> OrphanedAnswersStandIn<Id> {
+    /// Owes `answer` after every answer owed before it.
+    pub fn owe(&self, answer: OwedAnswer<Id>) {
+        lock(&self.owed).push(answer);
+    }
+
+    /// Has `run_id` hold an open ask while `is_open`.
+    pub fn set_open_ask(&self, run_id: RunId, is_open: bool) {
+        let mut open_asks = lock(&self.open_asks);
+        if is_open {
+            open_asks.insert(run_id);
+        } else {
+            open_asks.remove(&run_id);
+        }
+    }
+}
+
+impl<Id> Default for OrphanedAnswersStandIn<Id> {
+    fn default() -> Self {
+        Self {
+            owed: Mutex::new(Vec::new()),
+            claimed: Mutex::new(Vec::new()),
+            open_asks: Mutex::new(HashSet::new()),
+        }
+    }
+}
+
+impl<Id: Clone + PartialEq + Send + Sync> OrphanedAnswerSource<Id> for OrphanedAnswersStandIn<Id> {
+    fn owed_continues(
+        &self,
+        _session_id: SessionId,
+    ) -> OrphanedAnswerFuture<'_, Vec<OwedAnswer<Id>>> {
+        let claimed = lock(&self.claimed).clone();
+        let owed = lock(&self.owed)
+            .iter()
+            .filter(|owed| !claimed.contains(&owed.id))
+            .cloned()
+            .collect();
+        async { Ok(owed) }.boxed()
+    }
+
+    fn claim_continue(&self, id: Id) -> OrphanedAnswerFuture<'_, bool> {
+        let mut claimed = lock(&self.claimed);
+        let is_claimed = !claimed.contains(&id);
+        if is_claimed {
+            claimed.push(id);
+        }
+        async move { Ok(is_claimed) }.boxed()
+    }
+
+    fn release_continue(&self, id: Id) -> OrphanedAnswerFuture<'_, ()> {
+        lock(&self.claimed).retain(|claimed| *claimed != id);
+        async { Ok(()) }.boxed()
+    }
+
+    fn has_open_ask(&self, run_id: RunId) -> OrphanedAnswerFuture<'_, bool> {
+        let is_open = lock(&self.open_asks).contains(&run_id);
+        async move { Ok(is_open) }.boxed()
+    }
 }

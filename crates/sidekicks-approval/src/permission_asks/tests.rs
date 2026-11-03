@@ -1,6 +1,8 @@
 //! The permission asks over the check's fixture, the run bound to a stand-in driver that records
 //! every answer it is handed and fails its first hand where a test says.
 
+mod orphaned;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -54,6 +56,11 @@ impl AsksFixture {
     /// The fixture, its driver taking every hand.
     pub(crate) async fn new() -> Self {
         Self::build(CheckFixture::new().await, None)
+    }
+
+    /// The fixture, its driver taking every hand and its run moved by its holds.
+    async fn moving_its_run() -> Self {
+        Self::build(CheckFixture::moving_its_run().await, None)
     }
 
     /// The fixture, its driver failing its first hand with `failure`.
@@ -265,9 +272,8 @@ async fn a_held_ask_raises_one_card_which_its_withdrawal_cancels() {
 
 // A delivery under a held request id that names another action is another ask: the waiting
 // card is withdrawn and the new one's raised, and an answer kept for the one held never goes to
-// it; a card whose ask is no longer held takes no answer. Killed by replacing a waiting ask
-// without withdrawing its card, by answering the new ask from the held one, and by recording an
-// answer to a card no ask holds, or by refusing it while leaving the card pending.
+// it. Killed by replacing a waiting ask without withdrawing its card, and by answering the new ask
+// from the held one.
 #[tokio::test]
 async fn another_action_under_a_held_request_id_is_another_ask() {
     let fixture = AsksFixture::new().await;
@@ -289,15 +295,6 @@ async fn another_action_under_a_held_request_id_is_another_ask() {
         .expect("the ask is taken");
     assert_eq!(fixture.card_states(), ["canceled", "approved", "pending"]);
     assert_eq!(fixture.handed(), [plain_allow()]);
-    fixture.asks.forget_run(fixture.check.approvals.run_id);
-    let [unheld] = <[String; 1]>::try_from(fixture.pending_cards()).expect("one card waits");
-    let refused = fixture.asks.resolve(&approval(&unheld), device()).await;
-    assert!(matches!(
-        refused,
-        Err(PermissionAskError::Refused(refusal))
-            if refusal.code == RefusalCode::ApprovalRequestCanceled
-    ));
-    assert_eq!(fixture.card_states(), ["canceled", "approved", "canceled"]);
 }
 
 // A provider that resends its waiting ask after the daemon's restart, under the same tool call and

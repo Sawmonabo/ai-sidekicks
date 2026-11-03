@@ -2,8 +2,10 @@
 //! one write, which moves its run to `waitingForInput` when its agent waits, and a question the
 //! provider withdraws is canceled in one write that moves its run back to `running`; one waiting
 //! for its run is canceled with the run unmoved. The provider's request id is held in memory for
-//! the answer and kept on the record, so a request its provider sends again after the daemon's
-//! restart is held again for its open question, with no second record and the run unmoved.
+//! the answer and kept on the record with the digest of its pages, so a request its provider sends
+//! again after the daemon's restart, under the same id or a new one, is held again for its open
+//! question, with no second record and the run unmoved; one whose question was answered meanwhile
+//! is handed the orphaned answer once.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -16,8 +18,9 @@ use rusqlite::{Connection, named_params};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::question::{
     QuestionAskedPayload, QuestionAskedState, QuestionCanceledPayload, QuestionCanceledReason,
-    QuestionId, RunQuestionAskedPayload,
+    QuestionId, QuestionResolveResponse, RunQuestionAskedPayload,
 };
+use sidekicks_contracts::release_manifest::Sha256Hex;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{InterventionState, InterventionType};
 use sidekicks_contracts::run::queue::MessageContent;
@@ -41,6 +44,7 @@ use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
@@ -48,10 +52,11 @@ use sidekicks_store::events::session::appender::{
 
 use crate::driver_resolution::LiveRunDriverError;
 use crate::questions::QuestionSettledState;
+use crate::questions::orphaned_answers::OrphanedSecretAnswers;
 use crate::questions::schema::QuestionState;
 use crate::questions::store::{
-    insert_question_statement, read_open_question_of_request, read_question, read_unsettled_among,
-    settle_question_statement,
+    insert_question_statement, question_input_digest, read_open_questions_asked_again,
+    read_question, read_unsettled_among, settle_question_statement,
 };
 use crate::questions::waits::QuestionWaits;
 use crate::run::engine::RunEngine;
@@ -65,8 +70,10 @@ mod tests;
 
 /// The statements [`QuestionsService`] prepares on a read connection: a record, its pages,
 /// whether its run has an interrupt recorded, which held questions are still open, the open
-/// question a provider's request came on, and a session's open questions that came on a request.
-pub const QUESTION_STATEMENT_CAPACITY: usize = 6;
+/// questions a request sent again returns to, the orphaned answers a question asked again takes,
+/// the orphaned answers a session's continues owe, and a session's open questions that came on a
+/// request.
+pub const QUESTION_STATEMENT_CAPACITY: usize = 8;
 
 // Whether a person's or the daemon's interrupt of the run was asked for or carried out.
 static RUN_INTERRUPTED_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -146,7 +153,7 @@ pub enum QuestionError {
     /// The driver did not take the answer; nothing was written.
     #[error("the provider's driver did not take the answer")]
     Driver(#[from] DriverError),
-    /// No provider request is held for an open question its run waits on.
+    /// No provider request is held for an open question whose answer a tool server kept.
     #[error("no provider request is held for question {question_id}")]
     RequestNotHeld {
         /// The question.
@@ -182,12 +189,27 @@ pub enum QuestionError {
     /// SQLite refused a read, or a stored column does not read as its type.
     #[error("a read of the question rows failed")]
     Database(#[from] rusqlite::Error),
+    /// An orphaned answer's mark was not written.
+    #[error("an orphaned answer's mark was not written")]
+    Write(#[from] WriteError),
+}
+
+/// What `question.resolve` came to: its response, and, for an orphaned answer, kept because no
+/// provider request held its question, the session and run whose continue owes it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QuestionResolution {
+    /// The record's settled state, or `kept` for an answer a tool server kept for its next ask.
+    pub response: QuestionResolveResponse,
+    /// The session and run of an orphaned answer, kept because no provider request held its
+    /// question.
+    pub orphaned: Option<(SessionId, RunId)>,
 }
 
 /// Records the questions the drivers hand, answers them and cancels the ones they withdraw.
 pub struct QuestionsService {
     pub(super) appender: Arc<SessionEventAppender>,
     pub(super) reads: Arc<DatabaseReadPool>,
+    pub(super) writer: Arc<DatabaseWriter>,
     pub(super) engine: Arc<RunEngine>,
     pub(super) providers: Arc<ProviderRegistry>,
     pub(super) waits: PortRegistration<Arc<dyn QuestionWaits>>,
@@ -195,6 +217,8 @@ pub struct QuestionsService {
     pub(super) question_lock: KeyedLock<QuestionId>,
     // Each open held question's provider request; never locked across an await.
     held_requests: Mutex<HashMap<QuestionId, HeldRequest>>,
+    // The answers given with a secret while no request held their question, never written.
+    pub(super) orphaned_secrets: OrphanedSecretAnswers,
     // Told each time a request is held or a question's record lands, so a test awaits either
     // instead of polling.
     #[cfg(test)]
@@ -214,22 +238,26 @@ pub(super) enum QuestionRecording {
 }
 
 impl QuestionsService {
-    /// A service writing through `appender`, reading through `reads`, moving runs through
-    /// `engine` and reaching each run's provider through its driver in `providers`.
+    /// A service writing through `appender`, reading through `reads`, marking orphaned answers'
+    /// hands through `writer`, moving runs through `engine` and reaching each run's provider
+    /// through its driver in `providers`.
     pub fn new(
         appender: Arc<SessionEventAppender>,
         reads: Arc<DatabaseReadPool>,
+        writer: Arc<DatabaseWriter>,
         engine: Arc<RunEngine>,
         providers: Arc<ProviderRegistry>,
     ) -> Self {
         Self {
             appender,
             reads,
+            writer,
             engine,
             providers,
             waits: PortRegistration::new("question waits"),
             question_lock: KeyedLock::new(),
             held_requests: Mutex::new(HashMap::new()),
+            orphaned_secrets: OrphanedSecretAnswers::default(),
             #[cfg(test)]
             held_or_recorded: tokio::sync::Notify::new(),
         }
@@ -260,10 +288,12 @@ impl QuestionsService {
     /// agent waits or it waits for its run, from before its record's write: a withdrawal that
     /// lands meanwhile finds the hold, waits on this question's lock for the record, and settles
     /// it. A refused open falls back to the waiting record under the same id and lock, its hold
-    /// kept. An open one whose request no held question has, which the run's open question came
-    /// on, is that question asked again: its request is held for it, with no second record and the
-    /// run unmoved. Answers the id and the state recorded; fails as the read, the draft, the move
-    /// or the write fails, the hold let go.
+    /// kept. An open one its agent waits on, whose request no held question has, that the run's
+    /// open question came on or asks that question's pages, is that question asked again: its
+    /// request is held for it, with no second record and the run unmoved; where the run's question
+    /// of those pages was answered while no request held it, the orphaned answer goes to this
+    /// request once, with nothing recorded. Answers the id and the state recorded; fails as the
+    /// read, the draft, the move, the write or the orphaned answer's hand fails, the hold let go.
     pub(super) async fn record(
         &self,
         question: ProviderQuestion,
@@ -286,12 +316,30 @@ impl QuestionsService {
             }
             QuestionRecording::WaitingForRun => QuestionAskedState::WaitingForRun,
         };
-        if state == QuestionAskedState::Open
-            && let Some(question_id) = self
-                .hold_open_question(session_id, run_id, &request_id, &answered_by)
+        if state == QuestionAskedState::Open && is_agent_waiting {
+            let input_digest = question_input_digest(questions.as_slice());
+            let asked_again = match self
+                .hold_open_question(
+                    session_id,
+                    run_id,
+                    &request_id,
+                    input_digest.as_ref(),
+                    &answered_by,
+                )
                 .await?
-        {
-            return Ok((question_id, state));
+            {
+                Some(question_id) => Some(question_id),
+                None => match input_digest {
+                    Some(input_digest) => {
+                        self.hand_orphaned_answer(run_id, &request_id, input_digest, &answered_by)
+                            .await?
+                    }
+                    None => None,
+                },
+            };
+            if let Some(question_id) = asked_again {
+                return Ok((question_id, state));
+            }
         }
         let question_id =
             QuestionId::try_from(mint_uuid_v7()).expect("a minted UUID is in a question id's form");
@@ -395,51 +443,55 @@ impl QuestionsService {
         }
     }
 
-    // Holds `request_id` again for the run's open question that came on it, as its provider sends a
-    // waiting request again after the daemon's restart; answers that question, or `None` where a
-    // held question has the request, none came on it, or it is held under another request here.
+    // Holds `request_id` again for the run's open question that came on it, else for its oldest
+    // open question of `input_digest` held under no request here, as its provider sends a waiting
+    // request again after the daemon's restart, under the same id or a new one; answers that
+    // question, or `None` where a held question has the request or no such question is free.
     async fn hold_open_question(
         &self,
         session_id: SessionId,
         run_id: RunId,
         request_id: &str,
+        input_digest: Option<&Sha256Hex>,
         answered_by: &HeldRequestAnswerer,
     ) -> Result<Option<QuestionId>, QuestionError> {
         if self.held_question_of(session_id, request_id).is_some() {
             return Ok(None);
         }
         let read_request_id = request_id.to_owned();
-        let Some(question_id) = self
+        let read_digest = input_digest.cloned();
+        let candidates = self
             .reads
             .read(ReadLength::Short, move |reader| {
-                Ok::<_, QuestionError>(read_open_question_of_request(
+                Ok::<_, QuestionError>(read_open_questions_asked_again(
                     reader,
                     &run_id,
                     &read_request_id,
+                    read_digest.as_ref(),
                 )?)
             })
-            .await?
-        else {
-            return Ok(None);
-        };
-        let _question_hold = self.question_lock.acquire(question_id).await;
-        if self.held_request(&question_id).is_some()
-            || self.read_state(question_id).await? != Some(QuestionState::Open)
-        {
-            return Ok(None);
+            .await?;
+        for question_id in candidates {
+            let _question_hold = self.question_lock.acquire(question_id).await;
+            if self.held_request(&question_id).is_some()
+                || self.read_state(question_id).await? != Some(QuestionState::Open)
+            {
+                continue;
+            }
+            self.hold_request(
+                question_id,
+                HeldRequest {
+                    session_id,
+                    run_id,
+                    request_id: request_id.to_owned(),
+                    answered_by: answered_by.clone(),
+                    is_recorded: true,
+                    kept_answer: None,
+                },
+            );
+            return Ok(Some(question_id));
         }
-        self.hold_request(
-            question_id,
-            HeldRequest {
-                session_id,
-                run_id,
-                request_id: request_id.to_owned(),
-                answered_by: answered_by.clone(),
-                is_recorded: true,
-                kept_answer: None,
-            },
-        );
-        Ok(Some(question_id))
+        Ok(None)
     }
 
     /// Cancels the open question the provider asked under `withdrawal`'s request, in the write
