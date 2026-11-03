@@ -4,6 +4,7 @@
 //! called and given back when the driver fails or defers, so the next relaunch carries it again.
 
 use std::error::Error;
+use std::fmt;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -126,7 +127,7 @@ impl KeptAnswerSource<QuestionId> for QuestionsService {
 }
 
 // One continue mark a relaunch claimed.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(super) enum ClaimedMark {
     Approval(ApprovalRequestId),
     Question(QuestionId),
@@ -236,25 +237,26 @@ impl ProviderSessions {
         }
     }
 
-    // Gives back every mark of `claims`, each tried; fails with the first release that failed, and
-    // logs each later failure with its card or question, which that error does not name.
+    // Gives back every mark of `claims`, each tried; fails naming every mark not given back.
     pub(super) async fn release_marks(
         &self,
         claims: Vec<ClaimedMark>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let mut unreleased = Ok(());
+        let mut unreleased = Vec::new();
         for mark in claims {
             let released = match mark {
                 ClaimedMark::Approval(id) => self.deps.kept_approvals.release_continue(id).await,
                 ClaimedMark::Question(id) => self.deps.kept_questions.release_continue(id).await,
             };
-            match released {
-                Err(error) if unreleased.is_err() => log_unreleased_mark(mark, &*error),
-                Err(error) => unreleased = Err(error),
-                Ok(()) => {}
+            if let Err(error) = released {
+                unreleased.push((mark, error));
             }
         }
-        unreleased
+        if unreleased.is_empty() {
+            Ok(())
+        } else {
+            Err(Box::new(UnreleasedMarks(unreleased)))
+        }
     }
 
     async fn claim_mark(&self, mark: ClaimedMark) -> Result<bool, Box<dyn Error + Send + Sync>> {
@@ -265,19 +267,22 @@ impl ProviderSessions {
     }
 }
 
-// Logs a continue mark that could not be given back after an earlier one already failed the
-// give-back, so the next relaunch will not carry its answer.
-fn log_unreleased_mark(mark: ClaimedMark, error: &(dyn Error + 'static)) {
-    match mark {
-        ClaimedMark::Approval(id) => tracing::error!(
-            approval_request_id = %id,
-            error,
-            "a kept approval's continue mark could not be given back"
-        ),
-        ClaimedMark::Question(id) => tracing::error!(
-            question_id = %id,
-            error,
-            "a kept question's continue mark could not be given back"
-        ),
+// The continue marks a give-back left claimed, each with why, so the next relaunch does not carry
+// their answers until they are given back.
+#[derive(Debug)]
+struct UnreleasedMarks(Vec<(ClaimedMark, Box<dyn Error + Send + Sync>)>);
+
+impl fmt::Display for UnreleasedMarks {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("continue marks could not be given back:")?;
+        for (mark, error) in &self.0 {
+            match mark {
+                ClaimedMark::Approval(id) => write!(formatter, " approval {id} ({error});")?,
+                ClaimedMark::Question(id) => write!(formatter, " question {id} ({error});")?,
+            }
+        }
+        Ok(())
     }
 }
+
+impl Error for UnreleasedMarks {}
