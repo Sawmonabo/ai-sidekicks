@@ -76,7 +76,7 @@ impl ClaudeSentPrompts {
         if !settled.insert(message_uuid.to_owned()) {
             return None;
         }
-        // Claude Code takes messages in order, so none written before this one is left to drop.
+        // A taken message is never dropped, so none written before it can be newest again.
         if let Some(written) = self.written_by_session.get_mut(&session_id)
             && let Some(taken_at) = written.iter().position(|uuid| uuid == message_uuid)
         {
