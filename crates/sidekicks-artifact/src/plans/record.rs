@@ -29,19 +29,12 @@ pub(crate) fn compose_plan_proposed_payload(
         run_id: plan.run_id,
         title,
         text: plan.text,
-        step_count: to_count(reading.step_count),
-        file_count: to_count(reading.file_count),
+        step_count: SafeInt::from_usize(reading.step_count),
+        file_count: SafeInt::from_usize(reading.file_count),
         plan_file_path: plan.plan_file_path,
         artifact_id,
         holds_request: plan.holds_request,
     }
-}
-
-fn to_count(count: usize) -> SafeInt<0> {
-    u64::try_from(count)
-        .ok()
-        .and_then(SafeInt::new)
-        .expect("a count of a plan's parts is far below 2^53")
 }
 
 /// What the daemon reads off a plan's markdown.

@@ -785,7 +785,7 @@ async fn prepare_adoption(
     .await?;
     Ok(DriverResumeResult::Resumed {
         binding_id: binding_id.clone(),
-        session_position: count_turns(resumed.listed_turns.len()),
+        session_position: SafeInt::from_usize(resumed.listed_turns.len()),
         resume_handle: NonEmptyText::new(record.thread_id.clone())
             .expect("a resumed conversation's id is never empty"),
         spawned_version: to_binding_version_carriers(&version),
@@ -847,14 +847,6 @@ fn group_turns_by_run(turns: &[(String, RunId)]) -> Vec<(RunId, Vec<&str>)> {
         }
     }
     grouped
-}
-
-// A conversation's turn count as a session position; no conversation holds 2^53 turns.
-fn count_turns(turns: usize) -> SafeInt<0> {
-    u64::try_from(turns)
-        .ok()
-        .and_then(SafeInt::new)
-        .expect("a conversation's turn count is a safe integer")
 }
 
 #[cfg(test)]

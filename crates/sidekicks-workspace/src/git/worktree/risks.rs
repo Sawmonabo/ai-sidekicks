@@ -185,16 +185,9 @@ fn risks_of(
         .filter(|entry| entry.starts_with(IGNORED_STATUS))
         .count();
     WorktreeRemovalRisks {
-        uncommitted_file_count: file_count(entries.len() - ignored_file_count),
-        ignored_file_count: file_count(ignored_file_count),
+        uncommitted_file_count: SafeInt::from_usize(entries.len() - ignored_file_count),
+        ignored_file_count: SafeInt::from_usize(ignored_file_count),
         unpushed_commit_count,
         occupying_session_ids,
     }
-}
-
-fn file_count(count: usize) -> SafeInt<0> {
-    u64::try_from(count)
-        .ok()
-        .and_then(SafeInt::new)
-        .expect("a listing within git's output bound holds far fewer than 2^53 entries")
 }
