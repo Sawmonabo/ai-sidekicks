@@ -49,8 +49,10 @@
               run folder's owner and access list (`GetSecurityInfo`, `GetAce`, `IsWellKnownSid`), \
               Windows' volume GUID path read of an open file or folder \
               (`GetFinalPathNameByHandleW`), macOS's volume reads (`statfs`'s mount point and \
-              `getattrlist`'s volume UUID) and access list removal (`filesec_init`, \
-              `filesec_set_property`, `fchmodx_np`, `filesec_free`), the Windows user folder's \
+              `getattrlist`'s volume UUID), access list removal (`filesec_init`, \
+              `filesec_set_property`, `fchmodx_np`, `filesec_free`) and access list read \
+              (`acl_get_fd_np`, `acl_get_entry` and its entry reads, `acl_free`, \
+              `mbr_uid_to_uuid`), the Windows user folder's \
               make with its security descriptor (`CreateDirectoryW`) and its hidden mark \
               (`SetFileInformationByHandle`), \
               a Windows child's output read at its exit (`CancelIoEx`, `PeekNamedPipe`), the \
