@@ -1,6 +1,6 @@
-//! A session's held tool-server calls once its process is gone for good: settled at its close,
-//! live or at rest, by what Claude Code kept, and left alone while the daemon stops or a fork
-//! takes the session.
+//! A session's held tool-server calls once its process is gone for good: the surviving tasks a
+//! person's close stops, the calls settled at its close, live or at rest, by what Claude Code
+//! kept, and left alone while the daemon stops or a fork takes the session.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,13 +16,18 @@ use sidekicks_platforms::PathRules;
 
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::session::restart::ClaudeSessionStanding;
-use crate::driver::claude::session::scripted::channel::ScriptedChannel;
+use crate::driver::claude::session::scripted::channel::{
+    ScriptedAnswer, ScriptedChannel, ScriptedWrite,
+};
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::driver::claude::session::scripted::held_calls::{
     Ending, closes, export_calls, held_call, helper_started, init, logged_held_calls, record,
     stand_in, write_kept_files,
 };
-use crate::driver::claude::session::scripted::{binding_id, hand_scripted_frame, settle};
+use crate::driver::claude::session::scripted::starts::ScriptedStartRecord;
+use crate::driver::claude::session::scripted::{
+    SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, settle,
+};
 use crate::driver::claude::spawn::environment::claude_config_folder;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::session_control::{
@@ -36,11 +41,15 @@ const STORED_CONVERSATION: &str = "0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d";
 /// How a call ends with its process.
 const ENDED_WITH_THE_PROCESS: Ending = Ending::Failed(Some(ToolCallEndCause::ProcessExit));
 
-// A live session of `fixture`'s driver whose process holds each of `calls`, a call and its task,
-// in the background, all opened by one lead run on `lead`; the log answers each open. Answers the
-// session and the run.
-async fn holding_session(fixture: &ScriptedDriver, calls: &[(&str, &str)]) -> (SessionId, RunId) {
-    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+// A live session of `fixture`'s driver on `channel` whose process holds each of `calls`, a call
+// and its task, in the background, all opened by one lead run on `lead`; the log answers each
+// open. Answers the session, the run and the process's start.
+async fn holding_session(
+    fixture: &ScriptedDriver,
+    channel: &Arc<ScriptedChannel>,
+    calls: &[(&str, &str)],
+) -> (SessionId, RunId, ScriptedStartRecord) {
+    let session_id = fixture.create(channel).await;
     let start = fixture.next_start().await;
     let routes = &fixture
         .driver
@@ -78,7 +87,7 @@ async fn holding_session(fixture: &ScriptedDriver, calls: &[(&str, &str)]) -> (S
         .held_tool_calls
         .register(logged_held_calls(logged, &fixture.engine))
         .expect("the read registers once");
-    (session_id, run_id)
+    (session_id, run_id, start)
 }
 
 // Writes the record of `call_id`, of the task `task_id`, beside the conversation `session_id`'s
@@ -286,8 +295,12 @@ async fn a_closed_session_at_rest_settles_its_held_calls_by_what_claude_code_kep
 #[tokio::test(start_paused = true)]
 async fn a_persons_close_ends_the_record_only_call_after_the_exit_settle() {
     let fixture = ScriptedDriver::new();
-    let (session_id, run_id) =
-        holding_session(&fixture, &[("call-A", "task-A"), ("call-B", "task-B")]).await;
+    let (session_id, run_id, _) = holding_session(
+        &fixture,
+        &Arc::new(ScriptedChannel::default()),
+        &[("call-A", "task-A"), ("call-B", "task-B")],
+    )
+    .await;
     keep_record(&fixture, session_id, "call-B", "task-B");
 
     fixture
@@ -343,8 +356,12 @@ async fn a_persons_close_ends_the_record_only_call_after_the_exit_settle() {
 #[tokio::test(start_paused = true)]
 async fn a_restart_of_the_daemon_writes_no_held_call_close() {
     let fixture = ScriptedDriver::new();
-    let (session_id, _) =
-        holding_session(&fixture, &[("call-A", "task-A"), ("call-B", "task-B")]).await;
+    let (session_id, ..) = holding_session(
+        &fixture,
+        &Arc::new(ScriptedChannel::default()),
+        &[("call-A", "task-A"), ("call-B", "task-B")],
+    )
+    .await;
     keep_record(&fixture, session_id, "call-B", "task-B");
 
     fixture
@@ -363,7 +380,12 @@ async fn a_restart_of_the_daemon_writes_no_held_call_close() {
 #[tokio::test(start_paused = true)]
 async fn a_forks_predecessor_exit_settles_none_of_its_held_calls() {
     let fixture = ScriptedDriver::new();
-    let (session_id, _) = holding_session(&fixture, &[("call-A", "task-A")]).await;
+    let (session_id, ..) = holding_session(
+        &fixture,
+        &Arc::new(ScriptedChannel::default()),
+        &[("call-A", "task-A")],
+    )
+    .await;
     let conversation = fixture
         .driver
         .composed_parts()
@@ -411,4 +433,141 @@ async fn a_forks_predecessor_exit_settles_none_of_its_held_calls() {
         .map(|close| (close.tool_call_id, close.ending))
         .collect();
     assert_eq!(closed, [("call-A".to_owned(), ENDED_WITH_THE_PROCESS)]);
+}
+
+// The `stop_task` requests written to `channel`, each by the task it names.
+fn stopped_tasks(channel: &ScriptedChannel) -> Vec<String> {
+    channel
+        .control_requests()
+        .into_iter()
+        .filter(|request| request["subtype"] == "stop_task")
+        .map(|request| request["task_id"].as_str().expect("a task id").to_owned())
+        .collect()
+}
+
+// Each close the run engine recorded on `fixture`, by call, how it ended and its body.
+fn closed_calls(fixture: &ScriptedDriver) -> Vec<(String, Ending, Option<String>)> {
+    closes(fixture.engine.deliveries())
+        .into_iter()
+        .map(|close| (close.tool_call_id, close.ending, close.content))
+        .collect()
+}
+
+/// How a person's close of a session holding a surviving task meets the task's stop.
+#[derive(Clone, Copy, Debug)]
+enum PersonsClose {
+    /// Claude Code takes the stop and reports the task stopped.
+    StopAnswered,
+    /// The daemon's stop began before the person's close.
+    UnderTheDaemonStop,
+    /// Claude Code never answers the stop.
+    StopUnanswered,
+}
+
+// Fails when a person's close leaves a surviving task running on its server, stops a call that
+// ended with its process, stops it once the channel closed or not at a close racing the daemon's
+// stop, or fails when the stop goes unanswered. Mutations: the send dropped (no `stop_task`,
+// call-A reads `processExit` once the stop is answered); a send for every held call (task-B
+// stopped); the send after `close_channel` (nothing written while the close is held); the send
+// gated on the stop flag (none under the daemon's stop); an unanswered stop failing the close.
+#[rstest]
+#[case::stop_answered(PersonsClose::StopAnswered)]
+#[case::under_the_daemon_stop(PersonsClose::UnderTheDaemonStop)]
+#[case::stop_unanswered(PersonsClose::StopUnanswered)]
+#[tokio::test(start_paused = true)]
+async fn a_persons_close_stops_each_surviving_task_before_its_process_ends(
+    #[case] persons_close: PersonsClose,
+) {
+    let fixture = ScriptedDriver::new();
+    let channel = Arc::new(ScriptedChannel::default());
+    let (session_id, _, start) = holding_session(
+        &fixture,
+        &channel,
+        &[("call-A", "task-A"), ("call-B", "task-B")],
+    )
+    .await;
+    keep_record(&fixture, session_id, "call-A", "task-A");
+    let parts = fixture.driver.composed_parts().expect("composed");
+    match persons_close {
+        PersonsClose::StopAnswered => {}
+        PersonsClose::UnderTheDaemonStop => parts.restarts.stop(),
+        PersonsClose::StopUnanswered => channel.answer("stop_task", ScriptedAnswer::Deadline),
+    }
+    let release = channel.hold_next_close();
+
+    let close = fixture.driver.close_session(CloseSessionParams {
+        session_id,
+        cause: SessionCloseCause::Person,
+    });
+    let while_held = async {
+        ScriptedDriver::wait_for(|| channel.writes().contains(&ScriptedWrite::Terminate)).await;
+        assert_eq!(stopped_tasks(&channel), ["task-A"]);
+        if !matches!(persons_close, PersonsClose::StopUnanswered) {
+            hand_scripted_frame(
+                &*start.listener,
+                &parts.run_start.routes,
+                session_id,
+                &json!({
+                    "type": "system",
+                    "subtype": "task_notification",
+                    "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+                    "task_id": "task-A",
+                    "tool_use_id": "call-A",
+                    "status": "stopped",
+                }),
+            );
+            settle().await;
+        }
+        release.send(()).expect("the close is held");
+    };
+    let (closed, ()) = tokio::join!(close, while_held);
+    closed.expect("the session closes");
+    settle().await;
+
+    let stopped = (
+        "call-A".to_owned(),
+        Ending::Failed(Some(ToolCallEndCause::Stopped)),
+        None,
+    );
+    let ended = |call_id: &str| (call_id.to_owned(), ENDED_WITH_THE_PROCESS, None);
+    let expected: Vec<(String, Ending, Option<String>)> = match persons_close {
+        PersonsClose::StopAnswered => vec![stopped, ended("call-B")],
+        PersonsClose::UnderTheDaemonStop => vec![stopped],
+        PersonsClose::StopUnanswered => vec![ended("call-B"), ended("call-A")],
+    };
+    assert_eq!(closed_calls(&fixture), expected);
+}
+
+// Fails when a close the person did not begin stops a surviving task. Mutation: the send on every
+// cause (a `stop_task` for task-A).
+#[rstest]
+#[case::unrecorded_opening(SessionCloseCause::UnrecordedOpening)]
+#[case::daemon_stop(SessionCloseCause::DaemonStop)]
+#[tokio::test(start_paused = true)]
+async fn only_a_persons_close_stops_the_surviving_tasks(#[case] cause: SessionCloseCause) {
+    let fixture = ScriptedDriver::new();
+    let channel = Arc::new(ScriptedChannel::default());
+    let (session_id, ..) = holding_session(
+        &fixture,
+        &channel,
+        &[("call-A", "task-A"), ("call-B", "task-B")],
+    )
+    .await;
+    keep_record(&fixture, session_id, "call-A", "task-A");
+
+    fixture
+        .driver
+        .close_session(CloseSessionParams { session_id, cause })
+        .await
+        .expect("the session closes");
+    settle().await;
+
+    assert!(stopped_tasks(&channel).is_empty());
+    assert_eq!(
+        closed_calls(&fixture),
+        [
+            ("call-B".to_owned(), ENDED_WITH_THE_PROCESS, None),
+            ("call-A".to_owned(), ENDED_WITH_THE_PROCESS, None),
+        ]
+    );
 }
