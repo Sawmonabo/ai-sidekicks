@@ -10,6 +10,8 @@ writeable = "writeable"
 Writeable = "Writeable"
 # `windows-sys`' spelling of the Windows error a too-long command line gives.
 ERROR_FILENAME_EXCED_RANGE = "ERROR_FILENAME_EXCED_RANGE"
+# tree-sitter-powershell's spelling of its command-invocation operator node.
+command_invokation_operator = "command_invokation_operator"
 
 # A git quoted-path test spells "café" as the octal bytes git writes, `caf\303\251`.
 [default.extend-words]
@@ -20,6 +22,8 @@ cose = "cose"
 noe = "noe"
 # A search test's cut-off word.
 thr = "thr"
+# bash's `declare` option letters, written as one string.
+adin = "adin"
 
 [files]
 extend-exclude = [
