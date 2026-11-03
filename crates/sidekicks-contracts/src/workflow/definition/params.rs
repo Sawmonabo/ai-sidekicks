@@ -5,7 +5,6 @@
 //! runs it through the WebAssembly export, and the daemon's save calls it for each node with its
 //! kind's parameter list.
 
-use garde::Validate;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -253,44 +252,26 @@ fn check_reference<Reference: DeserializeOwned>(
 }
 
 // A tool binding reads as one only with no member past the server and the tool, so a nested node
-// or a policy is refused at its key, then its members are held to their rules. A refused read is
-// named by its place alone, never by serde's message, which quotes the value and could leak a
-// pasted secret; a member left out is named at the binding's place.
+// or a policy is refused at its key. A refused read is named by its place alone, never by serde's
+// message, which quotes the value and could leak a pasted secret; a member left out is named at
+// the binding's place.
 fn check_tool_binding(value: &Value, place: &str, issues: &mut Vec<WorkflowParamIssue>) {
-    let binding = match serde_path_to_error::deserialize::<_, WorkflowToolBinding>(value) {
-        Ok(binding) => binding,
-        Err(error) => {
-            let mut path = place.to_owned();
-            for segment in reader_issue_path(error.path()) {
-                path.push('.');
-                match segment {
-                    IssuePathSegment::Member(name) => path.push_str(&name),
-                    IssuePathSegment::Index(index) => path.push_str(&index.get().to_string()),
-                }
+    if let Err(error) = serde_path_to_error::deserialize::<_, WorkflowToolBinding>(value) {
+        let mut path = place.to_owned();
+        for segment in reader_issue_path(error.path()) {
+            path.push('.');
+            match segment {
+                IssuePathSegment::Member(name) => path.push_str(&name),
+                IssuePathSegment::Index(index) => path.push_str(&index.get().to_string()),
             }
-            issues.push(WorkflowParamIssue {
-                path,
-                message: "expected a tool binding: its server binding and its tool name, and no \
-                          other member"
-                    .to_owned(),
-                rule: None,
-            });
-            return;
         }
-    };
-    if let Err(report) = binding.validate() {
-        for (path, error) in report.iter() {
-            let path = if path.is_empty() {
-                place.to_owned()
-            } else {
-                format!("{place}.{path}")
-            };
-            issues.push(WorkflowParamIssue {
-                path,
-                message: error.message().to_owned(),
-                rule: None,
-            });
-        }
+        issues.push(WorkflowParamIssue {
+            path,
+            message: "expected a tool binding: its server binding and its tool name, and no \
+                      other member"
+                .to_owned(),
+            rule: None,
+        });
     }
 }
 
