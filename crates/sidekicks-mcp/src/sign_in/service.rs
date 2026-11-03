@@ -750,8 +750,8 @@ mod tests {
 
     /// An attempt that runs out marks the own client unfinished, closes its listener and appends
     /// nothing; at a server no provider's flow admits, the next press still reaches the daemon's
-    /// own client, the mark cleared. Killed by an expiry that marks nothing, and by a mark with
-    /// no exit (the press after it is refused as unsupported).
+    /// own client, the mark cleared with the row that held only it. Killed by an expiry that marks
+    /// nothing, and by a mark with no exit (the press after it is refused as unsupported).
     #[tokio::test]
     async fn a_press_after_an_attempt_ran_out_reaches_the_own_client_where_no_provider_admits() {
         let server = serve_authorization_server(FakeServerAnswers::default()).await;
@@ -776,9 +776,8 @@ mod tests {
                 .admitted_clients
                 .read(&address)
                 .await
-                .expect("the admitted client reads")
-                .map(|admitted| admitted.is_own_client_unfinished),
-            Some(false)
+                .expect("the admitted client reads"),
+            None
         );
     }
 

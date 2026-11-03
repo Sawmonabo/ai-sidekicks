@@ -8,7 +8,7 @@ use rstest::rstest;
 use serde_json::json;
 use sidekicks_provider::port::question::is_tool_server_request_id;
 use tokio::sync::watch;
-use tokio::time::{Duration, timeout};
+use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use super::live::task_elicitation;
@@ -27,9 +27,6 @@ use crate::client::test_server::{
     v1_status_reply, v2_task_server,
 };
 use crate::command_receipts::{InFlightReceipt, InFlightTask};
-
-/// How long a resumed call may take on the paused clock before the test fails.
-const RESUME_LIMIT: Duration = Duration::from_hours(1);
 
 /// The receipt a call of `track` left in flight across a restart: claimed, and holding task
 /// `task-1` accepted under the generation on the tracker at the endpoint when `task` names them.
@@ -79,8 +76,8 @@ async fn v1_left_in_flight(fixture: &Fixture) -> InFlightReceipt {
     left_in_flight(fixture, Some((McpTaskGeneration::V1, endpoint))).await
 }
 
-/// Resumes `receipt` over `standing` as the restart's sweep does; fails the test when the resumed
-/// call has not ended within [`RESUME_LIMIT`].
+/// Resumes `receipt` over `standing` as the restart's sweep does. No bound on the paused clock
+/// guards it: the clock jumps to its next timer while the dispatch waits on the store's writer.
 async fn resume(
     fixture: &Fixture,
     standing: &McpStandingConnection,
@@ -88,16 +85,12 @@ async fn resume(
     contact: &watch::Sender<McpTaskContact>,
     cancellation: &CancellationToken,
 ) -> McpDispatchedCall {
-    timeout(
-        RESUME_LIMIT,
-        Box::pin(
-            fixture
-                .dispatch
-                .resume(standing, receipt, contact, cancellation),
-        ),
+    Box::pin(
+        fixture
+            .dispatch
+            .resume(standing, receipt, contact, cancellation),
     )
     .await
-    .expect("the resumed call ends")
     .expect("the receipt is resumed")
 }
 

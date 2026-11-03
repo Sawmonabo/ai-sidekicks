@@ -22,7 +22,6 @@ use crate::client::test_server::{
     method_not_found, text_result, track_call, tracked_end, tracker_address, v1_status_reply,
     v2_task_server,
 };
-use crate::command_receipts::background_statement;
 
 /// A fixture whose connections reach the server `tracker` at its address.
 async fn fixture_at_address() -> Fixture {
@@ -472,7 +471,7 @@ async fn a_task_whose_server_answered_errors_reads_errors_persisted_when_its_wai
 #[tokio::test(start_paused = true)]
 async fn a_task_waiting_for_its_replacement_when_the_client_stops_stays_in_flight() {
     let fixture = fixture_at_address().await;
-    let (standing, _server) = fixture.connect(working_task_server()).await;
+    let (standing, server) = fixture.connect(working_task_server()).await;
     let contact = contact();
     let uncanceled = CancellationToken::new();
 
@@ -481,6 +480,8 @@ async fn a_task_waiting_for_its_replacement_when_the_client_stops_stays_in_fligh
             .dispatch
             .call(&standing, track_call(), &contact, &uncanceled),
         async {
+            // The task is accepted before its connection is replaced.
+            until(|| !server.requests("tasks/get").is_empty()).await;
             let (opened, _other) = fixture
                 .open(working_task_server(), Some(&other_address()))
                 .await;
@@ -515,11 +516,7 @@ async fn a_backgrounded_plain_call_cut_by_the_clients_stop_stays_in_flight() {
             .call(&standing, track_call(), &contact, &uncanceled),
         async {
             until(|| server.requests("tools/call").len() == 1).await;
-            fixture
-                .writer
-                .write(vec![background_statement("command-1")])
-                .await
-                .expect("the call moves to the background");
+            fixture.move_to_background("command-1");
             fixture.client.stop().await;
         },
     );
@@ -554,11 +551,7 @@ async fn a_backgrounded_task_canceled_while_waiting_for_its_replacement_keeps_it
             .call(&standing, track_call(), &contact, &cancellation),
         async {
             until(|| !server.requests("tasks/get").is_empty()).await;
-            fixture
-                .writer
-                .write(vec![background_statement("command-1")])
-                .await
-                .expect("the call moves to the background");
+            fixture.move_to_background("command-1");
             feed.publish(None);
             connection.close().await;
             until(|| *contact.borrow() == NotConfigured).await;
