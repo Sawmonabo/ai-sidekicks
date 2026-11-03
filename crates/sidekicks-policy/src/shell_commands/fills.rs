@@ -707,8 +707,8 @@ mod tests {
     // substitution forms included, hands the command the value the author's line gives it, read
     // as the line's own text: as written where delayed expansion leaves that value whole, as an
     // unquoted `C:\a^b` that cmd.exe's second phase reads as `C:\ab`, a value opening quotes or
-    // a target without a `!`; in its delayed form, escaped outside quotes for the second phase,
-    // where the value reads as plain text in one piece read again; else as the value the second
+    // a target without a `!`; in its delayed form, escaped outside quotes for the second phase so
+    // it stays one word, where the value reads as plain text in one piece read again; else as the value the second
     // phase reads, behind the carets delayed expansion removes. An undefined one stays as
     // written, and the first phase goes on from after its first `%`, so a defined name can start
     // at its second; a piece holding a variable whose value has a `!` is read again.
@@ -739,7 +739,11 @@ mod tests {
     )]
     #[case::a_substitution_form_outside_quotes(
         "copy {{ x }} %BANG:^=+%",
-        "copy \"!SIDEKICKS_VALUE_1!\" !BANG:^^=+!"
+        "copy \"!SIDEKICKS_VALUE_1!\" !BANG:^^^=+!"
+    )]
+    #[case::a_modifier_form_with_a_space_in_an_if_value(
+        "IF %BANG:a b=c%==x echo {{ x }}",
+        "IF !BANG:a^ b^=c!==x echo \"!SIDEKICKS_VALUE_1!\""
     )]
     #[case::a_value_holding_a_mark(
         "echo {{ x }} & echo \"^a\" %BANG%",

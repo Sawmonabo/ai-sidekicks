@@ -95,6 +95,9 @@ const IF_KEYWORDS: &[&str] = &["exist", "defined", "errorlevel", "cmdextversion"
 /// An `if`'s comparison operator words; `==` is read as delimiters between its values.
 const IF_OPERATORS: &[&str] = &["equ", "neq", "lss", "leq", "gtr", "geq"];
 
+/// The characters that end a command name, a target or an `if`'s word outside double quotes.
+const SEPARATORS: [char; 7] = [' ', '\t', ';', ',', '=', '\u{b}', '\u{c}'];
+
 /// One character of the line as cmd.exe's second phase reads it.
 struct ReadCharacter {
     character: char,
@@ -256,7 +259,7 @@ fn read_line(expanded: &str, is_reference: impl Fn(usize) -> bool) -> LineReadin
             }
             // The name runs on through `/` and `+`, as in `dir/w`: cmd.exe splits them from it only
             // when it runs the command, after delayed expansion has read the name whole.
-            (CharacterReading::Unquoted, ' ' | '\t' | ';' | ',' | '=' | '\u{b}' | '\u{c}') => {
+            (CharacterReading::Unquoted, separator) if SEPARATORS.contains(&separator) => {
                 place = match place {
                     CommandPlace::Name if name_text.eq_ignore_ascii_case("if") => {
                         CommandPlace::IfBefore(IfWord::Opening)
@@ -596,8 +599,9 @@ fn substituted(value: &str, search: &str, replace: &str, is_through_first: bool)
 
 /// `written`, an author's `%…%` reference, in its delayed form `!…!`, which cmd.exe's second
 /// phase reads before delayed expansion: inside double quotes as it stands, outside them with each
-/// `^`, `&`, `|`, `<`, `>` and `"` behind a `^`. `None` where no delayed form can hold it: text
-/// with a `!` or a line break, or a `"` inside double quotes.
+/// `^`, `&`, `|`, `<`, `>`, `"` and separator behind a `^`, so the second phase keeps it one word.
+/// `None` where no delayed form can hold it: text with a `!` or a line break, or a `"` inside
+/// double quotes.
 fn delayed_form(written: &str, is_quoted: bool) -> Option<String> {
     let inner = &written[1..written.len() - 1];
     if inner.contains(['!', '\n', '\r']) || (is_quoted && inner.contains('"')) {
@@ -606,7 +610,10 @@ fn delayed_form(written: &str, is_quoted: bool) -> Option<String> {
     let mut delayed = String::with_capacity(written.len() * 2);
     delayed.push('!');
     for character in inner.chars() {
-        if !is_quoted && matches!(character, '^' | '&' | '|' | '<' | '>' | '"') {
+        if !is_quoted
+            && (SEPARATORS.contains(&character)
+                || matches!(character, '^' | '&' | '|' | '<' | '>' | '"'))
+        {
             delayed.push('^');
         }
         delayed.push(character);
@@ -619,9 +626,10 @@ fn delayed_form(written: &str, is_quoted: bool) -> Option<String> {
 fn word_at(line: &str, at: usize) -> &str {
     let rest = &line[at..];
     let end = rest
-        .find([
-            ' ', '\t', ';', ',', '=', '\u{b}', '\u{c}', '&', '|', '<', '>', '(', ')', '\n', '\r',
-        ])
+        .find(|character: char| {
+            SEPARATORS.contains(&character)
+                || matches!(character, '&' | '|' | '<' | '>' | '(' | ')' | '\n' | '\r')
+        })
         .unwrap_or(rest.len());
     &rest[..end]
 }
