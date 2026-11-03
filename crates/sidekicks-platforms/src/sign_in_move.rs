@@ -11,12 +11,6 @@ use std::io;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 
-/// The steps one sign-in's move runs, each held to the caller's step bound: read from its source,
-/// written at its destination, read back and deleted from its source, and after a refusal that
-/// follows the write, its source read again and its copy deleted. A move ends within this many
-/// bounds for each sign-in, plus the moment a step past its bound takes to end its child.
-pub const SIGN_IN_MOVE_STEPS: u32 = 6;
-
 /// One sign-in to move: its keychain item, by service and account, and the file it moves to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeychainSignIn {

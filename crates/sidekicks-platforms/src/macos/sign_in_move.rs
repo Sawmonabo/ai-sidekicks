@@ -110,10 +110,10 @@ trait SignInPlace {
     fn describe(&self) -> String;
 }
 
-// Moves the sign-in at `source` to `destination`: written, read back and compared in constant
-// time, and only then deleted from `source`, the steps `SIGN_IN_MOVE_STEPS` counts, so a stop at
-// any step leaves it whole in one place or both, and a refusal once the copy is written takes the
-// copy back as `take_copy_back` does.
+// Moves the sign-in at `source` to `destination`, each step held to the caller's bound: read from
+// `source`, written, read back and compared in constant time, and only then deleted from `source`,
+// so a stop at any step leaves it whole in one place or both; a refusal once the copy is written
+// reads `source` again and deletes the copy as `take_copy_back` does.
 async fn move_sign_in(
     source: &impl SignInPlace,
     destination: &impl SignInPlace,
