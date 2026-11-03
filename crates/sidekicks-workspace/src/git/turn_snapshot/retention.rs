@@ -62,17 +62,24 @@ pub(crate) fn parse_snapshot_ref_listing(
 ) -> Vec<SnapshotRefListingEntry> {
     String::from_utf8_lossy(listing)
         .split('\n')
-        .filter_map(|line| {
-            let (object_id, snapshot_ref) = line.split_once(' ')?;
-            if !snapshot_ref.starts_with(expected_prefix) {
-                return None;
-            }
-            Some(SnapshotRefListingEntry {
-                object_id: GitObjectId::new(object_id.to_owned())?,
-                snapshot_ref: snapshot_ref.to_owned(),
-            })
-        })
+        .filter_map(|line| parse_snapshot_ref_line(line, expected_prefix))
         .collect()
+}
+
+/// One `<object id> <ref name>` line of a snapshot ref listing, `None` when it is malformed or the
+/// name does not start with `expected_prefix`.
+pub(crate) fn parse_snapshot_ref_line(
+    line: &str,
+    expected_prefix: &str,
+) -> Option<SnapshotRefListingEntry> {
+    let (object_id, snapshot_ref) = line.split_once(' ')?;
+    if !snapshot_ref.starts_with(expected_prefix) {
+        return None;
+    }
+    Some(SnapshotRefListingEntry {
+        object_id: GitObjectId::new(object_id.to_owned())?,
+        snapshot_ref: snapshot_ref.to_owned(),
+    })
 }
 
 /// Whether `path` is provably absent: only a missing entry or a file where a folder was expected

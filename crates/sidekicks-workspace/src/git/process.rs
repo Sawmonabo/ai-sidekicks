@@ -21,11 +21,12 @@ use sidekicks_platforms::{
     path_from_program_output, read_child_exit, start_child_tree,
 };
 use tokio::process::Command;
-use tokio::sync::OnceCell;
+use tokio::sync::Mutex;
 use tokio_util::task::TaskTracker;
 
 mod entries;
 pub mod environment;
+pub(crate) mod version;
 
 #[cfg(any(test, feature = "test-support"))]
 use environment::find_git_executable;
@@ -35,8 +36,9 @@ use environment::git_environment;
 /// worktree's paths. Passing it fails the call; nothing is cut.
 pub const GIT_OUTPUT_MAX_BYTES: usize = 64 * 1024 * 1024;
 
-/// How long one git call may run: `worktree add` writes a whole checkout and a snapshot's staging
-/// walks the whole worktree, so a shorter bound would end healthy work on a large repository.
+/// How long one git call may run, but for one run under a bound of its own (`run_within`):
+/// `worktree add` writes a whole checkout and a snapshot's staging walks the whole worktree, so a
+/// shorter bound would end healthy work on a large repository.
 pub(crate) const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// How long git has to end at the service's stop: the window the stop gives its terminals.
@@ -112,6 +114,9 @@ pub enum GitError {
     /// git printed a path this system cannot name.
     #[error("git printed a path this system cannot name")]
     PathText(#[source] io::Error),
+    /// git named no version this code can read.
+    #[error("git named no version this code can read")]
+    UnreadableVersion,
     /// A call given input or a time bound was asked to start, which takes neither: its caller
     /// reads git as it runs and ends it.
     #[error("a started git takes no input and no time bound")]
@@ -166,6 +171,7 @@ impl GitError {
             | Self::OutputTooLarge { .. }
             | Self::Read(_)
             | Self::PathText(_)
+            | Self::UnreadableVersion
             | Self::NotStartable => None,
         }
     }
@@ -280,9 +286,9 @@ impl GitCall {
         self
     }
 
-    /// The call held to `timeout` where that is shorter than the runner's bound, for a quick answer
-    /// a person waits on, which a hung network folder would otherwise hold for the runner's whole
-    /// bound; `None` keeps the runner's bound.
+    /// The call held to `timeout` where that is shorter than the bound it runs under, the runner's
+    /// or the one `run_within` gives, for a quick answer a person waits on, which a hung network
+    /// folder would otherwise hold for that whole bound; `None` keeps the bound it runs under.
     pub(crate) fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
         self.timeout = timeout;
         self
@@ -342,7 +348,7 @@ impl GitLimits {
 
 /// The daemon's git: the program found at start, started from the spawner's thread in the login
 /// shell's environment, each call held to the runner's bounds. Cloning it shares the program, the
-/// environment and what was read of its build.
+/// environment and the record of what was read of its build.
 #[derive(Clone)]
 pub struct GitRunner {
     spawner: Spawner,
@@ -351,8 +357,9 @@ pub struct GitRunner {
     // a program the system starts holds without the person's search path.
     login_environment: Arc<[(String, String)]>,
     limits: GitLimits,
-    // Whether the program was built with its file-watch daemon, read once it is first needed.
-    has_built_in_file_watch: Arc<OnceCell<bool>>,
+    // What was read of the program's build, once it is first needed; replaced whole when a refusal
+    // finds the program changed.
+    build_record: Arc<Mutex<Option<version::GitBuild>>>,
     // The ends of the trees of calls that failed, run after the failure is answered.
     tree_ends: TaskTracker,
 }
@@ -372,7 +379,7 @@ impl GitRunner {
             executable: executable.map(Arc::from),
             login_environment,
             limits,
-            has_built_in_file_watch: Arc::new(OnceCell::new()),
+            build_record: Arc::new(Mutex::new(None)),
             tree_ends: TaskTracker::new(),
         }
     }
@@ -402,10 +409,20 @@ impl GitRunner {
     /// printed when it exits with a failure; a live index read fails so too when the read of the
     /// repository's setting or of the program's build does.
     pub async fn run(&self, place: Option<&Place>, call: GitCall) -> Result<GitOutput, GitError> {
+        self.run_within(place, call, self.limits.timeout).await
+    }
+
+    /// Runs `call` as [`run`](Self::run) does, but held to `bound` in place of the runner's own,
+    /// which it may pass, for the one long call whose work grows with what it holds; a shorter
+    /// bound the call carries still wins. Fails as [`run`](Self::run) does.
+    pub(crate) async fn run_within(
+        &self,
+        place: Option<&Place>,
+        call: GitCall,
+        bound: Duration,
+    ) -> Result<GitOutput, GitError> {
         let executable = self.executable_for(place)?;
-        let timeout = call.timeout.map_or(self.limits.timeout, |timeout| {
-            timeout.min(self.limits.timeout)
-        });
+        let timeout = call.timeout.map_or(bound, |timeout| timeout.min(bound));
         let prepared = self.prepare(executable, call).await?;
         self.run_git(executable, prepared, timeout).await
     }
@@ -512,24 +529,6 @@ impl GitRunner {
             return Ok(BUILT_IN_FILE_WATCH_SETTING);
         }
         Ok(FILE_WATCH_OFF_SETTING)
-    }
-
-    // Whether the git at `executable` was built with its file-watch daemon, read from its build
-    // options once for the runner; a failed read is not kept.
-    async fn read_built_in_file_watch(&self, executable: &Path) -> Result<bool, GitError> {
-        self.has_built_in_file_watch
-            .get_or_try_init(|| async {
-                let arguments = vec![OsString::from("version"), OsString::from("--build-options")];
-                let output = self
-                    .run_git(executable, PreparedCall::of(arguments), self.limits.timeout)
-                    .await?;
-                Ok(output
-                    .stdout
-                    .split(|byte| *byte == b'\n')
-                    .any(|line| line.trim_ascii() == BUILT_IN_FILE_WATCH_BUILD_LINE))
-            })
-            .await
-            .copied()
     }
 
     // Starts the git at `executable` with `arguments` and holds it to `timeout` and the runner's

@@ -5,7 +5,7 @@
 //! own record says what became of it, which is final only once no live provider process still holds
 //! it. After the daemon's restart, when no hand is remembered, a resumed run's record settles the
 //! waiting messages the same way: one it holds admitted, every one ended not delivered when it is
-//! unreadable.
+//! unreadable. An item an undo's release reserved as the run's opening goes first.
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::run::id::RunId;
@@ -18,19 +18,28 @@ use sidekicks_session::queue_store::RecordedQueueItemState;
 use sidekicks_std::keyed_lock::KeyHold;
 
 use crate::delivery::state::{HandRoute, is_kept_by_process};
-use crate::delivery::{DeliveryError, QueueDelivery};
+use crate::delivery::{DeliveryError, QueueDelivery, reordered_of};
 
 impl QueueDelivery {
     // The unhanded lead messages waiting for `run_id` of `session_id`, a continue that did not go
     // read again (one a resume keeps excepted), each marked handed by the continue to a provider
-    // that takes messages as `handing` says, in the queue's order.
+    // that takes messages as `handing` says, in the queue's order, the item an undo's release
+    // reserved first. Under an undo's hold nothing is read and the reservation stays for the
+    // release's own resume. Called under the session's queue lock, which the hold is set under.
     async fn read_continued(
         &self,
         session_id: SessionId,
         run_id: RunId,
         handing: MessageHanding,
     ) -> Result<Vec<WaitingMessage>, DeliveryError> {
-        let lead_waiting = self.lead_messages(self.read_waiting(run_id).await?);
+        // Taken before the read, which leaves a reserved item out as an opening.
+        let reserved = if self.is_held_for_undo(session_id) {
+            None
+        } else {
+            self.shared.deps.openings.take_reserved(run_id)
+        };
+        let waiting = self.lead_messages(self.read_waiting(run_id).await?);
+        let lead_waiting = reordered_of(&waiting, reserved).unwrap_or(waiting);
         let process = self.shared.deps.processes.process_identity(&session_id);
         let items = {
             let mut state = self.lock_state();

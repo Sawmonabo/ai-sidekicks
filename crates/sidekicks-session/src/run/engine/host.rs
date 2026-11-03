@@ -6,6 +6,7 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -23,9 +24,13 @@ impl RunHost for RunEngine {
         run_id: RunId,
         provider_turn_id: Option<ProviderTurnId>,
         step_bound: Option<SafeInt<1>>,
+        opening: Option<QueueItemId>,
     ) -> BoxFuture<'_, Result<Option<StartedTurn>, RunHostError>> {
         async move {
-            Ok(RunEngine::start_turn(self, run_id, None, provider_turn_id, step_bound).await?)
+            Ok(
+                RunEngine::start_turn(self, run_id, None, provider_turn_id, step_bound, opening)
+                    .await?,
+            )
         }
         .boxed()
     }

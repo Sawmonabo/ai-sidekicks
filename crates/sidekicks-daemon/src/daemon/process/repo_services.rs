@@ -23,6 +23,7 @@ use sidekicks_session::review_note::store::SessionReviewNoteStore;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::file::atomic_write::write_file_atomically;
 use sidekicks_std::file::real_location::resolve_real_path;
+use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::scheduler::{
     JobCondition, ScheduleError, ScheduledJobHandle, Scheduler, WakeSignal,
@@ -36,6 +37,7 @@ use sidekicks_workspace::clone::askpass::broker::{AskpassBroker, AskpassBrokerEr
 use sidekicks_workspace::clone::askpass::program::git_askpass_program_path;
 use sidekicks_workspace::event_emitter::WorkspaceEventEmitter;
 use sidekicks_workspace::git::process::GitRunner;
+use sidekicks_workspace::git::turn_snapshot::repack::CapturePacking;
 use sidekicks_workspace::git::turn_snapshot::service::TurnSnapshotService;
 use sidekicks_workspace::git::worktree::branch_list::BranchListReader;
 use sidekicks_workspace::git::worktree::event_emitter::WorktreeEventEmitter;
@@ -125,6 +127,11 @@ pub(crate) struct RepoServices {
     pub(crate) worktree_events: Arc<WorktreeEventEmitter>,
     /// Each turn's checkout snapshot and the prune of a run's snapshot refs.
     pub(crate) snapshots: Arc<TurnSnapshotService>,
+    /// The packing of the capture folders, which forgets a purged session's folders.
+    pub(crate) packing: Arc<CapturePacking>,
+    /// The per-checkout lock, keyed by the canonical folder, that the turn snapshots, the worktree
+    /// creator and the run setup gate share.
+    pub(crate) checkout_lock: Arc<KeyedLock<PathBuf>>,
     /// The mounts' health, re-probed on the slow tick, a wake and a repository's change.
     pub(crate) mount_health: Arc<RepoMountHealthReprobe>,
     /// The daemon's one scheduler, which runs the re-probe's tick.
@@ -217,10 +224,13 @@ pub(crate) fn build_repo_services(
         fetch: Arc::clone(&fetch),
     }));
     let review_notes = Arc::new(live_folders.review_note_store(Arc::clone(&writer)));
+    let checkout_lock = Arc::new(KeyedLock::new());
+    let packing = Arc::new(CapturePacking::new(git.clone()));
     let snapshots = Arc::new(TurnSnapshotService::new(
         git.clone(),
         Arc::clone(&reads),
-        &worktrees_folder,
+        Arc::clone(&checkout_lock),
+        Arc::clone(&packing),
     ));
     let worktrees = Arc::new(WorktreeService::new(WorktreeServiceDeps {
         git: git.clone(),
@@ -248,6 +258,8 @@ pub(crate) fn build_repo_services(
         worktrees,
         worktree_events,
         snapshots,
+        packing,
+        checkout_lock,
         mount_health,
         scheduler,
         stop,

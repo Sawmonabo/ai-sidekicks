@@ -78,9 +78,9 @@ pub mod test_opening;
 #[cfg(test)]
 mod tests;
 
-/// The statements the provider sessions' reads prepare: a session's state, its runs, their
-/// bindings, its mode, its level, its kept schedules and its place.
-pub const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 7;
+/// The statements the provider sessions' reads prepare: a session's state, its live runs and their
+/// open turns, their bindings, its mode, its level, its kept schedules and its place.
+pub const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 8;
 
 /// What a session's provider session opens with, composed from the session's lead as its log
 /// stands now.
@@ -232,6 +232,12 @@ impl ProviderSessions {
             opened: Mutex::new(HashMap::new()),
             handed_continues: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// The epoch cursors of every session's bindings, which name the binding a session runs on now
+    /// and fence an undo's conversation cut.
+    pub(crate) fn binding_cursors(&self) -> &RunBindingCursors {
+        &self.deps.binding_cursors
     }
 
     /// The posture the session's process runs at, which each of its runs is requested at: the open

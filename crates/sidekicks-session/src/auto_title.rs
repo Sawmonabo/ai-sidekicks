@@ -489,10 +489,11 @@ pub async fn read_session_title_words(
         .await
 }
 
-/// The fallback name a session takes from its first message: the message's whole words, split at
-/// ECMAScript whitespace and joined by single spaces, up to [`DERIVED_NAME_MAX_CODE_POINTS`]; a
-/// first word longer than that is cut at it. Empty when the message has no words.
-pub(crate) fn first_words_of(message: &str) -> String {
+/// The one rule for a name taken from a message's words, which names both a session with no name
+/// of its own and the snapshot standing before a prompt. It keeps the message's whole words, split
+/// at ECMAScript whitespace and joined by single spaces, up to [`DERIVED_NAME_MAX_CODE_POINTS`]
+/// (a first word longer than that cut at it), and is empty when the message has no words.
+pub fn first_words_of(message: &str) -> String {
     let mut words = message
         .split(is_ecmascript_whitespace)
         .filter(|word| !word.is_empty());

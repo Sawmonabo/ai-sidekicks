@@ -295,6 +295,7 @@ fn file_watch_stop_failed(source: GitError) -> WorktreeRemovalError {
         | GitError::OutputTooLarge { .. }
         | GitError::Read(_)
         | GitError::PathText(_)
+        | GitError::UnreadableVersion
         | GitError::NotStartable => None,
     };
     WorktreeRemovalError::FileWatchStop { line, source }

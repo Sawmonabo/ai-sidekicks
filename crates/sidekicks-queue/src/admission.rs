@@ -8,7 +8,9 @@
 //! timeout ends failed with its messages not delivered, and so does a run whose start failed while
 //! it still read queued; a process not settled within that same timeout fails the start
 //! `provider.unavailable`. An interrupt that ends a run during its start leaves the opening to the
-//! interrupt's choice.
+//! interrupt's choice. No start or continue reads its opening while an undo holds the session: it
+//! waits for the undo's release, then opens with the item that release reserved; one that leaves
+//! before that read, whatever the exit, drops the reservation and writes nothing for it.
 //!
 //! The place the gate grants is the run's until it ends: the run lifecycle parks it while the run
 //! waits on a person, and while it rests interrupted with its provider process alive, so a continue
@@ -57,7 +59,7 @@ use sidekicks_session::run::engine::errors::RunEngineError;
 use sidekicks_session::run::read::read_run_through;
 use sidekicks_session::run::refusals::RunRefusal;
 use sidekicks_session::run::start_request::RunStartRequest;
-use sidekicks_session::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use sidekicks_session::run::state_change::{RunStateChange, RunWriteCompanions};
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::mutex_lock::lock;
@@ -158,6 +160,9 @@ pub struct QueueAdmission {
     deps: QueueAdmissionDeps,
     state: Mutex<AdmissionState>,
     tasks: TaskTracker,
+    /// Holds a start or continue before it takes the session's lock to read its opening.
+    #[cfg(test)]
+    pub(crate) head_read_pause: sidekicks_std::pause_point::PausePoint,
 }
 
 impl QueueAdmission {
@@ -167,12 +172,18 @@ impl QueueAdmission {
             deps,
             state: Mutex::new(AdmissionState::default()),
             tasks: TaskTracker::new(),
+            #[cfg(test)]
+            head_read_pause: sidekicks_std::pause_point::PausePoint::default(),
         }
     }
 
     /// Starts the queued run `run_id` on a task of its own, once the memory gate admits it. A start
-    /// of the run already under way is left to finish.
+    /// of the run already under way is left to finish, and none begins while an undo holds the
+    /// session: the undo's release starts the run.
     pub(crate) fn start(self: &Arc<Self>, session_id: SessionId, run_id: RunId) {
+        if self.deps.delivery.is_held_for_undo(session_id) {
+            return;
+        }
         let Some(done) = self.begin(run_id) else {
             return;
         };
@@ -354,7 +365,7 @@ impl QueueAdmission {
         detail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
     ) -> Result<(), QueueError> {
         let now = WireInstant::now();
-        let mut companions = RunStateChangeCompanions::default();
+        let mut companions = RunWriteCompanions::default();
         let mut items = Vec::with_capacity(outcomes.len());
         for (item, outcome) in outcomes {
             let (draft, statement) =
@@ -426,6 +437,7 @@ impl QueueAdmission {
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<(), QueueError> {
+        let pending = self.pending_reservation(run_id);
         let (provider, provider_account_id, driver) =
             self.read_run_driver(session_id, run_id).await?;
         match self
@@ -441,6 +453,8 @@ impl QueueAdmission {
             Placed::Admitted => {}
             Placed::Released => return Ok(()),
             Placed::TimedOut => {
+                // The resend ends not delivered with the rest, its reservation dropped first.
+                drop(pending);
                 let hold = self.deps.session_lock.hold_session(session_id).await;
                 return self
                     .end_undelivered(&hold, run_id, QueueItemNotDeliveredReason::TimedOut {})
@@ -454,17 +468,14 @@ impl QueueAdmission {
             .await?;
         // Taken under the lock, so a removal either lands first or finds the opening taken.
         let opening = {
-            let _hold = self.deps.session_lock.hold_session(session_id).await;
+            let _hold = self.hold_session_for_opening(session_id).await;
             let is_placed = self.lock().places.contains_key(&run_id);
-            let head = if is_placed {
-                self.read_waiting(run_id).await?.into_iter().next()
+            let candidates = if is_placed {
+                self.read_waiting(run_id).await?
             } else {
-                None
+                Vec::new()
             };
-            if let Some(head) = &head {
-                self.deps.openings.insert(run_id, head.clone());
-            }
-            head
+            self.take_opening(pending, &candidates)
         };
         let Some(opening) = opening else {
             return Ok(());

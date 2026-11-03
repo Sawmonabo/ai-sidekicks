@@ -557,6 +557,7 @@ impl RunningCommandSets {
             session_id,
             run_id: row.start.run_id,
             command_id: row.start.command_id,
+            tool_call_id: row.start.tool_call_id,
             ending,
             exit_code,
             duration_ms: SafeInt::new(duration_ms).expect("a command runs far less than 2^53 ms"),
@@ -587,13 +588,15 @@ impl RunningCommandPublisher for RunningCommandSets {
         let mut sessions = self.lock();
         let commands = sessions.entry(start.session_id).or_default();
         if let Some(index) = commands.index(&start.command_id) {
-            // A row the background list showed first takes what only the start names, so its
-            // wrapper can pair with it; the set is sent again only when the row changed.
+            // A row the background list showed first takes what only the start names: its line
+            // and process, so its wrapper can pair with it, and its call, which its ending names.
+            // The set is sent again only when the row changed.
             let mut row = commands.rows.remove(index);
             let is_filled = (row.start.line.is_none() && start.line.is_some())
                 || (row.start.process_id.is_none() && start.process_id.is_some());
             row.start.line = row.start.line.take().or(start.line);
             row.start.process_id = row.start.process_id.take().or(start.process_id);
+            row.start.tool_call_id = row.start.tool_call_id.take().or(start.tool_call_id);
             let was_waiting = row.wrapper == RowWrapper::Waiting;
             commands.pair_waiting_wrapper(&mut row);
             let is_paired = was_waiting && row.wrapper != RowWrapper::Waiting;

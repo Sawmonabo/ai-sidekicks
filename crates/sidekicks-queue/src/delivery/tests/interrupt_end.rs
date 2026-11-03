@@ -16,7 +16,7 @@ use super::{
     Fixture, HANDS_AT_ONCE, WAIT, continued_ids, count_steers, driver_handing, fixture, hand,
     insert_item, item_ids, set_run_state, settle, stored_item,
 };
-use crate::delivery::InterruptEndWrites;
+use crate::delivery::interrupt::InterruptEndWrites;
 
 /// A run with three messages waiting: the first two handed to the provider, the third not.
 async fn interrupted_fixture() -> (Fixture, [QueueItemRecord; 3]) {

@@ -50,7 +50,7 @@ use crate::questions::store::{
     QuestionHolder, question_input_digest, read_asked, read_question, settle_question_statement,
 };
 use crate::questions::waits::QuestionWaitAnswer;
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 // An orphaned answer, which no provider request took, kept by the write that settles its
 // question: the pages of the question asked again that takes it, and the answers.
@@ -286,10 +286,10 @@ impl QuestionsService {
                         },
                     )
                 },
-                RunStateChangeCompanions {
+                RunWriteCompanions {
                     statements,
                     preceding_events: vec![turn],
-                    ..RunStateChangeCompanions::default()
+                    ..RunWriteCompanions::default()
                 },
             )
             .await;

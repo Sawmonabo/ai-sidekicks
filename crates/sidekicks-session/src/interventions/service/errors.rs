@@ -80,6 +80,7 @@ impl From<RunEngineError> for DispatchError {
             | RunEngineError::Append { .. }
             | RunEngineError::Read { .. }
             | RunEngineError::Pool { .. }
+            | RunEngineError::Standing { .. }
             | RunEngineError::Several { .. }) => Self::Engine(error),
         }
     }
@@ -201,6 +202,7 @@ impl From<InterventionError> for HandlerError {
                 | RunEngineError::Append(_)
                 | RunEngineError::Read(_)
                 | RunEngineError::Pool(_)
+                | RunEngineError::Standing(_)
                 | RunEngineError::Several(_),
             )
             | InterventionError::Queue(_)

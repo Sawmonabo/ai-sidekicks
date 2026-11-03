@@ -80,7 +80,10 @@ fn ask_daemon(process_arguments: &[OsString]) -> io::Result<Option<String>> {
             Some(DaemonRequest::Answer { text }) => {
                 return Ok(Some(text).filter(|text| !text.is_empty()));
             }
-            Some(DaemonRequest::Go {} | DaemonRequest::Stop {}) | None => {}
+            Some(
+                DaemonRequest::Acknowledged {} | DaemonRequest::Go {} | DaemonRequest::Stop {},
+            )
+            | None => {}
         }
     }
 }

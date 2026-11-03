@@ -3,7 +3,8 @@
 //! runs are live in, the tool calls its log still holds in the background, the posture a
 //! session's open process runs at, refusals, the run engine and the seam its limit stops go
 //! through, which execution each provider delivery belongs to, the daemon's own turns, pause and
-//! resume, the provider's choices, and how a restart settles a live run.
+//! resume, the provider's choices, how a restart settles a live run, and the capture of a run's
+//! checkout at each turn end.
 
 pub mod agent;
 pub mod binding_cursors;
@@ -31,3 +32,4 @@ pub mod stored_leg;
 pub mod stored_state_change;
 pub mod superseded;
 pub mod transitions;
+pub mod turn_capture;

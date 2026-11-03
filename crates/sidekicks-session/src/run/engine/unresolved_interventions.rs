@@ -24,7 +24,7 @@ use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::turns::TurnEnd;
 use crate::run::engine::{RunEngine, settled};
 use crate::run::read::RunRead;
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeError};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions, RunWriteError};
 
 impl RunEngine {
     /// Hands the engine the run queue whose hold of a person's interrupt a run's end or a turn's
@@ -61,7 +61,7 @@ impl RunEngine {
     pub(super) async fn write_run_end(
         &self,
         change: RunStateChange,
-        companions: RunStateChangeCompanions,
+        companions: RunWriteCompanions,
         hold: Option<&SessionAppendHold>,
     ) -> Result<(RunRead, Vec<(InterventionId, InterruptChoice)>), RunEngineError> {
         let run_id = change.run_id;
@@ -90,7 +90,7 @@ impl RunEngine {
             match self.changes.write(change.clone(), with_settle, hold).await {
                 Ok(run) => return Ok((run, released_choices)),
                 // A row the settle read moved since, by its own dispatch's outcome.
-                Err(RunStateChangeError::CompanionRefused {
+                Err(RunWriteError::CompanionRefused {
                     companion_index, ..
                 }) if companion_index >= writer_statements && !is_read_again => {
                     is_read_again = true;
@@ -121,10 +121,10 @@ impl RunEngine {
             } = self
                 .read_unresolved_settle(run_id, UnresolvedSettleMoment::TurnEndedUninterrupted, &[])
                 .await?;
-            let companions = RunStateChangeCompanions {
+            let companions = RunWriteCompanions {
                 statements,
                 preceding_events: events,
-                ..RunStateChangeCompanions::default()
+                ..RunWriteCompanions::default()
             };
             match self
                 .change_with_turn_end(change.clone(), companions, run, turn_end, None)
@@ -136,7 +136,7 @@ impl RunEngine {
                     return Ok(changed);
                 }
                 // A row the settle read moved since, by its own dispatch's outcome.
-                Err(RunEngineError::Change(RunStateChangeError::CompanionRefused { .. }))
+                Err(RunEngineError::Change(RunWriteError::CompanionRefused { .. }))
                     if !is_read_again =>
                 {
                     is_read_again = true;

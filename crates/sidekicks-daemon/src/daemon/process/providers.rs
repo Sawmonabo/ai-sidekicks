@@ -74,6 +74,7 @@ use sidekicks_std::port_registration::PortRegistrationError;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use sidekicks_workspace::git::process::GitRunner;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tokio::task::JoinError;
@@ -102,6 +103,8 @@ pub(crate) struct ProviderStart {
     pub(crate) reads: Arc<DatabaseReadPool>,
     /// The one database writer.
     pub(crate) writer: Arc<DatabaseWriter>,
+    /// Where each damaged session's log stops being readable, which no binding's cursor reads past.
+    pub(crate) read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     /// Binds a message's attachments to the artifact store's copies.
     pub(crate) attachments: Arc<dyn AttachmentResolver>,
     /// The daemon's git, which the staged reviews' worktrees are made with.
@@ -189,6 +192,7 @@ pub(crate) fn build_providers(
     )));
     let binding_cursors = Arc::new(RunBindingCursors::new(
         Arc::clone(&start.reads),
+        start.read_damaged_from_sequence,
         Arc::clone(&runtime_bindings),
         Arc::clone(&epochs),
     ));

@@ -42,10 +42,12 @@ use sidekicks_session::run::folders::SESSION_LIVE_RUN_FOLDERS_STATEMENT_CAPACITY
 use sidekicks_session::run::live_bindings::LIVE_RUN_BINDINGS_STATEMENT_CAPACITY;
 use sidekicks_session::run::pause::RUN_PAUSE_STATEMENT_CAPACITY;
 use sidekicks_session::run::provider_choice::PROVIDER_CHOICE_STATEMENT_CAPACITY;
+use sidekicks_session::run::turn_capture::TURN_CAPTURE_STATEMENT_CAPACITY;
 use sidekicks_session::search::files::service::FILE_SEARCH_STATEMENT_CAPACITY;
 use sidekicks_session::search::index::outbox::OUTBOX_STATEMENT_CAPACITY;
 use sidekicks_session::service::SESSION_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::tags::SESSION_TAG_SERVICE_STATEMENT_CAPACITY;
+use sidekicks_session::transcript::turn_attribution::RUN_STANDING_STATEMENT_CAPACITY;
 use sidekicks_session::usage_record::USAGE_RECORD_STATEMENT_CAPACITY;
 use sidekicks_session::working_folder::SESSION_WORKING_FOLDERS_STATEMENT_CAPACITY;
 use sidekicks_store::events::log_service::EVENT_LOG_STATEMENT_CAPACITY;
@@ -82,6 +84,7 @@ use crate::daemon::retention_methods::RETENTION_STATEMENT_CAPACITY;
 use crate::data_acts::purge::rows::SESSION_PURGE_STATEMENT_CAPACITY;
 use crate::ipc::handlers::approval::APPROVAL_METHODS_STATEMENT_CAPACITY;
 use crate::ipc::handlers::driver::DRIVER_METHODS_STATEMENT_CAPACITY;
+use crate::ipc::handlers::session::snapshots::SESSION_SNAPSHOTS_STATEMENT_CAPACITY;
 
 /// The statements each read connection keeps prepared: every reading service's set, summed, so a
 /// statement stays prepared on whichever connection a read borrows. A statement another set in the
@@ -147,9 +150,11 @@ pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + SESSION_LIVE_RUN_FOLDERS_STATEMENT_CAPACITY
     + SESSION_PURGE_STATEMENT_CAPACITY
     + SESSION_SERVICE_STATEMENT_CAPACITY
+    + SESSION_SNAPSHOTS_STATEMENT_CAPACITY
     + SESSION_TAG_SERVICE_STATEMENT_CAPACITY
     + SESSION_WORKING_FOLDERS_STATEMENT_CAPACITY
     + STARTUP_RECOVERY_STATEMENT_CAPACITY
+    + TURN_CAPTURE_STATEMENT_CAPACITY
     + TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY
     + UNFINISHED_DISCARD_STATEMENT_CAPACITY
     + USAGE_RECORD_STATEMENT_CAPACITY
@@ -169,4 +174,8 @@ pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + WORKTREE_STATUS_READER_STATEMENT_CAPACITY
     // The reviewer denials', the run engine's and the live run folders' sets each hold the run
     // agent reader's, which is counted once.
-    - 2 * RUN_AGENT_STATEMENT_CAPACITY;
+    - 2 * RUN_AGENT_STATEMENT_CAPACITY
+    // The session service's, the run engine's, the binding cursors', the turn capture's, the event
+    // log's and the usage record's sets each hold the read of where a run stands, which is counted
+    // once.
+    - 5 * RUN_STANDING_STATEMENT_CAPACITY;

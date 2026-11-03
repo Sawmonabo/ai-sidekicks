@@ -223,6 +223,7 @@ impl FolderListService {
                 | GitError::OutputTooLarge { .. }
                 | GitError::Read(_)
                 | GitError::PathText(_)
+                | GitError::UnreadableVersion
                 | GitError::NotStartable),
             ) => return Err(failure.into()),
         };

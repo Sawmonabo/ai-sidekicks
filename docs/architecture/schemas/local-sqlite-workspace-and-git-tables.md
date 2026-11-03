@@ -226,7 +226,7 @@ CREATE TABLE run_execution_contexts (
                      CHECK(execution_mode IN ('boundRoot', 'provisionedWorktree')),
   execution_root     TEXT NOT NULL,
   checkout_root      TEXT NOT NULL,                  -- the top level of the working tree the run works in, from workspaces.metadata.checkoutRoot, written while the tree exists: the caller-supplied checkoutRoot a turn snapshot captures from, so a nested execution_root still captures the whole tree
-  git_common_dir     TEXT NOT NULL,                  -- `git rev-parse --git-common-dir` (absolute) captured at context creation: the surviving canonical git dir for the base pins under `refs/sidekicks/base/<owner id>/` and the alternate a capture is read through, so pin removal outlives a worktree retirement of execution_root (`provisionedWorktree` → the main repository's git dir; `boundRoot` → <root>/.git)
+  git_common_dir     TEXT NOT NULL,                  -- `git rev-parse --git-common-dir` (absolute) captured at context creation: the surviving canonical git dir: the alternate a capture is read through and the refs the sweep reads a base commit's reach from, so both outlive a worktree retirement of execution_root (`provisionedWorktree` → the main repository's git dir; `boundRoot` → <root>/.git)
   worktree_id        TEXT REFERENCES worktrees(id),
   branch_context_id  TEXT REFERENCES branch_contexts(id),
   point_capture_error TEXT,                          -- workflow runs: why a snapshot point after the start failed to capture; NULL while every point captured. A fault at the start fails the run before its first step instead

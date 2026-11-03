@@ -27,6 +27,7 @@ use crate::driver::codex::delivery::notices::{provider_words, release_reroute};
 use crate::driver::codex::delivery::reviewer::end_codex_review_turn;
 use crate::driver::codex::delivery::rows::{CodexRow, CodexRowDelivery, CodexRowRun};
 use crate::driver::codex::run::routes::CodexRunBinding;
+use crate::driver::codex::run::start::record::add_run_turn;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
 use crate::driver::codex::turn_evidence::{
@@ -101,12 +102,15 @@ impl CodexFrameDelivery {
         if record.active_turn_run(&turn_id).is_none()
             && !record.is_turn_settled(&turn_id)
             && !record.delivery.is_turn_taken_by_no_run(&turn_id)
-            && let Some(starting_run_id) = record.delivery.starting_turn_run_ids.pop_front()
+            && let Some(starting) = record.delivery.starting_turns.pop_front()
         {
-            record.add_active_turn(turn_id.clone(), starting_run_id);
-            self.dependencies
-                .run_routes
-                .bind_run(starting_run_id, record.session_id);
+            add_run_turn(
+                &self.dependencies.run_routes,
+                record,
+                turn_id.clone(),
+                starting.run_id,
+                starting.opening,
+            );
         }
         self.open_started_turn(record, &turn_id).await;
     }
@@ -124,7 +128,8 @@ impl CodexFrameDelivery {
         self.open_turn(record, turn_id, &turn_run).await;
     }
 
-    // Opens the turn's execution and its numbered turn on the run, once.
+    // Opens the turn's execution and its numbered turn on the run, once, with the message that
+    // opened it where a `turn/start` carried one.
     async fn open_turn(
         &self,
         record: &mut CodexSessionRecord,
@@ -149,6 +154,11 @@ impl CodexFrameDelivery {
                 turn_run.run_id,
                 ProviderTurnId::new(turn_id.to_owned()).ok(),
                 turn_run.binding.step_bound,
+                record
+                    .delivery
+                    .turn_opening_by_turn_id
+                    .get(turn_id)
+                    .copied(),
             )
             .await
         {

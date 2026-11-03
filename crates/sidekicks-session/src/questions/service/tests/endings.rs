@@ -13,7 +13,7 @@ use crate::questions::service::test_fixture::{Fixture, choice_page, failed};
 use crate::questions::service::{HeldRequestAnswerer, QuestionRecording};
 use crate::run::engine::test_fixture::{is_run_stopping, stored_run_state};
 use crate::run::read::{LiveRun, RunRead};
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 /// How a held question ends unanswered.
 #[derive(Clone, Copy, Debug)]
@@ -110,7 +110,7 @@ async fn a_held_question_ends_canceled_with_its_runs_reason(
                 .engine
                 .transition(
                     RunStateChange::new(fixture.run_id, entry),
-                    RunStateChangeCompanions::default(),
+                    RunWriteCompanions::default(),
                 )
                 .await
                 .expect("the run ends");

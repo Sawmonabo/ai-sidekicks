@@ -38,7 +38,8 @@ use crate::data_acts::purge::{SessionPurge, SessionPurgeDeps};
 pub(crate) struct StoredDataMethodsStart<'start> {
     /// The open database file.
     pub(crate) database: &'start DatabaseFile,
-    /// The repository services, whose turn snapshots and managed workspaces a purge deletes.
+    /// The repository services, whose managed workspaces a purge deletes and whose capture
+    /// packing forgets a purged session's capture folders.
     pub(crate) repo: &'start RepoServices,
     /// The service's data folder, whose session storage folders a purge deletes.
     pub(crate) data_folder: &'start Path,
@@ -117,7 +118,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
         )),
         managed_workspaces: Arc::clone(&repo.workspaces),
         data_folder: data_folder.to_path_buf(),
-        snapshots: Arc::clone(&repo.snapshots),
+        packing: Arc::clone(&repo.packing),
         project_rules: Arc::clone(&session_services.approvals.rules),
         list_feed: Arc::clone(&session_services.list_feed),
         project_list_feed,

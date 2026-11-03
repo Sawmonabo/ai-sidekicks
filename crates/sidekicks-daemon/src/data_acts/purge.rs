@@ -8,7 +8,7 @@
 //!   seed's transcript and manifest are always written from a live planning session.
 //! - Then the files only this session names go: its shells end and stay refused until the rows
 //!   are gone, then the provider's copy of each conversation, a chat's managed workspace folder,
-//!   the session's own storage folder, each run's snapshot refs, and the project rules the
+//!   the session's own storage folder with its runs' capture folders, and the project rules the
 //!   session wrote into its project's files. A failure there leaves the mark and every row, so
 //!   purging the session again finishes it.
 //! - Then one write, under the session's append lock, deletes every row naming the session, its
@@ -67,6 +67,7 @@ use sidekicks_session::service::SessionService;
 use sidekicks_shell::table::ShellTable;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
+use sidekicks_store::data_folder::session_storage_folder;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -81,10 +82,7 @@ use sidekicks_store::events::session::appender::{
     SessionEventDraft, SessionEventDraftError, UnsequencedEventEnvelope,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
-use sidekicks_workspace::git::turn_snapshot::diagnostics::TurnSnapshotRetentionSkipReason;
-use sidekicks_workspace::git::turn_snapshot::service::{
-    TurnSnapshotPruneFailure, TurnSnapshotPruneOutcome, TurnSnapshotService,
-};
+use sidekicks_workspace::git::turn_snapshot::repack::CapturePacking;
 use sidekicks_workspace::managed::service::{ManagedWorkspaceError, ManagedWorkspaceService};
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
 
@@ -137,15 +135,6 @@ pub(crate) enum SessionPurgeError {
     /// The session's own storage folder could not be removed.
     #[error("the session's storage folder could not be removed")]
     StorageFolder(#[source] io::Error),
-    /// A run's snapshot refs could not be deleted.
-    #[error("a run's snapshot refs could not be deleted")]
-    SnapshotRefs {
-        /// Why the prune stopped.
-        reason: TurnSnapshotRetentionSkipReason,
-        /// The failure behind it.
-        #[source]
-        cause: Option<TurnSnapshotPruneFailure>,
-    },
     /// The project rules the session made could not be taken out of the providers' files.
     #[error(transparent)]
     ProjectRules(#[from] ApprovalRuleError),
@@ -200,8 +189,8 @@ pub(crate) struct SessionPurgeDeps {
     pub(crate) managed_workspaces: Arc<ManagedWorkspaceService>,
     /// The service's data folder, which holds each session's own storage folder.
     pub(crate) data_folder: PathBuf,
-    /// Deletes a run's snapshot refs.
-    pub(crate) snapshots: Arc<TurnSnapshotService>,
+    /// The capture folders' packing, which forgets what it kept of a purged session's folders.
+    pub(crate) packing: Arc<CapturePacking>,
     /// Takes a session's project rules out of the providers' files and hands the rest out again.
     pub(crate) project_rules: Arc<ApprovalRules>,
     /// The live sessions list, told of each session marked and removed.
@@ -323,27 +312,8 @@ impl SessionPurge {
         remove_session_storage_folder(&deps.data_folder, session_id)
             .await
             .map_err(SessionPurgeError::StorageFolder)?;
-        for context in &targets.run_contexts {
-            let pruned = deps
-                .snapshots
-                .prune_run_refs(
-                    targets.place.as_ref(),
-                    context.run_key,
-                    &context.git_common_dir,
-                )
-                .await;
-            match pruned {
-                // A repository removed took its refs with it.
-                TurnSnapshotPruneOutcome::Pruned { .. }
-                | TurnSnapshotPruneOutcome::Skipped {
-                    reason: TurnSnapshotRetentionSkipReason::GitDirAbsent,
-                    ..
-                } => {}
-                TurnSnapshotPruneOutcome::Skipped { reason, cause } => {
-                    return Err(SessionPurgeError::SnapshotRefs { reason, cause });
-                }
-            }
-        }
+        deps.packing
+            .forget_owner(&session_storage_folder(&deps.data_folder, &session_id));
         let withdrawn = deps
             .project_rules
             .withdraw_project_rules(session_id)

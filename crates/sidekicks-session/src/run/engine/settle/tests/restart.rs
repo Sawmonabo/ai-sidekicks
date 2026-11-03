@@ -30,7 +30,7 @@ use crate::run::engine::tests::{
 use crate::run::read::{LiveRun, RunRead};
 use crate::run::refusals::RunRefusal;
 use crate::run::restart::{RestartFacts, decide_restart_settlement, read_restart_facts};
-use crate::run::state_change::{RunStateChangeCompanions, RunStateChangeError};
+use crate::run::state_change::{RunWriteCompanions, RunWriteError};
 
 // Killed by the owed read joining the interventions, where the failed token interrupt and its
 // requested event read as discharging the limit; by the person's pending interrupt or the
@@ -470,7 +470,7 @@ async fn a_restart_after_an_overtaken_token_stop_and_a_continue_stops_the_run() 
     // A person's interrupt ends the run before the limit's end, a continue runs turn 2, and
     // the daemon goes down before turn 1's provider end.
     let ended = engine
-        .end_run_for_interrupt(run_id, 1, None, None, RunStateChangeCompanions::default())
+        .end_run_for_interrupt(run_id, 1, None, None, RunWriteCompanions::default())
         .await
         .expect("the person's interrupt ends the run");
     assert!(ended);
@@ -639,7 +639,7 @@ async fn a_restart_settle_is_refused_by_an_interrupt_asked_for_after_its_read() 
     assert!(
         matches!(
             settled,
-            Err(RunEngineError::Change(RunStateChangeError::CompanionRefused {
+            Err(RunEngineError::Change(RunWriteError::CompanionRefused {
                 companion_index,
                 ..
             })) if companion_index == rows_read

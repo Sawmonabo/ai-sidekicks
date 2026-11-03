@@ -21,7 +21,7 @@ use crate::questions::service::{
 };
 use crate::questions::store::{open_waiting_question_statement, settle_question_statement};
 use crate::run::engine::errors::RunEngineError;
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 impl QuestionsService {
     /// Records `question`, its answer sent on by `answered_by`: open, as
@@ -77,10 +77,10 @@ impl QuestionsService {
                     expected_state: Some(RunState::Running),
                     ..RunStateChange::new(held.run_id, RunStateEntry::WaitingForInput)
                 },
-                RunStateChangeCompanions {
+                RunWriteCompanions {
                     statements: vec![open_waiting_question_statement(&question_id)],
                     preceding_events: vec![opened],
-                    ..RunStateChangeCompanions::default()
+                    ..RunWriteCompanions::default()
                 },
             )
             .await;

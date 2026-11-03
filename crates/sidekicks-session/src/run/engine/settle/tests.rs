@@ -24,7 +24,7 @@ use crate::run::engine::tests::{
     STEP_BOUND, provider_end, run_version, stored_events, token_limit, turn, turn_started_at,
 };
 use crate::run::read::{LiveRun, RunRead};
-use crate::run::state_change::RunStateChangeCompanions;
+use crate::run::state_change::RunWriteCompanions;
 
 // The test's interrupt rows: the daemon's own at the token limit and at the step limit, and a
 // person's.
@@ -171,7 +171,7 @@ async fn a_limit_end_writes_its_cut_turn_end_and_leaves_a_run_that_ended_since()
             2,
             Some(RunLimit::StepLimit),
             Some(turn_one),
-            RunStateChangeCompanions::default(),
+            RunWriteCompanions::default(),
         )
         .await
         .expect("a run that ended since the interrupt is left");
@@ -200,7 +200,7 @@ async fn a_limit_end_writes_its_cut_turn_end_and_leaves_a_run_that_ended_since()
             5,
             Some(RunLimit::StepLimit),
             Some(turn_one),
-            RunStateChangeCompanions::default(),
+            RunWriteCompanions::default(),
         )
         .await
         .expect("the run ends at its limit");

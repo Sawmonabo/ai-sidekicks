@@ -2,7 +2,7 @@ use std::io::{self, Read};
 
 use rstest::rstest;
 
-use super::{COPY_CHUNK_BYTES, ClaimCheck, check_claim, read_text_form, rebuild_claim};
+use super::{CLAIM_READ_CHUNK_BYTES, ClaimCheck, check_claim, read_text_form, rebuild_claim};
 
 /// Reads `bytes`, counting how many it handed out.
 struct CountingReader<'bytes> {
@@ -75,9 +75,12 @@ fn a_claim_verifies_equal_and_rebuilds_the_disk_bytes(
 /// file for a compare or skipping the size check.
 #[test]
 fn a_differing_claim_is_refused_reading_no_further_than_its_first_differing_chunk() {
-    let disk = "a".repeat(COPY_CHUNK_BYTES * 3);
+    let disk = "a".repeat(CLAIM_READ_CHUNK_BYTES * 3);
     let mut claim = disk.clone();
-    claim.replace_range(COPY_CHUNK_BYTES + 10..COPY_CHUNK_BYTES + 11, "b");
+    claim.replace_range(
+        CLAIM_READ_CHUNK_BYTES + 10..CLAIM_READ_CHUNK_BYTES + 11,
+        "b",
+    );
     let size = u64::try_from(disk.len()).expect("a test file's length fits a u64");
     let mut same_size = CountingReader {
         bytes: disk.as_bytes(),
@@ -92,7 +95,7 @@ fn a_differing_claim_is_refused_reading_no_further_than_its_first_differing_chun
     let other_size_check = check_claim(&claim[1..], &mut other_size, size).expect("a slice reads");
 
     assert_eq!(same_size_check, ClaimCheck::Differs);
-    assert_eq!(same_size.handed_out, COPY_CHUNK_BYTES * 2);
+    assert_eq!(same_size.handed_out, CLAIM_READ_CHUNK_BYTES * 2);
     assert_eq!(other_size_check, ClaimCheck::Differs);
     assert_eq!(other_size.handed_out, 0);
 }

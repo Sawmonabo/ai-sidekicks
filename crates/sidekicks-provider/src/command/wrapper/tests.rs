@@ -13,9 +13,9 @@ use sidekicks_platforms::{
     name_program, pin_running_process, read_child_exit, send_signal, wait_for_exit,
 };
 
-use super::{COMMAND_PROVIDER_VARIABLE, run_command_wrapper_with};
+use super::{COMMAND_PROVIDER_VARIABLE, GO_WAIT, run_command_wrapper_with};
 use crate::command::channel::{
-    CommandChannel, DaemonRequest, PartyId, PartyRecord, ReceivedRecord,
+    CommandChannel, DaemonRequest, PartyId, PartyRecord, ReceivedRecord, record_name,
 };
 use crate::driver::PROVIDERS;
 
@@ -272,6 +272,163 @@ async fn stop_in_order(
         );
     }
     assert_eq!(told.first(), Some(&PartyRecord::Stopped {}));
+}
+
+/// What the wrapper `party` tells `channel` until its command's end, `Exited` or `Stopped`.
+async fn told_until_end(
+    channel: &CommandChannel,
+    watch: &mut sidekicks_platforms::FolderArrivalWatch,
+    party: PartyId,
+) -> Vec<PartyRecord> {
+    let mut told = Vec::new();
+    while !told
+        .iter()
+        .any(|record| matches!(record, PartyRecord::Exited { .. } | PartyRecord::Stopped {}))
+    {
+        told.extend(
+            next_records(channel, watch)
+                .await
+                .into_iter()
+                .filter(|received| received.party == party)
+                .map(|received| received.record),
+        );
+    }
+    told
+}
+
+/// Whether the first of `told` past any warning is `Began` marked `is_covered`.
+fn began_first(told: &[PartyRecord], is_covered: bool) -> bool {
+    told.iter()
+        .find(|record| !matches!(record, PartyRecord::Warning { .. }))
+        == Some(&PartyRecord::Began { is_covered })
+}
+
+// Fails when the wrapper holds `go` to the deadline it holds the acknowledgment to, so a `go` that
+// comes after it, once the daemon captured what the command may change, finds the command run
+// uncovered. The test build's wait is four seconds, and `go` comes five seconds after the
+// acknowledgment. Mutation: keep the deadline at `Acknowledged`.
+#[tokio::test]
+async fn an_acknowledged_line_waits_past_the_deadline_for_go_and_runs_covered() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let channel = open_channel(folder.path());
+    let mut watch = channel.watch().await.expect("the channel is watched");
+    let mut command = line_wrapper(&bash_line("echo ran", folder.path()));
+    with_channel(&mut command, &channel);
+    let child = command.spawn().expect("the wrapper starts");
+    let party = starting_party(&channel, &mut watch).await;
+    channel
+        .send_request(party, &DaemonRequest::Acknowledged {})
+        .await
+        .expect("the acknowledgment is sent");
+    tokio::time::sleep(GO_WAIT + Duration::from_secs(1)).await;
+    channel
+        .send_request(party, &DaemonRequest::Go {})
+        .await
+        .expect("go is sent");
+    let told = told_until_end(&channel, &mut watch, party).await;
+    let output = child.wait_with_output().expect("the wrapper ends");
+    assert!(began_first(&told, true), "{told:?}");
+    assert!(output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .any(|line| line == "ran")
+    );
+}
+
+// Fails when a line given no acknowledgment runs without saying it ran uncovered, when the
+// daemon's stop before `go` is passed over so the command runs, or when a request the wrapper
+// cannot read ends its wait. Mutations: drop the `Began` record for an uncovered run; make the
+// wait's `Stop` arm pass over it; make the wait's `Unreadable` arm run uncovered.
+#[tokio::test]
+async fn a_line_runs_uncovered_without_an_acknowledgment_and_never_once_stopped() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let channel = open_channel(folder.path());
+    let mut watch = channel.watch().await.expect("the channel is watched");
+    let marker = folder.path().join("cwd");
+
+    // No acknowledgment: the command runs, marked uncovered.
+    let mut command = line_wrapper(&bash_line("echo ran", folder.path()));
+    with_channel(&mut command, &channel);
+    let child = command.spawn().expect("the wrapper starts");
+    let party = starting_party(&channel, &mut watch).await;
+    let told = told_until_end(&channel, &mut watch, party).await;
+    let output = child.wait_with_output().expect("the wrapper ends");
+    assert!(began_first(&told, false), "{told:?}");
+    assert!(output.status.success());
+    assert!(marker.exists(), "the uncovered command did not run");
+    std::fs::remove_file(&marker).expect("the marker is removed");
+
+    // The daemon's stop before `go`: the wrapper ends as its stop ends a command, running none.
+    let mut command = line_wrapper(&bash_line("echo ran", folder.path()));
+    with_channel(&mut command, &channel);
+    let mut child = command.spawn().expect("the wrapper starts");
+    let party = starting_party(&channel, &mut watch).await;
+    channel
+        .send_request(party, &DaemonRequest::Stop {})
+        .await
+        .expect("the stop is sent");
+    let told = told_until_end(&channel, &mut watch, party).await;
+    assert_eq!(told, [PartyRecord::Stopped {}]);
+    assert_eq!(ended_by(&mut child).as_deref(), Some("SIGKILL"));
+    assert!(!marker.exists(), "the stopped command ran");
+
+    // A request it cannot read, a folder under a request's name, is noted and the wait goes on.
+    let mut command = line_wrapper(&bash_line("echo ran", folder.path()));
+    with_channel(&mut command, &channel);
+    let child = command.spawn().expect("the wrapper starts");
+    let party = starting_party(&channel, &mut watch).await;
+    // Renamed in ahead of `go`'s name, as a request is, so it is read first.
+    let unreadable = folder.path().join("unreadable");
+    std::fs::create_dir(&unreadable).expect("a folder is made");
+    std::fs::rename(
+        &unreadable,
+        channel.requests_folder().join(record_name(party, 0)),
+    )
+    .expect("it is renamed in");
+    channel
+        .send_request(party, &DaemonRequest::Go {})
+        .await
+        .expect("go is sent");
+    let told = told_until_end(&channel, &mut watch, party).await;
+    let output = child.wait_with_output().expect("the wrapper ends");
+    assert!(
+        told.iter()
+            .any(|record| matches!(record, PartyRecord::Warning { .. })),
+        "{told:?}"
+    );
+    assert!(began_first(&told, true), "{told:?}");
+    assert!(output.status.success());
+}
+
+// Fails when the daemon's stop does not reach a line command once it runs, so an undo's stop of
+// the agent's commands before its cut leaves the command running and the wait for its end hangs;
+// the wait for the stop fails after 5 s. Mutation: run the line's command with no requests
+// followed (`run_child(.., None)`).
+#[tokio::test]
+async fn a_running_line_command_takes_the_daemon_s_stop() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let channel = open_channel(folder.path());
+    let mut watch = channel.watch().await.expect("the channel is watched");
+    // A ticking command dies on its closed output once the test drops its reader, on any path.
+    let mut command = line_wrapper(&bash_line(TICKING_COMMAND, folder.path()));
+    with_channel(&mut command, &channel);
+    let mut child = command.spawn().expect("the wrapper starts");
+    let party = starting_party(&channel, &mut watch).await;
+    channel
+        .send_request(party, &DaemonRequest::Go {})
+        .await
+        .expect("go is sent");
+    let _output = read_until(&mut child, "ready");
+    let stopped = stop_in_order(&channel, &mut watch, party);
+    if tokio::time::timeout(Duration::from_secs(5), stopped)
+        .await
+        .is_err()
+    {
+        child.kill().expect("the wrapper is killed");
+        panic!("the stop left the running command going");
+    }
+    assert_eq!(ended_by(&mut child).as_deref(), Some("SIGKILL"));
 }
 
 // Fails when a line that is no agent's command writes a record or waits for `go`, when an agent's

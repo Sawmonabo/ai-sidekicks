@@ -45,7 +45,7 @@ use crate::run::engine::{RunEngine, with_cleanup_failures};
 use crate::run::read::{RunRead, RunStateReader, read_run_provider};
 use crate::run::refusals::{RunRefusal, require_expected_version};
 use crate::run::start_request::{RunContinueRequest, RunStartRequest, RunTurnStart};
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 // The states a resume continues: a run still finishing its step, or one already held.
 const RESUMABLE_STATES: [RunState; 2] = [RunState::Pausing, RunState::Paused];
@@ -107,7 +107,7 @@ impl RunEngine {
                     expected_state: Some(RunState::Queued),
                     ..RunStateChange::new(run_id, RunStateEntry::Starting)
                 },
-                RunStateChangeCompanions::default(),
+                RunWriteCompanions::default(),
                 None,
             )
             .await?;
@@ -201,9 +201,9 @@ impl RunEngine {
                         },
                     )
                 },
-                RunStateChangeCompanions {
+                RunWriteCompanions {
                     statements: running_statements.map(|build| build()).unwrap_or_default(),
-                    ..RunStateChangeCompanions::default()
+                    ..RunWriteCompanions::default()
                 },
                 None,
             )
@@ -353,7 +353,7 @@ impl RunEngine {
                         },
                     )
                 },
-                RunStateChangeCompanions::default(),
+                RunWriteCompanions::default(),
                 None,
             )
             .await
@@ -400,7 +400,7 @@ impl RunEngine {
         &self,
         run_id: RunId,
         expected_run_version: SafeInt<0>,
-        companions: RunStateChangeCompanions,
+        companions: RunWriteCompanions,
         resume: impl FnOnce(RunRead, Option<ProviderId>) -> Resume,
     ) -> Result<RunRead, RunResumeError<DriverFailure>>
     where
@@ -512,7 +512,7 @@ impl RunEngine {
             )
         };
         match self
-            .change(failed, RunStateChangeCompanions::default(), None)
+            .change(failed, RunWriteCompanions::default(), None)
             .await
         {
             Ok(_) => Ok(true),
@@ -583,7 +583,7 @@ impl RunEngine {
                 },
             )
         };
-        self.change(failed, RunStateChangeCompanions::default(), None)
+        self.change(failed, RunWriteCompanions::default(), None)
             .await
             .map(drop)
     }

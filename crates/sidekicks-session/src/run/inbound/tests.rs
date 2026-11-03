@@ -46,7 +46,7 @@ use crate::run::engine::tests::{
 };
 use crate::run::epochs::{ConfirmedCut, DeliveryAttribution, EpochBinding, ExecutionEpochs};
 use crate::run::refusals::RunRefusal;
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 use crate::transcript::reasoning::read_reasoning;
 
 mod after_run;
@@ -365,7 +365,7 @@ fn inbound_absorbs_a_late_terminal_on_an_ended_run(
                                 },
                             )
                         },
-                        RunStateChangeCompanions::default(),
+                        RunWriteCompanions::default(),
                     )
                     .await
                     .expect("the run ends refused at its setup");
@@ -425,7 +425,7 @@ fn inbound_takes_a_piece_until_every_turn_of_its_ended_run_has_ended(#[case] is_
                 .await;
             let ended = harness
                 .engine
-                .end_run_for_interrupt(run_id, 1, None, None, RunStateChangeCompanions::default())
+                .end_run_for_interrupt(run_id, 1, None, None, RunWriteCompanions::default())
                 .await
                 .expect("the person's interrupt ends the run");
             assert!(ended);
@@ -483,13 +483,7 @@ async fn inbound_appends_a_piece_of_a_run_being_continued_after_its_running_writ
     let harness = Harness::new(RunState::Running).await;
     let ended = harness
         .engine
-        .end_run_for_interrupt(
-            harness.run_id,
-            1,
-            None,
-            None,
-            RunStateChangeCompanions::default(),
-        )
+        .end_run_for_interrupt(harness.run_id, 1, None, None, RunWriteCompanions::default())
         .await
         .expect("the person's interrupt ends the run");
     assert!(ended);

@@ -27,6 +27,7 @@ reflink-copy.workspace = true
 # The outbound HTTP client's shared settings.
 reqwest = { workspace = true, optional = true }
 serde-saphyr.workspace = true
+sha2.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-platforms.workspace = true
 thiserror.workspace = true
@@ -38,7 +39,8 @@ yaml-edit.workspace = true
 
 [dev-dependencies]
 rstest.workspace = true
-# The file link the in-place rewrite's test writes through.
+# The scratch volume a clone's test crosses to, and the file link the in-place rewrite's test
+# writes through.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
 # The paused clock the scheduler's and the bounded read's tests drive.

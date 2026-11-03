@@ -57,7 +57,6 @@ use sidekicks_session::run::held_tool_calls::StoredHeldToolCalls;
 use sidekicks_session::search::index::live::LiveIndex;
 use sidekicks_shell::orphan::guard::OrphanGuard;
 use sidekicks_std::error_description::describe_error;
-use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
@@ -124,6 +123,7 @@ use crate::ipc::handlers::run::control::RunControlServices;
 use crate::ipc::handlers::run::queue::RunQueueMethods;
 use crate::ipc::handlers::session::controls::SessionControlMethods;
 use crate::ipc::handlers::session::search::SessionSearchMethods;
+use crate::ipc::handlers::session::snapshots::SessionSnapshotSources;
 use crate::observability::diagnostic_buckets::recorders::provider_messages_folder;
 
 /// What the method tables' services are built from: what the start opened, read and built before
@@ -374,8 +374,8 @@ pub(crate) async fn register_method_inputs(
         sources: Arc::clone(&worktree_sources) as _,
     }));
     let live_run_folders = Arc::new(SessionLiveRunFolders::new(Arc::clone(&reads)));
-    // The creator's, and the run setup gate's around a run's context write.
-    let checkout_lock = Arc::new(KeyedLock::new());
+    // The creator's, the run setup gate's around a run's context write, and the turn snapshots'.
+    let checkout_lock = Arc::clone(&repo.checkout_lock);
     let worktree_creator = Arc::new(WorktreeCreator::new(WorktreeCreatorDeps {
         git: git.clone(),
         reads: Arc::clone(&reads),
@@ -454,6 +454,7 @@ pub(crate) async fn register_method_inputs(
         data_folder: data_folder.to_path_buf(),
         working_folders: Arc::clone(&repo.folder_watch),
         git: git.clone(),
+        snapshots: Arc::clone(&repo.snapshots),
         list_feed: Arc::clone(&list_feed),
         plan_holds,
         payloads: Arc::clone(&artifacts.payloads),
@@ -795,6 +796,10 @@ pub(crate) async fn register_method_inputs(
             shells,
             session_changes: Arc::clone(&session.changes),
             review_notes: Arc::clone(&repo.review_notes),
+            session_snapshots: SessionSnapshotSources {
+                reads: Arc::clone(&reads),
+                read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
+            },
             session_search: SessionSearchMethods {
                 index: search_index,
                 files: Arc::clone(&session.file_search),
