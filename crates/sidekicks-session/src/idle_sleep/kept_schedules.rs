@@ -1,8 +1,8 @@
 //! The timed fires a provider keeps for a session: when each holds the session awake and when it
 //! wakes the session from its sleep, and their rows, kept so the daemon's next start wakes each
 //! session on its schedule. A one-shot fire holds the session until two minutes after it fires; a
-//! recurring job lets it sleep and wakes it two minutes before each run, its runs matched in the
-//! computer's own time zone.
+//! recurring job lets it sleep and wakes it two minutes before each run until the job expires, its
+//! runs matched in the computer's own time zone.
 
 use std::borrow::Cow;
 use std::error::Error;
