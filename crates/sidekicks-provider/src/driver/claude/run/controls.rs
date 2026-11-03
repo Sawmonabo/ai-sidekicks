@@ -240,6 +240,7 @@ impl ClaudeRunControls {
                 },
                 message.id.to_string(),
                 attachment_blocks,
+                false,
             )
             .await?;
         }
@@ -484,8 +485,9 @@ impl ClaudeRunControls {
                 .await?;
             return Ok(());
         };
+        // Written into the turn running, it is a steer and opens no turn of its own.
         let live = self.start.live_session(session_id)?;
-        self.write_message(&live, lead.run_id, &text, message_uuid, Vec::new())
+        self.write_message(&live, lead.run_id, &text, message_uuid, Vec::new(), true)
             .await
     }
 
@@ -516,8 +518,8 @@ impl ClaudeRunControls {
         background_claude_task(&live, tool_use_id).await
     }
 
-    // Writes one message for `run_id`, recorded before the write since Claude Code may report it
-    // taken first; a write that never left is dropped again.
+    // Writes one message for `run_id`, a steer into its running turn or not, recorded before the
+    // write since Claude Code may report it taken first; a write that never left is dropped again.
     async fn write_message(
         &self,
         live: &LiveClaudeSession,
@@ -525,9 +527,10 @@ impl ClaudeRunControls {
         text: &OutboundText,
         message_uuid: String,
         attachment_blocks: Vec<ClaudeUserContentBlock>,
+        is_steer: bool,
     ) -> Result<(), DriverError> {
         let session_id = live.session_id;
-        lock(&self.start.prompts).record_written(session_id, run_id, &message_uuid, false);
+        lock(&self.start.prompts).record_written(session_id, run_id, &message_uuid, is_steer);
         let frame = compose_claude_user_frame(text, message_uuid.clone(), attachment_blocks);
         match live.channel.write_user_frame(frame).await {
             ClaudeWriteAttempt::Written => Ok(()),

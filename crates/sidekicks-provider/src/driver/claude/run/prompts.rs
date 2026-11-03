@@ -81,11 +81,7 @@ impl ClaudeSentPrompts {
     /// Claude Code dropped `message_uuid` before taking it (`discarded`, `refused`, `cancelled`,
     /// an interrupt receipt's `cancelled` list): it is settled with no report.
     pub(crate) fn record_dropped(&mut self, session_id: SessionId, message_uuid: &str) {
-        self.settled_by_session
-            .entry(session_id)
-            .or_default()
-            .insert(message_uuid.to_owned());
-        self.unreported.remove(message_uuid);
+        self.settle_untaken(session_id, message_uuid);
     }
 
     /// Takes back a message Claude Code had not taken, the newest no more, settled with no report;
@@ -98,6 +94,17 @@ impl ClaudeSentPrompts {
         {
             self.newest_by_session.remove(&session_id);
         }
+        self.settle_untaken(session_id, message_uuid)
+            .and_then(|prompt| prompt.is_steer.then_some(prompt.run_id))
+    }
+
+    // Settles a message Claude Code never took, so no later signal reports it and no turn opens
+    // on it; answers what was recorded at its write.
+    fn settle_untaken(
+        &mut self,
+        session_id: SessionId,
+        message_uuid: &str,
+    ) -> Option<UnreportedPrompt> {
         if let Some(unopened) = self.unopened_by_session.get_mut(&session_id) {
             unopened.retain(|uuid| uuid != message_uuid);
         }
@@ -105,9 +112,7 @@ impl ClaudeSentPrompts {
             .entry(session_id)
             .or_default()
             .insert(message_uuid.to_owned());
-        self.unreported
-            .remove(message_uuid)
-            .and_then(|prompt| prompt.is_steer.then_some(prompt.run_id))
+        self.unreported.remove(message_uuid)
     }
 
     /// Whether a steer written into `run_id`'s turn waits in Claude Code's input, not yet taken.
@@ -275,6 +280,23 @@ mod tests {
         assert_eq!(
             prompts.take_turn_opening(session_id).as_deref(),
             Some("second")
+        );
+    }
+
+    // Kills: a dropped message left waiting to open the next turn, which keys that turn on a
+    // message Claude Code never took.
+    #[test]
+    fn a_dropped_message_opens_no_turn() {
+        let session_id = session();
+        let run_id = run();
+        let mut prompts = ClaudeSentPrompts::default();
+        prompts.record_written(session_id, run_id, "dropped", false);
+        prompts.record_dropped(session_id, "dropped");
+        prompts.record_written(session_id, run_id, "real", false);
+
+        assert_eq!(
+            prompts.take_turn_opening(session_id).as_deref(),
+            Some("real")
         );
     }
 }
