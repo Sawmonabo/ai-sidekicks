@@ -174,7 +174,9 @@ async fn a_gate_step_enters_in_its_turn_and_a_cancel_ends_it(#[case] point: Canc
     let ready = test_ready_step(&scope, &node, vec![vec![json!({ "name": "Ada" })]]);
     let step = ready.step.clone();
     let earlier_turn = dispatch.gate_entries.take_turn();
-    let dispatched = dispatch.dispatch(&scope, &test_run_snapshot(&node), ready);
+    let dispatched = dispatch
+        .dispatch(&scope, &test_run_snapshot(&node), vec![ready])
+        .remove(0);
     drop(dispatch);
     assert!(dispatched.reports.is_empty());
 
@@ -240,7 +242,7 @@ async fn a_gate_step_whose_params_do_not_evaluate_fails_before_its_turn() {
     let ready = test_ready_step(&scope, &node, vec![vec![json!({ "name": "Ada" })]]);
     let step = ready.step.clone();
     let earlier_turn = dispatch.gate_entries.take_turn();
-    dispatch.dispatch(&scope, &test_run_snapshot(&node), ready);
+    dispatch.dispatch(&scope, &test_run_snapshot(&node), vec![ready]);
     drop(dispatch);
 
     assert_eq!(

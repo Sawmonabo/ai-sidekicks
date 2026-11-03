@@ -1,7 +1,7 @@
 //! An agent step's driver: the step's params are evaluated into its agent run's request, the run is
-//! created in the step's turn in the entry line, taken once the evaluation has finished, which is
-//! the step's one entry to the memory gate, and the run is followed through its admission, its
-//! start and its progress to its outcome.
+//! created in the step's turn in the entry line, taken once the evaluation has finished and every
+//! sibling readied before it has taken its own, which is the step's one entry to the memory gate,
+//! and the run is followed through its admission, its start and its progress to its outcome.
 
 use std::sync::Arc;
 
@@ -9,12 +9,10 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use super::run::execute;
-use super::{
-    StepDispatch, fill_step_failure, is_canceled_in_line, scrub_outputs, settle_launch_failure,
-};
+use super::{StepDispatch, fill_step_failure, scrub_outputs, settle_launch_failure};
 use crate::engine::event_record::EngineFault;
 use crate::engine::ports::AgentStepOutcome;
-use crate::engine::tick::admission::{GateWaitEnd, wait_at_gate};
+use crate::engine::tick::admission::{GateWaitEnd, SiblingEntry, wait_at_gate};
 use crate::engine::tick::node_settings::{
     main_input_lengths, main_output_count, place_on_first_output, shape_outputs,
 };
@@ -31,16 +29,17 @@ const WITHDRAWN_RUN_COMPLETED: &str = concat!(
 impl StepDispatch {
     /// Drives `ready`, an agent step of the run of `scope`, reading `snapshot`, to its settlement:
     /// launches it and evaluates its params into its run's request, then takes its turn in the
-    /// entry line and creates the run in it, then reports the run's hold, admission, start and
-    /// progress and settles with its outcome. A step canceled before its run is created creates
-    /// none; one canceled after settles canceled once its stopped run has ended, and a stop that
-    /// cannot be sent goes to the engine's record.
+    /// entry line through its sibling `entry` and creates the run in it, then reports the run's
+    /// hold, admission, start and progress and settles with its outcome. A step canceled before
+    /// its run is created creates none; one canceled after settles canceled once its stopped run
+    /// has ended, and a stop that cannot be sent goes to the engine's record.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(super) async fn drive_agent_step(
         self,
         scope: Arc<RunScope>,
         snapshot: RunSnapshot,
         ready: ReadyStep,
+        entry: SiblingEntry,
         cancel: CancellationToken,
     ) {
         let (node, kind) = self.look_up_step(&scope, &ready.step);
@@ -52,6 +51,9 @@ impl StepDispatch {
         let context = match launched {
             Ok(context) => context,
             Err(failure) => {
+                // Every path gives its place up before it reports, so a slow report channel never
+                // holds up a sibling.
+                drop(entry);
                 let settlement =
                     settle_launch_failure(failure, &cancel, &node.id, &scope.redaction);
                 self.report(&step, &cancel, StepReportKind::Settled(settlement))
@@ -85,6 +87,7 @@ impl StepDispatch {
         let request = match evaluated {
             Ok(request) => request,
             Err(failure) => {
+                drop(entry);
                 let settlement = match failure {
                     None => StepSettlement::Canceled {
                         hold_started_at: None,
@@ -100,11 +103,9 @@ impl StepDispatch {
                 return;
             }
         };
-        let turn = self.gate_entries.take_turn();
-        if is_canceled_in_line(&turn, &cancel).await {
-            // Every path drops the turn before it reports, so a slow report channel never holds
-            // up the line.
-            drop(turn);
+        // A step canceled before its turn came holds no turn when it reports, so a slow report
+        // channel never holds up the line.
+        let Some(turn) = entry.wait_for_turn(&cancel).await else {
             let canceled = StepSettlement::Canceled {
                 hold_started_at: None,
                 is_sibling_failure: false,
@@ -112,7 +113,7 @@ impl StepDispatch {
             self.report(&step, &cancel, StepReportKind::Settled(canceled))
                 .await;
             return;
-        }
+        };
         let created = self.ports.agent_steps.run(request).await;
         // The run holds its place in the gate's line now, so the turn behind this one may enter.
         drop(turn);
@@ -290,7 +291,8 @@ mod tests {
         AgentStepOutcome, AgentStepRequest, AgentStepRunner, EngineRecordSink, KeptEngineRecords,
         ScriptedAgentRunner, ScriptedGate, StepAdmission, StepAdmissionOutcome, WorkflowNodeKey,
     };
-    use crate::engine::tick::{StepReport, test_run_scope};
+    use crate::engine::tick::{RunSnapshot, StepReport, test_run_scope};
+    use crate::expressions::lineage::StepOutputs;
     use crate::kinds::{NodeKind, StepAdmissionNeed, StepAdmissionShape, uncoded_step_error};
     use crate::schema::schema_parts;
     use crate::secrets::redaction::RunRedaction;
@@ -399,7 +401,9 @@ mod tests {
         let ready = test_ready_step(&scope, &node, vec![vec![json!({ "name": "Ada" })]]);
         let step = ready.step.clone();
 
-        let dispatched = dispatch.dispatch(&scope, &test_run_snapshot(&node), ready);
+        let dispatched = dispatch
+            .dispatch(&scope, &test_run_snapshot(&node), vec![ready])
+            .remove(0);
         drop(dispatch);
 
         let answered: Vec<Value> = dispatched
@@ -478,7 +482,7 @@ mod tests {
         let scope = Arc::new(test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]));
         let ready = test_ready_step(&scope, &node, vec![vec![json!({ "name": "Ada" })]]);
         let step = ready.step.clone();
-        dispatch.dispatch(&scope, &test_run_snapshot(&node), ready);
+        dispatch.dispatch(&scope, &test_run_snapshot(&node), vec![ready]);
         drop(dispatch);
         timeout(WAIT, runner.wait_for_request())
             .await
@@ -516,7 +520,7 @@ mod tests {
         let scope = Arc::new(scope);
         let ready = test_ready_step(&scope, &node, vec![vec![json!({ "name": "Ada" })]]);
         let step = ready.step.clone();
-        dispatch.dispatch(&scope, &test_run_snapshot(&node), ready);
+        dispatch.dispatch(&scope, &test_run_snapshot(&node), vec![ready]);
         drop(dispatch);
         assert_eq!(
             next_report(&mut received, &step).await,
@@ -575,7 +579,9 @@ mod tests {
         let step = ready.step.clone();
         let earlier_turn =
             (point == CancelPoint::InLine).then(|| dispatch.gate_entries.take_turn());
-        let dispatched = dispatch.dispatch(&scope, &test_run_snapshot(&node), ready);
+        let dispatched = dispatch
+            .dispatch(&scope, &test_run_snapshot(&node), vec![ready])
+            .remove(0);
         drop(dispatch);
 
         let hold = match point {
@@ -686,7 +692,7 @@ mod tests {
         ));
         let dispatch_step = |node: &WorkflowNode| {
             let ready = test_ready_step(&scope, node, vec![vec![json!({ "name": "Ada" })]]);
-            dispatch.dispatch(&scope, &test_run_snapshot(node), ready);
+            dispatch.dispatch(&scope, &test_run_snapshot(node), vec![ready]);
         };
 
         dispatch_step(&agent_node);
@@ -716,6 +722,61 @@ mod tests {
         assert_eq!(runner.requests().len(), 1);
     }
 
+    /// Siblings readied in one turn enter the line in their order, not in the order their launches
+    /// end: a gate step readied after an agent step whose params are still evaluating launches
+    /// first yet waits for the agent step to take its turn, and enters once the agent step's run
+    /// is created. Mutation: let each sibling take its turn as its launch ends.
+    #[tokio::test]
+    async fn siblings_readied_together_enter_the_line_in_their_order() {
+        let database = TestDatabase::new(schema_parts());
+        let runner = Arc::new(ScriptedAgentRunner::new(
+            Some(StepAdmissionOutcome::Admitted),
+            false,
+        ));
+        let agent_probe = Arc::new(ExecutorProbe::default());
+        let held_agent_kind = scripted_kind(
+            Script::AwaitReleaseThenAskAgentRun,
+            StepAdmissionNeed::OwnRun,
+            &agent_probe,
+            false,
+        );
+        let quick_probe = Arc::new(ExecutorProbe::default());
+        let (mut dispatch, _received) =
+            test_dispatch(&database, vec![held_agent_kind, quick_kind(&quick_probe)]);
+        dispatch.ports.agent_steps = Arc::clone(&runner) as Arc<dyn AgentStepRunner>;
+        let gate = Arc::new(ScriptedGate::new(None));
+        dispatch.ports.admission = Arc::clone(&gate) as Arc<dyn StepAdmission>;
+        let agent_node = agent_node();
+        let quick_node = test_node(&json!({ "id": "quick", "kind": "test.quick" }));
+        let scope = Arc::new(test_run_scope(
+            WorkflowRunMode::Manual,
+            vec![agent_node.clone(), quick_node.clone()],
+        ));
+        let snapshot = RunSnapshot {
+            outputs: Arc::new(StepOutputs::new(
+                [&agent_node, &quick_node]
+                    .map(|node| (node.id.clone(), node.name.as_str().to_owned())),
+            )),
+            run_variables: Arc::new(Map::new()),
+        };
+        let readied = [&agent_node, &quick_node]
+            .map(|node| test_ready_step(&scope, node, vec![vec![json!({ "name": "Ada" })]]));
+
+        dispatch.dispatch(&scope, &snapshot, readied.into());
+        tokio::time::sleep(QUIET).await;
+        assert_eq!(
+            gate.enqueued().len(),
+            0,
+            "the later sibling entered before the first took its turn"
+        );
+
+        agent_probe.release();
+        timeout(WAIT, gate.wait_for_entry())
+            .await
+            .expect("the later sibling enters once the first has taken its turn");
+        assert_eq!(runner.requests().len(), 1);
+    }
+
     /// A stop of an agent step's run that cannot be sent goes to the engine's record with its
     /// error, and the step still settles canceled once its run ends. Mutation: drop the stop's
     /// error unrecorded.
@@ -736,7 +797,9 @@ mod tests {
         let scope = Arc::new(test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]));
         let ready = test_ready_step(&scope, &node, vec![vec![json!({ "name": "Ada" })]]);
         let step = ready.step.clone();
-        let dispatched = dispatch.dispatch(&scope, &test_run_snapshot(&node), ready);
+        let dispatched = dispatch
+            .dispatch(&scope, &test_run_snapshot(&node), vec![ready])
+            .remove(0);
         drop(dispatch);
         assert_eq!(
             next_report(&mut received, &step).await,

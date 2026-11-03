@@ -356,7 +356,9 @@ async fn run_step(
     let scope = Arc::new(scope);
     let ready = test_ready_step(&scope, node, vec![inputs]);
     let step = ready.step.clone();
-    let dispatched = dispatch.dispatch(&scope, &test_run_snapshot(node), ready);
+    let dispatched = dispatch
+        .dispatch(&scope, &test_run_snapshot(node), vec![ready])
+        .remove(0);
     drop(dispatch);
     let answered = dispatched
         .reports
@@ -601,7 +603,9 @@ async fn a_canceled_step_settles_once_its_executor_returns(#[case] is_receiver_d
     let scope = Arc::new(test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]));
     let ready = test_ready_step(&scope, &node, vec![vec![json!({})]]);
     let step = ready.step.clone();
-    let dispatched = dispatch.dispatch(&scope, &test_run_snapshot(&node), ready);
+    let dispatched = dispatch
+        .dispatch(&scope, &test_run_snapshot(&node), vec![ready])
+        .remove(0);
     drop(dispatch);
     assert_eq!(next_report(&mut received, &step).await, Some(started()));
 
