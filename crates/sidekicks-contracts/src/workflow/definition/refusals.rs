@@ -227,11 +227,10 @@ pub struct WorkflowConnectionCheckInput {
 /// The findings for the rules that need only a document's trigger, as a node, its nodes and edges
 /// and the kinds' handles: the trigger, an empty document, repeated node names, each edge's nodes,
 /// ends and repeats, the inputs over their connection limit, cycles, then orphans, each in
-/// document order. `node_handles` holds
-/// each node's handles by node id, built by the caller from the kinds table; a node missing from
-/// it is of a kind the catalog does not list, whose handles and category then go unchecked though
-/// its edges still count toward cycles and reach. An edge naming a node the document does not
-/// hold is `nodeMissing` and is checked no further at that end.
+/// document order. `node_handles` holds each node's handles by node id, built by the caller from
+/// the kinds table; a node missing from it is of a kind the catalog does not list, whose handles
+/// and category then go unchecked though its edges still count toward cycles and reach. An edge
+/// naming a node the document does not hold is `nodeMissing` and is checked no further at that end.
 pub fn check_workflow_graph<S: BuildHasher>(
     trigger: Option<&WorkflowNode>,
     document_nodes: &[WorkflowNode],
