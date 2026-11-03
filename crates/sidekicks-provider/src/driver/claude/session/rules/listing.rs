@@ -32,11 +32,9 @@ use super::{
     remove_list_entries, settings_path,
 };
 use crate::driver::claude::mcp::config::ClaudePersonConfigFiles;
-use crate::driver::claude::session::ignored_settings::{
-    list_managed_settings_files, refuse_unread_settings,
-};
 use crate::driver::claude::session::settings_file::{
-    ClaudeSettingsFileError, hold_settings_file, read_claude_settings_json,
+    ClaudeSettingsFileError, hold_settings_file, list_managed_settings_files,
+    read_claude_settings_json, refuse_unread_settings,
 };
 use crate::standing_rule_id::mint_standing_rule_id;
 

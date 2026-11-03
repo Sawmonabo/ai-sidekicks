@@ -15,11 +15,10 @@ use serde_json::{Map, Value};
 use sidekicks_platforms::PathRules;
 
 use crate::driver::claude::mcp::config::ClaudePersonConfigFiles;
-use crate::driver::claude::session::ignored_settings::{
+use crate::driver::claude::session::settings_file::{
     ClaudeManagedSettings, ClaudeSettingsReadError, find_claude_setting,
-    read_claude_managed_settings,
+    read_claude_managed_settings, read_claude_settings_file,
 };
-use crate::driver::claude::session::settings_file::read_claude_settings_file;
 use crate::driver::claude::switch_variable::is_switched_on;
 
 // The settings key holding the variables Claude Code writes into its environment.
