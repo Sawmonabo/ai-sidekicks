@@ -1,25 +1,19 @@
 use std::time::Duration;
 
-use serde_json::Map;
-use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
-use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::driver::claude::session::scripted::binding_id;
 use crate::driver::contract::params_and_results::{RunOpening, RunOpeningItem, StartRunParams};
-use crate::driver::session_control::ResumeSessionParams;
 use crate::driver::test_registry::new_agent_id;
-use crate::runtime_binding::store::mint_runtime_binding_id;
-use crate::runtime_binding::test_store::test_provider_account_id;
 
 mod account_switch;
 mod bring_up;
 mod hand_over;
+mod held_calls;
 mod level_moves;
 mod naming;
 mod restarts;
@@ -27,6 +21,7 @@ mod resting_commands;
 mod resumed_runs;
 mod session_controls;
 mod settings_reads;
+mod staged_reviews;
 
 /// Longer than every restart's wait, so a restart that would come has come.
 const RESTART_WAITS_PASSED: Duration = Duration::from_secs(5);
@@ -53,30 +48,5 @@ fn start_params(session_id: SessionId, run_id: RunId) -> StartRunParams {
         execution_posture: None,
         output_schema: None,
         step_bound: None,
-    }
-}
-
-fn resume_params(session_id: SessionId) -> ResumeSessionParams {
-    ResumeSessionParams {
-        session_id,
-        binding_id: mint_runtime_binding_id(),
-        agent_id: new_agent_id(),
-        resume_handle: "conversation".to_owned(),
-        model: ProviderToken::new("opus".to_owned()).expect("the model fits"),
-        larger_window: None,
-        runtime_metadata: Map::new(),
-        mode: SessionMode::Build,
-        execution_posture: None,
-        output_speed: None,
-        options: Vec::new(),
-        row_values: Record::default(),
-        callback_tools: None,
-        subagent_policy: None,
-        tool_servers: None,
-        output_schema: None,
-        provider_account_id: test_provider_account_id(),
-        on_mcp_server_status: None,
-        kept_schedules: Vec::new(),
-        live_runs: Vec::new(),
     }
 }

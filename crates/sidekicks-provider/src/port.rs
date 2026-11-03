@@ -3,6 +3,7 @@
 
 pub mod context_reading_publisher;
 pub mod file_tool_write;
+pub mod held_tool_calls;
 pub mod in_process_tool_servers;
 pub mod inbound_dispatch;
 pub mod permission_ask;
@@ -24,6 +25,7 @@ pub mod session_message_reading_publisher;
 pub mod session_resume_reader;
 pub mod session_rules;
 pub mod session_wake;
+pub mod tool_call_status_publisher;
 pub mod tool_server_route;
 pub mod turn_reading_publisher;
 pub mod usage_sink;

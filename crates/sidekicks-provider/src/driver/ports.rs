@@ -25,6 +25,7 @@ use crate::driver::run_control::DaemonTurnBindingResolver;
 use crate::driver::session_control::DriverResumeResult;
 use crate::driver::{ProviderAccountReader, SessionSpawnContextResolver};
 use crate::port::context_reading_publisher::ContextReadingPublisher;
+use crate::port::held_tool_calls::HeldToolCallReads;
 use crate::port::in_process_tool_servers::InProcessToolServers;
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::permission_ask::PermissionAskPort;
@@ -41,6 +42,7 @@ use crate::port::session_message_reading_publisher::SessionMessageReadingPublish
 use crate::port::session_resume_reader::SessionResumeReader;
 use crate::port::session_rules::SessionRulePort;
 use crate::port::session_wake::SessionWaker;
+use crate::port::tool_call_status_publisher::ToolCallStatusPublisher;
 use crate::port::tool_server_route::ToolServerRoute;
 use crate::port::turn_reading_publisher::TurnReadingPublisher;
 use crate::port::usage_sink::UsageSink;
@@ -218,6 +220,14 @@ pub struct DriverPorts {
     /// so no other act runs there meanwhile; a renewal asked for before it is registered is
     /// refused.
     pub account_home_lock: Arc<PortRegistration<Arc<AccountHomeLock>>>,
+    /// The status lines under running tool calls; a status published before it is registered is
+    /// dropped.
+    pub tool_call_statuses: Arc<PortRegistration<Arc<dyn ToolCallStatusPublisher>>>,
+    /// The session logs' held tool calls, which a resumed session follows or settles, a closed
+    /// session settles, and the start after a restart settles for each resting session before any
+    /// resumes; a session resumed before it is registered rebuilds none, and a session closed, or
+    /// settled at the start, before it is registered settles none.
+    pub held_tool_calls: Arc<PortRegistration<Arc<dyn HeldToolCallReads>>>,
 }
 
 impl Default for DriverPorts {
@@ -265,6 +275,8 @@ impl DriverPorts {
             continued_messages: Arc::new(PortRegistration::new("continued messages")),
             session_account_moves: Arc::new(PortRegistration::new("session account moves")),
             account_home_lock: Arc::new(PortRegistration::new("account home lock")),
+            tool_call_statuses: Arc::new(PortRegistration::new("tool call statuses")),
+            held_tool_calls: Arc::new(PortRegistration::new("held tool calls")),
         }
     }
 }

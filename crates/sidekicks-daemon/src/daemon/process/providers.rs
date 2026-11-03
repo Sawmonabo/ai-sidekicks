@@ -58,10 +58,12 @@ use sidekicks_session::console_state::ConsoleStateAdvisors;
 use sidekicks_session::idle_sleep::SessionIdleSleep;
 use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::readings::context::ContextReadings;
+use sidekicks_session::readings::tool_call_status::ToolCallStatuses;
 use sidekicks_session::readings::turn::TurnReadings;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::epochs::{ExecutionEpochs, MAX_ASSOCIATIONS_PER_BINDING};
+use sidekicks_session::run::held_tool_calls::StoredHeldToolCalls;
 use sidekicks_session::run::inbound::RunInboundDispatch;
 use sidekicks_session::run::pause::RunPauseControl;
 use sidekicks_session::usage_record::UsageRecord;
@@ -317,6 +319,10 @@ pub(crate) struct DriverPortOwners {
     pub(crate) turn_readings: Arc<TurnReadings>,
     /// Each session's latest context reading.
     pub(crate) context_readings: Arc<ContextReadings>,
+    /// The status line of each tool call running in the background.
+    pub(crate) tool_call_statuses: Arc<ToolCallStatuses>,
+    /// The session logs' tool calls held in the background, which a resume rebuilds.
+    pub(crate) held_tool_calls: Arc<StoredHeldToolCalls>,
     /// The idle sleep, which wakes a sleeping session for a message.
     pub(crate) idle_sleep: Arc<SessionIdleSleep>,
     /// The stored resume of a sleeping session a driver holds nothing for.
@@ -375,6 +381,10 @@ pub(crate) fn register_driver_ports(
     ports.command_output.register(owners.running_commands)?;
     ports.turn_readings.register(owners.turn_readings)?;
     ports.context_readings.register(owners.context_readings)?;
+    ports
+        .tool_call_statuses
+        .register(owners.tool_call_statuses)?;
+    ports.held_tool_calls.register(owners.held_tool_calls)?;
     ports.session_wakes.register(owners.idle_sleep)?;
     ports.session_resumes.register(owners.session_resumes)?;
     ports.database_writer.register(Arc::clone(&owners.writer))?;

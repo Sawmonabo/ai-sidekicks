@@ -247,8 +247,9 @@ mod tests {
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_std::mutex_lock::lock;
 
-    use super::super::tests::{helper_started, init, result};
+    use super::super::tests::result;
     use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudePauseAnswer};
+    use crate::driver::claude::session::scripted::held_calls::{helper_started, init};
     use crate::driver::claude::session::scripted::{
         SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
     };

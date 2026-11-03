@@ -37,7 +37,7 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
-use crate::driver::session_control::CloseSessionParams;
+use crate::driver::session_control::{CloseSessionParams, SessionCloseCause};
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::port::run_host::test_host::EngineCall;
 use crate::runtime_binding::resume::ResumeFunctionLegs;
@@ -74,7 +74,10 @@ async fn close_live_turn(is_interrupt_answered: bool) {
         ..
     } = LiveCodexSession::start(&[]).await;
 
-    let close = driver.close_session(CloseSessionParams { session_id });
+    let close = driver.close_session(CloseSessionParams {
+        session_id,
+        cause: SessionCloseCause::Person,
+    });
     tokio::pin!(close);
     let mut methods = Vec::new();
     let deadline = tokio::time::sleep(CLOSE_BOUND);
@@ -148,7 +151,10 @@ async fn a_close_interrupts_a_turn_whose_start_codex_answers_after_the_close_beg
         .expect("the run's turn start is sent");
     assert_eq!(turn_start["method"], "turn/start");
 
-    let close = driver.close_session(CloseSessionParams { session_id });
+    let close = driver.close_session(CloseSessionParams {
+        session_id,
+        cause: SessionCloseCause::Person,
+    });
     tokio::pin!(close);
     // Codex names the turn once the close withdrew the start; nothing announces the withdrawal
     // but the start's own flag, so the test yields until the close set it.
@@ -209,7 +215,10 @@ async fn a_turn_start_after_the_close_s_interrupt_is_refused_and_starts_no_turn(
         .require_live(session_id)
         .expect("the session is live");
 
-    let close = driver.close_session(CloseSessionParams { session_id });
+    let close = driver.close_session(CloseSessionParams {
+        session_id,
+        cause: SessionCloseCause::Person,
+    });
     tokio::pin!(close);
     let mut refused = None;
     let mut methods = Vec::new();

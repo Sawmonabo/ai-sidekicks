@@ -301,6 +301,7 @@ fn repaired_tool_result(
         tool_call_id,
         outcome: CanonicalToolResultOutcome::Failed,
         provenance: CanonicalToolResultProvenance::Repaired,
+        end_cause: None,
         text: text.to_owned(),
         is_content_unavailable: false,
     }
@@ -379,6 +380,7 @@ mod tests {
             tool_call_id: tool_call_id.to_owned(),
             outcome,
             provenance,
+            end_cause: None,
             text: text.to_owned(),
             is_content_unavailable: false,
         }
@@ -473,6 +475,7 @@ mod tests {
                     tool_call_id: "call-1".to_owned(),
                     outcome: CanonicalToolResultOutcome::Failed,
                     provenance: CanonicalToolResultProvenance::Repaired,
+                    end_cause: None,
                     text: SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT.to_owned(),
                     is_content_unavailable: false,
                 },

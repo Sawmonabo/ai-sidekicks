@@ -12,7 +12,6 @@ use sidekicks_contracts::provider::account::record::{CredentialGeneration, Provi
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::session::id::SessionId;
@@ -27,7 +26,7 @@ use sidekicks_store::events::session::read::{
 };
 
 use crate::run::engine::usage_tallies::{RunUsageTally, TokenLimitStop};
-use crate::run::read::RunStateReader;
+use crate::run::read::{RunStateReader, provider_lineage_sql};
 use crate::transcript::turn_attribution::RunTurnReads;
 use crate::usage_record::UsageRecordError;
 
@@ -64,13 +63,7 @@ static SELECT_HELPER_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
 static SELECT_ADMITTED_TOKEN_LIMIT_SQL: LazyLock<String> = LazyLock::new(|| {
     let queued = SessionEventType::AgentRunQueued;
     format!(
-        "WITH RECURSIVE lineage(run_id, depth) AS (
-    SELECT @run_id, 0
-    UNION ALL
-    SELECT runs.parent_run_id, lineage.depth + 1
-      FROM runs JOIN lineage ON runs.run_id = lineage.run_id
-      WHERE runs.reached_by = '{provider_subagent}'
-  )
+        "WITH RECURSIVE {lineage}
   SELECT json_extract(queued.payload, '$.effectiveRunConfig.tokenLimit')
   FROM lineage JOIN session_events AS queued
     ON queued.session_id = @session_id
@@ -82,7 +75,7 @@ static SELECT_ADMITTED_TOKEN_LIMIT_SQL: LazyLock<String> = LazyLock::new(|| {
   LIMIT 1",
         queued = queued.as_str(),
         queued_category = queued.category().as_str(),
-        provider_subagent = <&'static str>::from(ChildRunProvenance::ProviderSubagent),
+        lineage = provider_lineage_sql("SELECT @run_id AS run_id"),
     )
 });
 

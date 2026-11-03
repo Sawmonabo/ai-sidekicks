@@ -15,6 +15,9 @@ use sidekicks_contracts::wire::text::NonEmptyText;
 use super::{CommandEndingAppender, RowState, RunningCommandSets};
 use crate::port::running_command_publisher::CommandStart;
 
+/// The binding a test command starts on, which its ending is appended on.
+pub const TEST_COMMAND_BINDING: &str = "test-command-binding";
+
 /// A running set whose sessions run on no binding, their commands' endings appended nowhere.
 pub fn unbound_running_command_sets() -> Arc<RunningCommandSets> {
     Arc::new(RunningCommandSets::new(
@@ -38,13 +41,15 @@ impl CommandEndingAppender for DroppedEndings {
 }
 
 impl RunningCommandSets {
-    /// Adds a background command of `run_id` to `session_id`'s set, as a provider's report of one
-    /// does.
+    /// Adds a background command of `run_id` on [`TEST_COMMAND_BINDING`] to `session_id`'s set, as
+    /// a provider's report of one does.
     pub fn start_test_command(&self, session_id: SessionId, run_id: RunId) {
         let start = CommandStart {
             session_id,
             command_id: CommandId::new("test-command".to_owned()).expect("a command id"),
             run_id,
+            binding_id: RuntimeBindingId::new(TEST_COMMAND_BINDING.to_owned())
+                .expect("a binding id"),
             name: NonEmptyText::new("sleep 600".to_owned()).expect("a command name"),
             started_at: WireInstant::now(),
             line: None,

@@ -12,7 +12,9 @@ use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::settle_all::settle_all;
 
+use super::held_calls::{HELD_TASK_STOP_BOUND, stop_held_tasks};
 use super::{ClaudeDriver, internal};
+use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeHeldCallSettle;
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
 use crate::driver::claude::session::conversation_file::{
     conversation_file_of, find_claude_taken_messages,
@@ -24,7 +26,9 @@ use crate::driver::claude::session::naming::{
 };
 use crate::driver::claude::session::purge::{ClaudePurgePlace, purge_claude_conversations};
 use crate::driver::claude::session::restart::ClaudeSessionStanding;
-use crate::driver::claude::session::restart::ended_process::ClaudeEndedConversation;
+use crate::driver::claude::session::restart::ended_process::{
+    ClaudeEndedConversation, ended_conversation_of,
+};
 use crate::driver::claude::session::slots::ClaudeCloseStart;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SessionProcessState;
@@ -35,7 +39,7 @@ use crate::driver::run_control::{FindTakenMessagesParams, TakenMessages};
 use crate::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult, MoveSessionToForkParams,
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderSessionHandle,
-    PurgeSessionParams, ResumeSessionParams,
+    PurgeSessionParams, ResumeSessionParams, SessionCloseCause,
 };
 use crate::runtime_binding::store::RuntimeBinding;
 
@@ -132,16 +136,23 @@ impl ClaudeDriver {
 
     /// Closes the session: a restart waiting for it, its idle sleep, its inbox, its controls and
     /// its reviewer's blocks go, then its process is disposed of, after any transition in flight
-    /// settles, each run it still held ends as the daemon's intended close, and the `Allow once`
-    /// presses its bindings held are let go; last its command channel is removed.
+    /// settles; a person's close first stops each background task of a tool server that outlives
+    /// the process. Each run it still held ends as the daemon's intended close, and the `Allow
+    /// once` presses its bindings held are let go. Its held tool-server calls still open then end
+    /// as the close ends them, unless the daemon stops; last its command channel is removed.
     pub(crate) async fn close_session(
         &self,
         params: CloseSessionParams,
     ) -> Result<(), DriverError> {
+        let session_id = params.session_id;
         let Some(parts) = self.composed_parts() else {
+            // No process ran here, but the log may hold calls from before a restart of the daemon.
+            self.settle_held_calls_at_rest(session_id, None, ClaudeHeldCallSettle::SessionClose)
+                .await;
             return Ok(());
         };
-        let session_id = params.session_id;
+        // Read before the restarts forget it: the conversation of a process that ended here.
+        let mut conversation = parts.restarts.ended_conversation(session_id);
         parts.restarts.forget_session(session_id);
         let task_services = &parts.establishment.task_services;
         task_services.idle_sleep.forget_session(session_id);
@@ -157,10 +168,30 @@ impl ClaudeDriver {
                 ClaudeCloseStart::Closing(close) => {
                     // Marked first, so a `result` read before the channel closes ends its turn
                     // as the daemon's intended close.
-                    if let Some(stream) = parts.establishment.streams.get(session_id) {
+                    let stream = parts.establishment.streams.get(session_id);
+                    if let Some(stream) = &stream {
                         stream.signal_intended_close();
                     }
                     let session = close.session();
+                    conversation = Some(ended_conversation_of(session));
+                    // Before the channel closes: a closed session never resumes, so a surviving
+                    // task would otherwise run on with nobody following it.
+                    if params.cause == SessionCloseCause::Person
+                        && let Some(stream) = &stream
+                    {
+                        match stream.surviving_held_tasks().await {
+                            Ok(task_ids) => {
+                                stop_held_tasks(&*session.channel, task_ids, HELD_TASK_STOP_BOUND)
+                                    .await;
+                            }
+                            Err(error) => tracing::warn!(
+                                %session_id,
+                                error = &error as &(dyn Error + 'static),
+                                "what Claude Code keeps of a closing session's background calls \
+                                 could not be read, so none of its tasks is stopped"
+                            ),
+                        }
+                    }
                     close.close_channel().await;
                     // Read once the session's task has ended, so a turn Claude Code started by
                     // itself while the close drained it is ended too.
@@ -191,6 +222,15 @@ impl ClaudeDriver {
                 }
             }
         }
+        // Once the process's own exit settled what it held, so only what that left open is read.
+        if !parts.restarts.is_stopped() {
+            self.settle_held_calls_at_rest(
+                session_id,
+                conversation,
+                ClaudeHeldCallSettle::SessionClose,
+            )
+            .await;
+        }
         // Again once the slot is gone, for a bring-up that bound the inbox after the first release.
         task_services.inboxes.release(session_id);
         self.close_command_channel(session_id).await;
@@ -220,13 +260,12 @@ impl ClaudeDriver {
         };
         parts.restarts.stop();
         parts.establishment.task_services.inboxes.release_all();
-        let closes = join_all(
-            parts
-                .slots()
-                .session_ids()
-                .into_iter()
-                .map(|session_id| self.close_session(CloseSessionParams { session_id })),
-        );
+        let closes = join_all(parts.slots().session_ids().into_iter().map(|session_id| {
+            self.close_session(CloseSessionParams {
+                session_id,
+                cause: SessionCloseCause::DaemonStop,
+            })
+        }));
         let (closed, ()) = futures::join!(closes, self.starts.stop_every_process());
         settle_all(closed, "closing the Claude Code sessions at the stop")
             .map(drop)
@@ -279,24 +318,37 @@ impl ClaudeDriver {
         let live = parts.and_then(|parts| parts.slots().live_session(session_id));
         let mut ended = parts.and_then(|parts| parts.restarts.ended_conversation(session_id));
         if live.is_none() && ended.is_none() {
-            let Some(leg) = self.read_session_leg(session_id).await? else {
+            let Some(stored) = self.stored_conversation(session_id).await? else {
                 return Ok(());
             };
-            let Some(handle) = leg.resume_handle else {
-                return Ok(());
-            };
-            ended = Some(
-                stored_claude_conversation(
-                    &self.sources,
-                    session_id,
-                    leg.spawn_config.provider_account_id,
-                    handle,
-                    read_claude_conversation_home(&leg.runtime_metadata).as_deref(),
-                )
-                .await?,
-            );
+            ended = Some(stored);
         }
         tell_claude_session_name(session_id, live.as_deref(), ended, name).await
+    }
+
+    /// The conversation the session's stored leg names, at rest on the account the leg ran on,
+    /// which outlives a restart of the daemon; `None` for a session that never ran or whose leg
+    /// names no conversation. Fails as the leg, the session's folder or its stored settings
+    /// cannot be read.
+    pub(super) async fn stored_conversation(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Option<ClaudeEndedConversation>, DriverError> {
+        let Some(leg) = self.read_session_leg(session_id).await? else {
+            return Ok(None);
+        };
+        let Some(handle) = leg.resume_handle else {
+            return Ok(None);
+        };
+        stored_claude_conversation(
+            &self.sources,
+            session_id,
+            leg.spawn_config.provider_account_id,
+            handle,
+            read_claude_conversation_home(&leg.runtime_metadata).as_deref(),
+        )
+        .await
+        .map(Some)
     }
 
     /// The messages a process that ended took, read from the conversation it wrote: the live

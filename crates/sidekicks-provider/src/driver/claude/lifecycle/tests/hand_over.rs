@@ -3,10 +3,9 @@
 use serde_json::json;
 use sidekicks_contracts::provider::driver::declared_loss::DeclaredLossKind;
 
-use super::resume_params;
 use super::session_controls::{FULL_MODEL_ID, counts, one_turn_reply};
 use crate::driver::claude::session::scripted::binding_id;
-use crate::driver::claude::session::scripted::driver::ScriptedDriver;
+use crate::driver::claude::session::scripted::driver::{ScriptedDriver, resume_params};
 use crate::driver::claude::session::scripted::starts::ScriptedOneTurnRecord;
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::spawn::launch::one_turn::ClaudeOneTurnReply;

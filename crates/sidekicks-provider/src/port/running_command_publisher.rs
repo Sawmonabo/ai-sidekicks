@@ -24,6 +24,8 @@ pub(crate) struct CommandStart {
     pub(crate) command_id: CommandId,
     /// The run that started it.
     pub(crate) run_id: RunId,
+    /// The binding of the run that started the command, which its ending is appended on.
+    pub(crate) binding_id: RuntimeBindingId,
     /// The command as the agent ran it.
     pub(crate) name: NonEmptyText,
     /// When it started.
