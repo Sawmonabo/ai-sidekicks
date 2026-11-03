@@ -269,7 +269,7 @@ impl ProviderSessions {
         // Read under the lock, so a close that ran first has written `session.closed`, and before
         // the opened entry, which that event's listener drops only later.
         self.refuse_ended(session_id).await?;
-        if self.lock_opened().contains_key(&session_id) {
+        if self.is_opened(session_id) {
             return Ok(());
         }
         match read_session_leg(&self.deps.pool, session_id).await? {
@@ -368,7 +368,7 @@ impl ProviderSessions {
         run_id: RunId,
     ) -> Result<RuntimeBindingId, ProviderSessionError> {
         let session_id = *hold.key();
-        if !self.lock_opened().contains_key(&session_id) {
+        if !self.is_opened(session_id) {
             return Err(ProviderSessionError::NotOpen { session_id });
         }
         // Read afresh: a fork moves the leg onto another conversation and a relaunch records a new
@@ -659,6 +659,7 @@ impl StoredSessionPosture for ProviderSessions {
                 | ProviderSessionError::ResumedRuns { .. }
                 | ProviderSessionError::OrphanedAnswers { .. }
                 | ProviderSessionError::ContinueNotReleased { .. }
+                | ProviderSessionError::AfterCarriedContinue { .. }
                 | ProviderSessionError::Port(_)
                 | ProviderSessionError::UnrecordedNotClosed { .. }
                 | ProviderSessionError::ProviderMissingNotPosted { .. }

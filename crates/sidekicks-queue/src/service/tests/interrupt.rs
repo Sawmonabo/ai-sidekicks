@@ -404,6 +404,7 @@ impl Fixture {
             CurrentProviderAccount::Current(test_provider_account_id()),
             Arc::clone(&self.halted_runs) as _,
             &self.orphaned_approvals,
+            &self.resumed_runs,
         );
         restarted
             .provider_sessions
