@@ -247,14 +247,7 @@ impl RunWalk {
         }
         while let Some((place, run_index)) = self.next_flushed_round() {
             let mut round = self.take_round(place, run_index);
-            for slot in &mut round.slots {
-                if matches!(slot, RoundSlot::Unfilled) {
-                    *slot = RoundSlot::Filled {
-                        source: None,
-                        count: 0,
-                    };
-                }
-            }
+            round.settle_unfilled();
             self.decide_flushed(place, run_index, &round, &mut turn);
             if !turn.ready.is_empty() {
                 return turn;
@@ -740,7 +733,7 @@ impl RunWalk {
     ) {
         if self.graph.node(place).loop_output.is_some() {
             lineage.passes.leave(place);
-            self.close_passed_rounds(place);
+            self.close_passed_rounds(place, turn);
         }
         self.live.insert(
             step.execution_index.get(),
@@ -762,9 +755,10 @@ impl RunWalk {
     /// Closes the open rounds at the places in the body of the loop node at `loop_place` that a win
     /// at such a place won or overtook and that nothing can fill any more: every slot still unfed
     /// waits only on such a win's losers. A round still waiting on a live step of its own pass
-    /// stays open, and the pass check keeps the new pass's feeds out of it.
+    /// stays open, and the pass check keeps the new pass's feeds out of it. A won round closes
+    /// silently; any other is decided as the flush decides it, so a loser's is canceled.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
-    fn close_passed_rounds(&mut self, loop_place: usize) {
+    fn close_passed_rounds(&mut self, loop_place: usize, turn: &mut WalkTurn) {
         let walk = &*self;
         let graph = &walk.graph;
         let is_passed = |win: usize| graph.is_in_loop_body(walk.wins[win].place, loop_place);
@@ -786,7 +780,11 @@ impl RunWalk {
             })
             .collect();
         for (place, run_index) in passed {
-            self.take_round(place, run_index);
+            let mut round = self.take_round(place, run_index);
+            if !round.is_won() {
+                round.settle_unfilled();
+                self.decide_flushed(place, run_index, &round, turn);
+            }
         }
     }
 

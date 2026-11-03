@@ -353,8 +353,10 @@ fn a_loser_readied_in_a_later_turn_never_runs_and_the_winner_runs_once_a_pass() 
 /// the next pass's feeds fill fresh rounds: the loop node L feeds A, Y and Q; A feeds M's first
 /// main slot, Y and Q feed the pair P2, which feeds M's second, and M feeds C, which wires back
 /// into L. On pass 0, Y fills half of P2's round before A wins and Q, the only feed of its other
-/// half, is canceled; on pass 1, Y and Q fill P2's next round, which runs and wins M. Mutation:
-/// keep the spent round open, so `every_open_round` still lists `P2:0` once the next pass starts.
+/// half, is canceled; the next pass's start cancels P2's spent round, and on pass 1, Y and Q fill
+/// P2's next round, which runs and wins M. Mutations: keep the spent round open, so
+/// `every_open_round` still lists `P2:0` once the next pass starts; drop it without a record, so
+/// the next pass's start answers no `canceled P2`.
 #[test]
 fn a_loops_next_pass_closes_the_rounds_its_last_pass_left_spent() {
     let (mut walk, start_turn) = start(
@@ -396,20 +398,23 @@ fn a_loops_next_pass_closes_the_rounds_its_last_pass_left_spent() {
     walk.drop_step(&readied(&l_turn, "Q"));
     let m_turn = walk.settle(&readied(&a_turn, "M"), &[1]);
     let c_turn = walk.settle(&readied(&m_turn, "C"), &[1]);
-    assert_eq!(describe(&c_turn), ["ready L run 1 exec 7 from C:0@6"]);
+    assert_eq!(
+        describe(&c_turn),
+        ["ready L run 1 exec 7 from C:0@6", "canceled P2 exec 8"]
+    );
     assert_eq!(every_open_round(&walk), Vec::<String>::new());
     let next_l_turn = walk.settle(&readied(&c_turn, "L"), &[0, 1]);
     walk.settle(&readied(&next_l_turn, "Y"), &[1]);
     let q_turn = walk.settle(&readied(&next_l_turn, "Q"), &[1]);
     assert_eq!(
         describe(&q_turn),
-        ["ready P2 run 1 exec 11 from Y:0@9 Q:0@10"]
+        ["ready P2 run 1 exec 12 from Y:0@10 Q:0@11"]
     );
     assert_eq!(
         describe(&walk.settle(&readied(&q_turn, "P2"), &[1])),
         [
-            "ready M run 1 exec 12 from - P2:0@11 -",
-            "win M exec 12 losers [A@8]"
+            "ready M run 1 exec 13 from - P2:0@12 -",
+            "win M exec 13 losers [A@9]"
         ]
     );
 }

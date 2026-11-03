@@ -76,6 +76,20 @@ impl Round {
         has_items
     }
 
+    /// Settles every slot nothing fed as empty with no source, as a round decided without waiting
+    /// any longer reads it.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    pub(super) fn settle_unfilled(&mut self) {
+        for slot in &mut self.slots {
+            if matches!(slot, RoundSlot::Unfilled) {
+                *slot = RoundSlot::Filled {
+                    source: None,
+                    count: 0,
+                };
+            }
+        }
+    }
+
     /// Each slot's feed, `None` for one no feed filled.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(super) fn sources(&self) -> Vec<Option<WorkflowStepSource>> {
