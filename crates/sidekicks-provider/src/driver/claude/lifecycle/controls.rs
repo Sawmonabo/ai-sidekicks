@@ -78,7 +78,6 @@ use crate::driver::session_control::{
     permission_level_not_offered,
 };
 use crate::port::session_inbox_address::SessionInboxAddresser;
-use crate::port::usage_sink::read_prior_emitted;
 
 mod mcp_sign_in;
 

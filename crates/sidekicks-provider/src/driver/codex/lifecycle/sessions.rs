@@ -31,7 +31,7 @@ use crate::driver::session_control::{
     MoveSessionToForkResult, ProviderBuildChange, ProviderSessionHandle, PurgeSessionParams,
     ResumeSessionParams,
 };
-use crate::port::usage_sink::read_prior_emitted;
+use crate::usage_delta_accountant::UsageAxisCounts;
 
 impl CodexDriver {
     /// Opens a session on a fresh conversation on its account's service. Fails with
@@ -98,10 +98,7 @@ impl CodexDriver {
             )
             .await;
         }
-        let opened = parts
-            .establishment
-            .open(established, Some(prior_emitted))
-            .await;
+        let opened = parts.establishment.open(established, prior_emitted).await;
         claim.install(opened.record.inbound.clone());
         self.spawn_session_task(parts, opened);
         Ok(resumed.result)
