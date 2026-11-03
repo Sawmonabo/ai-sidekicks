@@ -162,7 +162,7 @@ pub(super) fn keep_through_delayed_expansion(line: &str, references: &[Range<usi
                 (CharacterReading::Quoted, '^' | '!') => "^",
                 // Outside them it turns `^^^^` and `^^!` into `^^` and `^!`, which delayed
                 // expansion reads the same way.
-                (CharacterReading::Escaped | CharacterReading::Unquoted, '^' | '!') => "^^",
+                (CharacterReading::Escaped, '^' | '!') | (CharacterReading::Unquoted, '!') => "^^",
                 (
                     CharacterReading::Reference
                     | CharacterReading::EscapeCaret
