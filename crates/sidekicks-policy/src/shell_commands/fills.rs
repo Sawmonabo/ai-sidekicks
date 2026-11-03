@@ -85,11 +85,11 @@ pub enum FillRefusal {
     /// Shell arithmetic, which evaluates the value as an expression.
     #[error("sits in shell arithmetic, which would evaluate the value as an expression")]
     Arithmetic,
-    /// An array element's `[…]` subscript, which bash evaluates as arithmetic, or as a key for an
-    /// associative array.
+    /// An array's `[…]` subscript, in a reference or an element, which bash evaluates as
+    /// arithmetic, or as a key for an associative array.
     #[error(
-        "sits in an array element's `[…]` subscript, which bash evaluates as arithmetic or reads \
-         as a key"
+        "sits in an array's `[…]` subscript, which bash evaluates as arithmetic or reads as a \
+         key"
     )]
     ArraySubscript,
     /// A word a builtin reads as a variable name, whose subscript the shell evaluates.
@@ -492,8 +492,8 @@ mod tests {
     #[case::declare_integer_quoted("declare -i n=\"{{ x }}\"", FillRefusal::Arithmetic)]
     #[case::double_bracket_equal("[[ {{ x }} -eq 1 ]]", FillRefusal::Arithmetic)]
     #[case::double_bracket_equal_quoted("[[ \"{{ x }}\" -eq 1 ]]", FillRefusal::Arithmetic)]
-    #[case::a_subscript("echo ${a[{{ x }}]}", FillRefusal::Arithmetic)]
-    #[case::a_subscript_quoted("echo \"${a[{{ x }}]}\"", FillRefusal::Arithmetic)]
+    #[case::a_subscript("echo ${a[{{ x }}]}", FillRefusal::ArraySubscript)]
+    #[case::a_subscript_quoted("echo \"${a[{{ x }}]}\"", FillRefusal::ArraySubscript)]
     #[case::an_offset("echo ${p:$(echo {{ x }})}", FillRefusal::Arithmetic)]
     #[case::an_offset_quoted("echo \"${p:$(echo {{ x }})}\"", FillRefusal::Arithmetic)]
     #[case::a_substitution_in_arithmetic("echo $(( $(echo {{ x }}) ))", FillRefusal::Arithmetic)]

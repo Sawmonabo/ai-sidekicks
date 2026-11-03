@@ -284,7 +284,8 @@ impl<'s> PlaceWalk<'s> {
                 self.is_in_backquotes = false;
             }
             "expansion" => self.pass_expansion(current, child)?,
-            "arithmetic_expansion" | "subscript" => return Err(FillRefusal::Arithmetic),
+            "arithmetic_expansion" => return Err(FillRefusal::Arithmetic),
+            "subscript" => return Err(FillRefusal::ArraySubscript),
             "array" => {
                 if let Some(child) = child
                     && is_in_an_open_subscript(child, self.text, self.placeholder.start)
