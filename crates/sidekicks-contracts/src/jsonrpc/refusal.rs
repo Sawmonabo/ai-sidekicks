@@ -785,11 +785,17 @@ refusal_codes! {
     WorkflowStepNotFound = "workflow.step.notFound" (NotFound, 404);
     /// A form submitted, an approval answered or a form read on a step that is no longer waiting.
     WorkflowStepNotWaiting = "workflow.step.notWaiting" (FailedPrecondition, 409);
+    /// A `Run a command` step whose shell is none the engine writes a filled value's reference
+    /// for; nothing runs.
+    WorkflowStepShellUnknown = "workflow.step.shellUnknown" (FailedPrecondition, 422);
     /// A quick step's engine that could not be started: its thread, `rquickjs` runtime or context
     /// could not be created.
     WorkflowStepThreadFailed = "workflow.step.threadFailed" (Internal, 500);
     /// A step or a run cut by a time limit, read `failed · timed out`.
     WorkflowStepTimedOut = "workflow.step.timedOut" (DeadlineExceeded, 504);
+    /// A `Run a command` step whose filled value, or whose environment as a whole, passes the
+    /// system's bound or the shell's own, checked before the spawn so nothing runs.
+    WorkflowStepValueTooLarge = "workflow.step.valueTooLarge" (ResourceExhausted, 422);
     /// A trigger that cannot be armed.
     WorkflowTriggerUnarmable = "workflow.trigger.unarmable" (FailedPrecondition, 409);
     /// A `workflow.version.diff.read` naming two versions of different workflows; nothing is

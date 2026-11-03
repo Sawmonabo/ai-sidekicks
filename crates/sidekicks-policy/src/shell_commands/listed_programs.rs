@@ -4,6 +4,8 @@
 //! what a standing rule on a command of it may name; a program off the list is read as plain words.
 //! Beside it sit the reserved words of bash and zsh, which no standing rule may take as a program.
 
+use std::path::Path;
+
 use super::command_string::{LineOptions, ShellGrammar, ShellLineProgram};
 use super::words::WordText;
 use super::wrappers::{CommandWrapper, LeadingOperand, ShellWithNoCommand};
@@ -277,6 +279,24 @@ pub const SHELL_RESERVED_WORDS: &[&str] = &[
     "readonly",
     "typeset",
 ];
+
+/// The grammar of the shell `program` names, read from its file name folded as Windows reads it, so
+/// `/usr/bin/pwsh`, `bash.exe` and `CMD.EXE` each name theirs; `None` for a program the list does
+/// not hold as a shell, which no reference form is known for.
+pub fn shell_grammar_for_program(program: &Path) -> Option<ShellGrammar> {
+    let name = program.file_name()?.to_str()?;
+    match listed_program_when_folded(&folded_program_name(name))? {
+        ListedProgram::Shell(grammar) => Some(grammar),
+        ListedProgram::LineProgram(_)
+        | ListedProgram::Wrapper(_)
+        | ListedProgram::Find
+        | ListedProgram::Interpreter
+        | ListedProgram::ScriptRunningInterpreter
+        | ListedProgram::Git
+        | ListedProgram::FileRemover
+        | ListedProgram::ScriptRunner => None,
+    }
+}
 
 // The list, by each name its program runs under.
 const LISTED_PROGRAMS: &[(&str, ListedProgram)] = &[

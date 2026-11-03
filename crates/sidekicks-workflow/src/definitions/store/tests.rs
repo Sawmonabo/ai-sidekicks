@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -8,13 +9,15 @@ use sidekicks_contracts::workflow::definition::builder::{
     NewWorkflowDraftUpdateRequest, SavedWorkflowDraftUpdateRequest, WorkflowDraftUpdateRequest,
 };
 use sidekicks_contracts::workflow::definition::document::{
-    WORKFLOW_NAME_MAX_LEN, WorkflowDefinitionId, WorkflowDocument, WorkflowVersionId,
+    WORKFLOW_NAME_MAX_LEN, WorkflowDefinitionId, WorkflowDocument, WorkflowNodeId,
+    WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::definition::methods::{
     WorkflowCreateOrigin, WorkflowDefinitionCreateRequest, WorkflowDefinitionCreateResponse,
     WorkflowDefinitionUpdateRequest,
 };
 use sidekicks_contracts::workflow::definition::refusals::WorkflowDefinitionFinding;
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
@@ -26,6 +29,7 @@ use super::{
 use crate::definitions::drafts::{WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY, WorkflowDraftStore};
 use crate::definitions::errors::DefinitionRefusal;
 use crate::definitions::library::WORKFLOW_LIBRARY_STATEMENT_CAPACITY;
+use crate::kinds::{NodeKind, NodeKindTable, PassThroughExecutor, command_test_kind, test_kind};
 use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
 use crate::schema::schema_parts;
 
@@ -53,8 +57,16 @@ fn saved_document(name: &str, path: &str) -> WorkflowDocument {
     serde_json::from_value(document(name, path)).expect("the test's document reads")
 }
 
-/// The store and the draft store over one test database holding the workflow tables.
-async fn open_stores(database: &TestDatabase) -> (WorkflowDefinitionStore, WorkflowDraftStore) {
+/// A shell-line bound far past every command line here.
+const SHELL_LINE_LIMIT: usize = 4_096;
+
+/// The store and the draft store over one test database holding the workflow tables, the store
+/// reading command lines inside a bound of `shell_line_limit` bytes and knowing two kinds: the
+/// command step `developer.shell`, whose line is its `command` param, and [`call_kind`].
+async fn open_stores(
+    database: &TestDatabase,
+    shell_line_limit: usize,
+) -> (WorkflowDefinitionStore, WorkflowDraftStore) {
     let writer = Arc::new(
         DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await
@@ -70,9 +82,37 @@ async fn open_stores(database: &TestDatabase) -> (WorkflowDefinitionStore, Workf
         WorkflowDefinitionStore::new(
             Arc::clone(&pool),
             Arc::clone(&writer),
-            Box::new(|_node| None),
+            Arc::new(
+                NodeKindTable::new(vec![command_test_kind(), call_kind()])
+                    .expect("the test's kinds table builds"),
+            ),
+            Arc::new(ShellLineReadingBound::new(shell_line_limit)),
         ),
         WorkflowDraftStore::new(pool, writer),
+    )
+}
+
+/// The step `http.call` at version 1, whose `token` param the kind marks sensitive and whose
+/// `url` param it does not, and whose `tool` and `tool.backup` params are tool bindings, the
+/// second's id holding a dot.
+fn call_kind() -> NodeKind {
+    test_kind(
+        json!({
+            "kind": "http.call", "version": 1, "category": "developer",
+            "displayName": "Call a service", "description": "A request to a service.",
+            "icon": "globe",
+            "params": [
+                { "id": "token", "label": "Token", "type": "string", "sensitive": true },
+                { "id": "url", "label": "Address", "type": "string" },
+                { "id": "tool", "label": "Tool", "type": "mcpTool" },
+                { "id": "tool.backup", "label": "Backup tool", "type": "mcpTool" },
+            ],
+            "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
+            "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+            "outputsDeriveFromParams": false,
+        }),
+        None,
+        Box::new(PassThroughExecutor),
     )
 }
 
@@ -152,7 +192,7 @@ fn update(definition_id: WorkflowDefinitionId, name: &str) -> WorkflowDefinition
 #[tokio::test]
 async fn a_save_clears_its_draft_and_a_refused_name_leaves_nothing() {
     let database = TestDatabase::new(schema_parts());
-    let (store, drafts) = open_stores(&database).await;
+    let (store, drafts) = open_stores(&database, SHELL_LINE_LIMIT).await;
     let nightly = create(&store, "Nightly").await;
     let weekly = create(&store, "Weekly").await;
     hold_draft(&drafts, nightly).await;
@@ -199,7 +239,7 @@ async fn a_save_clears_its_draft_and_a_refused_name_leaves_nothing() {
 #[tokio::test]
 async fn a_create_from_the_new_workflow_draft_clears_it_and_an_import_leaves_it() {
     let database = TestDatabase::new(schema_parts());
-    let (store, drafts) = open_stores(&database).await;
+    let (store, drafts) = open_stores(&database, SHELL_LINE_LIMIT).await;
     let hold_new_draft = || async {
         drafts
             .update(&WorkflowDraftUpdateRequest::New(
@@ -260,7 +300,7 @@ fn definition_name(rows: &Connection, definition_id: WorkflowDefinitionId) -> St
 #[tokio::test]
 async fn a_duplicate_takes_a_free_copy_name_and_its_source_locks_only_for_the_same_content() {
     let database = TestDatabase::new(schema_parts());
-    let (store, _drafts) = open_stores(&database).await;
+    let (store, _drafts) = open_stores(&database, SHELL_LINE_LIMIT).await;
     let source = create_from(
         &store,
         "Nightly",
@@ -356,4 +396,234 @@ async fn a_duplicate_takes_a_free_copy_name_and_its_source_locks_only_for_the_sa
         })
         .expect("the test counts the workflows");
     assert_eq!(definition_count, 6, "the two sources and their four copies");
+}
+
+/// Which of the three saves a test runs.
+#[derive(Clone, Copy, Debug)]
+enum SavePath {
+    Create,
+    Duplicate,
+    Update,
+}
+
+/// A document of `name` whose trigger feeds one command step running `command`.
+fn command_document(name: &str, command: &str) -> WorkflowDocument {
+    let mut document = document(name, "notes.md");
+    document["nodes"][0] = json!({
+        "id": "run", "kind": "developer.shell", "kindVersion": 1, "name": "Run tests",
+        "order": 0, "params": { "command": command },
+    });
+    document["edges"][0]["target"] = json!("run");
+    serde_json::from_value(document).expect("the test's document reads")
+}
+
+/// A create, a Duplicate and an update each refuse a command step whose fill does not expand, with
+/// the reason naming the fill, and one whose line is past the shell-line bound's limit, which no
+/// reading reads; none writes a version. Mutations: check the fills on one save path only; read
+/// the line with a reader of no bound's limit; refuse no fill.
+#[rstest]
+#[tokio::test]
+async fn every_save_refuses_a_command_fill_that_does_not_expand(
+    #[values(SavePath::Create, SavePath::Duplicate, SavePath::Update)] path: SavePath,
+    #[values(
+        (SHELL_LINE_LIMIT, "=echo '{{ $json.x }}'", "Fill 1 sits in single quotes"),
+        (8, "=echo {{ $json.x }}", "Fill 1 is on a line a reading could not read whole"),
+    )]
+    line_case: (usize, &str, &str),
+) {
+    let (shell_line_limit, command, reason) = line_case;
+    let database = TestDatabase::new(schema_parts());
+    let (store, _drafts) = open_stores(&database, shell_line_limit).await;
+    let source = create_from(
+        &store,
+        "Nightly",
+        "notes.md",
+        WorkflowCreateOrigin::FileImport {},
+    )
+    .await
+    .expect("the create commits");
+    let document = command_document("Checks", command);
+    let refused = match path {
+        SavePath::Create => store
+            .create(
+                &WorkflowDefinitionCreateRequest {
+                    document,
+                    origin: WorkflowCreateOrigin::FileImport {},
+                },
+                &author(),
+            )
+            .await
+            .map(|_| ()),
+        SavePath::Duplicate => store
+            .create(
+                &WorkflowDefinitionCreateRequest {
+                    document,
+                    origin: duplicate_of(source.workflow_version_id),
+                },
+                &author(),
+            )
+            .await
+            .map(|_| ()),
+        SavePath::Update => store
+            .update(
+                &WorkflowDefinitionUpdateRequest {
+                    definition_id: source.definition_id,
+                    expected_version_number: SafeInt::new(1).expect("one is a version number"),
+                    document,
+                    restored_version_number: None,
+                },
+                &author(),
+            )
+            .await
+            .map(|_| ()),
+    };
+
+    let Err(WorkflowDefinitionStoreError::Refused(DefinitionRefusal::Refused { findings })) =
+        refused
+    else {
+        panic!("the {path:?} is refused with findings, not {refused:?}");
+    };
+    let [WorkflowDefinitionFinding::ExpressionNotExpanded { node_ids, detail }] =
+        findings.as_slice()
+    else {
+        panic!("the {path:?} is refused for its fill alone, not {findings:?}");
+    };
+    assert_eq!(
+        node_ids
+            .iter()
+            .map(WorkflowNodeId::as_str)
+            .collect::<Vec<_>>(),
+        ["run"]
+    );
+    assert!(detail.as_str().starts_with(reason), "{detail:?}");
+    let versions: i64 = database
+        .reader()
+        .query_row("SELECT COUNT(*) FROM workflow_versions", [], |row| {
+            row.get(0)
+        })
+        .expect("the test counts the versions");
+    assert_eq!(versions, 1, "only the source's version is written");
+}
+
+/// A save refuses a secret named inside an expression, even in a param its kind marks sensitive,
+/// and a plain secret reference in a param its kind does not mark, each once on its node however
+/// many values break it, and writes no workflow. Mutations: drop the param check from the save;
+/// raise one finding per refused value.
+#[rstest]
+#[case::an_expression_in_a_sensitive_param(
+    json!({ "token": "=secret://shared/x", "url": "={{ 'secret://shared/y' }}" }),
+    json!([{ "rule": "secretInExpression", "nodeIds": ["call"] }]),
+)]
+#[case::a_reference_in_a_plain_param(
+    json!({ "token": "secret://shared/x", "url": "secret://shared/x" }),
+    json!([{ "rule": "secretOutsideSensitiveField", "nodeIds": ["call"] }]),
+)]
+#[tokio::test]
+async fn a_save_refuses_a_secret_its_params_cannot_resolve(
+    #[case] params: Value,
+    #[case] expected: Value,
+) {
+    let database = TestDatabase::new(schema_parts());
+    let (store, _drafts) = open_stores(&database, SHELL_LINE_LIMIT).await;
+    let mut document = document("Calls", "notes.md");
+    document["nodes"][0] = json!({
+        "id": "call", "kind": "http.call", "kindVersion": 1, "name": "Call",
+        "order": 0, "params": params,
+    });
+    document["edges"][0]["target"] = json!("call");
+
+    let refused = store
+        .create(
+            &WorkflowDefinitionCreateRequest {
+                document: serde_json::from_value(document).expect("the test's document reads"),
+                origin: WorkflowCreateOrigin::FileImport {},
+            },
+            &author(),
+        )
+        .await;
+
+    let Err(WorkflowDefinitionStoreError::Refused(DefinitionRefusal::Refused { findings })) =
+        refused
+    else {
+        panic!("the save is refused with findings, not {refused:?}");
+    };
+    assert_eq!(
+        serde_json::to_value(&findings).expect("the findings write as JSON"),
+        expected
+    );
+    let definitions: i64 = database
+        .reader()
+        .query_row("SELECT COUNT(*) FROM workflow_definitions", [], |row| {
+            row.get(0)
+        })
+        .expect("the test counts the workflows");
+    assert_eq!(definitions, 0, "a refused save writes no workflow");
+}
+
+/// A save refuses a tool binding carrying a policy as the request's own read refuses an unknown
+/// member, naming the field at its place in the request, a param id holding a dot as one step, and
+/// writes no workflow; the binding without it saves. Mutations: let a binding no finding names pass
+/// the save; split the check's path at each dot.
+#[rstest]
+#[case::carrying_a_policy("tool", Some("allow"))]
+#[case::a_reference_only("tool", None)]
+#[case::under_a_dotted_param_id("tool.backup", Some("allow"))]
+#[tokio::test]
+async fn a_save_refuses_a_tool_binding_carrying_a_policy(
+    #[case] param_id: &str,
+    #[case] approval_mode: Option<&str>,
+) {
+    let database = TestDatabase::new(schema_parts());
+    let (store, _drafts) = open_stores(&database, SHELL_LINE_LIMIT).await;
+    let mut tool = json!({
+        "binding": { "scope": "user", "provider": "codex", "serverName": "github" },
+        "toolName": "search",
+    });
+    if let Some(approval_mode) = approval_mode {
+        tool["approvalMode"] = json!(approval_mode);
+    }
+    let mut document = document("Calls", "notes.md");
+    document["nodes"][0] = json!({
+        "id": "call", "kind": "http.call", "kindVersion": 1, "name": "Call",
+        "order": 0, "params": { param_id: tool },
+    });
+    document["edges"][0]["target"] = json!("call");
+
+    let saved = store
+        .create(
+            &WorkflowDefinitionCreateRequest {
+                document: serde_json::from_value(document).expect("the test's document reads"),
+                origin: WorkflowCreateOrigin::FileImport {},
+            },
+            &author(),
+        )
+        .await;
+
+    if approval_mode.is_none() {
+        assert!(saved.is_ok(), "{saved:?}");
+        return;
+    }
+    let Err(WorkflowDefinitionStoreError::Refused(DefinitionRefusal::Unreadable { issues })) =
+        saved
+    else {
+        panic!("the save is refused as unreadable, not {saved:?}");
+    };
+    let [issue] = issues.as_slice() else {
+        panic!("one field is named: {issues:?}");
+    };
+    assert_eq!(
+        serde_json::to_value(&issue.path).expect("a path writes as JSON"),
+        json!(["document", "nodes", 0, "params", param_id, "approvalMode"])
+    );
+    assert!(
+        issue.message.starts_with("breaks the schema's"),
+        "{issue:?}"
+    );
+    let definitions: i64 = database
+        .reader()
+        .query_row("SELECT COUNT(*) FROM workflow_definitions", [], |row| {
+            row.get(0)
+        })
+        .expect("the test counts the workflows");
+    assert_eq!(definitions, 0, "a refused save writes no workflow");
 }

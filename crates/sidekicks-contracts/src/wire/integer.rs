@@ -34,6 +34,15 @@ impl<const MIN: u64> SafeInt<MIN> {
 impl SafeInt<0> {
     /// Zero: an empty count or the first position.
     pub const ZERO: Self = Self(0);
+
+    /// `count`, a length or position of something held in memory. Panics past
+    /// [`MAX_SAFE_INTEGER`], which nothing held in memory reaches.
+    pub fn from_usize(count: usize) -> Self {
+        u64::try_from(count)
+            .ok()
+            .and_then(Self::new)
+            .expect("a count of what memory holds is a safe integer")
+    }
 }
 
 // Lossless: a safe integer is at most 2^53 - 1, well inside `i64`.

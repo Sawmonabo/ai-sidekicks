@@ -1,14 +1,13 @@
 //! The person's locale on Windows: the user's default locale, which Windows keeps one of for every
-//! category, read with `GetLocaleInfoEx`, and the hour cycle its time format names.
+//! category, read with `GetLocaleInfoEx`, and the hour field its time format names.
 
 use std::io;
 
 use icu_locale_core::Locale;
-use icu_locale_core::preferences::extensions::unicode::keywords::HourCycle;
 use windows_sys::Win32::Globalization::{GetLocaleInfoEx, LOCALE_SNAME, LOCALE_STIMEFORMAT};
 use windows_sys::Win32::System::SystemServices::LOCALE_NAME_MAX_LENGTH;
 
-use crate::system_locale::{LocaleCategory, hour_cycle_in_pattern};
+use crate::system_locale::{HourField, LocaleCategory, hour_field_in_pattern};
 
 // The longest time format `GetLocaleInfoEx` answers, in UTF-16 units with its NUL.
 const TIME_FORMAT_MAX_LENGTH: usize = 80;
@@ -22,12 +21,12 @@ pub fn system_locale(_category: LocaleCategory) -> Option<Locale> {
     Locale::try_from_str(tag).ok()
 }
 
-/// The hour cycle the user's time format (`LOCALE_STIMEFORMAT`, the form Windows prefers over
-/// `LOCALE_ITIME`) names: `h` the 12-hour clock and `H` the 24-hour clock. Fails when the format
-/// cannot be read or names no hour.
-pub fn system_hour_cycle() -> io::Result<HourCycle> {
+/// The hour field the user's time format (`LOCALE_STIMEFORMAT`, the form Windows prefers over
+/// `LOCALE_ITIME`) names: `h` the 12-hour clock and `H` the 24-hour clock, padded when doubled.
+/// Fails when the format cannot be read or names no hour.
+pub fn system_hour_field() -> io::Result<HourField> {
     let format = read_locale_info::<TIME_FORMAT_MAX_LENGTH>(LOCALE_STIMEFORMAT)?;
-    hour_cycle_in_pattern(&format).ok_or_else(|| {
+    hour_field_in_pattern(&format).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidData,
             format!("the user's time format {format:?} names no hour"),

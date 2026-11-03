@@ -9,6 +9,7 @@
 //! memory and each query's time grow with the line alone.
 
 mod command_string;
+pub mod fills;
 mod listed_programs;
 pub mod reading_bound;
 mod reading_forms;
@@ -24,10 +25,10 @@ use tree_sitter::{Node, Parser};
 use self::command_string::{
     CommandStringWords, command_string_words, reads_its_line_from_input, runs_its_words_as_a_line,
 };
-pub use self::command_string::{PROVIDER_LINE_SHELLS, unwrap_shell_command_line};
+pub use self::command_string::{PROVIDER_LINE_SHELLS, ShellGrammar, unwrap_shell_command_line};
 pub(crate) use self::listed_programs::folded_program_name;
 use self::listed_programs::{FIND_COMMAND_PRIMARIES, command_wrapper, standing_rule_of};
-pub use self::listed_programs::{SHELL_RESERVED_WORDS, StandingRule};
+pub use self::listed_programs::{SHELL_RESERVED_WORDS, StandingRule, shell_grammar_for_program};
 use self::reading_forms::ReadingForms;
 use self::words::{
     BytePositions, JoinedWords, Piece, PieceTexts, ShellText, Word, WordBuilder, node_text, offset,
@@ -239,14 +240,17 @@ impl<'r> ShellCommand<'r> {
     }
 }
 
-/// Reads the shell lines of one ask: its line, at most one reading of it with its here-document
-/// starts requoted, and every `-c` or `eval` string a check rereads from it. A string longer than
-/// `limit` bytes, a bound no argument a program starts with reaches, is not parsed; in all the
-/// reader parses at most twice `limit`, each distinct string once, and hands a repeat its kept
-/// reading, so a string past what is left reads not whole with no command.
-/// Reading blocks the thread for the parse, so every ask reads through `ShellLineReadingBound`.
+/// Reads the shell lines of one ask, workflow save or command step's launch: its line, at most one
+/// reading of it with its here-document starts requoted, and every `-c` or `eval` string a check
+/// rereads from it. A string longer than `limit` bytes, a bound no argument a program starts with
+/// reaches, is not parsed; in all the reader parses at most twice `limit`, each distinct string
+/// once, and hands a repeat its kept reading, so a string past what is left reads not whole with no
+/// command. Reading blocks the thread for the parse, so every read goes through
+/// `ShellLineReadingBound`.
 pub struct ShellLineReader {
     parser: Parser,
+    // The PowerShell grammar's parser, built on the reader's first PowerShell reading.
+    powershell_parser: Option<Parser>,
     limit: usize,
     bytes_left: usize,
     // Every reading made, by its line's length; each keeps its own line.
@@ -264,6 +268,7 @@ impl ShellLineReader {
             .expect("the bash grammar's ABI, fixed at build, is one this tree-sitter reads");
         Self {
             parser,
+            powershell_parser: None,
             limit,
             bytes_left: limit.saturating_mul(2),
             readings: HashMap::new(),
@@ -327,16 +332,25 @@ impl ShellLineReader {
         if let Some(reading) = kept {
             return Arc::clone(reading);
         }
-        if length > self.limit || length > self.bytes_left {
+        if !self.charge(length) {
             return Arc::clone(&self.unread);
         }
-        self.bytes_left -= length;
         let reading = Arc::new(ShellLineReading::parse(&mut self.parser, text.to_line()));
         self.readings
             .entry(length)
             .or_default()
             .push(Arc::clone(&reading));
         reading
+    }
+
+    // Takes `length` bytes from what the reader has left to parse; false, taking none, for a
+    // string past the limit or past what is left, which is not parsed.
+    fn charge(&mut self, length: usize) -> bool {
+        let is_within = length <= self.limit && length <= self.bytes_left;
+        if is_within {
+            self.bytes_left -= length;
+        }
+        is_within
     }
 }
 

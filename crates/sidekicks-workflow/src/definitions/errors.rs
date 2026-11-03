@@ -1,7 +1,8 @@
-//! The refusals of a workflow save: a document that breaks a rule, and a save based on a version
-//! that is no longer the latest.
+//! The refusals of a workflow save: a document that breaks a rule, a tool binding that does not
+//! read as one, and a save based on a version that is no longer the latest.
 
 use serde_json::json;
+use sidekicks_contracts::jsonrpc::issue::Issue;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
@@ -20,6 +21,14 @@ pub(crate) enum DefinitionRefusal {
     Refused {
         /// Every finding, at least one.
         findings: Vec<WorkflowDefinitionFinding>,
+    },
+    /// A tool binding in the document does not read as one (`request.paramsInvalid`), refused as
+    /// the request's own read refuses a value: each fault at its place in the request, a member
+    /// the binding does not take, such as a policy, named at its field.
+    #[error("A tool binding in the workflow does not read as one.")]
+    Unreadable {
+        /// Each fault, at least one.
+        issues: Vec<Issue>,
     },
     /// The version the save was based on is no longer the latest (`workflow.version.stale`).
     #[error(
@@ -48,6 +57,10 @@ impl From<DefinitionRefusal> for DomainError {
                 };
                 DomainError::new(message, RefusalCode::WorkflowDefinitionRefused)
                     .with_detail(details)
+            }
+            DefinitionRefusal::Unreadable { issues } => {
+                DomainError::new(message, RefusalCode::RequestParamsInvalid)
+                    .with_detail(json!({ "issues": issues }))
             }
             DefinitionRefusal::VersionStale {
                 definition_id,

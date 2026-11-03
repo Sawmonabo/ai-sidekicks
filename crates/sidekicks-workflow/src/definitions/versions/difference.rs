@@ -59,11 +59,11 @@ pub(crate) fn count_workflow_changes(
     difference: &WorkflowVersionDiffReadResponse,
 ) -> WorkflowVersionChangeCounts {
     WorkflowVersionChangeCounts {
-        nodes_added: count(difference.nodes_added.len()),
-        nodes_removed: count(difference.nodes_removed.len()),
-        nodes_changed: count(difference.nodes_changed.len()),
-        edges_added: count(difference.edges_added.len()),
-        edges_removed: count(difference.edges_removed.len()),
+        nodes_added: SafeInt::from_usize(difference.nodes_added.len()),
+        nodes_removed: SafeInt::from_usize(difference.nodes_removed.len()),
+        nodes_changed: SafeInt::from_usize(difference.nodes_changed.len()),
+        edges_added: SafeInt::from_usize(difference.edges_added.len()),
+        edges_removed: SafeInt::from_usize(difference.edges_removed.len()),
     }
 }
 
@@ -89,13 +89,6 @@ fn edges_missing_from(edges: &[WorkflowEdge], others: &[WorkflowEdge]) -> Vec<Wo
         .filter(|edge| other_by_id.get(&edge.id).is_none_or(|other| other != edge))
         .cloned()
         .collect()
-}
-
-fn count(length: usize) -> SafeInt<0> {
-    u64::try_from(length)
-        .ok()
-        .and_then(SafeInt::new)
-        .expect("a list held in memory is shorter than 2^53 items")
 }
 
 #[cfg(test)]

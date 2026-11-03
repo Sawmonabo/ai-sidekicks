@@ -26,6 +26,13 @@ fn main_edge(source: &str, target: &str) -> Value {
     edge(source, "outputs/main/0", target, "inputs/main/0")
 }
 
+// A second `main` edge joining the same handles, under an id of its own.
+fn repeated_main_edge(source: &str, target: &str) -> Value {
+    let mut repeated = main_edge(source, target);
+    repeated["id"] = json!(format!("{source}-{target}-again"));
+    repeated
+}
+
 // The handles of the kinds the cases place; any other kind is one the catalog does not list.
 fn handles_of(node: &WorkflowNode) -> Option<WorkflowNodeHandles> {
     let main_in = json!({ "type": "main", "id": "inputs/main/0", "label": "In" });
@@ -115,6 +122,19 @@ fn handles_of(node: &WorkflowNode) -> Option<WorkflowNodeHandles> {
         edge("u", "outputs/weird/0", "a", "inputs/main/0"),
     ]),
     json!([{ "rule": "handleTypeUnknown", "nodeIds": ["u", "a"] }]),
+)]
+#[case::a_repeated_edge(
+    json!([node("a", "agent.run"), node("b", "agent.run")]),
+    json!([main_edge("t", "a"), main_edge("a", "b"), repeated_main_edge("a", "b")]),
+    json!([{ "rule": "edgeDuplicate", "nodeIds": ["a", "b"] }]),
+)]
+#[case::a_repeated_name(
+    json!([
+        node("a", "agent.run"),
+        { "id": "b", "kind": "agent.run", "kindVersion": 1, "name": "a", "order": 0, "params": {} },
+    ]),
+    json!([main_edge("t", "a"), main_edge("t", "b")]),
+    json!([{ "rule": "nodeNameDuplicate", "nodeIds": ["b"] }]),
 )]
 fn the_graph_check_finds_what_the_save_refuses(
     #[case] nodes: Value,
@@ -218,6 +238,12 @@ fn the_graph_check_finds_what_the_save_refuses(
     json!([main_edge("t", "a"), main_edge("t", "b"), edge("a", "outputs/main/0", "n", "inputs/main/1")]),
     edge("b", "outputs/main/0", "n", "inputs/main/1"),
     json!([{ "rule": "inputConnectionsExceeded", "nodeIds": ["n", "b"] }]),
+)]
+#[case::a_connection_repeating_an_edge(
+    json!([node("a", "agent.run"), node("b", "agent.run")]),
+    json!([main_edge("t", "a"), main_edge("a", "b")]),
+    repeated_main_edge("a", "b"),
+    json!([{ "rule": "edgeDuplicate", "nodeIds": ["a", "b"] }]),
 )]
 fn the_connection_check_refuses_what_the_edge_adds(
     #[case] nodes: Value,

@@ -12,8 +12,10 @@
 //!   daemon keeps where one is in force, and else its card is raised, offering that rule. A
 //!   provider's ask reads only the rules the providers keep, and a tool call only the daemon's.
 //! - A workflow start is decided by the machine's workflow rules, under the asking run's posture.
-//! - A workflow step's file write or tool call is gated by the run's level as its table has it,
-//!   and where that asks, answered by the daemon's session rule or else the daemon's own card.
+//! - A workflow step's file write, tool call, command or program is gated by the run's level as its
+//!   table has it, and where that asks, answered by the daemon's session rule over the words its
+//!   rule names, where it names any, or else the daemon's own card. A command's line is read once
+//!   for its category and those words.
 
 use std::error::Error;
 use std::io;
@@ -21,7 +23,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
-use sidekicks_contracts::approval::{ApprovalCategory, ApprovalState, RememberedRuleSense};
+use sidekicks_contracts::approval::{
+    ApprovalCategory, ApprovalScope, ApprovalState, RememberedRuleSense,
+};
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
@@ -35,6 +39,7 @@ use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use sidekicks_policy::authorizer::{Authorizer, PolicyDecision};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_policy::workflow_start::{WorkflowStart, check_workflow_start};
 use sidekicks_provider::background_work::{BackgroundWorkForms, refuse_background_work};
 use sidekicks_provider::callback_tools::host::{
     CallbackToolApprovalBasis, CallbackToolApprovalOutcome,
@@ -57,7 +62,7 @@ use tokio_util::sync::CancellationToken;
 use self::step_action::{StepActionAsk, StepGate};
 use crate::ask_description::{
     AskDescriptionError, ProviderAskDescription, bounded_wire_text, derive_rule_subject,
-    describe_provider_ask, may_allow_stand, read_command_line,
+    describe_provider_ask, may_allow_stand, may_allow_stand_over, read_command_line,
 };
 use crate::callback_tool_approvals::decided_outcome;
 use crate::provider_ask_answers::{ProviderAskAnswer, answer_provider_ask};
@@ -67,7 +72,6 @@ use crate::request_create::{
 use crate::rules::{ApprovalRuleError, ApprovalRules};
 use crate::service::{ApprovalService, ApprovalServiceError, RaisedCard};
 use crate::store::StoredApprovalRequest;
-use crate::workflow_start::{WorkflowStart, check_workflow_start};
 
 // A tool's name stands within a card's scope, so a tool call's card always reads it.
 const _: () = assert!(PROVIDER_TOOL_NAME_MAX_LEN <= FILE_PATH_MAX_LEN);
@@ -78,7 +82,7 @@ pub(crate) const BLOCKED_BY_RULE_REFUSAL: &str = "A rule in force on this sessio
 /// What the agent reads when its run is not running, so no level gates its call.
 pub(crate) const NO_LEVEL_REFUSAL: &str = "This call's run is not running, so it did not run.";
 
-/// What the step reads when its action names nothing a card could show.
+/// What the step reads when its action shows nothing on a card.
 pub(crate) const UNNAMED_ACTION_REFUSAL: &str =
     "This action names nothing to approve, so it did not run.";
 
@@ -191,9 +195,11 @@ struct DaemonCardAsk {
     run_id: RunId,
     category: ApprovalCategory,
     action: ProviderAskAction,
+    // The words the card shows.
+    card_words: String,
     // The words a rule over the action names, which the card offers where the wire carries them
-    // whole.
-    subject: String,
+    // whole and an allow may stand; `None` where no rule may name the action.
+    rule_subject: Option<String>,
     // The tool server's tool a step's call names, on which a rule over it keys beside its words.
     tool_server_tool: Option<ToolServerTool>,
     // Who asks on the card; `None` reads the run's own agent.
@@ -373,7 +379,8 @@ impl PermissionCheck {
             action: ProviderAskAction::Tool {
                 tool_name: tool_name.to_owned(),
             },
-            subject: tool_name.to_owned(),
+            card_words: tool_name.to_owned(),
+            rule_subject: Some(tool_name.to_owned()),
             tool_server_tool: None,
             requested_by: None,
             tool_call_id: Some(invocation.tool_call_id.clone()),
@@ -382,16 +389,29 @@ impl PermissionCheck {
         .await
     }
 
-    /// Decides one action of a workflow step the daemon runs itself, as `check` names it: free or
-    /// refused as the run's level's table has it, else answered by the session rule over its
-    /// subject the daemon keeps where one is in force, and else its card is raised on the check's
-    /// session and run, asked by its `requested_by`, offering that rule. Fails as a read fails and
-    /// as the card's create does.
+    /// Decides one action of a workflow step the daemon runs itself, as `check` names it: a command
+    /// that starts a provider's background work refused at every level, else free or refused as the
+    /// run's level's table has it, else answered by the session rule over its subject the daemon
+    /// keeps where one is in force, and else its card is raised on the check's session and run,
+    /// asked by its `requested_by`, offering that rule where one may stand. A command's line is
+    /// read once for the refusal, its category and its rule's words. Fails as a read fails, the
+    /// line's read among them, and as the card's create does.
     pub(crate) async fn check_step_action(
         &self,
         check: StepActionCheck,
     ) -> Result<ToolCallVerdict, PermissionCheckError> {
         let action = &check.action;
+        let reading = action
+            .read(&self.deps.shell_lines, &self.deps.background_work)
+            .await?;
+        if let Some(refusal) = reading.background_work_refusal {
+            return Ok(ToolCallVerdict::Settled(
+                CallbackToolApprovalOutcome::Deny {
+                    basis: CallbackToolApprovalBasis::Policy,
+                    reason: refusal.to_owned(),
+                },
+            ));
+        }
         match action.gate_at(check.level) {
             StepGate::Free => Ok(ToolCallVerdict::Settled(
                 CallbackToolApprovalOutcome::Allow {
@@ -408,9 +428,10 @@ impl PermissionCheck {
                 self.ask_by_daemon_card(DaemonCardAsk {
                     session_id: check.session_id,
                     run_id: check.run_id,
-                    category: action.category(),
+                    category: reading.category,
                     action: action.ask_action(),
-                    subject: action.subject(),
+                    card_words: action.subject(),
+                    rule_subject: reading.rule_subject,
                     tool_server_tool: action.tool_server_tool(),
                     requested_by: Some(check.requested_by.clone()),
                     tool_call_id: None,
@@ -422,38 +443,51 @@ impl PermissionCheck {
     }
 
     // The daemon's own card over `ask`, answered first by the session rule the daemon keeps over
-    // its subject, then by the card a call made again returns to. A subject the wire bound had to
-    // cut offers no rule, since it no longer names exactly what the rule would cover, and a blank
-    // one is refused, since it names nothing.
+    // its rule's words, where it names any: a block always, an allow only where one may stand; then
+    // by the card a call made again returns to. A rule's words the wire bound had to cut offer no
+    // rule, since they no longer name exactly what the rule would cover, and blank card words are
+    // refused, since they show nothing.
     async fn ask_by_daemon_card(
         &self,
         ask: DaemonCardAsk,
     ) -> Result<ToolCallVerdict, PermissionCheckError> {
-        let rule = self
-            .deps
-            .rules
-            .find_rule(
-                ask.session_id,
-                ProviderAskActionKind::from(&ask.action),
-                &ask.subject,
-                ask.tool_server_tool.as_ref(),
-                true,
-            )
-            .await?;
-        if let Some(rule) = rule {
-            let basis = CallbackToolApprovalBasis::RememberedRule;
-            return Ok(ToolCallVerdict::Settled(match rule.sense {
-                RememberedRuleSense::Allow => CallbackToolApprovalOutcome::Allow { basis },
-                RememberedRuleSense::Block => CallbackToolApprovalOutcome::Deny {
-                    basis,
-                    reason: BLOCKED_BY_RULE_REFUSAL.to_owned(),
-                },
-            }));
+        let rule = match &ask.rule_subject {
+            Some(rule_subject) => {
+                self.deps
+                    .rules
+                    .find_rule(
+                        ask.session_id,
+                        ProviderAskActionKind::from(&ask.action),
+                        rule_subject,
+                        ask.tool_server_tool.as_ref(),
+                        true,
+                    )
+                    .await?
+            }
+            None => None,
+        };
+        let may_allow_stand = may_allow_stand_over(ask.category, ask.rule_subject.as_deref());
+        let basis = CallbackToolApprovalBasis::RememberedRule;
+        match rule.map(|rule| rule.sense) {
+            Some(RememberedRuleSense::Block) => {
+                return Ok(ToolCallVerdict::Settled(
+                    CallbackToolApprovalOutcome::Deny {
+                        basis,
+                        reason: BLOCKED_BY_RULE_REFUSAL.to_owned(),
+                    },
+                ));
+            }
+            Some(RememberedRuleSense::Allow) if may_allow_stand => {
+                return Ok(ToolCallVerdict::Settled(
+                    CallbackToolApprovalOutcome::Allow { basis },
+                ));
+            }
+            Some(RememberedRuleSense::Allow) | None => {}
         }
         if let Some(verdict) = self.return_to_daemon_card(&ask).await? {
             return Ok(verdict);
         }
-        let Some(scope) = bounded_wire_text(&ask.subject) else {
+        let Some(scope) = bounded_wire_text(&ask.card_words) else {
             return Ok(ToolCallVerdict::Settled(
                 CallbackToolApprovalOutcome::Deny {
                     basis: CallbackToolApprovalBasis::Policy,
@@ -461,7 +495,9 @@ impl PermissionCheck {
                 },
             ));
         };
-        let standing_allow_offered = scope.as_str() == ask.subject;
+        let rule_words = ask.rule_subject.as_deref().and_then(bounded_wire_text);
+        let standing_allow_offered = may_allow_stand
+            && rule_words.as_ref().map(ApprovalScope::as_str) == ask.rule_subject.as_deref();
         let tool_name = match &ask.action {
             ProviderAskAction::Tool { tool_name } => NonEmptyText::new(tool_name.clone()),
             ProviderAskAction::Command { .. }
@@ -485,7 +521,7 @@ impl PermissionCheck {
                     category: ask.category,
                     scope: scope.clone(),
                     resource_descriptor: ApprovalResourceDescriptor {
-                        subject: scope,
+                        subject: rule_words.unwrap_or(scope),
                         standing_allow_offered,
                         project_scope_offered: false,
                         editable: false,
@@ -582,28 +618,26 @@ impl PermissionCheck {
         Ok(None)
     }
 
-    /// Decides one workflow start under the machine's workflow rules, as its owner, under the
-    /// posture of `asking_run_id`, the run whose agent asked, or none for a trigger's. Refused when
-    /// the asking run is not running. Fails when the owner cannot be read.
+    /// Decides one workflow start an agent's tool asks for under the machine's workflow rules, as
+    /// its owner, under the posture of `asking_run_id`, the run whose agent asked. Refused when the
+    /// asking run is not running. Fails when the owner cannot be read.
     pub(crate) async fn check_workflow_start(
         &self,
         workflow_id: &WorkflowDefinitionId,
-        asking_run_id: Option<RunId>,
+        asking_run_id: RunId,
     ) -> Result<WorkflowStartVerdict, PermissionCheckError> {
-        let posture =
-            asking_run_id.and_then(|run_id| self.deps.postures.resolved_posture_for(&run_id));
-        if asking_run_id.is_some() && posture.is_none() {
+        let Some(posture) = self.deps.postures.resolved_posture_for(&asking_run_id) else {
             return Ok(WorkflowStartVerdict::Denied {
                 refusal: NO_LEVEL_REFUSAL,
             });
-        }
+        };
         let owner = self.deps.machine.read_owner().await?;
         let decision = check_workflow_start(
             &self.deps.authorizer,
             WorkflowStart {
                 owner: owner.as_ref(),
                 workflow_id,
-                posture: posture.as_ref(),
+                posture: Some(&posture),
             },
         );
         Ok(match decision {

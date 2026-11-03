@@ -30,6 +30,7 @@ const QUESTION: &str = "018f0000-0000-7000-8000-00000000000a";
 const APPROVAL_REQUEST: &str = "018f0000-0000-7000-8000-00000000000b";
 const ACCOUNT: &str = "018f0000-0000-7000-8000-00000000000c";
 const AGENT: &str = "018f0000-0000-7000-8000-00000000000d";
+const WAIT: &str = "018f0000-0000-7000-8000-00000000000e";
 const NODE: &str = "ask";
 
 fn session_id() -> SessionId {
@@ -344,20 +345,22 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
     json!({"type": "workflow.run.started", "payload": {
         "sessionId": SESSION, "workflowRunId": WORKFLOW_RUN, "definitionId": DEFINITION,
         "workflowVersionId": VERSION, "mode": "manual", "startedBy": {"kind": "schedule"},
+        "trigger": {"kind": "trigger.manual", "nodeId": "start"}, "chain": {"kind": "starts"},
+        "inputRef": {"kind": "inline", "items": []},
     }}),
     AttentionChange::Nothing
 )]
 #[case::workflow_run_waiting(workflow_run_event("workflow.run.waiting"), AttentionChange::Nothing)]
 #[case::step_waits_on_an_approval(
-    step_event("workflow.phase.suspended", json!({"waitCause": "approval"})),
+    step_event("workflow.phase.suspended", json!({"waitCause": "approval", "waitId": WAIT})),
     raise_wait(AttentionWait::Step(step_key()), PendingInput)
 )]
 #[case::step_waits_on_a_form(
-    step_event("workflow.phase.suspended", json!({"waitCause": "form"})),
+    step_event("workflow.phase.suspended", json!({"waitCause": "form", "waitId": WAIT})),
     raise_wait(AttentionWait::Step(step_key()), PendingInput)
 )]
 #[case::step_waits_on_a_reply(
-    step_event("workflow.phase.suspended", json!({"waitCause": "reply"})),
+    step_event("workflow.phase.suspended", json!({"waitCause": "reply", "waitId": WAIT})),
     raise_wait(AttentionWait::Step(step_key()), PendingInput)
 )]
 #[case::step_waits_on_its_chain(

@@ -107,13 +107,15 @@ impl From<WorkflowVersionsError> for HandlerError {
 }
 
 /// One version as its row stores it.
-struct VersionRow {
+pub(crate) struct VersionRow {
     workflow_version_id: WorkflowVersionId,
-    definition_id: WorkflowDefinitionId,
+    /// The workflow the version belongs to.
+    pub(crate) definition_id: WorkflowDefinitionId,
     version_number: SafeInt<1>,
     content_hash: WorkflowContentHash,
     schema_version: String,
-    definition_body: String,
+    /// The version's canonical body.
+    pub(crate) definition_body: String,
     layout_json: Option<String>,
     created_at: WireInstant,
     saved_by_agent_id: Option<AgentId>,
@@ -121,10 +123,13 @@ struct VersionRow {
 
 /// Reads a workflow's saved versions on one of the daemon's read connections, a deleted workflow's
 /// included, since runs pin them.
-#[expect(
-    dead_code,
-    reason = "the workflow.version.read, workflow.version.list and workflow.version.diff.read \
-              handlers"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the workflow.version.read, workflow.version.list and workflow.version.diff.read \
+                  handlers and the run engine's start"
+    )
 )]
 pub(crate) struct WorkflowVersions<'connection> {
     /// A read-only connection.
@@ -246,7 +251,9 @@ impl<'connection> WorkflowVersions<'connection> {
         ))
     }
 
-    fn read_version(
+    /// The version `workflow_version_id` as its row stores it. Fails with
+    /// [`WorkflowVersionsError::NotFound`] when no saved version has the id.
+    pub(crate) fn read_version(
         &self,
         workflow_version_id: WorkflowVersionId,
     ) -> Result<VersionRow, WorkflowVersionsError> {

@@ -1,5 +1,5 @@
-//! What a cancel does to a run's rows: the statements the engine's cancel writes in one unit of work
-//! with the run's canceled event, and a projection rebuild applies from that event alone.
+//! What a cancel does to a run's rows: the statements the engine's cancel writes in one unit of
+//! work with the run's canceled event, and a projection rebuild applies from that event alone.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -66,15 +66,16 @@ static CANCEL_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
   SET status = CASE WHEN status IN ({going}) THEN '{canceled}' ELSE status END,
       finished_at = CASE WHEN status IN ({going}) THEN @finished_at ELSE finished_at END,
       wait_cause = NULL, resume_at = NULL, wait_deadline_at = NULL, wait_account_id = NULL,
-      wait_started_at = NULL
+      wait_started_at = NULL, wait_id = NULL
   WHERE workflow_run_id = @workflow_run_id"
     )
 });
 
 /// The statements that apply `cancellation`: the run reads `canceled` with its end, every step
 /// still running, waiting or held by the memory gate reads `canceled` with the same end, and no
-/// step of the run keeps a wait cause, wait start, resume instant, deadline or spent account. The
-/// write is refused, changing nothing, unless the run is still going or parked on a failed step.
+/// step of the run keeps a wait cause, wait start, resume instant, deadline, wait id or spent
+/// account. The write is refused, changing nothing, unless the run is still going or parked on a
+/// failed step.
 #[cfg_attr(
     not(test),
     expect(

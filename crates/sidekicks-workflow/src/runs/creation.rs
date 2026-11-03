@@ -7,60 +7,21 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 
 use rusqlite::types::Value;
-use serde::Serialize;
+use sidekicks_contracts::daemon::config::WorkflowChainAskAfterRuns;
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceId};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::workflow::definition::document::{WorkflowNodeId, WorkflowVersionId};
+use sidekicks_contracts::workflow::definition::document::WorkflowVersionId;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::WorkflowRunStatus;
 use sidekicks_contracts::workflow::run::trigger::{
-    WorkflowRunMode, WorkflowStartedBy, WorkflowTriggerKind,
+    WorkflowRunChainPlace, WorkflowRunMode, WorkflowRunTrigger, WorkflowStartedBy,
 };
 use sidekicks_contracts::worktree::lifecycle::{BranchContextId, WorktreeId};
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
-
-/// Which trigger node started a run, stored as the run's trigger record.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the run engine's start, which writes them with the run's started event"
-    )
-)]
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct WorkflowRunTrigger {
-    /// The trigger node's kind.
-    pub(crate) kind: WorkflowTriggerKind,
-    /// The trigger node.
-    pub(crate) node_id: WorkflowNodeId,
-}
-
-/// A run's place in its chain: it starts a chain of its own, or it joins the chain whose first run
-/// is `chain_root_run_id`, through an error trigger when `is_from_error`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the run engine's start, which writes them with the run's started event"
-    )
-)]
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum WorkflowRunChainPlace {
-    /// The run is its chain's first run.
-    Starts,
-    /// The run joins another run's chain.
-    Joins {
-        /// The chain's first run.
-        chain_root_run_id: WorkflowRunId,
-        /// Whether an error trigger started it.
-        is_from_error: bool,
-    },
-}
 
 /// The execution context of a run that works in a project's repository: the checkout the engine
 /// prepared for it and that repository's git common folder.
@@ -132,9 +93,37 @@ static INSERT_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// Only a chain's first run counts, so a root that is gone or is not a first run matches no row.
-const COUNT_CHAIN_RUN_SQL: &str = "UPDATE workflow_runs SET chain_run_count = chain_run_count + 1
+/// Where a joining run's write checks that its chain's first run is a stored first run: a refusal
+/// at this statement is a root that is gone or is not a first run.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the run engine's start, which reads why its write was refused"
+    )
+)]
+pub(crate) const CHAIN_ROOT_CHECK_STATEMENT_INDEX: usize = 1;
+
+/// Where a joining run's write counts it on its chain's first run: a refusal at this statement is
+/// a chain at its ask-after limit, which holds the run.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the run engine's start, which reads why its write was refused"
+    )
+)]
+pub(crate) const CHAIN_COUNT_STATEMENT_INDEX: usize = 2;
+
+// Only a chain's first run counts, so a root that is gone or is not a first run returns no row.
+const CHAIN_ROOT_CHECK_SQL: &str = "SELECT 1 FROM workflow_runs
   WHERE id = @chain_root_run_id AND chain_run_count IS NOT NULL";
+
+// Counts the run unless the chain has reached its limit and the person has not answered Keep
+// going; a `NULL` limit never asks.
+const COUNT_CHAIN_RUN_SQL: &str = "UPDATE workflow_runs SET chain_run_count = chain_run_count + 1
+  WHERE id = @chain_root_run_id AND chain_run_count IS NOT NULL
+    AND (@ask_after IS NULL OR chain_kept_going = 1 OR chain_run_count < @ask_after)";
 
 const INSERT_EXECUTION_CONTEXT_SQL: &str = "INSERT INTO run_execution_contexts (
     run_id, session_id, workspace_id, execution_mode, execution_root, checkout_root,
@@ -145,9 +134,11 @@ const INSERT_EXECUTION_CONTEXT_SQL: &str = "INSERT INTO run_execution_contexts (
   )";
 
 /// The statements that store a new run: its row, pinned to its version and its session; for a run
-/// that joins a chain, one more on the chain's count on the first run's row, which refuses the
-/// write when that row is not a stored first run; and its execution context's row where it has
-/// one. A first run's own row counts itself.
+/// that joins a chain, a check at [`CHAIN_ROOT_CHECK_STATEMENT_INDEX`] that refuses the write when
+/// the chain's first run is not a stored first run, then its count on that row at
+/// [`CHAIN_COUNT_STATEMENT_INDEX`], which refuses it once the chain has started `chain_ask_after`
+/// runs and the person has not answered Keep going, `None` never; and its execution context's row
+/// where it has one. A first run's own row counts itself.
 #[cfg_attr(
     not(test),
     expect(
@@ -157,6 +148,7 @@ const INSERT_EXECUTION_CONTEXT_SQL: &str = "INSERT INTO run_execution_contexts (
 )]
 pub(crate) fn workflow_run_creation_statements(
     creation: &WorkflowRunCreation,
+    chain_ask_after: Option<WorkflowChainAskAfterRuns>,
 ) -> Vec<WriteStatement> {
     let run_id = creation.workflow_run_id.text();
     let session_id = creation.session_id.text();
@@ -166,7 +158,7 @@ pub(crate) fn workflow_run_creation_statements(
     let started_by = serde_json::to_string(&creation.started_by)
         .expect("a run's starter writes as JSON, holding only text and ids");
     let (chain_root_run_id, is_from_error) = match &creation.chain {
-        WorkflowRunChainPlace::Starts => (run_id, false),
+        WorkflowRunChainPlace::Starts {} => (run_id, false),
         WorkflowRunChainPlace::Joins {
             chain_root_run_id,
             is_from_error,
@@ -174,7 +166,7 @@ pub(crate) fn workflow_run_creation_statements(
     };
     // A first run's own row holds the chain's count and its answer; a joining run's holds neither.
     let first_run_value = |value: i64| match creation.chain {
-        WorkflowRunChainPlace::Starts => Value::Integer(value),
+        WorkflowRunChainPlace::Starts {} => Value::Integer(value),
         WorkflowRunChainPlace::Joins { .. } => Value::Null,
     };
     let mut statements = vec![WriteStatement {
@@ -202,11 +194,23 @@ pub(crate) fn workflow_run_creation_statements(
     }];
     if let WorkflowRunChainPlace::Joins { .. } = creation.chain {
         statements.push(WriteStatement {
-            sql: Cow::Borrowed(COUNT_CHAIN_RUN_SQL),
+            sql: Cow::Borrowed(CHAIN_ROOT_CHECK_SQL),
             bindings: StatementBindings::Named(vec![text_binding(
                 "@chain_root_run_id",
                 chain_root_run_id.as_str(),
             )]),
+            expected_row_count: Some(1),
+        });
+        statements.push(WriteStatement {
+            sql: Cow::Borrowed(COUNT_CHAIN_RUN_SQL),
+            bindings: StatementBindings::Named(vec![
+                text_binding("@chain_root_run_id", chain_root_run_id.as_str()),
+                (
+                    Cow::Borrowed("@ask_after"),
+                    chain_ask_after
+                        .map_or(Value::Null, |runs| Value::Integer(i64::from(runs.get()))),
+                ),
+            ]),
             expected_row_count: Some(1),
         });
     }
@@ -246,19 +250,22 @@ pub(crate) fn workflow_run_creation_statements(
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::{Connection, OptionalExtension};
+    use rstest::rstest;
+    use rusqlite::{Connection, OptionalExtension, params};
+    use sidekicks_contracts::daemon::config::WorkflowChainAskAfterRuns;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::instant::WireInstant;
     use sidekicks_contracts::workflow::definition::document::{WorkflowNodeId, WorkflowVersionId};
     use sidekicks_contracts::workflow::run::id::WorkflowRunId;
     use sidekicks_contracts::workflow::run::trigger::{
-        WorkflowRunMode, WorkflowStartedBy, WorkflowTriggerKind,
+        WorkflowRunChainPlace, WorkflowRunMode, WorkflowRunTrigger, WorkflowStartedBy,
+        WorkflowTriggerKind,
     };
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
 
     use super::{
-        WorkflowRunChainPlace, WorkflowRunCreation, WorkflowRunTrigger,
+        CHAIN_COUNT_STATEMENT_INDEX, CHAIN_ROOT_CHECK_STATEMENT_INDEX, WorkflowRunCreation,
         workflow_run_creation_statements,
     };
     use crate::schema::schema_parts;
@@ -268,7 +275,7 @@ mod tests {
     const VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e61";
     const ROOT_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e62";
     const JOINING_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e63";
-    const REFUSED_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e64";
+    const NEW_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e64";
 
     fn creation(run_id: &str, chain: WorkflowRunChainPlace) -> WorkflowRunCreation {
         WorkflowRunCreation {
@@ -314,53 +321,146 @@ mod tests {
             .expect("the test reads the run")
     }
 
-    /// Mutation: drop the count statement's expected 1, so a run whose root is not a stored first
-    /// run is kept with its chain counted nowhere.
+    /// Where a joining run's chain stands before it is written.
+    #[derive(Clone, Copy, Debug)]
+    enum ChainRoot {
+        /// A stored first run, its count and its Keep going answer set by the test.
+        First { run_count: i64, is_kept_going: bool },
+        /// A run that joined the first run's chain, so it counts nothing.
+        Joining,
+        /// No stored run.
+        Missing,
+    }
+
+    /// What the joining run's write does: counts it on the first run, which then reads the count,
+    /// or is refused at the statement, keeping nothing.
+    #[derive(Clone, Copy, Debug)]
+    enum Joined {
+        Counted(i64),
+        Refused(usize),
+    }
+
+    /// Mutations: `<=` for `<` in the count's limit; the Keep going answer ignored; a `NULL` limit
+    /// read as a limit; the count's or the root check's expected 1 dropped; the root check dropped,
+    /// so a missing root reads as a chain at its limit.
+    #[rstest]
+    #[case::under_the_limit(
+        ChainRoot::First { run_count: 24, is_kept_going: false },
+        WorkflowChainAskAfterRuns::new(25),
+        Joined::Counted(25)
+    )]
+    #[case::at_the_limit(
+        ChainRoot::First { run_count: 25, is_kept_going: false },
+        WorkflowChainAskAfterRuns::new(25),
+        Joined::Refused(CHAIN_COUNT_STATEMENT_INDEX)
+    )]
+    #[case::kept_going(
+        ChainRoot::First { run_count: 25, is_kept_going: true },
+        WorkflowChainAskAfterRuns::new(25),
+        Joined::Counted(26)
+    )]
+    #[case::never_ask(
+        ChainRoot::First { run_count: 2_000, is_kept_going: false },
+        None,
+        Joined::Counted(2_001)
+    )]
+    #[case::missing_root(
+        ChainRoot::Missing,
+        WorkflowChainAskAfterRuns::new(25),
+        Joined::Refused(CHAIN_ROOT_CHECK_STATEMENT_INDEX)
+    )]
+    #[case::root_not_a_first_run(
+        ChainRoot::Joining,
+        None,
+        Joined::Refused(CHAIN_ROOT_CHECK_STATEMENT_INDEX)
+    )]
     #[tokio::test]
-    async fn a_joining_run_counts_on_its_first_run_and_one_whose_root_holds_no_count_is_refused() {
+    async fn a_joining_run_counts_under_its_chains_limit_and_a_missing_root_is_refused(
+        #[case] root: ChainRoot,
+        #[case] chain_ask_after: Option<WorkflowChainAskAfterRuns>,
+        #[case] joined: Joined,
+    ) {
         let database = TestDatabase::new(schema_parts());
         let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await
             .expect("the writer opens the test database");
         let rows = database.reader();
         insert_workflow_version(&rows, DEFINITION_ID, VERSION_ID, "Chain");
+        if !matches!(root, ChainRoot::Missing) {
+            writer
+                .write(workflow_run_creation_statements(
+                    &creation(ROOT_RUN_ID, WorkflowRunChainPlace::Starts {}),
+                    None,
+                ))
+                .await
+                .expect("a chain's first run is stored");
+            // A first run's own row counts itself and has no answer yet.
+            assert_eq!(
+                chain_columns(&rows, ROOT_RUN_ID),
+                Some((ROOT_RUN_ID.to_owned(), 0, Some(1), Some(0)))
+            );
+        }
+        let joined_root = match root {
+            ChainRoot::First {
+                run_count,
+                is_kept_going,
+            } => {
+                rows.execute(
+                    "UPDATE workflow_runs SET chain_run_count = ?1, chain_kept_going = ?2 \
+                     WHERE id = ?3",
+                    params![run_count, i64::from(is_kept_going), ROOT_RUN_ID],
+                )
+                .expect("the test sets the chain's count");
+                ROOT_RUN_ID
+            }
+            ChainRoot::Joining => {
+                writer
+                    .write(workflow_run_creation_statements(
+                        &joining(JOINING_RUN_ID, ROOT_RUN_ID),
+                        None,
+                    ))
+                    .await
+                    .expect("a run joining a stored first run is stored");
+                assert_eq!(
+                    chain_columns(&rows, JOINING_RUN_ID),
+                    Some((ROOT_RUN_ID.to_owned(), 1, None, None))
+                );
+                JOINING_RUN_ID
+            }
+            ChainRoot::Missing => ROOT_RUN_ID,
+        };
+        let root_before = chain_columns(&rows, ROOT_RUN_ID);
 
-        writer
-            .write(workflow_run_creation_statements(&creation(
-                ROOT_RUN_ID,
-                WorkflowRunChainPlace::Starts,
-            )))
-            .await
-            .expect("a chain's first run is stored");
-        writer
-            .write(workflow_run_creation_statements(&joining(
-                JOINING_RUN_ID,
-                ROOT_RUN_ID,
-            )))
-            .await
-            .expect("a run joining a stored first run is stored");
-        let refused = writer
-            .write(workflow_run_creation_statements(&joining(
-                REFUSED_RUN_ID,
-                JOINING_RUN_ID,
-            )))
+        let written = writer
+            .write(workflow_run_creation_statements(
+                &joining(NEW_RUN_ID, joined_root),
+                chain_ask_after,
+            ))
             .await;
 
-        assert!(matches!(
-            refused,
-            Err(WriteError::Refused {
-                statement_index: 1,
-                row_count: 0
-            })
-        ));
-        assert_eq!(chain_columns(&rows, REFUSED_RUN_ID), None);
-        assert_eq!(
-            chain_columns(&rows, ROOT_RUN_ID),
-            Some((ROOT_RUN_ID.to_owned(), 0, Some(2), Some(0)))
-        );
-        assert_eq!(
-            chain_columns(&rows, JOINING_RUN_ID),
-            Some((ROOT_RUN_ID.to_owned(), 1, None, None))
-        );
+        match joined {
+            Joined::Counted(run_count) => {
+                written.expect("the joining run is stored");
+                assert_eq!(
+                    chain_columns(&rows, NEW_RUN_ID),
+                    Some((ROOT_RUN_ID.to_owned(), 1, None, None))
+                );
+                assert_eq!(
+                    chain_columns(&rows, ROOT_RUN_ID).map(|columns| columns.2),
+                    Some(Some(run_count))
+                );
+            }
+            Joined::Refused(statement_index) => {
+                assert!(matches!(
+                    written,
+                    Err(WriteError::Refused {
+                        statement_index: refused_at,
+                        row_count: 0
+                    }) if refused_at == statement_index
+                ));
+                assert_eq!(chain_columns(&rows, NEW_RUN_ID), None);
+                assert_eq!(chain_columns(&rows, ROOT_RUN_ID), root_before);
+            }
+        }
     }
 }

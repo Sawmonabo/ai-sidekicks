@@ -5,15 +5,19 @@
 //! that appends the run's `workflow.run.deleted`: the session log keeps the run's earlier events,
 //! so a rebuild of the runs from the log needs that record to leave the run out. Bulk delete reads
 //! the runs a page at a time and writes each page's runs of one session as one write, every run in
-//! it guarded and its event appended in that write. Each deleted run's git common folder is
-//! answered, so its snapshot refs can be pruned.
+//! it guarded and its event appended in that write. Once a run's write commits, the folder it
+//! worked in when its session had none goes too, with the workflow's runs folder when that leaves
+//! it empty. Each deleted run's git common folder is answered, so its snapshot refs can be pruned.
 
 #[cfg(test)]
 mod tests;
 
 use std::borrow::Cow;
+use std::error::Error;
+use std::fmt::{self, Display};
+use std::io;
 use std::iter;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
 use rusqlite::types::Value;
@@ -36,6 +40,8 @@ use sidekicks_contracts::workflow::run::retention::{
 use sidekicks_contracts::workflow::run::status::{GOING_RUN_STATUSES, WorkflowRunStatus};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::settle_all::DescribeEach;
+use sidekicks_store::data_folder::workflow_run_folder;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -247,15 +253,16 @@ pub(crate) enum WorkflowRunDeletionError {
     /// The writer did not keep the Keep mark.
     #[error("a run's Keep mark was not kept")]
     Write(#[from] WriteError),
-    /// A bulk delete's read or write failed: `deleted` holds every run it did delete, whose
-    /// snapshot refs still need pruning, and the source the first failure.
-    #[error("deleting old runs failed after {} were deleted", .deleted.len())]
+    /// A delete's reads, writes or folder removals failed: `deleted` holds every run it did
+    /// delete, whose snapshot refs still need pruning, and the source the first failures and how
+    /// many there were.
+    #[error("deleting runs failed after {} were deleted", .deleted.len())]
     Incomplete {
         /// Every run deleted.
         deleted: Vec<DeletedWorkflowRun>,
-        /// The first failure.
+        /// The first failures, in the order they came, and their count.
         #[source]
-        cause: Box<WorkflowRunDeletionError>,
+        cause: Box<RunDeletionFailures>,
     },
     /// SQLite refused a read, or a stored value did not read as its type.
     #[error("a read of the workflow runs failed")]
@@ -264,6 +271,64 @@ pub(crate) enum WorkflowRunDeletionError {
     /// finish.
     #[error(transparent)]
     Pool(#[from] DatabaseReadError),
+    /// A deleted run's own folder, or the workflow's runs folder it left empty, could not be
+    /// removed.
+    #[error("the folder at {} was left behind", .folder.display())]
+    FolderLeft {
+        /// The folder.
+        folder: PathBuf,
+        /// Why the removal failed.
+        #[source]
+        removal: io::Error,
+    },
+}
+
+/// How many failures a delete keeps whole; past them it only counts, so a bulk delete over a folder
+/// it cannot write keeps a bounded message.
+const KEPT_DELETION_FAILURES: usize = 3;
+
+/// The failures of one delete: the first [`KEPT_DELETION_FAILURES`] kept whole, in the order they
+/// came, and how many there were in all.
+#[derive(Debug, Default)]
+pub(crate) struct RunDeletionFailures {
+    /// The first failures, each kept whole.
+    first: Vec<WorkflowRunDeletionError>,
+    /// Every failure counted, those kept among them.
+    count: usize,
+}
+
+impl RunDeletionFailures {
+    /// Counts `failure`, keeping it whole while fewer than [`KEPT_DELETION_FAILURES`] are kept.
+    fn push(&mut self, failure: WorkflowRunDeletionError) {
+        self.count += 1;
+        if self.first.len() < KEPT_DELETION_FAILURES {
+            self.first.push(failure);
+        }
+    }
+}
+
+impl Display for RunDeletionFailures {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.count == 1 {
+            return write!(formatter, "{}", DescribeEach(&self.first));
+        }
+        write!(
+            formatter,
+            "{} failures, the first {}: {}",
+            self.count,
+            self.first.len(),
+            DescribeEach(&self.first)
+        )
+    }
+}
+
+impl Error for RunDeletionFailures {
+    /// The first failure, whose own sources stay as they were.
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.first
+            .first()
+            .map(|failure| failure as &(dyn Error + 'static))
+    }
 }
 
 impl From<WorkflowRunDeletionError> for HandlerError {
@@ -278,7 +343,8 @@ impl From<WorkflowRunDeletionError> for HandlerError {
             | WorkflowRunDeletionError::Write(_)
             | WorkflowRunDeletionError::Incomplete { .. }
             | WorkflowRunDeletionError::Database(_)
-            | WorkflowRunDeletionError::Pool(_)) => Self::Internal(Box::new(fault)),
+            | WorkflowRunDeletionError::Pool(_)
+            | WorkflowRunDeletionError::FolderLeft { .. }) => Self::Internal(Box::new(fault)),
         }
     }
 }
@@ -341,6 +407,12 @@ struct RunToDelete {
 }
 
 impl RunToDelete {
+    // The run's own folder in `data_folder`, which a run whose session had a working folder never
+    // made.
+    fn folder(&self, data_folder: &Path) -> PathBuf {
+        workflow_run_folder(data_folder, &self.definition_id, &self.workflow_run_id)
+    }
+
     fn deleted(&self) -> DeletedWorkflowRun {
         DeletedWorkflowRun {
             workflow_run_id: self.workflow_run_id,
@@ -362,7 +434,8 @@ impl RunToDelete {
 }
 
 /// Deletes runs, one or many, and sets the Keep mark that bulk delete leaves, reading through the
-/// daemon's read pool and appending each delete through the event log.
+/// daemon's read pool, appending each delete through the event log and removing each deleted run's
+/// own folder from the daemon's data folder.
 #[cfg_attr(
     not(test),
     expect(
@@ -374,11 +447,13 @@ pub(crate) struct WorkflowRunDeletion {
     pool: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
     appender: SessionEventAppender,
+    data_folder: PathBuf,
 }
 
 impl WorkflowRunDeletion {
-    /// The deletion reading through `pool`, writing the Keep mark through `writer`, and appending
-    /// each delete to `event_log`, whose writer `writer` is.
+    /// The deletion reading through `pool`, writing the Keep mark through `writer`, appending each
+    /// delete to `event_log`, whose writer `writer` is, and removing runs' folders from
+    /// `data_folder`.
     #[cfg_attr(
         not(test),
         expect(
@@ -390,20 +465,23 @@ impl WorkflowRunDeletion {
         pool: Arc<DatabaseReadPool>,
         writer: Arc<DatabaseWriter>,
         event_log: Arc<EventLogService>,
+        data_folder: PathBuf,
     ) -> Self {
         Self {
             pool,
             writer,
             appender: SessionEventAppender::new(event_log, SESSION_EVENT_VERSION.clone()),
+            data_folder,
         }
     }
 
     /// Deletes one run with its steps, form drafts, gate answers and execution context, and appends
-    /// its `workflow.run.deleted` in the same write. Fails with
+    /// its `workflow.run.deleted` in the same write, then removes its own folder. Fails with
     /// [`WorkflowRunDeletionError::NotDeletable`] for a new, running or waiting run, a failed run
     /// parked on its failed step, and a chain's first run while a later run of its chain is one of
     /// those, and with [`WorkflowRunDeletionError::NotFound`] for a run there is none of, writing
-    /// nothing either way.
+    /// nothing either way; and with [`WorkflowRunDeletionError::Incomplete`] holding the run when
+    /// its folder could not be removed after its write.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the workflow.run.delete handler")
@@ -420,7 +498,17 @@ impl WorkflowRunDeletion {
             .await?
             .ok_or(WorkflowNotFound::Run { workflow_run_id })?;
         match self.delete_runs(&[], &run, RunGuard::Deletable).await {
-            Ok(()) => Ok(run.deleted()),
+            Ok(()) => match remove_run_folder(run.folder(&self.data_folder)).await {
+                Ok(()) => Ok(run.deleted()),
+                Err((folder, removal)) => {
+                    let mut failures = RunDeletionFailures::default();
+                    failures.push(WorkflowRunDeletionError::FolderLeft { folder, removal });
+                    Err(WorkflowRunDeletionError::Incomplete {
+                        deleted: vec![run.deleted()],
+                        cause: Box::new(failures),
+                    })
+                }
+            },
             Err(error) if refused_statement_index(&error).is_some() => {
                 Err(self.refusal(workflow_run_id).await)
             }
@@ -459,9 +547,10 @@ impl WorkflowRunDeletion {
     }
 
     /// Deletes every run the preview counts for deletion, each with all its rows and its own
-    /// `workflow.run.deleted`, and answers each one deleted. A run read as deletable that its guard
-    /// no longer matches at its write, such as one kept since, is left. Fails with
-    /// [`WorkflowRunDeletionError::Incomplete`] when a read or a write fails: a failed write leaves
+    /// `workflow.run.deleted` and its own folder, and answers each one deleted. A run read as
+    /// deletable that its guard no longer matches at its write, such as one kept since, is left.
+    /// Fails with [`WorkflowRunDeletionError::Incomplete`], holding the first failures and their
+    /// count, when a read, a write or a folder's removal fails: a failed write or removal leaves
     /// the later pages to be written, and a failed read ends the delete.
     #[cfg_attr(
         not(test),
@@ -480,7 +569,7 @@ impl WorkflowRunDeletion {
             older_than: bound.as_ref(),
         };
         let mut deleted = Vec::new();
-        let mut failure = None;
+        let mut failures = RunDeletionFailures::default();
         let mut after = None;
         loop {
             let read_bound = bound.clone();
@@ -497,7 +586,7 @@ impl WorkflowRunDeletion {
             let page = match read {
                 Ok(page) => page,
                 Err(error) => {
-                    failure.get_or_insert(error);
+                    failures.push(error);
                     break;
                 }
             };
@@ -510,23 +599,30 @@ impl WorkflowRunDeletion {
             let is_last_page = page.len() < RUNS_PER_DELETE_WRITE;
             for chunk in chunk_runs_by_session(page) {
                 match self.delete_still_removable_runs(chunk, guard).await {
-                    Ok(chunk_deleted) => deleted.extend(chunk_deleted),
-                    Err(error) => {
-                        failure.get_or_insert(error);
+                    Ok(chunk_deleted) => {
+                        for run in chunk_deleted {
+                            let removed = remove_run_folder(run.folder(&self.data_folder)).await;
+                            if let Err((folder, removal)) = removed {
+                                failures
+                                    .push(WorkflowRunDeletionError::FolderLeft { folder, removal });
+                            }
+                            deleted.push(run.deleted());
+                        }
                     }
+                    Err(error) => failures.push(error),
                 }
             }
             if is_last_page {
                 break;
             }
         }
-        match failure {
-            None => Ok(deleted),
-            Some(cause) => Err(WorkflowRunDeletionError::Incomplete {
-                deleted,
-                cause: Box::new(cause),
-            }),
+        if failures.count == 0 {
+            return Ok(deleted);
         }
+        Err(WorkflowRunDeletionError::Incomplete {
+            deleted,
+            cause: Box::new(failures),
+        })
     }
 
     /// Sets or clears the run's Keep mark. Fails with [`WorkflowRunDeletionError::NotFound`] for a
@@ -557,17 +653,17 @@ impl WorkflowRunDeletion {
         }
     }
 
-    // Deletes the chunk's runs bulk delete would still remove. A run whose guard refuses the write
-    // is dropped and the rest written again, so a run kept since the read is left and the others
-    // go.
+    // Deletes the chunk's runs bulk delete would still remove, and answers those it deleted. A run
+    // whose guard refuses the write is dropped and the rest written again, so a run kept since the
+    // read is left and the others go.
     async fn delete_still_removable_runs(
         &self,
         mut runs: Vec<RunToDelete>,
         guard: RunGuard<'_>,
-    ) -> Result<Vec<DeletedWorkflowRun>, WorkflowRunDeletionError> {
+    ) -> Result<Vec<RunToDelete>, WorkflowRunDeletionError> {
         while let Some((last, earlier)) = runs.split_last() {
             let error = match self.delete_runs(earlier, last, guard).await {
-                Ok(()) => return Ok(runs.iter().map(RunToDelete::deleted).collect()),
+                Ok(()) => return Ok(runs),
                 Err(error) => error,
             };
             // The guards come first in the write, one per run in order.
@@ -658,7 +754,8 @@ fn refused_statement_index(error: &WorkflowRunDeletionError) -> Option<usize> {
         | WorkflowRunDeletionError::Write(_)
         | WorkflowRunDeletionError::Incomplete { .. }
         | WorkflowRunDeletionError::Database(_)
-        | WorkflowRunDeletionError::Pool(_) => None,
+        | WorkflowRunDeletionError::Pool(_)
+        | WorkflowRunDeletionError::FolderLeft { .. } => None,
     }
 }
 
@@ -760,4 +857,33 @@ fn run_to_delete_from_row(row: &Row<'_>) -> rusqlite::Result<RunToDelete> {
         workflow_version_id: text_column(row, 3, |text| WorkflowVersionId::new(&text))?,
         git_common_dir: row.get::<_, Option<String>>(4)?.map(PathBuf::from),
     })
+}
+
+/// Removes a run's own `folder`, where it has one, since a run whose session had a working folder
+/// made none, then its workflow's runs folder when that leaves it empty, so no empty folder stays
+/// for a workflow with no run folder left: a deleted run's, and a start's that made no run. Fails
+/// with the folder left and why.
+pub(crate) async fn remove_run_folder(folder: PathBuf) -> Result<(), (PathBuf, io::Error)> {
+    match tokio::fs::remove_dir_all(&folder).await {
+        Ok(()) => {}
+        Err(removal) if removal.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(removal) => return Err((folder, removal)),
+    }
+    let runs_folder = folder
+        .parent()
+        .expect("a run's folder sits in its workflow's runs folder")
+        .to_path_buf();
+    match tokio::fs::remove_dir(&runs_folder).await {
+        Ok(()) => Ok(()),
+        // Another run of the workflow still has its folder there, or another removal took it.
+        Err(removal)
+            if matches!(
+                removal.kind(),
+                io::ErrorKind::DirectoryNotEmpty | io::ErrorKind::NotFound
+            ) =>
+        {
+            Ok(())
+        }
+        Err(removal) => Err((runs_folder, removal)),
+    }
 }

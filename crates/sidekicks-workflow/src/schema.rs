@@ -281,9 +281,9 @@ CREATE INDEX idx_human_phase_form_state_step ON human_phase_form_state(workflow_
 -- workflow_steps: one row per step attempt, a projection over the events the
 -- run, approval and form pipelines emit.
 -- ---------------------------------------------------------------------------
--- Every column but wait_deadline_at can be rebuilt from the log. That one is
--- written when the step starts waiting, and the deadline timer is a cache over
--- it, re-armed from the row when the daemon starts.
+-- Every column can be rebuilt from the log, wait_deadline_at from the event
+-- that suspends the step; the deadline timer is a cache over that column,
+-- re-armed from the row when the daemon starts.
 CREATE TABLE workflow_steps (
   workflow_run_id   TEXT NOT NULL REFERENCES workflow_runs(id),
   node_id           TEXT NOT NULL,                 -- the node in the pinned version
@@ -313,6 +313,9 @@ CREATE TABLE workflow_steps (
   -- When the step started waiting; set exactly while it waits. The attention list's
   -- waiting-since and its oldest-first order read it.
   wait_started_at   TEXT,
+  -- The wait a person's answer names, set exactly while a person wait holds the
+  -- step, so an answer finds its run and step after a restart.
+  wait_id           TEXT,
   started_at        TEXT NOT NULL,
   finished_at       TEXT,                          -- NULL until the step settles
   -- JSON payload refs: inline items under the 64 KiB bound, an artifact
@@ -355,6 +358,8 @@ CREATE TABLE workflow_steps (
     OR (resume_at IS NULL AND wait_account_id IS NULL AND wait_deadline_at IS NULL)),
   CHECK(wait_cause = '{account}' OR (resume_at IS NULL AND wait_account_id IS NULL)),
   CHECK(wait_deadline_at IS NULL OR wait_cause IN ({person_wait_causes})),
+  CHECK((wait_id IS NOT NULL)
+    = (status = '{waiting}' AND wait_cause IN ({person_wait_causes}))),
   CHECK(decline_reason IS NULL OR status = '{failed}')
 ) STRICT;
 
@@ -364,6 +369,8 @@ CREATE INDEX idx_workflow_steps_wait_deadline ON workflow_steps(wait_deadline_at
   WHERE wait_deadline_at IS NOT NULL;
 CREATE INDEX idx_workflow_steps_wait_account ON workflow_steps(wait_account_id)
   WHERE wait_account_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_workflow_steps_wait_id ON workflow_steps(wait_id)
+  WHERE wait_id IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
 -- workflow_triggers: one row per armed trigger.
@@ -475,6 +482,7 @@ mod tests {
     const AT: &str = "2026-10-14T09:30:00.000Z";
     const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e50";
     const VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e51";
+    const WAIT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e52";
 
     fn sql_text(value: Option<&str>) -> String {
         value.map_or_else(|| "NULL".to_owned(), |value| format!("'{value}'"))
@@ -488,25 +496,27 @@ mod tests {
         wait_account_id: Option<&str>,
         resume_at: Option<&str>,
         wait_deadline_at: Option<&str>,
+        wait_id: Option<&str>,
     ) -> String {
         let wait_started_at = (status == WorkflowStepStatus::Waiting).then_some(AT);
         format!(
             "INSERT INTO workflow_steps (workflow_run_id, node_id, attempt, execution_index, \
              status, wait_cause, wait_account_id, resume_at, wait_deadline_at, wait_started_at, \
-             started_at, input_ref, output_ref, log_ref) VALUES ('run', 'node', 1, 0, '{}', {}, \
-             {}, {}, {}, {}, '{AT}', '{{}}', '{{}}', '{{}}')",
+             wait_id, started_at, input_ref, output_ref, log_ref) VALUES ('run', 'node', 1, 0, \
+             '{}', {}, {}, {}, {}, {}, {}, '{AT}', '{{}}', '{{}}', '{{}}')",
             <&'static str>::from(status),
             sql_text(wait_cause.map(<&'static str>::from)),
             sql_text(wait_account_id),
             sql_text(resume_at),
             sql_text(wait_deadline_at),
             sql_text(wait_started_at),
+            sql_text(wait_id),
         )
     }
 
-    /// A step's wait columns are set only while it waits, so a settled step never keeps a resume
-    /// or a deadline armed. Mutation: drop `CHECK(status = 'waiting' OR (resume_at IS NULL AND
-    /// …))`.
+    /// A step's wait columns are set only while it waits, so a settled step never keeps a resume,
+    /// a deadline or a wait id, and a wait on a person always keeps its wait id. Mutation: drop
+    /// `CHECK(status = 'waiting' OR (resume_at IS NULL AND …))`, or the wait id's `CHECK`.
     #[rstest]
     #[case::waiting_on_a_spent_account(
         step_row(
@@ -515,15 +525,42 @@ mod tests {
             Some("account"),
             Some(AT),
             None,
+            None,
         ),
         true
     )]
     #[case::settled_with_a_resume_armed(
-        step_row(WorkflowStepStatus::Succeeded, None, None, Some(AT), None),
+        step_row(WorkflowStepStatus::Succeeded, None, None, Some(AT), None, None),
         false
     )]
     #[case::settled_with_a_deadline_armed(
-        step_row(WorkflowStepStatus::Succeeded, None, None, None, Some(AT)),
+        step_row(WorkflowStepStatus::Succeeded, None, None, None, Some(AT), None),
+        false
+    )]
+    #[case::waiting_on_a_person_with_its_wait_id(
+        step_row(
+            WorkflowStepStatus::Waiting,
+            Some(WorkflowWaitCause::Form),
+            None,
+            None,
+            Some(AT),
+            Some(WAIT_ID),
+        ),
+        true
+    )]
+    #[case::waiting_on_a_person_without_a_wait_id(
+        step_row(
+            WorkflowStepStatus::Waiting,
+            Some(WorkflowWaitCause::Form),
+            None,
+            None,
+            None,
+            None
+        ),
+        false
+    )]
+    #[case::settled_with_a_wait_id(
+        step_row(WorkflowStepStatus::Succeeded, None, None, None, None, Some(WAIT_ID)),
         false
     )]
     fn keeps_wait_columns_to_a_waiting_step(#[case] row: String, #[case] is_admitted: bool) {

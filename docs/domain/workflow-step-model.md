@@ -59,7 +59,7 @@ Step statuses are these:
 | `waiting` | The step has suspended on one of the wait causes and holds a resume token under its `waitId`. |
 | `succeeded` | The step finished and produced its output. |
 | `failed` | The step ended in failure. A step cut by a time limit — its own `Timeout`, its wait's deadline or the run cap — reads `failed · timed out`. |
-| `skipped` | The step's input carried no items and its node does not set `alwaysOutputData`. |
+| `skipped` | The step's input carried no items. |
 | `canceled` | The step was running or waiting when its run ended failed or canceled, or it was on a branch a `First to arrive` merge canceled. |
 
 Allowed transitions:
@@ -135,7 +135,7 @@ Error handling lives on the node that failed, inside the document body stored on
 
 ## Edge Cases
 
-- A node whose input carries no items is `skipped` unless it sets `alwaysOutputData`; a disabled node passes its input straight to its output.
+- A node whose input carries no items is `skipped`; a node that sets `alwaysOutputData`, runs and returns no items emits one empty item. A disabled node passes its input straight to its output.
 - A loop node re-executes under a new run index each time its body's last node feeds back into it, so one node can leave many step records in a run; `$runIndex` and `source` tell them apart.
 - If a run is canceled while a step is waiting, there is nothing to interrupt — a waiting step holds no live process and no reservation — so the cancel completes immediately: the step reads `canceled` and its live wait members — its `waitCause`, its resume schedule and deadline and its spent account — clear in the same unit of work, while the suspension event in the log keeps the wait's cause ([Spec-015 §Park integrity and cancelability (SA-39)](../specs/015-workflow-authoring-and-execution.md#park-integrity-and-cancelability-sa-39)).
 - A canceled branch counts as settled only after its last edit has reported and the daemon has read the checkout from disk, because an interrupt does not stop an edit already under way.

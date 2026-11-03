@@ -265,9 +265,9 @@ type PermissionCheckRequest =
   // A call of one of the app's own tools that its provider runs without asking first (Codex, with
   // the daemon's tool server set to approve): gated by the calling session's level alone.
   | { kind: "toolCall"; sessionId: SessionId; runId: RunId; toolName: string; toolCallId: string }
-  // A workflow start an agent's tool or a trigger asks for; `askingRunId` is the calling agent's
-  // run, whose posture the Cedar context carries, and a trigger's start names none.
-  | { kind: "workflowStart"; workflowId: WorkflowDefinitionId; askingRunId: RunId | undefined };
+  // A workflow start only an agent's tool asks for; `askingRunId` is the calling agent's run, whose
+  // posture the Cedar context carries. A trigger's start never comes here.
+  | { kind: "workflowStart"; workflowId: WorkflowDefinitionId; askingRunId: RunId };
 type PermissionCheckResponse =
   | { allowed: true; reason: "policyAllow" }
   | { allowed: true; reason: "approved" }
@@ -292,7 +292,7 @@ type PermissionCheckResponse =
 // - workflowStart (Cedar, `cedar_policy::Authorizer::is_authorized` over the resident policy set):
 //   policyAllow on a permit, denied on a forbid, an evaluation error, an owner that does not
 //   resolve, or an agent's start whose run has no posture to read; context = `{ posture }` of the
-//   asking run, `{}` for a trigger's start. No start waits on a card.
+//   asking run. No start waits on a card.
 // A card that cannot be recorded rejects with the typed `approval.persistenceUnavailable`, and the
 // action does not proceed; a provider ask the check could not decide is refused at its provider.
 
