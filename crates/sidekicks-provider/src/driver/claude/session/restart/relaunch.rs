@@ -84,8 +84,8 @@ impl ClaudeSessionRestarts {
     /// Wakes a sleeping session through `resume`, under a binding the session directory opens
     /// first, and hands the directory the result, so it records the binding, and answers `Awake`
     /// once a process is up, or `Asleep` where the resume started none since every run in progress
-    /// waits on the person or stops. Fails with the resume's failure, which the directory records
-    /// too, and as the record fails.
+    /// waits on the person, is pausing, or stops. Fails with the resume's failure, which the
+    /// directory records too, and as the record fails.
     pub(crate) async fn wake(
         &self,
         resume: ResumeSessionParams,

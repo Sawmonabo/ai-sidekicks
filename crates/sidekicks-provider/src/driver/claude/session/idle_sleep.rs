@@ -202,9 +202,9 @@ impl ClaudeIdleSleep {
     }
 
     /// Takes the schedules the daemon stored for a session it found asleep after its own restart,
-    /// as of `now`: each recurring job, and each single fire still ahead as a one-shot job, since
-    /// the resume restores jobs and no wake-up. A session already holding jobs keeps its own, and a
-    /// later list from Claude Code replaces them.
+    /// as of `now`: each recurring job with the expiry it was stored with, and each single fire
+    /// still ahead as a one-shot job, since the resume restores jobs and no wake-up. A session
+    /// already holding jobs keeps its own, and a later list from Claude Code replaces them.
     pub(crate) fn seed_schedules(
         &self,
         session_id: SessionId,
@@ -218,11 +218,15 @@ impl ClaudeIdleSleep {
         }
         for (index, schedule) in schedules.into_iter().enumerate() {
             let job = match schedule {
-                KeptSchedule::Recurring { cron, next_fire_at } => KeptJob {
+                KeptSchedule::Recurring {
+                    cron,
+                    next_fire_at,
+                    expires_at,
+                } => KeptJob {
                     cron,
                     is_recurring: true,
                     next_fire_at,
-                    expires_at: now + RECURRING_JOB_LIFETIME,
+                    expires_at,
                 },
                 KeptSchedule::Once { fires_at } if fires_at > now => KeptJob {
                     cron: String::new(),
@@ -348,6 +352,7 @@ impl SessionSleep {
                 (true, _) | (false, None) => KeptSchedule::Recurring {
                     cron: job.cron.clone(),
                     next_fire_at,
+                    expires_at: job.expires_at,
                 },
             }
         });
@@ -412,9 +417,10 @@ impl ClaudeDriver {
     /// settings and level, and the bring-up reads the command list and tool servers again and
     /// measures spend from what the conversation already reported. A session this daemon put to
     /// sleep resumes as it ran; one found asleep after a restart of the daemon resumes from its
-    /// stored binding, and stays `Asleep` where every run in progress waits on the person or stops,
-    /// so no process is started. A session with a live process, or one that never ran, answers
-    /// `Awake` at once. Fails with the resume's failure, the session left asleep.
+    /// stored binding, and stays `Asleep` where every run in progress waits on the person, is
+    /// pausing, or stops, so no process is started. A session with a live process, or one that
+    /// never ran, answers `Awake` at once. Fails with the resume's failure, the session left
+    /// asleep.
     pub(crate) async fn wake_session(
         &self,
         session_id: SessionId,
@@ -508,7 +514,7 @@ fn read_epoch_milliseconds(member: Option<&Value>) -> Option<Timestamp> {
 
 #[cfg(test)]
 mod tests {
-    use jiff::Timestamp;
+    use jiff::{SignedDuration, Timestamp};
     use serde_json::json;
 
     use super::ClaudeIdleSleep;
@@ -551,18 +557,19 @@ mod tests {
         let after = sleep.holds(session_id, 0, Timestamp::now()).schedules;
 
         assert_eq!(before.len(), 2, "{before:?}");
-        assert_eq!(
-            after,
-            vec![KeptSchedule::Recurring {
-                cron: "*/5 * * * *".to_owned(),
-                next_fire_at: None,
-            }]
+        assert!(
+            matches!(
+                after.as_slice(),
+                [KeptSchedule::Recurring { cron, next_fire_at: None, .. }] if cron == "*/5 * * * *"
+            ),
+            "{after:?}"
         );
     }
 
     // Killed by a wake from the stored schedules that answers no job, which lets the idle sleep
     // stop a session whose recurring job Claude Code restored, by one that keeps a fire already
-    // past, and by a second seed that adds to the jobs the session already holds.
+    // past, by a seed that gives a stored job a new lifetime (the expired job kept, the kept one's
+    // expiry moved), and by a second seed that adds to the jobs the session already holds.
     #[test]
     fn the_stored_recurring_job_is_answered_after_a_wake_from_the_daemon_s_record() {
         let sleep = ClaudeIdleSleep::default();
@@ -573,17 +580,28 @@ mod tests {
         let recurring = KeptSchedule::Recurring {
             cron: "0 9 * * *".to_owned(),
             next_fire_at: None,
+            expires_at: now + SignedDuration::from_hours(1),
+        };
+        let expired = KeptSchedule::Recurring {
+            cron: "0 12 * * *".to_owned(),
+            next_fire_at: None,
+            expires_at: past,
         };
 
         sleep.seed_schedules(
             session_id,
-            vec![recurring.clone(), KeptSchedule::Once { fires_at: past }],
+            vec![
+                recurring.clone(),
+                expired,
+                KeptSchedule::Once { fires_at: past },
+            ],
             now,
         );
 
         let other = KeptSchedule::Recurring {
             cron: "0 18 * * *".to_owned(),
             next_fire_at: None,
+            expires_at: now + SignedDuration::from_hours(1),
         };
         sleep.seed_schedules(session_id, vec![recurring.clone(), other], now);
 

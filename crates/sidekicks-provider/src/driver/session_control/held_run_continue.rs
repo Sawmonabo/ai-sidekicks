@@ -245,10 +245,12 @@ mod tests {
             KeptSchedule::Recurring {
                 cron: "0 9 * * *".to_owned(),
                 next_fire_at: Some(past),
+                expires_at: ahead,
             },
             KeptSchedule::Recurring {
                 cron: "*/5 * * * *".to_owned(),
                 next_fire_at: None,
+                expires_at: ahead,
             },
         ];
 

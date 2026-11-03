@@ -32,6 +32,9 @@ pub enum KeptSchedule {
         cron: String,
         /// When it fires next, where the provider said.
         next_fire_at: Option<Timestamp>,
+        /// When the provider deletes it, a lifetime after it was made, however often the session's
+        /// processes stop and resume.
+        expires_at: Timestamp,
     },
 }
 
