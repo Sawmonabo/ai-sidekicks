@@ -43,6 +43,8 @@ pub(super) enum KeptTurnInterrupt {
     AlreadyEnded,
     /// The service holds the conversation no longer, so no turn of it runs.
     ThreadGone,
+    /// The service is draining toward its exit, so the turn ends with it.
+    ServiceDraining,
     /// Codex refused the interrupt, in its own words.
     Refused {
         /// Codex's refusal.
@@ -174,6 +176,7 @@ pub(super) async fn end_kept_turn(
             KeptTurnInterrupt::Stopped
             | KeptTurnInterrupt::AlreadyEnded
             | KeptTurnInterrupt::ThreadGone
+            | KeptTurnInterrupt::ServiceDraining
             | KeptTurnInterrupt::Refused { .. } => Ok(answer),
         }
     })
@@ -212,7 +215,7 @@ async fn follow_refused_interrupt(
 }
 
 // Reads an interrupt's answer for a kept turn: Codex's `-32600` refusals become outcomes, a
-// conversation not loaded among them, and every other failure stays one.
+// conversation not loaded and a draining service among them, and every other failure stays one.
 fn read_kept_turn_interrupt(
     interrupted: Result<CodexTurnInterrupt, CodexError>,
 ) -> Result<KeptTurnInterrupt, CodexError> {
@@ -220,6 +223,7 @@ fn read_kept_turn_interrupt(
         Ok(CodexTurnInterrupt::Stopped) => Ok(KeptTurnInterrupt::Stopped),
         Ok(CodexTurnInterrupt::AlreadyEnded) => Ok(KeptTurnInterrupt::AlreadyEnded),
         Err(error) if error.is_thread_not_found() => Ok(KeptTurnInterrupt::ThreadGone),
+        Err(error) if error.is_service_draining() => Ok(KeptTurnInterrupt::ServiceDraining),
         Err(CodexError::ProviderRequest {
             code: CODEX_INVALID_REQUEST_CODE,
             message,
@@ -250,7 +254,8 @@ fn log_kept_turn_end(
         Ok(
             KeptTurnInterrupt::Stopped
             | KeptTurnInterrupt::AlreadyEnded
-            | KeptTurnInterrupt::ThreadGone,
+            | KeptTurnInterrupt::ThreadGone
+            | KeptTurnInterrupt::ServiceDraining,
         ) => {}
         Ok(KeptTurnInterrupt::Refused { message }) => tracing::warn!(
             %session_id,
