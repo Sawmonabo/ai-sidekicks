@@ -393,7 +393,7 @@ impl CapturePacking {
         };
         // A folder removed while its fold ran, as a purge removes its owner's, has its entries
         // forgotten, so none is kept for it here. The check is made under the lock the purge's
-        // forgetting takes, so a removal after it still forgets the entry this inserts.
+        // forgetting takes, so a purge that removes the folder after it forgets what this keeps.
         let mut failed_folds = lock(&self.failed_folds);
         match &folded {
             Ok(()) => {
