@@ -29,7 +29,7 @@ mod exit;
 mod held_calls;
 mod resume;
 
-fn result(members: &Value) -> Value {
+pub(super) fn result(members: &Value) -> Value {
     let mut frame = json!({
         "type": "result",
         "subtype": "success",
@@ -718,5 +718,79 @@ async fn a_helper_start_is_checked_against_the_live_posture() {
             .await
             .to_string()
             .contains("deny")
+    );
+}
+
+// Killed by classifying the lead `result` before the conversation file is read to its end: the
+// goal would still read active with no record, so the turn would post `goalCheckUnfinished`, and
+// the completion only at the next turn's end; and by the goal line also delivered as a message.
+#[tokio::test(start_paused = true)]
+async fn a_goal_met_just_before_the_result_reads_complete_and_no_unfinished_check() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    session.frame(&json!({
+        "type": "assistant",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "message": {
+            "id": "goal-line",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Goal set: ship it"}],
+        },
+    }));
+    settle().await;
+    let (_, home) = session
+        .live
+        .spawn_bound_legs
+        .spawn_environment
+        .iter()
+        .find(|(name, _)| name == "HOME")
+        .expect("the fixture names Claude Code's home");
+    let project = std::path::Path::new(home).join(".claude/projects/work");
+    std::fs::create_dir_all(&project).expect("the project folder is made");
+    let record = json!({
+        "type": "attachment",
+        "attachment": {"type": "goal_status", "met": true, "condition": "ship it"},
+    });
+    std::fs::write(
+        project.join(format!("{SCRIPTED_PROVIDER_SESSION_ID}.jsonl")),
+        format!("{record}\n"),
+    )
+    .expect("the conversation is written");
+
+    session.frame(&result(&json!({})));
+    settle().await;
+
+    let goal_rows: Vec<Value> = session
+        .engine
+        .deliveries()
+        .into_iter()
+        .filter(|delivery| matches!(delivery.kind, "sessionEvent" | "sessionNotice"))
+        .filter_map(|delivery| delivery.payload)
+        .filter(|row| {
+            row.get("status").is_some()
+                || matches!(
+                    row["kind"].as_str(),
+                    Some("goalNotMet" | "goalCheckUnfinished")
+                )
+        })
+        .collect();
+    assert_eq!(
+        goal_rows
+            .iter()
+            .map(|row| (row["goal"]["text"].clone(), row["status"].clone()))
+            .collect::<Vec<_>>(),
+        [
+            (json!("ship it"), json!("active")),
+            (json!("ship it"), json!("complete")),
+        ]
+    );
+    assert!(
+        !session
+            .engine
+            .deliveries()
+            .iter()
+            .any(|delivery| matches!(delivery.row, Some(LateAppendableRow::AgentMessageSent(_)))),
+        "the goal line is no message of the agent's"
     );
 }

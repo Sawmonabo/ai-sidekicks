@@ -70,10 +70,10 @@ use self::in_place_resume::CodexInPlaceResumeCall;
 /// The words a run is failed with when its service ended with no exit the daemon could read.
 const CODEX_EXIT_UNREAD_FAILURE: &str = "The Codex service ended";
 
-/// What a process exit took from one session: the runs whose turns ended with it, and the binding
-/// its conversation ran under.
+/// What a process exit took from one session: the runs whose turns ended with it, its helpers'
+/// child runs, and the binding its conversation ran under.
 pub(crate) struct CodexDroppedTurns {
-    /// The runs, each once, oldest turn first.
+    /// The runs, each once, oldest turn first, then the helpers' child runs.
     pub(crate) run_ids: Vec<RunId>,
     /// The binding, `None` before the session's first run.
     pub(crate) binding_id: Option<RuntimeBindingId>,
@@ -440,7 +440,9 @@ impl CodexServiceRecovery {
                 DriverResumeResult::Resumed { resume_handle, .. } => {
                     resume_handle.as_str().to_owned()
                 }
-                DriverResumeResult::Failed { .. } => String::new(),
+                DriverResumeResult::Failed { .. } | DriverResumeResult::Deferred { .. } => {
+                    String::new()
+                }
             };
             resumed.push((session_id, thread_id, result));
         }
@@ -762,10 +764,11 @@ fn never_left() -> CodexWriterLeft {
     Box::new(|| async { false }.boxed())
 }
 
-/// Drops every turn the session held on a service whose process ended, on the session's task:
-/// the live, interrupted, paused and retried turns with their routes, pauses and continues, the
-/// compaction wait on the conversation and the waits on its turns, which no turn ends now.
-/// Answers each run those turns belonged to, once.
+/// Drops every turn the session held on a service whose process ended, on the session's task: the
+/// live, interrupted, paused and retried turns with their routes, pauses and continues, the
+/// helpers' child runs, the marks of the turns held on the person, the compaction wait on the
+/// conversation and the waits on its turns, which no turn ends now. Answers each run those turns
+/// belonged to, then each helper's child run, once.
 pub(crate) fn drop_codex_turns(
     task: &mut CodexSessionTask<'_>,
     dependencies: &CodexSessionCallDependencies,
@@ -778,12 +781,19 @@ pub(crate) fn drop_codex_turns(
         .chain(record.interrupted_run_by_turn_id.drain(..))
         .chain(record.paused_run_id_by_interrupted_turn_id.drain())
         .chain(record.delivery.retried_run_id_by_turn_id.drain());
-    for (_, run_id) in held {
+    // A helper's child run ends with the process even where no turn of its lead was live.
+    let helpers = record
+        .delivery
+        .child_run_by_thread_id
+        .drain()
+        .filter_map(|(_, child)| child.bound.map(|bound| bound.child_run_id));
+    for run_id in held.map(|(_, run_id)| run_id).chain(helpers) {
         if !run_ids.contains(&run_id) {
             run_ids.push(run_id);
         }
     }
     record.continues_awaiting_pause.clear();
+    record.held_continuation_turn_ids.clear();
     record.pause_run_id_by_turn_id.clear();
     record.interrupting_turn_ids.clear();
     record.turn_input_by_turn_id.clear();

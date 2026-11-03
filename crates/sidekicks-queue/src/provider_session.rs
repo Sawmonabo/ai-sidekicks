@@ -64,6 +64,7 @@ use crate::provider_session::resumed_runs::ResumedRunsIngress;
 pub mod controls;
 pub mod errors;
 pub mod held_tool_calls;
+mod kept_turns;
 mod provider_missing;
 pub mod resume;
 pub mod resumed_runs;

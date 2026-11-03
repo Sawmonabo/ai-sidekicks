@@ -566,6 +566,7 @@ pub(crate) fn lead_run_queued(
         new_state: AgentRunQueuedNewState::Value,
         agent_id,
         resolved_agent: None,
+        provider_child: None,
         parent_run_id: None,
         reached_by: None,
         effective_run_config,

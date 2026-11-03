@@ -289,7 +289,7 @@ impl RunQueue {
         self.refuse_unchangeable(session_id).await?;
         let (provider, provider_account_id, driver) =
             self.admission.admit_session_account(session_id).await?;
-        let run_config = self.admission.lead_run_config(session_id)?;
+        let run_config = self.admission.lead_run_config(session_id).await?;
         let skills = self
             .admission
             .resolve_skill_picks(
@@ -361,7 +361,7 @@ impl RunQueue {
         }
         self.refuse_unchangeable(session_id).await?;
         let (_, provider_account_id, _) = self.admission.admit_session_account(session_id).await?;
-        let run_config = self.admission.lead_run_config(session_id)?;
+        let run_config = self.admission.lead_run_config(session_id).await?;
         let hold = self.session_lock.hold_session(session_id).await;
         if let Some(saved) = self.read_saved(session_id, &key).await? {
             return Ok(created_response_of(saved));
@@ -399,7 +399,7 @@ impl RunQueue {
         }
         self.refuse_unchangeable(session_id).await?;
         let (_, provider_account_id, _) = self.admission.admit_session_account(session_id).await?;
-        let run_config = self.admission.lead_run_config(session_id)?;
+        let run_config = self.admission.lead_run_config(session_id).await?;
         let hold = self.session_lock.hold_session(session_id).await;
         if let Some(saved) = self.read_saved(session_id, &key).await? {
             return Ok(created_response_of(saved));

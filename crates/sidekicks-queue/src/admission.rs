@@ -748,9 +748,10 @@ impl QueueAdmission {
         Ok((provider, provider_account_id, driver))
     }
 
-    /// The limits a new lead run of `session_id` is admitted with: the daemon's `Tokens per run`
-    /// as it stands now, `None` with no limit set. Fails while no limits reader is registered.
-    pub(crate) fn lead_run_config(
+    /// The limits a new lead run of `session_id` is admitted with: the session's `Tokens per run`,
+    /// else the daemon's, as it stands now, `None` with no limit set. Fails while no limits reader
+    /// is registered, or as its read fails.
+    pub(crate) async fn lead_run_config(
         &self,
         session_id: SessionId,
     ) -> Result<Option<OrchestrationRunConfig>, QueueError> {
@@ -758,7 +759,8 @@ impl QueueAdmission {
             .deps
             .token_limits
             .require_port()?
-            .tokens_per_run(session_id);
+            .tokens_per_run(session_id)
+            .await?;
         Ok(token_limit.map(|token_limit| OrchestrationRunConfig {
             token_limit: Some(token_limit),
         }))

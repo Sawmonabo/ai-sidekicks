@@ -52,7 +52,8 @@ impl ClaudeDriver {
         self.parts()?.establishment.create(params).await
     }
 
-    /// Resumes a session's conversation in a fresh process, every failure on the `Failed` arm.
+    /// Resumes a session's conversation in a fresh process, every failure on the `Failed` arm and
+    /// a resume whose runs all wait on the person or stop on the `Deferred` one.
     pub(crate) async fn resume_session(
         &self,
         params: ResumeSessionParams,
@@ -62,8 +63,8 @@ impl ClaudeDriver {
     }
 
     /// The person's restart of a session whose process stayed down: its crash window and any
-    /// restart still waiting are dropped, it resumes, and the person is told it runs again unless
-    /// a process already live answered it.
+    /// restart still waiting are dropped, it resumes, and the person is told it runs again only
+    /// when a process started, not when a live one answered it or every run waits or stops.
     pub(crate) async fn restart_session(
         &self,
         params: ResumeSessionParams,

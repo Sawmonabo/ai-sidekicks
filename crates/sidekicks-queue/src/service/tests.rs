@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt as _;
+use futures::future::{self, BoxFuture};
 use rstest::rstest;
 use rusqlite::params;
 use serde_json::{Value, json};
@@ -370,8 +371,11 @@ fn configured_tokens_per_run() -> TokensPerRun {
 struct ConfiguredTokenLimit;
 
 impl RunTokenLimitReader for ConfiguredTokenLimit {
-    fn tokens_per_run(&self, _session_id: SessionId) -> Option<TokensPerRun> {
-        Some(configured_tokens_per_run())
+    fn tokens_per_run(
+        &self,
+        _session_id: SessionId,
+    ) -> BoxFuture<'_, Result<Option<TokensPerRun>, QueueError>> {
+        future::ready(Ok(Some(configured_tokens_per_run()))).boxed()
     }
 }
 

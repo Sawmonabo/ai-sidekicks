@@ -41,14 +41,14 @@ use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
-    FindTakenMessagesParams, HelperTokenLimitParams, InterruptRunRequest, OverrideDenialParams,
-    PauseRunParams, PickedSkill, ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams,
-    WithdrawQueuedMessageResult,
+    FindTakenMessagesParams, HelperStopOutcome, HelperStopParams, InterruptRunRequest,
+    OverrideDenialParams, PauseRunParams, PickedSkill, ReattachHelpersParams, ResumeRunParams,
+    TakenMessages, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
     CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverHandoverBriefResult,
-    DriverResumeResult, ExportHandoverBriefParams, MoveSessionToForkParams,
+    DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, MoveSessionToForkParams,
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
     ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
     SessionCommandAnswer, SetSessionGoalParams, SettleHeldToolCallsParams, StartingLevel,
@@ -82,6 +82,11 @@ pub trait ProviderDriver: Send + Sync {
         &self,
         params: ResumeSessionParams,
     ) -> BoxFuture<'_, Result<DriverResumeResult, DriverError>>;
+
+    /// Ends on the provider each turn a restart kept running in a session the start does not
+    /// resume. Answers once the driver holds the session for the work, which then runs on the
+    /// driver's own tasks under `params.stop`, each turn's outcome logged.
+    fn end_kept_turns(&self, params: EndKeptTurnsParams) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// Waits until the session's process no longer comes back on its own, so a run's binding is
     /// opened on the leg it settles on: answers once the process is live, and fails
@@ -451,8 +456,33 @@ pub trait ProviderDriver: Send + Sync {
     /// [`HelperStopReason::TokenLimit`]: crate::driver::run_control::HelperStopReason::TokenLimit
     fn stop_helper_at_token_limit(
         &self,
-        params: HelperTokenLimitParams,
+        params: HelperStopParams,
     ) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// Stops one helper alone from the console, while its lead goes on, and answers how the
+    /// provider took it: stopped for good, its running turn interrupted, found interrupted, or
+    /// already ended. The provider's own deadline bounds it; an error or a passed deadline is
+    /// `Err`.
+    fn stop_child_run(
+        &self,
+        params: HelperStopParams,
+    ) -> BoxFuture<'_, Result<HelperStopOutcome, DriverError>>;
+
+    /// Attaches what the provider still holds of `params.helpers` after a restart, in the order
+    /// given, parents first; a helper it can no longer attach is left as the restart's settle
+    /// recorded it. Fails only for a session the driver no longer runs.
+    #[expect(
+        unused_variables,
+        reason = "only a driver whose helpers outlive its process reads the helpers"
+    )]
+    fn reattach_helpers(
+        &self,
+        params: ReattachHelpersParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        // A provider whose helpers end with its process holds none past a restart, so it answers
+        // at once; a helper's continuation arrives as a new start the daemon reads off its tree.
+        Box::pin(async { Ok(()) })
+    }
 
     /// The output-speed state the provider last declared for the session's live binding, as sent;
     /// `None` with no live binding or no declaration yet, which means unread, never off. A read of

@@ -473,7 +473,8 @@ impl DaemonProcess {
             Arc::clone(&reads),
             Arc::clone(&writer),
         )));
-        let configuration = Arc::new(ConfigurationStore::open(Arc::clone(&writer), &reads).await?);
+        let configuration =
+            Arc::new(ConfigurationStore::open(Arc::clone(&writer), Arc::clone(&reads)).await?);
         let mut builder = MethodRegistryBuilder::new();
         let artifacts = register_artifact_methods(
             &mut builder,
@@ -498,6 +499,7 @@ impl DaemonProcess {
                 git: git.clone(),
                 base_environment: Arc::clone(&base_environment),
                 shell_lines: Arc::clone(&shell_lines),
+                scheduler: Arc::clone(&scheduler),
                 caller_processes: Arc::clone(&caller_process_reader),
                 build_record_readers: Arc::new(attention_changes),
                 child_records: Arc::clone(&orphan_guard) as _,

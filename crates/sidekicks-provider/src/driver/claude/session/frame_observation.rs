@@ -59,6 +59,8 @@ pub(crate) struct ClaudeStreamFrameRead {
     #[serde(default, deserialize_with = "read_lenient")]
     parent_task_id: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
+    subagent_type: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
     is_backgrounded: Option<bool>,
     #[serde(default, deserialize_with = "read_lenient")]
     patch: Option<ClaudeTaskPatch>,
@@ -297,6 +299,9 @@ impl ClaudeStreamFrameRead {
             subagent_id,
             parent_tool_use_id: filter_non_empty(self.tool_use_id.clone()),
             parent_task_id: filter_non_empty(self.parent_task_id.clone()),
+            subagent_type: (signal == ClaudeSubagentSignal::SubagentStart)
+                .then(|| filter_non_empty(self.subagent_type.clone()))
+                .flatten(),
             is_foreground: self.is_backgrounded == Some(false),
         })
     }

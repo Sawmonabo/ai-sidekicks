@@ -19,6 +19,7 @@ use crate::driver::claude::delivery::commands::ClaudeHeldCommand;
 use crate::driver::claude::delivery::mcp_tasks::restore::{ClaudeKeptCall, ClaudeKeptCallsSource};
 use crate::driver::claude::delivery::run_readings::{ClaudeOpenTurn, ClaudeStreamSession};
 use crate::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
+use crate::driver::claude::goals::endings::ClaudeProcessGoal;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::arrivals::{ClaudeArrivalSender, ClaudeTurnAtRead};
@@ -46,6 +47,9 @@ pub(crate) struct ClaudeSessionStream {
     // switch among its frames.
     account: ClaudeProcessAccount,
     pub(super) step_bound: Option<SafeInt<1>>,
+    // The lead whose goal the process carries, and the conversation file its outcomes are read
+    // from.
+    pub(super) goal: ClaudeProcessGoal,
     readings: Mutex<ClaudeStreamSession>,
     arrivals: ClaudeArrivalSender,
     routes: Arc<ClaudeRunRoutes>,
@@ -67,11 +71,13 @@ pub(crate) struct ClaudeSessionStream {
 impl ClaudeSessionStream {
     /// A stream for the process running on `provider_account_id`'s home, counting each turn's
     /// steps against `step_bound`, queuing onto `arrivals`, taking the mode reports into
-    /// `permission_mode`, the process's record the live session shares, and reading its
-    /// background calls' kept files from `kept_calls`.
+    /// `permission_mode`, the process's record the live session shares, reading the goal of
+    /// `goal`'s lead from its conversation file, and reading its background calls' kept files from
+    /// `kept_calls`.
     pub(crate) fn new(
         provider_account_id: ProviderAccountId,
         step_bound: Option<SafeInt<1>>,
+        goal: ClaudeProcessGoal,
         arrivals: ClaudeArrivalSender,
         routes: Arc<ClaudeRunRoutes>,
         prompts: Arc<Mutex<ClaudeSentPrompts>>,
@@ -83,6 +89,7 @@ impl ClaudeSessionStream {
             readings: Mutex::new(ClaudeStreamSession::new()),
             account: ClaudeProcessAccount::new(Some(provider_account_id)),
             step_bound,
+            goal,
             arrivals,
             routes,
             prompts,
@@ -204,6 +211,11 @@ impl ClaudeSessionStream {
             .filter(|(task_id, call_id)| kept.call(call_id, task_id) == ClaudeKeptCall::Recorded)
             .map(|(task_id, _)| task_id)
             .collect())
+    }
+
+    /// The ids of the session's own running command tasks that belong to `run_id`.
+    pub(crate) fn command_ids_of_run(&self, run_id: RunId) -> Vec<String> {
+        self.lock().command_tasks.command_ids_of_run(run_id)
     }
 
     /// Whether the lead `result` in `text` ends the session's turn, read on the process's reader.

@@ -45,6 +45,7 @@ use crate::driver::claude::delivery::commands::{ClaudeCommandChannel, ClaudeSess
 use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeKeptCallsSource;
 use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSessionStreams};
 use crate::driver::claude::frame_routing::ClaudeFrameRouting;
+use crate::driver::claude::goals::endings::{ClaudeGoalFile, ClaudeProcessGoal};
 use crate::driver::claude::handshake_register::ClaudeHandshakeRegister;
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
@@ -486,9 +487,17 @@ impl ClaudeSessionEstablishment {
         let config_folder = claude_config_folder(&legs.spawn_environment, PathRules::NATIVE);
         let kept_calls =
             ClaudeKeptCallsSource::new(config_folder.clone(), provider_session_id.clone());
+        // Followed from before the process starts, so every goal outcome it writes is read.
+        let goal = ClaudeProcessGoal {
+            agent_id,
+            file: Mutex::new(
+                ClaudeGoalFile::open(&legs.spawn_environment, &provider_session_id).await,
+            ),
+        };
         let stream = Arc::new(ClaudeSessionStream::new(
             provider_account_id,
             step_bound,
+            goal,
             arrivals.clone(),
             Arc::clone(&self.routes),
             Arc::clone(&self.prompts),

@@ -51,7 +51,8 @@ pub(crate) enum ClaudeWireFrameKind {
     /// `system/hook_response`: a hook's result, which the hook dispatcher takes; no event.
     #[strum(serialize = "system/hook_response")]
     SystemHookResponse,
-    /// `system/notification`: a notice `system/informational` already carries; no event.
+    /// `system/notification`: a notice `system/informational` already carries, or the cap on a
+    /// turn's unmet goal checks, which marks the turn; no event.
     #[strum(serialize = "system/notification")]
     SystemNotification,
     /// `system/files_persisted`: a file-write summary the tool rows already carry; no event.
@@ -354,6 +355,8 @@ pub(crate) struct ClaudeSubagentLifecycleSignal {
     pub(crate) parent_tool_use_id: Option<String>,
     /// The `task_id` of the helper whose agent launched this one, when a helper did.
     pub(crate) parent_task_id: Option<String>,
+    /// The role Claude Code started the helper as, its `subagent_type`; `None` on a stop.
+    pub(crate) subagent_type: Option<String>,
     /// Whether a start runs in the foreground, where Claude Code answers the helper-tool call
     /// only once the helper finished.
     pub(crate) is_foreground: bool,
@@ -390,6 +393,7 @@ pub(crate) fn normalize_claude_subagent_lifecycle(
         subagent_id,
         parent_tool_use_id,
         parent_task_id,
+        subagent_type: _,
         is_foreground,
     } = lifecycle_signal;
     let (event_type, announcement) = match signal {
@@ -479,6 +483,7 @@ mod tests {
                 subagent_id: "h2".to_owned(),
                 parent_tool_use_id: parent_tool_use_id.map(str::to_owned),
                 parent_task_id: parent_task_id.map(str::to_owned),
+                subagent_type: None,
                 is_foreground: true,
             },
             "session",

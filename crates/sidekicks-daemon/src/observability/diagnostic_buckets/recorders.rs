@@ -235,9 +235,12 @@ mod tests {
     async fn each_switch_gates_its_bucket_from_the_change_on() {
         let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await;
-        let reads = DatabaseReadPool::new(database.path(), DAEMON_CONFIGURATION_STATEMENT_CAPACITY);
+        let reads = Arc::new(DatabaseReadPool::new(
+            database.path(),
+            DAEMON_CONFIGURATION_STATEMENT_CAPACITY,
+        ));
         let store = Arc::new(
-            ConfigurationStore::open(Arc::clone(&log.writer), &reads)
+            ConfigurationStore::open(Arc::clone(&log.writer), reads)
                 .await
                 .expect("the configuration store opens"),
         );

@@ -115,6 +115,7 @@ test-support = [
   "dep:mockall",
   "dep:tracing-subscriber",
   "sidekicks-platforms/test-support",
+  "sidekicks-std/test-support",
   "sidekicks-store/test-support",
 ]
 

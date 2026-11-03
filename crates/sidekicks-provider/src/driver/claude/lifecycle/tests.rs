@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
@@ -9,6 +8,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::driver::claude::session::scripted::binding_id;
 use crate::driver::contract::params_and_results::{RunOpening, RunOpeningItem, StartRunParams};
+use crate::driver::test_registry::new_agent_id;
 
 mod account_switch;
 mod bring_up;
@@ -32,7 +32,7 @@ fn start_params(session_id: SessionId, run_id: RunId) -> StartRunParams {
         opening: RunOpening {
             session_id,
             binding_id: binding_id("lead"),
-            agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an id"),
+            agent_id: new_agent_id(),
             message_id: QueueItemId::new(&mint_uuid_v7().to_string())
                 .expect("a minted UUID is an item id"),
             item: RunOpeningItem::Message {

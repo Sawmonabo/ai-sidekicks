@@ -19,7 +19,6 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
-use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::error_description::describe_error;
@@ -48,7 +47,7 @@ use crate::driver::claude::event_normalizer::{
 };
 use crate::driver::claude::hooks::callbacks::answer_claude_request;
 use crate::driver::claude::hooks::registration::ClaudeHookCallback as RegisteredHook;
-use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoute, ClaudeRunRoutes};
+use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::permission_level::claude_permission_mode_for;
 use crate::driver::claude::session::state::LiveClaudeSession;
@@ -754,14 +753,11 @@ pub(crate) fn attribute_claude_request(
     let Some(agent_id) = agent_id.filter(|id| !id.is_empty()) else {
         return routes.lead_run_on(session_id);
     };
-    let run_id: RunId = routes.child_run_for(session_id, agent_id)?;
-    match routes.route_of(run_id)? {
-        ClaudeRunRoute::Child(route) => Some(ClaudeBoundRun {
-            run_id,
-            binding_id: route.binding_id,
-        }),
-        ClaudeRunRoute::Lead { .. } | ClaudeRunRoute::Apart => None,
-    }
+    let (run_id, route) = routes.child_route_for(session_id, agent_id)?;
+    Some(ClaudeBoundRun {
+        run_id,
+        binding_id: route.binding_id,
+    })
 }
 
 // The rule an ask's answer made, kept once the answer went.

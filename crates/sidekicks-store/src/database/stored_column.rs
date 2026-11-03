@@ -171,6 +171,17 @@ pub fn safe_int_column<const MIN: u64>(
         })
 }
 
+/// The nullable INTEGER column at `index` as a safe integer from `MIN` up, `None` for `NULL`;
+/// fails as [`safe_int_column`] does.
+pub fn optional_safe_int_column<const MIN: u64>(
+    row: &Row<'_>,
+    index: usize,
+) -> rusqlite::Result<Option<SafeInt<MIN>>> {
+    row.get::<_, Option<i64>>(index)?
+        .map(|_| safe_int_column(row, index))
+        .transpose()
+}
+
 /// A stored integer below the least its column allows or past 2^53 − 1, which JavaScript's
 /// numbers cannot hold exactly.
 #[derive(Debug, thiserror::Error)]

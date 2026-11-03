@@ -21,12 +21,6 @@ pub trait SessionProjection: Send + Sync {
     /// The statements that delete the session's rows.
     fn clear_statements(&self, session_id: &SessionId) -> Vec<WriteStatement>;
 
-    /// The statements that settle the session's rows once the fold has read its last event, run
-    /// in the last page's write; none for a projection whose fold leaves nothing to settle.
-    fn closing_statements(&self, _session_id: &SessionId) -> Vec<WriteStatement> {
-        Vec::new()
-    }
-
     /// A fresh fold for one rebuild of `session_id`.
     fn fold(&self, session_id: &SessionId) -> Box<dyn SessionProjectionFold>;
 }
@@ -42,6 +36,12 @@ pub trait SessionProjectionFold: Send {
         event: &SessionEvent,
         statements: &mut Vec<WriteStatement>,
     ) -> Result<(), ProjectionContradiction>;
+
+    /// The statements that settle the session's rows once the fold has read its last event, run
+    /// in the last page's write; none for a fold that leaves nothing to settle.
+    fn closing_statements(&self) -> Vec<WriteStatement> {
+        Vec::new()
+    }
 }
 
 /// A fold's refusal of an event that contradicts what it already applied, in words a log line

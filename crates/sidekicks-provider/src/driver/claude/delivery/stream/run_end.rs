@@ -71,6 +71,7 @@ impl ClaudeDeliveryStream {
             readings.streamed_blocks.open_turn();
             readings.refusal = None;
             readings.is_retries_spent = false;
+            readings.is_goal_check_capped = false;
             readings.turn_readings.open(lead.run_id, turn_id.clone());
             (interrupted, continues)
         };
@@ -130,6 +131,8 @@ impl ClaudeDeliveryStream {
                 .end_unrestored(restored.iter().map(String::as_str))
         };
         self.close_held_calls(session, unrestored, "result").await;
+        // Read to the file's end first, so an outcome written just before the `result` counts.
+        let has_goal_record = self.read_goal_records(session).await;
         let (turn_number, run_version, pieces, released, failed_call_words) = {
             let mut readings = session.lock();
             let open_turn = readings
@@ -221,6 +224,10 @@ impl ClaudeDeliveryStream {
             }
             (end, reader_carried, marked, intended_close)
         };
+        let goal_ending =
+            self.classify_goal_turn_end(session, frame, kind, end.change.as_ref(), has_goal_record);
+        self.deliver_goal_ending(session, goal_ending, "result")
+            .await;
         let delivery = ClaudeTurnEndDelivery {
             binding_id: lead.binding_id.clone(),
             end: end.clone(),

@@ -29,7 +29,7 @@ use crate::driver::claude::delivery::messages::{ClaudeOpenToolCall, close_opened
 use crate::driver::claude::delivery::run_readings::{ClaudeRow, ClaudeRowDelivery};
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::frame_routing::ClaudeMeteredReading;
-use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoute};
+use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::session::conversation_home::ClaudeConversationHomeKeep;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::diagnostics::DriverDiagnosticKind;
@@ -158,13 +158,8 @@ impl ClaudeDeliveryStream {
             let (binding_id, owner) = match reading.subagent_id {
                 Some(agent_id) => {
                     let child_binding = routes
-                        .child_run_for(session.session_id, &agent_id)
-                        .and_then(|child_run_id| match routes.route_of(child_run_id) {
-                            Some(ClaudeRunRoute::Child(route)) => Some(route.binding_id),
-                            Some(ClaudeRunRoute::Lead { .. } | ClaudeRunRoute::Apart) | None => {
-                                None
-                            }
-                        });
+                        .child_route_for(session.session_id, &agent_id)
+                        .map(|(_, route)| route.binding_id);
                     let owner = SubagentId::new(agent_id)
                         .map_or(MeteredUsageOwner::Run, MeteredUsageOwner::Helper);
                     (child_binding.or_else(lead_binding), owner)
@@ -257,13 +252,10 @@ impl ClaudeDeliveryStream {
         let routes = &self.dependencies.routes;
         let helper_run = task
             .parent_task_id()
-            .and_then(|parent_task_id| routes.child_run_for(session.session_id, parent_task_id))
-            .and_then(|child_run_id| match routes.route_of(child_run_id) {
-                Some(ClaudeRunRoute::Child(route)) => Some(ClaudeBoundRun {
-                    run_id: child_run_id,
-                    binding_id: route.binding_id,
-                }),
-                Some(ClaudeRunRoute::Lead { .. } | ClaudeRunRoute::Apart) | None => None,
+            .and_then(|parent_task_id| routes.child_route_for(session.session_id, parent_task_id))
+            .map(|(run_id, route)| ClaudeBoundRun {
+                run_id,
+                binding_id: route.binding_id,
             });
         helper_run
             .or(lead)

@@ -634,6 +634,10 @@ CREATE TABLE approval_requests (
   tool_call_id          TEXT,                 -- the provider's id of the tool call the ask holds, from
                                               -- approval.requested.toolCallId; NULL where the provider sent none
                                               -- and on a card the daemon raised itself
+  input_digest          TEXT,                 -- lower-case hex SHA-256 of the asked call's tool name and input as
+                                              -- RFC 8785 canonical JSON, from approval.requested.inputDigest, by which
+                                              -- a call made again under a new tool call id after a restart finds this
+                                              -- card; NULL where the input has no canonical form or the card holds no call
   state                 TEXT NOT NULL DEFAULT 'pending'
                         CHECK(state IN ('pending', 'approved', 'rejected', 'canceled')),
                                               -- No 'expired' state and no deadline column: a request waits until it is
@@ -654,7 +658,9 @@ CREATE UNIQUE INDEX idx_approval_requests_ask ON approval_requests(run_id, ask_i
 -- UNIQUE (run_id, ask_id): one approval row per ask id. The daemon mints the id once for each
 -- provider ask it takes; a provider ask delivered again while it is held is matched to the held
 -- one in memory, and one resent with none held (after a restart) is matched to its pending row by
--- tool_call_id and action, so no second row is minted for it (Spec-010 one ask↔one approval)
+-- tool_call_id and action, or, where no pending row holds that tool_call_id, to the oldest pending
+-- row of the same action and input_digest no held ask owns, so no second row is minted for it
+-- (Spec-010 one ask↔one approval)
 
 -- Owner: Plan-009
 CREATE TABLE approval_resolutions (

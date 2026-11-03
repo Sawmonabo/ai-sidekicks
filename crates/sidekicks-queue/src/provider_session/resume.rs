@@ -2,7 +2,7 @@
 //! to the driver's resume at its first admission, the idle sleep's wake or the start's recovery
 //! pass, or to its restart after the process ended and stayed down, under a binding minted here
 //! whose cursor opens before the driver runs, and recorded as the session's opening, so the next
-//! message opens nothing again.
+//! message opens nothing again; a resume the provider deferred, starting no process, opens nothing.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -64,6 +64,9 @@ pub struct ResumedSession {
     /// Whether the resumed process runs under a binding recorded for it; a process already up
     /// answers on the binding that brought it up, and none is recorded.
     pub is_binding_recorded: bool,
+    /// Whether the provider started no process because every run the resume named waits or
+    /// stops, so no binding was recorded and the session stays unopened in this process.
+    pub is_deferred: bool,
 }
 
 // Which of the driver's verbs brings a session's conversation back in a fresh process: the resume
@@ -128,7 +131,9 @@ impl ProviderSessions {
 
     /// Starts the session's provider process again after it ended and stayed down, its newest
     /// conversation brought back through the driver's restart as an opening's resume brings it
-    /// back, and keeps the session open in this process, the idle sleep following it awake. Fails
+    /// back, and keeps the session open in this process, the idle sleep following it awake; where
+    /// every run waits on the person or stops, the provider starts and reports no process and the
+    /// session stays unopened, answered `Ok` with nothing recorded. Fails
     /// with [`ProviderSessionError::Closed`] or [`ProviderSessionError::BeingDeleted`] for an ended
     /// session, [`ProviderSessionError::NoConversation`] for one with none to resume,
     /// [`ProviderSessionError::Provider`] when no driver answers its provider or the driver cannot
@@ -153,7 +158,9 @@ impl ProviderSessions {
                 .await);
         }
         let (opened, _resumed) = self.relaunch(session_id, leg, Relaunch::Restart).await?;
-        self.record_opened(session_id, opened);
+        if let Some(opened) = opened {
+            self.record_opened(session_id, opened);
+        }
         Ok(())
     }
 
@@ -184,14 +191,16 @@ impl ProviderSessions {
     }
 
     // The session's conversation is resumed in a fresh process from its stored `leg` and recorded
-    // as its opening; answers what the resume brought back.
+    // as its opening, unless the provider deferred it; answers what the resume brought back.
     pub(super) async fn resume_leg(
         &self,
         session_id: SessionId,
         leg: RuntimeBinding,
     ) -> Result<ResumedSession, ProviderSessionError> {
         let (opened, resumed) = self.relaunch(session_id, leg, Relaunch::Resume).await?;
-        self.record_opened(session_id, opened);
+        if let Some(opened) = opened {
+            self.record_opened(session_id, opened);
+        }
         Ok(resumed)
     }
 
@@ -200,13 +209,14 @@ impl ProviderSessions {
     // since the provider delivers under it at once, and recorded once the driver answers and the
     // runs the resume named are settled as it answered for them; a process whose runs or record
     // fail is closed. A process already up that answers on its own binding records nothing, and
-    // stays up when its runs fail. Answers the opening beside what the resume brought back.
+    // stays up when its runs fail; a deferred resume started none and records nothing. Answers the
+    // opening, `None` for a deferred resume, beside what the resume brought back.
     async fn relaunch(
         &self,
         session_id: SessionId,
         leg: RuntimeBinding,
         relaunch: Relaunch,
-    ) -> Result<(OpenedSession, ResumedSession), ProviderSessionError> {
+    ) -> Result<(Option<OpenedSession>, ResumedSession), ProviderSessionError> {
         let minted_id = mint_runtime_binding_id();
         let ComposedResume {
             mut params,
@@ -262,6 +272,25 @@ impl ProviderSessions {
                     provider_failure_detail,
                 });
             }
+            // An admission never meets this arm: with a live lead a send goes to that lead, a
+            // queued lead is made only at the last lead's end, and the run being admitted is
+            // itself named queued or starting, so the provider starts a process for it. Were one to
+            // meet it anyway, the admission's binding refuses the unopened session before any
+            // write.
+            DriverResumeResult::Deferred { runs } => {
+                self.deps.binding_cursors.forget_binding(&minted_id);
+                let named_run_ids = runs.iter().map(|run| run.run_id).collect();
+                // No process was started, so an untaken run has none to close.
+                self.take_resumed_runs(session_id, runs).await?;
+                return Ok((
+                    None,
+                    ResumedSession {
+                        named_run_ids,
+                        is_binding_recorded: false,
+                        is_deferred: true,
+                    },
+                ));
+            }
         };
         let named_run_ids = runs.iter().map(|run| run.run_id).collect();
         // Each run the resume named is settled before the binding is recorded, so none goes live
@@ -306,14 +335,15 @@ impl ProviderSessions {
             taken?;
         }
         Ok((
-            OpenedSession {
+            Some(OpenedSession {
                 provider: leg.provider_name,
                 execution_posture,
                 git_folder,
-            },
+            }),
             ResumedSession {
                 named_run_ids,
                 is_binding_recorded,
+                is_deferred: false,
             },
         ))
     }
@@ -349,8 +379,12 @@ impl ProviderSessions {
         let leg = read_session_leg(&self.deps.pool, session_id)
             .await?
             .ok_or(ProviderSessionError::NoConversation { session_id })?;
-        self.resume_leg(session_id, leg).await?;
-        Ok(SessionSleepState::Awake)
+        let resumed = self.resume_leg(session_id, leg).await?;
+        Ok(if resumed.is_deferred {
+            SessionSleepState::Asleep
+        } else {
+            SessionSleepState::Awake
+        })
     }
 }
 

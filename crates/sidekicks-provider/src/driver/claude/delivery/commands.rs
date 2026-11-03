@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex, Weak};
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use sidekicks_contracts::command::CommandId;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -298,6 +299,15 @@ impl ClaudeCommandTasks {
         })
     }
 
+    /// The ids of the running command tasks that belong to `run_id`.
+    pub(crate) fn command_ids_of_run(&self, run_id: RunId) -> Vec<String> {
+        self.tasks
+            .iter()
+            .filter(|(_, task)| task.start.run_id == run_id)
+            .map(|(task_id, _)| task_id.clone())
+            .collect()
+    }
+
     /// What `frame`, of `kind`, changes in `session_id`'s running commands; `run` is the run a
     /// task it starts belongs to, and the binding its ending is appended on. A task of a helper, a
     /// workflow or a tool server, or one of no kind, is no command; a later start of a task the
@@ -358,6 +368,11 @@ impl ClaudeCommandTasks {
     /// latest background set listed.
     pub(crate) fn listed_other_tasks(&self) -> impl Iterator<Item = &str> {
         self.listed_other_task_ids.iter().map(String::as_str)
+    }
+
+    /// Whether any command task still runs.
+    pub(crate) fn has_running_task(&self) -> bool {
+        !self.tasks.is_empty()
     }
 
     /// Forgets every command task: the session's process is gone, and its commands with it.

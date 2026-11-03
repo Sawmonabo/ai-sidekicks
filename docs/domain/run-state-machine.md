@@ -225,7 +225,7 @@ The canonical run lifecycle has one failure terminal state: `failed`. Additional
 
 ## Child-Run Behavior
 
-Child runs are **independent intervention targets**: a parent state change never automatically propagates to children. This follows [Spec-014 §Intervention Propagation](../specs/014-multi-agent-orchestration.md#intervention-propagation) — "A pause, interrupt, or steer applied to a parent run does not auto-cascade to its child runs. Each child run is an independent intervention target." The user acts on children explicitly via the same intervention surfaces as any run (Plan-002), using the `run_links` projection (`agent.childRunLink.list`) to enumerate them.
+Child runs are **independent intervention targets**: a parent state change never automatically propagates to children. This follows [Spec-014 §Intervention Propagation](../specs/014-multi-agent-orchestration.md#intervention-propagation) — "A pause, interrupt, or steer applied to a parent run does not auto-cascade to its child runs. Each child run is an independent intervention target." The user acts on children explicitly via the same intervention surfaces as any run (Plan-002), using `agent.childRunLink.list`, which reads each child run's own `runs` row, its `parent_run_id` and `reached_by`, to enumerate them.
 
 | Parent State | Child-Run Effect |
 | --- | --- |

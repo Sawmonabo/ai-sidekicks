@@ -13,6 +13,9 @@
 //! - An ask with no hold that names the tool call and action of a pending card no held ask owns,
 //!   as a provider resends its waiting asks after the daemon's restart, is held again under that
 //!   card's ask id: the same card stands, and its answer goes back under the resent request id.
+//!   Where no pending card holds its tool call, the oldest such card of the same action and the
+//!   same digest of its tool name and input takes it, as a call made again under a new id after a
+//!   restart; a call made again with other input raises its own card.
 //! - A card's answer is recorded, kept with the held ask, then handed to the provider that holds
 //!   the call, decision first, with the rule it made, which is recorded once the provider kept it.
 //!   A hand that failed before the provider took it is handed again when the client sends the
@@ -56,7 +59,7 @@ use sidekicks_store::database::connection::read_pool::{
 use tokio_util::sync::CancellationToken;
 
 use crate::permission_check::{
-    PermissionCheck, PermissionCheckError, ProviderAskVerdict, card_tool_call_id,
+    PermissionCheck, PermissionCheckError, ProviderAskVerdict, card_input_digest, card_tool_call_id,
 };
 use crate::refusals::{approval_request_canceled, approval_rule_not_kept};
 use crate::rules::{ApprovalRuleError, ApprovalRules};
@@ -189,10 +192,11 @@ impl PermissionAsks {
 
     /// Answers the ask itself where the check has an answer, else raises its card under an ask id
     /// the daemon mints; a second delivery of an ask still waiting raises nothing, one already
-    /// answered gets that answer again, and one with no hold whose pending card stands is held
-    /// again under that card. Fails, once the call is refused at its provider, as the check or the
-    /// read of its pending card fails or as withdrawing the card of another ask held under its
-    /// request id fails; and as handing an answer fails.
+    /// answered gets that answer again, and one with no hold whose pending card stands, found by
+    /// its tool call or else by its input, is held again under that card. Fails, once the call is
+    /// refused at its provider, as the check or the read of its pending card fails or as
+    /// withdrawing the card of another ask held under its request id fails; and as handing an
+    /// answer fails.
     pub(crate) async fn take_ask(
         &self,
         ask: ProviderPermissionAsk,
@@ -311,35 +315,37 @@ impl PermissionAsks {
     }
 
     // Holds `ask` under `key` again, waiting, under the stored ask id of the run's pending card of
-    // the same tool call and action, where no ask held here owns that card; answers whether it did.
-    // A delivery held under `key` meanwhile, or another action under the tool call, is left to the
-    // minted path.
+    // the same tool call and action, or, where no pending card holds that tool call, of the oldest
+    // pending card of the same action and input digest, where no ask held here owns that card;
+    // answers whether it did. A delivery held under `key` meanwhile, or another action under the
+    // tool call, is left to the minted path.
     async fn hold_pending_card(
         &self,
         ask: &ProviderPermissionAsk,
         key: &(RunId, String),
     ) -> Result<bool, PermissionAskError> {
-        let Some(tool_call_id) = card_tool_call_id(ask) else {
+        let tool_call_id = card_tool_call_id(ask);
+        let input_digest = card_input_digest(ask);
+        if tool_call_id.is_none() && input_digest.is_none() {
             return Ok(false);
-        };
-        let Some(stored) = self
+        }
+        let cards = self
             .deps
             .approvals
-            .read_pending_tool_call_request(ask.run_id, tool_call_id)
-            .await?
-        else {
-            return Ok(false);
-        };
-        let Some(ask_id) = stored.ask_id else {
-            return Ok(false);
-        };
-        if stored.resource_descriptor.action.as_ref() != Some(&ask.action) {
-            return Ok(false);
-        }
+            .read_pending_call_requests(ask.run_id, tool_call_id, input_digest)
+            .await?;
         let mut held = self.lock_held();
-        if held.contains_key(key) || held.values().any(|other| other.ask_id == ask_id) {
+        if held.contains_key(key) {
             return Ok(false);
         }
+        let Some(ask_id) = cards.into_iter().find_map(|stored| {
+            let ask_id = stored.ask_id?;
+            let is_free = !held.values().any(|other| other.ask_id == ask_id);
+            (is_free && stored.resource_descriptor.action.as_ref() == Some(&ask.action))
+                .then_some(ask_id)
+        }) else {
+            return Ok(false);
+        };
         held.insert(
             key.clone(),
             HeldAsk {

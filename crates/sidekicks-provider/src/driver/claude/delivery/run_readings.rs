@@ -188,6 +188,8 @@ pub(crate) struct ClaudeStreamSession {
     pub(crate) refusal: Option<RunFailureCause>,
     /// Whether Claude Code spent its own retries during the turn.
     pub(crate) is_retries_spent: bool,
+    /// Whether Claude Code ended the turn's goal checks at its cap on unmet checks in a row.
+    pub(crate) is_goal_check_capped: bool,
     /// The runs whose turn the driver's own interrupt is stopping.
     pub(crate) interrupted_runs: HashSet<RunId>,
     /// The newest run whose turn ended interrupted, kept for its next turn, and whether it holds
@@ -249,6 +251,7 @@ impl ClaudeStreamSession {
             failed_call_words: HashMap::new(),
             refusal: None,
             is_retries_spent: false,
+            is_goal_check_capped: false,
             interrupted_runs: HashSet::new(),
             continuable_run: None,
             event_ids_by_message_key: HashMap::new(),

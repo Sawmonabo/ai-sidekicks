@@ -68,6 +68,7 @@ use sidekicks_session::run::pause::RunPauseControl;
 use sidekicks_session::usage_record::UsageRecord;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::port_registration::PortRegistrationError;
+use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_workspace::git::process::GitRunner;
@@ -106,6 +107,8 @@ pub(crate) struct ProviderStart {
     pub(crate) base_environment: Arc<[(String, String)]>,
     /// The one bound on shell-line reads.
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
+    /// The program's one scheduler.
+    pub(crate) scheduler: Arc<Scheduler>,
     /// Reads where a command channel's party runs.
     pub(crate) caller_processes: Arc<dyn CallerProcessReader>,
     /// The readers of the record of each provider's builds: the attention projection, which lists
@@ -204,6 +207,7 @@ pub(crate) fn build_providers(
         runtime_bindings: Arc::clone(&binding_cursors) as _,
         shell_lines: start.shell_lines,
         background_work: Arc::clone(&background_work),
+        scheduler: start.scheduler,
         dispatches_hook_mode: dispatches_hook_mode(),
         caller_processes: start.caller_processes,
         input_waits: Arc::new(SystemInputWaitReader {

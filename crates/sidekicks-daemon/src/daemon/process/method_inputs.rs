@@ -631,6 +631,7 @@ pub(crate) async fn register_method_inputs(
             run_engine: Arc::clone(&session.engine),
             delivery: session.queue.delivery(),
             providers: Arc::clone(&registry),
+            interventions: Arc::clone(&session.interventions),
         })) as Arc<dyn ResumedRunsIngress>)?;
     let stored = build_stored_data_methods(StoredDataMethodsStart {
         database,

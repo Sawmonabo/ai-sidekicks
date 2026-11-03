@@ -13,7 +13,6 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use futures::future::ready;
 use serde_json::{Map, Value};
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -44,6 +43,7 @@ use crate::driver::ports::{DriverPorts, MessageTakenListener, ProcessGoneListene
 use crate::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver,
 };
+use crate::driver::test_registry::new_agent_id;
 use crate::port::permission_ask::{
     PermissionAskPort, ProviderPermissionAsk, ProviderPermissionAskWithdrawal,
 };
@@ -359,8 +359,7 @@ impl DaemonTurnBindingResolver for ScriptedBindings {
         async {
             Ok(DaemonTurnBinding {
                 binding_id: binding_id("daemon-turn"),
-                agent_id: AgentId::new(&mint_uuid_v7().to_string())
-                    .expect("a minted UUID is an agent id"),
+                agent_id: new_agent_id(),
                 step_bound: None,
             })
         }

@@ -106,5 +106,7 @@ fn scoped_row_session(row: &SessionScopedRow) -> SessionId {
         SessionScopedRow::UsageCostUpdated(costs) => costs.as_slice()[0].session_id,
         SessionScopedRow::AdvisorChanged(payload) => payload.session_id,
         SessionScopedRow::OutputStyleChanged(payload) => payload.session_id,
+        SessionScopedRow::GoalUpdated(payload) => payload.session_id,
+        SessionScopedRow::GoalCleared(payload) => payload.session_id,
     }
 }

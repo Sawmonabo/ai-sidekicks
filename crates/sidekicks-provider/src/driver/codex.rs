@@ -56,14 +56,14 @@ use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
-    FindTakenMessagesParams, HelperTokenLimitParams, InterruptRunRequest, OverrideDenialParams,
-    PauseRunParams, PickedSkill, ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams,
-    WithdrawQueuedMessageResult,
+    FindTakenMessagesParams, HelperStopOutcome, HelperStopParams, InterruptRunRequest,
+    OverrideDenialParams, PauseRunParams, PickedSkill, ReattachHelpersParams, ResumeRunParams,
+    TakenMessages, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
     CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverHandoverBriefResult,
-    DriverResumeResult, ExportHandoverBriefParams, MoveSessionToForkParams,
+    DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, MoveSessionToForkParams,
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
     ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
     SessionCommandAnswer, SetSessionGoalParams, SettleHeldToolCallsParams, StartingLevel,
@@ -331,6 +331,10 @@ impl ProviderDriver for CodexDriver {
         params: ResumeSessionParams,
     ) -> BoxFuture<'_, Result<DriverResumeResult, DriverError>> {
         self.resume_session(params).boxed()
+    }
+
+    fn end_kept_turns(&self, params: EndKeptTurnsParams) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.end_kept_turns(params).map(Ok).boxed()
     }
 
     fn settle_session(&self, session_id: SessionId) -> BoxFuture<'_, Result<(), DriverError>> {
@@ -631,9 +635,23 @@ impl ProviderDriver for CodexDriver {
 
     fn stop_helper_at_token_limit(
         &self,
-        params: HelperTokenLimitParams,
+        params: HelperStopParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
         self.stop_helper_at_token_limit(params).boxed()
+    }
+
+    fn stop_child_run(
+        &self,
+        params: HelperStopParams,
+    ) -> BoxFuture<'_, Result<HelperStopOutcome, DriverError>> {
+        self.stop_child_run(params).boxed()
+    }
+
+    fn reattach_helpers(
+        &self,
+        params: ReattachHelpersParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.reattach_helpers(params).boxed()
     }
 
     fn observed_output_speed_for(
