@@ -1,8 +1,8 @@
 //! What a test's Codex services run on: their shared dependencies, a program a test names, a
 //! listener's answers as a Codex service gives them, a service whose connection a test scripts, a
 //! service of the daemon's own kind published as up and holding a connection on a
-//! `ScriptedService`, its frames and asks routed as a dialed one's are, a former daemon's draining
-//! service kept in a home's record, and the stand-in Codex service a test program runs as itself.
+//! `ScriptedService`, its frames and asks routed as a dialed one's are, a former daemon's service
+//! kept in a home's record, and the stand-in Codex service a test program runs as itself.
 
 mod stand_in;
 
@@ -725,13 +725,15 @@ pub(crate) fn bind_test_listener(socket: &Path) -> Option<Listener> {
 }
 
 /// Starts a stand-in Codex process in `folder` and keeps it in the record of `service`'s home as
-/// a former daemon's service draining toward its exit on `physical_socket`, the record's lock let
-/// go; answers the process, which the test ends. Panics where the start or the record fails.
+/// a former daemon's service on `physical_socket`, draining toward its exit when `is_draining`,
+/// the record's lock let go; answers the process, which the test ends. Panics where the start or
+/// the record fails.
 #[cfg(test)]
-pub(crate) async fn keep_draining_service(
+pub(crate) async fn keep_former_service(
     service: &CodexService,
     folder: &Path,
     physical_socket: &Path,
+    is_draining: bool,
 ) -> LastingCodexService {
     let program = folder.join("stand-in");
     create_file_atomically(
@@ -764,7 +766,7 @@ pub(crate) async fn keep_draining_service(
     .write(&LastingServiceRecord {
         process: kept.record().clone(),
         physical_socket: Some(physical_socket.to_owned()),
-        is_draining: true,
+        is_draining,
     })
     .expect("the record is written");
     kept

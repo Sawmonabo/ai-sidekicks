@@ -1,7 +1,8 @@
 //! The turns a restart kept running on a Codex service, in a session the start does not resume,
 //! ended there: each interrupted by its recorded id on the service that runs it, with no resume of
 //! its conversation, since a loaded conversation still answers once the client that started it is
-//! gone. A stopping run's turn Codex continued under another id is followed once.
+//! gone. A stopping run's turn Codex continued under another id is followed once. A connection
+//! that closes or a join cut while the service's process ends reads as the turns ended with it.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -20,6 +21,7 @@ use crate::driver::codex::run::turn_interrupt::{
 use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::socket_link::is_listening;
+use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::start::kept_records::read_kept_service_socket;
 use crate::driver::codex::session::detached_conversation::{
     CODEX_DETACHED_INTERRUPT_DEADLINE, CodexDetachedFrames,
@@ -47,8 +49,9 @@ pub(super) enum KeptTurnInterrupt {
     AlreadyEnded,
     /// The service holds the conversation no longer, so no turn of it runs.
     ThreadGone,
-    /// The service is draining toward its exit, so the turn ends with it.
-    ServiceDraining,
+    /// The connection closed before Codex answered and the service's process has since ended, so
+    /// the turn ended with it.
+    EndedWithService,
     /// Codex refused the interrupt, in its own words.
     Refused {
         /// Codex's refusal.
@@ -91,10 +94,11 @@ async fn end_turns_holding_session(
     // The entry no longer waits only once its caller left; the work goes on.
     let _unheard = held.send(());
     let deadline = Instant::now() + CODEX_DETACHED_INTERRUPT_DEADLINE;
-    let Some(connection) = connect_kept_service(registry, &params, deadline).await else {
+    let Some((service, connection)) = connect_kept_service(registry, &params, deadline).await
+    else {
         return;
     };
-    let connection = &connection;
+    let (service, connection) = (&service, &connection);
     let session_id = params.session_id;
     let conversation = params.conversation.as_str();
     join_all(params.runs.iter().flat_map(|run| {
@@ -112,22 +116,21 @@ async fn end_turns_holding_session(
                 deadline,
             )
             .await;
+            let ended = read_end_after_close(service, ended, deadline).await;
             log_kept_turn_end(session_id, thread_id, turn_id.as_str(), ended);
         })
     }))
     .await;
 }
 
-// The connection of the service that runs the session's conversation, by `deadline`: the
-// daemon's own while it is up, else one of its own on the service a former daemon kept running,
-// draining or not, which is joined and never started; `None` where no running service is kept or
-// none listens where its record says, so the turns ended with it, and where the service could not
-// be found or reached in time, which is logged.
+// The service that runs the session's conversation and a connection on it, by `deadline`, as
+// [`join_kept_service`] joins it; `None` where none is joined, and where the service could not be
+// found or reached in time while it still runs, which is logged.
 async fn connect_kept_service(
     registry: &CodexServiceRegistry,
     params: &EndKeptTurnsParams,
     deadline: Instant,
-) -> Option<Arc<CodexAppServerConnection>> {
+) -> Option<(Arc<CodexService>, Arc<CodexAppServerConnection>)> {
     let joined = async {
         let service = registry
             .service_for_conversation(
@@ -136,29 +139,8 @@ async fn connect_kept_service(
             )
             .await
             .map_err(CodexError::Driver)?;
-        if let Ok(connection) = service.connection() {
-            return Ok(Some(connection));
-        }
-        let Some(kept_socket) = read_kept_service_socket(&service).await? else {
-            return Ok(None);
-        };
-        let is_kept_listening =
-            is_listening(&kept_socket)
-                .await
-                .map_err(|error| CodexError::Transport {
-                    detail: "The Codex service's socket could not be probed.".to_owned(),
-                    cause: Some(Box::new(error)),
-                })?;
-        if !is_kept_listening {
-            return Ok(None);
-        }
-        // Its notifications have no reader: the work only interrupts.
-        let (events, _unread) = CodexDetachedFrames::new();
-        let bound = deadline.saturating_duration_since(Instant::now());
-        let connection = service
-            .dial_detached_connection(&kept_socket, events, bound)
-            .await?;
-        Ok(Some(Arc::new(connection)))
+        let connection = join_kept_service(&service, deadline).await?;
+        Ok(connection.map(|connection| (service, connection)))
     };
     let joined = tokio::time::timeout_at(deadline, joined)
         .await
@@ -172,7 +154,7 @@ async fn connect_kept_service(
             })
         });
     match joined {
-        Ok(connection) => connection,
+        Ok(joined) => joined,
         Err(error) => {
             tracing::warn!(
                 error = &error as &(dyn Error + 'static),
@@ -183,6 +165,90 @@ async fn connect_kept_service(
             );
             None
         }
+    }
+}
+
+/// A connection on `service` for the turns a restart kept, by `deadline`: the daemon's own while
+/// it is up, else one of its own on the service a former daemon kept running, draining or not,
+/// which is joined and never started. `None` where no running service is kept, none listens where
+/// its record says, or the join was cut while the service's process ended, since the turns ended
+/// with it. Fails as the record's read, the probe or a join cut while the service still runs does.
+pub(super) async fn join_kept_service(
+    service: &CodexService,
+    deadline: Instant,
+) -> Result<Option<Arc<CodexAppServerConnection>>, CodexError> {
+    if let Ok(connection) = service.connection() {
+        return Ok(Some(connection));
+    }
+    let Some(kept_socket) = read_kept_service_socket(service).await? else {
+        return Ok(None);
+    };
+    let is_kept_listening =
+        is_listening(&kept_socket)
+            .await
+            .map_err(|error| CodexError::Transport {
+                detail: "The Codex service's socket could not be probed.".to_owned(),
+                cause: Some(Box::new(error)),
+            })?;
+    if !is_kept_listening {
+        return Ok(None);
+    }
+    // Its notifications have no reader: the work only interrupts.
+    let (events, _unread) = CodexDetachedFrames::new();
+    let bound = deadline.saturating_duration_since(Instant::now());
+    match service
+        .dial_detached_connection(&kept_socket, events, bound)
+        .await
+    {
+        Ok(connection) => Ok(Some(Arc::new(connection))),
+        Err(error) => {
+            if has_kept_service_ended(service, deadline).await {
+                return Ok(None);
+            }
+            Err(error)
+        }
+    }
+}
+
+/// A kept turn's end `ended`, read again where its connection closed before Codex answered: the
+/// turn ended with its service once the service's process has ended, read from its record by
+/// `deadline`; any other end, and a close while the service still runs, stands as it was.
+pub(super) async fn read_end_after_close(
+    service: &CodexService,
+    ended: Result<KeptTurnInterrupt, CodexError>,
+    deadline: Instant,
+) -> Result<KeptTurnInterrupt, CodexError> {
+    match ended {
+        Err(
+            error @ (CodexError::Transport { .. }
+            | CodexError::Unanswered {
+                cause: CodexUnansweredCause::ConnectionClosed { .. },
+                ..
+            }),
+        ) => {
+            if has_kept_service_ended(service, deadline).await {
+                return Ok(KeptTurnInterrupt::EndedWithService);
+            }
+            Err(error)
+        }
+        ended => ended,
+    }
+}
+
+// Whether the service a former daemon kept on `service`'s home has ended, read again from its
+// record by `deadline`; `false` where it still runs, and where the read failed, which is logged,
+// or ran past `deadline`.
+async fn has_kept_service_ended(service: &CodexService, deadline: Instant) -> bool {
+    match tokio::time::timeout_at(deadline, read_kept_service_socket(service)).await {
+        Ok(Ok(kept_socket)) => kept_socket.is_none(),
+        Ok(Err(error)) => {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "the record of the codex service a restart kept could not be read again"
+            );
+            false
+        }
+        Err(_elapsed) => false,
     }
 }
 
@@ -207,7 +273,7 @@ pub(super) async fn end_kept_turn(
             KeptTurnInterrupt::Stopped
             | KeptTurnInterrupt::AlreadyEnded
             | KeptTurnInterrupt::ThreadGone
-            | KeptTurnInterrupt::ServiceDraining
+            | KeptTurnInterrupt::EndedWithService
             | KeptTurnInterrupt::Refused { .. } => Ok(answer),
         }
     })
@@ -246,7 +312,7 @@ async fn follow_refused_interrupt(
 }
 
 // Reads an interrupt's answer for a kept turn: Codex's `-32600` refusals become outcomes, a
-// conversation not loaded and a draining service among them, and every other failure stays one.
+// conversation not loaded among them, and every other failure stays one.
 fn read_kept_turn_interrupt(
     interrupted: Result<CodexTurnInterrupt, CodexError>,
 ) -> Result<KeptTurnInterrupt, CodexError> {
@@ -254,7 +320,6 @@ fn read_kept_turn_interrupt(
         Ok(CodexTurnInterrupt::Stopped) => Ok(KeptTurnInterrupt::Stopped),
         Ok(CodexTurnInterrupt::AlreadyEnded) => Ok(KeptTurnInterrupt::AlreadyEnded),
         Err(error) if error.is_thread_not_found() => Ok(KeptTurnInterrupt::ThreadGone),
-        Err(error) if error.is_service_draining() => Ok(KeptTurnInterrupt::ServiceDraining),
         Err(CodexError::ProviderRequest {
             code: CODEX_INVALID_REQUEST_CODE,
             message,
@@ -286,7 +351,7 @@ fn log_kept_turn_end(
             KeptTurnInterrupt::Stopped
             | KeptTurnInterrupt::AlreadyEnded
             | KeptTurnInterrupt::ThreadGone
-            | KeptTurnInterrupt::ServiceDraining,
+            | KeptTurnInterrupt::EndedWithService,
         ) => {}
         Ok(KeptTurnInterrupt::Refused { message }) => tracing::warn!(
             %session_id,
