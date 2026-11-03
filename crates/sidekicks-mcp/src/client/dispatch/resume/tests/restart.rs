@@ -76,8 +76,7 @@ async fn v1_left_in_flight(fixture: &Fixture) -> InFlightReceipt {
     left_in_flight(fixture, Some((McpTaskGeneration::V1, endpoint))).await
 }
 
-/// Resumes `receipt` over `standing` as the restart's sweep does. No bound on the paused clock
-/// guards it: the clock jumps to its next timer while the dispatch waits on the store's writer.
+/// Resumes `receipt` over `standing` as the restart's sweep does.
 async fn resume(
     fixture: &Fixture,
     standing: &McpStandingConnection,
