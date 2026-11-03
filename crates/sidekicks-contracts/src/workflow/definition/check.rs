@@ -1,7 +1,8 @@
 //! The workflow checks as WebAssembly exports for the builder, which runs them in the page while a
 //! connection is dragged and before a save. The daemon's save runs the same graph and parameter
-//! checks, the latter with each node's kind's parameter list. Each takes its arguments as one JSON text, each node's handles among them as data, and answers
-//! JSON text; a text that does not read throws.
+//! checks, the latter with each node's kind's parameter list. Each takes its arguments as one JSON
+//! text, each node's handles among them as data, and answers JSON text; a text that does not read
+//! throws.
 
 use std::collections::HashMap;
 
