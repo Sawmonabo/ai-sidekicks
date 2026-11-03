@@ -109,7 +109,8 @@ pub(crate) enum PartyRecord {
         /// The signal that ended it.
         signal: Option<i32>,
     },
-    /// The wrapper ended the command's whole terminal session, as the daemon's stop asked.
+    /// The wrapper ended its command at the daemon's stop: its terminal session or its process
+    /// group once it runs, or itself before the command began.
     Stopped {},
     /// An askpass's prompt is open; its words are the askpass's own argument, which the daemon
     /// reads at its admission.

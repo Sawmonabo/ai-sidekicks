@@ -254,7 +254,7 @@ impl RecordFollower {
             PartyRecord::Stopped {} => {
                 tracing::debug!(
                     party,
-                    "a command wrapper ended its command's terminal session"
+                    "a command wrapper stopped its command at the daemon's stop"
                 );
                 if self
                     .wrappers
