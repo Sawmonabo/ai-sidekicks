@@ -185,9 +185,9 @@ struct GateEntryLine {
     moved: Notify,
 }
 
-/// The order ready steps enter the memory gate in: the order the tick takes their turns, which is
-/// the order they became ready, siblings readied together taken in their `order`. Clones share one
-/// line.
+/// The order ready steps enter the memory gate in: the order their drivers take their turns, each
+/// once its params are evaluated, so a step is ready for the gate when its evaluation ends and the
+/// line keeps that order exactly. Clones share one line.
 #[derive(Clone, Debug, Default)]
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 pub(crate) struct GateEntryOrder {

@@ -1,7 +1,8 @@
 //! The tick's dispatch: it decides in the tick's turn how each step the walk readies is admitted,
-//! and a driver task per step waits at the memory gate where its kind asks, launches it, runs its
-//! executor and settles it, sending every later report to the tick. An agent step's driver
-//! creates the step's agent run, which waits at the gate itself, and follows the run to its end.
+//! and a driver task per step launches it, evaluating its params, waits at the memory gate where
+//! its kind asks, runs its executor and settles it, sending every later report to the tick. An
+//! agent step's driver creates the step's agent run, which waits at the gate itself, and follows
+//! the run to its end.
 
 mod agent_step;
 mod launch;
@@ -34,6 +35,7 @@ use super::{ReadyStep, RunScope, RunSnapshot, StepReport, StepReportKind, StepSe
 use crate::engine::event_record::{EngineFault, EngineRecorder};
 use crate::engine::ports::{EnginePorts, StepAdmissionTicket, StepAdmissionWork, WorkflowNodeKey};
 use crate::expressions::evaluator::ExpressionEvaluator;
+use crate::kinds::step_context::StepContext;
 use crate::kinds::{
     NodeKind, NodeKindTable, StepAdmissionNeed, StepAdmissionShape, StepFailure, uncoded_step_error,
 };
@@ -106,10 +108,11 @@ impl StepDispatch {
     /// how it is admitted. A kind or version the table does not list fails at once, and a node
     /// pinned in a manual run settles with its pinned items, both with no task. A step the memory
     /// gate does not weigh is admitted at once and its driver spawned; a step the gate weighs, and
-    /// an agent step, whose run joins the gate, takes its turn in the entry line, and its driver
-    /// reports its hold and its admission; an agent step takes its turn once its params are
-    /// evaluated, so a slow evaluation holds up no other step. Answers the step's cancel and the
-    /// reports the tick writes this turn. Must be called inside tokio.
+    /// an agent step, whose run joins the gate, has its driver evaluate its params first and take
+    /// its turn in the entry line only then, so the line holds evaluated steps in the order they
+    /// were evaluated and no step waits behind another's evaluation; the driver reports its hold
+    /// and its admission. Answers the step's cancel and the reports the tick writes this turn.
+    /// Must be called inside tokio.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     pub(crate) fn dispatch(
         &self,
@@ -189,20 +192,16 @@ impl StepDispatch {
                     snapshot.clone(),
                     ready,
                     cancel.clone(),
-                    None,
                 ));
                 DispatchedStep { cancel, reports }
             }
             StepAdmissionNeed::Gate(shape) => {
-                // Taken here, not in the driver, so turns follow the order the tick dispatches in.
-                let turn = self.gate_entries.take_turn();
                 tokio::spawn(self.clone().drive_at_gate(
                     Arc::clone(scope),
                     snapshot.clone(),
                     ready,
                     cancel.clone(),
                     shape,
-                    turn,
                 ));
                 DispatchedStep {
                     cancel,
@@ -243,10 +242,12 @@ impl StepDispatch {
         (node, kind)
     }
 
-    /// Drives `ready`, a step the memory gate weighs as `shape`, to its admission: measures what
-    /// it runs, waits for its `turn` in the entry line, enters the gate and reports its hold and
-    /// its admission, then runs it as [`Self::drive`] does, holding its ticket. A step canceled in
-    /// the line or at the gate settles canceled; one the gate releases unadmitted fails.
+    /// Drives `ready`, a step the memory gate weighs as `shape`, to its admission: launches it,
+    /// which evaluates its params, measures what it runs, then waits for its turn in the entry
+    /// line, enters the gate and reports its hold and its admission, then runs it as
+    /// [`Self::drive`] does, holding its ticket. A step whose launch fails settles before it takes
+    /// a turn; one canceled in the line or at the gate settles canceled; one the gate releases
+    /// unadmitted fails.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     async fn drive_at_gate(
         self,
@@ -255,10 +256,22 @@ impl StepDispatch {
         ready: ReadyStep,
         cancel: CancellationToken,
         shape: StepAdmissionShape,
-        turn: GateEntryTurn,
     ) {
-        let (node, _kind) = self.look_up_step(&scope, &ready.step);
+        let (node, kind) = self.look_up_step(&scope, &ready.step);
         let step = ready.step.clone();
+        let launched = self
+            .launch(&scope, &snapshot, &ready, kind, cancel.clone())
+            .await;
+        let mut context = match launched {
+            Ok(context) => context,
+            Err(failure) => {
+                let settlement =
+                    settle_launch_failure(failure, &cancel, &node.id, &scope.redaction);
+                self.report(&step, &cancel, StepReportKind::Settled(settlement))
+                    .await;
+                return;
+            }
+        };
         let node_key = WorkflowNodeKey::new(scope.workflow_id, &node.id);
         let work = match shape {
             StepAdmissionShape::Script { runtime } => {
@@ -276,9 +289,7 @@ impl StepDispatch {
                     node_key,
                 },
                 Err(error) => {
-                    // Every path drops the turn before it reports, so a slow report channel never
-                    // holds up the line.
-                    drop(turn);
+                    drop(context);
                     let failure = StepFailure::Failed(Box::new(uncoded_step_error(format!(
                         "the step's input could not be measured: {error}"
                     ))));
@@ -292,8 +303,12 @@ impl StepDispatch {
                 }
             },
         };
+        let turn = self.gate_entries.take_turn();
         if is_canceled_in_line(&turn, &cancel).await {
+            // Every path drops the turn before it reports, so a slow report channel never holds
+            // up the line.
             drop(turn);
+            drop(context);
             let canceled = StepSettlement::Canceled {
                 hold_started_at: None,
                 is_sibling_failure: false,
@@ -307,8 +322,8 @@ impl StepDispatch {
         let end = wait_at_gate(step.clone(), ticket.admitted(), &cancel, &self.reports).await;
         let settlement = match end {
             GateWaitEnd::Admitted => {
-                self.drive(scope, snapshot, ready, cancel, Some(ticket))
-                    .await;
+                context.admission = Some(ticket);
+                self.run_launched(&scope, ready, &cancel, context).await;
                 return;
             }
             GateWaitEnd::Withdrawn { .. } => {
@@ -329,14 +344,15 @@ impl StepDispatch {
             // to tell.
             GateWaitEnd::ReportsClosed => return,
         };
+        drop(context);
         self.report(&step, &cancel, StepReportKind::Settled(settlement))
             .await;
         drop(ticket);
     }
 
     /// Drives the admitted step `ready`, its inputs already cut for execute-once, to its
-    /// settlement: launched holding its place at the memory gate, `admission`, then started and
-    /// run. A launch that fails after the step's cancel settles canceled.
+    /// settlement: launched, then started and run. A launch that fails after the step's cancel
+    /// settles canceled.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
     async fn drive(
         self,
@@ -344,46 +360,47 @@ impl StepDispatch {
         snapshot: RunSnapshot,
         ready: ReadyStep,
         cancel: CancellationToken,
-        admission: Option<Arc<dyn StepAdmissionTicket>>,
     ) {
         let (node, kind) = self.look_up_step(&scope, &ready.step);
-        let step = ready.step.clone();
         let launched = self
-            .launch(
-                &scope,
-                &snapshot,
-                &ready,
-                kind,
-                cancel.clone(),
-                admission.clone(),
-            )
+            .launch(&scope, &snapshot, &ready, kind, cancel.clone())
             .await;
-        let context = match launched {
-            Ok(context) => context,
+        match launched {
+            Ok(context) => self.run_launched(&scope, ready, &cancel, context).await,
             Err(failure) => {
                 let settlement =
                     settle_launch_failure(failure, &cancel, &node.id, &scope.redaction);
-                self.report(&step, &cancel, StepReportKind::Settled(settlement))
+                self.report(&ready.step, &cancel, StepReportKind::Settled(settlement))
                     .await;
-                drop(admission);
-                return;
             }
-        };
+        }
+    }
+
+    /// Runs the launched step `ready` on its `context`: reports its start, runs its executor and
+    /// reports its settlement, then drops the context, so the gate place it holds is released
+    /// after the report.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+    async fn run_launched(
+        &self,
+        scope: &RunScope,
+        ready: ReadyStep,
+        cancel: &CancellationToken,
+        context: StepContext,
+    ) {
+        let (node, kind) = self.look_up_step(scope, &ready.step);
+        let step = ready.step.clone();
         let started = StepReportKind::Started {
             input_ref: ready.input_ref,
             permission_level: None,
         };
-        if !self.report(&step, &cancel, started).await {
+        if !self.report(&step, cancel, started).await {
             return;
         }
         if let Some(settlement) = self.run_executor(node, kind, &context, ready.inputs).await {
-            self.report(&step, &cancel, StepReportKind::Settled(settlement))
+            self.report(&step, cancel, StepReportKind::Settled(settlement))
                 .await;
         }
-        // Dropped only after the settlement is sent, so the gate place they hold is released
-        // after the report.
         drop(context);
-        drop(admission);
     }
 
     /// Records `fault`, met by `step` of the run of `scope`, with `error`'s chain in the engine's
