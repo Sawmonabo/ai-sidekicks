@@ -497,7 +497,7 @@ async fn a_live_process_is_sent_a_held_lead_s_answers_as_its_next_message() {
         contents,
         [json!(
             "While the app restarted, the person answered what you were waiting on:\n\
-             You asked: Which branch?. The person answered: main."
+             You asked: Which branch? The person answered: main."
         )]
     );
     let parts = fixture
