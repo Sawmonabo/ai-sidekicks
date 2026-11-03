@@ -23,11 +23,12 @@ fn claude() -> ProviderId {
 }
 
 // A start signs out and removes a marked home no row names, keeps one whose sign-out the provider
-// refuses, clears the mark of a home a row names and leaves an unmarked home with no row, a
-// removed account's, as it is. Killed by every home no row names removed (the removed account's
-// home goes), by a removal without its sign-out (the record is empty), by a removal past a refused
-// sign-out (the refused home goes) and by a marked home a row names removed (the admitted home
-// goes).
+// refuses, clears the mark of an account a row names and of one whose home was never made, and
+// leaves an unmarked home with no row, a removed account's, as it is. Killed by every home no row
+// names removed (the removed account's home goes), by a removal without its sign-out (the record
+// is empty), by a removal past a refused sign-out (the refused home goes), by a marked home a row
+// names removed (the admitted home goes), by a row's mark left (still marked) and by a sign-out
+// run on a home never made (the record holds the unmade account).
 #[tokio::test]
 async fn a_start_removes_only_the_homes_minted_for_accounts_no_row_took() {
     let database = TestDatabase::new(schema_parts());
@@ -42,7 +43,12 @@ async fn a_start_removes_only_the_homes_minted_for_accounts_no_row_took() {
     let removed = registry
         .mint(claude())
         .expect("a removed account is minted");
-    clear_minted_mark(removed.home()).expect("the removed account's home carries no mark");
+    clear_minted_mark(data_folder.path(), removed.account_id())
+        .expect("the removed account carries no mark");
+    let unmade = registry
+        .mint(claude())
+        .expect("an account whose home a stop left unmade");
+    std::fs::remove_dir_all(unmade.home().path()).expect("the home is taken away");
     let admitted_mint = registry
         .mint(claude())
         .expect("an admitted account is minted");
@@ -62,7 +68,8 @@ async fn a_start_removes_only_the_homes_minted_for_accounts_no_row_took() {
         .await
         .expect("the account is admitted");
     // A stop between the row's write and the mark's clear leaves the admitted home marked.
-    mark_minted(&admitted.credential_home, &claude()).expect("the admitted home is marked");
+    mark_minted(data_folder.path(), &admitted.account_id, &claude())
+        .expect("the admitted account is marked");
     let legs = Arc::new(RecordedSignOuts::refusing(refused.account_id().clone()));
 
     remove_unadmitted_homes(

@@ -2,7 +2,8 @@
 //! folder, readable by its owner alone, where the provider's own tooling keeps that account's
 //! sign-in; whether a registered account's home is there to run in; its reset, the provider's
 //! own sign-out followed by the home emptied in place; the sign-out of every home before
-//! `Erase all data` deletes them; and the mark a new account's home carries until a row takes it.
+//! `Erase all data` deletes them; and the mark a new account carries, outside its home, until a
+//! row takes it.
 //!
 //! Where the provider keeps its agents' memory in its home, that folder is a link to the daemon's
 //! own agent-memory folder, made with the home and again after each reset, so every account's

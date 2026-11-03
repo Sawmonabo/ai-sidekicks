@@ -328,9 +328,9 @@ impl ProviderAccountRegistry {
         }
     }
 
-    /// Mints a new `provider` account's id and makes its home, marked as minted until a row takes
-    /// it, writing no row. Fails when the system gives no random bytes or the home cannot be made
-    /// or marked.
+    /// Mints a new `provider` account's id, marks it as minted until a row takes it, and makes its
+    /// home, writing no row. Fails when the system gives no random bytes or the mark or the home
+    /// cannot be made.
     pub fn mint(
         &self,
         provider: ProviderId,
@@ -339,12 +339,18 @@ impl ProviderAccountRegistry {
             random_hex(ACCOUNT_ID_BYTES).map_err(ProviderAccountRegistryError::Mint)?,
         )
         .expect("a hexadecimal id of a fixed length is an account id");
-        let home = create_credential_home(&self.data_folder, &provider, &account_id)
+        // Marked before its home is made, so a stop at any point leaves no home the start's sweep
+        // cannot tell from a removed account's.
+        mark_minted(&self.data_folder, &account_id, &provider)
             .map_err(ProviderAccountRegistryError::CredentialHome)?;
-        if let Err(error) = mark_minted(&home, &provider) {
-            remove_credential_home(&home).map_err(ProviderAccountRegistryError::CredentialHome)?;
-            return Err(ProviderAccountRegistryError::CredentialHome(error));
-        }
+        let home = match create_credential_home(&self.data_folder, &provider, &account_id) {
+            Ok(home) => home,
+            Err(error) => {
+                clear_minted_mark(&self.data_folder, &account_id)
+                    .map_err(ProviderAccountRegistryError::CredentialHome)?;
+                return Err(ProviderAccountRegistryError::CredentialHome(error));
+            }
+        };
         Ok(MintedAccount {
             account_id,
             provider,
@@ -356,7 +362,7 @@ impl ProviderAccountRegistry {
     /// current account, and answers it. Fails with
     /// [`ProviderAccountRegistryError::DisplayLabelTaken`] for a name another account of the
     /// provider holds, and when the write is not kept, including for an account already
-    /// admitted; the minted home stays for the caller to abandon. A written row takes the home's
+    /// admitted; the minted home stays for the caller to abandon. A written row takes the account's
     /// minted mark away.
     pub async fn admit(
         &self,
@@ -401,7 +407,7 @@ impl ProviderAccountRegistry {
             .await
             .map_err(label_refusal_or_failure)?;
         // The row names the home now, so a start's sweep keeps it with its mark or without.
-        if let Err(error) = clear_minted_mark(&minted.home) {
+        if let Err(error) = clear_minted_mark(&self.data_folder, &minted.account_id) {
             tracing::warn!(
                 error = &error as &(dyn std::error::Error + 'static),
                 "an admitted account's home kept its minted mark; the next start clears it"
@@ -415,14 +421,16 @@ impl ProviderAccountRegistry {
         &self.data_folder
     }
 
-    /// Removes the home of `minted`, an account no sign-in admitted. Fails when the home cannot
-    /// be removed.
+    /// Removes the home of `minted`, an account no sign-in admitted, then its mark. Fails when
+    /// either cannot be removed; a mark left makes the next start remove the home again.
     #[expect(
         clippy::needless_pass_by_value,
         reason = "abandoning consumes the minted account, so it cannot be admitted after"
     )]
     pub fn abandon(&self, minted: MintedAccount) -> Result<(), ProviderAccountRegistryError> {
-        remove_credential_home(&minted.home).map_err(ProviderAccountRegistryError::CredentialHome)
+        remove_credential_home(&minted.home)
+            .and_then(|()| clear_minted_mark(&self.data_folder, &minted.account_id))
+            .map_err(ProviderAccountRegistryError::CredentialHome)
     }
 
     /// Every registered account, or `provider`'s alone, oldest first. Fails when the accounts
