@@ -245,6 +245,7 @@ mod tests {
     use std::time::Duration;
 
     use rusqlite::params;
+    use sidekicks_contracts::daemon::mode_outcome::DaemonModeOutcome;
     use sidekicks_contracts::wire::instant::WireInstant;
     use sidekicks_platforms::{CredentialStore, Spawner, UnendedProcess};
     use sidekicks_provider::command_search::ProviderCommandSearch;
@@ -263,37 +264,46 @@ mod tests {
     use crate::daemon::schema::schema_parts;
     use crate::data_acts::mode_outcome::hold_data_folder;
 
-    // With a Claude Code account registered, the erase runs `claude auth logout` in the account's
-    // home while that home still holds its files, and only then deletes the data folder with the
-    // home in it. Killed by the sign-out skipped, and by the sign-out run after the delete.
+    // With two Claude Code accounts registered, the erase runs `claude auth logout` in each
+    // account's home while that home still holds its files, and only then deletes the data folder
+    // with the homes in it; the second's sign-out exits 1, so the erase deletes both homes and
+    // fails naming that account as left signed in. Killed by the sign-out skipped, by the sign-out
+    // run after the delete, and by an early return on a failed sign-out.
     #[tokio::test]
     async fn the_offline_erase_signs_every_account_out_before_it_deletes() {
         let root = tempfile::tempdir().expect("a scratch folder is made");
         let data = root.path().join("data");
-        let home = data.join("accounts").join("account-1");
-        tokio::fs::create_dir_all(&home)
-            .await
-            .expect("the account's home is made");
-        tokio::fs::write(home.join("settings.json"), "kept")
-            .await
-            .expect("the home holds a file");
+        let homes = ["account-1", "account-2"].map(|account| data.join("accounts").join(account));
         let connection = open_database(
             &data.join(DAEMON_DATABASE_FILE_NAME),
             &schema_parts().into_schema(),
         )
         .expect("the store opens");
         let now = WireInstant::now();
-        connection
-            .execute(
-                "INSERT INTO provider_accounts (account_id, provider, credential_home_path,
-                   billing_mode, is_default, created_at, updated_at)
-                 VALUES ('account-1', 'claude', ?1, 'unknown', 1, ?2, ?2)",
-                params![
-                    home.to_str().expect("the home's path is text"),
-                    now.as_str()
-                ],
-            )
-            .expect("the account is stored");
+        for (home, is_default) in homes.iter().zip([1, 0]) {
+            tokio::fs::create_dir_all(home)
+                .await
+                .expect("the account's home is made");
+            tokio::fs::write(home.join("settings.json"), "kept")
+                .await
+                .expect("the home holds a file");
+            connection
+                .execute(
+                    "INSERT INTO provider_accounts (account_id, provider, credential_home_path,
+                       billing_mode, is_default, created_at, updated_at)
+                     VALUES (?1, 'claude', ?2, 'unknown', ?3, ?4, ?4)",
+                    params![
+                        home.file_name()
+                            .expect("the home has a name")
+                            .to_str()
+                            .expect("the home's name is text"),
+                        home.to_str().expect("the home's path is text"),
+                        is_default,
+                        now.as_str()
+                    ],
+                )
+                .expect("the account is stored");
+        }
         drop(connection);
         let programs = root.path().join("programs");
         tokio::fs::create_dir_all(&programs)
@@ -305,7 +315,7 @@ mod tests {
             format!(
                 "#!/bin/sh\nif [ -e \"$CLAUDE_CONFIG_DIR/settings.json\" ]; then held=whole; \
                  else held=gone; fi\nprintf '%s|%s|%s\\n' \"$CLAUDE_CONFIG_DIR\" \"$*\" \
-                 \"$held\" >> '{}'\n",
+                 \"$held\" >> '{}'\ncase \"$CLAUDE_CONFIG_DIR\" in */account-2) exit 1;; esac\n",
                 record.display()
             ),
             0o755,
@@ -335,13 +345,32 @@ mod tests {
         })
         .expect("the system gives random bytes");
 
-        erase_held_data_folder(&data, lock, &secret_items, async { Ok(services) }).await;
+        let outcome =
+            erase_held_data_folder(&data, lock, &secret_items, async { Ok(services) }).await;
 
         let recorded = tokio::fs::read_to_string(&record)
             .await
-            .expect("the account's sign-out ran");
-        assert_eq!(recorded, format!("{}|auth logout|whole\n", home.display()));
-        assert!(!home.exists(), "the erase left the account's home");
+            .expect("the accounts' sign-outs ran");
+        let mut recorded: Vec<&str> = recorded.lines().collect();
+        recorded.sort_unstable();
+        let expected: Vec<String> = homes
+            .iter()
+            .map(|home| format!("{}|auth logout|whole", home.display()))
+            .collect();
+        assert_eq!(recorded, expected);
+        for home in &homes {
+            assert!(!home.exists(), "the erase left an account's home");
+        }
+        let DaemonModeOutcome::Error(failure) = outcome else {
+            panic!("an erase that left an account signed in answered success");
+        };
+        assert!(
+            failure
+                .message
+                .contains("account account-2 was left signed in"),
+            "{}",
+            failure.message
+        );
     }
 
     // Fails when the erase drops the orphan registry's unread cause or a process the sweep could
