@@ -31,6 +31,8 @@ use crate::port::running_command_publisher::{
     CommandStart, ProviderCommandEnd, ReseedScope, RunningCommandPublisher as _,
 };
 
+mod endings;
+
 const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
 const RUN: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0f";
 
@@ -104,7 +106,6 @@ fn scripted_driver(script: &Arc<DriverScript>, moved: bool) -> MockProviderDrive
 struct Fixture {
     sets: RunningCommandSets,
     endings: mpsc::UnboundedReceiver<Appended>,
-    binding: Arc<Mutex<RuntimeBindingId>>,
 }
 
 fn binding(id: &str) -> RuntimeBindingId {
@@ -113,17 +114,11 @@ fn binding(id: &str) -> RuntimeBindingId {
 
 fn fixture() -> Fixture {
     let (sender, endings) = mpsc::unbounded_channel();
-    let binding = Arc::new(Mutex::new(self::binding("binding-a")));
-    let bound = Arc::clone(&binding);
     let sets = RunningCommandSets::new(
-        Arc::new(move |_session: &SessionId| Some(lock(&bound).clone())),
+        Arc::new(|_session: &SessionId| Some(binding("binding-a"))),
         Arc::new(SentEndings(sender)),
     );
-    Fixture {
-        sets,
-        endings,
-        binding,
-    }
+    Fixture { sets, endings }
 }
 
 fn session() -> SessionId {
@@ -144,6 +139,7 @@ fn start(id: &str, name: &str) -> CommandStart {
         session_id: session(),
         command_id: command(id),
         run_id: RunId::new(RUN).expect("a run id"),
+        binding_id: binding("binding-a"),
         name: NonEmptyText::new(name.to_owned()).expect("a name"),
         started_at: WireInstant::now(),
         line: Some(name.to_owned()),
@@ -637,23 +633,6 @@ async fn two_runs_of_one_command_each_settle_their_own_row() {
             (command("first"), CommandEnding::Finished, exit_code(0)),
             (command("second"), CommandEnding::Failed, exit_code(3)),
         ]
-    );
-}
-
-// Fails when an ending is appended on the binding the command started on, which a fork move
-// replaces.
-#[tokio::test]
-async fn a_command_running_across_a_fork_move_ends_on_the_new_binding() {
-    let mut fixture = fixture();
-    fixture.sets.command_started(start("long", "cargo test"));
-    *lock(&fixture.binding) = binding("binding-b");
-    fixture
-        .sets
-        .command_ended(session(), command("long"), end(Some(0), None));
-    let (bound, ending, _) = next_ending(&mut fixture).await;
-    assert_eq!(
-        (bound, ending.command_id),
-        (binding("binding-b"), command("long"))
     );
 }
 

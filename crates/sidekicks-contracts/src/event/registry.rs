@@ -116,6 +116,7 @@ session_event_types! {
     /// The event types of the `toolActivity` category.
     TOOL_ACTIVITY_EVENT_TYPES = ToolActivity [
         AgentToolCallInvoked = "agent.toolCall.invoked",
+        AgentToolCallBackgrounded = "agent.toolCall.backgrounded",
         AgentToolCallCompleted = "agent.toolCall.completed",
         AgentToolCallFailed = "agent.toolCall.failed",
         AgentSubagentStarted = "agent.subagent.started",

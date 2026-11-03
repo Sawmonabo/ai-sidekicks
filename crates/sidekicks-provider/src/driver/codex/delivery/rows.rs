@@ -221,7 +221,7 @@ pub(crate) fn read_codex_item_completed_row(
     let result = read_result_body(item);
     let (row, body) = if is_failed {
         (
-            LateAppendableRow::AgentToolCallFailed(payload),
+            LateAppendableRow::AgentToolCallFailed(payload.into_failed(None)),
             result.or_else(|| status.map(str::to_owned)),
         )
     } else {

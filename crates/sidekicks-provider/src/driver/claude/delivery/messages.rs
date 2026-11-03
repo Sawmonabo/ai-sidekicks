@@ -3,13 +3,16 @@
 //! The frames are untrusted, so each is read into structs that name only the members read, each
 //! member read leniently, and a block that reads as nothing known is left out.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::marker::PhantomData;
 
+use jiff::Timestamp;
 use serde::de::{IgnoredAny, SeqAccess};
 use serde::{Deserialize, Deserializer};
 use serde_json::value::RawValue;
-use sidekicks_contracts::event::declared_variants::{RunAgentOutputPayload, ToolActivityPayload};
+use sidekicks_contracts::event::declared_variants::{
+    RunAgentOutputPayload, ToolActivityPayload, ToolCallEndCause,
+};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::failure_cause::{RunFailureCause, RunRefusedOrigin};
@@ -19,13 +22,14 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::transcript::whole_patch::WholePatchFile;
-use tokio::time::Instant;
 
+use crate::driver::claude::delivery::mcp_tasks::ClaudeToolServerTasks;
 use crate::driver::claude::delivery::patches::{
     is_claude_file_changing_tool, read_claude_patch_file,
 };
 use crate::driver::claude::delivery::peer_arrival::{ClaudeMessageOrigin, read_boxed_origin};
 use crate::driver::claude::delivery::system::read_provider_words;
+use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::reorder_buffer::ReorderPairingRole;
 use crate::lenient_json::{
     Lenient, LenientElement, LenientList, LenientVisitor, lenient_object, read_lenient,
@@ -165,10 +169,48 @@ lenient_object!(
     ClaudeResultTextBlock
 );
 
-/// A tool call the session's lead started and has not yet answered, by its `tool_use_id`.
+/// A tool call the session's lead started and has not yet answered, by its `tool_use_id`, with
+/// the run that started it, whose route may be forgotten before a held call ends. Its start is on
+/// the wall clock, so an opening rebuilt from the log is timed from its stored time; a clock set
+/// back reads as no time taken.
+#[derive(Clone)]
 pub(crate) struct ClaudeOpenToolCall {
     tool_name: EventText,
-    started_at: Instant,
+    run: ClaudeBoundRun,
+    started_at: Timestamp,
+}
+
+impl ClaudeOpenToolCall {
+    /// A call of `tool_name` that `run` started at `started_at`, on the wall clock.
+    pub(crate) fn new(tool_name: EventText, run: ClaudeBoundRun, started_at: Timestamp) -> Self {
+        Self {
+            tool_name,
+            run,
+            started_at,
+        }
+    }
+
+    /// The run that started the call, and its binding.
+    pub(crate) fn run(&self) -> &ClaudeBoundRun {
+        &self.run
+    }
+
+    /// The called tool's name.
+    pub(crate) fn tool_name(&self) -> &EventText {
+        &self.tool_name
+    }
+}
+
+/// How a tool call ended: with its result, or failed, with why when no result came.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClaudeToolCallOutcome {
+    /// It answered.
+    Completed,
+    /// It failed.
+    Failed {
+        /// Why it ended with no result, where none came.
+        end_cause: Option<ToolCallEndCause>,
+    },
 }
 
 /// One row read off a message frame, with how it pairs in the reorder buffer.
@@ -220,13 +262,16 @@ pub(crate) enum ClaudeMessageBody {
     Patch(WholePatchFile),
 }
 
-/// The rows of one `user` frame of the lead and the tool calls it answered with an error. A
-/// result naming a call the lead never started carries no row, since no tool is named.
+/// The rows of one `user` frame of the lead, the tool calls it answered with an error and the
+/// held calls it answered with a stand-in. A result naming a call the lead never started carries
+/// no row, since no tool is named.
 pub(crate) struct ClaudeUserFrameReading {
     /// The rows.
     pub(crate) rows: Vec<ClaudeMessageRow>,
     /// Each call Claude Code answered with an error, by its id, with the words it sent the model.
     pub(crate) failed_results: Vec<(String, String)>,
+    /// Each held call's stand-in result, by the call's id, with the stand-in's words.
+    pub(crate) held_stand_ins: Vec<(String, String)>,
 }
 
 impl ClaudeMessageFrame {
@@ -360,16 +405,17 @@ impl ClaudeMessageFrame {
     }
 }
 
-/// The rows of one `assistant` frame of the lead: each thinking block's summary and each text
-/// block under the message's id, a fresh one where the frame names none, and each tool call as
-/// `agent.toolCall.invoked`, which opens the call in `open_tool_calls` at `now`.
+/// The rows of one `assistant` frame of the lead on `run`: each thinking block's summary and each
+/// text block under the message's id, a fresh one where the frame names none, and each tool call
+/// as `agent.toolCall.invoked`, which opens the call in `open_tool_calls` on `run` at `now`.
 pub(crate) fn read_claude_assistant_rows(
     frame: &ClaudeMessageFrame,
     session_id: SessionId,
-    run_id: RunId,
+    run: &ClaudeBoundRun,
     open_tool_calls: &mut HashMap<String, ClaudeOpenToolCall>,
-    now: Instant,
+    now: Timestamp,
 ) -> Vec<ClaudeMessageRow> {
+    let run_id = run.run_id;
     let mut rows = Vec::new();
     let provider_message_id = frame
         .provider_message_id()
@@ -427,10 +473,7 @@ pub(crate) fn read_claude_assistant_rows(
         let call_id = tool_call_id.as_str().to_owned();
         open_tool_calls.insert(
             call_id.clone(),
-            ClaudeOpenToolCall {
-                tool_name: tool_name.clone(),
-                started_at: now,
-            },
+            ClaudeOpenToolCall::new(tool_name.clone(), run.clone(), now),
         );
         let input = block.input.as_ref().map_or("{}", |input| input.get());
         rows.push(ClaudeMessageRow {
@@ -453,19 +496,20 @@ pub(crate) fn read_claude_assistant_rows(
 
 /// The tool results one `user` frame carries, each as `agent.toolCall.completed` or, when Claude
 /// Code marks it an error, `agent.toolCall.failed`, closing its call in `open_tool_calls` and
-/// timed from its start to `now`. A file-changing call's lone result carries its patch. A call in
-/// `held_calls` stays open: its result is a stand-in, and the real one comes later.
+/// timed from its start to `now` and closed on the run that started it. A file-changing call's
+/// lone result carries its patch. A call `tool_server_tasks` holds stays open: its result is a
+/// stand-in, kept with its words, and the real one comes later.
 pub(crate) fn read_claude_user_rows(
     frame: &ClaudeMessageFrame,
     session_id: SessionId,
-    run_id: RunId,
     open_tool_calls: &mut HashMap<String, ClaudeOpenToolCall>,
-    held_calls: &HashSet<String>,
-    now: Instant,
+    tool_server_tasks: &ClaudeToolServerTasks,
+    now: Timestamp,
 ) -> ClaudeUserFrameReading {
     let mut reading = ClaudeUserFrameReading {
         rows: Vec::new(),
         failed_results: Vec::new(),
+        held_stand_ins: Vec::new(),
     };
     let results: Vec<&ClaudeContentBlock> = frame
         .blocks()
@@ -477,10 +521,11 @@ pub(crate) fn read_claude_user_rows(
         let Some(call_id) = block.tool_use_id.as_ref().filter(|id| !id.is_empty()) else {
             continue;
         };
-        if held_calls.contains(call_id) {
+        let text = read_tool_result_text(block.content.as_deref());
+        if tool_server_tasks.holds_call(call_id) {
+            reading.held_stand_ins.push((call_id.clone(), text));
             continue;
         }
-        let text = read_tool_result_text(block.content.as_deref());
         let is_error = block.is_error == Some(true);
         if is_error {
             reading.failed_results.push((call_id.clone(), text.clone()));
@@ -496,7 +541,6 @@ pub(crate) fn read_claude_user_rows(
             .and_then(|result| read_claude_patch_file(&result));
         let closed = ClaudeToolCallClose {
             session_id,
-            run_id,
             is_error,
             body: patch.map_or(ClaudeMessageBody::Text(text), ClaudeMessageBody::Patch),
         };
@@ -510,49 +554,67 @@ pub(crate) fn read_claude_user_rows(
     reading
 }
 
-/// How one tool call closes: on its session's run, failed or completed, with its stored body.
+/// How one tool call closes in its session, failed or completed, with its stored body.
 pub(crate) struct ClaudeToolCallClose {
     /// The session.
     pub(crate) session_id: SessionId,
-    /// The run the call is on.
-    pub(crate) run_id: RunId,
     /// Whether the call failed.
     pub(crate) is_error: bool,
     /// The result's words or patch.
     pub(crate) body: ClaudeMessageBody,
 }
 
-/// The row that closes the open call `call_id`, removing it from `open_tool_calls` and timing it
-/// from its start to `now`; `None` for a call not open, or an id no row can carry.
+/// The row that closes the open call `call_id` on the run that started it, removing it from
+/// `open_tool_calls` and timing it from its start to `now`; `None` for a call not open, or an id
+/// no row can carry.
 pub(crate) fn close_claude_tool_call(
     open_tool_calls: &mut HashMap<String, ClaudeOpenToolCall>,
     call_id: &str,
     closed: ClaudeToolCallClose,
-    now: Instant,
+    now: Timestamp,
 ) -> Option<ClaudeMessageRow> {
     let opened = open_tool_calls.remove(call_id)?;
-    let tool_call_id = ToolCallId::new(call_id.to_owned()).ok()?;
-    let duration_ms = u64::try_from(now.duration_since(opened.started_at).as_millis())
-        .ok()
-        .and_then(SafeInt::new);
-    let activity = tool_activity(
-        closed.session_id,
-        closed.run_id,
-        opened.tool_name,
-        tool_call_id,
-        duration_ms,
-    );
+    let outcome = if closed.is_error {
+        ClaudeToolCallOutcome::Failed { end_cause: None }
+    } else {
+        ClaudeToolCallOutcome::Completed
+    };
+    let row = close_opened_call(opened, call_id, closed.session_id, outcome, now)?;
     Some(ClaudeMessageRow {
         tool_call_id: Some(call_id.to_owned()),
         pairing_role: ReorderPairingRole::Completion,
         row: ClaudeMessageRowKind::Session {
-            row: if closed.is_error {
-                LateAppendableRow::AgentToolCallFailed(activity)
-            } else {
-                LateAppendableRow::AgentToolCallCompleted(activity)
-            },
+            row,
             body: closed.body,
         },
+    })
+}
+
+/// The row that closes `opened`, the call `call_id`, on the run that started it with `outcome`,
+/// timed from its start to `now` and carrying no body; `None` for an id no row can carry.
+pub(crate) fn close_opened_call(
+    opened: ClaudeOpenToolCall,
+    call_id: &str,
+    session_id: SessionId,
+    outcome: ClaudeToolCallOutcome,
+    now: Timestamp,
+) -> Option<LateAppendableRow> {
+    let tool_call_id = ToolCallId::new(call_id.to_owned()).ok()?;
+    let duration_ms = u64::try_from(now.duration_since(opened.started_at).as_millis().max(0))
+        .ok()
+        .and_then(SafeInt::new);
+    let activity = tool_activity(
+        session_id,
+        opened.run().run_id,
+        opened.tool_name,
+        tool_call_id,
+        duration_ms,
+    );
+    Some(match outcome {
+        ClaudeToolCallOutcome::Completed => LateAppendableRow::AgentToolCallCompleted(activity),
+        ClaudeToolCallOutcome::Failed { end_cause } => {
+            LateAppendableRow::AgentToolCallFailed(activity.into_failed(end_cause))
+        }
     })
 }
 

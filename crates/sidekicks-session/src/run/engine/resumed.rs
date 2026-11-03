@@ -16,6 +16,7 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::stored_column::safe_int_column;
 use sidekicks_store::events::session::append_lock::SessionAppendHold;
+use sidekicks_store::events::session::insert::TOOL_CALL_ID_PAYLOAD_KEY;
 
 use crate::console_state::read_session_max_steps_per_turn;
 use crate::run::engine::RunEngine;
@@ -32,7 +33,9 @@ use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
 // The run's newest open turn, with the tool calls of the run that ended after its start, each a
 // step, and whether the step limit was reached after its start. A step is counted at its tool
-// call's end, so a call still running at the restart is counted once, when it ends.
+// call's end, so a call still running at the restart is counted once, when it ends. A step is a
+// call, not a row: a call the daemon settled and its provider's later ending count once, and a
+// row naming no call counts one.
 static SELECT_OPEN_TURN_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
     let started = SessionEventType::AgentTurnStarted;
     let completed = SessionEventType::AgentToolCallCompleted;
@@ -40,7 +43,9 @@ static SELECT_OPEN_TURN_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
     let reached = SessionEventType::AgentRunStepLimitReached;
     format!(
         "SELECT started.turn_number,
-    (SELECT COUNT(*) FROM session_events AS step
+    (SELECT COUNT(DISTINCT COALESCE(
+        json_extract(step.payload, '$.{TOOL_CALL_ID_PAYLOAD_KEY}'), step.sequence))
+      FROM session_events AS step
       WHERE step.run_id = started.run_id
         AND step.sequence > started.sequence
         AND ((step.category = '{completed_category}' AND step.type = '{completed}')

@@ -1,6 +1,7 @@
 //! The recovery pass over the pass fixture; the resume of a session's conversation is in
-//! `resume`.
+//! `resume`, and the settle of the calls each session held in the background in `held_calls`.
 
+mod held_calls;
 mod resume;
 
 use std::fs;

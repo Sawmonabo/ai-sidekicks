@@ -56,7 +56,7 @@ const HANDS_AT_ONCE: MessageHanding = MessageHanding {
 
 // A resume that went on under `binding_id`, answered from the resume's own params: every run it
 // names holds its turn as `turn_of` answers for it.
-fn resumed_on(
+pub(super) fn resumed_on(
     params: &ResumeSessionParams,
     binding_id: RuntimeBindingId,
     turn_of: impl Fn(RunId) -> ProviderTurnAnswer,
@@ -78,7 +78,7 @@ fn resumed_on(
 }
 
 // Every run a resume names still holds its turn.
-fn still_running(_run_id: RunId) -> ProviderTurnAnswer {
+pub(super) fn still_running(_run_id: RunId) -> ProviderTurnAnswer {
     ProviderTurnAnswer::StillRunning
 }
 
@@ -135,7 +135,7 @@ fn kept_turn(run_id: RunId, turn_id: &str, is_for_stop: bool) -> KeptRunTurns {
 
 impl PassFixture {
     // Ends the store's seeded run, so only the test's sessions hold work in progress.
-    fn end_seeded_run(&self) {
+    pub(super) fn end_seeded_run(&self) {
         self.store
             .database
             .reader()
@@ -148,7 +148,10 @@ impl PassFixture {
 
     // A new session with a running run on the table's provider at `provider_index`, its
     // conversation held by a binding of the run; answers the session, the run and the binding.
-    async fn running_session(&self, provider_index: usize) -> (SessionId, RunId, RuntimeBindingId) {
+    pub(super) async fn running_session(
+        &self,
+        provider_index: usize,
+    ) -> (SessionId, RunId, RuntimeBindingId) {
         let session_id = self.new_session();
         let run_id = test_run_id();
         insert_running_run(&self.store.database, session_id, run_id);

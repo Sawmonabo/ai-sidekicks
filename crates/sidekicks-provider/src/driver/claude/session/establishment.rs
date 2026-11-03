@@ -42,6 +42,7 @@ use self::spawn_sources::ClaudeSpawnSources;
 use crate::callback_tools::spawn_binding::CallbackToolSpawnBinding;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::{ClaudeCommandChannel, ClaudeSessionChannel};
+use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeKeptCallsSource;
 use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSessionStreams};
 use crate::driver::claude::frame_routing::ClaudeFrameRouting;
 use crate::driver::claude::goals::endings::{ClaudeGoalFile, ClaudeProcessGoal};
@@ -75,7 +76,9 @@ use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::session::ultracode::requested_claude_ultracode;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
-use crate::driver::claude::spawn::environment::without_interrupted_turn_resume;
+use crate::driver::claude::spawn::environment::{
+    claude_config_folder, without_interrupted_turn_resume,
+};
 use crate::driver::claude::spawn::launch::bring_up::{
     ClaudeBringUpRequest, ClaudeSessionSpawn, claude_spawn_permission_mode,
 };
@@ -481,6 +484,9 @@ impl ClaudeSessionEstablishment {
         // Subscribed before any frame is read, so a report at start-up is followed once adopted.
         let level_reports = permission_mode.report_changes();
         let (arrivals, receiver) = claude_session_arrivals(session_id);
+        let config_folder = claude_config_folder(&legs.spawn_environment, PathRules::NATIVE);
+        let kept_calls =
+            ClaudeKeptCallsSource::new(config_folder.clone(), provider_session_id.clone());
         // Followed from before the process starts, so every goal outcome it writes is read.
         let goal = ClaudeProcessGoal {
             agent_id,
@@ -496,10 +502,28 @@ impl ClaudeSessionEstablishment {
             Arc::clone(&self.routes),
             Arc::clone(&self.prompts),
             Arc::clone(&permission_mode),
+            kept_calls,
         ));
         let is_continuing_turn = continued_turn.is_some();
         if let Some(turn) = continued_turn {
             stream.continue_turn(turn.run, turn.turn_number, turn.provider_turn_id);
+        }
+        // The calls the resumed conversation held, rebuilt before its process can end one: its
+        // kept files are the resumed conversation's, a fork's predecessor's for a fork.
+        if let ClaudeConversationStart::Resume { resume_handle }
+        | ClaudeConversationStart::Fork { resume_handle, .. } = &conversation
+            && let Err(error) = self
+                .task_services
+                .delivery
+                .rebuild_held_calls(
+                    &stream,
+                    &sources.ports.held_tool_calls,
+                    &ClaudeKeptCallsSource::new(config_folder, resume_handle.clone()),
+                )
+                .await
+        {
+            callback_tools.roll_back();
+            return Err(ClaudeEstablishmentError::HeldToolCalls(error));
         }
         let mut band = ClaudeSessionRoutingBand::new();
         self.routing
