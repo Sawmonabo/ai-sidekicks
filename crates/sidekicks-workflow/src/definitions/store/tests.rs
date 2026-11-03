@@ -29,7 +29,7 @@ use super::{
 use crate::definitions::drafts::{WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY, WorkflowDraftStore};
 use crate::definitions::errors::DefinitionRefusal;
 use crate::definitions::library::WORKFLOW_LIBRARY_STATEMENT_CAPACITY;
-use crate::kinds::{NodeKindTable, command_test_kind};
+use crate::kinds::{NodeKind, NodeKindTable, PassThroughExecutor, command_test_kind, test_kind};
 use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
 use crate::schema::schema_parts;
 
@@ -61,8 +61,8 @@ fn saved_document(name: &str, path: &str) -> WorkflowDocument {
 const SHELL_LINE_LIMIT: usize = 4_096;
 
 /// The store and the draft store over one test database holding the workflow tables, the store
-/// reading command lines inside a bound of `shell_line_limit` bytes and knowing one kind, the
-/// command step `developer.shell`, whose line is its `command` param.
+/// reading command lines inside a bound of `shell_line_limit` bytes and knowing two kinds: the
+/// command step `developer.shell`, whose line is its `command` param, and [`call_kind`].
 async fn open_stores(
     database: &TestDatabase,
     shell_line_limit: usize,
@@ -83,12 +83,33 @@ async fn open_stores(
             Arc::clone(&pool),
             Arc::clone(&writer),
             Arc::new(
-                NodeKindTable::new(vec![command_test_kind()])
+                NodeKindTable::new(vec![command_test_kind(), call_kind()])
                     .expect("the test's kinds table builds"),
             ),
             Arc::new(ShellLineReadingBound::new(shell_line_limit)),
         ),
         WorkflowDraftStore::new(pool, writer),
+    )
+}
+
+/// The step `http.call` at version 1, whose `token` param the kind marks sensitive and whose
+/// `url` param it does not.
+fn call_kind() -> NodeKind {
+    test_kind(
+        json!({
+            "kind": "http.call", "version": 1, "category": "developer",
+            "displayName": "Call a service", "description": "A request to a service.",
+            "icon": "globe",
+            "params": [
+                { "id": "token", "label": "Token", "type": "string", "sensitive": true },
+                { "id": "url", "label": "Address", "type": "string" },
+            ],
+            "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
+            "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+            "outputsDeriveFromParams": false,
+        }),
+        None,
+        Box::new(PassThroughExecutor),
     )
 }
 
@@ -479,4 +500,59 @@ async fn every_save_refuses_a_command_fill_that_does_not_expand(
         })
         .expect("the test counts the versions");
     assert_eq!(versions, 1, "only the source's version is written");
+}
+
+/// A save refuses a secret named inside an expression, even in a param its kind marks sensitive,
+/// and a plain secret reference in a param its kind does not mark, each once on its node however
+/// many values break it, and writes no workflow. Mutations: drop the param check from the save;
+/// raise one finding per refused value.
+#[rstest]
+#[case::an_expression_in_a_sensitive_param(
+    json!({ "token": "=secret://shared/x", "url": "={{ 'secret://shared/y' }}" }),
+    json!([{ "rule": "secretInExpression", "nodeIds": ["call"] }]),
+)]
+#[case::a_reference_in_a_plain_param(
+    json!({ "token": "secret://shared/x", "url": "secret://shared/x" }),
+    json!([{ "rule": "secretOutsideSensitiveField", "nodeIds": ["call"] }]),
+)]
+#[tokio::test]
+async fn a_save_refuses_a_secret_its_params_cannot_resolve(
+    #[case] params: Value,
+    #[case] expected: Value,
+) {
+    let database = TestDatabase::new(schema_parts());
+    let (store, _drafts) = open_stores(&database, SHELL_LINE_LIMIT).await;
+    let mut document = document("Calls", "notes.md");
+    document["nodes"][0] = json!({
+        "id": "call", "kind": "http.call", "kindVersion": 1, "name": "Call",
+        "order": 0, "params": params,
+    });
+    document["edges"][0]["target"] = json!("call");
+
+    let refused = store
+        .create(
+            &WorkflowDefinitionCreateRequest {
+                document: serde_json::from_value(document).expect("the test's document reads"),
+                origin: WorkflowCreateOrigin::FileImport {},
+            },
+            &author(),
+        )
+        .await;
+
+    let Err(WorkflowDefinitionStoreError::Refused(DefinitionRefusal::Refused { findings })) =
+        refused
+    else {
+        panic!("the save is refused with findings, not {refused:?}");
+    };
+    assert_eq!(
+        serde_json::to_value(&findings).expect("the findings write as JSON"),
+        expected
+    );
+    let definitions: i64 = database
+        .reader()
+        .query_row("SELECT COUNT(*) FROM workflow_definitions", [], |row| {
+            row.get(0)
+        })
+        .expect("the test counts the workflows");
+    assert_eq!(definitions, 0, "a refused save writes no workflow");
 }

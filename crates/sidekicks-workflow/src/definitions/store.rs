@@ -25,7 +25,8 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowContentHash, WorkflowDefinitionId, WorkflowDocument, WorkflowDocumentSchemaVersion,
-    WorkflowName, WorkflowNode, WorkflowVersionId, pick_workflow_document_hashed_body,
+    WorkflowName, WorkflowNode, WorkflowNodeId, WorkflowVersionId,
+    pick_workflow_document_hashed_body,
 };
 use sidekicks_contracts::workflow::definition::item::WorkflowPinnedItem;
 use sidekicks_contracts::workflow::definition::methods::{
@@ -33,9 +34,11 @@ use sidekicks_contracts::workflow::definition::methods::{
     WorkflowDefinitionDeleteResponse, WorkflowDefinitionUpdateRequest,
     WorkflowDefinitionUpdateResponse,
 };
+use sidekicks_contracts::workflow::definition::params::check_workflow_node_params;
 use sidekicks_contracts::workflow::definition::refusals::{
-    WorkflowDefinitionFinding, check_workflow_graph,
+    WorkflowDefinitionFinding, WorkflowDefinitionRule, check_workflow_graph,
 };
+use sidekicks_contracts::workflow::kind::WorkflowParamSpec;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_store::database::connection::read_pool::{
@@ -664,8 +667,8 @@ impl WorkflowDefinitionStore {
     }
 
     // The graph check over the document's trigger, nodes and edges, each node's handles resolved
-    // once from its kind, then the check of every expression, each command line read inside the
-    // bound.
+    // once from its kind, then the check of each node's params against its kind's param list, then
+    // the check of every expression, each command line read inside the bound.
     async fn document_findings(
         &self,
         document: &WorkflowDocument,
@@ -673,12 +676,16 @@ impl WorkflowDefinitionStore {
         let trigger = WorkflowNode::from(&document.trigger);
         let mut node_handles = HashMap::new();
         let mut shell_line_params = HashMap::new();
+        let mut param_findings = Vec::new();
         for node in iter::once(&trigger).chain(&document.nodes) {
             if let Some(rules) = self.node_kinds.kind_rules(node) {
                 node_handles.insert(node.id.clone(), rules.handles);
                 if let Some(param) = rules.shell_line_param {
                     shell_line_params.insert(node.id.clone(), param);
                 }
+            }
+            if let Some(kind) = self.node_kinds.kind_of(node) {
+                param_findings.extend(node_param_findings(node, &kind.spec.params));
             }
         }
         let mut findings = check_workflow_graph(
@@ -687,6 +694,7 @@ impl WorkflowDefinitionStore {
             &document.edges,
             &node_handles,
         );
+        findings.extend(param_findings);
         findings.extend(
             check_expressions(
                 &trigger,
@@ -790,6 +798,43 @@ fn read_latest_version(
         )
         .optional()?;
     Ok(latest.flatten())
+}
+
+// The findings `node`'s params raise against `specs`, its kind's param list, at most one per rule:
+// each refused value whose fault the save names, such as a secret inside an expression.
+fn node_param_findings(
+    node: &WorkflowNode,
+    specs: &[WorkflowParamSpec],
+) -> Vec<WorkflowDefinitionFinding> {
+    let params: serde_json::Map<String, serde_json::Value> = node
+        .params
+        .as_map()
+        .iter()
+        .map(|(id, value)| (id.clone(), value.0.clone()))
+        .collect();
+    let mut rules: Vec<WorkflowDefinitionRule> = Vec::new();
+    for rule in check_workflow_node_params(&params, specs)
+        .into_iter()
+        .filter_map(|issue| issue.rule)
+    {
+        if !rules.contains(&rule) {
+            rules.push(rule);
+        }
+    }
+    rules
+        .into_iter()
+        .map(|rule| node_finding(rule, &node.id))
+        .collect()
+}
+
+// The finding of `rule` marking `node_id`. Each named rule is the tag of the finding of its name
+// that marks only nodes, so the rule reads as that finding.
+fn node_finding(
+    rule: WorkflowDefinitionRule,
+    node_id: &WorkflowNodeId,
+) -> WorkflowDefinitionFinding {
+    serde_json::from_value(serde_json::json!({ "rule": rule, "nodeIds": [node_id] }))
+        .expect("a named rule is the tag of a finding that marks only nodes")
 }
 
 fn name_taken_finding() -> WorkflowDefinitionFinding {
