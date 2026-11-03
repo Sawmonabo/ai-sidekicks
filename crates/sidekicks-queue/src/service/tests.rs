@@ -265,6 +265,8 @@ struct Fixture {
     halted_runs: Arc<HaltedRunsStandIn>,
     // The cards' orphaned answers and open asks the queue reads.
     orphaned_approvals: Arc<OrphanedAnswersStandIn<ApprovalRequestId>>,
+    // Where a resume's runs are settled.
+    resumed_runs: Arc<RecordedResumedRuns>,
 }
 
 /// The runs the queue halted in the recovery status, each beside its session, in order.
@@ -287,6 +289,7 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
     let process = Arc::new(ProcessStandIn::default());
     let halted_runs = Arc::new(HaltedRunsStandIn::default());
     let orphaned_approvals = Arc::new(OrphanedAnswersStandIn::default());
+    let resumed_runs = Arc::new(RecordedResumedRuns::default());
     let queue = queue_over(
         &database,
         &log,
@@ -296,6 +299,7 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         CurrentProviderAccount::Current(test_provider_account_id()),
         Arc::clone(&halted_runs) as _,
         &orphaned_approvals,
+        &resumed_runs,
     );
     Fixture {
         database,
@@ -306,13 +310,14 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         process,
         halted_runs,
         orphaned_approvals,
+        resumed_runs,
     }
 }
 
 /// A run queue over `database` and its `log`, built as the daemon's start builds it, its lead's
 /// provider answered by `driver`, its process read from `processes`, its account by `account`,
-/// the runs it halts recorded in `halted_runs`, and its cards' orphaned answers and open asks read
-/// from `orphaned_approvals`.
+/// the runs it halts recorded in `halted_runs`, its cards' orphaned answers and open asks read
+/// from `orphaned_approvals`, and its resumes' runs settled by `resumed_runs`.
 #[expect(
     clippy::too_many_arguments,
     reason = "the record, the home, the driver and each stand-in a test swaps in"
@@ -326,6 +331,7 @@ fn queue_over(
     account: CurrentProviderAccount,
     halted_runs: Arc<dyn HaltedRunRecord>,
     orphaned_approvals: &Arc<OrphanedAnswersStandIn<ApprovalRequestId>>,
+    resumed_runs: &Arc<RecordedResumedRuns>,
 ) -> Arc<RunQueue> {
     let pool = Arc::new(DatabaseReadPool::new(
         database.path(),
@@ -357,7 +363,7 @@ fn queue_over(
         transition_lock: Arc::new(KeyedLock::new()),
         process_follower: Arc::new(RecordedProcessFollowing::default()),
         execution_postures: test_execution_postures(),
-        resumed_runs: Arc::new(RecordedResumedRuns::default()).registered(),
+        resumed_runs: resumed_runs.registered(),
         orphaned_approvals: Arc::clone(orphaned_approvals) as Arc<_>,
         orphaned_questions: Arc::new(OrphanedAnswersStandIn::<QuestionId>::default()),
     }));

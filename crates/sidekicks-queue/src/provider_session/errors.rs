@@ -137,6 +137,19 @@ pub enum ProviderSessionError {
         #[source]
         released: Box<dyn Error + Send + Sync>,
     },
+    /// A relaunch whose provider carried the held lead's continue failed after, on the daemon's
+    /// side; the lead runs on with the person's answers, which stay claimed.
+    #[error(
+        "the relaunch of session {session_id} failed after its provider carried the held lead's \
+             continue"
+    )]
+    AfterCarriedContinue {
+        /// The session.
+        session_id: SessionId,
+        /// Why the relaunch failed.
+        #[source]
+        failed: Box<ProviderSessionError>,
+    },
     /// A port the provider sessions call is not registered yet.
     #[error(transparent)]
     Port(#[from] PortRegistrationError),
@@ -290,6 +303,7 @@ impl From<ProviderSessionError> for HandlerError {
             | ProviderSessionError::ResumedRuns { .. }
             | ProviderSessionError::OrphanedAnswers { .. }
             | ProviderSessionError::ContinueNotReleased { .. }
+            | ProviderSessionError::AfterCarriedContinue { .. }
             | ProviderSessionError::Port(_)
             | ProviderSessionError::UnrecordedNotClosed { .. }
             | ProviderSessionError::ProviderMissingNotPosted { .. }

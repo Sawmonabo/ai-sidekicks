@@ -5,7 +5,7 @@
 //! after it; a lead running before its session's process opened, which is handed nothing; a lead's
 //! messages withheld only while it waits on an ask of its own, and handed when it runs again; and
 //! a lead whose continue after an orphaned answer the provider failed, moved back to its wait, or
-//! left running where only the hand after it failed.
+//! left running where only its settle or hand failed after the provider carried it.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -29,7 +29,9 @@ use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::params_and_results::SessionProcessState;
 use sidekicks_provider::driver::session_control::held_run_continue::ContinueAnswer;
-use sidekicks_provider::driver::session_control::{DriverResumeResult, answer_every_run_gone};
+use sidekicks_provider::driver::session_control::{
+    DriverResumeResult, ProviderTurnAnswer, answer_every_run_gone,
+};
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_provider::process_identity::TEST_PROVIDER_PROCESS;
 use sidekicks_provider::run::state_entry::RunStateEntry;
@@ -41,7 +43,7 @@ use sidekicks_store::events::session::followers::CommittedEvent;
 use tokio::time::{sleep, timeout};
 
 use super::{DriverCalls, Fixture, HELD_WATCH, WAIT, fixture, recording_driver};
-use crate::provider_session::held_run_continue::OwedAnswer;
+use crate::provider_session::held_run_continue::{OrphanedAnswerSource as _, OwedAnswer};
 use crate::provider_session::test_opening::read_notices;
 
 /// How the session's lead runs stand when one of them ends with a message waiting.
@@ -543,6 +545,100 @@ async fn a_lead_whose_hand_failed_after_its_continue_stays_running() {
                 failure_category: Some(RunFailureCategory::LocalPersistenceFailure),
             }
         )]
+    );
+}
+
+// A lead whose continue its provider carried, on a process already up, but whose resumed runs
+// could not be settled after, stays running as the provider runs it, keeps its answer claimed, and
+// is halted in the recovery status as the daemon's own failure, with no notice posted. Killed by
+// the failure moving the lead back to its wait, and by its halt dropped.
+#[tokio::test]
+async fn a_carried_continue_whose_settle_failed_leaves_the_lead_running() {
+    let calls = Arc::new(DriverCalls::default());
+    let mut driver = recording_driver(&calls);
+    driver.expect_resume_session().returning(|params| {
+        let lead_run_id = params
+            .held_run_continue
+            .as_ref()
+            .map(|held_run_continue| held_run_continue.lead_run_id);
+        let mut runs = answer_every_run_gone(&params.live_runs);
+        for answer in &mut runs {
+            if Some(answer.run_id) == lead_run_id {
+                answer.turn = ProviderTurnAnswer::StillRunning;
+            }
+        }
+        async move {
+            Ok(DriverResumeResult::Resumed {
+                binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string())
+                    .expect("a UUID is a binding id"),
+                session_position: SafeInt::new(1).expect("a position"),
+                resume_handle: NonEmptyText::new("conversation-1".to_owned())
+                    .expect("a resume handle"),
+                spawned_version: spawned_build("1.0.1", "/opt/provider/bin"),
+                runs,
+            })
+        }
+        .boxed()
+    });
+    let fixture = fixture(driver).await;
+    let run_id = fixture.insert_run("waitingForApproval");
+    fixture.set_run_state(run_id, "running");
+    let binding_id = bind_run_to_first_provider(&fixture.database, run_id);
+    fixture
+        .database
+        .reader()
+        .execute(
+            "UPDATE runtime_bindings SET resume_handle = 'conversation-1' WHERE id = ?1",
+            [binding_id.as_str()],
+        )
+        .expect("the test gives the run's binding a conversation");
+    let approval_request_id =
+        ApprovalRequestId::try_from(mint_uuid_v7()).expect("a minted UUID is an ask's id");
+    fixture.orphaned_approvals.owe(OwedAnswer {
+        id: approval_request_id,
+        run_id,
+        answer: ContinueAnswer::Approval {
+            approval_request_id,
+            subject: "rm -rf build".to_owned(),
+            tool_name: Some("Bash".to_owned()),
+            decision: ApprovalDecision::Approved,
+            decline_reason: None,
+            edited_action: None,
+        },
+    });
+    fixture.resumed_runs.set_refused(true);
+
+    fixture.queue.continue_after_answer(
+        fixture.session_id,
+        run_id,
+        RunStateEntry::WaitingForApproval,
+    );
+    timeout(WAIT, fixture.queue.stop())
+        .await
+        .expect("the continue's task ends");
+
+    assert_eq!(fixture.run_state(run_id), "running");
+    let halted = lock(&fixture.halted_runs.0).clone();
+    assert_eq!(
+        halted,
+        [(
+            fixture.session_id,
+            DaemonRecoveryHaltedRun {
+                run_id,
+                recovery_condition: RecoveryCondition::RecoveryNeeded,
+                failure_category: Some(RunFailureCategory::LocalPersistenceFailure),
+            }
+        )]
+    );
+    assert_eq!(read_notices(&fixture.database.reader()), []);
+    let owed = fixture
+        .orphaned_approvals
+        .owed_continues(fixture.session_id)
+        .await
+        .expect("the stand-in reads");
+    assert!(
+        owed.is_empty(),
+        "the carried answer was given back: {owed:?}"
     );
 }
 

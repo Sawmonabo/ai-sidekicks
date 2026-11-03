@@ -80,6 +80,12 @@ impl ProviderSessionError {
         None
     }
 
+    /// Whether the relaunch failed only after its provider carried the held lead's continue, so the
+    /// lead runs on with its answers.
+    pub fn is_after_carried_continue(&self) -> bool {
+        matches!(self, Self::AfterCarriedContinue { .. })
+    }
+
     /// The category a held lead's continue that failed with this halts its run under: none for the
     /// provider's refusal, which the session's notice carries, `providerFailure` where the
     /// provider failed to continue it, and `localPersistenceFailure` where a write of the daemon's

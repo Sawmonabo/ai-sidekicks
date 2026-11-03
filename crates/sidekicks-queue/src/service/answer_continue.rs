@@ -1,10 +1,12 @@
 //! The continue a person's answer owes a lead the daemon's restart held: run on a task the queue
 //! tracks once the answer is recorded, so the answer never waits on a process start, and undone
-//! where its resume fails, the lead moved back to the wait the answer ended. A provider's refusal
+//! where its resume fails before the provider carried it, the lead moved back to the wait the
+//! answer ended. A provider's refusal
 //! is posted on the session as its provider warning; its failure to continue is posted the same
 //! way and halts the run as the provider's failure, and a failure on the daemon's side halts it as
-//! the daemon's own, in the recovery status the Runtime page shows; a reconcile that fails after
-//! the resume leaves the run running as the provider has it.
+//! the daemon's own, in the recovery status the Runtime page shows; a failure after the provider
+//! carried the continue, its settle's or the reconcile's, leaves the run running as the provider
+//! has it.
 
 use std::error::Error;
 
@@ -33,8 +35,9 @@ impl RunQueue {
     /// the messages that waited while no process held its session. A resume that fails moves
     /// `run_id`, which the answer moved to `running`, back to `waiting`, the wait the answer
     /// ended, and halts it in the recovery status under its failure's category, but for the
-    /// provider's refusal, which the resume posts on the session. A hand that fails after the
-    /// resume leaves the run running and halts it as the daemon's own failure.
+    /// provider's refusal, which the resume posts on the session. A resume that fails after its
+    /// provider carried the continue, or a hand that fails after the resume, leaves the run
+    /// running and halts it as the daemon's own failure.
     pub fn continue_after_answer(
         &self,
         session_id: SessionId,
@@ -51,6 +54,21 @@ impl RunQueue {
                 .resume_after_answer(session_id)
                 .await
             {
+                // The provider runs the lead on with its answers, so the run stays running.
+                if failure.is_after_carried_continue() {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        run_id = %run_id,
+                        error = &failure as &(dyn Error + 'static),
+                        "a continued lead's runs were not settled"
+                    );
+                    queue.halt(
+                        session_id,
+                        run_id,
+                        RunFailureCategory::LocalPersistenceFailure,
+                    );
+                    return;
+                }
                 tracing::warn!(
                     session_id = %session_id,
                     run_id = %run_id,

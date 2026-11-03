@@ -659,6 +659,7 @@ impl StoredSessionPosture for ProviderSessions {
                 | ProviderSessionError::ResumedRuns { .. }
                 | ProviderSessionError::OrphanedAnswers { .. }
                 | ProviderSessionError::ContinueNotReleased { .. }
+                | ProviderSessionError::AfterCarriedContinue { .. }
                 | ProviderSessionError::Port(_)
                 | ProviderSessionError::UnrecordedNotClosed { .. }
                 | ProviderSessionError::ProviderMissingNotPosted { .. }

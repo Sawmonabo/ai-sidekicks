@@ -390,6 +390,18 @@ impl ProviderSessions {
                 unreleased
             });
         }
+        // A failure from here on, after the provider carried the continue, says so, since the lead
+        // runs on with its answers.
+        let after_carried = |failed: ProviderSessionError| {
+            if is_continue_carried {
+                ProviderSessionError::AfterCarriedContinue {
+                    session_id,
+                    failed: Box::new(failed),
+                }
+            } else {
+                failed
+            }
+        };
         // A run the continue carries on from a wait whose asks are all answered runs again before
         // the runs are taken, so its settle reads it running; one the provider did not run on
         // keeps its wait.
@@ -399,11 +411,11 @@ impl ProviderSessions {
         {
             let unmoved = ProviderSessionError::ResumedRuns { session_id, cause };
             self.deps.binding_cursors.forget_binding(&minted_id);
-            return Err(if binding_id == minted_id {
+            return Err(after_carried(if binding_id == minted_id {
                 close_unrecorded(driver.as_ref(), session_id, unmoved).await
             } else {
                 unmoved
-            });
+            }));
         }
         let named_run_ids = runs.iter().map(|run| run.run_id).collect();
         // Each run the resume named is settled before the binding is recorded, so none goes live
@@ -414,7 +426,9 @@ impl ProviderSessions {
         if is_binding_recorded {
             if let Err(untaken) = taken {
                 self.deps.binding_cursors.forget_binding(&minted_id);
-                return Err(close_unrecorded(driver.as_ref(), session_id, untaken).await);
+                return Err(after_carried(
+                    close_unrecorded(driver.as_ref(), session_id, untaken).await,
+                ));
             }
             // A provider that continued the conversation in a new one left the old one behind.
             let left_conversations = leg
@@ -440,13 +454,15 @@ impl ProviderSessions {
                 })
                 .await;
             if let Err(unrecorded) = recorded {
-                return Err(close_unrecorded(driver.as_ref(), session_id, unrecorded.into()).await);
+                return Err(after_carried(
+                    close_unrecorded(driver.as_ref(), session_id, unrecorded.into()).await,
+                ));
             }
         } else {
             // A process already up answered on the binding that brought it up, which has its
             // cursor and its row.
             self.deps.binding_cursors.forget_binding(&minted_id);
-            taken?;
+            taken.map_err(after_carried)?;
         }
         Ok((
             Some(OpenedSession {
