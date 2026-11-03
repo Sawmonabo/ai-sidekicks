@@ -59,7 +59,8 @@ impl CodexBindingMove {
 
     /// Moves each binding onto the account through `bindings`, the first failure ending it, then
     /// answers the switch waiting on the move; where none waits, a move that took the session off
-    /// another account goes to `recorder` once every binding moved, and a failure is logged.
+    /// another account goes to `recorder` once every binding moved, with the watch of its first
+    /// request where the switch keeps one, and a failure is logged.
     pub(crate) async fn land(
         self,
         bindings: &dyn RuntimeBindingWriter,
@@ -104,12 +105,12 @@ impl CodexBindingMove {
             );
             return;
         };
+        let moved = match account_move.first_request {
+            Some(first_request) => SessionAccountMove::watched(session_id, first_request),
+            None => SessionAccountMove::unobserved(session_id),
+        };
         recorder
-            .record_account_moved(
-                SessionAccountMove::unobserved(session_id),
-                account_move.provider_account_id,
-                account_move.actor,
-            )
+            .record_account_moved(moved, account_move.provider_account_id, account_move.actor)
             .await;
     }
 }

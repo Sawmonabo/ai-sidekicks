@@ -21,11 +21,13 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::event::usage::{
-    DEFAULT_RATE_LIMIT_ID, UsageCostSource, UsageCostUpdatedPayload, UsagePricedEvent,
-    UsageRateLimitUpdatedPayload, UsageRateLimitWindowKey, UsageTokenCountRecordedPayload,
+    UsageCostSource, UsageCostUpdatedPayload, UsagePricedEvent, UsageRateLimitUpdatedPayload,
+    UsageRateLimitWindowKey, UsageTokenCountRecordedPayload,
 };
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
-use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
+use sidekicks_contracts::provider::account::record::{
+    CredentialGeneration, PROVIDER_QUOTA_DEFAULT_LIMIT_ID, ProviderAccountId,
+};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
@@ -171,7 +173,7 @@ impl UsageRecord {
             MeteredUsageOwner::Helper(subagent_id) => {
                 self.engine.helper_run(&binding_id, subagent_id)
             }
-            MeteredUsageOwner::Run | MeteredUsageOwner::SideQuestion => None,
+            MeteredUsageOwner::Run | MeteredUsageOwner::SessionCopy => None,
         };
         let target = self
             .pool
@@ -198,11 +200,11 @@ impl UsageRecord {
                 }
                 Some(subagent_id)
             }
-            MeteredUsageOwner::Run | MeteredUsageOwner::SideQuestion => None,
+            MeteredUsageOwner::Run | MeteredUsageOwner::SessionCopy => None,
         };
         let mut payload = usage_row(session_id, &target, helper.clone(), &delta)?;
         let Some(run_id) = target.run_id else {
-            // A side question's usage belongs to the session, counted toward no run.
+            // A copy of the session's conversation is the session's, counted toward no run.
             let outcome = self
                 .dispatch
                 .dispatch(InboundDelivery::SessionEvent {
@@ -651,7 +653,7 @@ fn is_stored_set(rows: &[UsageRateLimitUpdatedPayload], stored: &[StoredQuotaWin
             let limit_id = row
                 .limit_id
                 .as_ref()
-                .map_or(DEFAULT_RATE_LIMIT_ID, BoundedText::as_str);
+                .map_or(PROVIDER_QUOTA_DEFAULT_LIMIT_ID, BoundedText::as_str);
             stored.iter().any(|window| {
                 window.limit_id == limit_id
                     && window.window_mins == row.window_mins.get()

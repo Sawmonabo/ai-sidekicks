@@ -383,6 +383,7 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     use rusqlite::types::Value;
+    use sidekicks_provider::account::homes::{account_home_diagnostic_folders, switching_homes};
     use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
     use sidekicks_provider::driver::test_registry::registry_of_first_providers;
@@ -547,6 +548,90 @@ mod tests {
             assert!(path.exists(), "{} is kept", path.display());
         }
     }
+    // A pass expires each provider's switching home as it does an account home, with no account
+    // registered: the folders its descriptor names in it lose what is past the bound and keep
+    // what is newer, a session's file of the same age stays, and its driver is asked once about
+    // that home. Killed by the switching homes left out of the pass, and by the driver never asked
+    // or asked about another home.
+    #[tokio::test]
+    async fn a_pass_expires_each_switching_home_as_an_account_home() {
+        let database = TestDatabase::new(schema_parts());
+        let log = open_log(&database, None).await;
+        let reads = Arc::new(DatabaseReadPool::new(
+            database.path(),
+            DAEMON_CONFIGURATION_STATEMENT_CAPACITY,
+        ));
+        let configuration = Arc::new(
+            ConfigurationStore::open(Arc::clone(&log.writer), Arc::clone(&reads))
+                .await
+                .expect("the configuration store opens"),
+        );
+        let data_folder = tempfile::tempdir().expect("the data folder is made");
+        let data = data_folder.path();
+        let unasked = || -> Arc<dyn ProviderDriver> { Arc::new(MockProviderDriver::new()) };
+        let named = registry_of_first_providers(PROVIDERS.iter().map(|_| unasked()).collect());
+        let homes = switching_homes(&named, data);
+        assert!(!homes.is_empty(), "a provider keeps a switching home");
+        let (mut expired, mut kept_old, mut kept_new) = (Vec::new(), Vec::new(), Vec::new());
+        for switching_home in &homes {
+            kept_old.push(switching_home.home.join("sessions").join("session.jsonl"));
+            for folder in account_home_diagnostic_folders(
+                &named,
+                &switching_home.provider,
+                &switching_home.home,
+            ) {
+                expired.push(folder.join("old").join("diagnostic"));
+                kept_new.push(folder.join("fresh"));
+            }
+        }
+        let started = SystemTime::now();
+        let drivers: Vec<Arc<dyn ProviderDriver>> = PROVIDERS
+            .iter()
+            .map(|descriptor| {
+                let mut driver = MockProviderDriver::new();
+                if let Some(switching_home) =
+                    homes.iter().find(|home| home.provider == descriptor.id)
+                {
+                    let expected_home = switching_home.home.clone();
+                    driver
+                        .expect_expire_account_home_diagnostics()
+                        .withf(move |asked_home: &Path, cutoff: &SystemTime| {
+                            asked_home == expected_home
+                                && *cutoff >= started - KEEP
+                                && *cutoff <= SystemTime::now() - KEEP
+                        })
+                        .times(1)
+                        .returning(|_, _| Ok(0));
+                }
+                Arc::new(driver) as Arc<dyn ProviderDriver>
+            })
+            .collect();
+        for path in expired.iter().chain(&kept_old) {
+            write_aged(path, OLD);
+        }
+        for path in &kept_new {
+            write_aged(path, NEW);
+        }
+
+        let mut job = diagnostic_expiry_job(Arc::new(DiagnosticExpiryDeps {
+            data_folder: data.to_path_buf(),
+            live_files: Arc::new(|| Ok(Vec::new())),
+            configuration,
+            reads,
+            drivers: Arc::new(registry_of_first_providers(drivers)),
+        }));
+        job(CancellationToken::new())
+            .await
+            .expect("the pass never fails");
+
+        for path in &expired {
+            assert!(!path.exists(), "{} is past the bound", path.display());
+        }
+        for path in kept_old.iter().chain(&kept_new) {
+            assert!(path.exists(), "{} is kept", path.display());
+        }
+    }
+
     // A pass that cannot name the running services' logs deletes nothing, since it may not know
     // which log is still written. Killed by passing over the failed listing as no live log.
     #[tokio::test]

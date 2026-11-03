@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use sha2::Digest;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
@@ -49,11 +49,57 @@ pub(crate) const SECURE_STORAGE_FOLDER_VARIABLE: &str = "CLAUDE_SECURESTORAGE_CO
 /// from, to a custom host.
 pub(crate) const CUSTOM_SIGN_IN_HOST_VARIABLE: &str = "CLAUDE_CODE_CUSTOM_OAUTH_URL";
 
+/// The hosts Claude Code accepts in [`CUSTOM_SIGN_IN_HOST_VARIABLE`], refusing any other.
+const APPROVED_CUSTOM_BASES: [&str; 3] = [
+    "https://beacon.claude-ai.staging.ant.dev",
+    "https://claude.fedstart.com",
+    "https://claude-staging.fedstart.com",
+];
+
+/// What an environment says of a custom sign-in host, read as Claude Code reads it.
+pub(crate) enum ClaudeCustomSignInBase {
+    /// It names none.
+    Unset,
+    /// It names one Claude Code accepts, given here without its trailing `/`.
+    Approved(&'static str),
+    /// It names one Claude Code refuses.
+    Refused,
+}
+
+/// Reads [`CUSTOM_SIGN_IN_HOST_VARIABLE`] in `environment`, a trailing `/` dropped, against the
+/// hosts Claude Code accepts. Never fails.
+pub(crate) fn read_custom_sign_in_base(environment: &[(String, String)]) -> ClaudeCustomSignInBase {
+    let Some(custom) =
+        PathRules::NATIVE.environment_value(environment, CUSTOM_SIGN_IN_HOST_VARIABLE)
+    else {
+        return ClaudeCustomSignInBase::Unset;
+    };
+    let custom = custom.strip_suffix('/').unwrap_or(custom);
+    APPROVED_CUSTOM_BASES
+        .into_iter()
+        .find(|approved| *approved == custom)
+        .map_or(
+            ClaudeCustomSignInBase::Refused,
+            ClaudeCustomSignInBase::Approved,
+        )
+}
+
 /// The variable whose token Claude Code signs in with ahead of its stored sign-in.
 pub(crate) const OAUTH_TOKEN_VARIABLE: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 
 /// The variable whose API key Claude Code calls the API with.
 pub(crate) const API_KEY_VARIABLE: &str = "ANTHROPIC_API_KEY";
+
+/// The variable whose refresh token `claude auth login` signs in with, skipping its own flow.
+const OAUTH_REFRESH_TOKEN_VARIABLE: &str = "CLAUDE_CODE_OAUTH_REFRESH_TOKEN";
+
+/// The variables that would sign a process in ahead of its home's own sign-in, which a sign-in and
+/// its status read remove so they act on the home alone.
+pub(crate) const SIGN_IN_OVERRIDE_VARIABLES: [&str; 3] = [
+    OAUTH_TOKEN_VARIABLE,
+    API_KEY_VARIABLE,
+    OAUTH_REFRESH_TOKEN_VARIABLE,
+];
 
 /// How many UTF-16 units at the trimmed key's end Claude Code files its approval under.
 const API_KEY_APPROVAL_UNITS: usize = 20;
@@ -97,15 +143,21 @@ impl ClaudeSignInReader {
     }
 
     /// The sign-in of the Claude Code process `environment` starts: the environment's own token,
-    /// with the scopes Claude Code gives it, else the record in its credential folder's file, else
-    /// the keychain item named for that folder. A sign-in token file descriptor the environment
-    /// names is passed over: the daemon withholds that variable from every environment it
-    /// composes and sets it only as it starts a process, on a pipe that process alone reads. Where
-    /// none holds a record with an access token
-    /// it is absent, unless a store that may hold one could not be read; each reason is logged at
-    /// debug.
-    pub(crate) async fn read(&self, environment: &[(String, String)]) -> ClaudeSignInReading {
-        if let Some(token) = claude_text_variable(environment, OAUTH_TOKEN_VARIABLE) {
+    /// else `handed_token`, the token account's sealed token the daemon hands that process on a
+    /// file descriptor, each with the scopes Claude Code gives a handed token, else the record in
+    /// its credential folder's file, else the keychain item named for that folder. The
+    /// descriptor's variable itself is never read: the daemon withholds it from every environment
+    /// it composes and sets it only as it starts a process, on a pipe that process alone reads.
+    /// Where none holds a record with an access token it is absent, unless a store that may hold
+    /// one could not be read; each reason is logged at debug.
+    pub(crate) async fn read(
+        &self,
+        environment: &[(String, String)],
+        handed_token: Option<&SecretString>,
+    ) -> ClaudeSignInReading {
+        let handed = claude_text_variable(environment, OAUTH_TOKEN_VARIABLE)
+            .or_else(|| handed_token.map(ExposeSecret::expose_secret));
+        if let Some(token) = handed {
             return ClaudeSignInReading::Read(ClaudeAiSignIn {
                 access_token: Zeroizing::new(token.to_owned()),
                 scopes: read_handed_token_scopes(environment),
@@ -575,37 +627,36 @@ pub(crate) fn claude_keychain_account(environment: &[(String, String)]) -> Strin
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
-    use std::sync::{Arc, Mutex};
-
     use secrecy::SecretString;
     use sidekicks_platforms::CredentialStore;
-    use tracing_subscriber::layer::SubscriberExt;
 
     use super::{
         ClaudeSignInReader, ClaudeSignInReading, SECURE_STORAGE_FOLDER_VARIABLE,
         claude_keychain_account, claude_keychain_service,
     };
+    use crate::captured_logs::CapturedLogs;
 
     // A token no log line may hold.
     const PLANTED_TOKEN: &str = "planted-access-token-value";
 
-    // Every line the test's subscriber writes, kept for the test to read.
-    #[derive(Clone, Default)]
-    struct CapturedLines(Arc<Mutex<Vec<u8>>>);
+    // Killed by a token account's sealed token left unread where the environment names no token,
+    // which reads the account as signed in to no one and lists none of its connectors.
+    #[tokio::test]
+    async fn a_token_account_s_sealed_token_is_its_sign_in() {
+        let environment = vec![(
+            "CLAUDE_CODE_OAUTH_SCOPES".to_owned(),
+            "user:inference user:mcp_servers".to_owned(),
+        )];
+        let reader = ClaudeSignInReader::with_keychain(CredentialStore::in_memory());
+        let sealed = SecretString::from(PLANTED_TOKEN);
 
-    impl Write for CapturedLines {
-        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
-            self.0
-                .lock()
-                .expect("the capture is not poisoned")
-                .extend_from_slice(buffer);
-            Ok(buffer.len())
-        }
+        let ClaudeSignInReading::Read(sign_in) = reader.read(&environment, Some(&sealed)).await
+        else {
+            panic!("the sealed token is the sign-in");
+        };
 
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
+        assert_eq!(sign_in.access_token.as_str(), PLANTED_TOKEN);
+        assert_eq!(sign_in.scopes, ["user:inference", "user:mcp_servers"]);
     }
 
     // A credential file planted under a temporary folder is read, left byte for byte as it was,
@@ -637,16 +688,9 @@ mod tests {
         ];
         let store = CredentialStore::in_memory();
         let reader = ClaudeSignInReader::with_keychain(store.clone());
-        let lines = CapturedLines::default();
-        let writer = lines.clone();
-        let subscriber = tracing_subscriber::registry().with(
-            tracing_subscriber::fmt::layer()
-                .with_writer(move || writer.clone())
-                .with_ansi(false),
-        );
-        let _default = tracing::subscriber::set_default(subscriber);
+        let (lines, _default) = CapturedLogs::start();
 
-        let ClaudeSignInReading::Read(sign_in) = reader.read(&environment).await else {
+        let ClaudeSignInReading::Read(sign_in) = reader.read(&environment, None).await else {
             panic!("the file's record");
         };
         assert_eq!(sign_in.access_token.as_str(), PLANTED_TOKEN);
@@ -662,7 +706,7 @@ mod tests {
         let unreadable = format!(r#"{{"claudeAiOauth":{{"expiresAt":"{PLANTED_TOKEN}"}}}}"#);
         std::fs::write(&credentials, &unreadable).expect("the file is planted");
         assert!(matches!(
-            reader.read(&environment).await,
+            reader.read(&environment, None).await,
             ClaudeSignInReading::Absent
         ));
         assert_eq!(
@@ -679,13 +723,12 @@ mod tests {
                 &SecretString::from(planted.clone()),
             )
             .expect("the item is planted");
-        let ClaudeSignInReading::Read(sign_in) = reader.read(&environment).await else {
+        let ClaudeSignInReading::Read(sign_in) = reader.read(&environment, None).await else {
             panic!("the keychain item's record");
         };
         assert_eq!(sign_in.access_token.as_str(), PLANTED_TOKEN);
 
-        let logged = String::from_utf8(lines.0.lock().expect("not poisoned").clone())
-            .expect("the log is text");
+        let logged = lines.text();
         assert!(!logged.is_empty(), "the unreadable file is logged");
         assert!(
             !logged.contains(PLANTED_TOKEN),
@@ -717,7 +760,7 @@ mod tests {
                 )
                 .collect();
             let reader = reader.clone();
-            async move { reader.read(&environment).await }
+            async move { reader.read(&environment, None).await }
         };
 
         let ClaudeSignInReading::Read(sign_in) =

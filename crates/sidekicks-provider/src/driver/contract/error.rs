@@ -239,11 +239,16 @@ pub fn bound_failure_detail(
     detail: &str,
     empty_fallback: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
 ) -> FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN> {
-    let without_nuls = detail.replace('\0', "");
+    bound_provider_words(detail).unwrap_or(empty_fallback)
+}
+
+/// Fits a provider's words to text of at most `MAX` code points: every NUL dropped, ECMAScript
+/// whitespace trimmed from both ends and the rest cut to the cap; `None` where nothing is left.
+pub fn bound_provider_words<const MAX: usize>(words: &str) -> Option<FreeFormText<MAX>> {
+    let without_nuls = words.replace('\0', "");
     let trimmed = without_nuls.trim_matches(is_ecmascript_whitespace);
-    if trimmed.is_empty() {
-        return empty_fallback;
-    }
-    FreeFormText::new(cut_to_code_points(trimmed, PROVIDER_FAILURE_DETAIL_MAX_LEN).to_owned())
-        .expect("trimmed, NUL-free text cut to the cap is non-blank and within it")
+    (!trimmed.is_empty()).then(|| {
+        FreeFormText::new(cut_to_code_points(trimmed, MAX).to_owned())
+            .expect("trimmed, NUL-free text cut to the cap is non-blank and within it")
+    })
 }

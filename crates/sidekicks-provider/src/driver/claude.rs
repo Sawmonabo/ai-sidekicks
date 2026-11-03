@@ -36,7 +36,7 @@ use crate::driver::claude::session::establishment::context::{
 };
 use crate::driver::claude::spawn::environment::CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE;
 use crate::driver::contract::ProviderDriver;
-use crate::driver::contract::account::ProviderAccountLegs;
+use crate::driver::contract::account::{HelperModeAccountLegs, ProviderAccountLegs};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
@@ -70,8 +70,9 @@ use crate::driver::session_control::{
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{
-    BackgroundWork, CommandSandboxNeeds, DriverServices, InstallFolder, InstallFolderBase,
-    ProviderCommand, ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
+    BackgroundWork, CommandSandboxNeeds, DriverServices, HelperModeServices, InstallFolder,
+    InstallFolderBase, ProviderCommand, ProviderCommandLookup, ProviderDescriptor,
+    ProviderMemoryEstimates,
 };
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
@@ -291,12 +292,18 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     // The sign-in's own folder, which `CLAUDE_SECURESTORAGE_CONFIG_DIR` names.
     account_home_credential_store_folder: &["store"],
     shell_prefix_command: Some(command_shape::CLAUDE_SHELL_PREFIX_COMMAND),
-    token_limits_read_by_turn: true,
 };
 
 /// Builds the Claude Code driver over the shared services; it stores handles and does no I/O.
 pub(super) fn build(services: &DriverServices) -> Arc<dyn ProviderDriver> {
     Arc::new(ClaudeDriver::new(services))
+}
+
+/// Builds Claude Code's helper-mode account legs over `services`; they hold handles and do no I/O.
+pub(super) fn helper_mode_account_legs(
+    services: &HelperModeServices,
+) -> Arc<dyn HelperModeAccountLegs> {
+    Arc::new(account::helper_mode::ClaudeHelperModeLegs::new(services))
 }
 
 /// Claude Code takes a message at once into its own queue, reads a priority one at its turn's next

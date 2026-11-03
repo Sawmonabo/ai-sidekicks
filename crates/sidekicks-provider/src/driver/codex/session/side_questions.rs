@@ -162,7 +162,7 @@ impl CodexSideQuestion {
             CopyFrameReading::Usage(delta) => CopyFrameTaken::Kept(Some(MeteredUsage {
                 session_id: self.session_id,
                 binding_id: self.binding_id.clone(),
-                owner: MeteredUsageOwner::SideQuestion,
+                owner: MeteredUsageOwner::SessionCopy,
                 delta,
             })),
             CopyFrameReading::Ended(turn) => CopyFrameTaken::Ended(turn),

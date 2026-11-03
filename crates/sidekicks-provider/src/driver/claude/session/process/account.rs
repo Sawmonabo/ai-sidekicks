@@ -14,9 +14,11 @@ use crate::driver::claude::account::credentials::SECURE_STORAGE_FOLDER_VARIABLE;
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ClaudeProcessAccount(Arc<Mutex<ClaudeProcessSignIn>>);
 
-// The account, and the credential store an in-place switch pointed the process at since its start.
+// The account the process launched on, the one it runs on now, and the credential store an
+// in-place switch pointed the process at since its start.
 #[derive(Debug, Default)]
 struct ClaudeProcessSignIn {
+    launch_account: Option<ProviderAccountId>,
     provider_account_id: Option<ProviderAccountId>,
     moved_store: Option<String>,
 }
@@ -25,9 +27,16 @@ impl ClaudeProcessAccount {
     /// The account of a process launched on `provider_account_id`'s home, `None` naming none.
     pub(crate) fn new(provider_account_id: Option<ProviderAccountId>) -> Self {
         Self(Arc::new(Mutex::new(ClaudeProcessSignIn {
+            launch_account: provider_account_id.clone(),
             provider_account_id,
             moved_store: None,
         })))
+    }
+
+    /// Whether the process launched on `provider_account_id`'s account, so what it read at its
+    /// start, its model catalog among them, is that account's.
+    pub(crate) fn is_launched_on(&self, provider_account_id: &ProviderAccountId) -> bool {
+        lock(&self.0).launch_account.as_ref() == Some(provider_account_id)
     }
 
     /// The account the process runs on now.

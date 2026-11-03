@@ -21,6 +21,7 @@ use sidekicks_platforms::{
     ChildTree, Spawner, async_pipe_reader, read_child_exit, shell_line_command, start_child_tree,
 };
 use sidekicks_std::error_description::describe_error;
+use sidekicks_std::file::tree_copy::{TreeCopyPolicy, copy_tree};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::output_tail::{OutputTail, read_output_chunks};
 use tokio::io::AsyncRead;
@@ -28,7 +29,6 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::AbortOnDropHandle;
 
-use crate::git::worktree::copy::{TreeCopyPolicy, copy_tree};
 use crate::last_error::normalize_workspace_last_error;
 use crate::trust_envelope::{components_equal, is_contained_within};
 

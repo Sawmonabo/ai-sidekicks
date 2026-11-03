@@ -3,4 +3,5 @@
 
 pub(super) mod connection;
 pub(super) mod diagnostics;
+pub(super) mod login_notices;
 pub(super) mod socket;

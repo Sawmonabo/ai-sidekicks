@@ -7,7 +7,6 @@ use std::time::Duration;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::Value;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -25,11 +24,10 @@ use crate::driver::codex::lifecycle::naming::{
 };
 use crate::driver::codex::service::command::run_codex_command;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
+use crate::driver::codex::service::registry::home_exec_switches;
 use crate::driver::codex::service::supervisor::start::compose_codex_native_launch;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::contract::account::{
-    ProviderObservation, ProviderWindowTurnLegs, TokenLimitsReading, WindowTurnAnswer,
-};
+use crate::driver::contract::account::{ProviderWindowTurnLegs, WindowTurnAnswer};
 use crate::driver::contract::error::DriverError;
 use crate::usage_delta_accountant::{UsageAxisCounts, compose_one_turn_spend};
 
@@ -60,23 +58,6 @@ impl ProviderWindowTurnLegs for CodexAccountLegs {
     ) -> BoxFuture<'_, Result<WindowTurnAnswer, DriverError>> {
         start_codex_window(self, provider_account_id, folders).boxed()
     }
-
-    /// Out of scope with no turn: a Codex sign-in reads its own limits, and an API key has none
-    /// to read.
-    fn read_token_limits<'call>(
-        &'call self,
-        _provider_account_id: &'call ProviderAccountId,
-        _folders: &'call ProviderAccountFolders,
-        _token: &'call SecretString,
-    ) -> BoxFuture<'call, Result<TokenLimitsReading, DriverError>> {
-        async {
-            Ok(TokenLimitsReading {
-                observation: ProviderObservation::OutOfScope,
-                spend: None,
-            })
-        }
-        .boxed()
-    }
 }
 
 // Runs the turn in `folders`' Codex home and no other, and answers its spend, or the refusal of a
@@ -93,8 +74,13 @@ async fn start_codex_window(
         kind: CodexHomeKind::Account(provider_account_id),
     };
     let executable = dependencies.program.resolve(&home).await?;
-    let server_names =
-        list_mcp_server_names(dependencies, &executable, CODEX_SERVER_LIST_DEADLINE).await?;
+    let server_names = list_mcp_server_names(
+        dependencies,
+        &executable,
+        &home.kind,
+        CODEX_SERVER_LIST_DEADLINE,
+    )
+    .await?;
     let mut overrides = compose_lockdown_overrides(&server_names);
     overrides.extend([
         (
@@ -106,7 +92,8 @@ async fn start_codex_window(
             Value::String(CODEX_SMALL_MODEL_EFFORT.to_owned()),
         ),
     ]);
-    let mut arguments = write_exec_overrides(overrides);
+    let mut arguments = home_exec_switches(&home.kind);
+    arguments.extend(write_exec_overrides(overrides));
     arguments.extend(CODEX_WINDOW_TURN_ARGUMENTS.map(str::to_owned));
     let folder = tempfile::tempdir().map_err(|error| CodexError::Transport {
         detail: "The folder of Codex's window-start turn could not be made.".to_owned(),

@@ -1,11 +1,14 @@
-//! `Erase all data`: the keychain is checked before the erase answers, so a locked or unusable one
-//! refuses it with nothing changed; then, in order, every run and shell stops as Runtime's `Stop`
-//! stops them, every provider service ends, every credential-store item the app made is deleted,
+//! `Erase all data`: the keychain is checked first, so a locked or unusable one refuses the erase
+//! with nothing changed; then every provider account signs out through its provider's own
+//! sign-out in its home, while the services still serve, and the erase answers naming each
+//! account left signed in. Then, in order, every run and shell stops as Runtime's `Stop` stops
+//! them, every provider service ends, every credential-store item the app made is deleted,
 //! everything that holds a file in the data folder closes, the data folder goes with the account
 //! homes in it, and the process ends so its caller starts it again, empty. The default `backups/`
 //! folder stays, since a backup taken earlier keeps its copy, and no project folder is touched.
 //! An item the store refuses to delete leaves the data folder whole, so the erase can run again.
-//! One erase runs at a time: a second sent while it runs is refused and starts nothing.
+//! An account that does not sign out stops nothing. One erase runs at a time: a second sent while
+//! it runs is refused and starts nothing.
 
 use std::error::Error;
 use std::fs;
@@ -13,16 +16,38 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::daemon::backup::BACKUP_DEFAULT_FOLDER_NAME;
+use sidekicks_contracts::daemon::data::{
+    DaemonDataEraseResponse, DataEraseSignOutFailure, DataEraseSignedInAccount,
+};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_provider::account::credential_home::HomeSignOutError;
+use sidekicks_provider::account::errors::ProviderAccountRegistryError;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_store::credential_store::KeychainRefusal;
 use sidekicks_store::credential_store::items::SecretItems;
+use tokio::sync::oneshot;
 
 /// One step of the erase that the running daemon carries out.
 pub(crate) type EraseStep = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
+
+/// Signs every provider account out in its home, answering each account that did not sign out
+/// with why; fails when the accounts cannot be read.
+pub(crate) type AccountsSignOut = Arc<
+    dyn Fn() -> BoxFuture<
+            'static,
+            Result<Vec<(ProviderAccountId, HomeSignOutError)>, ProviderAccountRegistryError>,
+        > + Send
+        + Sync,
+>;
+
+/// How long a provider's own sign-out of one account may take before the erase, or the start's
+/// sweep of new accounts' homes, goes on without it.
+pub(crate) const ACCOUNT_SIGN_OUT_BOUND: Duration = Duration::from_secs(30);
 
 /// What the erase acts on.
 pub(crate) struct DataEraseDeps {
@@ -32,6 +57,8 @@ pub(crate) struct DataEraseDeps {
     pub(crate) secret_items: Arc<SecretItems>,
     /// The registered drivers, each of whose services ends.
     pub(crate) providers: Arc<ProviderRegistry>,
+    /// Signs every provider account out before the erase answers, while the services serve.
+    pub(crate) sign_out_accounts: AccountsSignOut,
     /// Stops every run and shell as Runtime's `Stop` does, once the erase's reply is written.
     pub(crate) stop_work: EraseStep,
     /// Closes everything that holds a file in the data folder: the read pool and the writer, the
@@ -53,6 +80,18 @@ pub(crate) enum DataEraseRefusal {
     Keychain(#[from] KeychainRefusal),
 }
 
+/// Why an erase gave no answer.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum DataEraseFailure {
+    /// The erase did not start.
+    #[error(transparent)]
+    Refused(#[from] DataEraseRefusal),
+    /// The erase ended before it answered, as when a provider's sign-out panicked: a failure
+    /// inside the service, after which another erase may start.
+    #[error("the erase ended before it answered")]
+    Ended,
+}
+
 /// The erase of everything the service keeps.
 pub(crate) struct DataErase {
     deps: DataEraseDeps,
@@ -69,29 +108,48 @@ impl DataErase {
     }
 
     /// Checks that every credential-store item the erase must delete can be, then starts the
-    /// erase and answers, so the reply is written while the erase stops the work; a locked store
-    /// raises its unlock prompt while the person is at the screen. Fails with
-    /// [`DataEraseRefusal::Running`] while an erase runs, and with
-    /// [`DataEraseRefusal::Keychain`] when the store is locked or cannot be used; this call then
-    /// starts nothing.
-    pub(crate) async fn begin(self: &Arc<Self>) -> Result<(), DataEraseRefusal> {
+    /// erase, which signs every account out and answers naming each account left signed in, so
+    /// the reply is written while the erase stops the work; a locked store raises its unlock
+    /// prompt while the person is at the screen. Fails with [`DataEraseRefusal::Running`] while
+    /// an erase runs, and with [`DataEraseRefusal::Keychain`] when the store is locked or cannot
+    /// be used; this call then starts nothing. Fails with [`DataEraseFailure::Ended`] when the
+    /// erase ends before it answers, and lets the next erase start. An erase once started runs to
+    /// its end even when its caller stops waiting for the answer.
+    pub(crate) async fn begin(
+        self: &Arc<Self>,
+    ) -> Result<DaemonDataEraseResponse, DataEraseFailure> {
         if self.is_running.load(Ordering::Acquire) {
-            return Err(DataEraseRefusal::Running);
+            return Err(DataEraseRefusal::Running.into());
         }
-        self.deps.secret_items.check_for_erase().await?;
+        self.deps
+            .secret_items
+            .check_for_erase()
+            .await
+            .map_err(DataEraseRefusal::from)?;
         // Two erases sent together may both pass the check; only the first to get here starts.
         if self.is_running.swap(true, Ordering::AcqRel) {
-            return Err(DataEraseRefusal::Running);
+            return Err(DataEraseRefusal::Running.into());
         }
+        let (answer, answered) = oneshot::channel();
         let erase = Arc::clone(self);
-        tokio::spawn(async move { erase.erase().await });
-        Ok(())
+        tokio::spawn(async move { erase.erase(answer).await });
+        // The erase answers before it stops anything, so one that ended without answering
+        // erased nothing and the next may run.
+        answered.await.map_err(|_ended| {
+            self.is_running.store(false, Ordering::Release);
+            DataEraseFailure::Ended
+        })
     }
 
-    // Erases everything and ends the process. Never fails: a provider service that does not end
-    // and a data-folder entry that cannot be deleted are told in the service log, and a store that
-    // refuses an item keeps the data folder whole.
-    async fn erase(&self) {
+    // Signs every account out and answers `answer` with the accounts left signed in, then erases
+    // everything and ends the process. Never fails: an account that does not sign out, a provider
+    // service that does not end and a data-folder entry that cannot be deleted are told in the
+    // service log, and a store that refuses an item keeps the data folder whole.
+    async fn erase(&self, answer: oneshot::Sender<DaemonDataEraseResponse>) {
+        let signed_out = self.sign_out_accounts().await;
+        if answer.send(signed_out).is_err() {
+            tracing::info!("the erase's caller left before its answer; the erase goes on");
+        }
         (self.deps.stop_work)().await;
         for (provider, driver) in self.deps.providers.drivers() {
             if let Err(failure) = driver.shutdown(DaemonStopIntent::Stop).await {
@@ -126,6 +184,49 @@ impl DataErase {
             ),
         }
         (self.deps.end_process)();
+    }
+
+    // Signs every provider account out, each account that did not sign out and a failed read of
+    // the accounts told in the service log and in the answer.
+    async fn sign_out_accounts(&self) -> DaemonDataEraseResponse {
+        match (self.deps.sign_out_accounts)().await {
+            Ok(unsigned) => DaemonDataEraseResponse {
+                signed_in_accounts: unsigned
+                    .into_iter()
+                    .map(|(account_id, failure)| {
+                        tracing::warn!(
+                            account = account_id.as_str(),
+                            error = &failure as &(dyn Error + 'static),
+                            "a provider account did not sign out before the erase"
+                        );
+                        DataEraseSignedInAccount {
+                            account_id,
+                            cause: sign_out_failure(&failure),
+                        }
+                    })
+                    .collect(),
+                is_account_list_unread: false,
+            },
+            Err(failure) => {
+                tracing::warn!(
+                    error = &failure as &(dyn Error + 'static),
+                    "the provider accounts could not be read to sign them out before the erase"
+                );
+                DaemonDataEraseResponse {
+                    signed_in_accounts: Vec::new(),
+                    is_account_list_unread: true,
+                }
+            }
+        }
+    }
+}
+
+// The wire's word for why `failure` left an account signed in.
+fn sign_out_failure(failure: &HomeSignOutError) -> DataEraseSignOutFailure {
+    match failure {
+        HomeSignOutError::NoProvider => DataEraseSignOutFailure::NoProvider,
+        HomeSignOutError::SignOut(_) => DataEraseSignOutFailure::Refused,
+        HomeSignOutError::Overran => DataEraseSignOutFailure::TimedOut,
     }
 }
 

@@ -30,7 +30,7 @@ use super::{
 };
 use crate::git::process::test_repository::{commit_empty, git_in, make_test_repository};
 use crate::git::process::{GitRunner, test_git_runner};
-use crate::git::worktree::copy::progress::WorktreeCopiesUnderWay;
+use crate::git::worktree::copy_progress::WorktreeCopiesUnderWay;
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::kept_copy::folder_move::FolderMoveTools;
 use crate::git::worktree::kept_copy::{KeptCopyTools, WorktreeAside, move_worktree_aside};

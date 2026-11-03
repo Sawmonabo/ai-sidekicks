@@ -89,6 +89,12 @@ static WEB_ADDRESS: LazyLock<Regex> = LazyLock::new(|| {
     .expect("the web address pattern is a valid regex")
 });
 
+// An opaque run of 16 or more characters a code, a token or a key is written in; it is replaced
+// only where it holds a digit or a `#`, so a long ordinary word stays.
+static OPAQUE_SPAN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[A-Za-z0-9_.~+/=#%-]{16,}").expect("the opaque span pattern is a valid regex")
+});
+
 /// A Unix path at a token boundary, with an optional `:line:col`; the leading group stands for
 /// the boundary (`regex` has no look-behind) and is written back, so `feature/login` stays. A
 /// folder's name may hold spaces and the last segment may not, so `/Users/a/My Project/x.rs` is
@@ -188,6 +194,25 @@ pub fn sanitize_failure_reason(raw: &str, max_code_points: usize) -> String {
     }
     sanitized.push_str(&redact_paths(&scrubbed[after_address..]));
     cap_text(sanitized, max_code_points)
+}
+
+/// A sign-in's failure text made safe to show the person, who never needs an address or a code
+/// from it: credentials scrubbed, every web address and every opaque span holding a digit or a `#`
+/// (a pasted code, a token, a key) replaced by `***`, absolute paths redacted, then capped at
+/// `max_code_points`.
+pub fn sanitize_sign_in_failure_reason(raw: &str, max_code_points: usize) -> String {
+    let scrubbed = scrub_credentials(raw);
+    let without_addresses = WEB_ADDRESS.replace_all(&scrubbed, NoExpand(CREDENTIAL_REDACTION));
+    let without_paths = redact_paths(&without_addresses);
+    let without_codes = OPAQUE_SPAN.replace_all(&without_paths, |captures: &Captures<'_>| {
+        let span = &captures[0];
+        if span.contains(|character: char| character.is_ascii_digit() || character == '#') {
+            CREDENTIAL_REDACTION.to_owned()
+        } else {
+            span.to_owned()
+        }
+    });
+    cap_text(without_codes.into_owned(), max_code_points)
 }
 
 /// `error` and each of its causes joined by `: `, any NUL dropped, then made safe as

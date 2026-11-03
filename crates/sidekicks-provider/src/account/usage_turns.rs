@@ -185,15 +185,7 @@ pub(crate) fn credential_generation_binding(
     name: &'static str,
     generation: CredentialGeneration,
 ) -> (Cow<'static, str>, Value) {
-    (
-        Cow::Borrowed(name),
-        Value::Integer(
-            serde_json::to_value(generation)
-                .ok()
-                .and_then(|generation| generation.as_i64())
-                .expect("a credential generation is a safe integer"),
-        ),
-    )
+    (Cow::Borrowed(name), Value::Integer(i64::from(generation)))
 }
 
 fn model_binding(

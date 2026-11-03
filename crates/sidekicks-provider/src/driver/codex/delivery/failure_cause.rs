@@ -205,7 +205,7 @@ mod tests {
     }
 
     fn generation(value: u64) -> CredentialGeneration {
-        serde_json::from_value(json!(value)).unwrap()
+        CredentialGeneration::new(value).expect("a test generation")
     }
 
     // A machine with two accounts: `account-a` at generation 2, and `account-1`, the account of

@@ -23,7 +23,9 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 use tokio::sync::Notify;
 
 use super::{ProviderTokenCustody, TokenAccountRegistration, TokenCustodyError};
-use crate::account::registry::{MintedAccount, ProviderAccountRegistry, open_test_registry};
+use crate::account::registry::{
+    AccountAdmission, MintedAccount, ProviderAccountRegistry, open_test_registry,
+};
 use crate::driver::ProviderAccountFolders;
 use crate::driver::contract::account::ProviderTokenStatusLegs;
 use crate::driver::contract::error::DriverError;
@@ -93,12 +95,28 @@ enum StatusAnswer {
     NeverAnswers,
 }
 
-// A provider's status read that answers as the test sets and counts its calls.
+// A re-supplied token as the hand saw it: the account, the token, what the keychain held for the
+// account and the account's generation at that moment.
+#[derive(Debug, PartialEq, Eq)]
+struct SeenHand {
+    account_id: ProviderAccountId,
+    token: String,
+    sealed: Option<String>,
+    generation: u64,
+}
+
+// A provider's legs whose status read answers as the test sets and counts its calls, and whose
+// hand of a re-supplied token records what it saw in `keychain` and `registry`, failing where the
+// test sets it to.
 struct ScriptedStatusLegs {
     answer: Mutex<StatusAnswer>,
     calls: Mutex<usize>,
     // Woken by a read that never answers, once it is reached.
     stalled: Notify,
+    keychain: Arc<ScriptedKeychain>,
+    registry: Arc<ProviderAccountRegistry>,
+    hands: Mutex<Vec<SeenHand>>,
+    is_hand_failing: Mutex<bool>,
 }
 
 impl ProviderTokenStatusLegs for ScriptedStatusLegs {
@@ -118,6 +136,36 @@ impl ProviderTokenStatusLegs for ScriptedStatusLegs {
                 futures::future::pending().boxed()
             }
         }
+    }
+
+    fn hand_resupplied_token<'call>(
+        &'call self,
+        provider_account_id: &'call ProviderAccountId,
+        _folders: &'call ProviderAccountFolders,
+        token: &'call SecretString,
+    ) -> BoxFuture<'call, Result<(), DriverError>> {
+        async move {
+            let account = self
+                .registry
+                .read(provider_account_id.clone())
+                .await
+                .expect("the account is registered");
+            lock(&self.hands).push(SeenHand {
+                account_id: provider_account_id.clone(),
+                token: token.expose_secret().to_owned(),
+                sealed: self
+                    .keychain
+                    .held()
+                    .get(provider_account_id.as_str())
+                    .cloned(),
+                generation: account.credential_generation.get(),
+            });
+            if *lock(&self.is_hand_failing) {
+                return Err(DriverError::Internal("the test fails the hand".into()));
+            }
+            Ok(())
+        }
+        .boxed()
     }
 }
 
@@ -142,6 +190,10 @@ impl Fixture {
             answer: Mutex::new(StatusAnswer::Accepts(ProviderAuthMode::OauthToken)),
             calls: Mutex::new(0),
             stalled: Notify::new(),
+            keychain: Arc::clone(&keychain),
+            registry: Arc::clone(&registry),
+            hands: Mutex::default(),
+            is_hand_failing: Mutex::new(false),
         });
         let custody = Arc::new(ProviderTokenCustody::new(
             Arc::clone(&registry),
@@ -459,9 +511,172 @@ async fn a_resupply_replaces_the_sealed_token_and_never_touches_the_home() {
         fixture.keychain.held(),
         BTreeMap::from([(account_id.as_str().to_owned(), "second".to_owned())])
     );
-    assert_eq!(
-        serde_json::to_value(replaced.credential_generation).expect("the generation writes"),
-        serde_json::json!(2)
-    );
+    assert_eq!(replaced.credential_generation.get(), 2);
     assert_eq!(snapshot(minted.home().path()), home_before);
+}
+
+/// A re-supply naming an account that signs in another way is refused `provider.account.notFound`
+/// before the provider reads the token: nothing is sealed and the account's generation and mode
+/// stay. Fails when the re-supply seals the pasted token over the account's own sign-in.
+#[tokio::test]
+async fn a_resupply_of_an_account_that_signs_in_another_way_is_refused() {
+    let fixture = Fixture::new().await;
+    let minted = fixture.mint();
+    let signed_in = fixture
+        .registry
+        .admit(
+            &minted,
+            &AccountAdmission {
+                display_label: None,
+                billing_mode: BillingMode::Subscription,
+                health: None,
+                observed_auth_mode: Some(ProviderAuthMode::OauthSubscription),
+            },
+        )
+        .await
+        .expect("the signed-in account is admitted");
+
+    let refused = fixture
+        .custody
+        .replace(
+            signed_in.account_id.clone(),
+            &folders(&minted),
+            &secret("pasted"),
+        )
+        .await
+        .expect_err("a pasted token never replaces a sign-in");
+
+    assert!(matches!(refused, TokenCustodyError::NotTokenAccount));
+    let HandlerError::Refused(refusal) = HandlerError::from(refused) else {
+        panic!("the re-supply answers a refusal");
+    };
+    assert_eq!(refusal.code, RefusalCode::ProviderAccountNotFound);
+    assert!(fixture.keychain.held().is_empty());
+    assert_eq!(*lock(&fixture.status_legs.calls), 0);
+    let after = fixture
+        .registry
+        .read(signed_in.account_id)
+        .await
+        .expect("the account reads");
+    assert_eq!(after.credential_generation, signed_in.credential_generation);
+    assert_eq!(
+        after.observed_auth_mode,
+        Some(ProviderAuthMode::OauthSubscription)
+    );
+}
+
+/// A token or key account whose sealed token was lost takes the re-supplied one, its only repair,
+/// and its generation rises. Fails when the re-supply is decided by whether a token is sealed
+/// rather than by the account's kind of sign-in.
+#[rstest]
+#[case::token(ProviderAuthMode::OauthToken)]
+#[case::key(ProviderAuthMode::ApiKey)]
+#[tokio::test]
+async fn a_token_account_with_no_sealed_token_takes_a_resupply(#[case] mode: ProviderAuthMode) {
+    let fixture = Fixture::new().await;
+    fixture.answer(StatusAnswer::Accepts(mode));
+    let minted = fixture.mint();
+    let account = fixture
+        .registry
+        .admit(
+            &minted,
+            &AccountAdmission {
+                display_label: Some(registration("Pasted").display_label),
+                billing_mode: BillingMode::Subscription,
+                health: None,
+                observed_auth_mode: Some(mode),
+            },
+        )
+        .await
+        .expect("the token account is admitted");
+
+    let replaced = fixture
+        .custody
+        .replace(
+            account.account_id.clone(),
+            &folders(&minted),
+            &secret("again"),
+        )
+        .await
+        .expect("the lost token is replaced");
+
+    assert_eq!(
+        fixture.keychain.held(),
+        BTreeMap::from([(account.account_id.as_str().to_owned(), "again".to_owned())])
+    );
+    assert_eq!(replaced.credential_generation.get(), 2);
+    assert_eq!(replaced.observed_auth_mode, Some(mode));
+}
+
+/// A re-supply the provider accepts hands the new token to the account's running processes once it
+/// is sealed and the generation raised, and one it refuses hands nothing; a hand that fails answers
+/// the daemon's own error, the new token still sealed and the generation raised. Killed by the hand
+/// called before the seal or the write (it sees the earlier token or generation), by the hand
+/// called on a refused re-supply, and by the hand's failure dropped (the re-supply answers).
+#[tokio::test]
+async fn replace_hands_the_new_token_once_it_is_sealed() {
+    let fixture = Fixture::new().await;
+    let minted = fixture.mint();
+    let account_id = fixture
+        .custody
+        .register(
+            &minted,
+            &folders(&minted),
+            registration("Pasted"),
+            &secret("first"),
+        )
+        .await
+        .expect("the token is registered")
+        .account_id;
+
+    fixture.answer(StatusAnswer::Refuses);
+    fixture
+        .custody
+        .replace(account_id.clone(), &folders(&minted), &secret("refused"))
+        .await
+        .expect_err("a token the provider refuses replaces nothing");
+    assert_eq!(*lock(&fixture.status_legs.hands), []);
+
+    fixture.answer(StatusAnswer::Accepts(ProviderAuthMode::OauthToken));
+    fixture
+        .custody
+        .replace(account_id.clone(), &folders(&minted), &secret("second"))
+        .await
+        .expect("the token is replaced and handed");
+    assert_eq!(
+        *lock(&fixture.status_legs.hands),
+        [SeenHand {
+            account_id: account_id.clone(),
+            token: "second".to_owned(),
+            sealed: Some("second".to_owned()),
+            generation: 2,
+        }]
+    );
+
+    *lock(&fixture.status_legs.is_hand_failing) = true;
+    let failed = fixture
+        .custody
+        .replace(account_id.clone(), &folders(&minted), &secret("third"))
+        .await
+        .expect_err("a hand that fails answers its failure");
+
+    assert!(matches!(failed, TokenCustodyError::Handing(_)));
+    assert!(matches!(
+        HandlerError::from(failed),
+        HandlerError::Internal(_)
+    ));
+    assert_eq!(
+        fixture
+            .keychain
+            .held()
+            .get(account_id.as_str())
+            .map(String::as_str),
+        Some("third")
+    );
+    let account = fixture
+        .registry
+        .read(account_id)
+        .await
+        .expect("the account stays");
+    assert_eq!(account.credential_generation.get(), 3);
 }
