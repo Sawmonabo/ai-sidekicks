@@ -1,18 +1,23 @@
-//! The run side of an undo's conversation cut: the forward `agent.run.rolledBack` of each run a
+//! The run side of an undo's conversation cut: the check, read before the provider cuts, of every
+//! condition the rollback's write refuses on, and the forward `agent.run.rolledBack` of each run a
 //! cut the provider confirmed reaches, all in one write, each advancing its run's version, opening
 //! a new execution epoch, and moving the run through no state.
 
 #[cfg(test)]
 mod tests;
 
+use std::sync::Arc;
+
+use rusqlite::Connection;
 use sidekicks_contracts::event::envelope::SourcePosition;
 use sidekicks_contracts::run::control::AgentRunRolledBackEvent;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_store::events::session::append_lock::SessionAppendHold;
 
 use crate::run::engine::RunEngine;
 use crate::run::engine::errors::RunEngineError;
-use crate::run::read::RunRead;
+use crate::run::read::{RunRead, RunStateReader};
 use crate::run::state_change::{RunWriteCompanions, rolled_back_event};
 
 /// One run a conversation cut reaches, and the turn boundary its conversation lands at: every turn
@@ -23,6 +28,79 @@ pub struct RunCut {
     pub run_id: RunId,
     /// The last turn position kept.
     pub target_position: SourcePosition,
+}
+
+/// Reads, before the provider cuts, whether a statement of a rollback's companions would refuse its
+/// write, answering [`RollbackCheckError::CompanionRefused`] for the first that would.
+pub type RollbackCompanionCheck =
+    Arc<dyn Fn(&Connection) -> Result<(), RollbackCheckError> + Send + Sync>;
+
+/// What commits with an undo's rollback, held with the check of every condition its statements
+/// refuse on, so no companion reaches the write unchecked. The default holds none and checks
+/// nothing.
+#[derive(Clone)]
+pub struct RollbackCompanions {
+    /// Committed in the rollback's write.
+    pub write: RunWriteCompanions,
+    /// Reads every condition a statement of `write` refuses on.
+    pub check: RollbackCompanionCheck,
+}
+
+impl Default for RollbackCompanions {
+    fn default() -> Self {
+        Self {
+            write: RunWriteCompanions::default(),
+            check: Arc::new(|_| Ok(())),
+        }
+    }
+}
+
+/// Why the check before a conversation cut refused it; the provider was not asked.
+#[derive(Debug, thiserror::Error)]
+pub enum RollbackCheckError {
+    /// A run the cut reaches holds a turn with no end, which must end before the cut.
+    #[error("run {run_id} holds a turn with no end, so its conversation is not cut")]
+    TurnOpen {
+        /// The run.
+        run_id: RunId,
+    },
+    /// A companion statement would refuse the rollback's write.
+    #[error("companion statement {companion_index} of the rollback would refuse it")]
+    CompanionRefused {
+        /// The statement's position among the companions.
+        companion_index: usize,
+    },
+    /// SQLite refused a read, or a stored column does not read as its type.
+    #[error("the rollback's check could not read")]
+    Database(#[from] rusqlite::Error),
+}
+
+/// Reads, before the provider is asked to cut, every condition the rollback of `cuts` in
+/// `session_id` refuses on: a run it reaches holding a turn with no end, then the companions'
+/// `check`. The write reads each run's version again and retries while a run moves, so no
+/// version read here binds it. Called under the undo's hold; fails as [`RollbackCheckError`] says.
+pub fn check_rollback(
+    reader: &Connection,
+    session_id: &SessionId,
+    cuts: &[RunCut],
+    check: &RollbackCompanionCheck,
+) -> Result<(), RollbackCheckError> {
+    let reached = |run_id: &RunId| cuts.iter().any(|cut| cut.run_id == *run_id);
+    let runs = RunStateReader::new(reader);
+    let live_open = runs
+        .list_live_run_resumes(session_id)?
+        .into_iter()
+        .find(|run| reached(&run.run_id) && !run.open_turns.is_empty())
+        .map(|run| run.run_id);
+    let ended_open = runs
+        .list_ended_runs_with_open_turns(Some(session_id))?
+        .into_iter()
+        .find(|run| reached(&run.run_id))
+        .map(|run| run.run_id);
+    if let Some(run_id) = live_open.or(ended_open) {
+        return Err(RollbackCheckError::TurnOpen { run_id });
+    }
+    check(reader)
 }
 
 /// A rollback written: its event and the run as it left it.

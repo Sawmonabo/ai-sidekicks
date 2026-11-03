@@ -20,7 +20,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord};
-use sidekicks_session::run::state_change::RunWriteCompanions;
+use sidekicks_session::run::engine::undo::RollbackCompanions;
 use tokio::time::{sleep, timeout};
 
 use super::super::{DriverCalls, HELD_WATCH, WAIT, client_key, fixture, recording_driver};
@@ -145,7 +145,7 @@ async fn a_send_during_an_undo_waits_and_follows_the_edit(#[case] route: HeldRou
     let is_starting_while_held = fixture.queue.admission.is_starting(held_run_id);
     fixture
         .queue
-        .cut_conversation(&hold, &scene.target, RunWriteCompanions::default())
+        .cut_conversation(&hold, &scene.target, RollbackCompanions::default())
         .await
         .expect("the cut applies");
     if matches!(route, HeldRoute::RefusedResend) {
@@ -439,7 +439,7 @@ async fn back_to_back_undos_resume_a_paused_run_once_with_the_newer_edit_first()
         .await;
     fixture
         .queue
-        .cut_conversation(&second_hold, &scene.target, RunWriteCompanions::default())
+        .cut_conversation(&second_hold, &scene.target, RollbackCompanions::default())
         .await
         .expect("the second cut applies");
     let queue = Arc::clone(&fixture.queue);

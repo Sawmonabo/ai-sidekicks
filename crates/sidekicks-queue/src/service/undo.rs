@@ -26,10 +26,12 @@ use sidekicks_provider::runtime_binding::store::read_binding;
 use sidekicks_session::checkpoints::store::{CheckpointReadError, read_checkpoint};
 use sidekicks_session::driver_resolution::read_run_driver;
 use sidekicks_session::queue_store::{QueueItemRecord, placement_statements};
-use sidekicks_session::run::engine::undo::{RunCut, RunRollback};
+use sidekicks_session::run::engine::undo::{
+    RollbackCheckError, RollbackCompanionCheck, RollbackCompanions, RunCut, RunRollback,
+    check_rollback,
+};
 use sidekicks_session::run::epochs::{ConfirmedCut, EpochCursorError};
-use sidekicks_session::run::read::{RunStateReader, read_run_through};
-use sidekicks_session::run::state_change::RunWriteCompanions;
+use sidekicks_session::run::read::read_run_through;
 use sidekicks_session::run::superseded::StoredRollbackMismatchError;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadError, ReadLength};
@@ -125,7 +127,7 @@ pub enum ConversationCut {
 
 /// Why a conversation cut was not made or not recorded. Every refusal but [`Unrecorded`] and
 /// [`Fence`] is answered before the provider is asked, writing nothing and dropping the
-/// companions.
+/// companions, whose own check is read then too.
 ///
 /// [`Unrecorded`]: ConversationCutError::Unrecorded
 /// [`Fence`]: ConversationCutError::Fence
@@ -156,6 +158,12 @@ pub enum ConversationCutError {
         /// The run.
         run_id: RunId,
     },
+    /// A companion statement would refuse the rollback's write, as the companions' check read it.
+    #[error("companion statement {companion_index} of the rollback would refuse it")]
+    CompanionRefused {
+        /// The statement's position among the companions.
+        companion_index: usize,
+    },
     /// The session runs on no binding whose run the cut reaches, so the cut has nothing to fence.
     #[error("the session has no live provider binding the cut reaches")]
     NoLiveBinding,
@@ -163,8 +171,9 @@ pub enum ConversationCutError {
     /// binding's cursor moved on meanwhile.
     #[error("the conversation cut was recorded but not fenced")]
     Fence(#[source] EpochCursorError),
-    /// The provider cut the conversation but the rollback write was refused or failed, so the
-    /// store holds no rollback of turns the provider no longer has.
+    /// The provider cut the conversation but the store did not record the rollback: its write
+    /// failed, or a condition the check read before the cut moved before the write, so the store
+    /// holds no rollback of turns the provider no longer has.
     #[error("the provider cut the conversation, but the store recorded no rollback")]
     Unrecorded(#[source] QueueError),
     /// A read or the provider's cut failed, writing nothing.
@@ -215,14 +224,14 @@ impl RunQueue {
     /// write records an `agent.run.rolledBack` of the target's run at the turn before the target's
     /// and of each later lead run at its start, with `companions` committing in it, and the cut is
     /// fenced on the session's live binding; the hold stays. Refuses as [`ConversationCutError`]
-    /// says before the provider is asked, an open turn among the runs it reaches included; a
-    /// provider's fallback or failure writes nothing, and a write refused or failed once the
-    /// provider cut answers [`ConversationCutError::Unrecorded`].
+    /// says before the provider is asked, an open turn among the runs it reaches and a companion
+    /// its check refuses included; a provider's fallback or failure writes nothing, and a write
+    /// the store does not record once the provider cut answers [`ConversationCutError::Unrecorded`].
     pub async fn cut_conversation(
         &self,
         hold: &UndoHold,
         target: &SessionRestoreTarget,
-        companions: RunWriteCompanions,
+        companions: RollbackCompanions,
     ) -> Result<ConversationCut, ConversationCutError> {
         let session_id = hold.session_id;
         let binding_id = self
@@ -230,7 +239,9 @@ impl RunQueue {
             .binding_cursors()
             .current_binding(&session_id)
             .ok_or(ConversationCutError::NoLiveBinding)?;
-        let reach = self.read_cut_reach(session_id, target, binding_id).await?;
+        let reach = self
+            .read_cut_reach(session_id, target, binding_id, &companions.check)
+            .await?;
         let driver =
             read_run_driver::<QueueError>(&self.pool, &self.providers, reach.cut.run_id).await?;
         let rewound = driver
@@ -254,7 +265,7 @@ impl RunQueue {
         let append_hold = SESSION_APPEND_LOCK.acquire(session_id).await;
         let rollbacks = match self
             .engine
-            .roll_back(reach.cut, reach.later_cuts, companions, &append_hold)
+            .roll_back(reach.cut, reach.later_cuts, companions.write, &append_hold)
             .await
         {
             Ok(rollbacks) => rollbacks,
@@ -390,14 +401,17 @@ impl RunQueue {
     }
 
     // Reads what the cut of the session's conversation before `target` reaches, `binding_id`
-    // being the binding the session runs on now; a refusal of the reads answers as the cut's.
+    // being the binding the session runs on now, and checks in the same read every condition the
+    // rollback refuses on, the companions' `check` among them; a refusal answers as the cut's.
     async fn read_cut_reach(
         &self,
         session_id: SessionId,
         target: &SessionRestoreTarget,
         binding_id: RuntimeBindingId,
+        check: &RollbackCompanionCheck,
     ) -> Result<CutReach, ConversationCutError> {
         let target = target.clone();
+        let check = Arc::clone(check);
         let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
         self.pool
             .read(ReadLength::Short, move |reader| {
@@ -468,30 +482,25 @@ impl RunQueue {
                         target_position: RUN_START_POSITION.position,
                     })
                     .collect();
-                let reached = |run_id: &RunId| {
-                    *run_id == cut.run_id || later_cuts.iter().any(|later| later.run_id == *run_id)
-                };
-                let runs = RunStateReader::new(reader);
-                let live_open = runs
-                    .list_live_run_resumes(&session_id)
-                    .map_err(QueueError::from)?
-                    .into_iter()
-                    .find(|run| reached(&run.run_id) && !run.open_turns.is_empty())
-                    .map(|run| run.run_id);
-                let ended_open = runs
-                    .list_ended_runs_with_open_turns(Some(&session_id))
-                    .map_err(QueueError::from)?
-                    .into_iter()
-                    .find(|run| reached(&run.run_id))
-                    .map(|run| run.run_id);
-                if let Some(run_id) = live_open.or(ended_open) {
-                    return Err(ConversationCutError::TurnOpen { run_id });
-                }
+                let cuts: Vec<RunCut> = std::iter::once(cut)
+                    .chain(later_cuts.iter().copied())
+                    .collect();
+                check_rollback(reader, &session_id, &cuts, &check).map_err(
+                    |error| match error {
+                        RollbackCheckError::TurnOpen { run_id } => {
+                            ConversationCutError::TurnOpen { run_id }
+                        }
+                        RollbackCheckError::CompanionRefused { companion_index } => {
+                            ConversationCutError::CompanionRefused { companion_index }
+                        }
+                        RollbackCheckError::Database(error) => QueueError::from(error).into(),
+                    },
+                )?;
                 let binding_run_id = read_binding(reader, &binding_id)
                     .map_err(QueueError::from)?
                     .map(|binding| binding.run_id);
-                let binding_point = std::iter::once(&cut)
-                    .chain(&later_cuts)
+                let binding_point = cuts
+                    .iter()
                     .find(|reached| Some(reached.run_id) == binding_run_id)
                     .map(|reached| reached.target_position)
                     .ok_or(ConversationCutError::NoLiveBinding)?;
