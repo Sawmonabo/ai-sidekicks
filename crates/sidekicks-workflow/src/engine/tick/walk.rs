@@ -346,8 +346,7 @@ impl RunWalk {
             .find(|&(place, _)| {
                 self.graph
                     .ancestors(place)
-                    .iter()
-                    .all(|&ancestor| self.first_waiting_round(ancestor).is_none())
+                    .all(|ancestor| self.first_waiting_round(ancestor).is_none())
             })
     }
 
