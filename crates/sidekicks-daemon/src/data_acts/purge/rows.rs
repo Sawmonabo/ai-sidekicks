@@ -23,11 +23,13 @@ use sidekicks_session::messaging::exchanges::DELETE_SESSION_EXCHANGES_SQL;
 use sidekicks_session::messaging::paused_queue::DELETE_SESSION_PAUSED_MESSAGES_SQL;
 use sidekicks_session::messaging::reminders::DELETE_SESSION_REMINDERS_SQL;
 use sidekicks_session::messaging::waits::DELETE_SESSION_WAITS_SQL;
+use sidekicks_session::questions::projection::QuestionsProjection;
 use sidekicks_session::queue_store::plan_message::plan_message_item_sql;
 use sidekicks_session::run::ids::SESSION_RUN_IDS_SQL;
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::text_column;
+use sidekicks_store::events::projection::SessionProjection as _;
 use sidekicks_workflow::runs::deletion::workflow_run_deletion_statements;
 use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
 use sidekicks_workspace::git::turn_snapshot::retention::RunContextKey;
@@ -466,8 +468,8 @@ pub(super) async fn gone_worktree_ids(
 /// The one write that deletes every row naming the session, led by its two guards: the session is
 /// still marked, and no event of it lies past `last_sequence` (its receipt's range, `None` for a
 /// session with no event). The workflow runs go first with every row hanging off them, then the
-/// rows keyed by the session's runs, then the session's own, its plans and its hand-off row among
-/// them, the chat's managed mount last.
+/// rows keyed by the session's runs, then its questions and the queued answers paired with them,
+/// then the session's own, its plans and its hand-off row among them, the chat's managed mount last.
 pub(super) fn session_deletion_statements(
     session_id: SessionId,
     last_sequence: Option<i64>,
@@ -504,6 +506,8 @@ pub(super) fn session_deletion_statements(
             .iter()
             .map(|delete| by_session(Cow::Owned(format!("{delete} IN ({SESSION_RUN_IDS_SQL})")))),
     );
+    // The questions' rows go as their projection's rebuild clears them.
+    statements.extend(QuestionsProjection.clear_statements(&session_id));
     statements.extend(
         DELETES_THROUGH_SESSION_ROW
             .iter()
