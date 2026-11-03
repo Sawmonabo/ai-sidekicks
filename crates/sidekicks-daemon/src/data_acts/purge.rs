@@ -62,6 +62,7 @@ use sidekicks_session::service::SessionService;
 use sidekicks_shell::table::ShellTable;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
+use sidekicks_store::data_folder::session_storage_folder;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -76,6 +77,7 @@ use sidekicks_store::events::session::appender::{
     SessionEventDraft, SessionEventDraftError, UnsequencedEventEnvelope,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use sidekicks_workspace::git::turn_snapshot::repack::CapturePacking;
 use sidekicks_workspace::managed::service::{ManagedWorkspaceError, ManagedWorkspaceService};
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
 
@@ -178,6 +180,8 @@ pub(crate) struct SessionPurgeDeps {
     pub(crate) managed_workspaces: Arc<ManagedWorkspaceService>,
     /// The service's data folder, which holds each session's own storage folder.
     pub(crate) data_folder: PathBuf,
+    /// The capture folders' packing, which forgets what it kept of a purged session's folders.
+    pub(crate) packing: Arc<CapturePacking>,
     /// Takes a session's project rules out of the providers' files and hands the rest out again.
     pub(crate) project_rules: Arc<ApprovalRules>,
     /// The live sessions list, told of each session marked and removed.
@@ -295,6 +299,8 @@ impl SessionPurge {
         remove_session_storage_folder(&deps.data_folder, session_id)
             .await
             .map_err(SessionPurgeError::StorageFolder)?;
+        deps.packing
+            .forget_owner(&session_storage_folder(&deps.data_folder, &session_id));
         let withdrawn = deps
             .project_rules
             .withdraw_project_rules(session_id)

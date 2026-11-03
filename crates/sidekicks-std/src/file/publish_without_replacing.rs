@@ -10,7 +10,7 @@ use std::io;
 use std::path::Path;
 
 use crate::cleanup_failures::CleanupFailures;
-use crate::file::temporary_removal::remove_temporary_after;
+use crate::file::removal_after_failure::remove_file_after_failure;
 use crate::missing_entry::MissingEntry;
 
 /// How a publish ended: the file has the target's name, or another file had it already.
@@ -55,7 +55,7 @@ pub fn blocking_publish_without_replacing(
         Err(link_failure) if sidekicks_platforms::is_hard_link_unsupported(&link_failure) => {
             rename_into_free_name(temporary_path, target_path)
         }
-        Err(link_failure) => Err(remove_temporary_after(
+        Err(link_failure) => Err(remove_file_after_failure(
             link_failure,
             temporary_path,
             PUBLISHING,
@@ -81,7 +81,11 @@ fn rename_into_free_name(
             remove_temporary(temporary_path)?;
             Ok(PublishOutcome::TargetExists)
         }
-        Err(failure) => Err(remove_temporary_after(failure, temporary_path, PUBLISHING)),
+        Err(failure) => Err(remove_file_after_failure(
+            failure,
+            temporary_path,
+            PUBLISHING,
+        )),
     }
 }
 

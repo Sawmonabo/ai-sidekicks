@@ -18,7 +18,7 @@ use sidekicks_std::file::hashing_copy::copy_with_sha256;
 use sidekicks_std::file::publish_without_replacing::{
     PublishOutcome, blocking_publish_without_replacing,
 };
-use sidekicks_std::file::temporary_removal::remove_temporary_after;
+use sidekicks_std::file::removal_after_failure::remove_file_after_failure;
 use sidekicks_std::random_hex::random_hex;
 use sidekicks_workspace::git::turn_snapshot::capture_folder::CAPTURES_SEGMENT;
 
@@ -142,7 +142,7 @@ impl CopyStore {
             File::open(temporary).and_then(|clone| copy_hashing(&mut &clone, &mut io::sink()));
         match hashed {
             Ok(hash) => self.publish(temporary, hash, || flush_file(temporary)),
-            Err(failure) => Err(FileCopyError::TemporaryFile(remove_temporary_after(
+            Err(failure) => Err(FileCopyError::TemporaryFile(remove_file_after_failure(
                 failure, temporary, KEEPING,
             ))),
         }
@@ -155,7 +155,7 @@ impl CopyStore {
         let mut copy = create_new_file(&temporary, BYTE_COPY_MODE).map_err(FileCopyError::Io)?;
         match copy_hashing(reader, &mut copy) {
             Ok(hash) => self.publish(&temporary, hash, move || flush_open_file(&copy)),
-            Err(failure) => Err(FileCopyError::TemporaryFile(remove_temporary_after(
+            Err(failure) => Err(FileCopyError::TemporaryFile(remove_file_after_failure(
                 failure, &temporary, KEEPING,
             ))),
         }
@@ -185,13 +185,13 @@ impl CopyStore {
             }
             Ok(false) => {}
             Err(failure) => {
-                return Err(FileCopyError::TemporaryFile(remove_temporary_after(
+                return Err(FileCopyError::TemporaryFile(remove_file_after_failure(
                     failure, temporary, KEEPING,
                 )));
             }
         }
         if let Err(failure) = flush() {
-            return Err(FileCopyError::TemporaryFile(remove_temporary_after(
+            return Err(FileCopyError::TemporaryFile(remove_file_after_failure(
                 failure, temporary, KEEPING,
             )));
         }

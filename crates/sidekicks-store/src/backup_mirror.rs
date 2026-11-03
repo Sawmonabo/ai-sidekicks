@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use sidekicks_platforms::{
     create_missing_private_folders, flush_file, remove_tree, rename_replacing,
 };
-use sidekicks_std::file::temporary_removal::remove_temporary_after;
+use sidekicks_std::file::removal_after_failure::remove_file_after_failure;
 use sidekicks_std::file::time_precision::probe_time_precision;
 use sidekicks_std::missing_entry::{MissingEntry as _, is_missing_entry};
 use tokio_util::sync::CancellationToken;
@@ -354,7 +354,7 @@ fn copy_file(
         .and_then(|()| flush_file(&in_progress))
         .and_then(|()| rename_replacing(&in_progress, copy));
     placed.map_err(|failure| {
-        remove_temporary_after(failure, &in_progress, "the mirror's copy").into_io_error()
+        remove_file_after_failure(failure, &in_progress, "the mirror's copy").into_io_error()
     })
 }
 

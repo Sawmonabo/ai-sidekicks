@@ -10,7 +10,7 @@ use sidekicks_platforms::create_new_file;
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::file::publish_without_replacing::{PublishOutcome, blocking_publish_without_replacing};
-use crate::file::temporary_removal::remove_temporary_after;
+use crate::file::removal_after_failure::remove_file_after_failure;
 use crate::missing_entry::MissingEntry as _;
 use crate::random_hex::random_hex;
 
@@ -63,7 +63,7 @@ fn copy_then_publish(source: &Path, destination: &Path) -> io::Result<()> {
     let permissions = match copy_into_new_file(source, &temporary) {
         Ok(permissions) => permissions,
         Err(error) => {
-            return Err(remove_temporary_after(error, &temporary, COPYING).into_io_error());
+            return Err(remove_file_after_failure(error, &temporary, COPYING).into_io_error());
         }
     };
     match blocking_publish_without_replacing(&temporary, destination)
