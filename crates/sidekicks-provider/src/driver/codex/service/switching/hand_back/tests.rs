@@ -424,8 +424,8 @@ async fn a_key_hand_back_sends_nothing_once_another_switch_landed() {
         .expect("the window's watch settles");
 
     assert!(
-        matches!(refreshed, CodexHandBack::NotHanded),
-        "the refresh was answered or a key hand-back was promised"
+        matches!(refreshed, CodexHandBack::KeyToFollow),
+        "the refresh was answered or no key hand-back was promised"
     );
     assert_eq!(landed.methods, [CODEX_LOGIN_START_METHOD]);
     assert_eq!(named, FirstRequestAfterMove::Unobserved);
