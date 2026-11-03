@@ -165,7 +165,8 @@ async fn name_keychain_sign_ins(
 // `then`. A refusal of either puts every sign-in moved before it back through `move_one` before
 // it is answered, so a refused move leaves each sign-in where it was; a sign-in that cannot be put
 // back is named in the refusal's message beside its cause. A sign-in with nothing to move counts
-// as moved, and the one refused is never put back, since its source still holds it whole.
+// as moved, and the one refused is never put back, since its source still holds it whole or its
+// refusal names the copy it left.
 async fn move_sign_ins_then<MoveOne, Moving>(
     sign_ins: &[ProviderSignIn],
     destination: SecretsMoveDestination,

@@ -50,7 +50,8 @@ impl SignInMove {
     /// sign-in with no item is already moved, or was never there. Starts the keychain tool on
     /// `spawner`. Fails with the first sign-in that cannot be moved, which keeps its item, and
     /// with [`SignInMoveError::Overran`] once a step runs past `step_bound`, the move stopped there
-    /// and the step's child ended.
+    /// and the step's child ended; either comes inside [`SignInMoveError::CopyLeft`] where the
+    /// sign-in's file was written and stays.
     pub async fn move_into_files(
         &self,
         spawner: &Spawner,

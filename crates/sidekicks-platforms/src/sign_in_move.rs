@@ -29,9 +29,10 @@ pub struct KeychainSignIn {
 }
 
 /// Why a sign-in move stopped; every sign-in before it is moved, and it and every one after it
-/// are where they were, the one it stopped at in both places only where
-/// [`SignInMoveError::CopyLeft`] says so. It never carries a sign-in's bytes, the keychain tool's
-/// output, nor its file's path, which names the account's home.
+/// are where they were, the one it stopped at in both places where [`SignInMoveError::CopyLeft`]
+/// says so or where a write that outlasted its bound lands after the move stopped. It never
+/// carries a sign-in's bytes, the keychain tool's output, nor its file's path, which names the
+/// account's home.
 #[derive(Debug, thiserror::Error)]
 pub enum SignInMoveError {
     /// The keychain refused or could not answer a call on the item.
