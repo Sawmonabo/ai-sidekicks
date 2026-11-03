@@ -8592,6 +8592,7 @@ dependencies = [
  "jiff",
  "jsonschema",
  "p256 0.14.0",
+ "petgraph 0.8.3",
  "proptest",
  "regex",
  "rstest",

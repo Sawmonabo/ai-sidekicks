@@ -7,6 +7,8 @@ use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 use std::iter;
 
+use petgraph::algo::kosaraju_scc;
+use petgraph::graph::{DiGraph, NodeIndex};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -631,7 +633,16 @@ impl<'a, S: BuildHasher> GraphFacts<'a, S> {
     /// connected components of more than one node or with a self-edge. An edge into a loop node's
     /// input closes the loop body and is left out, unless it is the loop node's own self-edge.
     fn cycles(&self) -> Vec<Vec<WorkflowNodeId>> {
-        let mut successors: HashMap<&WorkflowNodeId, Vec<&WorkflowNodeId>> = HashMap::new();
+        let node_ids: Vec<&WorkflowNodeId> = self.nodes.iter().map(|node| &node.id).collect();
+        let mut graph: DiGraph<&WorkflowNodeId, ()> =
+            DiGraph::with_capacity(node_ids.len(), self.edges.len());
+        // A repeated id is one node of the graph, as it is one key of `node_by_id`.
+        let mut index_by_node_id: HashMap<&WorkflowNodeId, NodeIndex> = HashMap::new();
+        for &node_id in &node_ids {
+            index_by_node_id
+                .entry(node_id)
+                .or_insert_with(|| graph.add_node(node_id));
+        }
         let mut self_edge_node_ids = HashSet::new();
         for parsed_edge in &self.edges {
             let WorkflowEdge { source, target, .. } = parsed_edge.edge;
@@ -643,26 +654,26 @@ impl<'a, S: BuildHasher> GraphFacts<'a, S> {
             if !parsed_edge.is_main() || is_loop_closing {
                 continue;
             }
-            if self.node_by_id.contains_key(source) && self.node_by_id.contains_key(target) {
-                successors.entry(source).or_default().push(target);
+            if let (Some(&source_index), Some(&target_index)) =
+                (index_by_node_id.get(source), index_by_node_id.get(target))
+            {
+                graph.add_edge(source_index, target_index, ());
                 if source == target {
                     self_edge_node_ids.insert(source);
                 }
             }
         }
-        let node_ids: Vec<&WorkflowNodeId> = self.nodes.iter().map(|node| &node.id).collect();
+        // Kosaraju's search walks with its own stack, so a long chain cannot exhaust the call
+        // stack.
         let mut component_by_node_id = HashMap::new();
-        for (component_index, component) in strongly_connected_components(&node_ids, &successors)
-            .iter()
-            .enumerate()
-        {
+        for (component_index, component) in kosaraju_scc(&graph).iter().enumerate() {
             let is_cycle = component.len() > 1
                 || component
                     .iter()
-                    .any(|node_id| self_edge_node_ids.contains(node_id));
+                    .any(|&index| self_edge_node_ids.contains(graph[index]));
             if is_cycle {
-                for node_id in component {
-                    component_by_node_id.insert(*node_id, component_index);
+                for &index in component {
+                    component_by_node_id.insert(graph[index], component_index);
                 }
             }
         }
@@ -729,108 +740,6 @@ fn is_declared_handle(
     let is_listed =
         handles.is_none_or(|handles| handles.declared_position(handle_id, mode).is_some());
     handle.is_type_known && handle.mode == mode && is_listed
-}
-
-/// One node's place in Tarjan's walk.
-#[derive(Clone, Copy)]
-struct Visit {
-    index: usize,
-    low_link: usize,
-}
-
-/// One node being walked: the node and how many of its successors the walk has taken.
-struct Frame<'a> {
-    node_id: &'a WorkflowNodeId,
-    next_index: usize,
-}
-
-/// Tarjan's bookkeeping: each entered node's visit, and the stack of nodes not yet in a component.
-#[derive(Default)]
-struct TarjanWalk<'a> {
-    visits: HashMap<&'a WorkflowNodeId, Visit>,
-    stack: Vec<&'a WorkflowNodeId>,
-    on_stack: HashSet<&'a WorkflowNodeId>,
-}
-
-impl<'a> TarjanWalk<'a> {
-    fn enter(&mut self, node_id: &'a WorkflowNodeId) -> Frame<'a> {
-        let index = self.visits.len();
-        self.visits.insert(
-            node_id,
-            Visit {
-                index,
-                low_link: index,
-            },
-        );
-        self.stack.push(node_id);
-        self.on_stack.insert(node_id);
-        Frame {
-            node_id,
-            next_index: 0,
-        }
-    }
-
-    fn lower_link(&mut self, node_id: &WorkflowNodeId, low_link: usize) {
-        let visit = self
-            .visits
-            .get_mut(node_id)
-            .expect("a walked node was entered");
-        visit.low_link = visit.low_link.min(low_link);
-    }
-}
-
-// Tarjan's algorithm, walked with an explicit stack so a long chain cannot exhaust the call stack:
-// each component is popped off the node stack once its root is finished.
-fn strongly_connected_components<'a>(
-    node_ids: &[&'a WorkflowNodeId],
-    successors: &HashMap<&'a WorkflowNodeId, Vec<&'a WorkflowNodeId>>,
-) -> Vec<Vec<&'a WorkflowNodeId>> {
-    let mut walk = TarjanWalk::default();
-    let mut components = Vec::new();
-    for &root_id in node_ids {
-        if walk.visits.contains_key(root_id) {
-            continue;
-        }
-        let mut frames = vec![walk.enter(root_id)];
-        while let Some(frame) = frames.last_mut() {
-            let node_id = frame.node_id;
-            let next_id = successors
-                .get(node_id)
-                .and_then(|next| next.get(frame.next_index))
-                .copied();
-            if let Some(next_id) = next_id {
-                frame.next_index += 1;
-                match walk.visits.get(next_id).map(|visit| visit.index) {
-                    None => {
-                        let next_frame = walk.enter(next_id);
-                        frames.push(next_frame);
-                    }
-                    Some(seen_index) if walk.on_stack.contains(next_id) => {
-                        walk.lower_link(node_id, seen_index);
-                    }
-                    Some(_) => {}
-                }
-                continue;
-            }
-            frames.pop();
-            let finished = *walk.visits.get(node_id).expect("a walked node was entered");
-            if let Some(parent) = frames.last() {
-                walk.lower_link(parent.node_id, finished.low_link);
-            }
-            if finished.low_link == finished.index {
-                let mut component = Vec::new();
-                while let Some(member) = walk.stack.pop() {
-                    walk.on_stack.remove(member);
-                    component.push(member);
-                    if member == node_id {
-                        break;
-                    }
-                }
-                components.push(component);
-            }
-        }
-    }
-    components
 }
 
 /// The TypeScript module of the definition refusal and the graph checks' arguments.
