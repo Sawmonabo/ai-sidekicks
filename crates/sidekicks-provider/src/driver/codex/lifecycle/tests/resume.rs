@@ -297,7 +297,8 @@ fn sent_settings(sent: &Value) -> Vec<String> {
         .expect("a resume sends params")
         .iter()
         .filter(|(name, value)| {
-            !value.is_null() && name.as_str() != "threadId" && name.as_str() != "excludeTurns"
+            !value.is_null()
+                && !["threadId", "excludeTurns", "initialTurnsPage"].contains(&name.as_str())
         })
         .map(|(name, _)| name.clone())
         .collect()
