@@ -237,6 +237,45 @@ async fn an_edit_keeps_every_other_byte_and_a_block_moves_the_allow_out() {
     );
 }
 
+// A block on a command stands in the first folder's file; an allow for the same command moves it
+// out and lands there, then fails on the second folder's file, which is no settings object, so the
+// rollback puts the first file back byte for byte with the block in it. Killed by a take-back that
+// only takes the allow's entries out.
+#[tokio::test]
+async fn a_failed_writes_rollback_brings_back_the_entry_it_moved() {
+    let first = tempfile::tempdir().expect("a project folder");
+    let second = tempfile::tempdir().expect("a project folder");
+    let home = tempfile::tempdir().expect("a home folder");
+    let block_text = "{\"permissions\": {\"deny\": [\"Bash(rm *)\"]}}";
+    for (folder, text) in [(first.path(), block_text), (second.path(), "[]")] {
+        let file = local_settings(folder);
+        fs::create_dir_all(file.parent().expect("the file has a folder"))
+            .expect("the folder is made");
+        fs::write(&file, text).expect("the file is written");
+    }
+    let folders = [first.path(), second.path()].map(|working_folder| ClaudeProjectFolder {
+        working_folder,
+        repository: None,
+    });
+
+    let outcome = write_claude_project_rule(
+        &folders,
+        home.path(),
+        PathRules::Posix,
+        &allow_command("rm"),
+        None,
+    )
+    .await;
+
+    let failure = outcome.expect_err("the second file is refused");
+    assert!(matches!(
+        failure.original(),
+        ClaudeRulesError::SettingsFile(ClaudeSettingsFileError::Refused { .. })
+    ));
+    assert!(failure.cleanup_failures().is_empty());
+    assert_eq!(read(&local_settings(first.path())), block_text);
+}
+
 #[rstest]
 #[case::a_comment("{\"permissions\": {} // mine\n}")]
 #[case::a_trailing_comma("{\"permissions\": {\"allow\": [],}}")]

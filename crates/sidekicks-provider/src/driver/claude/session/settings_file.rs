@@ -53,6 +53,15 @@ pub(crate) enum ClaudeSettingsFileError {
         #[source]
         failure: io::Error,
     },
+    /// The file could not be deleted.
+    #[error("deleting the settings file {} failed", path.display())]
+    Delete {
+        /// The settings file.
+        path: PathBuf,
+        /// The file system's failure.
+        #[source]
+        failure: io::Error,
+    },
     /// The file could not be written.
     #[error("writing the settings file {} failed", path.display())]
     Write {
@@ -151,6 +160,22 @@ pub(crate) async fn write_settings_file(
         .map_err(|failure| ClaudeSettingsFileError::Write {
             path: file.to_path_buf(),
             failure: Box::new(failure),
+        })
+}
+
+/// Deletes `file`, whose edit lock `_hold` holds; a file already gone needs nothing. Fails with
+/// `Delete`.
+pub(crate) async fn delete_settings_file(
+    _hold: &KeyHold<'_, PathBuf>,
+    file: &Path,
+) -> Result<(), ClaudeSettingsFileError> {
+    tokio::fs::remove_file(file)
+        .await
+        .none_if_missing()
+        .map(|_was_there| ())
+        .map_err(|failure| ClaudeSettingsFileError::Delete {
+            path: file.to_path_buf(),
+            failure,
         })
 }
 
