@@ -351,9 +351,10 @@ fn an_empty_input_waits_and_a_disabled_node_passes_its_first_input(
 /// A loop's back edge is the edge from its body into the loop node, whatever order the nodes take:
 /// a body node also fed from outside, sorted before the loop, still has the loop node as a forward
 /// feeder, and a loop nested in another's body takes the outer body's edge into it as its entry,
-/// though the outer loop leads back round to that edge. Mutations: classify by a depth-first
-/// walk's visiting order; take no kind as the loop; take every edge into a loop node from a node it
-/// reaches as a back edge.
+/// though the outer loop leads back round to that edge, also where the inner loop is fed from
+/// outside both. Mutations: classify by a depth-first walk's visiting order; take no kind as the
+/// loop; take every edge into a loop node from a node it reaches as a back edge; cut every loop
+/// node fed from outside at once.
 #[rstest]
 #[case::fed_from_outside(
     vec![
@@ -390,6 +391,27 @@ fn an_empty_input_waits_and_a_disabled_node_passes_its_first_input(
         edge("Z", 0, "L1", 0),
     ],
     vec!["trigger <-", "L1 <- trigger", "X <- L1", "L2 <- X", "Y <- L2", "Z <- L2"]
+)]
+#[case::nested_and_fed_from_outside(
+    vec![
+        node("trigger", "test.trigger", 0, false),
+        node("L1", "test.loop", 1, false),
+        node("X", "test.step", 2, false),
+        node("L2", "test.loop", 3, false),
+        node("Y", "test.step", 4, false),
+        node("Z", "test.step", 5, false),
+    ],
+    vec![
+        edge("trigger", 0, "L1", 0),
+        edge("trigger", 0, "L2", 0),
+        edge("L1", 1, "X", 0),
+        edge("X", 0, "L2", 0),
+        edge("L2", 1, "Y", 0),
+        edge("Y", 0, "L2", 0),
+        edge("L2", 0, "Z", 0),
+        edge("Z", 0, "L1", 0),
+    ],
+    vec!["trigger <-", "L1 <- trigger", "X <- L1", "L2 <- trigger X", "Y <- L2", "Z <- L2"]
 )]
 fn a_loops_back_edge_is_the_edge_from_its_body_into_it(
     #[case] nodes: Vec<WorkflowNode>,

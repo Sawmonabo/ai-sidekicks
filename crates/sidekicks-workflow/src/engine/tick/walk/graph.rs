@@ -266,7 +266,10 @@ impl RunGraph {
 /// the back edges that close a loop. Each group of nodes that all reach one another holds a loop;
 /// its back edges are those from inside it into its loop nodes fed from outside it, or into all its
 /// loop nodes where none is, and the group is searched again without them for a loop inside the
-/// body. No order of nodes or edges decides which edge closes a loop.
+/// body. Where several loop nodes are fed from outside, only the outermost are cut first: those
+/// whose cut alone leaves every other such node still in a loop, so an inner loop keeps the outer
+/// body's edge into it as its entry; where none is outermost, as two loops each in a loop without
+/// the other, all are cut. No order of nodes or edges decides which edge closes a loop.
 #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
 fn forward_feeders(nodes: &[RunGraphNode]) -> Vec<Vec<usize>> {
     let mut feeders: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
@@ -279,27 +282,9 @@ fn forward_feeders(nodes: &[RunGraphNode]) -> Vec<Vec<usize>> {
         node_feeders.sort_unstable();
         node_feeders.dedup();
     }
-    let mut groups = vec![(0..nodes.len()).collect::<Vec<usize>>()];
+    let mut groups = vec![(0..nodes.len()).collect::<BTreeSet<usize>>()];
     while let Some(members) = groups.pop() {
-        let mut group: DiGraph<usize, ()> = DiGraph::with_capacity(members.len(), members.len());
-        let indices: HashMap<usize, NodeIndex> = members
-            .iter()
-            .map(|&place| (place, group.add_node(place)))
-            .collect();
-        for &target in &members {
-            for feeder in &feeders[target] {
-                if let Some(&feeder_index) = indices.get(feeder) {
-                    group.add_edge(feeder_index, indices[&target], ());
-                }
-            }
-        }
-        // Kosaraju's search walks with its own stack, so a long chain cannot exhaust the call
-        // stack.
-        for component in kosaraju_scc(&group) {
-            if component.len() < 2 {
-                continue;
-            }
-            let inside: BTreeSet<usize> = component.iter().map(|&index| group[index]).collect();
+        for inside in looping_groups(&members, &feeders, None) {
             // A group holding no loop node, which the save refuses, is cut at every node, so the
             // search ends whatever graph it is handed.
             let loops: Vec<usize> = inside
@@ -317,19 +302,70 @@ fn forward_feeders(nodes: &[RunGraphNode]) -> Vec<Vec<usize>> {
                 .copied()
                 .filter(|&place| feeders[place].iter().any(|feeder| !inside.contains(feeder)))
                 .collect();
-            let headers = if entered.is_empty() {
-                candidates
-            } else {
-                entered
+            let headers = match entered.len() {
+                0 => candidates,
+                1 => entered,
+                _ => {
+                    let outermost: Vec<usize> = entered
+                        .iter()
+                        .copied()
+                        .filter(|&header| {
+                            let still_looping: BTreeSet<usize> =
+                                looping_groups(&inside, &feeders, Some(header))
+                                    .into_iter()
+                                    .flatten()
+                                    .collect();
+                            entered
+                                .iter()
+                                .all(|&other| other == header || still_looping.contains(&other))
+                        })
+                        .collect();
+                    if outermost.is_empty() {
+                        entered
+                    } else {
+                        outermost
+                    }
+                }
             };
             // Each member is fed from inside, so every pass cuts at least one edge and ends.
             for header in headers {
                 feeders[header].retain(|feeder| !inside.contains(feeder));
             }
-            groups.push(inside.into_iter().collect());
+            groups.push(inside);
         }
     }
     feeders
+}
+
+/// The groups of more than one of `members` that all reach one another along `feeders`, each
+/// edge into `cut` from another member left out.
+#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's workflow engine"))]
+fn looping_groups(
+    members: &BTreeSet<usize>,
+    feeders: &[Vec<usize>],
+    cut: Option<usize>,
+) -> Vec<BTreeSet<usize>> {
+    let mut group: DiGraph<usize, ()> = DiGraph::with_capacity(members.len(), members.len());
+    let indices: HashMap<usize, NodeIndex> = members
+        .iter()
+        .map(|&place| (place, group.add_node(place)))
+        .collect();
+    for &target in members {
+        if cut == Some(target) {
+            continue;
+        }
+        for feeder in &feeders[target] {
+            if let Some(&feeder_index) = indices.get(feeder) {
+                group.add_edge(feeder_index, indices[&target], ());
+            }
+        }
+    }
+    // Kosaraju's search walks with its own stack, so a long chain cannot exhaust the call stack.
+    kosaraju_scc(&group)
+        .into_iter()
+        .filter(|component| component.len() >= 2)
+        .map(|component| component.iter().map(|&index| group[index]).collect())
+        .collect()
 }
 
 /// Each node's ancestors along `forward_feeders`, one bit per place.
