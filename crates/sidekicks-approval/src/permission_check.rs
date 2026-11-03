@@ -529,11 +529,12 @@ impl PermissionCheck {
                 ask.input_digest.clone(),
             )
             .await?;
-        if let Some(card) = pending.into_iter().find(|card| {
-            is_same_call(card) && !approvals.is_card_awaited(card.run_id, card.approval_request_id)
-        }) {
-            let approval_request_id = card.approval_request_id;
-            let settled = approvals.arm_card_wait(card.run_id, approval_request_id);
+        let unawaited = pending.into_iter().filter(is_same_call).find_map(|card| {
+            approvals
+                .arm_unawaited_card(card.run_id, card.approval_request_id)
+                .map(|settled| (card.approval_request_id, settled))
+        });
+        if let Some((approval_request_id, settled)) = unawaited {
             let read_back = approvals.read_request(approval_request_id).await?;
             let is_canceled = read_back
                 .as_ref()
