@@ -36,8 +36,9 @@ use environment::git_environment;
 /// worktree's paths. Passing it fails the call; nothing is cut.
 pub const GIT_OUTPUT_MAX_BYTES: usize = 64 * 1024 * 1024;
 
-/// How long one git call may run: `worktree add` writes a whole checkout and a snapshot's staging
-/// walks the whole worktree, so a shorter bound would end healthy work on a large repository.
+/// How long one git call may run, but for one run under a bound of its own (`run_within`):
+/// `worktree add` writes a whole checkout and a snapshot's staging walks the whole worktree, so a
+/// shorter bound would end healthy work on a large repository.
 pub(crate) const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// How long git has to end at the service's stop: the window the stop gives its terminals.
@@ -285,9 +286,9 @@ impl GitCall {
         self
     }
 
-    /// The call held to `timeout` where that is shorter than the runner's bound, for a quick answer
-    /// a person waits on, which a hung network folder would otherwise hold for the runner's whole
-    /// bound; `None` keeps the runner's bound.
+    /// The call held to `timeout` where that is shorter than the bound it runs under, the runner's
+    /// or the one `run_within` gives, for a quick answer a person waits on, which a hung network
+    /// folder would otherwise hold for that whole bound; `None` keeps the bound it runs under.
     pub(crate) fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
         self.timeout = timeout;
         self
