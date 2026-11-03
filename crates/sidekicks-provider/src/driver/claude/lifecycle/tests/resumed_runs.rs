@@ -516,8 +516,10 @@ async fn a_live_process_is_sent_a_held_lead_s_answers_as_its_next_message() {
 }
 
 // A held lead's continue whose message the live process never took leaves the stream reading the
-// turn it read before, whether the write surely failed or may have reached the process. Killed by
-// the continued turn left open on the failed write.
+// turn it read before and the lead with no steer waiting, whether the write surely failed or may
+// have reached the process. Killed by the continued turn left open on the failed write, and by the
+// answers not recorded dropped after a write that may have reached the process (the lead would
+// read as owed a turn for them).
 #[rstest]
 #[case::unsent(ClaudeWriteDelivery::Unsent)]
 #[case::indeterminate(ClaudeWriteDelivery::Indeterminate)]
@@ -572,4 +574,16 @@ async fn a_failed_continue_write_leaves_the_stream_s_turn_as_it_was(
         .expect_err("the continue's write fails");
 
     assert_eq!(stream.open_turn(), before);
+    let parts = fixture
+        .driver
+        .composed_parts()
+        .expect("the pieces are composed");
+    assert!(
+        !parts
+            .run_start
+            .prompts
+            .lock()
+            .expect("the prompts' lock holds")
+            .has_untaken_steer(lead)
+    );
 }
