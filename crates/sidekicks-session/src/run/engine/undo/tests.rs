@@ -1,9 +1,11 @@
 //! The rollback write over a test database holding a run: what it appends and leaves on the run's
-//! row, its companions in its one write, a run moving under it, and the runs a cut reaches written
-//! together and refused while one holds a turn with no end.
+//! row, its companions in its one write, a run moving under it, the runs a cut reaches written
+//! together and refused while one holds a turn with no end, and a turn opening held back while the
+//! write is in progress.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use rusqlite::params;
 use serde_json::json;
@@ -34,6 +36,10 @@ use crate::run::engine::test_fixture::{append, insert_running_run, stored_run_st
 use crate::run::projection::RunsProjection;
 use crate::run::read::RunRead;
 use crate::run::state_change::{RunEventDraft, RunWriteCompanions, RunWriteError};
+
+// How long a turn opening held back by an undo's write is watched for not having opened; one that
+// is not held back opens well within it.
+const HELD_OPENING_BOUND: Duration = Duration::from_millis(500);
 
 /// One run of a session at version 1, in the state a test sets, and the engine that writes it.
 struct Fixture {
@@ -388,5 +394,41 @@ async fn a_cut_of_several_runs_lands_whole_once_no_turn_of_them_is_open() {
     assert_eq!(
         stored_run_state(&fixture.database, &later_run_id),
         ("running".to_owned(), 2)
+    );
+}
+
+// A turn the provider opens while an undo's rollback write is in progress opens once the write has
+// ended, and the write lands. Killed by the opening run at once: it opens within the bound, and its
+// open turn refuses the rollback.
+#[tokio::test]
+async fn a_turn_opened_during_an_undos_write_opens_after_it() {
+    let fixture = Fixture::new(RunState::Running).await;
+    let undo_write = fixture.engine.mark_undo_write(fixture.session_id);
+    let engine = Arc::clone(&fixture.engine);
+    let run_id = fixture.run_id;
+    let mut opening =
+        tokio::spawn(async move { engine.start_turn(run_id, None, None, None, None).await });
+
+    assert!(
+        tokio::time::timeout(HELD_OPENING_BOUND, &mut opening)
+            .await
+            .is_err(),
+        "the opening waits for the write"
+    );
+    fixture
+        .roll_back(RunWriteCompanions::default())
+        .await
+        .expect("no turn opened during the write refuses it");
+    drop(undo_write);
+    let started = opening
+        .await
+        .expect("the opening's task ends")
+        .expect("the turn's start is written")
+        .expect("the run is live");
+
+    assert_eq!(started.turn_number.get(), 1);
+    assert_eq!(
+        fixture.event_types(),
+        ["agent.run.rolledBack", "agent.turn.started"]
     );
 }
