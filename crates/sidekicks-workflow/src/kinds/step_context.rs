@@ -168,6 +168,14 @@ pub(crate) struct StepRunVariable {
 )]
 const STEP_LOG_LINE_CAP: usize = 10_000;
 
+/// The most bytes one kept log line holds, 4 KiB, cut back to a whole character, so with
+/// [`STEP_LOG_LINE_CAP`] a step's log holds at most about 40 MiB.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the tick's dispatch of each kind")
+)]
+const STEP_LOG_LINE_BYTE_CAP: usize = 4_096;
+
 /// What a step recorded since the step's driver last took its records, which it takes when woken
 /// and when the step ends.
 #[derive(Debug, Default)]
@@ -378,8 +386,9 @@ impl StepContext {
         Ok(Arc::new(self.params.fill(values)))
     }
 
-    /// Records `line` in the step's log, scrubbed of the run's secrets, while the step has written
-    /// fewer than [`STEP_LOG_LINE_CAP`] lines; past it the line is only counted.
+    /// Records `line` in the step's log, scrubbed of the run's secrets and then cut to
+    /// [`STEP_LOG_LINE_BYTE_CAP`], while the step has written fewer than [`STEP_LOG_LINE_CAP`]
+    /// lines; past it the line is only counted.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the tick's dispatch of each kind")
@@ -388,7 +397,9 @@ impl StepContext {
         if self.log_lines_written.fetch_add(1, Ordering::Relaxed) >= STEP_LOG_LINE_CAP {
             return;
         }
-        let line = self.redaction.scrub(line).into_owned();
+        // Scrubbed before the cut, since a secret cut short no longer matches its mask.
+        let mut line = self.redaction.scrub(line).into_owned();
+        line.truncate(line.floor_char_boundary(STEP_LOG_LINE_BYTE_CAP));
         lock(&self.records).log_lines.push(line);
     }
 
@@ -515,7 +526,9 @@ mod tests {
     use sidekicks_contracts::wire::record::JsonRecord;
     use sidekicks_ipc::redaction::CREDENTIAL_REDACTION;
 
-    use super::{STEP_LOG_LINE_CAP, StepParams, StepParamsError, test_step_context};
+    use super::{
+        STEP_LOG_LINE_BYTE_CAP, STEP_LOG_LINE_CAP, StepParams, StepParamsError, test_step_context,
+    };
     use crate::expressions::param_strings::{ParamPath, ParamPathSegment};
     use crate::secrets::redaction::RunRedaction;
     use crate::secrets::resolution::ResolvedStepSecret;
@@ -586,8 +599,9 @@ mod tests {
     }
 
     /// A step writing past the cap keeps the cap's lines across takes, and its last records end
-    /// with a line naming the lines it did not keep. Mutations: count per take, not per step; keep
-    /// lines past the cap; drop the count line or miscount it.
+    /// with a line naming the lines it did not keep; a line past the byte cap is kept cut to it on
+    /// a whole character. Mutations: count per take, not per step; keep lines past the cap; drop
+    /// the count line or miscount it; keep a long line whole.
     #[test]
     fn a_steps_log_keeps_the_cap_and_names_what_it_dropped() {
         let context = test_step_context(
@@ -595,12 +609,15 @@ mod tests {
             Vec::new(),
             Arc::new(RunRedaction::new(&[])),
         );
-        for index in 0..STEP_LOG_LINE_CAP - 1 {
+        context.write_log(&format!("a{}", "é".repeat(STEP_LOG_LINE_BYTE_CAP)));
+        for index in 1..STEP_LOG_LINE_CAP - 1 {
             context.write_log(&format!("line {index}"));
         }
+        let kept = context.take_records().log_lines;
+        assert_eq!(kept.len(), STEP_LOG_LINE_CAP - 1);
         assert_eq!(
-            context.take_records().log_lines.len(),
-            STEP_LOG_LINE_CAP - 1
+            kept[0],
+            format!("a{}", "é".repeat((STEP_LOG_LINE_BYTE_CAP - 1) / 2))
         );
         for index in 0..4 {
             context.write_log(&format!("late {index}"));
