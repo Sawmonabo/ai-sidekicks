@@ -277,12 +277,7 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
         "the purge's commit uncounts the run"
     );
     let lead_run_text = lead_run_id.text();
-    let session_text = session_id.text();
-    let (run, lead_run, session) = (
-        run_id.as_str(),
-        lead_run_text.as_str(),
-        session_text.as_str(),
-    );
+    let (run, lead_run) = (run_id.as_str(), lead_run_text.as_str());
     for (rows, id) in [
         ("workflow_steps WHERE workflow_run_id = ?1", run),
         ("human_phase_form_state WHERE workflow_run_id = ?1", run),
