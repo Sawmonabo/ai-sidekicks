@@ -170,6 +170,8 @@ async fn a_pass_keeps_paused_runs_paused_and_opens_no_session_for_them() {
         mixed_session,
         &[(paused_beside, "paused"), (pausing_beside, "pausing")],
     );
+    // Bound on the session's provider, which its limit's interrupt is handed to.
+    fixture.bind_resumable(pausing_beside, 1).await;
     fixture
         .append(
             mixed_session,
