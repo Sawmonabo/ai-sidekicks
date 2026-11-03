@@ -795,5 +795,7 @@ fn event_text(
     FreeFormText::new(text).map_err(|error| column_fault(column, Some(error)))
 }
 
+pub mod tool_call_closes;
+
 #[cfg(test)]
 mod tests;

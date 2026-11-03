@@ -381,6 +381,11 @@ impl<Key, Emission> KeyedLatestValueOutlets<Key, Emission> {
     pub fn detach(&mut self, id: LatestValueOutletId) {
         self.attached.detach(id);
     }
+
+    /// Whether no reader is attached.
+    pub fn is_empty(&self) -> bool {
+        self.attached.outlets.is_empty()
+    }
 }
 
 impl<Key: Eq + Hash + Clone, Emission: Clone> KeyedLatestValueOutlets<Key, Emission> {

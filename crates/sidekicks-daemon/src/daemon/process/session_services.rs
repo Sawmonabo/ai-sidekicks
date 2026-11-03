@@ -49,6 +49,7 @@ use sidekicks_session::links::service::SessionLinkService;
 use sidekicks_session::plan_holds::PlanHolds;
 use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::readings::context::ContextReadings;
+use sidekicks_session::readings::tool_call_status::ToolCallStatuses;
 use sidekicks_session::readings::turn::TurnReadings;
 use sidekicks_session::related::ranking::{RelatedRescoring, SessionRelatedRanking};
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
@@ -235,6 +236,8 @@ pub(crate) struct SessionServices {
     pub(crate) plans: Arc<PlansService>,
     /// Each run's latest turn readings, released as the run ends.
     pub(crate) turn_readings: Arc<TurnReadings>,
+    /// The status line under each running tool call, cleared as the call closes.
+    pub(crate) tool_call_statuses: Arc<ToolCallStatuses>,
     /// Each session's latest context reading, released as the session closes.
     pub(crate) context_readings: Arc<ContextReadings>,
     /// Meters each provider reading and stops a run at its token limit.
@@ -341,6 +344,7 @@ pub(crate) fn build_session_services(
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
     };
     let turn_readings = Arc::new(TurnReadings::new(Arc::clone(&reads), &followers));
+    let tool_call_statuses = Arc::new(ToolCallStatuses::new(Arc::clone(&reads), &followers));
     let context_readings = Arc::new(ContextReadings::new(Arc::clone(&reads), &followers));
     // The run holds take the engine's `Weak`, and the engine takes the run-end gate as it is
     // built, so the approval side is built inside the engine's allocation and leaves it here.
@@ -555,6 +559,7 @@ pub(crate) fn build_session_services(
         engine,
         approvals,
         turn_readings,
+        tool_call_statuses,
         context_readings,
         usage,
         running_commands,

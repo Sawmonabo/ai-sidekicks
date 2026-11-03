@@ -75,7 +75,7 @@ impl ClaudeDeliveryStream {
                 has_record,
                 has_live_work: has_child_run
                     || readings.command_tasks.has_running_task()
-                    || readings.command_tasks.listed_other_tasks() > 0,
+                    || readings.command_tasks.listed_other_tasks().next().is_some(),
             }
         };
         self.dependencies.goal_endings.classify(

@@ -6,6 +6,7 @@
 //! spent, what the working line and the context ring read, and each message another session sent.
 //! A frame of a turn no daemon run holds is recorded and dropped, a peer message published first.
 
+mod backgrounded;
 mod body;
 pub(crate) mod daemon_ends;
 mod goals;
@@ -20,6 +21,7 @@ use std::error::Error;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
+use jiff::Timestamp;
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::ModelRerouteScope;
 use sidekicks_contracts::run::id::RunId;
@@ -42,6 +44,7 @@ pub(crate) use self::session::{ClaudeFirstRequest, ClaudeSessionStream, ClaudeSe
 use crate::command::running_set::RunningCommandSets;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
+use crate::driver::claude::delivery::mcp_tasks::ClaudeHeldCall;
 use crate::driver::claude::delivery::messages::{
     ClaudeMessageFrame, ClaudeMessageRow, ClaudeMessageRowKind, read_claude_assistant_rows,
     read_claude_user_rows,
@@ -77,6 +80,7 @@ use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
 use crate::port::running_command_publisher::RunningCommandPublisher as _;
 use crate::port::session_message_reading_publisher::SessionMessageReadingPublisher;
+use crate::port::tool_call_status_publisher::ToolCallStatusPublisher;
 use crate::port::turn_reading_publisher::TurnReadingPublisher;
 use crate::port::usage_sink::UsageSink;
 use crate::record_readers::read_non_empty_string;
@@ -114,6 +118,8 @@ pub(crate) struct ClaudeStreamDependencies {
     pub(crate) turn_readings: Arc<PortRegistration<Arc<dyn TurnReadingPublisher>>>,
     /// Each session's context reads, which a lead message's usage reads mid-turn on.
     pub(crate) context: Arc<ClaudeContextReadings>,
+    /// Where a held tool-server call's status line goes once registered.
+    pub(crate) tool_call_statuses: Arc<PortRegistration<Arc<dyn ToolCallStatusPublisher>>>,
     /// Each session's goal, which the goal lines, records and turn ends classify against.
     pub(crate) goal_endings: Arc<ClaudeGoalEndings>,
     /// Where the messages other sessions sent, and a refused one, are published once registered.
@@ -207,7 +213,7 @@ impl ClaudeDeliveryStream {
         }
         // A command or tool-server task, the lead's or a helper's, may end after its turn did.
         if kind.is_task() {
-            self.take_task_frame(session, &kind, &frame.text, turn_at_read.lead)
+            self.take_task_frame(session, &kind, frame_kind, &frame.text, turn_at_read.lead)
                 .await;
             return after;
         }
@@ -471,6 +477,7 @@ impl ClaudeDeliveryStream {
             // Read above: the tasks, a sent message's fate, the quota and the turn's end.
             ClaudeWireFrameKind::SystemTaskStarted
             | ClaudeWireFrameKind::SystemTaskUpdated
+            | ClaudeWireFrameKind::SystemTaskProgress
             | ClaudeWireFrameKind::SystemTaskNotification
             | ClaudeWireFrameKind::SystemBackgroundTasksChanged
             | ClaudeWireFrameKind::CommandLifecycle
@@ -491,7 +498,6 @@ impl ClaudeDeliveryStream {
             | ClaudeWireFrameKind::SystemToolUseSummary
             | ClaudeWireFrameKind::SystemMemoryRecall
             | ClaudeWireFrameKind::SystemLocalCommandOutput
-            | ClaudeWireFrameKind::SystemTaskProgress
             // Control traffic takes the request path or settles a call, never this reader.
             | ClaudeWireFrameKind::ControlRequestCanUseTool
             | ClaudeWireFrameKind::ControlRequestElicitation
@@ -532,8 +538,12 @@ impl ClaudeDeliveryStream {
     }
 
     /// Releases what the session streamed and buffered, as its process is gone, and forgets its
-    /// readings; the exit path ends the run its turn was on.
-    pub(crate) async fn end_session(&self, session: &ClaudeSessionStream) {
+    /// readings; the exit path ends the run its turn was on. Answers the tool-server calls still
+    /// held, each by its task, which the caller settles.
+    pub(crate) async fn end_session(
+        &self,
+        session: &ClaudeSessionStream,
+    ) -> Vec<(String, ClaudeHeldCall)> {
         let (pieces, released, turn) = {
             let mut readings = session.lock();
             (
@@ -546,20 +556,23 @@ impl ClaudeDeliveryStream {
             self.send_pieces(session, &turn.binding_id, pieces).await;
         }
         self.send_rows(session, released, None).await;
-        {
+        let held = {
             let mut readings = session.lock();
             readings.daemon_ended.clear();
             readings.carried_ends.clear();
             readings.now_steers.clear();
             readings.turn = None;
             readings.command_tasks.forget();
+            let held = readings.tool_server_tasks.take_held();
             readings.tool_server_tasks.forget();
-        }
+            held
+        };
         // The process's commands ended with it.
         if let Some(sets) = self.dependencies.command_output.port() {
             sets.provider_exited(session.session_id);
         }
         self.dependencies.context.forget_session(session.session_id);
+        held
     }
 
     async fn mark_initialized(
@@ -628,9 +641,9 @@ impl ClaudeDeliveryStream {
             let mut rows = read_claude_assistant_rows(
                 frame,
                 session.session_id,
-                lead.run_id,
+                lead,
                 &mut readings.open_tool_calls,
-                Instant::now(),
+                Timestamp::now(),
             );
             // A goal line draws the goal row alone, never a message in the agent's own words.
             if frame.text().is_some_and(is_goal_line) {
@@ -682,7 +695,7 @@ impl ClaudeDeliveryStream {
         lead: &ClaudeBoundRun,
         frame: &ClaudeMessageFrame,
     ) {
-        let (rows, tasks, arrival) = {
+        let (rows, tasks, stand_ins, arrival) = {
             let mut guard = session.lock();
             let readings = &mut *guard;
             let is_turn_start = !readings.has_turn_message;
@@ -693,10 +706,9 @@ impl ClaudeDeliveryStream {
             let reading = read_claude_user_rows(
                 frame,
                 session.session_id,
-                lead.run_id,
                 &mut readings.open_tool_calls,
-                readings.tool_server_tasks.held_call_ids(),
-                Instant::now(),
+                &readings.tool_server_tasks,
+                Timestamp::now(),
             );
             readings.failed_call_words.extend(reading.failed_results);
             let tasks = readings.turn_readings.observe_results(frame);
@@ -708,7 +720,7 @@ impl ClaudeDeliveryStream {
                 .into_iter()
                 .map(|row| ClaudeRowDelivery::of_message(&lead.binding_id, row, key.clone()))
                 .collect::<Vec<_>>();
-            (rows, tasks, arrival)
+            (rows, tasks, reading.held_stand_ins, arrival)
         };
         if let Some(tasks) = tasks {
             self.publish_turn_tasks(session, tasks);
@@ -733,6 +745,7 @@ impl ClaudeDeliveryStream {
         }
         publish_peer_arrival(&self.dependencies.session_message_readings, arrival);
         self.admit_rows(session, rows, "user").await;
+        self.send_backgrounded(session, stand_ins).await;
     }
 
     // A streamed piece waits for its interval, which the session's timer sends; the tokens the

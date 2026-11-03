@@ -3,11 +3,13 @@
 //! deliveries, the provider operation each belongs to, the marker a provider reports on a live run,
 //! and the rows a delivery carries, those that take the source-epoch stamp when late, those on a
 //! run that take none, and those about the session as a whole or the machine, each with the
-//! conversion that makes its event.
+//! conversion that makes its event. A run's row that lands after its run, on that run's own
+//! binding, is its own delivery.
 
 use sidekicks_contracts::command::AgentCommandEndedPayload;
 use sidekicks_contracts::event::declared_variants::{
-    AgentOutputPayload, RunAgentOutputPayload, ToolActivityPayload,
+    AgentOutputPayload, RunAgentOutputPayload, ToolActivityPayload, ToolCallBackgroundedPayload,
+    ToolCallFailedPayload,
 };
 use sidekicks_contracts::event::envelope::{
     DAEMON_SCOPE_SENTINEL_SESSION_ID, SourceEpoch, SourcePosition,
@@ -181,6 +183,16 @@ pub enum InboundDelivery<'key> {
         /// The prose of a body-bearing row, stored beside its payload.
         content: Option<String>,
     },
+    /// A row of a run that may land after the run's cursor moved on, on that run's own binding:
+    /// appended as it is, never stamped and never absorbed, whatever the cursor holds.
+    AfterRunRow {
+        /// The binding of the row's run, which names the delivery in a diagnostic.
+        binding_id: RuntimeBindingId,
+        /// The row.
+        row: LateAppendableRow,
+        /// The prose of a body-bearing row, stored beside its payload; `None` for a row with none.
+        content: Option<String>,
+    },
     /// A row on a run that takes no stamp.
     UnstampedRow {
         /// Where it arrived.
@@ -206,6 +218,7 @@ impl InboundDelivery<'_> {
             Self::MachineEvent { .. } => "machineEvent",
             Self::PermissionAsk { .. } => "permissionAsk",
             Self::SessionRow { .. } => "sessionRow",
+            Self::AfterRunRow { .. } => "afterRunRow",
             Self::UnstampedRow { .. } => "unstampedRow",
         }
     }
@@ -370,10 +383,13 @@ late_appendable_rows! {
         |payload| SessionEvent::AgentMessageSent(AgentOutputPayload::Run(payload)),
     /// `agent.toolCall.invoked`.
     AgentToolCallInvoked(ToolActivityPayload) => SessionEvent::AgentToolCallInvoked,
+    /// `agent.toolCall.backgrounded`.
+    AgentToolCallBackgrounded(ToolCallBackgroundedPayload) =>
+        SessionEvent::AgentToolCallBackgrounded,
     /// `agent.toolCall.completed`.
     AgentToolCallCompleted(ToolActivityPayload) => SessionEvent::AgentToolCallCompleted,
     /// `agent.toolCall.failed`.
-    AgentToolCallFailed(ToolActivityPayload) => SessionEvent::AgentToolCallFailed,
+    AgentToolCallFailed(ToolCallFailedPayload) => SessionEvent::AgentToolCallFailed,
     /// `agent.subagent.started`.
     AgentSubagentStarted(SubagentLifecyclePayload) => SessionEvent::AgentSubagentStarted,
     /// `agent.subagent.completed`.

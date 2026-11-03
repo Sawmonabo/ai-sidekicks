@@ -22,7 +22,7 @@ pub(crate) struct ClaudeEndedConversation {
 }
 
 /// Where the file of the conversation `live`'s process wrote is found again.
-pub(super) fn ended_conversation_of(live: &LiveClaudeSession) -> ClaudeEndedConversation {
+pub(crate) fn ended_conversation_of(live: &LiveClaudeSession) -> ClaudeEndedConversation {
     ClaudeEndedConversation {
         provider_session_id: live.provider_session_id.clone(),
         spawn_environment: live.spawn_bound_legs.spawn_environment.clone(),

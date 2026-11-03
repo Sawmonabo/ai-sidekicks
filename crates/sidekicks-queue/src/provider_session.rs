@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use serde_json::Map;
+use serde_json::{Map, Value};
 use sidekicks_contracts::approval::ApprovalRequestId;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -35,7 +35,9 @@ use sidekicks_provider::driver::contract::params_and_results::{
     SessionProcessState, SpawnedVersionBindingCarriers,
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_provider::driver::session_control::{CloseSessionParams, CreateSessionParams};
+use sidekicks_provider::driver::session_control::{
+    CloseSessionParams, CreateSessionParams, SessionCloseCause,
+};
 use sidekicks_provider::port::session_level_follower::SessionLevelFollower;
 use sidekicks_provider::run::posture::{
     ExecutionPostureRejection, ExecutionPostureService, StoredSessionPosture,
@@ -65,6 +67,7 @@ use crate::provider_session::resumed_runs::ResumedRunsIngress;
 pub mod controls;
 pub mod errors;
 pub mod held_run_continue;
+pub mod held_tool_calls;
 mod kept_turns;
 mod provider_missing;
 pub mod resume;
@@ -171,7 +174,10 @@ async fn close_unrecorded(
     recorded: ProviderSessionError,
 ) -> ProviderSessionError {
     match driver
-        .close_session(CloseSessionParams { session_id })
+        .close_session(CloseSessionParams {
+            session_id,
+            cause: SessionCloseCause::UnrecordedOpening,
+        })
         .await
     {
         Ok(()) => recorded,
@@ -197,6 +203,15 @@ struct OpenedSession {
     provider: ProviderId,
     execution_posture: ExecutionPosture,
     git_folder: FilesystemPath,
+}
+
+// A resting session's stored conversation, as its leg recorded it, and the driver of the leg's
+// provider, which takes the work done on that conversation with no process of this daemon's.
+struct StoredConversation {
+    driver: Arc<dyn ProviderDriver>,
+    provider_account_id: ProviderAccountId,
+    conversation: String,
+    runtime_metadata: Map<String, Value>,
 }
 
 /// Opens each session's provider session once per daemon process, at its first admission, and the
@@ -565,6 +580,27 @@ impl ProviderSessions {
     fn lock_opened(&self) -> MutexGuard<'_, HashMap<SessionId, OpenedSession>> {
         // No code panics while it holds the map, so a poisoned lock still holds a whole one.
         lock(&self.opened)
+    }
+
+    // The conversation `session_id`'s stored leg holds, on the leg's account and with its recovery
+    // data, and the driver of its provider; `None` for a session with no leg or no conversation.
+    // Fails as the leg's read fails, and with `Provider` when no driver answers its provider.
+    async fn read_stored_conversation(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Option<StoredConversation>, ProviderSessionError> {
+        let Some(leg) = read_session_leg(&self.deps.pool, session_id).await? else {
+            return Ok(None);
+        };
+        let Some(conversation) = leg.resume_handle else {
+            return Ok(None);
+        };
+        Ok(Some(StoredConversation {
+            driver: self.deps.providers.lookup(&leg.provider_name)?,
+            provider_account_id: leg.spawn_config.provider_account_id,
+            conversation,
+            runtime_metadata: leg.runtime_metadata,
+        }))
     }
 }
 

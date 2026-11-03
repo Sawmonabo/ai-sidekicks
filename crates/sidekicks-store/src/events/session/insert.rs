@@ -100,11 +100,12 @@ const HEAD_SEQUENCE_SQL: &str = "SELECT sequence
       ORDER BY sequence DESC
       LIMIT 1";
 
-// The payload members that name the provider message and block a piece belongs to, and the call a
-// tool completion completes.
+// The payload members that name the provider message and block a piece belongs to.
 const PROVIDER_MESSAGE_ID_PAYLOAD_KEY: &str = "providerMessageId";
 const PROVIDER_BLOCK_PAYLOAD_KEY: &str = "providerBlock";
-const TOOL_CALL_ID_PAYLOAD_KEY: &str = "toolCallId";
+
+/// The payload member that names the tool call a tool row belongs to.
+pub const TOOL_CALL_ID_PAYLOAD_KEY: &str = "toolCallId";
 
 // The row a new piece joins, as its first piece's sequence: the run's newest piece of its type
 // under its key, unless an event ending the run's rows came after it, so a row takes pieces until

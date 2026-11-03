@@ -23,7 +23,7 @@ use sidekicks_contracts::run::queued::AgentRunQueuedPayload;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::hand_over::canonical_transcript::{
     CanonicalToolResultOutcome, CanonicalToolResultProvenance, CanonicalTranscriptFoldError,
-    CanonicalTranscriptRole, CanonicalTranscriptSegment,
+    CanonicalTranscriptRole, CanonicalTranscriptSegment, shown_tool_result_body,
 };
 use sidekicks_provider::hand_over::session_transcript::{
     SessionTranscriptError, SessionTranscriptSink, stream_session_transcript,
@@ -355,12 +355,17 @@ impl<Out: Write> PlainTranscript<Out> {
 
     /// Writes `segment` whole.
     fn segment(&mut self, segment: &CanonicalTranscriptSegment) -> io::Result<()> {
-        self.open_segment(segment)?;
+        self.open_segment(segment, false)?;
         self.end_line()
     }
 
-    /// Writes `segment`'s label and its text so far, leaving the line open for its body's frames.
-    fn open_segment(&mut self, segment: &CanonicalTranscriptSegment) -> io::Result<()> {
+    /// Writes `segment`'s label and its text so far, leaving the line open for its body's frames
+    /// where `is_body_following`.
+    fn open_segment(
+        &mut self,
+        segment: &CanonicalTranscriptSegment,
+        is_body_following: bool,
+    ) -> io::Result<()> {
         if !self.is_turn_start {
             self.raw("\n")?;
         }
@@ -370,10 +375,10 @@ impl<Out: Write> PlainTranscript<Out> {
                 text,
                 is_content_unavailable,
                 ..
-            } => (text, *is_content_unavailable),
+            } => (text.as_str(), *is_content_unavailable),
             CanonicalTranscriptSegment::Reasoning { text, .. } => {
                 self.line("Reasoning:")?;
-                (text, false)
+                (text.as_str(), false)
             }
             CanonicalTranscriptSegment::ToolCall {
                 tool_call_id,
@@ -383,17 +388,23 @@ impl<Out: Write> PlainTranscript<Out> {
                 ..
             } => {
                 self.line(&format!("Tool call {tool_name} ({tool_call_id})"))?;
-                (arguments_json, *is_content_unavailable)
+                (arguments_json.as_str(), *is_content_unavailable)
             }
             CanonicalTranscriptSegment::ToolResult {
                 outcome,
                 provenance,
+                end_cause,
                 text,
                 is_content_unavailable,
                 ..
             } => {
                 self.line(&tool_result_line(*outcome, *provenance))?;
-                (text, *is_content_unavailable)
+                let shown = if is_body_following {
+                    text.as_str()
+                } else {
+                    shown_tool_result_body(text, *end_cause)
+                };
+                (shown, *is_content_unavailable)
             }
         };
         if is_content_unavailable {
@@ -527,7 +538,7 @@ impl SessionTranscriptSink for TranscriptFileSink<'_> {
         &mut self,
         head: CanonicalTranscriptSegment,
     ) -> Result<(), TranscriptRenderError> {
-        Ok(self.text.open_segment(&head)?)
+        Ok(self.text.open_segment(&head, true)?)
     }
 
     fn body_frame(&mut self, frame: &str) -> Result<(), TranscriptRenderError> {

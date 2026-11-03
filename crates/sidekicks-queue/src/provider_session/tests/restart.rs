@@ -1,5 +1,6 @@
 //! A session's process restarted or gone: a restart its provider cannot take is refused before its
-//! driver, and a process gone with no restart pending is forgotten.
+//! driver, a process gone with no restart pending is forgotten, and the start's settle of the calls
+//! a session held in the background leaves one this daemon opened to its process.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -94,4 +95,24 @@ async fn a_gone_process_is_forgotten_only_with_no_restart_pending(
         .expect("the session opens again");
 
     assert_eq!(resumes.load(Ordering::SeqCst), expected_resumes);
+}
+
+// The start's settle of the calls a session held in the background skips a session this daemon
+// already opened, whose process's resume rebuilt its calls: it answers at once and its driver is
+// not asked, which the mock, holding no expectation of the settle, would refuse. Killed by the
+// opened check removed (the driver is asked to settle).
+#[tokio::test]
+async fn a_session_this_daemon_opened_keeps_its_held_calls_for_its_process() {
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |_, _| {}).await;
+    opening
+        .sessions
+        .open(opening.session_id, opening.run_id)
+        .await
+        .expect("the conversation resumes");
+
+    opening
+        .sessions
+        .settle_held_tool_calls(opening.session_id)
+        .await
+        .expect("the settle answers");
 }

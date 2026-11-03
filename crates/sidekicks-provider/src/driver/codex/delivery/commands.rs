@@ -48,6 +48,7 @@ impl CodexFrameDelivery {
             session_id: record.session_id,
             command_id,
             run_id: run.run_id,
+            binding_id: run.binding_id.clone(),
             name,
             started_at: instant_at(started_at_ms),
             line: None,

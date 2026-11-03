@@ -27,7 +27,8 @@ use crate::daemon::recovery::{
     DaemonRecoveryAttemptedPayload, DaemonRecoveryFailedPayload, DaemonRecoverySucceededPayload,
 };
 use crate::event::declared_variants::{
-    AgentOutputPayload, MachineContentDescriptor, SessionEventCompactedPayload, ToolActivityPayload,
+    AgentOutputPayload, MachineContentDescriptor, SessionEventCompactedPayload,
+    ToolActivityPayload, ToolCallBackgroundedPayload, ToolCallFailedPayload,
 };
 use crate::event::envelope::{EventCategory, EventEnvelope};
 use crate::event::registry::SessionEventType;
@@ -298,11 +299,15 @@ session_events! {
         => read(agent_output_run),
     /// Emitted when a tool call starts; its arguments are kept apart from the payload.
     AgentToolCallInvoked(#[garde(dive)] ToolActivityPayload) = "agent.toolCall.invoked" => required,
+    /// Emitted when the provider moves a running tool call to the background; its stand-in answer
+    /// is kept apart from the payload.
+    AgentToolCallBackgrounded(#[garde(dive)] ToolCallBackgroundedPayload)
+        = "agent.toolCall.backgrounded" => required,
     /// Emitted when a tool call returns; its result is kept apart from the payload.
     AgentToolCallCompleted(#[garde(dive)] ToolActivityPayload) = "agent.toolCall.completed"
         => required,
-    /// Emitted when a tool call fails; its error body is kept apart from the payload.
-    AgentToolCallFailed(#[garde(dive)] ToolActivityPayload) = "agent.toolCall.failed" => required,
+    /// Emitted when a tool call fails or ends with no result; its error body is kept apart.
+    AgentToolCallFailed(#[garde(dive)] ToolCallFailedPayload) = "agent.toolCall.failed" => required,
     /// Emitted when a provider's own subagent starts under a run.
     AgentSubagentStarted(#[garde(dive)] SubagentLifecyclePayload) = "agent.subagent.started"
         => required,

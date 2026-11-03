@@ -112,6 +112,28 @@ impl SessionTestLog {
         )
     }
 
+    /// Writes a row of `event_type` of the lead run's `bash` call `tool_call_id`, with `members`
+    /// beside the members every tool row carries and `body`; returns its sequence.
+    pub fn tool_row(
+        &self,
+        event_type: &str,
+        tool_call_id: &str,
+        members: &Value,
+        body: Option<&str>,
+    ) -> i64 {
+        let mut payload = json!({
+            "sessionId": self.session_id,
+            "runId": self.run_id,
+            "toolName": "bash",
+            "toolCallId": tool_call_id,
+        });
+        for (name, value) in members.as_object().expect("the members are an object") {
+            payload[name] = value.clone();
+        }
+        self.write(json!({ "type": event_type, "payload": payload }), body)
+            .0
+    }
+
     /// A second connection, to read what the writer committed.
     pub fn reader(&self) -> Connection {
         self.database.reader()
