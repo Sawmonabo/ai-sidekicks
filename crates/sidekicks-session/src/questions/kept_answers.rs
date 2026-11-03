@@ -21,6 +21,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::ReadLength;
+use sidekicks_store::database::handed_mark::HandedMark;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::text_column;
 
@@ -33,15 +34,17 @@ const INSERT_KEPT_ANSWER_SQL: &str = "INSERT INTO question_kept_answers
     (question_id, session_id, run_id, answer, kept_at)
   VALUES (@questionId, @sessionId, @runId, @answer, @keptAt)";
 
-// Each claim changes no row once another caller took that hand.
-const CLAIM_CALL_SQL: &str = "UPDATE question_kept_answers SET call_handed_at = @at
-  WHERE question_id = @questionId AND call_handed_at IS NULL";
+const CALL_HAND: HandedMark = HandedMark {
+    table: "question_kept_answers",
+    key_column: "question_id",
+    mark_column: "call_handed_at",
+};
 
-const CLAIM_CONTINUE_SQL: &str = "UPDATE question_kept_answers SET continue_handed_at = @at
-  WHERE question_id = @questionId AND continue_handed_at IS NULL";
-
-const RELEASE_CONTINUE_SQL: &str = "UPDATE question_kept_answers SET continue_handed_at = NULL
-  WHERE question_id = @questionId";
+const CONTINUE_HAND: HandedMark = HandedMark {
+    table: "question_kept_answers",
+    key_column: "question_id",
+    mark_column: "continue_handed_at",
+};
 
 // The run's kept answers to a question of the same pages that no question asked again took yet.
 const KEPT_CALL_ANSWERS_SQL: &str = "SELECT kept.question_id, kept.answer, kept.kept_at
@@ -265,7 +268,9 @@ impl QuestionsService {
         if let Some(is_claimed) = self.kept_secrets.mark_continue(&question_id, true) {
             return Ok(is_claimed);
         }
-        self.claim(CLAIM_CONTINUE_SQL, question_id).await
+        Ok(CONTINUE_HAND
+            .claim(&self.writer, question_id.text().as_str())
+            .await?)
     }
 
     /// Gives back a continue's claim on the question's kept answer, the continue having failed
@@ -278,16 +283,9 @@ impl QuestionsService {
         {
             return Ok(());
         }
-        let release = WriteStatement {
-            sql: Cow::Borrowed(RELEASE_CONTINUE_SQL),
-            bindings: StatementBindings::Named(vec![text_binding(
-                "@questionId",
-                question_id.text().as_str(),
-            )]),
-            expected_row_count: None,
-        };
-        self.writer.write(vec![release]).await?;
-        Ok(())
+        Ok(CONTINUE_HAND
+            .release(&self.writer, question_id.text().as_str())
+            .await?)
     }
 
     /// Hands the oldest kept answer of `run_id` to a question of `input_digest`'s pages, that no
@@ -334,7 +332,10 @@ impl QuestionsService {
         for (_, question_id) in candidates {
             let answers = match rows.remove(&question_id) {
                 Some((_, answers)) => {
-                    if !self.claim(CLAIM_CALL_SQL, question_id).await? {
+                    if !CALL_HAND
+                        .claim(&self.writer, question_id.text().as_str())
+                        .await?
+                    {
                         continue;
                     }
                     answers
@@ -351,27 +352,5 @@ impl QuestionsService {
             return Ok(Some(question_id));
         }
         Ok(None)
-    }
-
-    // One guarded claim: true where it changed the row, false where another caller took it first
-    // or the question has no kept answer.
-    async fn claim(
-        &self,
-        sql: &'static str,
-        question_id: QuestionId,
-    ) -> Result<bool, QuestionError> {
-        let claim = WriteStatement {
-            sql: Cow::Borrowed(sql),
-            bindings: StatementBindings::Named(vec![
-                text_binding("@questionId", question_id.text().as_str()),
-                text_binding("@at", WireInstant::now().as_str()),
-            ]),
-            expected_row_count: Some(1),
-        };
-        match self.writer.write(vec![claim]).await {
-            Ok(_results) => Ok(true),
-            Err(refused) if refused.refused_statement_index().is_some() => Ok(false),
-            Err(failure) => Err(failure.into()),
-        }
     }
 }
