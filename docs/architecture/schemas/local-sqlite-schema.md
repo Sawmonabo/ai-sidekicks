@@ -715,21 +715,21 @@ CREATE TABLE approval_correction_uses (
 CREATE INDEX idx_approval_correction_uses_session ON approval_correction_uses(session_id);
 
 -- Owner: Plan-009
-CREATE TABLE approval_kept_answers (
+CREATE TABLE approval_orphaned_answers (
   approval_request_id  TEXT PRIMARY KEY,      -- a card answered while no live call held it, one row each, written in
                                               -- the answer's own write; a card answered live has none. No REFERENCES:
                                               -- the requests are rebuilt from the log, and this row outlives a rebuild;
                                               -- a session purge deletes it
   session_id           TEXT NOT NULL,
   run_id               TEXT NOT NULL,
-  kept_at              TEXT NOT NULL,
-  call_handed_at       TEXT,                  -- claimed before the kept answer goes to the call made again, so it goes
-                                              -- once; NULL until then
+  recorded_at          TEXT NOT NULL,
+  call_handed_at       TEXT,                  -- claimed before the orphaned answer goes to the call made again, so it
+                                              -- goes once; NULL until then
   continue_handed_at   TEXT                   -- claimed before the run's continue composes the answer; NULL until then,
                                               -- and again once a continue that failed gives it back
 ) STRICT;
 
-CREATE INDEX idx_approval_kept_answers_session ON approval_kept_answers(session_id);
+CREATE INDEX idx_approval_orphaned_answers_session ON approval_orphaned_answers(session_id);
 
 -- Owner: Plan-009
 CREATE TABLE reviewer_denials (
@@ -806,18 +806,18 @@ CREATE INDEX idx_question_answer_items_question ON question_answer_items(questio
 -- held it has none. The question asked again and the run's continue each claim their mark before
 -- the answer goes out, so neither hand repeats. An answer holding a secret has no row: it is kept
 -- in the daemon's memory only and lost at its next stop.
-CREATE TABLE question_kept_answers (
+CREATE TABLE question_orphaned_answers (
   question_id         TEXT PRIMARY KEY,  -- no REFERENCES: the questions are rebuilt from the log, and this row
                                          -- outlives a rebuild; a session purge deletes it
   session_id          TEXT NOT NULL,
   run_id              TEXT NOT NULL,
   answer              TEXT NOT NULL,     -- JSON: the answers as question.resolve took them
-  kept_at             TEXT NOT NULL,
+  recorded_at         TEXT NOT NULL,
   call_handed_at      TEXT,              -- the question asked again took it
   continue_handed_at  TEXT               -- the run's continue took it
 ) STRICT;
 
-CREATE INDEX idx_question_kept_answers_session ON question_kept_answers(session_id);
+CREATE INDEX idx_question_orphaned_answers_session ON question_orphaned_answers(session_id);
 ```
 
 The daemon keeps no table of approval rules: the providers keep them ([Spec-010 §Default Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)), and a session's own answers are its `approval_resolutions` rows and its `approval.rule.remembered` and `approval.rule.revoked` events, which the inspector's `Rules` reads beside the providers' own rules.
