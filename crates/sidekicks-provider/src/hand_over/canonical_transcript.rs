@@ -141,10 +141,6 @@ pub(crate) struct CanonicalTranscriptTurn {
 
 /// One run's transcript as the fold built it; it never crosses a wire and is never stored.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the provider switch's hand-over brief")
-)]
 pub(crate) struct CanonicalTranscriptProjection {
     /// The session.
     pub(crate) session_id: SessionId,
