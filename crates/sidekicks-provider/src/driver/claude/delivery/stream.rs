@@ -236,7 +236,8 @@ impl ClaudeDeliveryStream {
                 None => return after,
             }
         };
-        self.read_message_calls(session, &kind, &routed.route, &body, &turn_at_read);
+        self.read_resume_frame(session, &kind, &routed.route, &body, &turn_at_read)
+            .await;
         // A helper's own message carries no row of the session's, only the lines of its calls;
         // a goal line of its own draws no goal row.
         if is_helper_frame {

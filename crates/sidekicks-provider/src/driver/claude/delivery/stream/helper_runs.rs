@@ -3,19 +3,22 @@
 //! agent id its frames and requests carry once the run engine answers, and moved on the helper's
 //! own `task_notification`, after which its route retires and its pause or hold is dropped. A
 //! helper started again in the same process goes beneath the run that read the `SendMessage` call
-//! its start names, else, for a start naming its newest own run's call, beneath that run's parent,
-//! else beneath the run a first start would take; the same helper keeps its node, and an own run
-//! that ended interrupted beneath that same run continues. A helper whose run the daemon refused is
-//! bound to that ended run all the same, which absorbs its frames, and is stopped. A helper's new
-//! own run clears a stop that is not final. A helper's start and end are also rows on the run its
-//! start went beneath. The start is dispatched on the session's task before any later arrival, so
-//! a request of the helper finds its run bound.
+//! its start names, else, for a start naming its newest own run's call, beneath that run's parent;
+//! a start naming a call not read yet is parked until the call is read, or the helper's next frame
+//! or end delivers it beneath the run a first start would take. The same helper keeps its node,
+//! and an own run that ended interrupted beneath that same run continues. A helper whose run the
+//! daemon refused is bound to that ended run all the same, which absorbs its frames, and is
+//! stopped. A helper's new own run clears a stop that is not final. A helper's start and end are
+//! also rows on the run its start went beneath. The start is dispatched on the session's task
+//! before any later arrival, so a request of the helper finds its run bound.
 
 use sidekicks_contracts::provider::tool_call::ToolCallId;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::{SubagentId, SubagentLifecyclePayload};
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 
+use super::resumes::{ClaudeHelperResume, ClaudeParkedStart};
 use super::{
     ClaudeDeliveryStream, ClaudeSessionStream, UNHELD_FRAME_REASON, bound, record_unmapped,
 };
@@ -37,8 +40,8 @@ impl ClaudeDeliveryStream {
     // lead run holding the turn as the frame was read, and both its rows go on that run, naming the
     // helper's child run. A resume goes beneath the run that read its `SendMessage` call, else,
     // when it names the call of the helper's newest own start, beneath that start's parent while
-    // it runs, and continues an own run that ended interrupted beneath the same run. `signal` is
-    // the lifecycle signal the frame itself carries.
+    // it runs; a resume naming a call not read yet is parked, and a start or end of the helper
+    // first delivers the one parked. `signal` is the lifecycle signal the frame itself carries.
     pub(super) async fn deliver_helper_lifecycle(
         &self,
         session: &ClaudeSessionStream,
@@ -50,170 +53,183 @@ impl ClaudeDeliveryStream {
         let Ok(subagent_id) = SubagentId::new(emission.subagent_id.clone()) else {
             return;
         };
+        self.flush_parked_start(session, &emission.subagent_id)
+            .await;
         let routes = &self.dependencies.routes;
         let turn_lead = lead_at_read.or_else(|| routes.lead_run_on(session.session_id));
-        let parent_task_id = signal.and_then(|signal| signal.parent_task_id.as_deref());
-        let parent_tool_call_id = emission.parent_tool_call_id.as_deref();
-        let resume = (emission.event_type == SubagentLifecycleEventType::Started)
-            .then(|| {
-                session.lock().helper_resumes.resume_of(
+        match emission.event_type {
+            SubagentLifecycleEventType::Started => {
+                let resume = session.lock().helper_resumes.resume_of(
                     routes,
                     &emission.subagent_id,
-                    parent_tool_call_id,
-                )
-            })
-            .flatten();
-        // A resume hangs under the run its call names; any other start under its launcher's bound
-        // run, and a launcher whose route retired, was never seen or holds a run the daemon
-        // refused falls to the lead; an end goes on the run its start went beneath.
-        let carrier = match emission.event_type {
-            SubagentLifecycleEventType::Started => resume
-                .as_ref()
-                .and_then(|resume| resume.carrier.clone())
-                .or_else(|| parent_task_id.and_then(|parent| self.helper_run(session, parent)))
-                .or_else(|| turn_lead.clone()),
-            SubagentLifecycleEventType::Completed => self
-                .helper_parent_run(session, &emission.subagent_id)
-                .or_else(|| turn_lead.clone()),
-        };
-        let Some(carrier) = carrier else {
-            record_unmapped(
-                session,
-                &session.unheld_reports,
-                lifecycle_wire_type(emission.event_type),
-                UNHELD_FRAME_REASON,
-            );
-            return;
-        };
-        // A helper's start can be its turn's first frame, which opens the lead's turn before its
-        // rows; a background helper's start or end after its turn ended opens none.
-        if let Some(turn_lead) = &turn_lead {
-            self.open_turn(session, turn_lead).await;
-        }
-        let tool_call_id =
-            parent_tool_call_id.and_then(|call| ToolCallId::new(call.to_owned()).ok());
-        let mut child_run_id = None;
-        if emission.event_type == SubagentLifecycleEventType::Started {
-            let interrupted_run = resume
-                .as_ref()
-                .and_then(|resume| resume.interrupted_run_beneath(carrier.run_id));
-            let continued = match interrupted_run {
-                Some(run_id) => self.continue_helper_run(session, &carrier, run_id).await,
-                None => None,
-            };
-            let (run_id, refusal) = if let Some(run_id) = continued {
-                (Some(run_id), None)
-            } else {
-                let child = InboundDelivery::ChildRun {
-                    binding: DeliveryBinding {
-                        binding_id: carrier.binding_id.clone(),
-                        operation: parent_tool_call_id.map(|correlation_key| DeliveryOperation {
-                            correlation_key,
-                            is_opening: false,
-                        }),
-                    },
-                    parent_run_id: carrier.run_id,
-                    subagent: ChildRunSubagent {
-                        subagent_id: subagent_id.clone(),
-                        // Kept as Claude Code gave it, even for a launcher no route knows.
-                        parent_subagent_id: parent_task_id
-                            .and_then(|parent| SubagentId::new(parent.to_owned()).ok()),
-                        name: None,
-                        // A role the contract cannot hold reads as absent.
-                        role: signal
-                            .and_then(|signal| signal.subagent_type.as_deref())
-                            .and_then(|role| FreeFormText::new(role.to_owned()).ok()),
-                        provider_path: None,
-                        start_call_id: tool_call_id.clone(),
-                    },
-                };
-                match self.send(session, child, Some("system/task_started")).await {
-                    Some(InboundOutcome::ChildRunStarted { run_id }) => (Some(run_id), None),
-                    Some(InboundOutcome::ChildRunRefused { run_id, reason }) => {
-                        (Some(run_id), Some(reason))
-                    }
-                    Some(
-                        InboundOutcome::TurnOpened
-                        | InboundOutcome::Transitioned { .. }
-                        | InboundOutcome::Published
-                        | InboundOutcome::AskAdmitted
-                        | InboundOutcome::Appended { .. }
-                        | InboundOutcome::AppendedStamped { .. }
-                        | InboundOutcome::Absorbed { .. },
-                    )
-                    | None => (None, None),
+                    emission.parent_tool_call_id.as_deref(),
+                );
+                // It waits for its call, sending nothing yet.
+                if resume
+                    .as_ref()
+                    .is_some_and(|resume| resume.is_awaiting_call)
+                {
+                    session.lock().helper_resumes.park(ClaudeParkedStart {
+                        subagent_id,
+                        emission,
+                        signal: signal.cloned(),
+                        lead_at_read: turn_lead,
+                    });
+                    return;
                 }
-            };
-            if let Some(run_id) = run_id {
-                child_run_id = Some(run_id);
-                routes.bind_child_run(
-                    run_id,
-                    ClaudeChildRunRoute {
-                        session_id: session.session_id,
-                        agent_id: emission.subagent_id.clone(),
-                        parent_run_id: carrier.run_id,
-                        binding_id: carrier.binding_id.clone(),
-                        is_refused: refusal.is_some(),
-                    },
-                );
-                // Its new own run clears a stop that is not final; refused again, it is stopped
-                // again below.
-                lock(&self.dependencies.pauses)
-                    .release_helper(session.session_id, &emission.subagent_id);
-                session.lock().helper_resumes.record_start(
-                    &emission.subagent_id,
-                    parent_tool_call_id,
-                    run_id,
-                    carrier.clone(),
-                );
+                self.start_helper(
+                    session,
+                    turn_lead.as_ref(),
+                    resume.as_ref(),
+                    signal,
+                    &emission,
+                    subagent_id,
+                )
+                .await;
             }
-            // A refused helper still runs in Claude Code: its next tool use is denied, so it
-            // reports and finishes while the lead's turn goes on.
-            if let Some(refusal) = refusal {
-                lock(&self.dependencies.pauses).stop_helper(
-                    session.session_id,
-                    &emission.subagent_id,
-                    HelperStopReason::SetupRefused { refusal },
-                );
+            SubagentLifecycleEventType::Completed => {
+                // An end goes on the run its start went beneath.
+                let carrier = self
+                    .helper_parent_run(session, &emission.subagent_id)
+                    .or_else(|| turn_lead.clone());
+                let Some(carrier) = self
+                    .open_carrier(session, carrier, turn_lead.as_ref(), emission.event_type)
+                    .await
+                else {
+                    return;
+                };
+                // A helper's end names the child run its start was given.
+                let child_run_id = routes.child_run_for(session.session_id, &emission.subagent_id);
+                self.send_lifecycle_row(session, &carrier, &emission, subagent_id, child_run_id)
+                    .await;
             }
         }
-        // A helper's end names the child run its start was given.
-        let child_run_id = child_run_id
-            .or_else(|| routes.child_run_for(session.session_id, &emission.subagent_id));
-        let payload = SubagentLifecyclePayload {
-            session_id: session.session_id,
-            run_id: carrier.run_id,
-            provider: DESCRIPTOR.provider_id(),
-            subagent_id,
-            child_run_id,
-            parent_tool_call_id: tool_call_id,
-            source_epoch: None,
-            source_position: None,
+    }
+
+    // Delivers a helper's start beneath the run its resume names, else its launcher's bound run,
+    // else `turn_lead`: an own run that ended interrupted beneath that run continues, else a new
+    // child run is asked for; either is bound to the helper, which loses a stop that is not final,
+    // recorded as its newest own run and named by the start's row on that run. Answers the child
+    // run given and the run it went beneath.
+    pub(super) async fn start_helper(
+        &self,
+        session: &ClaudeSessionStream,
+        turn_lead: Option<&ClaudeBoundRun>,
+        resume: Option<&ClaudeHelperResume>,
+        signal: Option<&ClaudeSubagentLifecycleSignal>,
+        emission: &SubagentLifecycleEmission,
+        subagent_id: SubagentId,
+    ) -> Option<(RunId, ClaudeBoundRun)> {
+        let parent_task_id = signal.and_then(|signal| signal.parent_task_id.as_deref());
+        // A launcher whose route retired, was never seen or holds a run the daemon refused falls
+        // to the lead.
+        let carrier = resume
+            .and_then(|resume| resume.carrier.clone())
+            .or_else(|| parent_task_id.and_then(|parent| self.helper_run(session, parent)))
+            .or_else(|| turn_lead.cloned());
+        let carrier = self
+            .open_carrier(session, carrier, turn_lead, emission.event_type)
+            .await?;
+        let routes = &self.dependencies.routes;
+        let parent_tool_call_id = emission.parent_tool_call_id.as_deref();
+        let interrupted_run =
+            resume.and_then(|resume| resume.interrupted_run_beneath(carrier.run_id));
+        let continued = match interrupted_run {
+            Some(run_id) => self.continue_helper_run(session, &carrier, run_id).await,
+            None => None,
         };
-        let row = match emission.event_type {
-            SubagentLifecycleEventType::Started => LateAppendableRow::AgentSubagentStarted(payload),
-            SubagentLifecycleEventType::Completed => {
-                LateAppendableRow::AgentSubagentCompleted(payload)
+        let (run_id, refusal) = if let Some(run_id) = continued {
+            (Some(run_id), None)
+        } else {
+            let child = InboundDelivery::ChildRun {
+                binding: DeliveryBinding {
+                    binding_id: carrier.binding_id.clone(),
+                    operation: parent_tool_call_id.map(|correlation_key| DeliveryOperation {
+                        correlation_key,
+                        is_opening: false,
+                    }),
+                },
+                parent_run_id: carrier.run_id,
+                subagent: ChildRunSubagent {
+                    subagent_id: subagent_id.clone(),
+                    // Kept as Claude Code gave it, even for a launcher no route knows.
+                    parent_subagent_id: parent_task_id
+                        .and_then(|parent| SubagentId::new(parent.to_owned()).ok()),
+                    name: None,
+                    // A role the contract cannot hold reads as absent.
+                    role: signal
+                        .and_then(|signal| signal.subagent_type.as_deref())
+                        .and_then(|role| FreeFormText::new(role.to_owned()).ok()),
+                    provider_path: None,
+                    start_call_id: start_call_of(emission),
+                },
+            };
+            match self.send(session, child, Some("system/task_started")).await {
+                Some(InboundOutcome::ChildRunStarted { run_id }) => (Some(run_id), None),
+                Some(InboundOutcome::ChildRunRefused { run_id, reason }) => {
+                    (Some(run_id), Some(reason))
+                }
+                Some(
+                    InboundOutcome::TurnOpened
+                    | InboundOutcome::Transitioned { .. }
+                    | InboundOutcome::Published
+                    | InboundOutcome::AskAdmitted
+                    | InboundOutcome::Appended { .. }
+                    | InboundOutcome::AppendedStamped { .. }
+                    | InboundOutcome::Absorbed { .. },
+                )
+                | None => (None, None),
             }
         };
-        self.send_row(
-            session,
-            &carrier,
-            row,
-            lifecycle_wire_type(emission.event_type),
-        )
-        .await;
+        if let Some(run_id) = run_id {
+            routes.bind_child_run(
+                run_id,
+                ClaudeChildRunRoute {
+                    session_id: session.session_id,
+                    agent_id: emission.subagent_id.clone(),
+                    parent_run_id: carrier.run_id,
+                    binding_id: carrier.binding_id.clone(),
+                    is_refused: refusal.is_some(),
+                },
+            );
+            // Its new own run clears a stop that is not final; refused again, it is stopped
+            // again below.
+            lock(&self.dependencies.pauses)
+                .release_helper(session.session_id, &emission.subagent_id);
+            session.lock().helper_resumes.record_start(
+                &emission.subagent_id,
+                parent_tool_call_id,
+                run_id,
+                carrier.clone(),
+            );
+        }
+        // A refused helper still runs in Claude Code: its next tool use is denied, so it reports
+        // and finishes while the lead's turn goes on.
+        if let Some(refusal) = refusal {
+            lock(&self.dependencies.pauses).stop_helper(
+                session.session_id,
+                &emission.subagent_id,
+                HelperStopReason::SetupRefused { refusal },
+            );
+        }
+        let child_run_id =
+            run_id.or_else(|| routes.child_run_for(session.session_id, &emission.subagent_id));
+        self.send_lifecycle_row(session, &carrier, emission, subagent_id, child_run_id)
+            .await;
+        run_id.map(|run_id| (run_id, carrier))
     }
 
     // A helper's child run moves on its own `task_notification`, read with why the daemon stopped
     // the helper, then its route retires. The end is the daemon's own where the person stopped the
     // helper from the console or a pause or an interrupt holds it, so an end landing on a run
-    // already interrupted is no late event.
+    // already interrupted is no late event. A start of the helper still parked is delivered first.
     pub(super) async fn end_helper(&self, session: &ClaudeSessionStream, task: &ClaudeTaskFrame) {
+        let Some(task_id) = task.task_id() else {
+            return;
+        };
+        self.flush_parked_start(session, task_id).await;
         let routes = &self.dependencies.routes;
-        let Some((child_run_id, route)) = task
-            .task_id()
-            .and_then(|task_id| routes.child_route_for(session.session_id, task_id))
+        let Some((child_run_id, route)) = routes.child_route_for(session.session_id, task_id)
         else {
             return;
         };
@@ -284,6 +300,74 @@ impl ClaudeDeliveryStream {
             binding_id: route.binding_id,
         })
     }
+
+    // The run a helper's start or end of `event_type` goes on, with the lead's turn opened first:
+    // a helper's start can be its turn's first frame, which opens the turn before its rows, and a
+    // background helper's start or end after its turn ended opens none. With no run, the frame is
+    // recorded as held by none.
+    async fn open_carrier(
+        &self,
+        session: &ClaudeSessionStream,
+        carrier: Option<ClaudeBoundRun>,
+        turn_lead: Option<&ClaudeBoundRun>,
+        event_type: SubagentLifecycleEventType,
+    ) -> Option<ClaudeBoundRun> {
+        let Some(carrier) = carrier else {
+            record_unmapped(
+                session,
+                &session.unheld_reports,
+                lifecycle_wire_type(event_type),
+                UNHELD_FRAME_REASON,
+            );
+            return None;
+        };
+        if let Some(turn_lead) = turn_lead {
+            self.open_turn(session, turn_lead).await;
+        }
+        Some(carrier)
+    }
+
+    // The helper's start or end row on `carrier`, naming its child run.
+    async fn send_lifecycle_row(
+        &self,
+        session: &ClaudeSessionStream,
+        carrier: &ClaudeBoundRun,
+        emission: &SubagentLifecycleEmission,
+        subagent_id: SubagentId,
+        child_run_id: Option<RunId>,
+    ) {
+        let payload = SubagentLifecyclePayload {
+            session_id: session.session_id,
+            run_id: carrier.run_id,
+            provider: DESCRIPTOR.provider_id(),
+            subagent_id,
+            child_run_id,
+            parent_tool_call_id: start_call_of(emission),
+            source_epoch: None,
+            source_position: None,
+        };
+        let row = match emission.event_type {
+            SubagentLifecycleEventType::Started => LateAppendableRow::AgentSubagentStarted(payload),
+            SubagentLifecycleEventType::Completed => {
+                LateAppendableRow::AgentSubagentCompleted(payload)
+            }
+        };
+        self.send_row(
+            session,
+            carrier,
+            row,
+            lifecycle_wire_type(emission.event_type),
+        )
+        .await;
+    }
+}
+
+// The call a helper's start or end names, where the contract can hold it.
+fn start_call_of(emission: &SubagentLifecycleEmission) -> Option<ToolCallId> {
+    emission
+        .parent_tool_call_id
+        .as_deref()
+        .and_then(|call| ToolCallId::new(call.to_owned()).ok())
 }
 
 fn lifecycle_wire_type(event_type: SubagentLifecycleEventType) -> &'static str {
@@ -730,7 +814,7 @@ pub(super) mod tests {
             });
         }
 
-        session.frame(&helper_started("helper", "local_agent", "call-2"));
+        session.frame(&helper_started("helper", "local_agent", "call-1"));
         settle().await;
 
         match denial {
@@ -756,7 +840,7 @@ pub(super) mod tests {
             .hold_interrupted_helper(&session.session_id, "helper");
 
         session.frame(&helper_ended("helper", "stopped", "Interrupted"));
-        session.frame(&helper_started("helper", "local_agent", "call-2"));
+        session.frame(&helper_started("helper", "local_agent", "call-1"));
         settle().await;
 
         assert_eq!(
