@@ -89,8 +89,7 @@ pub(crate) fn read_claude_auto_memory(sources: &ClaudeAutoMemorySources<'_>) -> 
         .unwrap_or(true);
     SessionAutoMemory {
         enabled,
-        enabled_at_next_start: switch
-            .filter(|switch| sources.running.is_some() && *switch != enabled),
+        enabled_at_next_start: switch.filter(|switch| *switch != enabled),
     }
 }
 
@@ -149,8 +148,9 @@ mod tests {
 
     // Killed by a fallback other than on, by the settings files read before the variable, by a
     // process's effective value read before the variable it was spawned with, by any set variable
-    // read as off, by the stored switch read over the managed file, and by the kept value read
-    // before a stored switch.
+    // read as off, by the stored switch read over the managed file, by the kept value read before
+    // a stored switch, by the kept value dropped or read after the variable, by the settings files
+    // dropped, and by the managed file read before the variable where no switch is stored.
     #[rstest]
     #[case::nothing_anywhere(no_sources(), true)]
     #[case::variable_over_files(
@@ -181,6 +181,25 @@ mod tests {
         ClaudeAutoMemorySources { stored_switch: Some(false), kept: Some(true), ..no_sources() },
         false
     )]
+    #[case::kept_over_variable(
+        ClaudeAutoMemorySources { kept: Some(true), variable: Some("1"), ..no_sources() },
+        true
+    )]
+    #[case::files_over_default(
+        ClaudeAutoMemorySources {
+            setting: Some((ClaudeSettingsSource::Person, false)),
+            ..no_sources()
+        },
+        false
+    )]
+    #[case::variable_over_managed_file(
+        ClaudeAutoMemorySources {
+            variable: Some("0"),
+            setting: Some((ClaudeSettingsSource::Managed, false)),
+            ..no_sources()
+        },
+        true
+    )]
     fn the_first_auto_memory_source_holding_a_value_decides(
         #[case] sources: ClaudeAutoMemorySources<'static>,
         #[case] enabled: bool,
@@ -189,7 +208,7 @@ mod tests {
     }
 
     // Killed by a fixed time of effect, by a missing value for the next start, and by a value for
-    // the next start set with no process running.
+    // the next start always set to the stored switch.
     #[rstest]
     #[case::live(
         SessionProcessState::Live,
