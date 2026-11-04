@@ -6,6 +6,7 @@
 //! that keeps values takes a single server's entry for the probe that sends it, which drops it
 //! once sent.
 
+mod compose;
 mod entry;
 mod lock;
 mod observe;
