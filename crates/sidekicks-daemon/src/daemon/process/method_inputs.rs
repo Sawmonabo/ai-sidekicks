@@ -36,7 +36,6 @@ use sidekicks_platforms::{
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::account::credential_home::sign_out_every_home;
-use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_queue::memory_gate::{
     INGEST_WORKER_BYTES, MemoryGate, MemoryGateFigures, QUICK_THREAD_BYTES,
 };
@@ -106,6 +105,7 @@ use crate::daemon::process::session_services::{
 use crate::daemon::process::shell_table::{
     ShellTableStart, ShellTableStartError, build_shell_table,
 };
+use crate::daemon::process::stop::DaemonStopReason;
 use crate::daemon::process::supervision::ProcessStateTracker;
 use crate::daemon::process::workspace_services::{
     ExecutionRootStart, WorkspaceServiceStart, WorkspaceWork, build_execution_root_services,
@@ -194,8 +194,8 @@ pub(crate) struct MethodInputsStart<'start> {
     pub(crate) process_state: Arc<ProcessStateTracker>,
     /// The serving socket's record of mutating calls, set once its gate chain is built.
     pub(crate) in_flight: Arc<OnceLock<Arc<InFlightMutations>>>,
-    /// Starts the daemon's stop for the intent given.
-    pub(crate) accept_stop: Arc<dyn Fn(DaemonStopIntent) + Send + Sync>,
+    /// Starts the daemon's stop for the reason given.
+    pub(crate) accept_stop: Arc<dyn Fn(DaemonStopReason) + Send + Sync>,
     /// The erase's step that ends the daemon's work as the stop does.
     pub(crate) stop_work: EraseStep,
     /// The erase's step that closes everything that holds a file in the data folder.
@@ -712,7 +712,7 @@ pub(crate) async fn register_method_inputs(
                         .boxed()
                     }),
                     close_data_folder,
-                    end_process: Arc::new(move || accept_stop(DaemonStopIntent::Stop)),
+                    end_process: Arc::new(move || accept_stop(DaemonStopReason::Erase)),
                 })),
             },
             data_folder: data_folder.to_path_buf(),
