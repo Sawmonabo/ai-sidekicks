@@ -378,6 +378,12 @@ impl PassFixture {
         })
     }
 
+    /// The stop intent beside the fixture's database file, the one the pass and damaged history
+    /// read.
+    pub(crate) fn stop_intent(&self) -> StopIntentFile {
+        StopIntentFile::new(&self.store.database.path())
+    }
+
     /// Damaged history over the fixture's services, reading the fixture's recovery state.
     pub(crate) fn damaged_history(&self) -> Arc<DamagedHistory> {
         self.services(Arc::clone(&self.status)).damaged_history
