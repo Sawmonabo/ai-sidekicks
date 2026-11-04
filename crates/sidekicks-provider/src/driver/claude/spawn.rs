@@ -6,5 +6,6 @@ pub(super) mod arguments;
 pub(super) mod environment;
 pub(super) mod launch;
 pub(super) mod legs;
+pub(crate) mod one_shot_command;
 pub(super) mod settings;
 pub(super) mod system_prompt;

@@ -4,16 +4,15 @@
 
 use std::io;
 use std::path::PathBuf;
-use std::process::Stdio;
 
-use sidekicks_platforms::{Spawner, read_child_exit, wrap_child_command};
-use tokio::process::Command;
+use sidekicks_platforms::Spawner;
 
 use crate::driver::ProviderAccountFolders;
 use crate::driver::claude::account::ClaudeAccountProcessSources;
 use crate::driver::claude::spawn::environment::{
     ClaudeAccountFolders, ClaudeProcessHome, compose_claude_scratch_folder,
 };
+use crate::driver::claude::spawn::one_shot_command::{ClaudeOneShotError, run_claude_one_shot};
 use crate::driver::contract::error::DriverError;
 use crate::spawned_version::ResolvedProviderExecutable;
 
@@ -67,46 +66,40 @@ pub(super) async fn sign_out_claude_home(
         &sources.0.data_folder.to_string_lossy(),
         &folders.configuration_folder,
     );
-    run_sign_out(&sources.0.spawner, executable, working_folder)
+    run_sign_out(&sources.0.spawner, &executable, working_folder)
         .await
         .map_err(|error| DriverError::Internal(Box::new(error)))
 }
 
-// Starts the sign-out on the spawner's thread as every child of the daemon starts, killed if the
-// caller's bound drops the wait, and reads its exit.
+// Runs the sign-out in `working_folder`, made first, killed if the caller's bound drops the wait,
+// and reads its exit.
 async fn run_sign_out(
     spawner: &Spawner,
-    executable: ResolvedProviderExecutable,
+    executable: &ResolvedProviderExecutable,
     working_folder: PathBuf,
 ) -> Result<(), ClaudeSignOutError> {
     tokio::fs::create_dir_all(&working_folder)
         .await
         .map_err(ClaudeSignOutError::WorkingFolder)?;
-    let mut command = Command::new(executable.start.program);
-    command
-        .args(executable.start.leading_arguments)
-        .args(CLAUDE_SIGN_OUT_ARGUMENTS)
-        .env_clear()
-        .envs(executable.environment)
-        .current_dir(working_folder)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    let daemon_pid = std::process::id();
-    let mut child = spawner
-        .run(move || wrap_child_command(command, daemon_pid).spawn())
-        .await
-        .and_then(|spawned| spawned)
-        .map_err(ClaudeSignOutError::Start)?;
-    let status = child.wait().await.map_err(ClaudeSignOutError::Wait)?;
-    if status.success() {
+    let ended = run_claude_one_shot(
+        spawner,
+        executable,
+        &CLAUDE_SIGN_OUT_ARGUMENTS,
+        &working_folder,
+        false,
+    )
+    .await
+    .map_err(|error| match error {
+        ClaudeOneShotError::Start(error) => ClaudeSignOutError::Start(error),
+        ClaudeOneShotError::Wait(error) => ClaudeSignOutError::Wait(error),
+    })?;
+    if ended.is_success {
         return Ok(());
     }
-    let exit = read_child_exit(&status, None);
-    Err(match exit.signal_name {
+    Err(match ended.exit.signal_name {
         Some(signal) => ClaudeSignOutError::Signaled { signal },
         None => ClaudeSignOutError::Failed {
-            exit_code: exit.exit_code,
+            exit_code: ended.exit.exit_code,
         },
     })
 }
