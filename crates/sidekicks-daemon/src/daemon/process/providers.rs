@@ -571,16 +571,18 @@ pub(crate) fn register_providers(
     }
 }
 
-/// Ends every driver's work for `intent`, all at once, and answers each driver's failure, in the
-/// table's order.
+/// Ends every driver's work for `intent`, all at once, each by the one deadline `remaining` from
+/// now, and answers each driver's failure, in the table's order.
 pub(crate) async fn shut_down_drivers(
     registry: &ProviderRegistry,
     intent: DaemonStopIntent,
+    remaining: Duration,
 ) -> Vec<DriverError> {
+    let deadline = tokio::time::Instant::now() + remaining;
     futures::future::join_all(
         registry
             .drivers()
-            .map(|(_, driver)| driver.shutdown(intent)),
+            .map(|(_, driver)| driver.shutdown(intent, deadline)),
     )
     .await
     .into_iter()

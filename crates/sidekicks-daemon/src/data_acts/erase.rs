@@ -35,6 +35,8 @@ use sidekicks_store::credential_store::KeychainRefusal;
 use sidekicks_store::credential_store::items::SecretItems;
 use tokio::sync::oneshot;
 
+use crate::daemon::process::DAEMON_STOP_DRAIN_BOUND;
+
 pub(crate) mod mode;
 
 /// One step of the erase that the running daemon carries out.
@@ -186,8 +188,9 @@ impl DataErase {
             tracing::info!("the erase's caller left before its answer; the erase goes on");
         }
         (self.deps.stop_work)().await;
+        let deadline = tokio::time::Instant::now() + DAEMON_STOP_DRAIN_BOUND;
         for (provider, driver) in self.deps.providers.drivers() {
-            if let Err(failure) = driver.shutdown(DaemonStopIntent::Stop).await {
+            if let Err(failure) = driver.shutdown(DaemonStopIntent::Stop, deadline).await {
                 tracing::warn!(
                     provider = provider.as_str(),
                     error = &failure as &(dyn Error + 'static),
