@@ -12,6 +12,7 @@ use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::context_window::ContextWindowSource;
 use sidekicks_contracts::mcp::server::{McpServerName, McpServerStatus};
+use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use tokio::time::Instant;
 
 use crate::compaction_wait::PendingCompactionRegistry;
@@ -402,7 +403,7 @@ impl CodexSessionRouting {
         match route {
             ThreadFrameRoute::Project | ThreadFrameRoute::RouteConnectionScoped => {
                 // Metered first, so no cumulative counter is passed on as a turn's own.
-                let usage = self.meter_usage_frame(record, frame, routed);
+                let usage = self.meter_usage_frame(record, frame, &route, routed);
                 // Only the session's own conversation fills its meter.
                 if let Some(usage) = usage
                     && route == ThreadFrameRoute::Project
@@ -417,7 +418,7 @@ impl CodexSessionRouting {
                 self.deliver(delivery, record, frame, route, routed).await;
             }
             ThreadFrameRoute::CarveOutUsage { .. } => {
-                self.meter_usage_frame(record, frame, routed);
+                self.meter_usage_frame(record, frame, &route, routed);
             }
             ThreadFrameRoute::CarveOutInteractiveRequest { .. } => {
                 // The parent's pipeline on the helper's own identity; dropping it would hang the
@@ -435,17 +436,20 @@ impl CodexSessionRouting {
     }
 
     // Meters a usage frame and answers its reading; `None` for any other frame or no reading. A
-    // reading that cannot be read is reported, since a silent drop is spend no receipt shows.
+    // reading that cannot be read is reported, since a silent drop is spend no receipt shows. A
+    // helper's reading runs at the thread's tier and names no model; any other runs at its turn's
+    // sent tier and model, else the thread's, as for a turn the daemon started, which keeps none.
     fn meter_usage_frame(
         &mut self,
         record: &CodexSessionRecord,
         frame: &CodexRoutableFrame,
+        route: &ThreadFrameRoute,
         routed: &mut CodexRoutedFrames,
     ) -> Option<CumulativeUsageReading> {
         if frame.method != CODEX_THREAD_TOKEN_USAGE_METHOD {
             return None;
         }
-        let Some(reading) = read_codex_token_usage(&frame.params) else {
+        let Some(mut reading) = read_codex_token_usage(&frame.params) else {
             report(
                 record,
                 DriverDiagnosticKind::UsageAxisReadingRejected,
@@ -456,6 +460,25 @@ impl CodexSessionRouting {
             );
             return None;
         };
+        let is_helper = matches!(route, ThreadFrameRoute::CarveOutUsage { .. });
+        let input = reading
+            .named_turn_id
+            .as_ref()
+            .filter(|_| !is_helper)
+            .and_then(|turn_id| record.turn_input_by_turn_id.get(turn_id));
+        let thread_speed = record
+            .declared_output_speed
+            .as_ref()
+            .map(|speed| speed.declared.as_str());
+        let speed = input
+            .and_then(|input| input.sent_output_speed_for_turn.as_deref())
+            .or(thread_speed);
+        reading.request.speed = speed.and_then(|speed| BoundedText::new(speed.to_owned()));
+        reading.request.thread_speed =
+            thread_speed.and_then(|speed| BoundedText::new(speed.to_owned()));
+        reading.request.model_id = (!is_helper)
+            .then(|| input.map_or(&record.thread_settings.model, |input| &input.model))
+            .and_then(|model| FreeFormText::new(model.clone()).ok());
         routed
             .metered_usage
             .extend(self.accountant.meter_reading(reading.clone()));
