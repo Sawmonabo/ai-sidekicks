@@ -189,8 +189,8 @@ pub(crate) fn resolve_claude_local_settings_file(
     }
 }
 
-/// The local settings files Claude Code reads for `folder`, in its order: the file it resolves for
-/// the folder, as [`resolve_claude_local_settings_file`] places it, then the folder's own where that
+/// The local settings files Claude Code reads for `folder`, in its order: the file
+/// [`resolve_claude_local_settings_file`] places for the folder, then the folder's own where that
 /// differs.
 pub(crate) fn list_claude_local_settings_files(
     folder: &ClaudeProjectFolder<'_>,
