@@ -114,6 +114,8 @@ pub(crate) struct CodexConfigLayer {
     pub(crate) name: CodexConfigLayerSource,
     /// The layer's own config, before any merge.
     pub(crate) config: Value,
+    /// The layer's version, which a write to it expects.
+    pub(crate) version: String,
     /// Why Codex ignores the layer when it merges; `None` for a layer it merges.
     #[serde(default)]
     pub(crate) disabled_reason: Option<String>,
