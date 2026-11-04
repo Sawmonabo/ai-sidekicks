@@ -46,6 +46,7 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::{
     DriverServices, ProviderAccountReader, ProviderDescriptor, ProviderRegistration,
 };
+use sidekicks_provider::port::server_prompts::ServerPromptPort;
 use sidekicks_provider::port::session_account_move::SessionAccountMoveRecorder;
 use sidekicks_provider::port::session_level_follower::SessionLevelFollower;
 use sidekicks_provider::process_registry::ProviderProcessRegistry;
@@ -306,6 +307,8 @@ pub(crate) struct DriverPortOwners {
     pub(crate) permission_asks: Arc<PermissionAsks>,
     /// The questions card's service.
     pub(crate) questions: Arc<QuestionsService>,
+    /// The tool servers' client, which reads their prompts for the `/` list.
+    pub(crate) server_prompts: Arc<dyn ServerPromptPort>,
     /// The plan record's service.
     pub(crate) plans: Arc<PlansService>,
     /// The approval pipeline's reviewer blocks.
@@ -386,6 +389,7 @@ pub(crate) fn register_driver_ports(
         .register(owners.continue_given_back)?;
     ports.permission_asks.register(owners.permission_asks)?;
     ports.questions.register(owners.questions)?;
+    ports.server_prompts.register(owners.server_prompts)?;
     ports.plans.register(owners.plans)?;
     ports.reviewer_denials.register(owners.reviewer_denials)?;
     ports.usage.register(owners.usage)?;

@@ -23,6 +23,7 @@ use sidekicks_ipc::presence::PresenceRegister;
 use sidekicks_ipc::registry::{HandlerError, MethodRegistryBuilder, RegistrationError};
 use sidekicks_mcp::binding::resolver::McpAttributionTable;
 use sidekicks_mcp::binding::store::{McpBindingStore, open_first_observation_drain};
+use sidekicks_mcp::client::{McpClient, McpClientError};
 use sidekicks_mcp::inventory_service::{McpInventoryService, McpInventorySources};
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_mcp::status::machine_probe::McpMachineProbeGate;
@@ -230,6 +231,8 @@ pub(crate) struct MethodInputs {
     pub(crate) mcp_inventory: Arc<McpInventoryService>,
     /// The provider accounts' background observer, started once the recovery pass has run.
     pub(crate) provider_accounts: ProviderAccountObservation,
+    /// The daemon's one client of the sessions' tool servers, which the stop stops.
+    pub(crate) mcp_client: Arc<McpClient>,
 }
 
 /// Why the method tables' services could not be built.
@@ -244,6 +247,9 @@ pub(crate) enum MethodInputsError {
     /// The terminals' table could not be built.
     #[error(transparent)]
     ShellTable(#[from] ShellTableStartError),
+    /// The tool servers' client could not be built.
+    #[error(transparent)]
+    McpClient(#[from] McpClientError),
     /// A method was registered twice.
     #[error(transparent)]
     Registration(#[from] RegistrationError),
@@ -496,6 +502,10 @@ pub(crate) async fn register_method_inputs(
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
     })
     .await;
+    let mcp_client = Arc::new(McpClient::new(
+        Arc::clone(&providers.ports.questions),
+        version.clone(),
+    )?);
     register_driver_ports(
         &providers.ports,
         DriverPortOwners {
@@ -511,6 +521,7 @@ pub(crate) async fn register_method_inputs(
             continue_given_back: session.queue.continue_given_back_listener(),
             permission_asks: Arc::clone(&session.approvals.asks),
             questions: Arc::clone(&session.questions),
+            server_prompts: Arc::clone(&mcp_client) as _,
             plans: Arc::clone(&session.plans),
             reviewer_denials: Arc::clone(&session.approvals.denials),
             writer: Arc::clone(&writer),
@@ -803,6 +814,7 @@ pub(crate) async fn register_method_inputs(
         workspace_work: workspace.work,
         mcp_inventory,
         provider_accounts: accounts.observation,
+        mcp_client,
     })
 }
 

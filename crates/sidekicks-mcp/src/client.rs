@@ -53,7 +53,7 @@ struct StandingState {
 
 /// Why the client could not be made.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum McpClientError {
+pub enum McpClientError {
     /// The HTTP client every server at an address is reached through could not be built.
     #[error("the HTTP client for the tool servers could not be built")]
     HttpClient(#[source] reqwest::Error),
@@ -63,7 +63,7 @@ pub(crate) enum McpClientError {
 /// the live connection; the mark set when the daemon stops; the listeners of the servers'
 /// prompts, the tasks they follow, and the one HTTP client every server at an address is reached
 /// through.
-pub(crate) struct McpClient {
+pub struct McpClient {
     standing: Mutex<StandingState>,
     /// Set once the client stops, before any connection closes, so an end the stop caused is
     /// read as the stop.
@@ -81,15 +81,7 @@ impl McpClient {
     /// A client asking its tasks' questions through `questions`, the drivers' questions card
     /// intake, and declaring `release_version`, the daemon's, to each server. Fails when its HTTP
     /// client cannot be built.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds the one client the session's tool-server \
-                      connections, which the tool-server units open, share"
-        )
-    )]
-    pub(crate) fn new(
+    pub fn new(
         questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
         release_version: ReleaseVersion,
     ) -> Result<Self, McpClientError> {
@@ -192,14 +184,7 @@ impl McpClient {
     /// Stops the client: sets its stopping mark first, so an end the stop causes writes nothing,
     /// then closes every session's standing connections as [`Self::close_session`] does. Never
     /// fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's stop closes every tool-server connection through it"
-        )
-    )]
-    pub(crate) async fn stop(&self) {
+    pub async fn stop(&self) {
         self.stopping.cancel();
         let feeds: Vec<McpStandingConnectionFeed> = lock(&self.standing)
             .connections
