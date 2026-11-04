@@ -14,7 +14,7 @@ use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::config::{
     McpDeclaredConfigMember, McpServerConfigInput, McpTransport,
 };
-use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpWritableBindingRef};
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpWritableBindingRef};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
     ObservedProviderOptions, ProviderRow, ProviderSessionOption,
@@ -58,6 +58,7 @@ use crate::driver::daemon_stop::{DaemonStopIntent, RecordedServicesStopError};
 use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
+use crate::driver::mcp_server::resources::McpResourceSource;
 use crate::driver::mcp_server::write::{
     McpServerEntry, McpServerObserved, McpServerWrite, McpServerWriteOutcome, McpServerWriteRefusal,
 };
@@ -639,6 +640,14 @@ impl ProviderDriver for CodexDriver {
         before: McpServerObserved,
     ) -> BoxFuture<'_, McpServerWriteOutcome> {
         async move { self.write_mcp_server(&write, &before).await }.boxed()
+    }
+
+    fn list_mcp_resources(
+        &self,
+        session_id: SessionId,
+        server_name: McpServerName,
+    ) -> BoxFuture<'_, Result<McpResourceSource, DriverError>> {
+        self.list_mcp_resources(session_id, server_name).boxed()
     }
 
     fn compact_context(
