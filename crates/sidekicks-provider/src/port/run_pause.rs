@@ -22,6 +22,16 @@ pub type ContinuedMessagesError = Box<dyn Error + Send + Sync>;
 /// session, which the driver's call itself never holds: the read marks the messages as the
 /// resume's, so a change to them meanwhile finds them taken.
 pub trait ContinuedMessages: Send + Sync {
+    /// Opens `session_id`'s provider session where no process of this daemon holds it yet, as
+    /// its first admission after the daemon's restart would, so a continue reaches a live driver;
+    /// a session already open is left as it is. Never called under the session's hold, since the
+    /// opening takes the session's transition lock and may start a process. Fails as the opening
+    /// fails.
+    fn open_session(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>>;
+
     /// Takes the queue's own per-session lock on `session_id`, which every hand and take-back of a
     /// session's waiting messages runs under.
     fn hold_session(&self, session_id: SessionId) -> BoxFuture<'_, KeyHold<'_, SessionId>>;

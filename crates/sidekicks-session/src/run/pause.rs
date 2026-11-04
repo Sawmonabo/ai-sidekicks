@@ -274,10 +274,12 @@ impl RunPauseControl {
     /// under the queue's lock on the session, which is let go for the driver's call and taken
     /// again to settle them, so a change to them meanwhile finds them taken. The caller holds no
     /// lock of the queue's. Refuses, nothing read, as a pause does for an unknown run, a stale
-    /// version and a run in any other state, then with [`RunPauseError::NoDriver`]. The driver's
-    /// params say whether the run's newest turn end is the restart's cut of its pause, which the
-    /// continue owes its continuation; a failed read fails with [`RunPauseError::Read`] or
-    /// [`RunPauseError::Pool`], nothing moved. A resume the driver refuses moves nothing, gives the
+    /// version and a run in any other state. The run's session is then opened where no process of
+    /// this daemon holds it since its restart, a failed opening failing with
+    /// [`RunPauseError::Driver`], nothing moved; then refuses with [`RunPauseError::NoDriver`]. The
+    /// driver's params say whether the run's newest turn end is the restart's cut of its pause,
+    /// which the continue owes its continuation; a failed read fails with [`RunPauseError::Read`]
+    /// or [`RunPauseError::Pool`], nothing moved. A resume the driver refuses moves nothing, gives the
     /// messages back and fails with [`RunPauseError::Driver`], as does one whose answer never
     /// came, which keeps the messages for the provider's own word to settle. A move refused once
     /// the driver took the resume (a process exit ended or interrupted the run meanwhile) refuses
@@ -300,6 +302,14 @@ impl RunPauseControl {
                 version_guard(run_id, expected_run_version),
                 move |run, bound| async move {
                     let session_id = *session.get_or_init(|| run.session_id);
+                    // A session no process holds since the restart is opened first, so its driver
+                    // can take the continue.
+                    continued
+                        .open_session(session_id)
+                        .await
+                        .map_err(|unopened| {
+                            RunPauseError::Driver(DriverError::Internal(unopened))
+                        })?;
                     let driver = resolve_live_run_driver(&self.providers, run_id, bound)?;
                     let is_continuation_owed = self
                         .pool
