@@ -765,6 +765,7 @@ pub(crate) async fn register_method_inputs(
             highlighter: Arc::clone(&session.highlighter),
             shells,
             session_changes: Arc::clone(&session.changes),
+            mcp_client: Arc::clone(&mcp_client),
             review_notes: Arc::clone(&repo.review_notes),
             session_snapshots: SessionSnapshotSources {
                 reads: Arc::clone(&reads),
