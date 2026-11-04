@@ -298,7 +298,6 @@ impl ChildRunControls {
             child_handle,
             paused,
             expected_run_version,
-            client_idempotency_key: _,
         } = request;
         let child_ended = || ChildRunControlError::Refused {
             reason: AgentChildRunControlRefusedReason::ChildEnded,

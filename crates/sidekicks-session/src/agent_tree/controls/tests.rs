@@ -191,7 +191,10 @@ impl ChildOfARun {
                     target_run_id,
                     child_handle: self.child_handle.clone(),
                     expected_run_version: SafeInt::new(version).expect("a test version"),
-                    client_idempotency_key: idempotency_key(),
+                    client_idempotency_key: ClientUuid::new(
+                        "0b7f3c1e-9a52-4d6b-8e21-5f4c7d9a1b30".to_owned(),
+                    )
+                    .expect("a test key is a UUID"),
                     deliver_first: None,
                 },
                 InterventionActor::Device(actor),
@@ -217,7 +220,6 @@ impl ChildOfARun {
                 child_handle: self.child_handle.clone(),
                 paused,
                 expected_run_version: SafeInt::new(version).expect("a test version"),
-                client_idempotency_key: idempotency_key(),
             })
             .await
     }
@@ -239,11 +241,6 @@ impl ChildOfARun {
             hold_lost: is_hold_lost.then_some(True::default()),
         })
     }
-}
-
-fn idempotency_key() -> ClientUuid {
-    ClientUuid::new("0b7f3c1e-9a52-4d6b-8e21-5f4c7d9a1b30".to_owned())
-        .expect("a test key is a UUID")
 }
 
 fn refusal_code(error: ChildRunControlError) -> RefusalCode {
