@@ -10,6 +10,7 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::run::control::StopTrigger;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
@@ -37,7 +38,7 @@ use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::driver::hook_pauses::target_unread_reason;
 use crate::driver::run_control::HelperStopReason;
 use crate::lenient_json::{lenient_object, read_lenient};
-use crate::port::agent_tree_lookup::AgentTreeLookup;
+use crate::port::agent_tree_lookup::{AgentTreeHelper, AgentTreeLookup};
 use crate::run::posture::resolve_posture;
 
 /// Where one request a process sent goes.
@@ -87,6 +88,8 @@ pub(crate) enum ClaudeRequestRoute {
     CheckHelperWake {
         /// The request's id.
         request_id: String,
+        /// The calling helper's id, `None` on the lead.
+        agent_id: Option<String>,
         /// The message call's id, which the woken helper's start names as its parent.
         tool_use_id: String,
         /// The recipient the call names.
@@ -261,6 +264,7 @@ pub(crate) fn route_claude_request(
             match message_to {
                 Some(to) => ClaudeRequestRoute::CheckHelperWake {
                     request_id: request.request_id,
+                    agent_id,
                     tool_use_id,
                     to,
                 },
@@ -374,10 +378,9 @@ pub(crate) async fn route_message_target(
             .helper_by_subagent_id(*session_id, DESCRIPTOR.provider_id(), to)
             .await;
         let denial = match stored {
-            Ok(Some(helper)) => match helper.own_run_stop_trigger {
-                Some(StopTrigger::StopAll) => Some(HelperStopReason::StopAll.sentence()),
-                Some(StopTrigger::TokenLimit) | None => None,
-            },
+            Ok(Some(helper)) => {
+                is_stopped_with_all(&helper).then(|| HelperStopReason::StopAll.sentence())
+            }
             Ok(None) => None,
             Err(error) => Some(target_unread_reason(&describe_error(&*error))),
         };
@@ -391,38 +394,57 @@ pub(crate) async fn route_message_target(
     route_before_tool(&mut lock(pauses), session_id, request_id, agent_id)
 }
 
-/// The route of a message call `request_id`, the tool call `tool_use_id`, aimed at the helper
-/// `to`, which wakes it when it has ended: a helper the tree holds whose newest own run ended,
-/// interrupted included, counts against the session's helper limit as a new start does, admitted
-/// while the session has room and held otherwise; a running helper, an id the tree does not hold
-/// or a tree not yet registered passes; a failed read is denied with its cause. `helpers` is
-/// locked only after the read.
+/// The route of a message call `request_id`, the tool call `tool_use_id` by the helper `agent_id`
+/// or the lead, aimed at the helper `to`, which wakes it when it has ended: a helper the tree
+/// holds whose newest own run ended counts against the session's helper limit as a new start
+/// does, admitted while the session has room and held otherwise. A call the message-target check
+/// denies passes uncounted, since it wakes nothing: a stopped caller's, and one aimed at a helper
+/// stopped with every other agent, in memory or by its stored stop, or at a helper a pause or an
+/// interrupt holds, whose interrupted run has not ended. A running helper, an id the tree does not
+/// hold or a tree not yet registered passes; a failed read is denied with its cause. Neither lock
+/// is held across the read, and `pauses` is taken before `helpers`, as every route takes them.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the call's ids and the stores it reads, each a separate input"
+)]
 pub(crate) async fn route_helper_wake(
     lookup: Option<Arc<dyn AgentTreeLookup>>,
+    pauses: &Mutex<ClaudeRunPauses>,
     helpers: &Mutex<ClaudeHelperLimit>,
     session_id: &SessionId,
     request_id: String,
+    agent_id: Option<&str>,
     tool_use_id: &str,
-    to: String,
+    to: &str,
 ) -> ClaudeRequestRoute {
+    let pass = |request_id| ClaudeRequestRoute::Answer {
+        request_id,
+        answer: ClaudeHookAnswer::Pass,
+    };
+    let is_target_denied = lock(pauses)
+        .answer_aimed_call(session_id, agent_id, to)
+        .is_some();
+    if is_target_denied {
+        return pass(request_id);
+    }
     let Some(lookup) = lookup else {
-        return ClaudeRequestRoute::Answer {
-            request_id,
-            answer: ClaudeHookAnswer::Pass,
-        };
+        return pass(request_id);
     };
     let stored = lookup
-        .helper_by_subagent_id(*session_id, DESCRIPTOR.provider_id(), to)
+        .helper_by_subagent_id(*session_id, DESCRIPTOR.provider_id(), to.to_owned())
         .await;
     match stored {
-        Ok(Some(helper)) if helper.own_run_state.is_terminal() => {
+        Ok(Some(helper)) if helper.own_run_state.is_terminal() && !is_stopped_with_all(&helper) => {
+            let pauses = lock(pauses);
+            if helper.own_run_state == RunState::Interrupted
+                && pauses.is_helper_held(session_id, to)
+            {
+                return pass(request_id);
+            }
             let answer = lock(helpers).answer_start(session_id, &request_id, tool_use_id);
             helper_limit_route(answer, request_id)
         }
-        Ok(Some(_) | None) => ClaudeRequestRoute::Answer {
-            request_id,
-            answer: ClaudeHookAnswer::Pass,
-        },
+        Ok(Some(_) | None) => pass(request_id),
         Err(error) => ClaudeRequestRoute::Answer {
             request_id,
             answer: ClaudeHookAnswer::Deny {
@@ -430,6 +452,12 @@ pub(crate) async fn route_helper_wake(
             },
         },
     }
+}
+
+// Whether the stored helper was stopped with every other agent, by the stop its newest own run
+// stored, which no message wakes.
+fn is_stopped_with_all(helper: &AgentTreeHelper) -> bool {
+    matches!(helper.own_run_stop_trigger, Some(StopTrigger::StopAll))
 }
 
 // The helper limit's route for a start or a wake: a pass now, or a hold the limit releases.

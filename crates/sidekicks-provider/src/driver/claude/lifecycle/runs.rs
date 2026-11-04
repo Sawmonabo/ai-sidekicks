@@ -190,13 +190,7 @@ impl ClaudeDriver {
     ) -> Result<AgentRunContextCompactResponse, DriverError> {
         let parts = self.parts()?;
         let live = parts.run_start.live_session(params.session_id)?;
-        Ok(compact_claude_context(
-            &live,
-            &parts.run_start.handshakes,
-            &parts.run_start.routes,
-            &self.pending_compactions,
-        )
-        .await?)
+        Ok(compact_claude_context(&live, &parts.run_start, &self.pending_compactions).await?)
     }
 
     /// The session's commands, as one group carrying the params' run and binding: a live session's

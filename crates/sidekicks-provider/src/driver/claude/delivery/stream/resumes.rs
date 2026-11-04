@@ -59,15 +59,17 @@ struct ClaudeHelperRecord {
 }
 
 impl ClaudeHelperRecord {
-    // Its helper's resume beneath `carrier`, where that run can still carry a start.
+    // Its helper's resume beneath `carrier`, where that run can still carry a start;
+    // `continuable_run` is the session's run whose turn ended interrupted.
     fn resume(
         &self,
         routes: &ClaudeRunRoutes,
+        continuable_run: Option<RunId>,
         carrier: Option<ClaudeBoundRun>,
         is_awaiting_call: bool,
     ) -> ClaudeHelperResume {
         ClaudeHelperResume {
-            carrier: carrier.filter(|carrier| can_carry(routes, carrier.run_id)),
+            carrier: carrier.filter(|carrier| can_carry(routes, continuable_run, carrier.run_id)),
             is_awaiting_call,
             interrupted: self
                 .is_interrupted
@@ -129,10 +131,12 @@ struct ClaudePendingCorrection {
 impl ClaudeHelperResumes {
     /// The resume of the helper `agent_id` started under the call `call_id`, or `None` for a
     /// helper with no own run yet. A `SendMessage` call it names is taken; a run that has ended,
-    /// as the routes read it, carries nothing.
+    /// as the routes read it, or the session's `continuable_run`, whose turn ended interrupted,
+    /// carries nothing.
     pub(super) fn resume_of(
         &mut self,
         routes: &ClaudeRunRoutes,
+        continuable_run: Option<RunId>,
         agent_id: &str,
         call_id: Option<&str>,
     ) -> Option<ClaudeHelperResume> {
@@ -141,7 +145,7 @@ impl ClaudeHelperResumes {
         let is_start_call = call_id.is_some() && call_id == record.start_call_id.as_deref();
         let is_awaiting_call = call_id.is_some() && call_run.is_none() && !is_start_call;
         let carrier = call_run.or_else(|| is_start_call.then(|| record.parent.clone()));
-        Some(record.resume(routes, carrier, is_awaiting_call))
+        Some(record.resume(routes, continuable_run, carrier, is_awaiting_call))
     }
 
     /// Parks a resume whose call is not read yet.
@@ -327,12 +331,15 @@ impl ClaudeDeliveryStream {
         let routes = &self.dependencies.routes;
         let turn_lead = routes.lead_run_on(session.session_id).or(lead_at_read);
         let is_before_call = call_run.is_none();
-        let resume = session
-            .lock()
-            .helper_resumes
-            .helpers
-            .get(&emission.subagent_id)
-            .map(|record| record.resume(routes, call_run, false));
+        let resume = {
+            let readings = session.lock();
+            let continuable_run = readings.continuable_run.map(|(run_id, _)| run_id);
+            readings
+                .helper_resumes
+                .helpers
+                .get(&emission.subagent_id)
+                .map(|record| record.resume(routes, continuable_run, call_run, false))
+        };
         let started = self
             .start_helper(
                 session,
@@ -417,10 +424,14 @@ fn message_call_ids(message: &ClaudeMessageFrame) -> impl Iterator<Item = &str> 
         .map(|(call_id, ..)| call_id)
 }
 
-// Whether `run_id` can still carry a helper's start: a lead run while it is bound, or a helper's
-// child run while its helper runs and the daemon did not refuse it. The engine writes no start
-// beneath a run that has ended.
-fn can_carry(routes: &ClaudeRunRoutes, run_id: RunId) -> bool {
+// Whether `run_id` can still carry a helper's start: a lead run while it is bound and its turn did
+// not end interrupted (`continuable_run`), or a helper's child run while its helper runs and the
+// daemon did not refuse it. The engine writes no start beneath a run that has ended, and an
+// interrupted lead's continue would absorb the helper's.
+fn can_carry(routes: &ClaudeRunRoutes, continuable_run: Option<RunId>, run_id: RunId) -> bool {
+    if continuable_run == Some(run_id) {
+        return false;
+    }
     match routes.route_of(run_id) {
         Some(ClaudeRunRoute::Lead { .. }) => true,
         Some(ClaudeRunRoute::Child(route)) => !route.is_refused,

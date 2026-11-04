@@ -213,6 +213,21 @@ impl ClaudeFrameRouting {
                     .observe_boundary(&session_id.to_string(), boundary.boundary_position);
             }
         }
+        // A helper a `SendMessage` call wakes runs on past the call's result, whether its start
+        // came before the call or comes after it.
+        for call_id in &observation.message_call_ids {
+            let waiting_helper_id = band
+                .router
+                .child_waiting_on_call(call_id)
+                .map(str::to_owned);
+            if let Some(helper_id) = waiting_helper_id {
+                band.router.stop_waiting_on_child(&helper_id);
+            }
+            band.message_call_ids.insert(call_id.clone());
+        }
+        for call_id in &observation.answered_call_ids {
+            band.message_call_ids.remove(call_id);
+        }
         if let Some(signal) = &observation.subagent_lifecycle
             && signal.signal == ClaudeSubagentSignal::SubagentStart
         {
@@ -261,9 +276,16 @@ impl ClaudeFrameRouting {
         let normalized = normalize_claude_subagent_lifecycle(signal, provider_session_id, |id| {
             band.router.child_attribution_for(id).is_some()
         });
-        let Some(announcement) = normalized.announcement else {
+        let Some(mut announcement) = normalized.announcement else {
             return;
         };
+        if announcement
+            .waiting_call_id
+            .as_ref()
+            .is_some_and(|call_id| band.message_call_ids.contains(call_id))
+        {
+            announcement.waiting_call_id = None;
+        }
         let ChildRegistrationResult::Registered {
             child_thread_id,
             released_frames,

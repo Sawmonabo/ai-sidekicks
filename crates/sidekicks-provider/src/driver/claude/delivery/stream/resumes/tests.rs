@@ -2,30 +2,11 @@ use serde_json::{Value, json};
 use sidekicks_contracts::run::id::RunId;
 
 use super::super::helper_runs::tests::{child_runs, helper_ended, lifecycle_rows, nested_start};
+use super::super::tests::tool_call;
 use crate::driver::claude::session::scripted::held_calls::{helper_started, init};
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
 };
-
-// An assistant frame calling `SendMessage` under `call_id`, the helper `agent_id`'s or, with none,
-// the lead's.
-fn message_call(message_id: &str, call_id: &str, agent_id: Option<&str>) -> Value {
-    let mut frame = json!({
-        "type": "assistant",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "message": {
-            "id": message_id,
-            "role": "assistant",
-            "content": [
-                {"type": "tool_use", "id": call_id, "name": "SendMessage", "input": {"to": "a"}},
-            ],
-        },
-    });
-    if let Some(agent_id) = agent_id {
-        frame["agent_id"] = json!(agent_id);
-    }
-    frame
-}
 
 // An assistant frame of the helper `agent_id`'s own, holding only text.
 fn helper_text(message_id: &str, agent_id: &str) -> Value {
@@ -80,10 +61,15 @@ async fn a_resumed_helper_hangs_under_the_run_that_sent_its_message() {
         .child_run_for(session.session_id, "caller")
         .expect("the calling helper has its child run");
 
-    session.frame(&message_call("message-1", "send-lead", None));
+    session.frame(&tool_call("message-1", "send-lead", "SendMessage", None));
     session.frame(&helper_started("worker", "local_agent", "send-lead"));
     session.frame(&helper_ended("worker", "completed", "Reported again"));
-    session.frame(&message_call("message-2", "send-caller", Some("caller")));
+    session.frame(&tool_call(
+        "message-2",
+        "send-caller",
+        "SendMessage",
+        Some("caller"),
+    ));
     session.frame(&helper_started("worker", "local_agent", "send-caller"));
     settle().await;
 
@@ -124,7 +110,7 @@ async fn an_automatic_resume_hangs_under_its_previous_parent() {
     session.frame(&helper_ended("worker", "completed", "Reported"));
     session.frame(&helper_started("worker", "local_agent", "call-worker"));
     session.frame(&helper_ended("worker", "completed", "Reported"));
-    session.frame(&message_call("message-1", "send-lead", None));
+    session.frame(&tool_call("message-1", "send-lead", "SendMessage", None));
     session.frame(&helper_started("worker", "local_agent", "send-lead"));
     session.frame(&helper_ended("worker", "completed", "Reported"));
     session.frame(&helper_started("worker", "local_agent", "send-lead"));
@@ -145,8 +131,8 @@ async fn an_automatic_resume_hangs_under_its_previous_parent() {
 
 // An interrupted helper resumed beneath the run it ran under continues its old run, its start row
 // naming that run, and one resumed beneath another run takes a new own run there. Killed by
-// continuing every interrupted helper (the moved helper continues), and by always starting a new
-// run (the kept helper starts one).
+// continuing every interrupted helper (the moved helper continues), by always starting a new run
+// (the kept helper starts one), and by continuing a run other than the kept helper's own.
 #[tokio::test(start_paused = true)]
 async fn an_interrupted_helper_continues_only_beneath_its_own_parent() {
     let session = ScriptedSession::new().await;
@@ -166,20 +152,24 @@ async fn an_interrupted_helper_continues_only_beneath_its_own_parent() {
 
     session.frame(&helper_ended("kept", "stopped", "Interrupted"));
     session.frame(&helper_ended("moved", "stopped", "Interrupted"));
-    session.frame(&message_call("message-1", "send-kept", None));
+    session.frame(&tool_call("message-1", "send-kept", "SendMessage", None));
     session.frame(&helper_started("kept", "local_agent", "send-kept"));
-    session.frame(&message_call("message-2", "send-moved", Some("caller")));
+    session.frame(&tool_call(
+        "message-2",
+        "send-moved",
+        "SendMessage",
+        Some("caller"),
+    ));
     session.frame(&helper_started("moved", "local_agent", "send-moved"));
     settle().await;
 
     let deliveries = session.engine.deliveries();
-    assert_eq!(
-        deliveries
-            .iter()
-            .filter(|delivery| delivery.kind == "runContinued")
-            .count(),
-        1
-    );
+    let continued: Vec<_> = deliveries
+        .iter()
+        .filter(|delivery| delivery.kind == "runContinued")
+        .map(|delivery| delivery.run_id)
+        .collect();
+    assert_eq!(continued, [Some(kept_run)]);
     assert_eq!(starts_of(&session, "kept").len(), 1);
     assert_eq!(run_of("kept"), kept_run);
     assert_eq!(
@@ -227,11 +217,21 @@ async fn a_resume_before_its_call_waits_for_the_call_or_the_helpers_next_frame()
     session.frame(&helper_started("early", "local_agent", "send-early"));
     settle().await;
     assert_eq!(starts_of(&session, "early").len(), 1, "the resume waits");
-    session.frame(&message_call("message-1", "send-early", Some("caller")));
+    session.frame(&tool_call(
+        "message-1",
+        "send-early",
+        "SendMessage",
+        Some("caller"),
+    ));
     session.frame(&helper_started("late", "local_agent", "send-late"));
     session.frame(&helper_text("message-2", "late"));
     session.frame(&helper_text("message-3", "late"));
-    session.frame(&message_call("message-4", "send-late", Some("caller")));
+    session.frame(&tool_call(
+        "message-4",
+        "send-late",
+        "SendMessage",
+        Some("caller"),
+    ));
     session.frame(&helper_text("message-5", "late"));
     session.frame(&helper_ended("late", "completed", "Reported again"));
     settle().await;
@@ -281,7 +281,7 @@ async fn a_resume_under_its_callers_run_or_naming_no_call_is_not_moved_or_parked
     session.frame(&helper_ended("worker", "completed", "Reported"));
     session.frame(&helper_started("worker", "local_agent", "send-lead"));
     session.frame(&helper_text("message-1", "worker"));
-    session.frame(&message_call("message-2", "send-lead", None));
+    session.frame(&tool_call("message-2", "send-lead", "SendMessage", None));
     session.frame(&helper_ended("worker", "completed", "Reported again"));
     session.frame(&helper_started("worker", "local_agent", ""));
     session.frame(&helper_started("fresh", "local_agent", "call-fresh"));

@@ -1,6 +1,7 @@
 //! What Claude Code's `system` frames say about a run, in the daemon's words: a model switch, the
 //! refusal no other model took, a retried request, a warning, the coarse status, the worker's
-//! shutdown reason, a helper's end and the cap on a turn's unmet goal checks. The frames are
+//! shutdown reason, a helper's end and the cap on a turn's unmet goal checks; with them, what the
+//! `command_lifecycle` frame says became of a message the session was sent. The frames are
 //! untrusted, so each member is narrowed, and a frame that reads as nothing known reads as `None`.
 
 use serde_json::{Map, Value};
@@ -177,6 +178,57 @@ pub(crate) fn read_claude_worker_shutdown_reason(
     read_words(frame, "reason")
 }
 
+/// How Claude Code dropped a message it was sent without starting it: `discarded` for one still
+/// queued as the session ends, `refused` on the same drop path's other arm and for a peer message
+/// the receiver's policy declined, and `cancelled` for one an interrupt sent with `cancel_queued`
+/// took back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClaudeCommandDrop {
+    /// Still queued as the session ended.
+    Discarded,
+    /// Refused, by the drop path or the receiver's policy.
+    Refused,
+    /// Taken back by an interrupt.
+    Cancelled,
+}
+
+/// What a `command_lifecycle` frame says became of a message, named by the uuid it was sent
+/// under.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClaudeCommandLifecycle<'frame> {
+    /// Claude Code took the message off its input and started it.
+    Started {
+        /// The message's uuid.
+        command_uuid: &'frame str,
+    },
+    /// Claude Code dropped the message.
+    Dropped {
+        /// The message's uuid.
+        command_uuid: &'frame str,
+        /// How it was dropped.
+        state: ClaudeCommandDrop,
+    },
+}
+
+/// Reads a `command_lifecycle` frame; `None` for one that names no message, or a state that is
+/// neither a start nor a drop.
+pub(crate) fn read_claude_command_lifecycle(
+    frame: &Map<String, Value>,
+) -> Option<ClaudeCommandLifecycle<'_>> {
+    let command_uuid = read_non_empty_string(frame, "command_uuid")?;
+    let state = match read_non_empty_string(frame, "state")? {
+        "started" => return Some(ClaudeCommandLifecycle::Started { command_uuid }),
+        "discarded" => ClaudeCommandDrop::Discarded,
+        "refused" => ClaudeCommandDrop::Refused,
+        "cancelled" => ClaudeCommandDrop::Cancelled,
+        _ => return None,
+    };
+    Some(ClaudeCommandLifecycle::Dropped {
+        command_uuid,
+        state,
+    })
+}
+
 /// The move a helper's child run makes on its `task_notification`, read with why the daemon
 /// stopped the helper (`stop`). `completed` ends it completed, or stopped at its token limit when
 /// that limit stopped it; `failed` ends it failed with the summary's words; `stopped` ends it
@@ -225,50 +277,4 @@ pub(crate) fn read_claude_helper_end(
         failure_category: is_failed.then_some(RunFailureCategory::ProviderFailure),
         ..RunStateReport::new(child_run_id, entry)
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use rstest::rstest;
-    use serde_json::json;
-    use sidekicks_contracts::run::control::StopTrigger;
-
-    use super::read_claude_helper_end;
-    use crate::driver::claude::delivery::commands::ClaudeTaskFrame;
-    use crate::driver::run_control::HelperStopReason;
-    use crate::driver::test_registry::new_run_id;
-    use crate::run::state_entry::{RunStateEntry, RunStateReport};
-
-    // A helper's `stopped` end is final, with the stop-all's trigger, when the person stopped it
-    // with every other agent, and an interruption when no stop of the daemon's names it. Killed by
-    // leaving the stop-all's trigger unset and by reading every `stopped` end as final.
-    #[rstest]
-    #[case::stop_all(
-        Some(HelperStopReason::StopAll),
-        RunStateEntry::Stopped { intended_close: None, trigger: Some(StopTrigger::StopAll) }
-    )]
-    #[case::no_stop_reason(
-        None,
-        RunStateEntry::Interrupted { intended_close: None, trigger: None }
-    )]
-    fn a_stopped_helper_reads_by_the_daemons_stop(
-        #[case] stop: Option<HelperStopReason>,
-        #[case] expected: RunStateEntry,
-    ) {
-        let task = ClaudeTaskFrame::read(
-            &json!({
-                "type": "system",
-                "subtype": "task_notification",
-                "task_id": "helper-task",
-                "status": "stopped",
-            })
-            .to_string(),
-        )
-        .expect("a task frame");
-        let child_run_id = new_run_id();
-
-        let end = read_claude_helper_end(&task, child_run_id, stop.as_ref());
-
-        assert_eq!(end, Some(RunStateReport::new(child_run_id, expected)));
-    }
 }

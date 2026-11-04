@@ -10,6 +10,7 @@ use serde_json::{Map, Value};
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::spawn::settings::ClaudeSpawnSettings;
 use crate::driver::claude::spawn::system_prompt::claude_appended_system_prompt_arguments;
+use crate::driver::session_control::SubagentPolicy;
 
 /// The flag that has Claude Code load no MCP server but those its command line names; under an
 /// administrator's MCP file it makes Claude Code exit at start instead.
@@ -59,8 +60,8 @@ pub(crate) struct ClaudeArgumentsRequest<'a> {
     pub(crate) settings: &'a ClaudeSpawnSettings,
     /// The session's output schema.
     pub(crate) output_schema: Option<&'a Map<String, Value>>,
-    /// Whether helpers are off, so the helper tool is not offered at all.
-    pub(crate) is_helper_tool_withheld: bool,
+    /// The session's helper policy; with helpers off the helper tool is not offered at all.
+    pub(crate) subagent_policy: Option<&'a SubagentPolicy>,
     /// The session's step bound, `None` where it sets none.
     pub(crate) step_bound: Option<u32>,
     /// Whether a readable `managed-mcp.json` sits in the managed settings folder, under which
@@ -117,7 +118,7 @@ pub(crate) fn compose_claude_arguments(request: &ClaudeArgumentsRequest<'_>) -> 
         arguments.push(serde_json::to_string(schema).expect("a JSON object always serializes"));
     }
     // The wire names the helper tool `Agent` while `system/init` advertises it as `Task`.
-    if request.is_helper_tool_withheld {
+    if matches!(request.subagent_policy, Some(SubagentPolicy::Disabled {})) {
         arguments.extend(["--disallowedTools", "Agent", "Task"].map(str::to_owned));
     }
     // The daemon counts the steps and stops the run at its bound itself; Claude Code's own limit,
@@ -178,6 +179,7 @@ mod tests {
     use std::path::Path;
 
     use rstest::rstest;
+    use sidekicks_contracts::wire::integer::SafeInt;
 
     use super::{
         ClaudeArgumentsRequest, ClaudeConversationStart, claude_appended_system_prompt_arguments,
@@ -189,6 +191,7 @@ mod tests {
     use crate::driver::claude::spawn::settings::{
         AgentViewOff, CLAUDE_CLEANUP_PERIOD_DAYS, ClaudeSpawnSettings,
     };
+    use crate::driver::session_control::SubagentPolicy;
 
     // The arguments every process starts with, `--settings`'s document the last.
     const LEADING_ARGUMENTS: usize = 18;
@@ -256,6 +259,49 @@ mod tests {
         #[case] messaging_socket: Option<&str>,
         #[case] tail: &[&str],
     ) {
+        let arguments = compose(
+            conversation,
+            has_managed_mcp_file,
+            step_bound,
+            messaging_socket,
+            None,
+        );
+
+        assert_eq!(&arguments[LEADING_ARGUMENTS..], tail);
+    }
+
+    // Killed by offering the helper tool with helpers off, and by withholding it from a session
+    // that only limits how many run at once.
+    #[rstest]
+    #[case::helpers_off(&SubagentPolicy::Disabled {}, &["--disallowedTools", "Agent", "Task"])]
+    #[case::helpers_limited(
+        &SubagentPolicy::Enabled {
+            helpers_at_once: Some(SafeInt::new(1).expect("1 is a safe integer")),
+            definitions: Vec::new(),
+        },
+        &[],
+    )]
+    fn only_helpers_off_withholds_the_helper_tool(
+        #[case] policy: &SubagentPolicy,
+        #[case] withheld: &[&str],
+    ) {
+        let conversation = ClaudeConversationStart::Resume {
+            resume_handle: "s1".to_owned(),
+        };
+
+        let arguments = compose(conversation, true, None, None, Some(policy));
+
+        assert_eq!(&arguments[LEADING_ARGUMENTS + 2..], withheld);
+    }
+
+    // The arguments of a start of `conversation`, checking the leading ones every start shares.
+    fn compose(
+        conversation: ClaudeConversationStart,
+        has_managed_mcp_file: bool,
+        step_bound: Option<u32>,
+        messaging_socket: Option<&str>,
+        subagent_policy: Option<&SubagentPolicy>,
+    ) -> Vec<String> {
         let settings = ClaudeSpawnSettings {
             cleanup_period_days: CLAUDE_CLEANUP_PERIOD_DAYS,
             disable_agent_view: AgentViewOff,
@@ -273,7 +319,7 @@ mod tests {
             permission_mode: ClaudePermissionMode::Default,
             settings: &settings,
             output_schema: None,
-            is_helper_tool_withheld: false,
+            subagent_policy,
             step_bound,
             has_managed_mcp_file,
             conversation,
@@ -287,7 +333,7 @@ mod tests {
             arguments[LEADING_ARGUMENTS - 4..LEADING_ARGUMENTS - 2],
             claude_appended_system_prompt_arguments(),
         );
-        assert_eq!(&arguments[LEADING_ARGUMENTS..], tail);
         assert!(!arguments.iter().any(|argument| argument == "--mcp-config"));
+        arguments
     }
 }

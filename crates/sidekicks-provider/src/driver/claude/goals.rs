@@ -16,11 +16,15 @@ use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
 
 use serde::Deserialize;
+use serde_json::{Map, Value};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot;
 
+use crate::driver::claude::delivery::system::{
+    ClaudeCommandLifecycle, read_claude_command_lifecycle,
+};
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::run::controls::ClaudeRunControls;
 use crate::driver::claude::run::start::ClaudeDaemonTurnOpening;
@@ -50,16 +54,7 @@ struct ResultFrame {
     is_error: Option<bool>,
 }
 
-// What became of a message the session was sent, by the uuid it was sent under.
-#[derive(Default, Deserialize)]
-struct CommandLifecycleFrame {
-    #[serde(default, deserialize_with = "read_lenient")]
-    command_uuid: Option<String>,
-    #[serde(default, deserialize_with = "read_lenient")]
-    state: Option<String>,
-}
-
-lenient_object!(ResultFrame, CommandLifecycleFrame);
+lenient_object!(ResultFrame);
 
 // The goal command a session waits on: its message's uuid, the signal its start sends, taken once
 // Claude Code started it, and its answer.
@@ -77,9 +72,9 @@ pub(crate) struct ClaudeGoalCommands {
 
 impl ClaudeGoalCommands {
     /// Sends `/goal <goal_text>`, or `/goal clear` for `None`, on `session_id`, whose live process
-    /// is `live`: as the session's own run while nothing holds its turn, written onto the lead's run
-    /// while that run works, which Claude Code runs when its turn ends, and after a command's turn
-    /// is released. With no live process the command's own run opens the session's process and
+    /// is `live`: as the session's own run while nothing holds its turn, written onto the lead's
+    /// run while that run works, which Claude Code runs when its turn ends, and after a command's
+    /// turn is released. With no live process the command's own run opens the session's process and
     /// writes it there. Answers `Applied` once Claude Code started the command and answered it,
     /// and `Degraded` when Claude Code dropped it, reported an error or no answer within the
     /// request deadline of its start, a command's turn outlasted that deadline, or the process's
@@ -98,11 +93,13 @@ impl ClaudeGoalCommands {
                 return Ok(degraded());
             }
             // A command Claude Code runs as a turn of its own holds no run to write the goal onto.
+            // The mark is taken before the turn is read, so its release meanwhile still wakes.
+            let mark = start.routes.turn_mark(session_id);
             if start.routes.lead_run_on(session_id).is_none()
                 && start.routes.is_turn_held(session_id)
                 && !start
                     .routes
-                    .when_turn_released(session_id, CLAUDE_REQUEST_DEADLINE)
+                    .when_turn_changed_after(session_id, mark, CLAUDE_REQUEST_DEADLINE)
                     .await
             {
                 return Ok(degraded());
@@ -207,11 +204,13 @@ impl ClaudeGoalCommands {
     }
 
     // Claude Code's `started` for the waiting command lets its answer come; a terminal drop
-    // (`discarded`, `refused`, `cancelled`) answers it refused, since the goal was never set.
+    // answers it refused, since the goal was never set.
     fn observe_command_lifecycle(&self, session_id: SessionId, text: &str) {
-        let frame = serde_json::from_str::<CommandLifecycleFrame>(text).unwrap_or_default();
-        let (Some(command_uuid), Some(state)) = (frame.command_uuid, frame.state) else {
-            return;
+        let frame = serde_json::from_str::<Map<String, Value>>(text).unwrap_or_default();
+        let (command_uuid, is_started) = match read_claude_command_lifecycle(&frame) {
+            Some(ClaudeCommandLifecycle::Started { command_uuid }) => (command_uuid, true),
+            Some(ClaudeCommandLifecycle::Dropped { command_uuid, .. }) => (command_uuid, false),
+            None => return,
         };
         let mut waiting_by_session = self.lock();
         let Some(waiting) = waiting_by_session
@@ -220,19 +219,13 @@ impl ClaudeGoalCommands {
         else {
             return;
         };
-        match state.as_str() {
-            "started" => {
-                if let Some(started) = waiting.started.take() {
-                    // A command that stopped waiting needs no signal.
-                    started.send(()).unwrap_or(());
-                }
+        if is_started {
+            if let Some(started) = waiting.started.take() {
+                // A command that stopped waiting needs no signal.
+                started.send(()).unwrap_or(());
             }
-            "discarded" | "refused" | "cancelled" => {
-                if let Some(waiting) = waiting_by_session.remove(&session_id) {
-                    waiting.reply.send(ClaudeGoalReply::Refused).unwrap_or(());
-                }
-            }
-            _ => {}
+        } else if let Some(waiting) = waiting_by_session.remove(&session_id) {
+            waiting.reply.send(ClaudeGoalReply::Refused).unwrap_or(());
         }
     }
 

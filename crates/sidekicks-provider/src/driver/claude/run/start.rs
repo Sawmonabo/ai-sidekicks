@@ -26,7 +26,9 @@ use crate::driver::claude::output_speed::{apply_claude_output_speed, resolve_cla
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoute, ClaudeRunRoutes};
 use crate::driver::claude::session::controls::claude_full_model_id;
-use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
+use crate::driver::claude::session::errors::{
+    ClaudeSessionError, ClaudeSessionUnavailableReason, is_unavailable_for,
+};
 use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
 use crate::driver::claude::session::slots::ClaudeSessionSlots;
 use crate::driver::claude::session::state::LiveClaudeSession;
@@ -38,7 +40,9 @@ use crate::driver::claude::session::transport::user_message::{
 use crate::driver::claude::spawn::legs::assert_claude_spawn_bound_realization;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::StartRunParams;
-use crate::driver::run_control::{DaemonTurnBindingResolver, DriverRunRefusal};
+use crate::driver::run_control::{
+    DaemonTurnBindingError, DaemonTurnBindingResolver, DriverRunRefusal,
+};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::{DaemonTurnHeld, RunHost};
@@ -134,14 +138,17 @@ impl ClaudeRunStart {
         let session_id = opening.session_id;
         let run_id = params.run_id;
         self.wake_if_asleep(session_id).await?;
+        // Taken before the turn is read, so its release while this runs still wakes the wait.
+        let mark = self.routes.turn_mark(session_id);
         let is_ending_for_interrupt = self
             .streams
             .get(session_id)
             .is_some_and(|stream| stream.is_turn_ending_for_interrupt(run_id));
         if is_ending_for_interrupt
+            && self.routes.is_turn_held(session_id)
             && !self
                 .routes
-                .when_turn_released(session_id, CLAUDE_REQUEST_DEADLINE)
+                .when_turn_changed_after(session_id, mark, CLAUDE_REQUEST_DEADLINE)
                 .await
         {
             return Err(claude_session_unavailable(
@@ -229,11 +236,19 @@ impl ClaudeRunStart {
                         })?;
                 (live.admitted_provider_account_id(), execution_posture)
             } else {
-                let admission = self
-                    .bindings
-                    .admit_daemon_turn(session_id)
-                    .await
-                    .map_err(|error| DriverError::Internal(Box::new(error)))?;
+                let admission = self.bindings.admit_daemon_turn(session_id).await.map_err(
+                    |error| match error {
+                        // A refusal a client reads by its code reaches it as that refusal.
+                        DaemonTurnBindingError::Refused { refusal, .. } => {
+                            DriverError::Refused(refusal)
+                        }
+                        error @ (DaemonTurnBindingError::NoProviderSession { .. }
+                        | DaemonTurnBindingError::NotAdmitted { .. }
+                        | DaemonTurnBindingError::BindingNotRecorded { .. }) => {
+                            DriverError::Internal(Box::new(error))
+                        }
+                    },
+                )?;
                 (
                     admission.admitted_provider_account_id,
                     admission.execution_posture,
@@ -288,6 +303,40 @@ impl ClaudeRunStart {
                     DriverError::Internal(error)
                 }
             })
+    }
+
+    /// Runs `attempt`, and where it is refused because the session's turn is held, by a command,
+    /// another run or a run whose end is not yet written, waits within the request deadline for
+    /// the turn's next change and runs it once more. The mark is taken before the first try, so a
+    /// change while it runs still wakes the wait. Fails `SessionTurnInFlight` when the turn does
+    /// not change within the deadline or is still held at the second try, and as `attempt` fails.
+    pub(crate) async fn retry_after_turn_change<T, Attempt>(
+        &self,
+        session_id: SessionId,
+        attempt: impl Fn() -> Attempt,
+    ) -> Result<T, DriverError>
+    where
+        Attempt: Future<Output = Result<T, DriverError>>,
+    {
+        let mark = self.routes.turn_mark(session_id);
+        match attempt().await {
+            Err(error)
+                if is_unavailable_for(
+                    &error,
+                    ClaudeSessionUnavailableReason::SessionTurnInFlight,
+                ) =>
+            {
+                if !self
+                    .routes
+                    .when_turn_changed_after(session_id, mark, CLAUDE_REQUEST_DEADLINE)
+                    .await
+                {
+                    return Err(error);
+                }
+                attempt().await
+            }
+            done => done,
+        }
     }
 
     // The engine's start of a daemon turn under its new run: the run's binding opened, which opens

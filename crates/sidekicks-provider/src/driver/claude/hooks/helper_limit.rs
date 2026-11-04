@@ -116,15 +116,18 @@ impl ClaudeHelperLimit {
         ClaudeHelperStartAnswer::Hold
     }
 
-    /// Takes the helpers one frame started and ended: a start's helper-tool call counts as
-    /// running from here on through the routing, and the held starts the ends free are answered,
-    /// oldest first, each now admitted, by their request ids.
+    /// Takes the helpers one frame started and ended and the tool calls its results answered: a
+    /// start's helper-tool call counts as running from here on through the routing, an admitted
+    /// call answered with no helper started, such as one another hook denied, stops counting, and
+    /// the held starts these free are answered, oldest first, each now admitted, by their request
+    /// ids.
     pub(crate) fn observe_lifecycle(
         &mut self,
         session_id: &SessionId,
         emissions: &[SubagentLifecycleEmission],
+        answered_call_ids: &[String],
     ) -> Vec<String> {
-        if emissions.is_empty() {
+        if emissions.is_empty() && answered_call_ids.is_empty() {
             return Vec::new();
         }
         let Some(helpers) = self.sessions.get_mut(session_id) else {
@@ -137,7 +140,18 @@ impl ClaudeHelperLimit {
                 helpers.admitted_starts.remove(parent_tool_use_id);
             }
         }
+        for call_id in answered_call_ids {
+            helpers.admitted_starts.remove(call_id);
+        }
         helpers.admit_held_starts()
+    }
+
+    /// How many admitted calls on the session have yet to start a helper.
+    #[cfg(test)]
+    pub(crate) fn admitted_start_count(&self, session_id: &SessionId) -> usize {
+        self.sessions
+            .get(session_id)
+            .map_or(0, |helpers| helpers.admitted_starts.len())
     }
 
     /// At the end of the lead's turn, an admitted start that never announced a helper never
@@ -236,6 +250,7 @@ impl OneHelperAtOnce {
                 subagent_id: helper_id.to_owned(),
                 parent_tool_call_id: Some(call_id.to_owned()),
             }],
+            &[],
         )
     }
 }
@@ -372,5 +387,73 @@ mod tests {
         settle().await;
 
         assert_eq!(answered(&session), answered_after);
+    }
+
+    // A helper a `SendMessage` call wakes runs on past the call's result, whether its foreground
+    // start comes before or after the call, so its slot stays taken. Killed by the call's result
+    // read as the woken helper's end (`r1` admitted while the helper runs).
+    #[rstest]
+    #[case::call_first(true)]
+    #[case::start_first(false)]
+    #[tokio::test(start_paused = true)]
+    async fn a_helper_a_message_woke_keeps_its_slot_past_the_messages_result(
+        #[case] is_call_first: bool,
+    ) {
+        let session = ScriptedSession::created_with(|session_id| CreateSessionParams {
+            subagent_policy: Some(SubagentPolicy::Enabled {
+                helpers_at_once: Some(SafeInt::new(1).expect("1 is a safe integer")),
+                definitions: Vec::new(),
+            }),
+            ..create_params(session_id)
+        })
+        .await;
+        session.hold_lead_turn("lead");
+        let call = json!({
+            "type": "assistant",
+            "message": {
+                "id": "message-1",
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "send-1", "name": "SendMessage", "input": {}},
+                ],
+            },
+        });
+        let start = json!({
+            "type": "system",
+            "subtype": "task_started",
+            "task_id": "helper-1",
+            "task_type": "local_agent",
+            "tool_use_id": "send-1",
+            "is_backgrounded": false,
+        });
+        if is_call_first {
+            session.frame(&call);
+            session.frame(&start);
+        } else {
+            session.frame(&start);
+            session.frame(&call);
+        }
+        session.request(
+            "r1",
+            &json!({
+                "subtype": "hook_callback",
+                "callback_id": "sidekicks-helper-limit",
+                "input": {
+                    "hook_event_name": "PreToolUse",
+                    "tool_name": "Agent",
+                    "tool_use_id": "call-1",
+                },
+            }),
+        );
+        session.frame(&json!({
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "send-1", "content": "sent"}],
+            },
+        }));
+        settle().await;
+
+        assert_eq!(answered(&session), Vec::<String>::new());
     }
 }

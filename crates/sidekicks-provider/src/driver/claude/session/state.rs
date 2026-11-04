@@ -103,6 +103,9 @@ pub(crate) struct ClaudeSessionRoutingBand {
     pub(crate) accountant: UsageDeltaAccountant,
     /// Each thread's usage as its messages sum it.
     pub(crate) usage_tally: ClaudeThreadUsageTally,
+    /// The `SendMessage` calls read and not yet answered: a helper one wakes runs on past the
+    /// call's result.
+    pub(crate) message_call_ids: HashSet<String>,
 }
 
 impl ClaudeSessionRoutingBand {
@@ -115,6 +118,7 @@ impl ClaudeSessionRoutingBand {
             ),
             accountant: UsageDeltaAccountant::new(DESCRIPTOR.provider_id()),
             usage_tally: ClaudeThreadUsageTally::default(),
+            message_call_ids: HashSet::new(),
         }
     }
 }

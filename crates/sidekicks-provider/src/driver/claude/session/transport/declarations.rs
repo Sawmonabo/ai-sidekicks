@@ -156,6 +156,8 @@ pub(crate) struct ClaudeInboundFrameObservation {
     pub(crate) backgrounded_helper_id: Option<String>,
     /// The tool calls a `user` frame's tool results answer.
     pub(crate) answered_call_ids: Vec<String>,
+    /// The `SendMessage` calls an `assistant` frame makes.
+    pub(crate) message_call_ids: Vec<String>,
 
     /// The `system/init` declaration, which rides the observation so routing always sees it.
     pub(crate) handshake: Option<ClaudeHandshakeDeclaration>,

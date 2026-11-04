@@ -186,9 +186,13 @@ impl ClaudeSessionTask {
                 live.report_mcp_servers(servers, frame_kind);
             }
         }
-        // A helper's end frees the starts the helper limit held behind it.
-        let admitted =
-            lock(&services.helpers).observe_lifecycle(&session_id, &routed.routed.helper_lifecycle);
+        // A helper's end, or a counted call answered with no helper started, frees the starts the
+        // helper limit held behind it.
+        let admitted = lock(&services.helpers).observe_lifecycle(
+            &session_id,
+            &routed.routed.helper_lifecycle,
+            &observation.answered_call_ids,
+        );
         for request_id in admitted {
             answer_claude_request(
                 &*live.channel,
@@ -276,16 +280,19 @@ impl ClaudeSessionTask {
             }
             ClaudeRequestRoute::CheckHelperWake {
                 request_id,
+                agent_id,
                 tool_use_id,
                 to,
             } => {
                 let settled = route_helper_wake(
                     services.agent_tree_lookup.port().cloned(),
+                    &services.pauses,
                     &services.helpers,
                     &session_id,
                     request_id,
+                    agent_id.as_deref(),
                     &tool_use_id,
-                    to,
+                    &to,
                 )
                 .await;
                 Box::pin(self.take_route(settled, level)).await;

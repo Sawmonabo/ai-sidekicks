@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use rstest::rstest;
-use serde_json::json;
 use serde_json::value::RawValue;
+use serde_json::{Value, json};
 use sidekicks_contracts::agent::tree::ChildHandle;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
@@ -16,6 +16,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
@@ -31,11 +32,15 @@ use crate::driver::claude::hooks::helper_limit::{ClaudeHelperLimit, OneHelperAtO
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudeRunPauses};
 use crate::driver::claude::hooks::registration::ClaudeHookCallback as RegisteredHook;
+use crate::driver::claude::session::scripted::channel::ScriptedWrite;
+use crate::driver::claude::session::scripted::driver::create_params;
+use crate::driver::claude::session::scripted::{ScriptedSession, settle};
 use crate::driver::claude::session::transport::inbound::{
     ClaudeHookCallback, ClaudeInboundRequest, ClaudeInboundRequestBody, ClaudeInboundRequestEvent,
 };
-use crate::driver::hook_pauses::{HELD_TARGET_REASON, target_unread_reason};
+use crate::driver::hook_pauses::{HELD_TARGET_REASON, PAUSED_REASON, target_unread_reason};
 use crate::driver::run_control::HelperStopReason;
+use crate::driver::session_control::{CreateSessionParams, SubagentPolicy};
 use crate::driver::test_registry::fixed_session_id;
 use crate::port::agent_tree_lookup::{AgentTreeHelper, AgentTreeLookup};
 use crate::run::posture::{compose_execution_posture, resolve_posture};
@@ -259,6 +264,9 @@ struct StoredTarget(Result<(RunState, Option<StopTrigger>), &'static str>);
 /// [`TARGET`] stored running.
 const STORED_RUNNING: Result<(RunState, Option<StopTrigger>), &str> = Ok((RunState::Running, None));
 
+/// [`TARGET`] stored completed.
+const ENDED: Result<(RunState, Option<StopTrigger>), &str> = Ok((RunState::Completed, None));
+
 type Lookup<'a> = BoxFuture<'a, Result<Option<AgentTreeHelper>, Box<dyn Error + Send + Sync>>>;
 
 impl AgentTreeLookup for StoredTarget {
@@ -307,6 +315,22 @@ enum Target {
     Interrupted,
     StoppedWithAll,
     StoppedAtLimit,
+}
+
+// Puts what memory holds of [`TARGET`] in place.
+fn hold_target(pauses: &mut ClaudeRunPauses, target: Target) {
+    let session_id = fixed_session_id();
+    match target {
+        Target::Running => {}
+        Target::Paused => pauses.pause_helper(&session_id, TARGET),
+        Target::Interrupted => pauses.hold_interrupted_helper(&session_id, TARGET),
+        Target::StoppedWithAll => {
+            pauses.stop_helper(session_id, TARGET, HelperStopReason::StopAll);
+        }
+        Target::StoppedAtLimit => {
+            pauses.stop_helper(session_id, TARGET, HelperStopReason::TokenLimit);
+        }
+    }
 }
 
 /// The answer a message expects: none, or the sentence it is denied with.
@@ -390,17 +414,7 @@ async fn a_message_aimed_at_a_held_or_finally_stopped_helper_is_denied(
                 held.stop_helper(session_id, CALLER, HelperStopReason::TokenLimit);
             }
         }
-        match target {
-            Target::Running => {}
-            Target::Paused => held.pause_helper(&session_id, TARGET),
-            Target::Interrupted => held.hold_interrupted_helper(&session_id, TARGET),
-            Target::StoppedWithAll => {
-                held.stop_helper(session_id, TARGET, HelperStopReason::StopAll);
-            }
-            Target::StoppedAtLimit => {
-                held.stop_helper(session_id, TARGET, HelperStopReason::TokenLimit);
-            }
-        }
+        hold_target(&mut held, target);
     }
     let agent_id = match caller {
         Caller::Lead => None,
@@ -459,14 +473,17 @@ enum WakeAnswer {
 }
 
 // Routes one message call `request_id` aimed at `to` through the helper-limit hook and, where it
-// goes to the wake check, through that check over `tree`, as the session's task does.
+// goes to the wake check, through that check over `tree`, with memory holding `target` as
+// `pauses` says, as the session's task does.
 async fn route_wake(
     one: &OneHelperAtOnce,
+    target: Target,
     tree: Option<Result<(RunState, Option<StopTrigger>), &'static str>>,
     to: Option<&str>,
     request_id: &str,
 ) -> ClaudeRequestRoute {
     let pauses = Mutex::new(ClaudeRunPauses::default());
+    hold_target(&mut lock(&pauses), target);
     let route = route_hook_call(
         RegisteredHook::HelperLimit,
         &pauses,
@@ -478,6 +495,7 @@ async fn route_wake(
     );
     let ClaudeRequestRoute::CheckHelperWake {
         request_id,
+        agent_id,
         tool_use_id,
         to,
     } = route
@@ -487,11 +505,13 @@ async fn route_wake(
     let lookup = tree.map(|stored| Arc::new(StoredTarget(stored)) as Arc<dyn AgentTreeLookup>);
     route_helper_wake(
         lookup,
+        &pauses,
         &one.limit,
         &fixed_session_id(),
         request_id,
+        agent_id.as_deref(),
         &tool_use_id,
-        to,
+        &to,
     )
     .await
 }
@@ -517,23 +537,62 @@ fn admit_start(one: &OneHelperAtOnce, request_id: &str) {
 }
 
 // With the one slot taken by a running helper, a message waking an ended helper waits like a new
-// start. Killed by the recipient unchecked (every message call held, or none), by the wake not
-// counted (an ended helper's wake passed), by a running helper's wake held, by a call with no
-// recipient or a helper the tree does not hold held, and by a failed read passing.
+// start, and one the message-target check denies wakes nothing and passes uncounted. Killed by the
+// recipient unchecked (every message call held, or none), by the wake not counted (an ended
+// helper's wake passed), by a running helper's wake held, by a call with no recipient or a helper
+// the tree does not hold held, by a failed read passing, and by counting a message to a helper
+// stopped with every other agent, in memory or stored, or to one a pause or an interrupt holds.
 #[rstest]
-#[case::completed_helper(Some(Ok((RunState::Completed, None))), Some(TARGET), WakeAnswer::Held)]
-#[case::interrupted_helper(Some(Ok((RunState::Interrupted, None))), Some(TARGET), WakeAnswer::Held)]
-#[case::running_helper(Some(STORED_RUNNING), Some(TARGET), WakeAnswer::Pass)]
+#[case::completed_helper(Target::Running, Some(ENDED), Some(TARGET), WakeAnswer::Held)]
+#[case::interrupted_helper(
+    Target::Running,
+    Some(Ok((RunState::Interrupted, None))),
+    Some(TARGET),
+    WakeAnswer::Held
+)]
+#[case::running_helper(Target::Running, Some(STORED_RUNNING), Some(TARGET), WakeAnswer::Pass)]
 #[case::helper_the_tree_does_not_hold(
-    Some(Ok((RunState::Completed, None))),
+    Target::Running,
+    Some(ENDED),
     Some("helper-unknown"),
     WakeAnswer::Pass
 )]
-#[case::no_tree_registered(None, Some(TARGET), WakeAnswer::Pass)]
-#[case::no_recipient(Some(Ok((RunState::Completed, None))), None, WakeAnswer::Pass)]
-#[case::failed_read(Some(Err(UNREAD_CAUSE)), Some(TARGET), WakeAnswer::Unread)]
+#[case::no_tree_registered(Target::Running, None, Some(TARGET), WakeAnswer::Pass)]
+#[case::no_recipient(Target::Running, Some(ENDED), None, WakeAnswer::Pass)]
+#[case::failed_read(
+    Target::Running,
+    Some(Err(UNREAD_CAUSE)),
+    Some(TARGET),
+    WakeAnswer::Unread
+)]
+#[case::interrupted_helper_held(
+    Target::Interrupted,
+    Some(Ok((RunState::Interrupted, None))),
+    Some(TARGET),
+    WakeAnswer::Pass
+)]
+#[case::paused_helper(Target::Paused, Some(ENDED), Some(TARGET), WakeAnswer::Pass)]
+#[case::helper_stopped_with_all(
+    Target::StoppedWithAll,
+    Some(ENDED),
+    Some(TARGET),
+    WakeAnswer::Pass
+)]
+#[case::stored_stop_all(
+    Target::Running,
+    Some(Ok((RunState::Stopped, Some(StopTrigger::StopAll)))),
+    Some(TARGET),
+    WakeAnswer::Pass
+)]
+#[case::stored_token_limit_stop(
+    Target::Running,
+    Some(Ok((RunState::Stopped, Some(StopTrigger::TokenLimit)))),
+    Some(TARGET),
+    WakeAnswer::Held
+)]
 #[tokio::test]
 async fn a_message_waking_an_ended_helper_counts_against_the_limit(
+    #[case] target: Target,
     #[case] tree: Option<Result<(RunState, Option<StopTrigger>), &'static str>>,
     #[case] to: Option<&str>,
     #[case] expected: WakeAnswer,
@@ -545,7 +604,7 @@ async fn a_message_waking_an_ended_helper_counts_against_the_limit(
         Vec::<String>::new()
     );
 
-    let route = route_wake(&one, tree, to, "wake-1").await;
+    let route = route_wake(&one, target, tree, to, "wake-1").await;
 
     match (expected, &route) {
         (
@@ -578,9 +637,8 @@ async fn a_held_wake_is_released_before_a_later_held_start_as_helpers_end() {
         one.start_helper("helper-1", "start-1"),
         Vec::<String>::new()
     );
-    let ended = Some(Ok((RunState::Completed, None)));
     assert!(matches!(
-        route_wake(&one, ended, Some(TARGET), "wake-1").await,
+        route_wake(&one, Target::Running, Some(ENDED), Some(TARGET), "wake-1").await,
         ClaudeRequestRoute::Held { helper: None }
     ));
     let pauses = Mutex::new(ClaudeRunPauses::default());
@@ -601,4 +659,129 @@ async fn a_held_wake_is_released_before_a_later_held_start_as_helpers_end() {
     // The woken helper's resume names the message call as its parent.
     assert_eq!(one.start_helper(TARGET, "wake-1"), Vec::<String>::new());
     assert_eq!(one.end_helper(TARGET, "wake-1"), ["start-2"]);
+}
+
+// A pre-tool callback of the hook `callback_id` for the lead's call `call_id` of `tool_name`,
+// aimed at `to` where one is named.
+fn lead_tool_callback(
+    callback_id: &str,
+    tool_name: &str,
+    call_id: &str,
+    to: Option<&str>,
+) -> Value {
+    let mut input = json!({
+        "hook_event_name": "PreToolUse",
+        "tool_name": tool_name,
+        "tool_use_id": call_id,
+    });
+    if let Some(to) = to {
+        input["tool_input"] = json!({ "to": to, "message": "go on" });
+    }
+    json!({"subtype": "hook_callback", "callback_id": callback_id, "input": input})
+}
+
+// The answers the session's process was written, by request id, in order.
+fn written_answers(session: &ScriptedSession) -> Vec<(String, Value)> {
+    session
+        .channel
+        .writes()
+        .into_iter()
+        .filter_map(|write| match write {
+            ScriptedWrite::Answer { request_id, answer } => Some((request_id, answer)),
+            ScriptedWrite::Control(_) | ScriptedWrite::User(_) | ScriptedWrite::Terminate => None,
+        })
+        .collect()
+}
+
+fn answer_value(answer: &ClaudeHookAnswer) -> Value {
+    serde_json::to_value(answer).expect("an answer serializes")
+}
+
+// Both of the daemon's pre-tool hooks answer each call: a call the pause hook denies is let
+// through by the helper limit, which counts it only until the call is answered, and one aimed at
+// a helper stopped with every other agent is never counted. One admitted call keeps one entry, and
+// none is left once its denied call is answered with no helper started. Killed by the limit
+// counting the message to the stopped helper (an entry left, the later start held for good), and
+// by an admitted call answered with no start left counted (the held start never freed).
+#[tokio::test(start_paused = true)]
+async fn a_call_the_pause_hook_denies_keeps_no_helper_slot_once_answered() {
+    let session = ScriptedSession::created_with(|session_id| CreateSessionParams {
+        subagent_policy: Some(SubagentPolicy::Enabled {
+            helpers_at_once: Some(SafeInt::new(1).expect("1 is a safe integer")),
+            definitions: Vec::new(),
+        }),
+        ..create_params(session_id)
+    })
+    .await;
+    session
+        .parts
+        .establishment
+        .task_services
+        .agent_tree_lookup
+        .register(Arc::new(StoredTarget(ENDED)) as Arc<dyn AgentTreeLookup>)
+        .expect("the agent tree registers once");
+    let session_id = session.session_id;
+    let admitted = || lock(&session.parts.establishment.helpers).admitted_start_count(&session_id);
+    let lead_run = session.hold_lead_turn("lead");
+    let pauses = &session.parts.run_controls.pauses;
+    lock(pauses).stop_helper(session_id, TARGET, HelperStopReason::StopAll);
+
+    for callback_id in ["sidekicks-pause-before-tool", "sidekicks-helper-limit"] {
+        let request_id = format!("{callback_id}/send-1");
+        let callback = lead_tool_callback(callback_id, "SendMessage", "send-1", Some(TARGET));
+        session.request(&request_id, &callback);
+    }
+    settle().await;
+    assert_eq!(admitted(), 0);
+
+    lock(pauses).pause_lead(&session_id, &lead_run);
+    for callback_id in ["sidekicks-pause-before-tool", "sidekicks-helper-limit"] {
+        let request_id = format!("{callback_id}/start-1");
+        session.request(
+            &request_id,
+            &lead_tool_callback(callback_id, "Agent", "start-1", None),
+        );
+    }
+    let held_start = lead_tool_callback("sidekicks-helper-limit", "Agent", "start-2", None);
+    session.request("sidekicks-helper-limit/start-2", &held_start);
+    settle().await;
+    assert_eq!(admitted(), 1);
+    let deny = |reason: String| answer_value(&ClaudeHookAnswer::Deny { reason });
+    let pass = answer_value(&ClaudeHookAnswer::Pass);
+    let mut expected = vec![
+        (
+            "sidekicks-pause-before-tool/send-1".to_owned(),
+            deny(HelperStopReason::StopAll.sentence()),
+        ),
+        ("sidekicks-helper-limit/send-1".to_owned(), pass.clone()),
+        (
+            "sidekicks-pause-before-tool/start-1".to_owned(),
+            deny(PAUSED_REASON.to_owned()),
+        ),
+        ("sidekicks-helper-limit/start-1".to_owned(), pass.clone()),
+    ];
+    assert_eq!(written_answers(&session), expected);
+
+    // Claude Code answers the denied call with its error, and no helper starts.
+    session.frame(&json!({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [{
+                "type": "tool_result",
+                "tool_use_id": "start-1",
+                "content": PAUSED_REASON,
+                "is_error": true,
+            }],
+        },
+    }));
+    settle().await;
+
+    expected.push(("sidekicks-helper-limit/start-2".to_owned(), pass));
+    assert_eq!(written_answers(&session), expected);
+    assert_eq!(
+        admitted(),
+        1,
+        "the freed start is the one admitted call left"
+    );
 }
