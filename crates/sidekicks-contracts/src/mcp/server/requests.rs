@@ -390,6 +390,14 @@ pub struct McpRegistryPackage {
     pub registry_type: String,
     /// The package's name there.
     pub identifier: NonEmptyText,
+    /// The package's version, where the registry names one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "String")]
+    pub version: Option<String>,
     /// The runtime that runs it, such as `npx`.
     #[serde(
         default,
@@ -399,7 +407,8 @@ pub struct McpRegistryPackage {
     #[schemars(with = "String")]
     pub runtime_hint: Option<String>,
     /// The runtime's arguments, each as the registry describes it (its kind, name, value and
-    /// whether it is required).
+    /// whether it is required); a secret argument, or a secret variable of one, carries no `value`
+    /// or `default`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -407,6 +416,15 @@ pub struct McpRegistryPackage {
     )]
     #[schemars(with = "Vec<JsonRecord>")]
     pub runtime_arguments: Option<Vec<JsonRecord>>,
+    /// The package's own arguments, each as the registry describes it; a secret argument, or a
+    /// secret variable of one, carries no `value` or `default`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Vec<JsonRecord>")]
+    pub package_arguments: Option<Vec<JsonRecord>>,
 }
 
 /// A registry server reached at an address.
@@ -416,15 +434,34 @@ pub struct McpRegistryRemote {
     /// How it is reached, as the registry names it.
     #[serde(rename = "type")]
     pub transport: String,
-    /// Its `http:` or `https:` address.
-    pub url: WebAddress,
+    /// The address as the registry writes it: an `http:` or `https:` address, or a template whose
+    /// `{name}` placeholders its `variables` fill. The form asks for each variable and checks the
+    /// filled address, which the upsert reads as a server address.
+    pub url: NonEmptyText,
+    /// The placeholders in its address the person fills.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Vec<McpRegistryInput>")]
+    pub variables: Option<Vec<McpRegistryInput>>,
+    /// The headers its requests carry, which the person fills.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Vec<McpRegistryInput>")]
+    pub headers: Option<Vec<McpRegistryInput>>,
 }
 
-/// An environment variable a registry server reads: its name, never a value.
+/// What a registry server asks the person to fill (an environment variable, a header or a
+/// placeholder in its address): its name and how to ask, never a value or a default.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct McpRegistryEnvironmentVariable {
-    /// The variable's name.
+pub struct McpRegistryInput {
+    /// The input's name.
     pub name: NonEmptyText,
     /// What it is for.
     #[serde(
@@ -436,10 +473,13 @@ pub struct McpRegistryEnvironmentVariable {
     pub description: Option<String>,
     /// Whether the server needs it.
     pub is_required: bool,
+    /// Whether it is a secret, which the form masks.
+    pub is_secret: bool,
 }
 
 /// One registry search result. Untrusted data from a public registry anyone can publish to: it
-/// fills the add form and nothing else, and it never holds an environment variable's value.
+/// fills the add form and nothing else. No environment variable, header or address input carries
+/// a value or a default, and neither does a secret argument.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct McpRegistryServer {
@@ -474,7 +514,7 @@ pub struct McpRegistryServer {
     #[schemars(with = "Vec<McpRegistryRemote>")]
     pub remotes: Option<Vec<McpRegistryRemote>>,
     /// The environment variables it reads.
-    pub environment_variables: Vec<McpRegistryEnvironmentVariable>,
+    pub environment_variables: Vec<McpRegistryInput>,
 }
 
 /// One page of registry search results.
