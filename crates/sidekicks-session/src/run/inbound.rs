@@ -1,13 +1,14 @@
 //! The run engine's inbound dispatch: where each provider delivery is attributed to its execution
-//! before anything is written. A lifecycle event, child run, marker, live state, unstamped row or
-//! permission ask from the execution before an undo's cut is absorbed there; one for a run already
-//! ended is absorbed by the refusal of its own write, with a diagnostic unless it is the provider's
-//! end of a turn the daemon interrupted or belongs to a helper refused at its setup, and so is a
-//! piece of a reply or of reasoning once no turn of its ended run is open; any other row is
-//! appended, stamped with its source pair when it is late, a reasoning update among them with its
-//! body. A session notice or session row belongs to no execution and is appended as it is, and so
-//! is a run's row that lands after its run, unstamped, whatever its binding's cursor holds, unless
-//! the log shows its tool call opened in a turn an undo superseded: then it is absorbed.
+//! before anything is written. A lifecycle event, child run, parent correction, marker, live state,
+//! unstamped row or permission ask from the execution before an undo's cut is absorbed there; one
+//! for a run already ended, a parent correction aside, which lands on an ended run, is absorbed by
+//! the refusal of its own write, with a diagnostic unless it is the provider's end of a turn the
+//! daemon interrupted or belongs to a helper refused at its setup, and so is a piece of a reply or
+//! of reasoning once no turn of its ended run is open; any other row is appended, stamped with its
+//! source pair when it is late, a reasoning update among them with its body. A session notice or
+//! session row belongs to no execution and is appended as it is, and so is a run's row that lands
+//! after its run, unstamped, whatever its binding's cursor holds, unless the log shows its tool
+//! call opened in a turn an undo superseded: then it is absorbed.
 
 mod absorb;
 mod run_work;
@@ -504,6 +505,17 @@ impl RunInboundDispatch {
                 Absorbable::Run(RunWork::ChildRun {
                     parent_run_id,
                     subagent,
+                }),
+            ),
+            InboundDelivery::ChildRunParentCorrected {
+                binding,
+                child_run_id,
+                parent_run_id,
+            } => (
+                binding,
+                Absorbable::Run(RunWork::ParentCorrected {
+                    child_run_id,
+                    parent_run_id,
                 }),
             ),
             InboundDelivery::RunMarker { binding, marker } => {

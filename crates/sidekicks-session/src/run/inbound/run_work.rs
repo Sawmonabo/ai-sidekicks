@@ -1,5 +1,6 @@
 //! The engine call a delivery on a binding makes once the inbound dispatch has attributed it: a
-//! run's move, a continue, a child run's start or a marker, each absorbed when its run has ended.
+//! run's move, a continue, a child run's start or a marker, each absorbed when its run has ended,
+//! or a child run's parent correction, which lands on an ended run too.
 
 use std::error::Error;
 
@@ -33,6 +34,10 @@ pub(super) enum RunWork {
         parent_run_id: RunId,
         subagent: ChildRunSubagent,
     },
+    ParentCorrected {
+        child_run_id: RunId,
+        parent_run_id: RunId,
+    },
     Marker {
         marker: RunMarker,
     },
@@ -46,6 +51,9 @@ impl RunWork {
             }
             Self::Continued { run_id } => ("runContinued", *run_id, None),
             Self::ChildRun { parent_run_id, .. } => ("childRun", *parent_run_id, None),
+            Self::ParentCorrected { child_run_id, .. } => {
+                ("childRunParentCorrected", *child_run_id, None)
+            }
             Self::Marker { marker } => ("runMarker", marker.run_id(), None),
         };
         AbsorbedDelivery {
@@ -57,7 +65,8 @@ impl RunWork {
 }
 
 impl RunInboundDispatch {
-    // Makes a delivery's engine call; a run that has ended absorbs it.
+    // Makes a delivery's engine call; a run that has ended absorbs it, but for a parent correction,
+    // which moves an ended run too.
     pub(super) async fn run(
         &self,
         binding: &EpochBinding,
@@ -136,6 +145,15 @@ impl RunInboundDispatch {
                     None => run_ended().await?,
                 }
             }
+            RunWork::ParentCorrected {
+                child_run_id,
+                parent_run_id,
+            } => InboundOutcome::Appended {
+                event_id: self
+                    .engine
+                    .correct_parent_run(child_run_id, parent_run_id)
+                    .await?,
+            },
             RunWork::Marker { marker } => match self.engine.append_run_marker(marker).await? {
                 Some(event_id) => InboundOutcome::Appended { event_id },
                 None => run_ended().await?,

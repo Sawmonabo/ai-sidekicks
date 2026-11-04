@@ -21,10 +21,6 @@ use crate::run::projection::{CORRECT_PARENT_RUN_SQL, correct_parent_run_statemen
 // The correction's column write, matching only a child run never corrected before whose new parent
 // is a run of its session and neither the run itself nor a run below it. The walk up from the new
 // parent is bounded by the session's runs, each inserted with its parent already present.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the provider's delivery of a corrected parent")
-)]
 static GUARDED_CORRECT_PARENT_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     let parent_corrected = SessionEventType::AgentRunParentCorrected.as_str();
     format!(
@@ -51,10 +47,6 @@ impl RunEngine {
     /// daemon has no row for, and with [`RunEngineError::Append`], nothing written, when the run
     /// is no child, was corrected before, or the new parent is no run of its session, is the run
     /// itself or is below it.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the provider's delivery of a corrected parent")
-    )]
     pub(crate) async fn correct_parent_run(
         &self,
         run_id: RunId,
