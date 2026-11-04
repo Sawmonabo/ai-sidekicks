@@ -2,6 +2,8 @@
 //! every lead run of the session, at every depth, in dispatch order, each with what its stop
 //! needs.
 
+pub mod stops;
+
 use std::collections::{HashMap, VecDeque};
 
 use rusqlite::Connection;
@@ -17,6 +19,8 @@ use sidekicks_contracts::wire::instant::WireInstant;
 
 use crate::agent_tree::read::{AgentTreeReadError, SessionTree, StoredRun, dispatch_order};
 use crate::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError, RunAgentReader};
+
+pub use self::stops::{AgentTreeSweep, AgentTreeSweepError};
 
 /// The statements [`read_descendants`] prepares on a read connection: the session's runs, its
 /// nodes and its helper starts, then the run agent reader's.
