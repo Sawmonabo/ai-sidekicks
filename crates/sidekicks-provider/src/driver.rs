@@ -53,6 +53,7 @@ use crate::spawn_environment::ReservedEnvironmentNames;
 use crate::tool_server_name::McpServerNameRule;
 
 pub mod attachments;
+pub mod binding_switch;
 pub mod callback_tool;
 pub mod capabilities;
 pub mod child_records;
