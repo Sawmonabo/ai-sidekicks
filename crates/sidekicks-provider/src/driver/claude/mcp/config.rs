@@ -8,6 +8,7 @@
 
 mod entry;
 mod lock;
+mod observe;
 mod plugin_manifest;
 mod policy;
 
