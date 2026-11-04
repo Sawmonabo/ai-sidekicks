@@ -197,7 +197,7 @@ impl HeldRequestRepricing {
     async fn start_pass(&self) {
         let keys = self
             .reads
-            .read(ReadLength::Short, |connection| -> Result<_, BoxedError> {
+            .read(ReadLength::Long, |connection| -> Result<_, BoxedError> {
                 Ok(read_unpriced_keys(connection)?)
             })
             .await;

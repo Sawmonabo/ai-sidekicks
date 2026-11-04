@@ -359,7 +359,8 @@ impl Bench {
             .collect()
     }
 
-    // Starts the list's fetch task with `copy` scripted and waits for the copy it takes.
+    // Starts the list's fetch task with `copy` scripted and waits for the copy it takes. On the
+    // test's one thread the task arms its next fetch before it yields, so the arm is read after.
     async fn take_copy(&self, copy: &'static [u8], stop: &CancellationToken) {
         let mut table_watch = self.price_list.subscribe();
         self.server
