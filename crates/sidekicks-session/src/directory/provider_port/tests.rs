@@ -11,22 +11,26 @@ use rstest::rstest;
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
 use sidekicks_contracts::machine::settings::MachineSettings;
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpServerStatus};
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceState};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
+use sidekicks_ipc::stream::feed::{CreditGate, Feed};
 use sidekicks_mcp::binding::resolver::McpAttributionTable;
 use sidekicks_mcp::status::open_test_tracker;
 use sidekicks_platforms::Spawner;
-use sidekicks_provider::driver::SessionSpawnContextResolver;
+use sidekicks_provider::driver::mcp_server::status::{McpServerReading, McpServerStatusEmission};
 use sidekicks_provider::driver::ports::SessionRelaunchListener;
-use sidekicks_provider::driver::session_control::DriverResumeResult;
+use sidekicks_provider::driver::session_control::{DriverResumeResult, SessionToolServer};
+use sidekicks_provider::driver::{PROVIDERS, SessionSpawnContextResolver};
 use sidekicks_provider::left_conversations::read_left_conversations;
 use sidekicks_provider::runtime_binding::store::{
-    CreateRuntimeBindingInput, mint_runtime_binding_id,
+    CreateRuntimeBindingInput, RuntimeBindingSpawnConfig, mint_runtime_binding_id,
 };
 use sidekicks_provider::runtime_binding::test_store::{
     binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
@@ -74,19 +78,23 @@ impl MachineSettingsReader for Unread {
     }
 }
 
-// A port over a session whose leg runs on `conversation-1`.
-struct PortOverLeg {
+// A port over a session whose leg runs on `conversation-1`, with the tracker's stream of the
+// bindings it first observes.
+struct PortOverLeg<FirstObservations> {
     port: SessionDirectoryProviderPort,
     pool: Arc<DatabaseReadPool>,
     epochs: Arc<Mutex<ExecutionEpochs>>,
     leg_id: RuntimeBindingId,
+    first_observations: FirstObservations,
 }
 
+// A port over a session whose leg was stored with `spawn_config`.
 async fn port_over_a_leg(
     database: &TestDatabase,
     session_id: SessionId,
     git: GitRunner,
-) -> PortOverLeg {
+    spawn_config: RuntimeBindingSpawnConfig,
+) -> PortOverLeg<impl Feed<Emission = McpServerBindingRef>> {
     let store = open_store(database).await;
     let run_id = test_run_id();
     insert_running_run(database, session_id, run_id);
@@ -107,10 +115,7 @@ async fn port_over_a_leg(
     ));
     let leg = CreateRuntimeBindingInput {
         run_id,
-        ..binding_input(
-            spawn_config_on(test_provider_account_id()),
-            spawned_build("1.0.0", "/opt/provider/bin"),
-        )
+        ..binding_input(spawn_config, spawned_build("1.0.0", "/opt/provider/bin"))
     };
     let leg_id = leg.id.clone();
     binding_cursors
@@ -118,7 +123,7 @@ async fn port_over_a_leg(
         .await
         .expect("the leg is recorded");
     // The session is in no project, so its relaunch's leg attributes at no root.
-    let (mcp_status, _subscriber, _first_observations) = open_test_tracker().await;
+    let (mcp_status, _subscriber, first_observations) = open_test_tracker().await;
     let port = SessionDirectoryProviderPort::new(SessionDirectoryProviderPortDeps {
         pool: Arc::clone(&pool),
         read_damaged_from_sequence: Arc::new(|_: &SessionId| None),
@@ -135,6 +140,7 @@ async fn port_over_a_leg(
         pool,
         epochs,
         leg_id,
+        first_observations,
     }
 }
 
@@ -165,7 +171,13 @@ async fn a_relaunch_records_its_binding_and_the_conversation_it_left(
     let session_id = test_session_id();
     let PortOverLeg {
         port, pool, epochs, ..
-    } = port_over_a_leg(&database, session_id, test_git_runner()).await;
+    } = port_over_a_leg(
+        &database,
+        session_id,
+        test_git_runner(),
+        spawn_config_on(test_provider_account_id()),
+    )
+    .await;
     let binding_id = mint_runtime_binding_id();
 
     port.open_relaunch_binding(session_id, binding_id.clone())
@@ -211,7 +223,14 @@ async fn a_relaunch_that_records_nothing_forgets_its_opened_cursor(#[case] is_an
         pool,
         epochs,
         leg_id,
-    } = port_over_a_leg(&database, session_id, test_git_runner()).await;
+        ..
+    } = port_over_a_leg(
+        &database,
+        session_id,
+        test_git_runner(),
+        spawn_config_on(test_provider_account_id()),
+    )
+    .await;
     let opened_id = mint_runtime_binding_id();
 
     port.open_relaunch_binding(session_id, opened_id.clone())
@@ -252,6 +271,59 @@ async fn a_relaunch_that_records_nothing_forgets_its_opened_cursor(#[case] is_an
     );
 }
 
+// A relaunch that keeps the leg's binding attributes `github`, reported over an empty table, to
+// the binding the leg's stored set sent under that name, which the tracker then hands on as first
+// observed. Killed by a relaunch composing no set (the report is held, nothing is handed on).
+#[tokio::test]
+async fn a_relaunch_resolves_the_set_its_binding_stored() {
+    let database = TestDatabase::new(schema_parts());
+    let session_id = test_session_id();
+    let server_name = McpServerName::new("github".to_owned()).expect("a server name");
+    let user_github = McpServerBindingRef::User {
+        provider: ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id is a provider id"),
+        server_name: server_name.clone(),
+    };
+    let PortOverLeg {
+        port,
+        mut first_observations,
+        ..
+    } = port_over_a_leg(
+        &database,
+        session_id,
+        test_git_runner(),
+        RuntimeBindingSpawnConfig {
+            tool_servers: Some(vec![SessionToolServer {
+                binding: user_github.clone(),
+                is_enabled: true,
+            }]),
+            ..spawn_config_on(test_provider_account_id())
+        },
+    )
+    .await;
+
+    let producer = port
+        .compose_relaunch_legs(session_id, mint_runtime_binding_id())
+        .await
+        .expect("the relaunch's legs compose")
+        .on_mcp_server_status
+        .expect("a session with a leg has a producer");
+    producer.report_status(McpServerStatusEmission::new(
+        server_name,
+        McpServerReading::Observed(McpServerStatus::Connected),
+        None,
+        None,
+    ));
+
+    let first_observed = first_observations
+        .next(&CreditGate::with_credit(1))
+        .now_or_never();
+    assert!(
+        matches!(&first_observed, Some(Ok(Some(binding))) if *binding == user_github),
+        "{first_observed:?}"
+    );
+    drop(producer);
+}
+
 // The run folder is the session's newest live workspace's prepared root, else the folder it
 // was bound to, else the checkout holding it, an archived workspace passed over. Killed by a
 // `COALESCE` arm dropped and by the archived filter dropped.
@@ -271,7 +343,13 @@ async fn the_run_folder_reads_the_newest_live_workspace(
 ) {
     let database = TestDatabase::new(schema_parts());
     let session_id = test_session_id();
-    let PortOverLeg { port, .. } = port_over_a_leg(&database, session_id, test_git_runner()).await;
+    let PortOverLeg { port, .. } = port_over_a_leg(
+        &database,
+        session_id,
+        test_git_runner(),
+        spawn_config_on(test_provider_account_id()),
+    )
+    .await;
     let connection = database.reader();
     store_session_and_mount(&connection, session_id);
     insert_workspace(
@@ -327,7 +405,13 @@ async fn a_git_folder_that_is_gone_or_not_named_is_unavailable(
             GitLimits::DAEMON,
         )
     };
-    let PortOverLeg { port, .. } = port_over_a_leg(&database, session_id, git).await;
+    let PortOverLeg { port, .. } = port_over_a_leg(
+        &database,
+        session_id,
+        git,
+        spawn_config_on(test_provider_account_id()),
+    )
+    .await;
     let connection = database.reader();
     store_session_and_mount(&connection, session_id);
     let folder = tempfile::tempdir().expect("the test makes a folder");
