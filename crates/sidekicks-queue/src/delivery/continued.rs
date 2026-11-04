@@ -8,9 +8,9 @@
 //! not delivered in the run's own write, or alone where the run is left as it is. An item an
 //! undo's release reserved as the run's opening goes first. A paused run continued in a session no
 //! process of this daemon holds since its restart has the session opened first, as its first
-//! admission would. A paused helper continued under a lead the restart still holds keeps its
-//! messages for the lead's continue, which carries them as the helper's words and has them
-//! delivered with the helper once the provider took it.
+//! admission would. A paused run continued while the restart still holds its session's lead, a
+//! helper beneath it or the lead itself, keeps its messages for the lead's continue, which carries
+//! them as that run's words and has them delivered with it once the provider took it.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -33,7 +33,7 @@ use sidekicks_std::keyed_lock::KeyHold;
 use crate::delivery::run_end::not_delivered_ends;
 use crate::delivery::state::{HandRoute, is_kept_by_process};
 use crate::delivery::{DeliveryError, QueueDelivery, reordered_of};
-use crate::provider_session::held_run_continue::{KeptHelperMessages, KeptHelperWords};
+use crate::provider_session::held_run_continue::{KeptMessages, KeptWords};
 use crate::recorder::QueueRecordError;
 
 impl QueueDelivery {
@@ -136,12 +136,12 @@ impl QueueDelivery {
 
     /// The words the messages continues kept in `session_id` make, by the run each was kept for,
     /// with their ids: each message's words then a line naming each file's path, the messages in
-    /// the queue's order joined by a blank line, as a helper's continue composes them. Fails as a
-    /// read or the files' lookup fails.
-    pub(crate) async fn kept_helper_words(
+    /// the queue's order joined by a blank line, as a held lead's continue carries them. Fails as
+    /// a read or the files' lookup fails.
+    pub(crate) async fn kept_words(
         &self,
         session_id: SessionId,
-    ) -> Result<HashMap<RunId, KeptHelperWords>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<HashMap<RunId, KeptWords>, Box<dyn Error + Send + Sync>> {
         let kept: Vec<(QueueItemId, RunId)> = self
             .lock_state()
             .hands()
@@ -176,7 +176,7 @@ impl QueueDelivery {
             }
             words.insert(
                 run_id,
-                KeptHelperWords {
+                KeptWords {
                     message_ids: items.iter().map(|item| item.id).collect(),
                     words: texts.join("\n\n"),
                 },
@@ -187,9 +187,9 @@ impl QueueDelivery {
 
     /// Admits into `run_id` each of `taken` still waiting, the provider's own record of the run's
     /// conversation holding it after the daemon's restart, or a held lead's continue carrying it as
-    /// a continued helper's words, so no hand sends it again; one no longer waiting is left as it
+    /// a continued run's words, so no hand sends it again; one no longer waiting is left as it
     /// stands. Called by a resume's ingress for each lead run the resume named, and by a relaunch
-    /// for each helper whose words its continue carried, before the resumed binding is recorded,
+    /// for each run whose words its continue carried, before the resumed binding is recorded,
     /// under the session's transition lock alone. Fails at the first read or record that fails,
     /// the admissions before it kept.
     pub async fn admit_taken_after_restart(
@@ -238,6 +238,16 @@ impl QueueDelivery {
         Ok(())
     }
 
+    /// Whether a provider process of this daemon holds `session_id` now. A continue that failed
+    /// leaves a lead such a process holds as the process has it.
+    pub(crate) fn has_live_process(&self, session_id: SessionId) -> bool {
+        self.shared
+            .deps
+            .processes
+            .process_identity(&session_id)
+            .is_some()
+    }
+
     /// Forgets the hand of each of `items` and raises their queues, once a write that moved them
     /// out of `queued` committed: a resumed run's own write or
     /// [`QueueDelivery::fail_unread_after_restart`]'s.
@@ -279,7 +289,7 @@ impl QueueDelivery {
     }
 }
 
-impl KeptHelperMessages for QueueDelivery {
+impl KeptMessages for QueueDelivery {
     fn deliver_carried(
         &self,
         run_id: RunId,
