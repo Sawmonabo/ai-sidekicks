@@ -159,7 +159,6 @@ mod tests {
     #[tokio::test]
     async fn a_goal_set_while_a_turn_runs_goes_out_at_once() {
         let mut session = TestCodexSession::start().await;
-        let binding_id = session.record_binding().await;
         let run_id = new_run_id();
         session
             .task
@@ -172,8 +171,6 @@ mod tests {
         );
         let set = goals.set(SetSessionGoalParams {
             session_id: session.task.record.session_id,
-            binding_id,
-            run_id,
             goal_text: "ship the checkout fix".to_owned(),
         });
         let task = &mut session.task;
