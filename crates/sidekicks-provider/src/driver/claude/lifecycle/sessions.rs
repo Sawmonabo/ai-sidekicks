@@ -191,8 +191,9 @@ impl ClaudeDriver {
     // Finishes `close` once its slot is the close's or empty: the process's channel closed, by
     // `deadline` where one is given, its routes retired and, unless the daemon stops, each run it
     // held ended as the daemon's intended close; then its held calls settled at rest, its inbox
-    // released and its command channel removed. A channel still open at the deadline leaves its
-    // process quarantined.
+    // released and its command channel removed, by `deadline` too. A channel still open at the
+    // deadline leaves its process quarantined, and a folder still being removed is left to the
+    // next start's sweep.
     async fn finish_session_close(
         &self,
         parts: &ClaudeSessionParts,
@@ -264,7 +265,21 @@ impl ClaudeDriver {
             .task_services
             .inboxes
             .release(session_id);
-        self.close_command_channel(session_id).await;
+        match deadline {
+            Some(deadline) => {
+                if timeout_at(deadline, self.close_command_channel(session_id))
+                    .await
+                    .is_err()
+                {
+                    tracing::warn!(
+                        %session_id,
+                        "a Claude Code session's command channel was not removed by the stop's \
+                         deadline, so the next start removes its folder"
+                    );
+                }
+            }
+            None => self.close_command_channel(session_id).await,
+        }
     }
 
     // Removes the session's command channel once no process of it runs; a removal that fails is
@@ -282,13 +297,13 @@ impl ClaudeDriver {
     /// Ends every Claude Code process as the daemon stops, each wait by `deadline`: no restart
     /// starts from here, every session's slot reads closing before any process ends, a slot a
     /// transition holds is waited out, under `Stop` each tool server's background task still
-    /// running is told to stop, every process is stopped, and then each close finishes with its
-    /// runs left for the stop's own settle. A slot still held by a transition at the deadline is
-    /// left to the process stop. Each process is the daemon's own child, so a restart of the
-    /// daemon stops them as a stop does.
+    /// running is told to stop, every process is stopped and one still running at `deadline`
+    /// killed, and then each close finishes with its runs left for the stop's own settle. A slot
+    /// still held by a transition at the deadline is left to the process stop. Each process is the
+    /// daemon's own child, so a restart of the daemon stops them as a stop does.
     pub(crate) async fn shutdown(&self, intent: DaemonStopIntent, deadline: Instant) {
         let Some(parts) = self.composed_parts() else {
-            self.starts.stop_every_process().await;
+            self.starts.stop_every_process(deadline).await;
             return;
         };
         parts.restarts.stop();
@@ -328,17 +343,23 @@ impl ClaudeDriver {
             .filter_map(|(close, waiting)| waiting.is_none().then_some(close))
             .collect();
         if intent == DaemonStopIntent::Stop {
-            join_all(closes.iter().filter_map(|close| {
+            // Bounded whole, so the read of what Claude Code kept before each stop is too.
+            let surviving_stops = join_all(closes.iter().filter_map(|close| {
                 let slot = close.slot.as_ref()?;
                 Some(stop_surviving_tasks(
                     parts,
                     slot.session(),
                     deadline.saturating_duration_since(Instant::now()),
                 ))
-            }))
-            .await;
+            }));
+            if timeout_at(deadline, surviving_stops).await.is_err() {
+                tracing::warn!(
+                    "the surviving background tasks of the closing Claude Code sessions were not \
+                     all told to stop by the stop's deadline"
+                );
+            }
         }
-        self.starts.stop_every_process().await;
+        self.starts.stop_every_process(deadline).await;
         join_all(
             closes
                 .into_iter()

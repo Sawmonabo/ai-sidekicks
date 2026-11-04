@@ -77,6 +77,7 @@ pub(crate) struct ScriptedChannel {
     user_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
     user_failures: Mutex<VecDeque<ClaudeWriteDelivery>>,
     close_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
+    processes_stopped_at: Mutex<Option<usize>>,
     listener: Mutex<Option<Arc<dyn ClaudeProcessListener>>>,
     // Wakes a wait for a write on each one recorded.
     written: Notify,
@@ -154,6 +155,24 @@ impl ScriptedChannel {
     /// Everything written so far, in order.
     pub(crate) fn writes(&self) -> Vec<ScriptedWrite> {
         lock(&self.writes).clone()
+    }
+
+    /// Where the stop of every process reached this one: the count of writes before it, `None`
+    /// before that stop.
+    pub(crate) fn processes_stopped_at(&self) -> Option<usize> {
+        *lock(&self.processes_stopped_at)
+    }
+
+    /// Marks the stop of every process at the writes recorded so far; a later stop changes
+    /// nothing.
+    pub(super) fn mark_processes_stopped(&self) {
+        let written = lock(&self.writes).len();
+        let mut stopped_at = lock(&self.processes_stopped_at);
+        if stopped_at.is_none() {
+            *stopped_at = Some(written);
+        }
+        drop(stopped_at);
+        self.written.notify_waiters();
     }
 
     /// The control requests written so far, in order.
