@@ -1,12 +1,14 @@
 //! A run's start waits for its session's process to settle before its binding is opened: within
-//! the delivery timeout, and on the leg the process settled on; and a send on a provider no driver
+//! the delivery timeout, and on the leg the process settled on; a send on a provider no driver
 //! answers starts nothing and posts the session's `providerMissing` notice, unless the session is
-//! closed.
+//! closed; and a turn the daemon starts on a session not yet opened opens its process for its own
+//! run, admitted on the session's bound account.
 
 use std::sync::Arc;
 
 use rusqlite::params;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
@@ -14,6 +16,7 @@ use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::controls::events::SessionNotice;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::run_control::DaemonTurnBindingResolver as _;
 use sidekicks_provider::runtime_binding::store::{RuntimeBindingRelaunch, RuntimeBindingStore};
 use sidekicks_provider::runtime_binding::test_store::spawned_build;
 use sidekicks_session::queue_store::RecordedQueueItemState;
@@ -252,4 +255,69 @@ async fn a_send_to_a_closed_session_on_a_missing_provider_posts_no_notice() {
         Vec::new()
     );
     assert_eq!(calls.starts(), Vec::new());
+}
+
+// A turn the daemon starts on a session this daemon never opened creates the session's process for
+// that turn's run, and the run's binding is the one the create recorded. Killed by binding the
+// turn without opening the session first, which refuses a session not yet opened.
+#[tokio::test]
+async fn a_daemon_turn_on_a_session_not_yet_opened_creates_its_process() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let run_id = fixture.insert_run("queued").await;
+
+    let binding = timeout(
+        WAIT,
+        fixture
+            .queue
+            .admission()
+            .open_daemon_turn_binding(run_id, fixture.session_id),
+    )
+    .await
+    .expect("the binding opens in time")
+    .expect("the session opens for the turn");
+
+    assert!(
+        fixture
+            .queue
+            .provider_sessions
+            .is_opened(fixture.session_id)
+    );
+    assert_eq!(binding.binding_id, fixture.run_binding_id(run_id));
+}
+
+// A turn the daemon starts on a session with no process is admitted against the account the
+// session is bound to, at the posture its process opens at on that account. Killed by admitting it
+// against the provider's current account instead.
+#[tokio::test]
+async fn a_daemon_turn_is_admitted_on_the_sessions_bound_account() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let bound = ProviderAccountId::new("account-bound".to_owned()).expect("a test account id");
+    fixture
+        .database
+        .reader()
+        .execute(
+            "UPDATE session_events
+                SET payload = json_set(payload, '$.mainAgent.binding.providerAccountId', ?1)
+              WHERE type = 'session.created'",
+            [bound.as_str()],
+        )
+        .expect("the lead is bound to an account other than the current one");
+
+    let admission = fixture
+        .queue
+        .admission()
+        .admit_daemon_turn(fixture.session_id)
+        .await
+        .expect("the turn is admitted");
+
+    let posture = fixture
+        .queue
+        .provider_sessions
+        .read_execution_posture(fixture.session_id, bound.clone())
+        .await
+        .expect("the posture reads");
+    assert_eq!(admission.admitted_provider_account_id, bound);
+    assert_eq!(admission.execution_posture, posture);
 }
