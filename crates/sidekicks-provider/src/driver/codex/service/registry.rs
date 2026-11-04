@@ -546,7 +546,9 @@ impl CodexServiceRegistry {
         match intent {
             DaemonStopIntent::Stop => {
                 let data_folder = self.dependencies.data_folder.clone();
-                for failure in stop_kept_services(data_folder, KeptServicesStop::DaemonStop).await {
+                for failure in
+                    stop_kept_services(data_folder, KeptServicesStop::DaemonStop { deadline }).await
+                {
                     report_kept_service_unstopped(&failure);
                 }
             }

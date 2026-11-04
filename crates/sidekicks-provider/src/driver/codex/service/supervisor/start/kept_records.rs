@@ -14,6 +14,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::future::join_all;
 use sidekicks_platforms::{CAN_LINK_A_SOCKET, ProcessRecord, read_socket_link};
@@ -31,7 +32,7 @@ use crate::driver::codex::service::socket_link::{
 };
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::drain::{LastingServiceDrainWatch, read_drain_end};
-use crate::driver::codex::service::supervisor::runner::SERVICE_STOP_GRACE;
+use crate::driver::codex::service::supervisor::runner::{SERVICE_STOP_GRACE, run_until};
 use crate::driver::codex::service::supervisor::start::{
     StartFailure, start_failed, take_start_lock,
 };
@@ -213,19 +214,20 @@ pub(super) async fn retire_kept_record(
     let Some(record) = read_record(locked).await? else {
         return Ok(());
     };
-    end_recorded_service(locked, record, control_socket, false)
+    end_recorded_service(locked, record, control_socket, SERVICE_STOP_GRACE, false)
         .await
         .reported()
 }
 
-// The one end of the service `record`, held under `locked`, names: stopped over `control_socket`
-// where it still runs, or what it left ended where it is gone, the home's link taken off its
-// socket once it is, and the record removed either way;
+// The one end of the service `record`, held under `locked`, names: stopped within `grace` over
+// `control_socket` where it still runs, or what it left ended where it is gone, the home's link
+// taken off its socket once it is, and the record removed either way;
 // one draining is left to its drain, which removes its record, unless `ends_draining`.
 async fn end_recorded_service(
     locked: &Arc<LockedServiceRecord>,
     record: LastingServiceRecord,
     control_socket: &Path,
+    grace: Duration,
     ends_draining: bool,
 ) -> KeptRecordEnd {
     let lasting = match repin(record.process.clone()).await {
@@ -236,7 +238,7 @@ async fn end_recorded_service(
     if record.is_draining && !ends_draining {
         return KeptRecordEnd::settled_only(Ok(()));
     }
-    let unended = match lasting.stop(SERVICE_STOP_GRACE, control_socket).await {
+    let unended = match lasting.stop(grace, control_socket).await {
         Ok(_) => clear_home_link(&record).await.into_iter().collect(),
         Err(error) => {
             vec![start_failed("A former Codex service could not be stopped.", error).error]
@@ -321,9 +323,14 @@ pub(crate) async fn read_running_kept_service(
 /// Which stop ends the lasting services the records under the data folder still keep.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum KeptServicesStop {
-    /// The daemon's own stop: one draining is left to its drain, its record kept for the next
-    /// start, and a service that cannot be stopped is logged, its record removed.
-    DaemonStop,
+    /// The daemon's own stop, which ends by `deadline`: each service's grace is what is left of
+    /// it, one draining is left to its drain, its record kept for the next start, a service that
+    /// cannot be stopped is logged, its record removed, and a record whose stop the deadline cut
+    /// is kept for the next start's retire.
+    DaemonStop {
+        /// When the daemon's stop runs out.
+        deadline: Instant,
+    },
     /// The erase of the daemon's data, which deletes every record: every service a record names
     /// is ended, a draining one too, and every failure is answered.
     Erase,
@@ -334,13 +341,36 @@ pub(crate) enum KeptServicesStop {
 /// erase, with no daemon running. One a former daemon kept is stopped and its record removed,
 /// what an ended one left is ended, and one draining is left to its drain under
 /// [`KeptServicesStop::DaemonStop`] and stopped under [`KeptServicesStop::Erase`]. All are stopped
-/// together, so the stop takes one grace whatever the count. Answers every failure of the
+/// together, so the stop takes one grace whatever the count. Under the daemon's stop the whole
+/// stop ends by its deadline, one failure answered for what was still running there, and every
+/// record not yet removed stays for the next start's retire. Answers every failure of the
 /// listing, a folder's lock or listing, and a record's read, re-pin or removal, and under the
 /// erase every stop's and every end's too; empty when nothing failed.
 pub(crate) async fn stop_kept_services(
     data_folder: PathBuf,
     stop: KeptServicesStop,
 ) -> Vec<CodexError> {
+    let deadline = match stop {
+        KeptServicesStop::DaemonStop { deadline } => Some(deadline),
+        KeptServicesStop::Erase => None,
+    };
+    run_until(deadline, stop_every_kept_service(data_folder, stop))
+        .await
+        .unwrap_or_else(|cut| {
+            vec![
+                start_failed(
+                    "The Codex services kept in records were still stopping when the daemon's \
+                     stop ran out.",
+                    io::Error::new(io::ErrorKind::TimedOut, cut),
+                )
+                .error,
+            ]
+        })
+}
+
+// Stops every lasting service a record under `data_folder` still keeps, all folders together, as
+// `stop_kept_services` does, with no bound of its own.
+async fn stop_every_kept_service(data_folder: PathBuf, stop: KeptServicesStop) -> Vec<CodexError> {
     let listed = tokio::task::spawn_blocking(move || one_recorded_file_per_folder(&data_folder))
         .await
         .map_err(io::Error::other)
@@ -410,15 +440,22 @@ async fn stop_kept_record(
     // A service that never answered names no socket, so where no signal stops a process its stop
     // goes straight to the forced end.
     let control_socket = record.physical_socket.clone().unwrap_or_default();
+    let grace = match stop {
+        KeptServicesStop::DaemonStop { deadline } => {
+            deadline.saturating_duration_since(Instant::now())
+        }
+        KeptServicesStop::Erase => SERVICE_STOP_GRACE,
+    };
     let ended = end_recorded_service(
         locked,
         record,
         &control_socket,
-        stop == KeptServicesStop::Erase,
+        grace,
+        matches!(stop, KeptServicesStop::Erase),
     )
     .await;
     match stop {
-        KeptServicesStop::DaemonStop => ended
+        KeptServicesStop::DaemonStop { .. } => ended
             .reported()
             .err()
             .map(|failure| failure.error)
