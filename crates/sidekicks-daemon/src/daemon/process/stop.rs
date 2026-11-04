@@ -1,7 +1,9 @@
 //! The daemon's stop in its two steps, which the erase also runs one by one: the work ends within
 //! the drain bound, then everything that holds a file in the data folder closes. Each step takes
-//! the parts it closes, so a step run again skips what is already closed. The process waits here
-//! for the first stop asked for, running the erase's steps as they come on the task that owns it.
+//! the parts it closes, so a step run again skips what is already closed. The stop records each
+//! step it waits on in the status file, and ends that record before it lets the data folder's lock
+//! go. The process waits here for the first stop asked for, running the erase's steps as they come
+//! on the task that owns it.
 
 use std::error::Error;
 use std::io;
@@ -11,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use futures::FutureExt as _;
 use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_TERMINAL_DRAIN_MS;
+use sidekicks_contracts::daemon::service_status::DaemonStopStep;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_recovery::restart_settle::RestartSettleError;
@@ -216,7 +219,8 @@ pub(crate) enum CrashMonitorEndFailure {
 }
 
 /// Ends the daemon's work, `bound` counted from this call: the person's Stop first writes its
-/// intent whole, the one wait `bound` does not cut; then the stop token, so the work under way
+/// intent whole; that write and the stop's record of each step it waits on, which a cut write could
+/// land after the stop's end record, are the waits `bound` does not cut; then the stop token, so the work under way
 /// ends; then, within what is left of `bound`, the socket, so no new call comes, the mutating
 /// calls under way, the machine keys'
 /// background read, the capability refresh, the providers' registration, the tool servers' client,
@@ -254,10 +258,14 @@ pub(crate) async fn stop_work(
     process.work_stop.cancel();
     let remaining = || bound.saturating_sub(started.elapsed());
     // Its listener closed at the cancel, so no call comes past a cut wait.
-    if let Some(gateway) = process.gateway.take()
-        && let Err(failure) = wait_within(remaining(), "socket", gateway.stop()).await
-    {
-        failures.push(failure);
+    if let Some(gateway) = process.gateway.take() {
+        process
+            .stop_record
+            .write_step(DaemonStopStep::Gateway)
+            .await;
+        if let Err(failure) = wait_within(remaining(), "socket", gateway.stop()).await {
+            failures.push(failure);
+        }
     }
     if let Some(in_flight) = process.in_flight.take() {
         let running = in_flight.wait_for_pending_within(None, remaining()).await;
@@ -286,6 +294,10 @@ pub(crate) async fn stop_work(
     }
     let drivers = match process.providers.take() {
         Some(providers) => {
+            process
+                .stop_record
+                .write_step(DaemonStopStep::CapabilityRefresh)
+                .await;
             match wait_within(
                 remaining(),
                 "capability refresh",
@@ -318,10 +330,14 @@ pub(crate) async fn stop_work(
         failures.push(DaemonStopFailure::ToolServersClosing);
     }
     // Before the attachments and the drivers, so no run is admitted or delivered past here.
-    if let Some(session) = &process.session
-        && let Err(failure) = wait_within(remaining(), "run queue", session.queue.stop()).await
-    {
-        failures.push(failure);
+    if let Some(session) = &process.session {
+        process
+            .stop_record
+            .write_step(DaemonStopStep::RunQueue)
+            .await;
+        if let Err(failure) = wait_within(remaining(), "run queue", session.queue.stop()).await {
+            failures.push(failure);
+        }
     }
     // Before the scheduler, which runs the cleanup, and before the services the tasks write
     // through.
@@ -343,6 +359,10 @@ pub(crate) async fn stop_work(
     }
     // Before the scheduler, whose tick wakes the health re-probe.
     if let (Some(repo_attachments), Some(repo)) = (process.repo_attachments.take(), &process.repo) {
+        process
+            .stop_record
+            .write_step(DaemonStopStep::RepositoryAttachments)
+            .await;
         match wait_within(
             remaining(),
             "repository services' background work",
@@ -357,19 +377,22 @@ pub(crate) async fn stop_work(
     }
     // The work's stop ends the attention decisions and the web address's sender; a write under way
     // is waited out within the bound, and either is ended past it.
-    let decision_tasks = [
-        ("attention decisions", process.attention.take()),
-        ("web address sender", process.web_address_sender.take()),
-    ];
-    failures.extend(
-        end_start_tasks(
-            decision_tasks
-                .into_iter()
-                .filter_map(|(task, handle)| Some((task, handle?))),
-            remaining(),
-        )
-        .await,
-    );
+    if let Some(attention) = process.attention.take() {
+        process
+            .stop_record
+            .write_step(DaemonStopStep::AttentionDecisions)
+            .await;
+        failures.extend(end_start_tasks([("attention decisions", attention)], remaining()).await);
+    }
+    if let Some(web_address_sender) = process.web_address_sender.take() {
+        process
+            .stop_record
+            .write_step(DaemonStopStep::WebAddressSender)
+            .await;
+        failures.extend(
+            end_start_tasks([("web address sender", web_address_sender)], remaining()).await,
+        );
+    }
     // The session services' follows end with the chats' write watch, which they wait out.
     match (
         process.session_attachments.take(),
@@ -377,6 +400,10 @@ pub(crate) async fn stop_work(
         &process.repo,
     ) {
         (Some(attachments), Some(session), Some(repo)) => {
+            process
+                .stop_record
+                .write_step(DaemonStopStep::SessionFollows)
+                .await;
             match wait_within(
                 remaining(),
                 "session follows",
@@ -406,6 +433,10 @@ pub(crate) async fn stop_work(
             }
         }
         (_, _, Some(repo)) => {
+            process
+                .stop_record
+                .write_step(DaemonStopStep::ChatsRecount)
+                .await;
             match wait_within(remaining(), "chats' file recount", repo.workspaces.stop()).await {
                 Ok(Ok(())) => {}
                 Ok(Err(error)) => failures.push(
@@ -421,6 +452,10 @@ pub(crate) async fn stop_work(
         (_, _, None) => {}
     }
     if let Some(session) = &process.session {
+        process
+            .stop_record
+            .write_step(DaemonStopStep::ChatsChanges)
+            .await;
         if let Err(failure) =
             wait_within(remaining(), "chats' change feed", session.changes.stop()).await
         {
@@ -445,29 +480,43 @@ pub(crate) async fn stop_work(
         provider_accounts.stop();
     }
     // Before the drivers, since a job it runs may still call into them.
-    if let Some(scheduler) = process.scheduler.take()
-        && let Err(failure) = scheduler
+    if let Some(scheduler) = process.scheduler.take() {
+        process
+            .stop_record
+            .write_step(DaemonStopStep::Scheduler)
+            .await;
+        if let Err(failure) = scheduler
             .stop(tokio::time::Instant::now() + remaining())
             .await
-    {
-        failures.push(DaemonStopFailure::Scheduler(failure));
+        {
+            failures.push(DaemonStopFailure::Scheduler(failure));
+        }
     }
     // The watch only reads, so one cut leaves nothing half written.
-    if let Some(repo) = &process.repo
-        && let Err(failure) = wait_within(
+    if let Some(repo) = &process.repo {
+        process
+            .stop_record
+            .write_step(DaemonStopStep::FolderWatch)
+            .await;
+        if let Err(failure) = wait_within(
             remaining(),
             "repositories' folder watch",
             repo.folder_watch.stop(),
         )
         .await
-    {
-        failures.push(failure);
+        {
+            failures.push(failure);
+        }
     }
     if let Some(project_list_feed) = process.project_list_feed.take() {
         project_list_feed.close();
     }
     // A close cut leaves the index at its last durable commit, which its next open catches up.
     if let Some(search_index) = process.search_index.take() {
+        process
+            .stop_record
+            .write_step(DaemonStopStep::SearchIndex)
+            .await;
         match wait_within(remaining(), "session search index", search_index.close()).await {
             Ok(Ok(())) => {}
             Ok(Err(error)) => failures.push(DaemonStopFailure::SearchIndex(error)),
@@ -495,27 +544,42 @@ pub(crate) async fn stop_work(
     }
     // After the drivers, so no turn ends past here; a capture still under way at the bound is cut
     // at the process's end, and may leave its scratch index behind.
-    if let Some(turn_capturing) = process.turn_capturing.take()
-        && let Err(failure) = wait_within(remaining(), "turn captures", turn_capturing.stop()).await
-    {
-        failures.push(failure);
+    if let Some(turn_capturing) = process.turn_capturing.take() {
+        process
+            .stop_record
+            .write_step(DaemonStopStep::TurnCaptures)
+            .await;
+        if let Err(failure) = wait_within(remaining(), "turn captures", turn_capturing.stop()).await
+        {
+            failures.push(failure);
+        }
     }
-    if let Some(git) = &process.git
-        && let Err(failure) = wait_within(remaining(), "git trees", git.wait_for_tree_ends()).await
-    {
-        failures.push(failure);
+    if let Some(git) = &process.git {
+        process
+            .stop_record
+            .write_step(DaemonStopStep::GitTrees)
+            .await;
+        if let Err(failure) = wait_within(remaining(), "git trees", git.wait_for_tree_ends()).await
+        {
+            failures.push(failure);
+        }
     }
     // Last, so nothing writes once the stop resolves; a size read or deletion cut here runs past
     // the stop and the next cleanup does it again.
-    if let Some(workspace_work) = process.workspace_work.take()
-        && let Err(failure) = wait_within(
+    if let Some(workspace_work) = process.workspace_work.take() {
+        process
+            .stop_record
+            .write_step(DaemonStopStep::WorkspaceWorkSettle)
+            .await;
+        if let Err(failure) = wait_within(
             remaining(),
             "workspace services' work",
             workspace_work.settle(),
         )
         .await
-    {
-        failures.push(failure);
+        {
+            failures.push(failure);
+        }
     }
     // After the drain, so every child it ended is still retired.
     drop(process.orphan_guard.take());
@@ -523,13 +587,21 @@ pub(crate) async fn stop_work(
     failures
 }
 
-/// Closes everything that holds a file in the data folder: lets the session services, with the
-/// restart's settle, and the repository services go, then, within what is left of the latest
-/// stop's drain bound, ends the MCP first-observation drain and waits for it, ending it where it
-/// stands past the bound, and closes the database file, ends the crash monitor, waiting for its
-/// exit, and removes its socket from the run folder, then lets the data folder's lock go last.
-/// Answers each step's failure, every step having run.
+/// Closes everything that holds a file in the data folder, as [`close_data_folder_contents`] does,
+/// then lets the data folder's lock go last. Answers each step's failure, every step having run.
 pub(crate) async fn close_data_folder(process: &mut DaemonProcess) -> Vec<DaemonStopFailure> {
+    let failures = close_data_folder_contents(process).await;
+    drop(process.data_folder_lock.take());
+    failures
+}
+
+// Closes everything that holds a file in the data folder but its lock: lets the session services,
+// with the restart's settle, and the repository services go, then, within what is left of the
+// latest stop's drain bound, ends the MCP first-observation drain and waits for it, ending it where
+// it stands past the bound, and closes the database file, ends the crash monitor, waiting for its
+// exit, and removes its socket from the run folder. Answers each step's failure, every step having
+// run.
+async fn close_data_folder_contents(process: &mut DaemonProcess) -> Vec<DaemonStopFailure> {
     let mut failures = Vec::new();
     let remaining = || {
         DAEMON_STOP_DRAIN_BOUND.saturating_sub(
@@ -579,7 +651,6 @@ pub(crate) async fn close_data_folder(process: &mut DaemonProcess) -> Vec<Daemon
     if let Some(crash_monitor) = process.crash_monitor.take() {
         failures.extend(crash_monitor.end().await);
     }
-    drop(process.data_folder_lock.take());
     failures
 }
 
@@ -689,15 +760,26 @@ impl DaemonProcess {
         }
     }
 
-    /// Stops the daemon for `reason`: its work within the drain bound, then its data folder; a
-    /// part the erase already closed is skipped. Fails with every step's failure, each step having
-    /// run.
+    /// Stops the daemon for `reason`: its work within the drain bound, each step it waits on
+    /// recorded in the status file, then its data folder; a part the erase already closed is
+    /// skipped. The record ends, as why the stop failed or no file, before the data folder's lock
+    /// goes last, so a start that takes the lock next meets no write of this stop. Fails with every
+    /// step's failure, each step having run.
     pub(crate) async fn stop(
         mut self,
         reason: DaemonStopReason,
     ) -> Result<(), SettleFailures<DaemonStopFailure>> {
+        self.stop_record.begin();
         let mut failures = stop_work(&mut self, reason, DAEMON_STOP_DRAIN_BOUND).await;
-        failures.extend(close_data_folder(&mut self).await);
+        failures.extend(close_data_folder_contents(&mut self).await);
+        // An erase's step let the lock go already, so this stop writes nothing after it.
+        if self.data_folder_lock.is_some() {
+            let is_intent_unsaved = failures
+                .iter()
+                .any(|failure| matches!(failure, DaemonStopFailure::StopIntent(_)));
+            self.stop_record.write_end(is_intent_unsaved).await;
+        }
+        drop(self.data_folder_lock.take());
         settle_all(
             failures
                 .into_iter()

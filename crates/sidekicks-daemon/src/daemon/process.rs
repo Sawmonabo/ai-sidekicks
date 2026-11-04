@@ -115,7 +115,7 @@ use crate::daemon::process::stop::{DaemonCommand, DaemonStopReason, close_data_f
 use crate::daemon::process::supervision::{ProcessStateTracker, ServingSocketHooks};
 use crate::daemon::process::workspace_services::{WorkspaceWork, settle_interrupted_creations};
 use crate::daemon::run_folder::{bind_socket, mint_session_token, prepare_run_folder};
-use crate::daemon::service_status::remove_service_status;
+use crate::daemon::service_status::{StopRecord, remove_service_status};
 use crate::daemon::start_stopped_error::DaemonStartStoppedError;
 use crate::ipc::local_gateway::{GatewayServices, LocalGateway};
 use crate::observability::diagnostic_buckets::expiry::{
@@ -168,6 +168,8 @@ pub(crate) struct DaemonProcess {
     pub(crate) stop_intent: Arc<StopIntentFile>,
     /// Whether a step of the stop failed, so no clean stop is recorded.
     pub(crate) has_stop_failed: bool,
+    /// The person's Stop's record in the status file, of each step it waits on and how it ended.
+    pub(crate) stop_record: StopRecord,
     /// Hands freed memory back once the work goes quiet; ends with the work.
     idle_memory: Option<Arc<IdleMemoryCollect>>,
     /// Runs the background jobs, stopped as the work ends.
@@ -263,6 +265,10 @@ impl DaemonProcess {
             stop_started: None,
             stop_intent,
             has_stop_failed: false,
+            stop_record: StopRecord::new(
+                options.run_folder.clone(),
+                options.process_identity.clone(),
+            ),
             idle_memory: None,
             scheduler: None,
             search_index: None,
