@@ -3,9 +3,9 @@
 //! permission mode it keeps, the posture its process was started with, the transport to that
 //! process and its pending control requests, its in-process tool-server calls, the commands the
 //! daemon answers itself, its name, the figures read once per build, the settings Claude Code
-//! ignores, the purge of its conversations, its Ultracode switch, its MCP servers' readings, the
-//! reading of its `Auto memory` switch, the read of its account's connectors and organization
-//! servers, and the errors a session raises.
+//! ignores, the hooks its process lists, the purge of its conversations, its Ultracode switch, its
+//! MCP servers' readings, the reading of its `Auto memory` switch, the read of its account's
+//! connectors and organization servers, and the errors a session raises.
 
 pub(super) mod account_servers;
 pub(super) mod answered_commands;
@@ -18,6 +18,7 @@ pub(super) mod conversation_home;
 pub(crate) mod errors;
 pub(super) mod establishment;
 pub(super) mod frame_observation;
+pub(super) mod hook_listing;
 pub(super) mod idle_sleep;
 pub(super) mod ignored_settings;
 pub(super) mod mcp_server_readings;
