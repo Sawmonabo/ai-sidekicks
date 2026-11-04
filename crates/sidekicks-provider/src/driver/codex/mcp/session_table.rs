@@ -1,9 +1,10 @@
 //! The `mcp_servers` table one Codex start, resume or fork carries, composed against the servers
 //! that call's own `config/read` loads. Codex merges the table into its own config by name and by
 //! member, so a server of the person's the session leaves out is switched off by name, never
-//! dropped: each loaded server is switched off unless the session switches it on here; a server
-//! the session switches on that the read does not load is sent whole, its values read for this
-//! call from the person's own Codex folder; and the daemon's own server goes on its route.
+//! dropped: each loaded server is switched off unless the session switches it on here, a `local`
+//! or `project` binding only in its own repository; a server the session switches on that the
+//! read does not load is sent whole, its values read for this call from the person's own Codex
+//! folder; and the daemon's own server goes on its route.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -14,6 +15,7 @@ use sidekicks_contracts::session::id::SessionId;
 
 use crate::driver::codex::mcp::config::server_entry::ENABLED_MEMBER;
 use crate::driver::codex::mcp::server_name::CODEX_MCP_SERVER_NAMES;
+use crate::driver::codex::permission_level::CodexProfileFolders;
 use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
 use crate::driver::mcp_server::write::McpServerEntry;
 use crate::driver::session_control::SessionToolServer;
@@ -96,8 +98,9 @@ pub(crate) struct CodexSessionTableInput<'input> {
     pub(crate) unloaded_entries: &'input [(McpServerBindingRef, McpServerEntry)],
     /// The route to the daemon's tool servers, once its owner registered it.
     pub(crate) route: Option<&'input dyn ToolServerRoute>,
-    /// The folder the conversation runs in, the root an emulated `local` binding must name.
-    pub(crate) worktree_root: &'input Path,
+    /// The root of the repository the conversation runs in ([`codex_repository_root`]), which a
+    /// `local` or `project` binding must name to be switched on here.
+    pub(crate) repository_root: &'input Path,
     /// Whether the call is a side question's copy, which reaches no tool server.
     pub(crate) is_copy_fork: bool,
 }
@@ -117,7 +120,7 @@ pub(crate) fn compose_codex_session_table(table: CodexSessionTableInput<'_>) -> 
     if table.is_copy_fork {
         return servers;
     }
-    for binding in switched_on_here(table.tool_servers, table.worktree_root) {
+    for binding in switched_on_here(table.tool_servers, table.repository_root) {
         let name = binding.server_name().as_str();
         if is_kept_by_codex(name) {
             continue;
@@ -152,35 +155,47 @@ pub(crate) fn compose_codex_session_table(table: CodexSessionTableInput<'_>) -> 
     servers
 }
 
-/// The bindings of `tool_servers` the session switches on in `worktree_root` that `loaded` lacks,
-/// whose whole entries a call's table needs read from the person's own Codex folder.
+/// The bindings of `tool_servers` the session switches on in `repository_root` that `loaded`
+/// lacks, whose whole entries a call's table needs read from the person's own Codex folder.
 pub(crate) fn codex_unloaded_bindings<'servers>(
     tool_servers: &'servers [SessionToolServer],
     loaded: &CodexLoadedServers,
-    worktree_root: &Path,
+    repository_root: &Path,
 ) -> impl Iterator<Item = &'servers McpServerBindingRef> {
-    switched_on_here(tool_servers, worktree_root).filter(|binding| {
+    switched_on_here(tool_servers, repository_root).filter(|binding| {
         let name = binding.server_name().as_str();
         !loaded.is_loaded(name) && !is_kept_by_codex(name)
     })
 }
 
-// Each binding of `tool_servers` the person switched on that applies in `worktree_root`: an
-// emulated `local` binding only where its root is that folder.
+/// The root of the repository a conversation in `folders` runs in: the parent of its common git
+/// folder, which a linked worktree shares with its repository, else its working folder outside a
+/// repository.
+pub(crate) fn codex_repository_root(folders: &CodexProfileFolders) -> &Path {
+    folders
+        .git_common_folder
+        .as_deref()
+        .map_or(folders.working_directory.as_path(), |git_common_folder| {
+            git_common_folder.parent().unwrap_or(git_common_folder)
+        })
+}
+
+// Each binding of `tool_servers` the person switched on that applies in `repository_root`: a
+// `local` or `project` binding only where its root is that repository's.
 fn switched_on_here<'servers>(
     tool_servers: &'servers [SessionToolServer],
-    worktree_root: &Path,
+    repository_root: &Path,
 ) -> impl Iterator<Item = &'servers McpServerBindingRef> {
     tool_servers
         .iter()
         .filter(|tool_server| tool_server.is_enabled)
         .map(|tool_server| &tool_server.binding)
         .filter(move |binding| match binding {
-            McpServerBindingRef::Local { scope_ref, .. } => {
-                Path::new(scope_ref.as_str()) == worktree_root
+            McpServerBindingRef::Local { scope_ref, .. }
+            | McpServerBindingRef::Project { scope_ref, .. } => {
+                Path::new(scope_ref.as_str()) == repository_root
             }
             McpServerBindingRef::User { .. }
-            | McpServerBindingRef::Project { .. }
             | McpServerBindingRef::Plugin { .. }
             | McpServerBindingRef::Connector { .. }
             | McpServerBindingRef::Managed { .. } => true,
@@ -196,7 +211,7 @@ fn is_kept_by_codex(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use rstest::rstest;
     use serde_json::{Map, Value, json};
@@ -204,15 +219,16 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
 
     use super::{
-        CodexLoadedServers, CodexSessionTableInput, codex_unloaded_bindings,
+        CodexLoadedServers, CodexSessionTableInput, codex_repository_root, codex_unloaded_bindings,
         compose_codex_session_table,
     };
+    use crate::driver::codex::permission_level::CodexProfileFolders;
     use crate::driver::mcp_server::write::McpServerEntry;
     use crate::driver::session_control::SessionToolServer;
     use crate::port::tool_server_route::ToolServerRoute;
 
-    /// The folder every test conversation runs in.
-    const WORKTREE: &str = "/work/app";
+    /// The repository every test conversation runs in, from a linked worktree of it.
+    const REPOSITORY: &str = "/work/app";
 
     /// A route that names each server's address by the server alone.
     struct TestRoute;
@@ -235,6 +251,12 @@ mod tests {
     fn local(name: &str, root: &str) -> McpServerBindingRef {
         binding(json!({
             "scope": "local", "provider": "codex", "scopeRef": root, "serverName": name
+        }))
+    }
+
+    fn project(name: &str, root: &str) -> McpServerBindingRef {
+        binding(json!({
+            "scope": "project", "provider": "codex", "scopeRef": root, "serverName": name
         }))
     }
 
@@ -266,14 +288,22 @@ mod tests {
         )
     }
 
-    // The table composed for one call with the daemon's route registered.
+    // The table composed for one call from a linked worktree of `REPOSITORY`, with the daemon's
+    // route registered.
     fn compose(
         tool_servers: &[SessionToolServer],
         loaded: &CodexLoadedServers,
         is_copy_fork: bool,
     ) -> Value {
+        let folders = CodexProfileFolders {
+            working_directory: PathBuf::from("/work/app-feature"),
+            git_common_folder: Some(Path::new(REPOSITORY).join(".git")),
+            deny_paths: Vec::new(),
+            command_channel_folder: PathBuf::from("/work/channel"),
+        };
+        let repository_root = codex_repository_root(&folders);
         let unloaded: Vec<(McpServerBindingRef, McpServerEntry)> =
-            codex_unloaded_bindings(tool_servers, loaded, Path::new(WORKTREE))
+            codex_unloaded_bindings(tool_servers, loaded, repository_root)
                 .map(|binding| (binding.clone(), docs_entry()))
                 .collect();
         Value::Object(compose_codex_session_table(CodexSessionTableInput {
@@ -283,7 +313,7 @@ mod tests {
             loaded,
             unloaded_entries: &unloaded,
             route: Some(&TestRoute),
-            worktree_root: Path::new(WORKTREE),
+            repository_root,
             is_copy_fork,
         }))
     }
@@ -300,8 +330,9 @@ mod tests {
     // Each row of the table the call sends, against the call's own read. Killed by dropping a
     // loaded server the session leaves out (it stays on in the person's config), by sending a
     // loaded server as a `url` on the daemon's route, by leaving out the entry of a switched-on
-    // server the read does not load, by a copy fork whose table is empty or reaches a server, and
-    // by switching an emulated `local` binding on outside its root.
+    // server the read does not load, by a copy fork whose table is empty or reaches a server, by
+    // comparing a `local` binding's root with the worktree in place of its repository, and by
+    // switching a `local` or `project` binding on outside its root.
     #[rstest]
     #[case::left_out_and_switched_off(
         vec![switched(user("github"), false)],
@@ -335,14 +366,23 @@ mod tests {
         true,
         json!({ "github": { "enabled": false }, "notes": { "enabled": false } })
     )]
-    #[case::emulated_local_in_its_root(
-        vec![switched(local("notes", WORKTREE), true)],
+    #[case::emulated_local_from_a_linked_worktree(
+        vec![switched(local("notes", REPOSITORY), true)],
         &["notes"],
         false,
         json!({ "notes": { "enabled": true }, "sidekicks": daemon_entry() })
     )]
     #[case::emulated_local_elsewhere(
         vec![switched(local("notes", "/work/other"), true)],
+        &["notes"],
+        false,
+        json!({ "notes": { "enabled": false }, "sidekicks": daemon_entry() })
+    )]
+    #[case::project_elsewhere(
+        vec![
+            switched(project("notes", "/work/other"), true),
+            switched(project("docs", "/work/other"), true),
+        ],
         &["notes"],
         false,
         json!({ "notes": { "enabled": false }, "sidekicks": daemon_entry() })

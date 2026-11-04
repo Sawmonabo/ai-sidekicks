@@ -13,7 +13,7 @@ use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use crate::driver::codex::config_read::read_codex_config;
 use crate::driver::codex::mcp::observe_codex_mcp_server;
 use crate::driver::codex::mcp::session_table::{
-    CodexLoadedServers, CodexSessionTableInput, codex_unloaded_bindings,
+    CodexLoadedServers, CodexSessionTableInput, codex_repository_root, codex_unloaded_bindings,
     compose_codex_session_table,
 };
 use crate::driver::codex::service::registry::CodexServiceRegistry;
@@ -56,8 +56,9 @@ pub(crate) async fn compose_codex_call_table(
     loaded: &CodexLoadedServers,
 ) -> Result<Map<String, Value>, CodexError> {
     let worktree = settings.working_directory.as_path();
+    let repository_root = codex_repository_root(&settings.profile_folders);
     let unloaded: Vec<&McpServerBindingRef> =
-        codex_unloaded_bindings(&settings.tool_servers, loaded, worktree).collect();
+        codex_unloaded_bindings(&settings.tool_servers, loaded, repository_root).collect();
     let unloaded_entries = if unloaded.is_empty() {
         Vec::new()
     } else {
@@ -83,7 +84,7 @@ pub(crate) async fn compose_codex_call_table(
         loaded,
         unloaded_entries: &unloaded_entries,
         route,
-        worktree_root: worktree,
+        repository_root,
         is_copy_fork: false,
     }))
 }
@@ -152,7 +153,8 @@ mod tests {
 
     use super::send_with_stale_name_resend;
     use crate::driver::codex::mcp::session_table::{
-        CodexLoadedServers, CodexSessionTableInput, compose_codex_session_table,
+        CodexLoadedServers, CodexSessionTableInput, codex_repository_root,
+        compose_codex_session_table,
     };
     use crate::driver::codex::permission_level::CodexProfileFolders;
     use crate::driver::codex::session::detached_conversation::CodexDetachedFrames;
@@ -218,7 +220,7 @@ mod tests {
             loaded,
             unloaded_entries: &[],
             route: None,
-            worktree_root: &settings.working_directory,
+            repository_root: codex_repository_root(&settings.profile_folders),
             is_copy_fork: false,
         })
     }

@@ -41,7 +41,7 @@ use crate::driver::codex::attachments::compose_codex_text_input;
 use crate::driver::codex::delivery::memory::read_codex_error_kind;
 use crate::driver::codex::event_normalizer::CODEX_TURN_COMPLETED_METHOD;
 use crate::driver::codex::mcp::session_table::{
-    CodexLoadedServers, CodexSessionTableInput, compose_codex_session_table,
+    CodexLoadedServers, CodexSessionTableInput, codex_repository_root, compose_codex_session_table,
 };
 use crate::driver::codex::permission_level::compose_codex_profile_name;
 use crate::driver::codex::service::supervisor::CodexService;
@@ -555,7 +555,7 @@ fn compose_copy_fork(
         loaded,
         unloaded_entries: &[],
         route: None,
-        worktree_root: &settings.working_directory,
+        repository_root: codex_repository_root(&settings.profile_folders),
         is_copy_fork: true,
     });
     let mut fork = compose_codex_thread_fork_params(settings, mcp_servers, thread_id);
