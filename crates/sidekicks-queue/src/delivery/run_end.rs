@@ -1,6 +1,6 @@
-//! The waiting messages' part of a run's end write: how each message waiting for a run the person's
-//! stop of the service settles ends, how every waiting message of a run ends not delivered, and the
-//! returned messages' words put back into the session's draft.
+//! The waiting messages' part of a run's end write: how each message the person's stop of the
+//! service or an interrupt's return to the draft takes back ends, how every waiting message of a
+//! run ends not delivered, and the returned messages' words put back into the session's draft.
 
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -20,11 +20,11 @@ pub(crate) const FAILED_DELIVERY: QueueItemOutcome = QueueItemOutcome::NotDelive
     reason: QueueItemNotDeliveredReason::Failed {},
 };
 
-/// The ends of `items`, the messages waiting for a run the person's stop of the service settles,
-/// in queue order, for that run's write: a lead message carrying only words is canceled and its
-/// words go back into the draft ahead of what it holds, and every other item ends not delivered.
-/// A run's own opening ends with the rest, since the Stop ends the run it opens. Fails when an
-/// item's event cannot be drafted.
+/// The ends of `items`, the messages waiting for a run the person's stop of the service settles
+/// or an interrupt returns to the draft, in queue order, for one write: a lead message carrying
+/// only words is canceled and its words go back into the draft ahead of what it holds, and every
+/// other item ends not delivered, kept whole. A run's own opening ends with the rest, since the
+/// Stop ends the run it opens. Fails when an item's event cannot be drafted.
 pub fn stop_message_ends(
     items: &[QueueItemRecord],
     now: &WireInstant,
@@ -32,12 +32,10 @@ pub fn stop_message_ends(
     let mut companions = RunWriteCompanions::default();
     let mut returned = Vec::new();
     for item in items {
-        let outcome = if is_returned_at_stop(item) {
+        let outcome = returned_message_outcome(item);
+        if outcome == QueueItemOutcome::Canceled {
             returned.push(item.clone());
-            QueueItemOutcome::Canceled
-        } else {
-            FAILED_DELIVERY
-        };
+        }
         add_outcome(&mut companions, item, &outcome, now)?;
     }
     companions
@@ -82,12 +80,17 @@ pub fn build_returned_words_draft(
     ))
 }
 
-// Whether the Stop puts `item` back into the draft: a lead message carrying only words. A helper's
-// box keeps no draft, and a review or a plan message is no words the person typed.
-fn is_returned_at_stop(item: &QueueItemRecord) -> bool {
+// How a returned `item` ends: a lead message carrying only words is canceled, its words going
+// back into the draft; anything else ends not delivered, since a helper's box keeps no draft, a
+// review or a plan message is no words the person typed, and the draft holds no message's extras.
+fn returned_message_outcome(item: &QueueItemRecord) -> QueueItemOutcome {
     match &item.body {
-        QueueItemBody::Message(message) => is_lead_message(item) && carries_only_words(message),
-        QueueItemBody::Review { .. } | QueueItemBody::PlanMessage { .. } => false,
+        QueueItemBody::Message(message) if is_lead_message(item) && carries_only_words(message) => {
+            QueueItemOutcome::Canceled
+        }
+        QueueItemBody::Message(_)
+        | QueueItemBody::Review { .. }
+        | QueueItemBody::PlanMessage { .. } => FAILED_DELIVERY,
     }
 }
 

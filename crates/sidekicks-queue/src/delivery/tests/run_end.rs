@@ -27,7 +27,7 @@ use crate::delivery::run_end::stop_message_ends;
 
 /// A waiting item's form, with the words it carries.
 #[derive(Clone, Copy)]
-enum Form {
+pub(super) enum Form {
     /// A lead message carrying only words.
     Words(&'static str),
     /// A lead message carrying a file beside its words.
@@ -40,9 +40,21 @@ enum Form {
 
 /// What became of a waiting item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Ended {
+pub(super) enum Ended {
     Canceled,
     Failed,
+}
+
+impl Ended {
+    /// The state an item that ended so reads.
+    pub(super) fn state(self) -> RecordedQueueItemState {
+        match self {
+            Self::Canceled => RecordedQueueItemState::Canceled,
+            Self::Failed => RecordedQueueItemState::NotDelivered {
+                reason: QueueItemNotDeliveredReason::Failed {},
+            },
+        }
+    }
 }
 
 fn message(words: &str) -> QueueMessageBody {
@@ -81,7 +93,7 @@ fn body_of(form: Form) -> QueueItemBody {
 
 /// Queues an item of `form` for the fixture's run, after every one before it, a helper's moved
 /// into a helper's box.
-async fn queue(fixture: &Fixture, form: Form) -> QueueItemId {
+pub(super) async fn queue(fixture: &Fixture, form: Form) -> QueueItemId {
     let item = NewQueueItem {
         id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id"),
         session_id: fixture.session_id,
@@ -113,7 +125,8 @@ async fn queue(fixture: &Fixture, form: Form) -> QueueItemId {
     item.id
 }
 
-fn held_draft(fixture: &Fixture) -> Option<String> {
+/// The session's draft as the test reads it back.
+pub(super) fn held_draft(fixture: &Fixture) -> Option<String> {
     fixture
         .database
         .reader()
@@ -124,6 +137,22 @@ fn held_draft(fixture: &Fixture) -> Option<String> {
         )
         .optional()
         .expect("the test reads the draft")
+}
+
+/// Holds `text` as the session's draft, as the person's typing does.
+pub(super) fn hold_draft(fixture: &Fixture, text: &str) {
+    fixture
+        .database
+        .reader()
+        .execute(
+            "INSERT INTO session_drafts (session_id, text, updated_at) VALUES (?1, ?2, ?3)",
+            params![
+                fixture.session_id.text().as_str(),
+                text,
+                WireInstant::now().as_str()
+            ],
+        )
+        .expect("the test holds a draft");
 }
 
 // Each form of a waiting message ends as the Stop's table says, committed as the run's end commits
@@ -165,18 +194,7 @@ async fn a_stop_returns_each_waiting_message_by_its_form(
 ) {
     let fixture = fixture(driver_handing(HANDS_AT_ONCE)).await;
     if let Some(held) = held {
-        fixture
-            .database
-            .reader()
-            .execute(
-                "INSERT INTO session_drafts (session_id, text, updated_at) VALUES (?1, ?2, ?3)",
-                params![
-                    fixture.session_id.text().as_str(),
-                    held,
-                    WireInstant::now().as_str()
-                ],
-            )
-            .expect("the test holds a draft");
+        hold_draft(&fixture, held);
     }
     let mut ids = Vec::with_capacity(forms.len());
     for form in forms {
@@ -214,13 +232,7 @@ async fn a_stop_returns_each_waiting_message_by_its_form(
     );
     for ((id, before), ended) in ids.iter().zip(&waiting).zip(expected) {
         let stored = stored_item(&fixture, *id);
-        let expected_state = match ended {
-            Ended::Canceled => RecordedQueueItemState::Canceled,
-            Ended::Failed => RecordedQueueItemState::NotDelivered {
-                reason: QueueItemNotDeliveredReason::Failed {},
-            },
-        };
-        assert_eq!(stored.state, expected_state);
+        assert_eq!(stored.state, ended.state());
         assert_eq!(stored.body, before.body);
     }
     assert_eq!(held_draft(&fixture).as_deref(), expected_draft);

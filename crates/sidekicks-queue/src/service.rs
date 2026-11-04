@@ -11,32 +11,29 @@
 //! release sends the edited message ahead of every send held meanwhile.
 
 pub mod answer_continue;
+mod cancel;
 mod interrupt;
 #[cfg(test)]
 mod tests;
 mod undo;
 pub mod withdrawal;
 
-use std::sync::{Arc, LazyLock, Weak};
+use std::sync::{Arc, Weak};
 
 use sidekicks_contracts::agent::tree::ChildHandle;
-use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::run::control::AgentRunResumeRequest;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{
-    AgentQueueItemCancelRequest, AgentQueueItemCancelResponse, AgentQueueItemCanceledState,
     AgentQueueItemChangeRefusedReason, AgentQueueItemCreateRequest, AgentQueueItemCreateResponse,
     AgentQueueItemListRequest, AgentQueueItemListResponse, AgentQueueItemReorderRequest,
-    MessageContent, PlanMessage, PlanMessageKind, QueueItemId, QueueItemState,
+    MessageContent, PlanMessage, QueueItemId, QueueItemState,
 };
-use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::methods::SessionCodeReviewStartRequest;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_provider::driver::ProviderAccountReader;
 use sidekicks_provider::driver::attachments::AttachmentResolver;
@@ -47,12 +44,11 @@ use sidekicks_session::changes::refuse_unchangeable_session;
 use sidekicks_session::interventions::store::read_sessions_with_unreleased_interrupts;
 use sidekicks_session::queue_store::summary::summary_of;
 use sidekicks_session::queue_store::{
-    QueueItemBody, QueueItemOutcome, QueueItemReader, QueueItemRecord, QueueMessageBody,
-    RecordedQueueItemState,
+    QueueItemReader, QueueItemRecord, QueueMessageBody, RecordedQueueItemState,
 };
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::pause::RunPauseControl;
-use sidekicks_session::run::read::{read_run_through, safe_run_version};
+use sidekicks_session::run::read::safe_run_version;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
@@ -75,9 +71,7 @@ use crate::memory_gate::MemoryGate;
 use crate::provider_session::ProviderSessions;
 use crate::provider_session::held_run_continue::ContinueGivenBack;
 use crate::recorder::{QueueRecorder, QueueRecorderDeps};
-use crate::refusals::{
-    UnreturnedReason, change_refused, left_queue_refusal, queue_item_not_found, unreturned_refusal,
-};
+use crate::refusals::change_refused;
 use crate::run_lifecycle::{QueueRunLifecycle, QueueRunLifecycleDeps, RunLifecycleListener};
 use crate::run_token_limit::RunTokenLimitReader;
 use crate::send::{QueueSendItem, QueueSendMessage, QueueSends, QueueSendsDeps};
@@ -97,15 +91,6 @@ use crate::session_lock::{QueueSessionLock, UnreleasedInterrupts};
 /// turn) are in the idle sleep's, the run engine's, the run pause's, the binding store's, the
 /// snapshot list's, the session service's, the provider sessions' and the restart settle's sets.
 pub const RUN_QUEUE_STATEMENT_CAPACITY: usize = 15;
-
-// The detail of a queued run ended because every message it was queued for was removed.
-static EMPTIED_RUN_DETAIL: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
-    LazyLock::new(|| {
-        FreeFormText::new(
-            "Every message the run was queued for was removed before it started".to_owned(),
-        )
-        .expect("the detail is non-blank and within the cap")
-    });
 
 /// What the run queue reads, writes and calls.
 pub struct RunQueueDeps {
@@ -520,66 +505,6 @@ impl RunQueue {
         })
     }
 
-    /// Removes a waiting message, after which nothing reaches the agent. Refuses an item the queue
-    /// does not hold, one the agent has taken, one its provider did not give back, which then reads
-    /// not delivered, and a hand-off's seed (`handOffSeed`), which only the hand-off's end
-    /// withdraws. Removing the last message of a run that has not started ends that run `failed` in
-    /// the same write.
-    pub async fn cancel(
-        &self,
-        request: AgentQueueItemCancelRequest,
-    ) -> Result<AgentQueueItemCancelResponse, QueueError> {
-        let item_id = request.queue_item_id;
-        let found = self
-            .read_item(item_id)
-            .await?
-            .filter(|found| found.child_handle == request.child_handle)
-            .ok_or_else(|| queue_item_not_found(item_id))?;
-        let session_id = found.session_id;
-        let hold = self.session_lock.hold_session(session_id).await;
-        // A purge of the session while the removal waited took its rows.
-        let item = self
-            .read_item(item_id)
-            .await?
-            .ok_or_else(|| queue_item_not_found(item_id))?;
-        if item.state != RecordedQueueItemState::Queued {
-            return Err(left_queue_refusal(&item).into());
-        }
-        // A plan's build message is the person's to remove as any of theirs; a hand-off's seed is
-        // the daemon's, which the fresh session's archive withdraws.
-        if let QueueItemBody::PlanMessage { plan_message, .. } = &item.body {
-            match plan_message.kind {
-                PlanMessageKind::Build => {}
-                PlanMessageKind::Seed => {
-                    return Err(change_refused(
-                        AgentQueueItemChangeRefusedReason::HandOffSeed,
-                        &format!(
-                            "Queue item {} is the first message of a hand-off's fresh session, \
-                             which only ending the hand-off cancels",
-                            item.id
-                        ),
-                    )
-                    .into());
-                }
-            }
-        }
-        let withdrawal = self
-            .delivery
-            .take_back(&hold, std::slice::from_ref(&item))
-            .await?
-            .get(&item.id)
-            .copied()
-            .unwrap_or(QueueWithdrawal::Unreturned(UnreturnedReason::Taken));
-        if let QueueWithdrawal::Unreturned(reason) = withdrawal {
-            return Err(unreturned_refusal(item.id, reason).into());
-        }
-        self.settle_canceled(&hold, item).await?;
-        Ok(AgentQueueItemCancelResponse {
-            queue_item_id: item_id,
-            state: AgentQueueItemCanceledState::Value,
-        })
-    }
-
     /// Puts a queue's waiting messages in the order `queue_item_ids` names and answers them in it;
     /// a message a `Send now` marked that the order puts after another loses the mark and goes in
     /// its place. Refuses a list that is not exactly the waiting items; a message the agent takes
@@ -706,47 +631,6 @@ impl RunQueue {
         }
     }
 
-    // Settles `item`, waiting and given back by its provider, canceled: removing the last message
-    // of a run that has not started ends that run `failed` in the same write, and a lead message
-    // no longer holds back its interrupted run's continue. Called under `hold`.
-    async fn settle_canceled(
-        &self,
-        hold: &KeyHold<'_, SessionId>,
-        item: QueueItemRecord,
-    ) -> Result<(), QueueError> {
-        let run_id = item.target_run_id;
-        let is_last_of_queued_run = match run_id {
-            Some(run_id) => self.is_queued_run_emptied_by(run_id, &[item.id]).await?,
-            None => false,
-        };
-        match run_id {
-            Some(run_id) if is_last_of_queued_run => {
-                self.admission
-                    .end_queued_run(
-                        hold,
-                        run_id,
-                        vec![(item, QueueItemOutcome::Canceled)],
-                        EMPTIED_RUN_DETAIL.clone(),
-                    )
-                    .await?;
-            }
-            _ => {
-                let is_lead = item.child_handle.is_none();
-                self.recorder
-                    .record_outcome(&item, QueueItemOutcome::Canceled, &WireInstant::now())
-                    .await?;
-                self.delivery.forget(&[item.id]);
-                // A message the provider kept no longer holds back the interrupted run's continue.
-                if let Some(run_id) = run_id.filter(|_| is_lead) {
-                    self.lifecycle
-                        .continue_interrupted_run(hold, run_id, false)
-                        .await?;
-                }
-            }
-        }
-        Ok(())
-    }
-
     // Resumes the paused or pausing run a send went into, off the session's lock, so the message
     // goes with the continue; a run moved on meanwhile takes the message as it runs. Answers
     // whether the resume went, a failure logged.
@@ -766,22 +650,6 @@ impl RunQueue {
                 false
             }
         }
-    }
-
-    // Whether removing `removed` leaves the queued run `run_id` with no message to start with.
-    async fn is_queued_run_emptied_by(
-        &self,
-        run_id: RunId,
-        removed: &[QueueItemId],
-    ) -> Result<bool, QueueError> {
-        let is_queued = read_run_through::<QueueError>(&self.pool, run_id)
-            .await?
-            .is_some_and(|run| run.state == RunState::Queued);
-        if !is_queued {
-            return Ok(false);
-        }
-        let waiting = self.read_waiting(run_id).await?;
-        Ok(waiting.iter().all(|item| removed.contains(&item.id)))
     }
 
     // Hands each lead run among `items` what waits for it, after a change took messages back.

@@ -5,12 +5,12 @@
 use sidekicks_contracts::plan::PlanId;
 use sidekicks_contracts::run::queue::PlanMessageKind;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord, RecordedQueueItemState};
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 
 use super::RunQueue;
+use super::cancel::UndeliveredCancel;
 use crate::delivery::QueueWithdrawal;
 use crate::error::QueueError;
 
@@ -51,7 +51,12 @@ impl RunQueue {
         };
         let withdrawal = match item.state {
             RecordedQueueItemState::Queued => self.withdraw_queued(&hold, item).await?,
-            RecordedQueueItemState::NotDelivered { .. } => self.cancel_undelivered(&item).await?,
+            RecordedQueueItemState::NotDelivered { .. } => {
+                match self.cancel_undelivered(&item).await? {
+                    UndeliveredCancel::Canceled => PlanMessageWithdrawal::Canceled,
+                    UndeliveredCancel::Taken => PlanMessageWithdrawal::Taken,
+                }
+            }
             RecordedQueueItemState::Admitted => PlanMessageWithdrawal::Taken,
             RecordedQueueItemState::Canceled => PlanMessageWithdrawal::Canceled,
             RecordedQueueItemState::Superseded => {
@@ -78,34 +83,5 @@ impl RunQueue {
         }
         self.settle_canceled(hold, item).await?;
         Ok(PlanMessageWithdrawal::Canceled)
-    }
-
-    // Cancels `item`, read not delivered, so no retry sends it again. Its hand is kept, so a
-    // provider's late answer for it still settles; a late admission that lands first answers it
-    // taken.
-    async fn cancel_undelivered(
-        &self,
-        item: &QueueItemRecord,
-    ) -> Result<PlanMessageWithdrawal, QueueError> {
-        let Err(error) = self
-            .recorder
-            .record_undelivered_cancel(item, &WireInstant::now())
-            .await
-        else {
-            return Ok(PlanMessageWithdrawal::Canceled);
-        };
-        if !error.is_refused() {
-            return Err(error.into());
-        }
-        match self.read_item(item.id).await?.map(|current| current.state) {
-            Some(RecordedQueueItemState::Admitted) => Ok(PlanMessageWithdrawal::Taken),
-            Some(RecordedQueueItemState::Canceled) => Ok(PlanMessageWithdrawal::Canceled),
-            Some(
-                RecordedQueueItemState::Queued
-                | RecordedQueueItemState::NotDelivered { .. }
-                | RecordedQueueItemState::Superseded,
-            )
-            | None => Err(error.into()),
-        }
     }
 }

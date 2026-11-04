@@ -1,8 +1,9 @@
-//! The interrupt's end: by its choice it cancels, places or leaves the messages the provider no
-//! longer holds, and keeps handed the ones it does.
+//! The interrupt's end: by its choice it returns, places or leaves the messages the provider no
+//! longer holds, and keeps handed the ones it does; a return ends each message as the Stop does.
 
 use std::sync::Arc;
 
+use rstest::rstest;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -12,6 +13,7 @@ use sidekicks_store::events::session::appender::{SessionEventAppender, SessionEv
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tokio::time::timeout;
 
+use super::run_end::{Ended, Form, held_draft, hold_draft, queue};
 use super::{
     Fixture, HANDS_AT_ONCE, WAIT, continued_ids, count_steers, driver_handing, fixture, hand,
     insert_item, item_ids, set_run_state, settle, stored_item,
@@ -197,4 +199,57 @@ async fn an_interrupt_of_a_starting_run_takes_its_opening_with_the_rest() {
     let writes = end_writes(&fixture, InterruptPendingChoice::ReturnToDraft, None, &[]).await;
 
     assert_eq!(item_ids(&writes.changed), vec![opening.id]);
+}
+
+// `returnToDraft` ends each message the run's end write returns as the Stop does: a lead message
+// carrying only words is canceled and its words go into the draft, one line each in queue order
+// ahead of the held draft, in that same write; one carrying files, a review and a plan message end
+// not delivered, kept whole. Killed by no draft written, a message with files canceled or its
+// words put in the draft, or a review or a plan message canceled.
+#[rstest]
+#[case::two_messages_ahead_of_the_held_draft(
+    &[Form::Words("First"), Form::Words("Second")],
+    Some("Held"),
+    &[Ended::Canceled, Ended::Canceled],
+    Some("First\nSecond\nHeld"),
+)]
+#[case::a_message_with_files_between_two_with_words(
+    &[Form::Words("Before"), Form::WithFiles("With a file"), Form::Words("After")],
+    None,
+    &[Ended::Canceled, Ended::Failed, Ended::Canceled],
+    Some("Before\nAfter"),
+)]
+#[case::a_review_and_a_plan_message(
+    &[Form::Review, Form::PlanMessage],
+    None,
+    &[Ended::Failed, Ended::Failed],
+    None,
+)]
+#[tokio::test]
+async fn return_to_draft_returns_each_message_as_the_stop_does(
+    #[case] forms: &[Form],
+    #[case] held: Option<&str>,
+    #[case] expected: &[Ended],
+    #[case] expected_draft: Option<&str>,
+) {
+    let fixture = fixture(driver_handing(HANDS_AT_ONCE)).await;
+    if let Some(held) = held {
+        hold_draft(&fixture, held);
+    }
+    let mut ids = Vec::with_capacity(forms.len());
+    for form in forms {
+        ids.push(queue(&fixture, *form).await);
+    }
+    let before: Vec<QueueItemRecord> = ids.iter().map(|id| stored_item(&fixture, *id)).collect();
+
+    let writes = end_writes(&fixture, InterruptPendingChoice::ReturnToDraft, None, &[]).await;
+    assert_eq!(item_ids(&writes.changed), ids);
+    commit(&fixture, writes).await;
+
+    for ((id, before), ended) in ids.iter().zip(&before).zip(expected) {
+        let stored = stored_item(&fixture, *id);
+        assert_eq!(stored.state, ended.state());
+        assert_eq!(stored.body, before.body);
+    }
+    assert_eq!(held_draft(&fixture).as_deref(), expected_draft);
 }

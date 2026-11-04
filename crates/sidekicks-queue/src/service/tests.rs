@@ -1,11 +1,13 @@
 //! The run queue's tests, over a test database holding a session whose lead is bound to the
 //! table's first provider, whose driver is a stand-in that records what it is asked: a send to a
-//! session that takes no change and the removal of a queued run's last message here; sends,
-//! starts, run ends, a continued helper's failed lead continue, the interrupts' queue, a plan
+//! session that takes no change here; removals, sends, starts, run ends, a continued helper's
+//! failed lead continue, the interrupts' queue and an interrupt's late return to the draft, a plan
 //! message's withdrawal and an undo in the modules below.
 
+mod cancel;
 mod helper_continue;
 mod interrupt;
+mod return_to_draft;
 mod run_ends;
 mod sends;
 mod starts;
@@ -28,9 +30,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{
-    AgentQueueItemCancelRequest, AgentQueueItemCreateRequest, QueueItemId, QueuedSkillPick,
-};
+use sidekicks_contracts::run::queue::{AgentQueueItemCreateRequest, QueueItemId, QueuedSkillPick};
 use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
@@ -86,7 +86,7 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tempfile::TempDir;
 
 use super::answer_continue::HaltedRunRecord;
-use super::{EMPTIED_RUN_DETAIL, RunQueue, RunQueueDeps};
+use super::{RunQueue, RunQueueDeps};
 use crate::changes::QueueChangeSignals;
 use crate::error::QueueError;
 use crate::memory_gate::{MemoryGate, MemoryGateFigures};
@@ -429,6 +429,18 @@ impl RunTokenLimitReader for ConfiguredTokenLimit {
     }
 }
 
+/// A message carrying only `text`.
+fn words(text: &str) -> QueueMessageBody {
+    QueueMessageBody {
+        content: FreeFormText::new(text.to_owned()).expect("a test message"),
+        attachments: None,
+        skills: None,
+        answers_question_id: None,
+        output_speed_for_turn: None,
+        workspace_id: None,
+    }
+}
+
 fn client_key() -> ClientUuid {
     ClientUuid::new(mint_uuid_v7().to_string()).expect("a minted UUID is a client key")
 }
@@ -516,19 +528,18 @@ impl Fixture {
 
     /// Queues a message for `run_id`, after every one before it, and answers its id.
     async fn queue_message(&self, run_id: RunId) -> QueueItemId {
+        self.queue_body(run_id, QueueItemBody::Message(words("Look again")))
+            .await
+    }
+
+    /// Queues an item carrying `body` for `run_id`, after every one before it, and answers its id.
+    async fn queue_body(&self, run_id: RunId, body: QueueItemBody) -> QueueItemId {
         let item_id =
             QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id");
         let item = NewQueueItem {
             id: item_id,
             session_id: self.session_id,
-            body: QueueItemBody::Message(QueueMessageBody {
-                content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
-                attachments: None,
-                skills: None,
-                answers_question_id: None,
-                output_speed_for_turn: None,
-                workspace_id: None,
-            }),
+            body,
             target_run_id: run_id,
             device_id: None,
             client_idempotency_key: Some(client_key()),
@@ -539,7 +550,7 @@ impl Fixture {
             .writer
             .write(vec![insert_queue_item_statement(&item)])
             .await
-            .expect("the test queues its message");
+            .expect("the test queues its item");
         item_id
     }
 
@@ -633,40 +644,4 @@ async fn a_send_to_a_session_that_takes_no_change_is_refused(
     };
     assert_eq!(refused, code);
     assert_eq!(fixture.count_items(), 0);
-}
-
-// Removing the only message a queued run waits for ends that run `failed` with the emptied
-// detail in the same write, and the message reads canceled. Killed by leaving a queued run with
-// no message to open with.
-#[tokio::test]
-async fn removing_a_queued_runs_last_message_ends_the_run_failed() {
-    let fixture = fixture(MockProviderDriver::new()).await;
-    let run_id = fixture.insert_run("queued").await;
-    let item_id = fixture.queue_message(run_id).await;
-
-    fixture
-        .queue
-        .cancel(AgentQueueItemCancelRequest {
-            queue_item_id: item_id,
-            child_handle: None,
-        })
-        .await
-        .expect("the message is removed");
-
-    assert_eq!(fixture.run_state(run_id), "failed");
-    let detail_events: i64 = fixture
-        .database
-        .reader()
-        .query_row(
-            "SELECT COUNT(*) FROM session_events
-             WHERE type = 'agent.run.failed' AND instr(payload, ?1) > 0",
-            [EMPTIED_RUN_DETAIL.as_str()],
-            |row| row.get(0),
-        )
-        .expect("the test reads the run's end");
-    assert_eq!(detail_events, 1);
-    assert_eq!(
-        fixture.stored_state(item_id),
-        RecordedQueueItemState::Canceled
-    );
 }

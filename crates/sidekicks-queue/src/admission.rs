@@ -31,7 +31,7 @@ use sidekicks_contracts::orchestration::OrchestrationRunConfig;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_contracts::run::control::RunFailureCategory;
+use sidekicks_contracts::run::control::{RunFailureCategory, StopTrigger};
 use sidekicks_contracts::run::failure_cause::{DaemonFailureOrigin, RunFailureCause};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemNotDeliveredReason};
@@ -65,6 +65,7 @@ use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use tokio::sync::watch;
 use tokio_util::task::TaskTracker;
@@ -354,16 +355,35 @@ impl QueueAdmission {
         Ok(())
     }
 
-    /// Ends the queued run `run_id` `failed` as a setup failure saying `detail`, with each of
-    /// `outcomes` in the same write, and releases its place. Called under the session's `_hold`;
-    /// fails with the write's refusal when the run has left `queued` or one of the messages has.
-    pub(crate) async fn end_queued_run(
+    /// Ends the queued run `run_id` `stopped`, quietly, once the person removed every message it
+    /// was queued for, with `outcomes` and `statements` in the same write. Called under `hold`;
+    /// fails with the write's refusal when the run or one of the messages has left `queued`.
+    pub(crate) async fn stop_emptied_run(
         &self,
-        _hold: &KeyHold<'_, SessionId>,
+        hold: &KeyHold<'_, SessionId>,
         run_id: RunId,
         outcomes: Vec<(QueueItemRecord, QueueItemOutcome)>,
-        detail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
+        statements: Vec<WriteStatement>,
     ) -> Result<(), QueueError> {
+        let stopped = RunStateEntry::Stopped {
+            intended_close: None,
+            trigger: Some(StopTrigger::MessagesRemoved),
+        };
+        let end = RunStateChange::new(run_id, stopped);
+        self.end_queued_run(hold, end, outcomes, statements).await
+    }
+
+    // Writes `end`, expected from `queued`, with each of `outcomes` and then `statements` in the
+    // same write, then releases the run's place and raises the messages' queues.
+    async fn end_queued_run(
+        &self,
+        _hold: &KeyHold<'_, SessionId>,
+        mut end: RunStateChange,
+        outcomes: Vec<(QueueItemRecord, QueueItemOutcome)>,
+        statements: Vec<WriteStatement>,
+    ) -> Result<(), QueueError> {
+        end.expected_state = Some(RunState::Queued);
+        let run_id = end.run_id;
         let now = WireInstant::now();
         let mut companions = RunWriteCompanions::default();
         let mut items = Vec::with_capacity(outcomes.len());
@@ -374,24 +394,8 @@ impl QueueAdmission {
             companions.preceding_events.push(draft);
             items.push(item);
         }
-        let failed = RunStateChange {
-            expected_state: Some(RunState::Queued),
-            failure_category: Some(RunFailureCategory::SetupFailure),
-            ..RunStateChange::new(
-                run_id,
-                RunStateEntry::Failed {
-                    intended_close: None,
-                    failure_cause: Some(RunFailureCause::SetupFailed {
-                        origin: DaemonFailureOrigin::Value,
-                        code: None,
-                        message: detail,
-                    }),
-                    provider_failure_detail: None,
-                    process_exit: None,
-                },
-            )
-        };
-        self.deps.engine.transition(failed, companions).await?;
+        companions.statements.extend(statements);
+        self.deps.engine.transition(end, companions).await?;
         self.release(run_id);
         self.deps.recorder.raise_committed(&items, false);
         Ok(())
@@ -686,7 +690,21 @@ impl QueueAdmission {
                 (item, outcome)
             })
             .collect();
-        self.end_queued_run(hold, run_id, outcomes, detail).await
+        let failed = RunStateEntry::Failed {
+            intended_close: None,
+            failure_cause: Some(RunFailureCause::SetupFailed {
+                origin: DaemonFailureOrigin::Value,
+                code: None,
+                message: detail,
+            }),
+            provider_failure_detail: None,
+            process_exit: None,
+        };
+        let end = RunStateChange {
+            failure_category: Some(RunFailureCategory::SetupFailure),
+            ..RunStateChange::new(run_id, failed)
+        };
+        self.end_queued_run(hold, end, outcomes, Vec::new()).await
     }
 
     async fn record_admitted(
