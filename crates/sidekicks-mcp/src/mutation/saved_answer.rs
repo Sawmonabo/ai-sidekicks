@@ -2,14 +2,6 @@
 //! same idempotency key gets back: the response it was served, or the refusal it was answered
 //! with, kept with its code, message and detail and never the failure underneath.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the mutation service saves each answer and replays it on a retry"
-    )
-)]
-
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;

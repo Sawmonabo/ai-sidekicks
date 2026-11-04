@@ -3,14 +3,6 @@
 //! that writes each receipt `pending` before the provider is touched and commits it in the same
 //! write as the mutation's own rows.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the mutation service writes, checks and settles the receipts"
-    )
-)]
-
 use std::borrow::Cow;
 use std::sync::{Arc, LazyLock};
 

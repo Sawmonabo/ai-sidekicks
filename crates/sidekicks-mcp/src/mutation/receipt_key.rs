@@ -5,11 +5,6 @@
 //! every unfinished receipt, whose digests no key the daemon holds can match again, is answered
 //! with that failure. A keychain that cannot be read changes nothing and is asked again next time.
 
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the mutation service reads the receipt key")
-)]
-
 use std::borrow::Cow;
 use std::sync::Arc;
 

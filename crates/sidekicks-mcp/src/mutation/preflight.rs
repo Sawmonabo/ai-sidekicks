@@ -3,14 +3,6 @@
 //! emulates `local` servers keeps across its user file, and the binding a removal or a switch
 //! addresses being declared.
 
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the mutation service checks each mutation before its intent is written"
-    )
-)]
-
 use std::path::Path;
 
 use sidekicks_contracts::mcp::server::config::McpServerConfigInput;

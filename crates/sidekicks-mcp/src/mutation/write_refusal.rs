@@ -1,10 +1,5 @@
 //! The `mcp.*` refusal answering a provider's refusal of a write to its own config.
 
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the mutation service maps a provider's refusal")
-)]
-
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_provider::driver::mcp_server::write::{McpServerObserved, McpServerWriteRefusal};
 

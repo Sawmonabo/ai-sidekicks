@@ -4,11 +4,6 @@
 //! its settler, and one pass at a time hands every receipt a start or a stopped mutation left
 //! `pending` to its settler, reading the receipt key before it lists or locks anything.
 
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the mutation service settles its receipts")
-)]
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -229,8 +224,9 @@ where
     }
 }
 
-// Commits the receipt with `refusal` saved, and answers it.
-async fn commit_refusal(
+/// Commits `idempotency_key`'s receipt with `refusal` saved, and answers it. Fails with
+/// `mcp.bindingStoreUnavailable` where the commit fails, the receipt left `pending`.
+pub(crate) async fn commit_refusal(
     receipts: &McpMutationReceipts,
     idempotency_key: &ClientUuid,
     refusal: McpRefusal,
@@ -247,13 +243,14 @@ async fn commit_refusal(
     Err(refusal)
 }
 
-// A saved answer as its receipt's `response_json`.
-fn saved_value(answer: &McpSavedAnswer) -> Value {
+/// A saved answer as its receipt's `response_json`.
+pub(crate) fn saved_value(answer: &McpSavedAnswer) -> Value {
     serde_json::to_value(answer).expect("a saved answer writes as JSON")
 }
 
-// The refusal of a receipt store that failed, the failure kept underneath.
-fn store_unavailable(error: McpReceiptStoreError) -> DomainError {
+/// The refusal of a receipt store that failed, `mcp.bindingStoreUnavailable` with the failure kept
+/// underneath.
+pub(crate) fn store_unavailable(error: McpReceiptStoreError) -> DomainError {
     McpRefusal::BindingStoreUnavailable {
         cause: None,
         source: Some(Box::new(error)),
@@ -266,8 +263,11 @@ fn store_unavailable(error: McpReceiptStoreError) -> DomainError {
 #[error("an MCP mutation receipt's stored binding no longer reads as a binding")]
 struct StoredBindingFault;
 
-// The binding `intent`'s stored key names, which every refusal of it names.
-fn rebuilt_binding(intent: &McpIntentReceipt) -> Result<Box<McpServerBindingRef>, DomainError> {
+/// The binding `intent`'s stored key names, which every refusal of it names. Fails with
+/// `mcp.bindingStoreUnavailable` where a stored part no longer reads as a binding's.
+pub(crate) fn rebuilt_binding(
+    intent: &McpIntentReceipt,
+) -> Result<Box<McpServerBindingRef>, DomainError> {
     intent.binding.binding_ref().map(Box::new).ok_or_else(|| {
         McpRefusal::BindingStoreUnavailable {
             cause: None,
@@ -419,7 +419,7 @@ impl McpPendingPass {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use std::sync::Arc;
 
     use futures::future::BoxFuture;
@@ -598,7 +598,7 @@ mod tests {
     }
 
     /// Waits for the pass's task, then lets the next one be tracked.
-    async fn settled(pass: &McpPendingSettle) {
+    pub(in crate::mutation) async fn settled(pass: &McpPendingSettle) {
         pass.tracker.close();
         pass.tracker.wait().await;
         pass.tracker.reopen();

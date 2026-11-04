@@ -1,0 +1,524 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use futures::future::ready;
+use rusqlite::{Connection, OptionalExtension as _, params};
+use serde_json::{Value, json};
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::keychain::KeychainRefusalCause;
+use sidekicks_contracts::mcp::server::config::McpServerConfigView;
+use sidekicks_contracts::mcp::server::requests::{
+    McpServerDeleteRequest, McpServerEnabledUpdateRequest, McpServerUpsertRequest,
+};
+use sidekicks_contracts::mcp::server::{McpApplicationGrade, McpApprovalMode};
+use sidekicks_contracts::project::ProjectId;
+use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::wire::id::ClientUuid;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_platforms::CredentialStore as PlatformCredentialStore;
+use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
+use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::mcp_server::read::{
+    McpServerDeclaration, McpServerPolicy, McpServerToolDefaults, ProviderMcpServersReading,
+};
+use sidekicks_provider::driver::mcp_server::write::{
+    McpServerEntry, McpServerObserved, McpServerObservedEntry, McpServerWrite,
+    McpServerWriteOutcome, McpServerWriteRefusal,
+};
+use sidekicks_provider::driver::test_registry::registry_of_first_provider;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::budget::ProcessorMeter;
+use sidekicks_store::credential_store::service::KeychainService;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_workspace::project::records::{
+    ProjectRecords, ProjectSessionActivity, ProjectSessionFacts,
+};
+use tempfile::TempDir;
+
+use super::{McpMutationService, McpMutationSources, McpRemovalRows};
+use crate::binding::resolver::McpAttributionTable;
+use crate::binding::store::{McpBindingKey, McpBindingStore, open_first_observation_drain};
+use crate::inventory_service::{McpInventoryService, McpInventorySources};
+use crate::mutation::receipts::tests::{idempotency_key, receipts_over_a_database};
+use crate::mutation::settle::tests::settled;
+use crate::status::McpServerStatusTracker;
+use crate::status::machine_probe::McpMachineProbeGate;
+use crate::status::notices::McpNoticeBoard;
+use crate::test_keychain::{CountingKeychain, test_keychain};
+
+/// The trigger that refuses every receipt's commit, so a write lands and its receipt stays
+/// `pending`.
+const FAIL_COMMITS_SQL: &str = "CREATE TRIGGER fail_commits BEFORE UPDATE ON mcp_mutation_receipts
+     BEGIN SELECT RAISE(ABORT, 'the test fails this commit'); END";
+
+/// No project has a session; the inventory reads only the attached roots.
+struct NoProjectSessions;
+
+impl ProjectSessionActivity for NoProjectSessions {
+    fn read_session_facts(
+        &self,
+        _reader: &Connection,
+        _project_ids: Option<&[ProjectId]>,
+    ) -> rusqlite::Result<Vec<ProjectSessionFacts>> {
+        Ok(Vec::new())
+    }
+}
+
+/// The provider the test registry registers first, which every test's driver answers for.
+fn first_provider() -> ProviderId {
+    ProviderId::new(PROVIDER_REGISTRATIONS[0].descriptor.id.to_owned()).expect("a provider id")
+}
+
+/// The one entry every server's declaration holds in the scripted config.
+fn entry() -> McpServerEntry {
+    McpServerEntry::from_members(
+        serde_json::from_value(json!({ "command": "npx" })).expect("the entry is an object"),
+    )
+}
+
+/// A driver over a config holding the `user` servers `declared`, each write of which is answered
+/// `outcome` and is expected `writes` times; a write that is not refused adds or removes its
+/// server, which the next observe and read then see.
+fn scripted_driver(
+    provider: &ProviderId,
+    declared: &[&str],
+    outcome: McpServerWriteOutcome,
+    writes: usize,
+) -> MockProviderDriver {
+    let config: Arc<Mutex<HashMap<String, bool>>> = Arc::new(Mutex::new(
+        declared
+            .iter()
+            .map(|name| ((*name).to_owned(), true))
+            .collect(),
+    ));
+    let mut driver = MockProviderDriver::new();
+    let (read_config, read_provider) = (Arc::clone(&config), provider.clone());
+    driver.expect_read_mcp_servers().returning(move |_request| {
+        let declarations = lock(&read_config)
+            .iter()
+            .filter(|(_name, is_present)| **is_present)
+            .map(|(name, _is_present)| declaration(&read_provider, name))
+            .collect();
+        Box::pin(ready(Ok(ProviderMcpServersReading {
+            declarations,
+            roots: Vec::new(),
+            is_machine_managed: false,
+            server_policy: McpServerPolicy::default(),
+            account_servers: Vec::new(),
+            probe_readings: Vec::new(),
+        })))
+    });
+    let observe_config = Arc::clone(&config);
+    driver
+        .expect_observe_mcp_server()
+        .returning(move |binding| {
+            let is_present = lock(&observe_config)
+                .get(binding.server_name().as_str())
+                .copied()
+                .unwrap_or(false);
+            Box::pin(ready(Ok(McpServerObserved {
+                entry: if is_present {
+                    McpServerObservedEntry::Present(entry())
+                } else {
+                    McpServerObservedEntry::Absent
+                },
+                config_version: None,
+                config_files: Vec::new(),
+            })))
+        });
+    driver
+        .expect_compose_mcp_server()
+        .returning(|_binding, _config, _before| Ok(entry()));
+    driver
+        .expect_write_mcp_server()
+        .times(writes)
+        .returning(move |write, _before| {
+            if !matches!(outcome, McpServerWriteOutcome::Refused(_)) {
+                let (binding, is_present) = match &write {
+                    McpServerWrite::Upsert { binding, .. } => (binding.binding(), true),
+                    McpServerWrite::Remove { binding } => (binding.binding(), false),
+                    McpServerWrite::SetEnabled { binding, .. } => (binding.clone(), true),
+                };
+                lock(&config).insert(binding.server_name().as_str().to_owned(), is_present);
+            }
+            Box::pin(ready(outcome.clone()))
+        });
+    driver
+}
+
+/// The `user` server `name`'s declaration, with the entry's command.
+fn declaration(provider: &ProviderId, name: &str) -> McpServerDeclaration {
+    McpServerDeclaration {
+        binding: serde_json::from_value(user_binding(provider, name)).expect("a binding"),
+        config: McpServerConfigView::Stdio {
+            command: "npx".to_owned(),
+            args: None,
+            env_var_names: None,
+            enabled: None,
+            required: None,
+            startup_timeout_sec: None,
+            tool_timeout_sec: None,
+        },
+        superseded_in: Vec::new(),
+        disabled_in: Vec::new(),
+        is_read_only: false,
+        sign_in_client: None,
+        is_switch_kept_by_daemon: false,
+        tool_defaults: McpServerToolDefaults::with_approval_mode(McpApprovalMode::Auto),
+        organization_managed: None,
+    }
+}
+
+fn user_binding(provider: &ProviderId, name: &str) -> Value {
+    json!({ "scope": "user", "provider": provider.as_str(), "serverName": name })
+}
+
+/// An upsert of the `user` server `name` under `key`, declaring `command`.
+fn upsert(
+    provider: &ProviderId,
+    key: &ClientUuid,
+    name: &str,
+    command: &str,
+) -> McpServerUpsertRequest {
+    let mut request = user_binding(provider, name);
+    request["clientIdempotencyKey"] = json!(key.as_str());
+    request["config"] = json!({ "transport": "stdio", "command": command });
+    serde_json::from_value(request).expect("an upsert request")
+}
+
+/// A removal of the `user` server `name` under `key`.
+fn delete(provider: &ProviderId, key: &ClientUuid, name: &str) -> McpServerDeleteRequest {
+    let mut request = user_binding(provider, name);
+    request["clientIdempotencyKey"] = json!(key.as_str());
+    serde_json::from_value(request).expect("a delete request")
+}
+
+/// A switch-off of the `user` server `name` under `key`.
+fn switch_off(
+    provider: &ProviderId,
+    key: &ClientUuid,
+    name: &str,
+) -> McpServerEnabledUpdateRequest {
+    let mut request = user_binding(provider, name);
+    request["clientIdempotencyKey"] = json!(key.as_str());
+    request["enabled"] = json!(false);
+    serde_json::from_value(request).expect("a switch request")
+}
+
+/// The code a refused call answered, `None` where it was served.
+fn code<Response>(answer: &Result<Response, DomainError>) -> Option<RefusalCode> {
+    answer.as_ref().err().map(|refusal| refusal.code)
+}
+
+/// A mutation service over a fresh database and keychain, its one provider answered by a test's
+/// driver, with the real inventory, binding store and receipts under it.
+struct Fixture {
+    database: TestDatabase,
+    keychain: Arc<CountingKeychain>,
+    service: McpMutationService,
+    _data_folder: TempDir,
+    _platform_store: PlatformCredentialStore,
+}
+
+impl Fixture {
+    async fn new(driver: MockProviderDriver, removal_rows: Option<McpRemovalRows>) -> Self {
+        let (database, _receipts, writer, reads) = receipts_over_a_database().await;
+        let (data_folder, platform_store, keychain) = test_keychain(KeychainService::McpReceiptKey);
+        let keychain = Arc::new(CountingKeychain::new(keychain));
+        let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
+        let store = McpBindingStore::new(Arc::clone(&writer), Arc::clone(&reads));
+        let (outlet, drain) = open_first_observation_drain(store.clone()).await;
+        // The drain records each binding the tracker observes; it ends when the tracker drops.
+        tokio::spawn(drain);
+        let inventory = Arc::new(McpInventoryService::new(McpInventorySources {
+            providers: Arc::clone(&providers),
+            reads: Arc::clone(&reads),
+            meter: ProcessorMeter::default(),
+            projects: Arc::new(ProjectRecords::new(
+                Arc::clone(&reads),
+                Arc::new(NoProjectSessions),
+            )),
+            store,
+            tracker: Arc::new(McpServerStatusTracker::new(
+                Arc::new(McpNoticeBoard::default()),
+                outlet,
+            )),
+            attribution: Arc::new(McpAttributionTable::default()),
+            probe_gate: Arc::new(McpMachineProbeGate::default()),
+        }));
+        let service = McpMutationService::new(McpMutationSources {
+            providers,
+            inventory,
+            keychain: Arc::clone(&keychain) as _,
+            writer,
+            reads,
+            removal_rows,
+        });
+        Self {
+            database,
+            keychain,
+            service,
+            _data_folder: data_folder,
+            _platform_store: platform_store,
+        }
+    }
+
+    /// `key`'s receipt status, `None` where it has no receipt.
+    fn receipt_status(&self, key: &ClientUuid) -> Option<String> {
+        self.database
+            .reader()
+            .query_row(
+                "SELECT status FROM mcp_mutation_receipts WHERE client_idempotency_key = ?1",
+                params![key.as_str()],
+                |row| row.get(0),
+            )
+            .optional()
+            .expect("the test reads the receipt")
+    }
+
+    fn count(&self, sql: &str) -> i64 {
+        self.database
+            .reader()
+            .query_row(sql, [], |row| row.get(0))
+            .expect("the test counts the rows")
+    }
+
+    fn run(&self, sql: &str) {
+        self.database
+            .reader()
+            .execute_batch(sql)
+            .expect("the test changes the database");
+    }
+}
+
+/// Two calls under one key at once, the second with another request: the provider is written
+/// once, the first lands and the second answers the key's conflict. Killed by the saved check
+/// removed, by the key's lock removed, and by the key compared without the request.
+#[tokio::test]
+async fn a_same_key_retry_with_another_request_conflicts_after_one_write() {
+    let provider = first_provider();
+    let driver = scripted_driver(
+        &provider,
+        &[],
+        McpServerWriteOutcome::Applied {
+            reload_failure: None,
+        },
+        1,
+    );
+    let fixture = Fixture::new(driver, None).await;
+    let key = idempotency_key();
+
+    let (first, second) = tokio::join!(
+        fixture
+            .service
+            .upsert(upsert(&provider, &key, "docs", "npx")),
+        fixture
+            .service
+            .upsert(upsert(&provider, &key, "docs", "uvx")),
+    );
+
+    let mut codes = vec![code(&first), code(&second)];
+    codes.sort_by_key(Option::is_some);
+    assert_eq!(
+        codes,
+        vec![None, Some(RefusalCode::McpServerIdempotencyConflict)]
+    );
+    assert_eq!(fixture.receipt_status(&key).as_deref(), Some("committed"));
+}
+
+/// A write that lands while its receipt's commit is refused leaves the receipt `pending` and
+/// writes no binding row; the start's pass then commits it once, as landed, with its row and no
+/// second write. Killed by a commit apart from the binding's row, and by a pass that skips the
+/// receipt.
+#[tokio::test]
+async fn a_landed_write_whose_commit_failed_is_committed_by_the_start() {
+    let provider = first_provider();
+    let driver = scripted_driver(
+        &provider,
+        &[],
+        McpServerWriteOutcome::Applied {
+            reload_failure: None,
+        },
+        1,
+    );
+    let fixture = Fixture::new(driver, None).await;
+    let key = idempotency_key();
+    fixture.run(FAIL_COMMITS_SQL);
+
+    let answer = fixture
+        .service
+        .upsert(upsert(&provider, &key, "docs", "npx"))
+        .await;
+
+    assert_eq!(code(&answer), Some(RefusalCode::McpBindingStoreUnavailable));
+    assert_eq!(fixture.receipt_status(&key).as_deref(), Some("pending"));
+    assert_eq!(fixture.count("SELECT count(*) FROM mcp_server_bindings"), 0);
+
+    fixture.run("DROP TRIGGER fail_commits");
+    fixture.service.settle_pending();
+    settled(&fixture.service.pending).await;
+
+    assert_eq!(fixture.receipt_status(&key).as_deref(), Some("committed"));
+    assert_eq!(fixture.count("SELECT count(*) FROM mcp_server_bindings"), 1);
+    let retry = fixture
+        .service
+        .upsert(upsert(&provider, &key, "docs", "npx"))
+        .await
+        .expect("the retry answers the settled change");
+    assert_eq!(retry.applied, McpApplicationGrade::UserConfigWrite);
+}
+
+/// With the keychain refusing reads, each mutation fails closed before it writes a receipt,
+/// mints a key or reaches the provider, whose driver answers no call. Killed by a receipt begun
+/// or a driver called before the receipt key is read.
+#[tokio::test]
+async fn every_mutation_reads_the_receipt_key_first() {
+    let provider = first_provider();
+    let fixture = Fixture::new(MockProviderDriver::new(), None).await;
+    fixture
+        .keychain
+        .set_read_refusal(Some(KeychainRefusalCause::Locked));
+
+    let upserted = fixture
+        .service
+        .upsert(upsert(&provider, &idempotency_key(), "docs", "npx"))
+        .await;
+    let deleted = fixture
+        .service
+        .delete(delete(&provider, &idempotency_key(), "docs"))
+        .await;
+    let switched = fixture
+        .service
+        .set_enabled(switch_off(&provider, &idempotency_key(), "docs"))
+        .await;
+
+    for answer in [code(&upserted), code(&deleted), code(&switched)] {
+        assert_eq!(answer, Some(RefusalCode::McpBindingStoreUnavailable));
+    }
+    assert_eq!(
+        fixture.count("SELECT count(*) FROM mcp_mutation_receipts"),
+        0
+    );
+    assert_eq!(fixture.keychain.writes(), 0);
+}
+
+/// A provider's definite refusal commits the receipt with it, so a retry under the key answers
+/// the same refusal without a second write. Killed by the refused receipt deleted.
+#[tokio::test]
+async fn a_definite_refusal_is_saved_and_replayed() {
+    let provider = first_provider();
+    let driver = scripted_driver(
+        &provider,
+        &[],
+        McpServerWriteOutcome::Refused(McpServerWriteRefusal::StaleVersion {
+            expected_version: "sha256:read".to_owned(),
+            current_version: "sha256:moved".to_owned(),
+        }),
+        1,
+    );
+    let fixture = Fixture::new(driver, None).await;
+    let key = idempotency_key();
+
+    let first = fixture
+        .service
+        .upsert(upsert(&provider, &key, "docs", "npx"))
+        .await;
+    let retry = fixture
+        .service
+        .upsert(upsert(&provider, &key, "docs", "npx"))
+        .await;
+
+    assert_eq!(
+        code(&first),
+        Some(RefusalCode::McpServerConfigWriteConflict)
+    );
+    assert_eq!(code(&retry), code(&first));
+    assert_eq!(
+        retry.err().map(|refusal| refusal.message),
+        first.err().map(|refusal| refusal.message)
+    );
+    assert_eq!(fixture.receipt_status(&key).as_deref(), Some("committed"));
+}
+
+/// A removal whose commit failed after the write is settled by the start's pass with the removal
+/// port's rows in the receipt's own write, as the live removal writes them. Killed by the settler
+/// committing without the port's rows.
+#[tokio::test]
+async fn a_removal_settled_at_the_start_commits_the_ports_rows() {
+    let provider = first_provider();
+    let driver = scripted_driver(
+        &provider,
+        &["docs"],
+        McpServerWriteOutcome::Applied {
+            reload_failure: None,
+        },
+        1,
+    );
+    let marker: McpRemovalRows = Arc::new(|_key: &McpBindingKey| {
+        vec![WriteStatement {
+            sql: "INSERT INTO mcp_server_bindings (provider, scope, server_name,
+                    first_observed_at, updated_at)
+                  VALUES ('provider-a', 'user', 'marker', 't', 't')"
+                .into(),
+            bindings: StatementBindings::None,
+            expected_row_count: Some(1),
+        }]
+    });
+    let fixture = Fixture::new(driver, Some(marker)).await;
+    let key = idempotency_key();
+    let markers = "SELECT count(*) FROM mcp_server_bindings WHERE server_name = 'marker'";
+    fixture.run(FAIL_COMMITS_SQL);
+
+    let answer = fixture
+        .service
+        .delete(delete(&provider, &key, "docs"))
+        .await;
+
+    assert_eq!(code(&answer), Some(RefusalCode::McpBindingStoreUnavailable));
+    assert_eq!(fixture.count(markers), 0);
+
+    fixture.run("DROP TRIGGER fail_commits");
+    fixture.service.settle_pending();
+    settled(&fixture.service.pending).await;
+
+    assert_eq!(fixture.receipt_status(&key).as_deref(), Some("committed"));
+    assert_eq!(fixture.count(markers), 1);
+}
+
+/// Two first mutations under two keys at once, with no receipt key made yet: one key is made
+/// and both land. Killed by the key made without its lock.
+#[tokio::test]
+async fn two_first_mutations_make_one_receipt_key() {
+    let provider = first_provider();
+    let driver = scripted_driver(
+        &provider,
+        &[],
+        McpServerWriteOutcome::Applied {
+            reload_failure: None,
+        },
+        2,
+    );
+    let fixture = Fixture::new(driver, None).await;
+    let (docs_key, mail_key) = (idempotency_key(), idempotency_key());
+
+    let (docs, mail) = tokio::join!(
+        fixture
+            .service
+            .upsert(upsert(&provider, &docs_key, "docs", "npx")),
+        fixture
+            .service
+            .upsert(upsert(&provider, &mail_key, "mail", "npx")),
+    );
+
+    assert_eq!((code(&docs), code(&mail)), (None, None));
+    assert_eq!(fixture.keychain.writes(), 1);
+    assert_eq!(
+        fixture.receipt_status(&docs_key).as_deref(),
+        Some("committed")
+    );
+    assert_eq!(
+        fixture.receipt_status(&mail_key).as_deref(),
+        Some("committed")
+    );
+}

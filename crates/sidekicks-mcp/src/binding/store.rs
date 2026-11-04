@@ -400,10 +400,6 @@ pub(crate) fn record_binding_statement(key: &McpBindingKey) -> WriteStatement {
 
 /// The statement that deletes `key`'s binding row, its tool overrides and per-project switches
 /// with it; a binding with no row deletes nothing and is not refused.
-#[expect(
-    dead_code,
-    reason = "the mutation service commits a removal with its receipt"
-)]
 pub(crate) fn remove_binding_statement(key: &McpBindingKey) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(REMOVE_BINDING_SQL),
@@ -414,13 +410,6 @@ pub(crate) fn remove_binding_statement(key: &McpBindingKey) -> WriteStatement {
 
 /// The statement that sets the daemon's switch over `key`'s binding to `is_enabled`, writing the
 /// binding's row where it has none.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the mutation service commits a switch with its receipt"
-    )
-)]
 pub(crate) fn enabled_override_statement(key: &McpBindingKey, is_enabled: bool) -> WriteStatement {
     let mut bindings = key_bindings(key);
     bindings.push((Cow::Borrowed("@enabled"), SqliteValue::from(is_enabled)));
@@ -434,10 +423,6 @@ pub(crate) fn enabled_override_statement(key: &McpBindingKey, is_enabled: bool) 
 /// The statements that switch `key`'s binding on or off for `project_root`: switched off, the
 /// binding's row where it has none and the project's switch row; switched on, that switch row
 /// deleted.
-#[expect(
-    dead_code,
-    reason = "the mutation service commits a project's switch with its receipt"
-)]
 pub(crate) fn project_switch_statements(
     key: &McpBindingKey,
     project_root: &PlacedPath,

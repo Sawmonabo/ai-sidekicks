@@ -13,7 +13,7 @@ pub mod client;
 pub(crate) mod command_receipts;
 pub mod errors;
 pub mod inventory_service;
-pub(crate) mod mutation;
+pub mod mutation;
 pub mod oauth;
 pub mod registry_search;
 pub mod schema;
