@@ -42,6 +42,12 @@ const PROJECT_SETTINGS_SOURCE: &str = "projectSettings";
 const LOCAL_SETTINGS_SOURCE: &str = "localSettings";
 const POLICY_SETTINGS_SOURCE: &str = "policySettings";
 
+// The members of a stored hook that hold what it runs: a command's, a prompt's or an agent's, and
+// an HTTP hook's address.
+const HOOK_COMMAND_MEMBERS: [&str; 3] = ["command", "prompt", "url"];
+// The member of an HTTP hook holding its headers, whose values a listing blanks.
+const HOOK_HEADERS_MEMBER: &str = "headers";
+
 /// The hooks a process listed, and every settings file the daemon could not read while naming the
 /// file each hook came from; a hook from such a tier names no file.
 #[derive(Debug)]
@@ -88,13 +94,17 @@ struct HookRow {
     editable: Option<EditableRow>,
 }
 
-// The entry as its settings file stores it: its raw matcher and the hook object itself.
+// The entry as its settings file stores it: its raw matcher and the hook object itself, whose
+// header values Claude Code blanks where it says so.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct EditableRow {
     #[serde(default, deserialize_with = "read_lenient")]
     matcher: Option<String>,
     #[serde(default)]
     config: Option<Value>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    headers_redacted: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -198,12 +208,15 @@ pub(crate) async fn read_claude_hook_listing(
         let file = match listed.hook.source.as_str() {
             USER_SETTINGS_SOURCE => Some(sources.account_settings_file),
             PROJECT_SETTINGS_SOURCE => Some(shared_settings_file.as_path()),
+            // The local pair is every file Claude Code reads for its tier, so the only one present
+            // holds the hook. The policy tier also takes managed sources the daemon never reads,
+            // which can leave a lone managed file's hooks unloaded, so it names only a holder.
             LOCAL_SETTINGS_SOURCE => local_files
                 .as_deref()
-                .and_then(|files| pick_source_file(files, listed)),
+                .and_then(|files| pick_source_file(files, listed, true)),
             POLICY_SETTINGS_SOURCE => managed_files
                 .as_deref()
-                .and_then(|files| pick_source_file(files, listed)),
+                .and_then(|files| pick_source_file(files, listed, false)),
             _ => None,
         };
         listed.hook.source_path =
@@ -262,29 +275,55 @@ fn read_policy(row: &PolicyRow) -> Option<ProviderHookPolicy> {
     })
 }
 
-// The one file of a tier's `files` the hook came from: the only one present, or else the only one
-// whose `hooks.<event>` holds the hook's stored entry; `None` where no single file can be named.
+// The one file of a tier's `files` the hook came from: the only one present where `files` are
+// every file Claude Code reads for the tier, or else the only one that holds the hook; `None` where
+// no single file can be named.
 fn pick_source_file<'files>(
     files: &'files [(PathBuf, Map<String, Value>)],
     listed: &ListedHook,
+    is_every_candidate: bool,
 ) -> Option<&'files Path> {
-    if let [(only, _)] = files {
+    if is_every_candidate && let [(only, _)] = files {
         return Some(only);
     }
-    let editable = listed.editable.as_ref()?;
-    let matcher = editable.matcher.as_deref()?;
-    let config = editable.config.as_ref()?;
-    let event = listed.hook.event.as_str();
     let mut holding = files
         .iter()
-        .filter(|(_, settings)| holds_hook(settings, event, matcher, config));
+        .filter(|(_, settings)| holds_listed_hook(settings, listed));
     let (file, _) = holding.next()?;
     holding.next().is_none().then_some(file.as_path())
 }
 
+// Whether `settings` holds the listed hook under `hooks.<event>`: its stored entry where the row
+// carries one, else an entry with the row's matcher holding a hook that runs the row's command
+// text, which never matches text whose control characters Claude Code made visible.
+fn holds_listed_hook(settings: &Map<String, Value>, listed: &ListedHook) -> bool {
+    let event = listed.hook.event.as_str();
+    let Some(editable) = &listed.editable else {
+        let command_text = listed.hook.command_text.as_str();
+        return holds_hook(settings, event, listed.hook.matcher.as_str(), |hook| {
+            HOOK_COMMAND_MEMBERS
+                .iter()
+                .any(|member| hook.get(member).and_then(Value::as_str) == Some(command_text))
+        });
+    };
+    let (Some(matcher), Some(config)) = (editable.matcher.as_deref(), editable.config.as_ref())
+    else {
+        return false;
+    };
+    let is_headers_redacted = editable.headers_redacted == Some(true);
+    holds_hook(settings, event, matcher, |hook| {
+        is_stored_hook(hook, config, is_headers_redacted)
+    })
+}
+
 // Whether `settings` stores, under `hooks.<event>`, an entry whose matcher (`''` where it has none)
-// is `matcher` and whose hooks hold `config`.
-fn holds_hook(settings: &Map<String, Value>, event: &str, matcher: &str, config: &Value) -> bool {
+// is `matcher` and whose hooks hold one `is_hook` takes.
+fn holds_hook(
+    settings: &Map<String, Value>,
+    event: &str,
+    matcher: &str,
+    is_hook: impl Fn(&Value) -> bool,
+) -> bool {
     find_claude_setting(settings, &["hooks", event])
         .and_then(Value::as_array)
         .is_some_and(|entries| {
@@ -293,16 +332,34 @@ fn holds_hook(settings: &Map<String, Value>, event: &str, matcher: &str, config:
                     && entry
                         .get("hooks")
                         .and_then(Value::as_array)
-                        .is_some_and(|hooks| hooks.contains(config))
+                        .is_some_and(|hooks| hooks.iter().any(&is_hook))
             })
         })
+}
+
+// Whether `hook`, as a settings file stores it, is the listed `config`; where Claude Code blanked
+// the listed header values, every member but `headers` is compared.
+fn is_stored_hook(hook: &Value, config: &Value, is_headers_redacted: bool) -> bool {
+    if !is_headers_redacted {
+        return hook == config;
+    }
+    let without_headers = |hook: &Value| {
+        hook.as_object().map(|members| {
+            let mut members = members.clone();
+            members.remove(HOOK_HEADERS_MEMBER);
+            members
+        })
+    };
+    let hook = without_headers(hook);
+    hook.is_some() && hook == without_headers(config)
 }
 
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
+    use rstest::rstest;
     use serde_json::json;
     use serde_json::value::RawValue;
     use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -317,10 +374,65 @@ mod tests {
     use sidekicks_contracts::wire::text::{ComposedText, NulFreeText};
     use sidekicks_platforms::PathRules;
 
-    use super::read_claude_hook_listing;
+    use super::{ClaudeHookListing, read_claude_hook_listing};
     use crate::driver::claude::DESCRIPTOR;
     use crate::driver::claude::session::rules::{ClaudeProjectFolder, ClaudeRepository};
     use crate::driver::claude::session::settings_file::ClaudeSettingsSources;
+
+    // The folders a listing is read against, all in one scratch folder: the account's settings
+    // file, a home folder, an owned repository root, the working folder `work` inside it, and a
+    // managed folder.
+    struct ScratchTree {
+        _scratch: tempfile::TempDir,
+        account_settings_file: PathBuf,
+        home_folder: PathBuf,
+        repository_root: PathBuf,
+        working_folder: PathBuf,
+        managed_folder: PathBuf,
+    }
+
+    impl ScratchTree {
+        fn new() -> Self {
+            let scratch = tempfile::tempdir().expect("a scratch folder");
+            let repository_root = scratch.path().join("repository");
+            Self {
+                account_settings_file: scratch.path().join("account").join("settings.json"),
+                home_folder: scratch.path().join("home"),
+                working_folder: repository_root.join("work"),
+                repository_root,
+                managed_folder: scratch.path().join("managed"),
+                _scratch: scratch,
+            }
+        }
+
+        // The listing `reply` carries for `session_id`, read against this tree.
+        async fn read(
+            &self,
+            session_id: SessionId,
+            reply: &serde_json::Value,
+        ) -> ClaudeHookListing {
+            let common_git_folder = self.repository_root.join(".git");
+            let project_folder = ClaudeProjectFolder {
+                working_folder: &self.working_folder,
+                repository: Some(ClaudeRepository {
+                    root: &self.repository_root,
+                    common_git_folder: &common_git_folder,
+                    is_owned_by_user: true,
+                }),
+            };
+            let sources = ClaudeSettingsSources {
+                managed_settings_folder: Some(&self.managed_folder),
+                project_folder: &project_folder,
+                home_folder: &self.home_folder,
+                account_settings_file: &self.account_settings_file,
+                path_rules: PathRules::NATIVE,
+            };
+            let reply = RawValue::from_string(reply.to_string()).expect("the reply is JSON");
+            read_claude_hook_listing(session_id, Some(&reply), &sources)
+                .await
+                .expect("the reply holds a listing")
+        }
+    }
 
     // Writes `contents` to `file`, making its folder.
     fn write_settings(file: &Path, contents: &serde_json::Value) {
@@ -337,92 +449,103 @@ mod tests {
         FilesystemPath::new(file.to_string_lossy().into_owned()).expect("a scratch path fits")
     }
 
+    fn session_id() -> SessionId {
+        SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id")
+    }
+
+    // A policy that keeps every hook running.
+    fn running_policy() -> serde_json::Value {
+        json!({"disabledByPolicy": false, "managedOnly": false, "pluginOnly": false,
+               "allDisabled": false, "policyHookCount": 0})
+    }
+
+    // The file each listed hook names, in the listing's order.
+    fn listed_source_paths(listing: &ClaudeHookListing) -> Vec<Option<FilesystemPath>> {
+        let SessionHookListResponse::ByEvent { hooks, .. } = &listing.response else {
+            panic!("a Claude Code listing is by event");
+        };
+        hooks.iter().map(|hook| hook.source_path.clone()).collect()
+    }
+
     // Killed by a closed parse of `type`, by the `sourceLabel` or its `~` taken as the path, by a
     // plugin hook named at a fixed `hooks/hooks.json`, by a local hook always named at the resolved
-    // local file, by a managed hook always named at `managed-settings.json` while a drop-in sits
-    // beside it, by a hook with an empty command listed, or by a policy or error member dropped.
+    // local file, by an HTTP hook whose listed header values are compared with the stored ones, by
+    // a managed hook always named at `managed-settings.json` while a drop-in sits beside it, by a
+    // hook with an empty command listed, or by a policy or error member dropped.
     #[tokio::test]
     async fn a_listed_hook_keeps_its_words_and_names_the_file_it_came_from() {
-        let scratch = tempfile::tempdir().expect("a scratch folder");
-        let account_settings_file = scratch.path().join("account").join("settings.json");
-        let home_folder = scratch.path().join("home");
-        let repository_root = scratch.path().join("repository");
-        let working_folder = repository_root.join("work");
-        let managed_folder = scratch.path().join("managed");
+        let tree = ScratchTree::new();
         let stored_hook = json!({"type": "command", "command": "./check.sh"});
-        write_settings(&account_settings_file, &json!({"hooks": {}}));
+        let stored_http_hook = json!({"type": "http", "url": "https://example.test/notify",
+                                      "headers": {"Authorization": "Bearer stored"}});
+        write_settings(&tree.account_settings_file, &json!({"hooks": {}}));
         write_settings(
-            &repository_root.join(".claude").join("settings.local.json"),
+            &tree
+                .repository_root
+                .join(".claude")
+                .join("settings.local.json"),
             &json!({"hooks": {"PreToolUse": [
                 {"matcher": "Bash", "hooks": [{"type": "command", "command": "./other.sh"}]}
             ]}}),
         );
-        let working_local_settings = working_folder.join(".claude").join("settings.local.json");
+        let working_local_settings = tree
+            .working_folder
+            .join(".claude")
+            .join("settings.local.json");
         write_settings(
             &working_local_settings,
-            &json!({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [stored_hook]}]}}),
+            &json!({"hooks": {
+                "PreToolUse": [{"matcher": "Bash", "hooks": [stored_hook]}],
+                "Notification": [{"hooks": [stored_http_hook]}]
+            }}),
         );
         write_settings(
-            &managed_folder.join("managed-settings.json"),
+            &tree.managed_folder.join("managed-settings.json"),
             &json!({"hooks": {}}),
         );
         write_settings(
-            &managed_folder.join("managed-settings.d").join("a.json"),
+            &tree
+                .managed_folder
+                .join("managed-settings.d")
+                .join("a.json"),
             &json!({"hooks": {}}),
         );
-        let common_git_folder = repository_root.join(".git");
-        let project_folder = ClaudeProjectFolder {
-            working_folder: &working_folder,
-            repository: Some(ClaudeRepository {
-                root: &repository_root,
-                common_git_folder: &common_git_folder,
-                is_owned_by_user: true,
-            }),
-        };
-        let sources = ClaudeSettingsSources {
-            managed_settings_folder: Some(&managed_folder),
-            project_folder: &project_folder,
-            home_folder: &home_folder,
-            account_settings_file: &account_settings_file,
-            path_rules: PathRules::NATIVE,
-        };
-        let reply = RawValue::from_string(
-            json!({
-                "events": [],
-                "eventCatalog": [],
-                "hooks": [
-                    {"event": "Stop", "matcher": "", "source": "userSettings",
-                     "sourceLabel": "User settings (~/.claude/settings.json)",
-                     "type": "webhook_v9", "commandText": "https://example.test/stop",
-                     "timeout": 1.5, "statusMessage": "Telling the hook",
-                     "editable": {"matcher": "", "config": {"type": "webhook_v9"}}},
-                    {"event": "PostToolUse", "matcher": "Edit", "source": "pluginHook",
-                     "sourceLabel": "Plugin", "pluginName": "formatter", "type": "command",
-                     "commandText": "format.sh", "disabled": true},
-                    {"event": "PreToolUse", "matcher": "Bash", "source": "localSettings",
-                     "sourceLabel": "Local settings", "type": "command",
-                     "commandText": "./check.sh",
-                     "editable": {"matcher": "Bash", "config": stored_hook}},
-                    {"event": "SessionStart", "matcher": "", "source": "policySettings",
-                     "sourceLabel": "Managed settings", "type": "command",
-                     "commandText": "audit.sh", "timeout": 0},
-                    {"event": "Stop", "matcher": "", "source": "projectSettings",
-                     "sourceLabel": "Project settings", "type": "command", "commandText": ""}
-                ],
-                "errors": [{"file": "/broken/settings.json", "path": "hooks.Stop",
-                            "message": "Expected an array"}],
-                "policy": {"disabledByPolicy": false, "managedOnly": true, "pluginOnly": false,
-                           "allDisabled": true, "policyHookCount": 2, "policyUnreadable": true}
-            })
-            .to_string(),
-        )
-        .expect("the reply is JSON");
-        let session_id =
-            SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+        let reply = json!({
+            "events": [],
+            "eventCatalog": [],
+            "hooks": [
+                {"event": "Stop", "matcher": "", "source": "userSettings",
+                 "sourceLabel": "User settings (~/.claude/settings.json)",
+                 "type": "webhook_v9", "commandText": "https://example.test/stop",
+                 "timeout": 1.5, "statusMessage": "Telling the hook",
+                 "editable": {"matcher": "", "config": {"type": "webhook_v9"}}},
+                {"event": "PostToolUse", "matcher": "Edit", "source": "pluginHook",
+                 "sourceLabel": "Plugin", "pluginName": "formatter", "type": "command",
+                 "commandText": "format.sh", "disabled": true},
+                {"event": "PreToolUse", "matcher": "Bash", "source": "localSettings",
+                 "sourceLabel": "Local settings", "type": "command",
+                 "commandText": "./check.sh",
+                 "editable": {"matcher": "Bash", "config": stored_hook}},
+                {"event": "Notification", "matcher": "", "source": "localSettings",
+                 "sourceLabel": "Local settings", "type": "http",
+                 "commandText": "https://example.test/notify",
+                 "editable": {"matcher": "", "headersRedacted": true,
+                              "config": {"type": "http", "url": "https://example.test/notify",
+                                         "headers": {"Authorization": ""}}}},
+                {"event": "SessionStart", "matcher": "", "source": "policySettings",
+                 "sourceLabel": "Managed settings", "type": "command",
+                 "commandText": "audit.sh", "timeout": 0},
+                {"event": "Stop", "matcher": "", "source": "projectSettings",
+                 "sourceLabel": "Project settings", "type": "command", "commandText": ""}
+            ],
+            "errors": [{"file": "/broken/settings.json", "path": "hooks.Stop",
+                        "message": "Expected an array"}],
+            "policy": {"disabledByPolicy": false, "managedOnly": true, "pluginOnly": false,
+                       "allDisabled": true, "policyHookCount": 2, "policyUnreadable": true}
+        });
+        let session_id = session_id();
 
-        let listing = read_claude_hook_listing(session_id, Some(&reply), &sources)
-            .await
-            .expect("the reply holds a listing");
+        let listing = tree.read(session_id, &reply).await;
 
         let hook = |event: &str, matcher: &str, source: &str, hook_type: &str, command: &str| {
             SessionProviderEventHook {
@@ -446,7 +569,7 @@ mod tests {
                 SessionProviderEventHook {
                     status_message: Some(text("Telling the hook")),
                     timeout_seconds: PositiveNumber::new(1.5),
-                    source_path: Some(file_path(&account_settings_file)),
+                    source_path: Some(file_path(&tree.account_settings_file)),
                     ..hook(
                         "Stop",
                         "",
@@ -470,6 +593,16 @@ mod tests {
                         "./check.sh",
                     )
                 },
+                SessionProviderEventHook {
+                    source_path: Some(file_path(&working_local_settings)),
+                    ..hook(
+                        "Notification",
+                        "",
+                        "localSettings",
+                        "http",
+                        "https://example.test/notify",
+                    )
+                },
                 hook("SessionStart", "", "policySettings", "command", "audit.sh"),
             ],
             errors: vec![ProviderHookSettingsError {
@@ -488,5 +621,74 @@ mod tests {
         };
         assert_eq!(listing.response, expected);
         assert!(listing.unread.is_empty());
+    }
+
+    // Killed by a lone managed file named without holding the hook, as when another managed source
+    // keeps that file's hooks from loading, or by a managed hook never named.
+    #[rstest]
+    #[case::holding("audit.sh", true)]
+    #[case::not_holding("other.sh", false)]
+    #[tokio::test]
+    async fn a_managed_hook_names_only_a_file_that_holds_it(
+        #[case] stored_command: &str,
+        #[case] is_named: bool,
+    ) {
+        let tree = ScratchTree::new();
+        let managed_settings = tree.managed_folder.join("managed-settings.json");
+        write_settings(
+            &managed_settings,
+            &json!({"hooks": {"SessionStart": [
+                {"hooks": [{"type": "command", "command": stored_command}]}
+            ]}}),
+        );
+        let reply = json!({
+            "hooks": [{"event": "SessionStart", "matcher": "", "source": "policySettings",
+                       "type": "command", "commandText": "audit.sh"}],
+            "policy": running_policy()
+        });
+
+        let listing = tree.read(session_id(), &reply).await;
+
+        let named = is_named.then(|| file_path(&managed_settings));
+        assert_eq!(listed_source_paths(&listing), vec![named]);
+        assert!(listing.unread.is_empty());
+    }
+
+    // Killed by a local file that fails to read left out of `unread`, or by the tier's other file
+    // named although the one that failed may hold the hook.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_tier_with_a_file_that_fails_to_read_names_no_file() {
+        let tree = ScratchTree::new();
+        let stored_hook = json!({"type": "command", "command": "./check.sh"});
+        // A folder where the file belongs fails to read as one, which is no absence.
+        let root_local_settings = tree
+            .repository_root
+            .join(".claude")
+            .join("settings.local.json");
+        fs::create_dir_all(&root_local_settings).expect("the folder is made");
+        write_settings(
+            &tree
+                .working_folder
+                .join(".claude")
+                .join("settings.local.json"),
+            &json!({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [stored_hook]}]}}),
+        );
+        let reply = json!({
+            "hooks": [{"event": "PreToolUse", "matcher": "Bash", "source": "localSettings",
+                       "type": "command", "commandText": "./check.sh",
+                       "editable": {"matcher": "Bash", "config": stored_hook}}],
+            "policy": running_policy()
+        });
+
+        let listing = tree.read(session_id(), &reply).await;
+
+        assert_eq!(listed_source_paths(&listing), vec![None]);
+        let unread: Vec<&Path> = listing
+            .unread
+            .iter()
+            .map(|unread| unread.path.as_path())
+            .collect();
+        assert_eq!(unread, vec![root_local_settings.as_path()]);
     }
 }
