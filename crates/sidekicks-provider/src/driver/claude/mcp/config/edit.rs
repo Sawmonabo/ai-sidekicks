@@ -39,6 +39,13 @@ const SERVERS_FILE_TRIES: usize = 5;
 
 /// The config file an edit goes to.
 #[derive(Clone, Debug)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the Claude driver's MCP write method names the file it edits"
+    )
+)]
 pub(super) enum ClaudeEditTarget {
     /// The person's own config, its `user` servers at `mcpServers` and a project's `local` ones
     /// under `projects.<project_key>.mcpServers`; edited under Claude Code's lock.
@@ -58,6 +65,10 @@ pub(super) enum ClaudeEditTarget {
 
 /// What an edit does to the binding's entry.
 #[derive(Clone, Debug, PartialEq)]
+#[expect(
+    dead_code,
+    reason = "the Claude driver's MCP write method sets and removes entries with it"
+)]
 pub(super) enum ClaudeEntryEdit {
     /// Writes the entry whole in place of the one held.
     Set(McpServerEntry),
@@ -376,20 +387,18 @@ mod tests {
     };
 
     // One row of the guarded edit: how the file stands and what happens to it during the edit.
-    #[derive(Default)]
-    struct GuardRow {
-        // The edit goes to a project's `.mcp.json`, not the person's config.
-        is_servers_file: bool,
-        // The config is a link to the file that holds it.
-        is_linked: bool,
-        // Another writer holds Claude Code's lock, its folder fresh.
-        is_lock_held: bool,
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum GuardRow {
+        // Another writer rewrites the person's config, at its length, just before the rename.
+        AnotherWriter,
+        // Another writer rewrites a project's `.mcp.json` just before every rename.
+        ChangingServersFile,
         // The file's entry differs from the one observed.
-        is_entry_changed: bool,
-        // Another writer rewrites the file, at its length, just before each rename.
-        is_file_rewritten: bool,
-        // How often a rename comes due.
-        renames_due: usize,
+        ChangedEntry,
+        // The person's config is a link to the file that holds it.
+        LinkedConfig,
+        // Another writer holds Claude Code's lock, its folder fresh.
+        HeldLock,
     }
 
     // The file's bytes holding `entry` and one member the edit never touches, numbered `startups`.
@@ -408,40 +417,47 @@ mod tests {
     // reset, and a `.mcp.json` edit tried other than five times.
     #[rstest]
     #[case::another_writer_before_the_rename(
-        GuardRow { is_file_rewritten: true, renames_due: 1, ..GuardRow::default() },
+        GuardRow::AnotherWriter,
+        1,
         McpServerWriteOutcome::Refused(McpServerWriteRefusal::ProjectFileChanged)
     )]
     #[case::a_servers_file_that_keeps_changing(
-        GuardRow {
-            is_servers_file: true, is_file_rewritten: true, renames_due: 5, ..GuardRow::default()
-        },
+        GuardRow::ChangingServersFile,
+        5,
         McpServerWriteOutcome::Refused(McpServerWriteRefusal::ProjectFileChanged)
     )]
     #[case::an_entry_changed_since_observed(
-        GuardRow { is_entry_changed: true, ..GuardRow::default() },
+        GuardRow::ChangedEntry,
+        0,
         McpServerWriteOutcome::Refused(McpServerWriteRefusal::EntryChanged)
     )]
     #[case::a_linked_config(
-        GuardRow { is_linked: true, renames_due: 1, ..GuardRow::default() },
+        GuardRow::LinkedConfig,
+        1,
         McpServerWriteOutcome::Applied { reload_failure: None }
     )]
     #[case::a_held_lock(
-        GuardRow { is_lock_held: true, ..GuardRow::default() },
+        GuardRow::HeldLock,
+        0,
         McpServerWriteOutcome::Refused(McpServerWriteRefusal::ConfigFileBusy)
     )]
     #[tokio::test(start_paused = true)]
     async fn the_edit_lands_only_on_the_entry_and_file_it_read(
         #[case] row: GuardRow,
+        #[case] renames_due_expected: usize,
         #[case] expected: McpServerWriteOutcome,
     ) {
+        let is_servers_file = row == GuardRow::ChangingServersFile;
+        let is_file_rewritten =
+            matches!(row, GuardRow::AnotherWriter | GuardRow::ChangingServersFile);
         let home = tempfile::tempdir().unwrap();
-        let name = if row.is_servers_file {
+        let name = if is_servers_file {
             ".mcp.json"
         } else {
             ".claude.json"
         };
         let config = home.path().join(name);
-        let file = if row.is_linked {
+        let file = if row == GuardRow::LinkedConfig {
             let file = home.path().join("dotfiles").join("claude.json");
             fs::create_dir(home.path().join("dotfiles")).unwrap();
             make_file_link(&file, &config).unwrap();
@@ -450,7 +466,7 @@ mod tests {
             config.clone()
         };
         let observed = json!({"command": "npx"});
-        let held = if row.is_entry_changed {
+        let held = if row == GuardRow::ChangedEntry {
             json!({"command": "other"})
         } else {
             observed.clone()
@@ -459,7 +475,7 @@ mod tests {
         write_file_atomically(&file, read_bytes.clone(), 0o600)
             .await
             .unwrap();
-        if row.is_lock_held {
+        if row == GuardRow::HeldLock {
             fs::create_dir(home.path().join(format!("{name}.lock"))).unwrap();
         }
         // Another writer's bytes, as long as the ones read, so only the time tells them apart.
@@ -468,7 +484,6 @@ mod tests {
         let on_rename_due = {
             let (file, other_bytes) = (file.clone(), other_bytes.clone());
             let renames_due = Arc::clone(&renames_due);
-            let is_file_rewritten = row.is_file_rewritten;
             move || {
                 let due = renames_due.fetch_add(1, Ordering::SeqCst);
                 if is_file_rewritten {
@@ -479,7 +494,7 @@ mod tests {
                 }
             }
         };
-        let target = if row.is_servers_file {
+        let target = if is_servers_file {
             ClaudeEditTarget::ProjectServersFile {
                 path: config.clone(),
             }
@@ -502,7 +517,7 @@ mod tests {
         .await;
 
         assert_eq!(outcome, expected);
-        assert_eq!(renames_due.load(Ordering::SeqCst), row.renames_due);
+        assert_eq!(renames_due.load(Ordering::SeqCst), renames_due_expected);
         let after = fs::read(&file).unwrap();
         match expected {
             McpServerWriteOutcome::Applied { .. } => {
@@ -515,7 +530,7 @@ mod tests {
                 assert!(fs::symlink_metadata(&config).unwrap().is_symlink());
             }
             McpServerWriteOutcome::Refused(_) | McpServerWriteOutcome::Unknown => {
-                let kept = if row.is_file_rewritten {
+                let kept = if is_file_rewritten {
                     other_bytes
                 } else {
                     read_bytes
