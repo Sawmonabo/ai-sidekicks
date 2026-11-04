@@ -23,11 +23,11 @@ use sidekicks_std::mutex_lock::lock;
 use super::{
     ClaudeHeldHelper, ClaudeRequestRoute, ClaudeShellCall, HookToolInput,
     UNTIMED_BACKGROUND_REASON, answer_background_work_check, helper_start_refused_reason,
-    route_claude_request, route_helper_start, route_message_target,
+    route_claude_request, route_helper_start, route_helper_wake, route_message_target,
 };
 use crate::background_work::BackgroundWorkForms;
 use crate::driver::PROVIDERS;
-use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
+use crate::driver::claude::hooks::helper_limit::{ClaudeHelperLimit, OneHelperAtOnce};
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudeRunPauses};
 use crate::driver::claude::hooks::registration::ClaudeHookCallback as RegisteredHook;
@@ -40,10 +40,12 @@ use crate::driver::test_registry::fixed_session_id;
 use crate::port::agent_tree_lookup::{AgentTreeHelper, AgentTreeLookup};
 use crate::run::posture::{compose_execution_posture, resolve_posture};
 
-// Routes one pre-tool callback for `tool_name`, called by the helper `agent_id` or the lead,
-// its input naming the recipient `to` when given.
-fn route_pre_tool_call(
+// Routes one pre-tool callback of `hook` for `tool_name`, called by the helper `agent_id` or the
+// lead, its input naming the recipient `to` when given; the call's id is the request's.
+fn route_hook_call(
+    hook: RegisteredHook,
     pauses: &Mutex<ClaudeRunPauses>,
+    helpers: &Mutex<ClaudeHelperLimit>,
     tool_name: &str,
     agent_id: Option<&str>,
     to: Option<&str>,
@@ -59,7 +61,7 @@ fn route_pre_tool_call(
     let event = ClaudeInboundRequestEvent::Request(ClaudeInboundRequest {
         request_id: request_id.to_owned(),
         body: ClaudeInboundRequestBody::HookCallback(ClaudeHookCallback {
-            callback_id: Some(RegisteredHook::PauseBeforeTool.id().to_owned()),
+            callback_id: Some(hook.id().to_owned()),
             tool_use_id: None,
             input: Some(RawValue::from_string(input.to_string()).expect("a JSON input")),
         }),
@@ -69,7 +71,7 @@ fn route_pre_tool_call(
         &fixed_session_id(),
         Some(PermissionLevel::Sandboxed),
         &mut lock(pauses),
-        &mut ClaudeHelperLimit::default(),
+        &mut lock(helpers),
         &mut ClaudeHelperSteers::default(),
     )
 }
@@ -84,7 +86,15 @@ async fn route_start(
     let ClaudeRequestRoute::CheckHelperStart {
         request_id,
         agent_id,
-    } = route_pre_tool_call(pauses, "Agent", agent_id, None, request_id)
+    } = route_hook_call(
+        RegisteredHook::PauseBeforeTool,
+        pauses,
+        &Mutex::default(),
+        "Agent",
+        agent_id,
+        None,
+        request_id,
+    )
     else {
         panic!("a helper start goes to the check");
     };
@@ -192,7 +202,15 @@ async fn a_helper_start_is_denied_where_the_sandboxed_root_is_gone_and_a_shell_c
     );
 
     assert!(matches!(
-        route_pre_tool_call(&pauses, "Bash", None, None, "r2"),
+        route_hook_call(
+            RegisteredHook::PauseBeforeTool,
+            &pauses,
+            &Mutex::default(),
+            "Bash",
+            None,
+            None,
+            "r2",
+        ),
         ClaudeRequestRoute::Answer {
             answer: ClaudeHookAnswer::Pass,
             ..
@@ -234,31 +252,30 @@ async fn a_resolvable_posture_passes_a_helper_start_and_a_paused_helpers_start_i
 const CALLER: &str = "helper-caller";
 const TARGET: &str = "helper-target";
 
-/// The session's agent tree as one stored helper whose newest own run stopped with its
-/// trigger, or a read that fails.
-struct StoredStop(Result<Option<StopTrigger>, &'static str>);
+/// The session's agent tree as one stored helper, [`TARGET`], with its newest own run's state and
+/// stop trigger, or a read that fails; any other id finds none.
+struct StoredTarget(Result<(RunState, Option<StopTrigger>), &'static str>);
+
+/// [`TARGET`] stored running.
+const STORED_RUNNING: Result<(RunState, Option<StopTrigger>), &str> = Ok((RunState::Running, None));
 
 type Lookup<'a> = BoxFuture<'a, Result<Option<AgentTreeHelper>, Box<dyn Error + Send + Sync>>>;
 
-impl AgentTreeLookup for StoredStop {
+impl AgentTreeLookup for StoredTarget {
     fn helper_by_subagent_id(
         &self,
         _session_id: SessionId,
         _provider_name: ProviderId,
         subagent_id: String,
     ) -> Lookup<'_> {
-        let found = self.0.map(|trigger| {
-            Some(AgentTreeHelper {
+        let found = self.0.map(|(state, trigger)| {
+            (subagent_id == TARGET).then(|| AgentTreeHelper {
                 child_handle: ChildHandle::new("child-1".to_owned()).expect("a handle"),
                 subagent_id,
                 provider_path: None,
                 own_run_id: RunId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5e")
                     .expect("a valid run id"),
-                own_run_state: if trigger.is_some() {
-                    RunState::Stopped
-                } else {
-                    RunState::Running
-                },
+                own_run_state: state,
                 own_run_stop_trigger: trigger,
             })
         });
@@ -310,51 +327,56 @@ const UNREAD_CAUSE: &str = "the database is locked";
 // for the held one, by a running target denied, by a failed read passing, and by a stopped
 // caller answered with the target's sentence.
 #[rstest]
-#[case::lead_to_a_paused_helper(Caller::Lead, Target::Paused, Ok(None), Denial::Held)]
-#[case::lead_to_an_interrupted_helper(Caller::Lead, Target::Interrupted, Ok(None), Denial::Held)]
+#[case::lead_to_a_paused_helper(Caller::Lead, Target::Paused, STORED_RUNNING, Denial::Held)]
+#[case::lead_to_an_interrupted_helper(
+    Caller::Lead,
+    Target::Interrupted,
+    STORED_RUNNING,
+    Denial::Held
+)]
 #[case::paused_helper_to_a_paused_helper(
     Caller::PausedHelper,
     Target::Paused,
-    Ok(None),
+    STORED_RUNNING,
     Denial::Held
 )]
-#[case::lead_to_a_running_helper(Caller::Lead, Target::Running, Ok(None), Denial::None)]
+#[case::lead_to_a_running_helper(Caller::Lead, Target::Running, STORED_RUNNING, Denial::None)]
 #[case::lead_to_a_helper_stopped_with_all(
     Caller::Lead,
     Target::StoppedWithAll,
-    Ok(None),
+    STORED_RUNNING,
     Denial::StopAll
 )]
 #[case::lead_to_a_stored_stop_all(
     Caller::Lead,
     Target::Running,
-    Ok(Some(StopTrigger::StopAll)),
+    Ok((RunState::Stopped, Some(StopTrigger::StopAll))),
     Denial::StopAll
 )]
 #[case::lead_to_a_stored_token_limit_stop(
     Caller::Lead,
     Target::Running,
-    Ok(Some(StopTrigger::TokenLimit)),
+    Ok((RunState::Stopped, Some(StopTrigger::TokenLimit))),
     Denial::None
 )]
 #[case::lead_to_a_helper_stopped_at_its_limit(
     Caller::Lead,
     Target::StoppedAtLimit,
-    Ok(None),
+    STORED_RUNNING,
     Denial::None
 )]
 #[case::lead_when_the_read_fails(Caller::Lead, Target::Running, Err(UNREAD_CAUSE), Denial::Unread)]
 #[case::stopped_helper_to_a_paused_helper(
     Caller::StoppedHelper,
     Target::Paused,
-    Ok(None),
+    STORED_RUNNING,
     Denial::CallerAtLimit
 )]
 #[tokio::test]
 async fn a_message_aimed_at_a_held_or_finally_stopped_helper_is_denied(
     #[case] caller: Caller,
     #[case] target: Target,
-    #[case] stored: Result<Option<StopTrigger>, &'static str>,
+    #[case] stored: Result<(RunState, Option<StopTrigger>), &'static str>,
     #[case] denial: Denial,
 ) {
     let session_id = fixed_session_id();
@@ -388,13 +410,21 @@ async fn a_message_aimed_at_a_held_or_finally_stopped_helper_is_denied(
         request_id,
         agent_id,
         to,
-    } = route_pre_tool_call(&pauses, "SendMessage", agent_id, Some(TARGET), "r1")
+    } = route_hook_call(
+        RegisteredHook::PauseBeforeTool,
+        &pauses,
+        &Mutex::default(),
+        "SendMessage",
+        agent_id,
+        Some(TARGET),
+        "r1",
+    )
     else {
         panic!("a message naming its recipient goes to the check");
     };
 
     let route = route_message_target(
-        Some(Arc::new(StoredStop(stored))),
+        Some(Arc::new(StoredTarget(stored))),
         &pauses,
         &session_id,
         request_id,
@@ -418,4 +448,157 @@ async fn a_message_aimed_at_a_held_or_finally_stopped_helper_is_denied(
         reason,
     });
     assert_eq!(answer, expected);
+}
+
+/// How the helper limit answers a message call: a pass, a hold, or the failed read's denial.
+#[derive(Clone, Copy, Debug)]
+enum WakeAnswer {
+    Pass,
+    Held,
+    Unread,
+}
+
+// Routes one message call `request_id` aimed at `to` through the helper-limit hook and, where it
+// goes to the wake check, through that check over `tree`, as the session's task does.
+async fn route_wake(
+    one: &OneHelperAtOnce,
+    tree: Option<Result<(RunState, Option<StopTrigger>), &'static str>>,
+    to: Option<&str>,
+    request_id: &str,
+) -> ClaudeRequestRoute {
+    let pauses = Mutex::new(ClaudeRunPauses::default());
+    let route = route_hook_call(
+        RegisteredHook::HelperLimit,
+        &pauses,
+        &one.limit,
+        "SendMessage",
+        None,
+        to,
+        request_id,
+    );
+    let ClaudeRequestRoute::CheckHelperWake {
+        request_id,
+        tool_use_id,
+        to,
+    } = route
+    else {
+        return route;
+    };
+    let lookup = tree.map(|stored| Arc::new(StoredTarget(stored)) as Arc<dyn AgentTreeLookup>);
+    route_helper_wake(
+        lookup,
+        &one.limit,
+        &fixed_session_id(),
+        request_id,
+        &tool_use_id,
+        to,
+    )
+    .await
+}
+
+// Admits the helper start `request_id` through the helper-limit hook.
+fn admit_start(one: &OneHelperAtOnce, request_id: &str) {
+    let pauses = Mutex::new(ClaudeRunPauses::default());
+    assert!(matches!(
+        route_hook_call(
+            RegisteredHook::HelperLimit,
+            &pauses,
+            &one.limit,
+            "Agent",
+            None,
+            None,
+            request_id,
+        ),
+        ClaudeRequestRoute::Answer {
+            answer: ClaudeHookAnswer::Pass,
+            ..
+        }
+    ));
+}
+
+// With the one slot taken by a running helper, a message waking an ended helper waits like a new
+// start. Killed by the recipient unchecked (every message call held, or none), by the wake not
+// counted (an ended helper's wake passed), by a running helper's wake held, by a call with no
+// recipient or a helper the tree does not hold held, and by a failed read passing.
+#[rstest]
+#[case::completed_helper(Some(Ok((RunState::Completed, None))), Some(TARGET), WakeAnswer::Held)]
+#[case::interrupted_helper(Some(Ok((RunState::Interrupted, None))), Some(TARGET), WakeAnswer::Held)]
+#[case::running_helper(Some(STORED_RUNNING), Some(TARGET), WakeAnswer::Pass)]
+#[case::helper_the_tree_does_not_hold(
+    Some(Ok((RunState::Completed, None))),
+    Some("helper-unknown"),
+    WakeAnswer::Pass
+)]
+#[case::no_tree_registered(None, Some(TARGET), WakeAnswer::Pass)]
+#[case::no_recipient(Some(Ok((RunState::Completed, None))), None, WakeAnswer::Pass)]
+#[case::failed_read(Some(Err(UNREAD_CAUSE)), Some(TARGET), WakeAnswer::Unread)]
+#[tokio::test]
+async fn a_message_waking_an_ended_helper_counts_against_the_limit(
+    #[case] tree: Option<Result<(RunState, Option<StopTrigger>), &'static str>>,
+    #[case] to: Option<&str>,
+    #[case] expected: WakeAnswer,
+) {
+    let one = OneHelperAtOnce::new();
+    admit_start(&one, "start-1");
+    assert_eq!(
+        one.start_helper("helper-1", "start-1"),
+        Vec::<String>::new()
+    );
+
+    let route = route_wake(&one, tree, to, "wake-1").await;
+
+    match (expected, &route) {
+        (
+            WakeAnswer::Pass,
+            ClaudeRequestRoute::Answer {
+                request_id,
+                answer: ClaudeHookAnswer::Pass,
+            },
+        ) if request_id == "wake-1" => {}
+        (WakeAnswer::Held, ClaudeRequestRoute::Held { helper: None }) => {}
+        (
+            WakeAnswer::Unread,
+            ClaudeRequestRoute::Answer {
+                request_id,
+                answer: ClaudeHookAnswer::Deny { reason },
+            },
+        ) if request_id == "wake-1" && *reason == target_unread_reason(UNREAD_CAUSE) => {}
+        (expected, route) => panic!("expected {expected:?}, routed {route:?}"),
+    }
+}
+
+// Killed by release out of arrival order (the later start freed before the wake), by a held wake
+// never released, and by an admitted wake left counted after its helper's resume started and
+// ended.
+#[tokio::test]
+async fn a_held_wake_is_released_before_a_later_held_start_as_helpers_end() {
+    let one = OneHelperAtOnce::new();
+    admit_start(&one, "start-1");
+    assert_eq!(
+        one.start_helper("helper-1", "start-1"),
+        Vec::<String>::new()
+    );
+    let ended = Some(Ok((RunState::Completed, None)));
+    assert!(matches!(
+        route_wake(&one, ended, Some(TARGET), "wake-1").await,
+        ClaudeRequestRoute::Held { helper: None }
+    ));
+    let pauses = Mutex::new(ClaudeRunPauses::default());
+    assert!(matches!(
+        route_hook_call(
+            RegisteredHook::HelperLimit,
+            &pauses,
+            &one.limit,
+            "Agent",
+            None,
+            None,
+            "start-2",
+        ),
+        ClaudeRequestRoute::Held { helper: None }
+    ));
+
+    assert_eq!(one.end_helper("helper-1", "start-1"), ["wake-1"]);
+    // The woken helper's resume names the message call as its parent.
+    assert_eq!(one.start_helper(TARGET, "wake-1"), Vec::<String>::new());
+    assert_eq!(one.end_helper(TARGET, "wake-1"), ["start-2"]);
 }

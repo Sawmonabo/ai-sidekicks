@@ -1,7 +1,7 @@
 //! Routes each request a live Claude Code process sends: the daemon's own pause, helper-start,
-//! message-target, helper-limit and background-work hooks are answered here, and every other
-//! request (tool asks, dialogs, the question hook, a reviewer's block) goes on to the event side,
-//! which answers it or leaves it pending at the provider.
+//! message-target, helper-limit, helper-wake and background-work hooks are answered here, and
+//! every other request (tool asks, dialogs, the question hook, a reviewer's block) goes on to the
+//! event side, which answers it or leaves it pending at the provider.
 
 use std::sync::{Arc, Mutex};
 
@@ -81,6 +81,17 @@ pub(crate) enum ClaudeRequestRoute {
         /// The recipient the call names.
         to: String,
     },
+    /// Answer or hold it through [`route_helper_wake`], which reads whether the helper a message
+    /// call aims at has ended before the helper limit decides: a message call that names a
+    /// recipient, seen by the helper-limit hook.
+    CheckHelperWake {
+        /// The request's id.
+        request_id: String,
+        /// The message call's id, which the woken helper's start names as its parent.
+        tool_use_id: String,
+        /// The recipient the call names.
+        to: String,
+    },
     /// Hand it on to the event side: every request the daemon's hooks do not answer, and every
     /// withdrawal.
     Forward(ClaudeInboundRequestEvent),
@@ -155,11 +166,12 @@ lenient_object!(HookInput, HookToolInput);
 /// Routes one request event off a session's process, at the session's `level`: a withdrawal also
 /// withdraws a held pause or helper start; a call of the helper tool goes to the helper-start
 /// check, and a call of the message tool that names a recipient to the message-target check,
-/// before the pause decides; a pause or helper-limit callback is answered or held here; a
-/// helper's post-tool and stop callbacks carry its waiting words; the background-work callback is
-/// checked; the question hook goes on only at Sandboxed and the denial hook only at
-/// Reviewed, both registered at every level since a live process can move, and pass with no
-/// decision off them; anything else goes on.
+/// before the pause decides; a pause callback, and a helper-limit callback on the helper tool, is
+/// answered or held here, while one on the message tool that names a recipient goes to the
+/// helper-wake check and any other passes; a helper's post-tool and stop callbacks carry its
+/// waiting words; the background-work callback is checked; the question hook goes on only at
+/// Sandboxed and the denial hook only at Reviewed, both registered at every level since a live
+/// process can move, and pass with no decision off them; anything else goes on.
 pub(crate) fn route_claude_request(
     event: ClaudeInboundRequestEvent,
     session_id: &SessionId,
@@ -242,12 +254,20 @@ pub(crate) fn route_claude_request(
                 .or_else(|| input.and_then(|input| input.tool_use_id))
                 .filter(|id| !id.is_empty())
                 .unwrap_or_else(|| request.request_id.clone());
-            match helpers.answer_start(session_id, &request.request_id, &tool_use_id) {
-                ClaudeHelperStartAnswer::Admit => ClaudeRequestRoute::Answer {
+            if is_helper_start {
+                let answer = helpers.answer_start(session_id, &request.request_id, &tool_use_id);
+                return helper_limit_route(answer, request.request_id);
+            }
+            match message_to {
+                Some(to) => ClaudeRequestRoute::CheckHelperWake {
+                    request_id: request.request_id,
+                    tool_use_id,
+                    to,
+                },
+                None => ClaudeRequestRoute::Answer {
                     request_id: request.request_id,
                     answer: ClaudeHookAnswer::Pass,
                 },
-                ClaudeHelperStartAnswer::Hold => ClaudeRequestRoute::Held { helper: None },
             }
         }
         RegisteredHook::HelperSteerAfterTool => ClaudeRequestRoute::Answer {
@@ -369,6 +389,58 @@ pub(crate) async fn route_message_target(
         }
     }
     route_before_tool(&mut lock(pauses), session_id, request_id, agent_id)
+}
+
+/// The route of a message call `request_id`, the tool call `tool_use_id`, aimed at the helper
+/// `to`, which wakes it when it has ended: a helper the tree holds whose newest own run ended,
+/// interrupted included, counts against the session's helper limit as a new start does, admitted
+/// while the session has room and held otherwise; a running helper, an id the tree does not hold
+/// or a tree not yet registered passes; a failed read is denied with its cause. `helpers` is
+/// locked only after the read.
+pub(crate) async fn route_helper_wake(
+    lookup: Option<Arc<dyn AgentTreeLookup>>,
+    helpers: &Mutex<ClaudeHelperLimit>,
+    session_id: &SessionId,
+    request_id: String,
+    tool_use_id: &str,
+    to: String,
+) -> ClaudeRequestRoute {
+    let Some(lookup) = lookup else {
+        return ClaudeRequestRoute::Answer {
+            request_id,
+            answer: ClaudeHookAnswer::Pass,
+        };
+    };
+    let stored = lookup
+        .helper_by_subagent_id(*session_id, DESCRIPTOR.provider_id(), to)
+        .await;
+    match stored {
+        Ok(Some(helper)) if helper.own_run_state.is_terminal() => {
+            let answer = lock(helpers).answer_start(session_id, &request_id, tool_use_id);
+            helper_limit_route(answer, request_id)
+        }
+        Ok(Some(_) | None) => ClaudeRequestRoute::Answer {
+            request_id,
+            answer: ClaudeHookAnswer::Pass,
+        },
+        Err(error) => ClaudeRequestRoute::Answer {
+            request_id,
+            answer: ClaudeHookAnswer::Deny {
+                reason: target_unread_reason(&describe_error(&*error)),
+            },
+        },
+    }
+}
+
+// The helper limit's route for a start or a wake: a pass now, or a hold the limit releases.
+fn helper_limit_route(answer: ClaudeHelperStartAnswer, request_id: String) -> ClaudeRequestRoute {
+    match answer {
+        ClaudeHelperStartAnswer::Admit => ClaudeRequestRoute::Answer {
+            request_id,
+            answer: ClaudeHookAnswer::Pass,
+        },
+        ClaudeHelperStartAnswer::Hold => ClaudeRequestRoute::Held { helper: None },
+    }
 }
 
 // The pause's route for a pre-tool callback: an answer now, or a hold that names the helper.
