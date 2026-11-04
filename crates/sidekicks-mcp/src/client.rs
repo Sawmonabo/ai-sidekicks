@@ -5,7 +5,7 @@
 
 mod calls;
 mod connection;
-pub(crate) mod dispatch;
+pub mod dispatch;
 pub(crate) mod http;
 mod idle_window;
 mod poll;
@@ -28,6 +28,9 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::outbound_http::outbound_client_builder;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
+#[cfg(any(test, feature = "test-support"))]
+use tokio_util::task::task_tracker::TaskTrackerToken;
 
 use crate::client::connection::McpServerConnection;
 use crate::client::connection::standing::{McpStandingConnection, McpStandingConnectionFeed};
@@ -53,7 +56,7 @@ struct StandingState {
 
 /// Why the client could not be made.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum McpClientError {
+pub enum McpClientError {
     /// The HTTP client every server at an address is reached through could not be built.
     #[error("the HTTP client for the tool servers could not be built")]
     HttpClient(#[source] reqwest::Error),
@@ -63,11 +66,13 @@ pub(crate) enum McpClientError {
 /// the live connection; the mark set when the daemon stops; the listeners of the servers'
 /// prompts, the tasks they follow, and the one HTTP client every server at an address is reached
 /// through.
-pub(crate) struct McpClient {
+pub struct McpClient {
     standing: Mutex<StandingState>,
     /// Set once the client stops, before any connection closes, so an end the stop caused is
     /// read as the stop.
     stopping: CancellationToken,
+    /// The session closes under way, which the stop waits for.
+    closings: TaskTracker,
     /// One connection pool for every HTTP tool server of the daemon: at most two idle sockets per
     /// host, each closed by reqwest's 90 s idle timeout.
     http: reqwest::Client,
@@ -81,15 +86,7 @@ impl McpClient {
     /// A client asking its tasks' questions through `questions`, the drivers' questions card
     /// intake, and declaring `release_version`, the daemon's, to each server. Fails when its HTTP
     /// client cannot be built.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start builds the one client the session's tool-server \
-                      connections, which the tool-server units open, share"
-        )
-    )]
-    pub(crate) fn new(
+    pub fn new(
         questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
         release_version: ReleaseVersion,
     ) -> Result<Self, McpClientError> {
@@ -101,6 +98,7 @@ impl McpClient {
         Ok(Self {
             standing: Mutex::new(StandingState::default()),
             stopping: CancellationToken::new(),
+            closings: TaskTracker::new(),
             http,
             prompt_watchers: Arc::new(PromptWatchers::default()),
             task_watches: Arc::new(TaskWatches::new(questions)),
@@ -110,14 +108,6 @@ impl McpClient {
 
     /// The standing connection of `session_id` to `server_name`, made at its first use; one
     /// already closed, kept nowhere, once the session closed or the client stopped.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the tool route and the workflow tool step take the standing connection they \
-                      dispatch a call over through it"
-        )
-    )]
     pub(crate) fn standing_connection(
         &self,
         session_id: SessionId,
@@ -138,8 +128,7 @@ impl McpClient {
         not(test),
         expect(
             dead_code,
-            reason = "the session's tool-server connections, which the tool-server units open, \
-                      are kept here"
+            reason = "the session's tool-server connection opener keeps its connections here"
         )
     )]
     pub(crate) async fn add_connection(
@@ -165,17 +154,17 @@ impl McpClient {
         connection
     }
 
+    /// Starts closing every standing connection of `session_id`, as [`Self::close_session`]
+    /// does, and returns at once; the client's stop waits for the close.
+    pub fn start_session_close(self: &Arc<Self>, session_id: SessionId) {
+        let client = Arc::clone(self);
+        self.closings
+            .spawn(async move { client.close_session(session_id).await });
+    }
+
     /// Closes every standing connection of `session_id` at once: marks each closed, waits for the
     /// work it tracks, then closes its live connection as [`McpServerConnection::close`] says.
     /// Never fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session's tool-server connections, which the tool-server units open, \
-                      close with the session through it"
-        )
-    )]
     pub(crate) async fn close_session(&self, session_id: SessionId) {
         let feeds: Vec<McpStandingConnectionFeed> = {
             let mut standing = lock(&self.standing);
@@ -190,23 +179,28 @@ impl McpClient {
     }
 
     /// Stops the client: sets its stopping mark first, so an end the stop causes writes nothing,
-    /// then closes every session's standing connections as [`Self::close_session`] does. Never
-    /// fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's stop closes every tool-server connection through it"
-        )
-    )]
-    pub(crate) async fn stop(&self) {
+    /// then closes every session's standing connections as [`Self::close_session`] does and
+    /// waits for every session close under way. Never fails.
+    pub async fn stop(&self) {
         self.stopping.cancel();
         let feeds: Vec<McpStandingConnectionFeed> = lock(&self.standing)
             .connections
             .drain()
             .map(|(_, (_, feed))| feed)
             .collect();
-        close_feeds(feeds).await;
+        self.closings.close();
+        tokio::join!(close_feeds(feeds), self.closings.wait());
+    }
+
+    /// A probe over the standing connection of `session_id` to `server_name`, for a test to hold
+    /// it in use and read its marks.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn probe_standing_connection(
+        &self,
+        session_id: SessionId,
+        server_name: &McpServerName,
+    ) -> McpStandingConnectionProbe {
+        McpStandingConnectionProbe(self.standing_connection(session_id, server_name))
     }
 
     /// The scope a new connection of `session_id` to `server_name` is opened in.
@@ -214,8 +208,7 @@ impl McpClient {
         not(test),
         expect(
             dead_code,
-            reason = "the session's tool-server connections, which the tool-server units open, \
-                      are opened in it"
+            reason = "the session's tool-server connection opener opens its connections in it"
         )
     )]
     pub(crate) fn connection_scope(
@@ -264,6 +257,29 @@ impl McpClient {
     }
 }
 
+/// A test's view of one standing connection: a hold that keeps its close waiting, as a call under
+/// way does, and its closed and stopping marks.
+#[cfg(any(test, feature = "test-support"))]
+pub struct McpStandingConnectionProbe(McpStandingConnection);
+
+#[cfg(any(test, feature = "test-support"))]
+impl McpStandingConnectionProbe {
+    /// Counts as work on the connection until the token drops, so its close waits for it.
+    pub fn hold(&self) -> TaskTrackerToken {
+        self.0.track()
+    }
+
+    /// Resolves once the connection's session closed or the client stopped.
+    pub async fn closed(&self) {
+        self.0.closed().await;
+    }
+
+    /// Whether the client is stopping.
+    pub fn is_stopping(&self) -> bool {
+        self.0.is_stopping()
+    }
+}
+
 // Closes each feed at once, then each live connection the feeds took down, and waits for them all.
 async fn close_feeds(feeds: Vec<McpStandingConnectionFeed>) {
     let connections = futures::future::join_all(feeds.iter().map(McpStandingConnectionFeed::close))
@@ -277,6 +293,7 @@ async fn close_feeds(feeds: Vec<McpStandingConnectionFeed>) {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use std::pin::pin;
     use std::process::Stdio;
     use std::sync::Arc;
     use std::time::Duration;
@@ -497,5 +514,27 @@ mod tests {
             waiter.await.expect("the waiter ends"),
             McpReplacement::ClientStopping
         ));
+    }
+
+    // Mutation: in `start_session_close`, spawn the close untracked, or leave out the wait on
+    // `closings` in `stop`; the stop then ends while the close still waits on the held work.
+    #[tokio::test(start_paused = true)]
+    async fn the_stop_waits_for_a_session_close_under_way() {
+        let (client, _card) = test_client();
+        let client = Arc::new(client);
+        let (session_id, name) = session_and_name();
+        let standing = client.standing_connection(session_id, &name);
+        let held = standing.track();
+
+        client.start_session_close(session_id);
+        standing.closed().await;
+        let mut stopping = pin!(client.stop());
+        assert!(
+            futures::poll!(&mut stopping).is_pending(),
+            "the stop waits for the close, which waits for the held work"
+        );
+
+        drop(held);
+        stopping.await;
     }
 }

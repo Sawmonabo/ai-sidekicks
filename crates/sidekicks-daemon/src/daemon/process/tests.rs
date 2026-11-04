@@ -21,8 +21,10 @@ use sidekicks_contracts::jsonrpc::framing::incoming::IncomingLanes;
 use sidekicks_contracts::jsonrpc::framing::{MAX_CHUNK_BYTES, MessageBody};
 use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::method::Method as _;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::{
     CAN_BIND_A_SOCKET_LISTENER, CredentialStore, DaemonRunFolder, LeftoverSweep, SocketPathRefused,
@@ -40,6 +42,7 @@ use sidekicks_store::data_folder::lock::DataFolderLock;
 use sidekicks_store::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, open_database,
 };
+use sidekicks_store::database::writer::test_file::test_session_id;
 use tempfile::TempDir;
 use tokio_util::codec::Framed;
 use tokio_util::sync::CancellationToken;
@@ -368,6 +371,61 @@ async fn call_before_handshake(socket_path: &Path, method: &str) -> Value {
             return serde_json::from_slice(&reply.body.json).expect("the reply is JSON");
         }
     }
+}
+
+// The started daemon registers its tool servers' client as the `/` list's prompt reader, and its
+// stop stops that client, the stopping mark set before any connection closes, while the database
+// still takes writes. Killed by the prompt reader left unregistered, by the client's stop left
+// out of the daemon's stop, and by the client's stop moved past the data folder's close.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_started_client_reads_prompts_and_stops_before_the_database_closes() {
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let home = TestHome::new();
+    let process = home
+        .start(CancellationToken::new())
+        .await
+        .expect("the daemon starts");
+    assert!(
+        process
+            .providers
+            .as_ref()
+            .expect("the start keeps the providers")
+            .ports
+            .server_prompts
+            .port()
+            .is_some(),
+        "the tool servers' client reads the `/` list's prompts"
+    );
+    let server_name: McpServerName =
+        FreeFormText::new("tracker".to_owned()).expect("a short server name");
+    let probe = process
+        .mcp_client
+        .as_ref()
+        .expect("the start keeps the tool servers' client")
+        .probe_standing_connection(test_session_id(), &server_name);
+    let writer = Arc::clone(
+        &process
+            .database
+            .as_ref()
+            .expect("the start keeps the database")
+            .writer,
+    );
+    let held = probe.hold();
+
+    let (stopped, ()) = tokio::join!(Box::pin(process.stop(DaemonStopIntent::Stop)), async {
+        tokio::time::timeout(STOP_WAIT, probe.closed())
+            .await
+            .expect("the stop closes the tool servers' connections");
+        assert!(probe.is_stopping(), "the stopping mark is set by then");
+        writer
+            .write(Vec::new())
+            .await
+            .expect("the database still takes a write");
+        drop(held);
+    });
+    stopped.expect("the stop fails nothing");
 }
 
 // A call on the served socket before its handshake is refused as the handshake's gate refuses
