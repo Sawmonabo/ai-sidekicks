@@ -2,11 +2,13 @@
 //! the servers of the plugins in the daemon's plugin home, bounded by the allow list of Codex's
 //! requirements; when a read asks for one, the machine probe of the servers it names; the sign-in
 //! to one server through Codex's own client; the names a person may give a server; and the table
-//! of servers each start, resume and fork sends, against what that call's own read loads.
+//! of servers each start, resume and fork sends, against what that call's own read loads; and the
+//! resources one of a session's servers offers.
 
 mod config;
 pub(super) mod machine_probe;
 pub(super) mod requirements;
+mod resources;
 pub(super) mod sandbox_wrap;
 pub(super) mod server_name;
 pub(super) mod session_table;
