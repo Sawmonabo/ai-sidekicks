@@ -159,6 +159,7 @@ mod wsl;
 pub use atomic_write::{
     AtomicWriteError, LeftoverSweep, atomic_write_target_of, create_file_atomically,
     remove_atomic_write_leftovers, replace_file_atomically, replace_file_atomically_while,
+    replace_file_atomically_without_flush,
 };
 pub use base_environment::{BaseEnvironmentSource, base_environment_source};
 pub use bash_start::{BashStart, BashStartInput, start_bash};

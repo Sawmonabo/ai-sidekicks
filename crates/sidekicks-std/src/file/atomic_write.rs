@@ -1,7 +1,8 @@
 //! Replaces a file so that a crash at any moment leaves the old contents or the new, never half of
 //! either and never neither: the platform's crash-safe replace writes and renames it, and then the
 //! folder itself is flushed where the system can flush one, since until then the rename lives only
-//! in memory and a power loss can undo it.
+//! in memory and a power loss can undo it. [`write_without_flush`] flushes neither, for a record
+//! read only while its process lives, which a process crash leaves whole or as it was.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -141,6 +142,25 @@ pub fn write_and_flush(target: &Path, contents: &[u8], mode: u32) -> Result<(), 
     sidekicks_platforms::replace_file_atomically(target, contents, mode, LeftoverSweep::Unswept)
         .map_err(|error| write_failure(target, error))?;
     flush_folder_of(target)
+}
+
+/// Replaces `target` with `contents` as [`write_and_flush`] does, but flushes neither the file nor
+/// its folder, so a system crash or power loss may leave it empty, partial or as it was; for a
+/// record its readers take only while its process lives. Fails as [`write_and_flush`] does, never
+/// with [`AtomicWriteError::FlushFolder`].
+pub fn write_without_flush(
+    target: &Path,
+    contents: &[u8],
+    mode: u32,
+) -> Result<(), AtomicWriteError> {
+    // No sweep of leftovers runs in the folders these writes go to.
+    sidekicks_platforms::replace_file_atomically_without_flush(
+        target,
+        contents,
+        mode,
+        LeftoverSweep::Unswept,
+    )
+    .map_err(|error| write_failure(target, error))
 }
 
 /// Replaces the existing file `target` with `contents` as [`write_and_flush`] does, the new file
