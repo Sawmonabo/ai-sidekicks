@@ -25,7 +25,7 @@ use crate::driver::ports::resolve_run_folder;
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, InterruptRunRequest, OverrideDenialParams, PauseRunParams,
-    ResumeRunParams, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
+    ResumeRunOutcome, ResumeRunParams, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::driver::session_control::{
     ClearSessionGoalParams, DriverGoalResult, SetSessionGoalParams,
@@ -157,7 +157,10 @@ impl ClaudeDriver {
     }
 
     /// Continues a paused or pausing run with its waiting messages.
-    pub(crate) async fn resume_run(&self, params: ResumeRunParams) -> Result<(), DriverError> {
+    pub(crate) async fn resume_run(
+        &self,
+        params: ResumeRunParams,
+    ) -> Result<ResumeRunOutcome, DriverError> {
         self.parts()?.run_controls.resume_run(params).await
     }
 

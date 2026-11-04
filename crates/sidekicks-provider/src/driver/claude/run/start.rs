@@ -657,6 +657,7 @@ mod tests {
                     is_continuation_owed: false,
                 })
                 .await
+                .map(drop)
         };
 
         let Err(DriverError::RunRefused(refusal)) = refused else {
@@ -731,6 +732,7 @@ mod tests {
                         is_continuation_owed: false,
                     })
                     .await
+                    .map(drop)
             }
             ResetWrite::Steer => {
                 let run_id = session.hold_lead_turn("lead");

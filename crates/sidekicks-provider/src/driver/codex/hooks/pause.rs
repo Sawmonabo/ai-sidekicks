@@ -86,6 +86,23 @@ impl PauseState {
     }
 }
 
+/// What a continue answers of the pause it ended: whether it had taken effect, and whether it lost
+/// a held call that stopped waiting, its hook connection gone; both `false` when none was in force.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Codex run control pauses and continues runs through it"
+    )
+)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CodexEndedPause {
+    /// Whether the pause had stopped the conversation.
+    pub(crate) had_taken_effect: bool,
+    /// Whether a call it held stopped waiting while it held, so the hold was lost.
+    pub(crate) had_lost_hold: bool,
+}
+
 /// Every Codex conversation's hook pause, the lead's and each helper's, and the words waiting for
 /// a continued helper's next finished call.
 #[cfg_attr(
@@ -177,16 +194,27 @@ impl CodexRunPauses {
 
     /// Continues the conversation `thread_id`: its held calls are let go to the answerers after
     /// the pauses, and `words`, when given, reach it at its next finished call. Answers whether
-    /// the pause had taken effect; `false` when it was not paused.
-    pub(crate) fn resume(&self, thread_id: &str, words: Option<String>) -> bool {
+    /// the pause had taken effect and whether it lost a held call.
+    pub(crate) fn resume(&self, thread_id: &str, words: Option<String>) -> CodexEndedPause {
         let mut state = self.lock();
+        // A held call that stopped waiting is lost, not let go by this continue.
+        if let Some(session_id) = state
+            .pauses
+            .get(&thread_id.to_owned())
+            .map(|pause| *pause.session_id())
+        {
+            state
+                .pauses
+                .withdraw_held(&session_id, oneshot::Sender::is_closed);
+        }
         let Some(EndedHookPause {
             detail,
             held,
             had_taken_effect,
+            had_lost_hold,
         }) = state.end_pause(thread_id)
         else {
-            return false;
+            return CodexEndedPause::default();
         };
         // A dropped hold lets its call go on to the next answerer, so a continued call still
         // meets every check after the pause, and passes when none answers.
@@ -200,7 +228,10 @@ impl CodexRunPauses {
                 },
             );
         }
-        had_taken_effect
+        CodexEndedPause {
+            had_taken_effect,
+            had_lost_hold,
+        }
     }
 
     // Answers a pre-tool call: held while its conversation is paused, denied at once on a lead
@@ -468,7 +499,7 @@ mod tests {
         let after_the_interrupt = call(&pauses, CodexHookEvent::PreToolUse, LEAD);
         assert_eq!(settled(after_the_interrupt).await, Some(paused_denial()));
 
-        assert!(pauses.resume(LEAD, None));
+        assert!(pauses.resume(LEAD, None).had_taken_effect);
         let after_continue = call(&pauses, CodexHookEvent::PreToolUse, LEAD);
         assert_eq!(settled(after_continue).await, Some(CodexHookAnswer::Pass));
     }
@@ -487,7 +518,11 @@ mod tests {
         pauses.interrupt_sent(HELPER);
         assert!(is_still_held(&mut first).await);
 
-        assert!(pauses.resume(HELPER, Some("check the tests first".to_owned())));
+        assert!(
+            pauses
+                .resume(HELPER, Some("check the tests first".to_owned()))
+                .had_taken_effect
+        );
         assert_eq!(settled(first).await, Some(CodexHookAnswer::Pass));
         assert_eq!(settled(second).await, Some(CodexHookAnswer::Pass));
         let finished = call(&pauses, CodexHookEvent::PostToolUse, HELPER);

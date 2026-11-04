@@ -60,8 +60,8 @@ use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
     FindTakenMessagesParams, HelperStopOutcome, HelperStopParams, InterruptRunRequest,
-    OverrideDenialParams, PauseRunParams, PickedSkill, ResumeRunParams, TakenMessages,
-    WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
+    OverrideDenialParams, PauseRunParams, PickedSkill, ResumeRunOutcome, ResumeRunParams,
+    TakenMessages, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
@@ -430,7 +430,10 @@ impl ProviderDriver for ClaudeDriver {
         ready(self.pause_run(&params)).boxed()
     }
 
-    fn resume_run(&self, params: ResumeRunParams) -> BoxFuture<'_, Result<(), DriverError>> {
+    fn resume_run(
+        &self,
+        params: ResumeRunParams,
+    ) -> BoxFuture<'_, Result<ResumeRunOutcome, DriverError>> {
         self.resume_run(params).boxed()
     }
 
