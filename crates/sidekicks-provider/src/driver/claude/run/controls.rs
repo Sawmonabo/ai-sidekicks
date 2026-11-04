@@ -78,15 +78,17 @@ pub(crate) fn claude_dialog_session<'a>(
 /// What a choice Claude Code holds a run on is settled for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeChoiceSettling {
-    /// An interrupt or an undo is about to go.
+    /// An interrupt or an undo is about to go, a refusal's end recorded by the dialogs.
     Interrupt,
+    /// A person's interrupt is about to go, a refusal's end written by the run engine with it.
+    PersonInterrupt,
     /// A message the person sent is about to go.
     QueuedMessage,
 }
 
-/// Settles the choice `run_id` is held on before an interrupt or a message goes; what the
-/// settlement delivers keeps its place among the session's frames. Answers whether that ended the
-/// run. Fails as the dialogs' cancel fails.
+/// Settles the choice `run_id` is held on before an interrupt or a message goes, what it delivers
+/// in its place among the session's frames; answers whether a refusal's cancel took the place of
+/// what goes, its end the run engine's on a person's interrupt. Fails as the dialogs' cancel fails.
 pub(crate) async fn settle_claude_choice(
     dialogs: &ClaudeProviderDialogs<ClaudeStreamDialogPorts>,
     live: &LiveClaudeSession,
@@ -96,7 +98,12 @@ pub(crate) async fn settle_claude_choice(
     let running_model = lock(&live.settings).running_model.clone();
     let session = claude_dialog_session(live, &running_model);
     match settling {
-        ClaudeChoiceSettling::Interrupt => dialogs.settle_for_interrupt(&session, run_id).await,
+        ClaudeChoiceSettling::Interrupt => {
+            dialogs.settle_for_interrupt(&session, run_id, true).await
+        }
+        ClaudeChoiceSettling::PersonInterrupt => {
+            dialogs.settle_for_interrupt(&session, run_id, false).await
+        }
         ClaudeChoiceSettling::QueuedMessage => {
             dialogs.settle_for_queued_message(&session, run_id).await
         }

@@ -540,3 +540,65 @@ async fn consent_unanswered_records_the_credits_choice_unanswered_once() {
         ]
     );
 }
+
+// Kills: a person's interrupt that records the refusal's end the run engine writes (a settlement
+// row, a refused move or a daemon-end mark), and a cancel no byte of which was written answered
+// as settled or with the choice let go instead of held again.
+#[rstest]
+#[case::written(None)]
+#[case::unsent(Some(ClaudeWriteDelivery::Unsent))]
+#[tokio::test]
+async fn a_persons_interrupt_cancels_the_refusal_and_delivers_none_of_its_end(
+    #[case] failure: Option<ClaudeWriteDelivery>,
+) {
+    let (delivered, ends) = (Delivered::default(), Delivered::default());
+    let dialogs = dialogs(&delivered, &ends);
+    let is_written = failure.is_none();
+    let mut first_failure = failure;
+    let mut channel = MockClaudeProcessChannel::new();
+    channel
+        .expect_answer_inbound_request()
+        .withf(|request_id, answer| {
+            request_id == "dialog-1" && answer.get() == r#"{"behavior":"cancelled"}"#
+        })
+        .times(if is_written { 1 } else { 2 })
+        .returning(move |_, _| {
+            let failure = first_failure.take();
+            async move {
+                match failure {
+                    None => ClaudeWriteAttempt::Written,
+                    Some(delivery) => ClaudeWriteAttempt::Failed {
+                        delivery,
+                        cause: std::io::Error::other("the pipe closed before the line"),
+                    },
+                }
+            }
+            .boxed()
+        });
+    let session = session(&channel);
+    let run = bound_run();
+    let (kind, payload) = REFUSAL;
+    dialogs
+        .take_dialog(
+            &session,
+            "dialog-1".to_owned(),
+            &dialog(kind, payload),
+            run.clone(),
+        )
+        .await;
+
+    let settled = dialogs
+        .settle_for_interrupt(&session, run.run_id, false)
+        .await;
+    let settled_again = dialogs
+        .settle_for_interrupt(&session, run.run_id, false)
+        .await;
+
+    assert_eq!(settled.ok(), is_written.then_some(true));
+    assert_eq!(
+        settled_again.expect("the second cancel is written or finds nothing held"),
+        !is_written
+    );
+    assert_eq!(taken(&delivered), ["refusalRequested", "WaitingForInput"]);
+    assert_eq!(taken(&ends), Vec::<String>::new());
+}
