@@ -99,7 +99,8 @@ pub(crate) async fn insert_item(
 }
 
 /// Queues an item of `form` for `run_id` of `session_id` as [`insert_item`] does, a helper's
-/// moved into a helper's box, and answers its id.
+/// moved into a helper's box, and answers its id. A helper's item keeps the place it took in the
+/// lead's queue, which the lead's next item takes again, so a test queues it after the lead's.
 pub(crate) async fn insert_form(
     database: &TestDatabase,
     log: &TestLog,

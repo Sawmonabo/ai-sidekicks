@@ -34,7 +34,6 @@ use sidekicks_provider::driver::CurrentProviderAccount;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::params_and_results::RunOpeningItem;
-use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_session::queue_store::{QueueItemBody, QueueItemRecord, RecordedQueueItemState};
 use tokio::time::timeout;
 
@@ -49,7 +48,8 @@ async fn a_send_resumes_a_paused_run_with_the_message() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
     let run_id = fixture.insert_run("paused").await;
-    bind_run_to_first_provider(&fixture.database, run_id);
+    // Paused in this daemon, so its session's process is open.
+    fixture.open_session(run_id).await;
 
     let item_id = timeout(WAIT, fixture.send())
         .await

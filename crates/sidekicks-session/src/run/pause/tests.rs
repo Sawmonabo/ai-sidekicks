@@ -17,6 +17,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::control::{AgentRunPauseRequest, AgentRunResumeRequest};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -90,10 +91,13 @@ impl Fixture {
             .map(drop)
     }
 
-    /// Reports the provider moved the run to `entry`, as its event delivery does.
-    fn report(&self, entry: RunStateEntry) -> tokio::task::JoinHandle<bool> {
+    /// Reports the provider paused the run, as its event delivery does: only from `pausing`.
+    fn report_paused(&self) -> tokio::task::JoinHandle<bool> {
         let engine = Arc::clone(&self.engine);
-        let change = RunStateChange::new(self.run_id, entry);
+        let change = RunStateChange {
+            expected_state: Some(RunState::Pausing),
+            ..RunStateChange::new(self.run_id, RunStateEntry::Paused)
+        };
         tokio::spawn(async move {
             engine
                 .apply_provider_state_change(change, None)
@@ -447,7 +451,7 @@ async fn reports_and_interrupts_wait_for_a_resume_and_the_run_stays_running() {
         .await
         .expect("the driver is asked to resume")
         .expect("the driver signals its call");
-    let mut report = fixture.report(RunStateEntry::Paused);
+    let mut report = fixture.report_paused();
     let mut interrupt = {
         let engine = Arc::clone(&fixture.engine);
         let run_id = fixture.run_id;
@@ -494,10 +498,7 @@ async fn a_pause_whose_answer_never_came_stays_pausing_for_the_providers_report(
         })
         .await;
     let after_pause = fixture.run();
-    let is_report_applied = fixture
-        .report(RunStateEntry::Paused)
-        .await
-        .expect("the report ends");
+    let is_report_applied = fixture.report_paused().await.expect("the report ends");
 
     assert!(
         matches!(
@@ -535,7 +536,7 @@ async fn a_report_during_the_resumes_run_read_waits_and_the_resume_takes_the_run
         .await
         .expect("the resume reads its run")
         .expect("the read signals its start");
-    let mut report = fixture.report(RunStateEntry::Paused);
+    let mut report = fixture.report_paused();
     let is_report_held = tokio::time::timeout(HELD_WATCH, &mut report).await.is_err();
     held_read
         .release

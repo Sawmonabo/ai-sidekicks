@@ -14,7 +14,6 @@ mod starts;
 mod undo;
 mod withdrawal;
 
-use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -28,7 +27,6 @@ use sidekicks_contracts::approval::ApprovalRequestId;
 use sidekicks_contracts::daemon::recovery::DaemonRecoveryHaltedRun;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{AgentQueueItemCreateRequest, QueueItemId, QueuedSkillPick};
 use sidekicks_contracts::session::cost::TokensPerRun;
@@ -56,7 +54,6 @@ use sidekicks_provider::driver::test_registry::{
 };
 use sidekicks_provider::driver::{CurrentProviderAccount, PROVIDERS};
 use sidekicks_provider::process_identity::{ProcessStandIn, ProviderProcessIds};
-use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
 use sidekicks_provider::runtime_binding::test_store::{
     resumable_binding_input, spawned_build, test_provider_account_id,
 };
@@ -65,11 +62,8 @@ use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::queue_store::{
     QueueItemBody, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
 };
-use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::run::engine::test_fixture::{insert_run, stored_run_state, test_engine};
-use sidekicks_session::run::epochs::ExecutionEpochs;
 use sidekicks_session::run::pause::RunPauseControl;
-use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::pause_point::PausePoint;
 use sidekicks_std::port_registration::PortRegistration;
@@ -77,9 +71,7 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, insert_lead, test_session_id};
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
-use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
-use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tempfile::TempDir;
 
 use super::answer_continue::HaltedRunRecord;
@@ -88,11 +80,9 @@ use crate::changes::QueueChangeSignals;
 use crate::error::QueueError;
 use crate::memory_gate::{MemoryGate, MemoryGateFigures};
 use crate::provider_session::test_opening::{
-    OrphanedAnswersStandIn, RecordedProcessFollowing, RecordedResumedRuns, first_provider,
-    record_first_provider_capabilities, test_execution_postures, test_git_folder_reader,
-    test_opening_composer,
+    OrphanedAnswersStandIn, RecordedResumedRuns, first_provider,
+    record_first_provider_capabilities, test_provider_sessions,
 };
-use crate::provider_session::{ProviderSessions, ProviderSessionsDeps};
 use crate::run_token_limit::RunTokenLimitReader;
 use crate::test_items::{Form, insert_form, insert_item, words};
 
@@ -345,34 +335,13 @@ fn queue_over(
     let engine = test_engine(database, Arc::clone(&log.service), home.path());
     let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
     record_first_provider_capabilities(&providers, true);
-    let binding_cursors = Arc::new(RunBindingCursors::new(
+    let provider_sessions = test_provider_sessions(
         Arc::clone(&pool),
-        Arc::new(|_: &SessionId| None),
-        Arc::new(RuntimeBindingStore::new(
-            Arc::clone(&pool),
-            Arc::clone(&log.writer),
-        )),
-        Arc::new(Mutex::new(ExecutionEpochs::new(
-            NonZeroUsize::new(8).expect("the cap is not zero"),
-        ))),
-    ));
-    let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
-        pool: Arc::clone(&pool),
-        appender: Arc::new(SessionEventAppender::new(
-            Arc::clone(&log.service),
-            SESSION_EVENT_VERSION.clone(),
-        )),
-        binding_cursors,
-        providers: Arc::clone(&providers),
-        compose_opening: test_opening_composer(),
-        read_git_folder: test_git_folder_reader(),
-        transition_lock: Arc::new(KeyedLock::new()),
-        process_follower: Arc::new(RecordedProcessFollowing::default()),
-        execution_postures: test_execution_postures(),
-        resumed_runs: resumed_runs.registered(),
-        orphaned_approvals: Arc::clone(orphaned_approvals) as Arc<_>,
-        orphaned_questions: Arc::new(OrphanedAnswersStandIn::<QuestionId>::default()),
-    }));
+        log,
+        Arc::clone(&providers),
+        resumed_runs,
+        Arc::clone(orphaned_approvals) as Arc<_>,
+    );
     let memory_gate = Arc::new(MemoryGate::new(
         MemoryGateFigures {
             physical_memory_bytes: 16 << 30,
@@ -433,8 +402,8 @@ fn client_key() -> ClientUuid {
 
 impl Fixture {
     /// Writes a lead run of the session in `state`, at version 1, queued on the test's account,
-    /// and answers its id; a running one has its session's process opened, as a live lead's is,
-    /// the opening's leg bound on the session's conversation with its cursor open.
+    /// and answers its id; a running one has its session's process opened, as
+    /// [`Fixture::open_session`] opens it.
     async fn insert_run(&self, state: &str) -> RunId {
         let run_id = new_run_id();
         insert_run(&self.database, self.session_id, run_id, "running");
@@ -448,18 +417,24 @@ impl Fixture {
         );
         self.set_run_state(run_id, state);
         if state == "running" {
-            let provider_sessions = &self.queue.provider_sessions;
-            provider_sessions
-                .binding_cursors()
-                .create(
-                    self.session_id,
-                    resumable_binding_input(run_id, first_provider()),
-                )
-                .await
-                .expect("the opening's leg is recorded");
-            provider_sessions.record_test_opening(self.session_id);
+            self.open_session(run_id).await;
         }
         run_id
+    }
+
+    /// Opens the session's process in this daemon on `run_id`, as a live lead's is: the opening's
+    /// leg bound on the session's conversation with its cursor open.
+    async fn open_session(&self, run_id: RunId) {
+        let provider_sessions = &self.queue.provider_sessions;
+        provider_sessions
+            .binding_cursors()
+            .create(
+                self.session_id,
+                resumable_binding_input(run_id, first_provider()),
+            )
+            .await
+            .expect("the opening's leg is recorded");
+        provider_sessions.record_test_opening(self.session_id);
     }
 
     /// Moves `run_id` to `state` as a writer outside the engine would.

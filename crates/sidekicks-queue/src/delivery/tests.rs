@@ -1,6 +1,7 @@
 //! The delivery's tests, over a test database holding a session and its running lead run bound to
-//! the table's first provider, whose driver is a stand-in, by behavior: hands, take-backs, the
-//! interrupt's end, messages a provider process or a resume keeps, and the undo's hold.
+//! the table's first provider, whose driver is a stand-in, the session's provider session opened,
+//! by behavior: hands, take-backs, the interrupt's end, messages a provider process or a resume
+//! keeps, and the undo's hold.
 
 mod hands;
 mod interrupt_end;
@@ -16,6 +17,7 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use rusqlite::params;
+use sidekicks_contracts::approval::ApprovalRequestId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::QueueItemId;
@@ -48,6 +50,10 @@ use tokio::time::timeout;
 
 use super::test_fixture::test_delivery_deps;
 use super::{OpeningMessages, QueueDelivery, QueueDeliveryDeps};
+use crate::provider_session::ProviderSessions;
+use crate::provider_session::test_opening::{
+    OrphanedAnswersStandIn, RecordedResumedRuns, test_provider_sessions,
+};
 use crate::session_lock::QueueSessionLock;
 use crate::test_items::{self, words};
 
@@ -109,11 +115,14 @@ impl OpeningMessages for OpeningStandIn {
     }
 }
 
-/// A delivery over a session whose lead run runs, bound to the stand-in driver.
+/// A delivery over a session whose lead run runs, bound to the stand-in driver, its provider
+/// session opened in this daemon.
 struct Fixture {
     database: TestDatabase,
     log: TestLog,
     delivery: QueueDelivery,
+    // Held so the delivery's weak hold on it lives: a resume finds the session opened.
+    _provider_sessions: Arc<ProviderSessions>,
     session_lock: Arc<QueueSessionLock>,
     process: Arc<ProcessStandIn>,
     openings: Arc<OpeningStandIn>,
@@ -140,21 +149,32 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         openings: Mutex::new(HashSet::new()),
         after_read: Mutex::new(None),
     });
+    let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
+    let provider_sessions = test_provider_sessions(
+        Arc::clone(&pool),
+        &log,
+        Arc::clone(&providers),
+        &Arc::new(RecordedResumedRuns::default()),
+        Arc::new(OrphanedAnswersStandIn::<ApprovalRequestId>::default()),
+    );
+    provider_sessions.record_test_opening(session_id);
     let delivery = QueueDelivery::new(QueueDeliveryDeps {
         session_lock: Arc::clone(&session_lock),
         processes: Arc::clone(&process) as Arc<dyn ProviderProcessIds>,
         openings: Arc::clone(&openings) as Arc<dyn OpeningMessages>,
+        provider_sessions: Arc::downgrade(&provider_sessions),
         ..test_delivery_deps(
             pool,
             Arc::clone(&log.service),
             Arc::clone(&log.writer),
-            Arc::new(registry_of_first_provider(Arc::new(driver))),
+            providers,
         )
     });
     Fixture {
         database,
         log,
         delivery,
+        _provider_sessions: provider_sessions,
         session_lock,
         process,
         openings,

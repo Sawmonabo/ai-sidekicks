@@ -88,8 +88,8 @@ fn hold_draft(fixture: &Fixture, text: &str) {
     &[Ended::Canceled, Ended::Failed, Ended::Canceled],
     Some("Before\nAfter"),
 )]
-#[case::a_helpers_message_a_review_and_a_plan_message(
-    &[Form::Helper("To the helper"), Form::Review, Form::PlanMessage],
+#[case::a_review_a_plan_message_and_a_helpers_message(
+    &[Form::Review, Form::PlanMessage, Form::Helper("To the helper")],
     None,
     &[Ended::Failed, Ended::Failed, Ended::Failed],
     None,
