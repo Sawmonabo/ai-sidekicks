@@ -10,6 +10,7 @@ use std::time::SystemTime;
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, ready};
+use sidekicks_contracts::agent::provider_binding::AgentBindingSwitchBoundary;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -78,6 +79,7 @@ use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{
     CommandSandboxNeeds, DriverServices, HelperModeServices, InstallFolder, InstallFolderBase,
     ProviderCommand, ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
+    ProviderSwitchBoundaries,
 };
 use crate::port::running_command_publisher::{
     RunningCommandParams, WriteCommandInputParams, command_act_unsupported,
@@ -228,6 +230,14 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     standard_output_speed: "default",
     // It lists its service tiers on each model of its catalog.
     output_speed_levels: None,
+    // Each turn carries the model, effort, service tier and window it runs on.
+    switch_boundaries: ProviderSwitchBoundaries {
+        model_id: AgentBindingSwitchBoundary::TurnBoundary,
+        effort: AgentBindingSwitchBoundary::TurnBoundary,
+        output_speed: AgentBindingSwitchBoundary::TurnBoundary,
+        options: AgentBindingSwitchBoundary::TurnBoundary,
+        larger_window: AgentBindingSwitchBoundary::TurnBoundary,
+    },
     // It documents no update switch; the driver runs one exact build path instead.
     process_environment: &[],
     // Carries the app-server binary's path into the launch prelude, which never interpolates it;

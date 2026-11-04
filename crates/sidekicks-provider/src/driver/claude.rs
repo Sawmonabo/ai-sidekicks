@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, ready};
+use sidekicks_contracts::agent::provider_binding::AgentBindingSwitchBoundary;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::config::McpTransport;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -75,7 +76,7 @@ use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{
     BackgroundWork, CommandSandboxNeeds, DriverServices, HelperModeServices, InstallFolder,
     InstallFolderBase, ProviderCommand, ProviderCommandLookup, ProviderDescriptor,
-    ProviderMemoryEstimates,
+    ProviderMemoryEstimates, ProviderSwitchBoundaries,
 };
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
@@ -185,6 +186,14 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     // Its declared state has a third value, which the provider enters after a rate limit and no
     // request asks for.
     output_speed_levels: Some(&["off", "on"]),
+    // Claude Code takes each in its running process between turns.
+    switch_boundaries: ProviderSwitchBoundaries {
+        model_id: AgentBindingSwitchBoundary::TurnBoundary,
+        effort: AgentBindingSwitchBoundary::TurnBoundary,
+        output_speed: AgentBindingSwitchBoundary::TurnBoundary,
+        options: AgentBindingSwitchBoundary::TurnBoundary,
+        larger_window: AgentBindingSwitchBoundary::TurnBoundary,
+    },
     process_environment: &[
         // Its two update switches, so the build recorded at start is the one that runs.
         ("DISABLE_AUTOUPDATER", "1"),
