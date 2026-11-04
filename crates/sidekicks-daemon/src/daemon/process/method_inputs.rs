@@ -42,7 +42,9 @@ use sidekicks_queue::memory_gate::{
 use sidekicks_queue::run_token_limit::RunTokenLimitReader;
 use sidekicks_queue::service::answer_continue::HaltedRunRecord;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
+use sidekicks_recovery::restart_settle::RestartSettle;
 use sidekicks_recovery::startup::StartupRecovery;
+use sidekicks_recovery::stop_intent::StopIntentFile;
 use sidekicks_session::attention::banner_launcher::BannerLauncher;
 use sidekicks_session::attention::delivery::web_address::sender::{
     WebAddressSender, WebAddressSenderDependencies,
@@ -196,6 +198,8 @@ pub(crate) struct MethodInputsStart<'start> {
     pub(crate) in_flight: Arc<OnceLock<Arc<InFlightMutations>>>,
     /// Starts the daemon's stop for the reason given.
     pub(crate) accept_stop: Arc<dyn Fn(DaemonStopReason) + Send + Sync>,
+    /// The intent the person's Stop writes, which the recovery pass reads and a purge drops from.
+    pub(crate) stop_intent: Arc<StopIntentFile>,
     /// The erase's step that ends the daemon's work as the stop does.
     pub(crate) stop_work: EraseStep,
     /// The erase's step that closes everything that holds a file in the data folder.
@@ -208,6 +212,8 @@ pub(crate) struct MethodInputs {
     pub(crate) session: SessionServices,
     /// The recovery pass, run once the socket is bound and before any follow of the log begins.
     pub(crate) recovery: StartupRecovery,
+    /// The restart's settle, which the person's Stop drains the live runs through.
+    pub(crate) restart_settle: Arc<RestartSettle>,
     /// The live projects list, closed at the stop.
     pub(crate) project_list_feed: Arc<ProjectListFeed>,
     /// The clone service, which owns the askpass broker and closes it at the stop; `None` when it
@@ -320,6 +326,7 @@ pub(crate) async fn register_method_inputs(
         process_state,
         in_flight,
         accept_stop,
+        stop_intent,
         stop_work,
         close_data_folder,
     } = start;
@@ -626,7 +633,11 @@ pub(crate) async fn register_method_inputs(
         }),
         Err(unavailable) => Err(unavailable),
     };
-    let RecoveryServices { stored, recovery } = build_recovery_services(RecoveryServiceStart {
+    let RecoveryServices {
+        stored,
+        recovery,
+        restart_settle,
+    } = build_recovery_services(RecoveryServiceStart {
         database,
         reads: &reads,
         writer,
@@ -646,6 +657,7 @@ pub(crate) async fn register_method_inputs(
         accept_stop: &accept_stop,
         data_folder,
         copier,
+        stop_intent,
         mcp_dispatch,
     })?;
     let driver_methods = Arc::new(DriverMethodSources {
@@ -808,8 +820,10 @@ pub(crate) async fn register_method_inputs(
     Ok(MethodInputs {
         session,
         recovery,
+        restart_settle,
         project_list_feed,
         clones: clones.ok(),
+
         worktree_setup,
         worktree_creator,
         machine_device_id,

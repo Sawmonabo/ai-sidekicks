@@ -119,6 +119,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
         event_log: Arc::clone(&database.event_log),
         machine_id,
         transition_lock: Arc::clone(session_services.changes.transition_lock()),
+        changes: Arc::clone(&session_services.changes),
         shells,
         mcp_client,
         conversations: Arc::new(ConversationPurge::new(
@@ -141,7 +142,9 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
         tool_call_statuses: Arc::clone(&session_services.tool_call_statuses),
         execution_postures,
         questions: Arc::clone(&session_services.questions),
+        stop_intent: Arc::clone(&stop_intent),
     }));
+
     let damaged_history = Arc::new(DamagedHistory::new(DamagedHistoryDeps {
         reads: Arc::clone(&database.pool),
         session_events: Arc::clone(&session_services.sessions),

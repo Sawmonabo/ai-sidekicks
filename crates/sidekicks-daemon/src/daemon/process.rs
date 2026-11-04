@@ -50,6 +50,8 @@ use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::command::channel::remove_channel_folders;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
+use sidekicks_recovery::restart_settle::RestartSettle;
+use sidekicks_recovery::stop_intent::StopIntentFile;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::run::turn_capture::TurnCapturing;
 use sidekicks_session::search::index::live::{LiveIndex, LiveIndexOptions};
@@ -159,8 +161,11 @@ pub(crate) struct DaemonProcess {
     pub(crate) database: Option<DatabaseFile>,
     /// This machine's two keys, whose background read the stop joins within the drain bound.
     pub(crate) machine_identity: Option<Arc<MachineIdentity>>,
-    /// When the stop began, from which what is left of the drain bound is counted.
+    /// When the latest stop began, from which what is left of its drain bound is counted.
     pub(crate) stop_started: Option<Instant>,
+    /// The intent the person's Stop writes beside the database file, held from before the file
+    /// opens, so a Stop that cuts the start short writes it too.
+    pub(crate) stop_intent: Arc<StopIntentFile>,
     /// Whether a step of the stop failed, so no clean stop is recorded.
     pub(crate) has_stop_failed: bool,
     /// Hands freed memory back once the work goes quiet; ends with the work.
@@ -186,6 +191,9 @@ pub(crate) struct DaemonProcess {
     /// The session services: the stop ends the queue, the renames' name pushes, the highlighter
     /// and the terminals, and lets the rest go before the database file closes.
     pub(crate) session: Option<SessionServices>,
+    /// What a restart or the person's Stop left in the sessions, settled; the person's Stop
+    /// drains the live runs through it once the drivers are shut down.
+    pub(crate) restart_settle: Option<Arc<RestartSettle>>,
     /// The session services' follows of the log, ended by the stop with the chats' write watch.
     pub(crate) session_attachments: Option<SessionAttachments>,
     /// The turn-end capture's follow, ended by the stop once the drivers can end no more turns.
@@ -233,6 +241,9 @@ impl DaemonProcess {
             }
         };
         let (command_sender, commands) = mpsc::channel(1);
+        let stop_intent = Arc::new(StopIntentFile::new(
+            &data_folder(&options.home_folder).join(DAEMON_DATABASE_FILE_NAME),
+        ));
         let mut process = Self {
             started_at,
             work_stop: options.stop.child_token(),
@@ -250,6 +261,7 @@ impl DaemonProcess {
             database: None,
             machine_identity: None,
             stop_started: None,
+            stop_intent,
             has_stop_failed: false,
             idle_memory: None,
             scheduler: None,
@@ -262,6 +274,7 @@ impl DaemonProcess {
             repo: None,
             repo_attachments: None,
             session: None,
+            restart_settle: None,
             session_attachments: None,
             turn_capturing: None,
             attention: None,
@@ -587,6 +600,7 @@ impl DaemonProcess {
                 process_state: Arc::clone(&self.process_state),
                 in_flight: Arc::clone(&in_flight),
                 accept_stop,
+                stop_intent: Arc::clone(&self.stop_intent),
                 stop_work: stop_work_step,
                 close_data_folder: close_data_folder_step,
             },
@@ -604,7 +618,9 @@ impl DaemonProcess {
         let mcp_inventory = inputs.mcp_inventory;
         self.mcp_client = Some(inputs.mcp_client);
         let mut provider_accounts = inputs.provider_accounts;
+        self.restart_settle = Some(inputs.restart_settle);
         let session = self.session.insert(inputs.session);
+
         let queue = Arc::clone(&session.queue);
         let caller_check = CallerCheck::new(
             Arc::clone(&caller_process_reader),

@@ -12,6 +12,8 @@ use std::time::{Duration, Instant};
 use futures::FutureExt as _;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_recovery::restart_settle::RestartSettleError;
+use sidekicks_recovery::stop_intent::StopIntentError;
 use sidekicks_session::search::index::live::LiveIndexCloseError;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_workspace::clone::askpass::broker::AskpassBrokerError;
@@ -130,6 +132,14 @@ pub(crate) enum DaemonStopFailure {
     /// and was ended; the next start does its work again.
     #[error("the {0} was still running when the stop's drain bound ran out")]
     StartTaskRunning(&'static str),
+    /// The person's Stop could not write its intent, so the next start resumes the work the
+    /// drain did not end as after a crash.
+    #[error("the stop intent could not be written")]
+    StopIntent(#[source] StopIntentError),
+    /// The drain of the live runs at the person's Stop failed; the next start settles the runs
+    /// it left live.
+    #[error("the live runs' drain at the stop failed")]
+    Drain(#[source] RestartSettleError),
 }
 
 /// A service's background task, a follow of the log among them, that ended abnormally at the stop.
@@ -184,7 +194,8 @@ pub(crate) enum CrashMonitorEndFailure {
     },
 }
 
-/// Ends the daemon's work: the stop token, so the work under way ends; the socket, so no new call
+/// Ends the daemon's work, `bound` counted from this call: the person's Stop first writes its
+/// intent whole; then the stop token, so the work under way ends; the socket, so no new call
 /// comes; then, within what is left of `bound`, the mutating calls under way, the machine keys'
 /// background read, the capability refresh, the providers' registration, the tool servers' client,
 /// the run queue, the worktree cleanup's requests and the start's background tasks, the clone
@@ -193,28 +204,36 @@ pub(crate) enum CrashMonitorEndFailure {
 /// watch and file recount, whose watermark a clean end stores, the renames' name pushes, the
 /// highlighter, the terminals, the provider accounts' sign-ins, the start's sweep of new accounts'
 /// homes and the account observer, the scheduler, the working-folder watch, the projects list, the
-/// search index, the drivers, the turn end captures under way, the git trees a failed call left
-/// and, last, the kept worktrees' reads. The drivers are told `reason`'s intent, once a stop the
-/// person asked for over the socket since has replaced a restart. Answers each step's failure,
-/// every step having run.
+/// search index, the drivers, the person's Stop's drain of the live runs, the turn end captures
+/// under way, the git trees a failed call left and, last, the kept worktrees' reads. The drivers
+/// are told `reason`'s intent, once a stop the person asked for over the socket since has
+/// replaced a restart, which writes the intent there. Answers each step's failure, every step
+/// having run.
 pub(crate) async fn stop_work(
     process: &mut DaemonProcess,
     reason: DaemonStopReason,
     bound: Duration,
 ) -> Vec<DaemonStopFailure> {
-    let started = *process.stop_started.get_or_insert_with(Instant::now);
+    let started = Instant::now();
+    process.stop_started = Some(started);
     tracing::info!(
         ?reason,
         drain_bound_ms = bound.as_millis(),
         "the background service stops"
     );
+    let mut failures = Vec::new();
+    // Before anything stops, so the next start ends whatever this stop leaves as the stop does.
+    if reason.is_persons_stop()
+        && let Err(error) = process.stop_intent.write_whole().await
+    {
+        failures.push(DaemonStopFailure::StopIntent(error));
+    }
     process.process_state.mark_stopping();
     process.work_stop.cancel();
     if let Some(gateway) = process.gateway.take() {
         gateway.stop().await;
     }
     let remaining = || bound.saturating_sub(started.elapsed());
-    let mut failures = Vec::new();
     if let Some(in_flight) = process.in_flight.take() {
         let running = in_flight.wait_for_pending_within(None, remaining()).await;
         if running > 0 {
@@ -223,7 +242,15 @@ pub(crate) async fn stop_work(
     }
     // The socket is closed and the calls under way waited out, so no ask comes past this read.
     let asked = *process.stop_asked.borrow();
-    let reason = asked.map_or(reason, |asked| reason.joined(asked));
+    let joined = asked.map_or(reason, |asked| reason.joined(asked));
+    // A Stop that replaced a restart writes its intent here, before the drivers hear of it.
+    if joined.is_persons_stop()
+        && !reason.is_persons_stop()
+        && let Err(error) = process.stop_intent.write_whole().await
+    {
+        failures.push(DaemonStopFailure::StopIntent(error));
+    }
+    let reason = joined;
     // Past the bound, the dropped stop drops the background read's handle, which aborts it.
     if let Some(machine_identity) = process.machine_identity.take()
         && tokio::time::timeout(remaining(), machine_identity.stop())
@@ -383,6 +410,17 @@ pub(crate) async fn stop_work(
                 .map(DaemonStopFailure::Driver),
         );
     }
+    // After the drivers, so no provider runs on; before the captures stop, so a drained turn end
+    // is captured as the start's pass captures its own. What the bound cuts off, the next start
+    // settles from the intent.
+    if reason.is_persons_stop()
+        && let Some(restart_settle) = &process.restart_settle
+        && let Err(error) = restart_settle
+            .settle_at_stop(tokio::time::Instant::now() + remaining())
+            .await
+    {
+        failures.push(DaemonStopFailure::Drain(error));
+    }
     // After the drivers, so no turn ends past here; each capture under way is waited out whole.
     if let Some(turn_capturing) = process.turn_capturing.take() {
         turn_capturing.stop().await;
@@ -400,11 +438,13 @@ pub(crate) async fn stop_work(
     failures
 }
 
-/// Closes everything that holds a file in the data folder: lets the session and repository
-/// services go, then, within what is left of the drain bound, ends the MCP first-observation drain
-/// and waits for it, ending it where it stands past the bound, and closes the database file,
-/// ends the crash monitor, waiting for its exit, and removes its socket from the run folder, then
-/// lets the data folder's lock go last. Answers each step's failure, every step having run.
+/// Closes everything that holds a file in the data folder: lets the session services, with the
+/// restart's settle, and the repository services go, then, within what is left of the latest
+/// stop's drain bound, ends the MCP first-observation drain and waits for it, ending it where it
+/// stands past the bound, and closes the database file, ends the crash monitor, waiting for its
+/// exit, and removes its socket from the run folder, then lets the data folder's lock go last.
+/// Answers each step's failure, every step having run.
+
 pub(crate) async fn close_data_folder(process: &mut DaemonProcess) -> Vec<DaemonStopFailure> {
     let mut failures = Vec::new();
     let remaining = || {
@@ -422,6 +462,8 @@ pub(crate) async fn close_data_folder(process: &mut DaemonProcess) -> Vec<Daemon
     });
     // Their pools and writer handles go before the file closes.
     drop(session);
+    drop(process.restart_settle.take());
+
     drop(process.repo.take());
     // Before the file closes, since the drain writes through its writer.
     if let Some(mut drain) = mcp_first_observations {

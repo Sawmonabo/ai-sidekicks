@@ -77,6 +77,8 @@ pub(super) struct RecoveryServiceStart<'start> {
     pub(super) data_folder: &'start Path,
     /// The copy the recovery pass copies the store's files aside with.
     pub(super) copier: Arc<DatabaseFileCopier>,
+    /// The intent the person's Stop writes, the one the process holds from its start.
+    pub(super) stop_intent: Arc<StopIntentFile>,
     /// The tool calls' one dispatch.
     #[expect(
         dead_code,
@@ -92,6 +94,8 @@ pub(super) struct RecoveryServices {
     pub(super) stored: StoredDataMethods,
     /// The recovery pass, run once the socket is bound and before any follow of the log begins.
     pub(super) recovery: StartupRecovery,
+    /// The restart's settle, which the person's Stop drains the live runs through.
+    pub(super) restart_settle: Arc<RestartSettle>,
 }
 
 /// Builds the projection rebuild and the restart's settle, registers the resumed runs' finalize,
@@ -120,6 +124,7 @@ pub(super) fn build_recovery_services(
         accept_stop,
         data_folder,
         copier,
+        stop_intent,
         mcp_dispatch: _,
     } = start;
     let projection_rebuild = Arc::new(ProjectionRebuildService::new(
@@ -136,7 +141,6 @@ pub(super) fn build_recovery_services(
         approvals: Arc::clone(&session.approvals.service),
         plans: Arc::clone(&session.plans),
     }));
-    let stop_intent = Arc::new(StopIntentFile::new(&database.database_path));
     // A resume settles the runs it named through recovery's finalize, registered before the start
     // serves anything, so no resume finds the port empty.
     session
@@ -176,7 +180,7 @@ pub(super) fn build_recovery_services(
         appender: Arc::clone(&session.appender),
         projection_rebuild,
         damaged_history: Arc::clone(&stored.damaged_history),
-        restart_settle,
+        restart_settle: Arc::clone(&restart_settle),
         provider_sessions: Arc::clone(&session.provider_sessions),
         questions: Arc::clone(&session.questions),
         status: Arc::clone(&database.status),
@@ -186,5 +190,9 @@ pub(super) fn build_recovery_services(
         copier,
         stop_intent,
     });
-    Ok(RecoveryServices { stored, recovery })
+    Ok(RecoveryServices {
+        stored,
+        recovery,
+        restart_settle,
+    })
 }

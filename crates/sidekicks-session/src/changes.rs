@@ -333,19 +333,7 @@ impl SessionChanges {
         refuse_unchangeable_session(&session_id, facts.state)?;
         refuse_provisioning_session(&session_id, facts.state)?;
         // The legs end first, so a session never reads closed while its provider still runs it.
-        let drivers = session_providers(&self.pool, session_id)
-            .await?
-            .iter()
-            .map(|provider| self.providers.lookup(provider))
-            .collect::<Result<Vec<_>, DomainError>>()?;
-        for driver in drivers {
-            driver
-                .close_session(CloseSessionParams {
-                    session_id,
-                    cause: SessionCloseCause::Person,
-                })
-                .await?;
-        }
+        self.end_session_legs(session_id).await?;
         self.change(session_id, None, |current| {
             if current.state == SessionState::Closed {
                 return Ok(None);
@@ -363,7 +351,29 @@ impl SessionChanges {
         Ok(())
     }
 
+    /// Ends the session's provider leg through each driver that ran one of its runs, the person
+    /// the cause. Takes no lock: each caller holds its own on the session across the call. Fails
+    /// with `provider.notFound` before any leg is ended when a run's provider has no registered
+    /// driver, and with [`SessionChangeError::Driver`] when a driver did not end its leg.
+    pub async fn end_session_legs(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
+        let drivers = session_providers(&self.pool, session_id)
+            .await?
+            .iter()
+            .map(|provider| self.providers.lookup(provider))
+            .collect::<Result<Vec<_>, DomainError>>()?;
+        for driver in drivers {
+            driver
+                .close_session(CloseSessionParams {
+                    session_id,
+                    cause: SessionCloseCause::Person,
+                })
+                .await?;
+        }
+        Ok(())
+    }
+
     /// Pins the session to the top of its group; a pinned session keeps its first pin time.
+
     /// Refused as [`SessionChangeError::Refused`] says.
     pub async fn pin(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         self.set_mark(session_id, SessionMark::Pin, true).await
