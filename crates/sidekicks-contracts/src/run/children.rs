@@ -1,8 +1,9 @@
 //! A child's own controls. A child here is a provider's own helper inside a run, named by
 //! `childHandle` from the daemon's parent-to-child index; a child the daemon bridges runs as its
-//! own run and takes that run's verbs. The steer names the helper by its session and handle and
-//! carries an idempotency key; the interrupt and the pause also carry the parent run and its
-//! version comparand. The stop of every agent names the session.
+//! own run and takes that run's verbs. The steer names the helper by its session and handle; the
+//! interrupt and the pause name it by the parent run, with that run's version comparand, and the
+//! handle. The steer and the interrupt carry an idempotency key; the pause is a set of the child's
+//! standing and carries none. The stop of every agent names the session.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -90,7 +91,8 @@ pub struct AgentChildRunInterruptResponse {
 }
 
 /// Pauses one child (`paused: true`) or continues it (`paused: false`)
-/// (`agent.childRun.paused.update`).
+/// (`agent.childRun.paused.update`). A repeated set answers the child's standing and takes no
+/// second hold.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -103,13 +105,9 @@ pub struct AgentChildRunPausedUpdateRequest {
     pub paused: bool,
     /// The parent run's version the caller last observed.
     pub expected_run_version: SafeInt<0>,
-    /// A retry under the same key answers what the first saved.
-    pub client_idempotency_key: ClientUuid,
 }
 
-impl KeyedRequest for AgentChildRunPausedUpdateRequest {}
-
-/// A child held paused after the set.
+/// A child held paused, or whose hold is being taken, after the set.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
