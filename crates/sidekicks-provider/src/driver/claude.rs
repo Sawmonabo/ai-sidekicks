@@ -5,7 +5,8 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::future::{BoxFuture, ready};
 use sidekicks_contracts::machine::settings::ProviderRowValues;
-use sidekicks_contracts::mcp::server::config::McpTransport;
+use sidekicks_contracts::mcp::server::config::{McpServerConfigInput, McpTransport};
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpWritableBindingRef};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
     ObservedProviderOptions, ProviderRow, ProviderSessionOption,
@@ -52,6 +53,9 @@ use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
+use crate::driver::mcp_server::write::{
+    McpServerEntry, McpServerObserved, McpServerWrite, McpServerWriteOutcome, McpServerWriteRefusal,
+};
 use crate::driver::message_handing::{HandMoment, MessageHanding};
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
@@ -606,6 +610,30 @@ impl ProviderDriver for ClaudeDriver {
 
     fn reread_live_mcp_statuses(&self) -> BoxFuture<'_, ()> {
         reread_claude_live_mcp_statuses(self).boxed()
+    }
+
+    fn observe_mcp_server(
+        &self,
+        binding: McpServerBindingRef,
+    ) -> BoxFuture<'_, Result<McpServerObserved, DriverError>> {
+        async move { self.observe_mcp_server(&binding).await }.boxed()
+    }
+
+    fn compose_mcp_server(
+        &self,
+        _binding: &McpWritableBindingRef,
+        config: &McpServerConfigInput,
+        before: &McpServerObserved,
+    ) -> Result<McpServerEntry, McpServerWriteRefusal> {
+        self.compose_mcp_server(config, before)
+    }
+
+    fn write_mcp_server(
+        &self,
+        write: McpServerWrite,
+        before: McpServerObserved,
+    ) -> BoxFuture<'_, McpServerWriteOutcome> {
+        async move { self.write_mcp_server(&write, &before).await }.boxed()
     }
 
     fn compact_context(

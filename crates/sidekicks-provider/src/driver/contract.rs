@@ -13,6 +13,8 @@ use std::time::SystemTime;
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
+use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpWritableBindingRef};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
     ObservedProviderOptions, ProviderRow, ProviderSessionOption,
@@ -37,6 +39,9 @@ use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTak
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
+use crate::driver::mcp_server::write::{
+    McpServerEntry, McpServerObserved, McpServerWrite, McpServerWriteOutcome, McpServerWriteRefusal,
+};
 use crate::driver::message_handing::MessageHanding;
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
@@ -375,6 +380,35 @@ pub trait ProviderDriver: Send + Sync {
     fn reread_live_mcp_statuses(&self) -> BoxFuture<'_, ()> {
         Box::pin(async {})
     }
+
+    /// What the provider's own config holds for `binding`, with the version and files a write
+    /// after it is checked against; a provider whose config keeps no switch never answers one.
+    /// Fails as the provider's config cannot be read.
+    fn observe_mcp_server(
+        &self,
+        binding: McpServerBindingRef,
+    ) -> BoxFuture<'_, Result<McpServerObserved, DriverError>>;
+
+    /// The entry the provider's config holds for `binding` once `config` is written over
+    /// `before`, every member the declaration does not model kept as it was. Refused before any
+    /// write: `EntryInvalid` for a transport, member or value the provider does not take, and
+    /// `Provider` over a switch by a provider whose config keeps none.
+    fn compose_mcp_server(
+        &self,
+        binding: &McpWritableBindingRef,
+        config: &McpServerConfigInput,
+        before: &McpServerObserved,
+    ) -> Result<McpServerEntry, McpServerWriteRefusal>;
+
+    /// Writes `write` to the provider's own config against `before`, the binding as observed,
+    /// answering `Unknown` where the write may or may not have landed. A provider whose config
+    /// keeps no switch answers a `SetEnabled` `Refused(Provider)`, though the daemon keeps that
+    /// switch itself and never sends one.
+    fn write_mcp_server(
+        &self,
+        write: McpServerWrite,
+        before: McpServerObserved,
+    ) -> BoxFuture<'_, McpServerWriteOutcome>;
 
     /// Compacts the bound session's provider-side context on the person's request (gated on
     /// `contextCompaction`), settling on the provider's own compaction evidence, never on the

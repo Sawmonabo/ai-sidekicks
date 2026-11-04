@@ -61,10 +61,6 @@ const NO_SWITCH_WORDS: &str = "Codex's config keeps no switch for this server.";
 impl CodexDriver {
     /// What Codex's config holds for `binding`, read on the service on the person's own Codex
     /// folder at the binding's folder. Fails as the service's start or the config read fails.
-    #[expect(
-        dead_code,
-        reason = "the driver trait's MCP write, observe and compose call it"
-    )]
     pub(crate) async fn observe_mcp_server(
         &self,
         binding: &McpServerBindingRef,
@@ -80,10 +76,6 @@ impl CodexDriver {
 
     /// The entry Codex holds for `binding` once `config` is written over `before`. Fails as
     /// [`compose_codex_mcp_entry`] does.
-    #[expect(
-        dead_code,
-        reason = "the driver trait's MCP write, observe and compose call it"
-    )]
     #[expect(clippy::unused_self, reason = "the driver trait's method shape")]
     pub(crate) fn compose_mcp_server(
         &self,
@@ -96,10 +88,6 @@ impl CodexDriver {
 
     /// Writes `write` against `before` on the service on the person's own Codex folder; a service
     /// that cannot be started or reached refuses it in the provider's words.
-    #[expect(
-        dead_code,
-        reason = "the driver trait's MCP write, observe and compose call it"
-    )]
     pub(crate) async fn write_mcp_server(
         &self,
         write: &McpServerWrite,
