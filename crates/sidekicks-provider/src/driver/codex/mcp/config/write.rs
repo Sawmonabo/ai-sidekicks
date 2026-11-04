@@ -583,7 +583,8 @@ mod tests {
         );
     }
 
-    // Killed by a composed entry that keeps the other transport's members either way.
+    // Killed by a composed entry that keeps the other transport's members either way, and by a
+    // cleared member kept.
     #[rstest]
     #[case::program_to_address(
         json!({
@@ -606,8 +607,13 @@ mod tests {
             "oauth_resource",
         ],
     )]
+    #[case::cleared_member(
+        json!({ "command": "npx", "startup_timeout_sec": 5.0, "enabled": true }),
+        json!({ "transport": "stdio", "command": "npx", "startupTimeoutSec": null }),
+        &["startup_timeout_sec"],
+    )]
     #[tokio::test]
-    async fn a_change_of_transport_clears_the_other_arm(
+    async fn a_change_of_transport_or_a_cleared_member_writes_null(
         #[case] before_entry: Value,
         #[case] input: Value,
         #[case] other_arm: &[&str],

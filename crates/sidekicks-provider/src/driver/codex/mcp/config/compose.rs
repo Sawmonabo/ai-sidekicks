@@ -92,8 +92,8 @@ pub(super) fn before_members(before: &McpServerObservedEntry) -> Map<String, Val
 }
 
 // The members of the transport `config` does not submit, then the members it submits by their
-// names in Codex's entry, each set to its value or removed where it is `None`; a member left unset
-// is not listed, so the entry keeps it. The one reader of `config`'s members.
+// names in Codex's entry, each set to its value or removed where it is cleared; a member left
+// absent is not listed, so the entry keeps it. The one reader of `config`'s members.
 fn read_submitted_members(
     config: &McpServerConfigInput,
 ) -> Result<(&'static [&'static str], Vec<SubmittedMember>), McpServerWriteRefusal> {
@@ -110,14 +110,20 @@ fn read_submitted_members(
         } => (
             &ADDRESS_MEMBERS,
             vec![
-                set_member(COMMAND_MEMBER, Some(command))?,
-                set_member(ARGS_MEMBER, args.as_ref())?,
-                set_member(ENV_MEMBER, env.as_ref())?,
-                set_member(ENV_VARS_MEMBER, env_vars.as_ref())?,
-                set_member(ENABLED_MEMBER, enabled.as_ref())?,
-                set_member(REQUIRED_MEMBER, required.as_ref())?,
-                set_member(STARTUP_TIMEOUT_SEC_MEMBER, startup_timeout_sec.as_ref())?,
-                set_member(TOOL_TIMEOUT_SEC_MEMBER, tool_timeout_sec.as_ref())?,
+                set_member(COMMAND_MEMBER, Some(Some(command)))?,
+                set_member(ARGS_MEMBER, args.as_ref().map(Option::as_ref))?,
+                set_member(ENV_MEMBER, env.as_ref().map(Option::as_ref))?,
+                set_member(ENV_VARS_MEMBER, env_vars.as_ref().map(Option::as_ref))?,
+                set_member(ENABLED_MEMBER, enabled.as_ref().map(Some))?,
+                set_member(REQUIRED_MEMBER, required.as_ref().map(Some))?,
+                set_member(
+                    STARTUP_TIMEOUT_SEC_MEMBER,
+                    startup_timeout_sec.as_ref().map(Option::as_ref),
+                )?,
+                set_member(
+                    TOOL_TIMEOUT_SEC_MEMBER,
+                    tool_timeout_sec.as_ref().map(Option::as_ref),
+                )?,
             ],
         ),
         McpServerConfigInput::Http {
@@ -134,16 +140,31 @@ fn read_submitted_members(
         } => (
             &PROGRAM_MEMBERS,
             vec![
-                set_member(URL_MEMBER, Some(url))?,
-                set_member(HTTP_HEADERS_MEMBER, headers.as_ref())?,
-                set_member(BEARER_TOKEN_ENV_VAR_MEMBER, bearer_token_env_var.as_ref())?,
-                set_member(ENV_HTTP_HEADERS_MEMBER, env_http_headers.as_ref())?,
-                set_member(SCOPES_MEMBER, oauth_scopes.as_ref())?,
-                set_member(OAUTH_RESOURCE_MEMBER, oauth_resource.as_ref())?,
-                set_member(ENABLED_MEMBER, enabled.as_ref())?,
-                set_member(REQUIRED_MEMBER, required.as_ref())?,
-                set_member(STARTUP_TIMEOUT_SEC_MEMBER, startup_timeout_sec.as_ref())?,
-                set_member(TOOL_TIMEOUT_SEC_MEMBER, tool_timeout_sec.as_ref())?,
+                set_member(URL_MEMBER, Some(Some(url)))?,
+                set_member(HTTP_HEADERS_MEMBER, headers.as_ref().map(Option::as_ref))?,
+                set_member(
+                    BEARER_TOKEN_ENV_VAR_MEMBER,
+                    bearer_token_env_var.as_ref().map(Option::as_ref),
+                )?,
+                set_member(
+                    ENV_HTTP_HEADERS_MEMBER,
+                    env_http_headers.as_ref().map(Option::as_ref),
+                )?,
+                set_member(SCOPES_MEMBER, oauth_scopes.as_ref().map(Option::as_ref))?,
+                set_member(
+                    OAUTH_RESOURCE_MEMBER,
+                    oauth_resource.as_ref().map(Option::as_ref),
+                )?,
+                set_member(ENABLED_MEMBER, enabled.as_ref().map(Some))?,
+                set_member(REQUIRED_MEMBER, required.as_ref().map(Some))?,
+                set_member(
+                    STARTUP_TIMEOUT_SEC_MEMBER,
+                    startup_timeout_sec.as_ref().map(Option::as_ref),
+                )?,
+                set_member(
+                    TOOL_TIMEOUT_SEC_MEMBER,
+                    tool_timeout_sec.as_ref().map(Option::as_ref),
+                )?,
             ],
         ),
         McpServerConfigInput::Sse { .. } => {
@@ -158,15 +179,22 @@ fn read_submitted_members(
     ))
 }
 
-// `member` set to `value` where one is submitted; `None` where it is left unset.
+// `member` set to the submitted value, removed where it is cleared (`Some(None)`), and `None`
+// where it is absent.
+#[expect(
+    clippy::option_option,
+    reason = "it reads a submitted member's absent, cleared and set meanings"
+)]
 fn set_member<T: Serialize>(
     member: &'static str,
-    value: Option<&T>,
+    value: Option<Option<&T>>,
 ) -> Result<Option<SubmittedMember>, McpServerWriteRefusal> {
     value
         .map(|value| {
-            serde_json::to_value(value)
-                .map(|value| (member, Some(value)))
+            value
+                .map(serde_json::to_value)
+                .transpose()
+                .map(|value| (member, value))
                 .map_err(|failure| McpServerWriteRefusal::EntryInvalid {
                     words: provider_words_without_values(&format!(
                         "The daemon could not write the server's {member} setting: {failure}"
