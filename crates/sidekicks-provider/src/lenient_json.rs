@@ -1,17 +1,21 @@
 //! Reads a provider's JSON into typed structs that name only the members a reader uses, each member
 //! read leniently: a member of another JSON type reads as absent rather than failing the whole
-//! value, and every member not named is skipped without being kept. A struct is made a lenient
-//! member with [`lenient_object!`], which reads it only from a JSON object, since serde's derive
-//! would read an array's items by position.
+//! value, and every member not named is skipped without being kept. The `f64` reader alone reads
+//! its value whole and drops one of another shape, since `serde_json`'s arbitrary precision, which
+//! a dependency turns on, hands a fraction to a map visitor. A struct is made a lenient member with
+//! [`lenient_object!`], which reads it only from a JSON object, since serde's derive would read an
+//! array's items by position and that map form of a number as an object.
 
 use std::fmt;
 use std::marker::PhantomData;
 
 use serde::Deserialize;
-use serde::de::{self, Deserializer, SeqAccess, Visitor};
+use serde::de::value::{MapAccessDeserializer, MapDeserializer};
+use serde::de::{self, DeserializeSeed, Deserializer, IgnoredAny, IntoDeserializer, MapAccess};
+use serde::de::{SeqAccess, Visitor};
 
 /// A value read leniently: the one JSON shape it takes, or `None` for any other, whose contents
-/// are skipped without being kept.
+/// are skipped without being kept, except by the `f64` reader, which reads the value whole first.
 pub(crate) trait Lenient: Sized {
     /// Reads the value, `None` when the JSON holds another shape.
     fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error>;
@@ -81,10 +85,7 @@ macro_rules! lenient_object {
                 self,
                 map: A,
             ) -> Result<Self::Value, A::Error> {
-                <$object as serde::Deserialize>::deserialize(
-                    serde::de::value::MapAccessDeserializer::new(map),
-                )
-                .map(Some)
+                $crate::lenient_json::read_object(map)
             }
 
             $crate::lenient_json::skip_other_shapes!(
@@ -111,6 +112,73 @@ macro_rules! lenient_object {
 }
 
 pub(crate) use lenient_object;
+
+/// The members of a JSON object read into `T` through its derived `Deserialize`, for
+/// [`lenient_object!`]; `None` where `map` is `serde_json`'s map form of a number.
+pub(crate) fn read_object<'de, T: Deserialize<'de>, A: MapAccess<'de>>(
+    mut map: A,
+) -> Result<Option<T>, A::Error> {
+    let first_key = map.next_key::<String>()?;
+    if first_key.as_deref().is_some_and(is_number_key) {
+        map.next_value::<IgnoredAny>()?;
+        while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
+        return Ok(None);
+    }
+    T::deserialize(MapAccessDeserializer::new(KeyReplayingMap {
+        first_key,
+        rest: map,
+    }))
+    .map(Some)
+}
+
+// Whether `key` is the one key of serde_json's map form of a number, asked of serde_json's own
+// number reader so its private spelling is never copied; never so without arbitrary precision.
+fn is_number_key(key: &str) -> bool {
+    let number_form = MapDeserializer::<_, DiscardedProbeError>::new(std::iter::once((key, "0")));
+    serde_json::Number::deserialize(number_form).is_ok()
+}
+
+// The error `is_number_key`'s probe discards: it drops the message, so a refusal allocates nothing.
+#[derive(Debug)]
+struct DiscardedProbeError;
+
+impl fmt::Display for DiscardedProbeError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("not serde_json's map form of a number")
+    }
+}
+
+impl std::error::Error for DiscardedProbeError {}
+
+impl de::Error for DiscardedProbeError {
+    fn custom<T: fmt::Display>(_message: T) -> Self {
+        Self
+    }
+}
+
+// A map whose first key was already read: that key, then the rest of the map.
+struct KeyReplayingMap<A> {
+    first_key: Option<String>,
+    rest: A,
+}
+
+impl<'de, A: MapAccess<'de>> MapAccess<'de> for KeyReplayingMap<A> {
+    type Error = A::Error;
+
+    fn next_key_seed<K: DeserializeSeed<'de>>(
+        &mut self,
+        seed: K,
+    ) -> Result<Option<K::Value>, A::Error> {
+        match self.first_key.take() {
+            Some(key) => seed.deserialize(key.into_deserializer()).map(Some),
+            None => self.rest.next_key_seed(seed),
+        }
+    }
+
+    fn next_value_seed<V: DeserializeSeed<'de>>(&mut self, seed: V) -> Result<V::Value, A::Error> {
+        self.rest.next_value_seed(seed)
+    }
+}
 
 impl<'de> Visitor<'de> for LenientVisitor<String> {
     type Value = Option<String>;
@@ -197,6 +265,15 @@ impl Lenient for bool {
 impl Lenient for u64 {
     fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error> {
         deserializer.deserialize_any(LenientVisitor::<Self>(PhantomData))
+    }
+}
+
+impl Lenient for f64 {
+    fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error> {
+        // serde_json's arbitrary precision, which a dependency turns on, hands a fraction to a
+        // visitor in a private form only serde_json's own readers take, so the value is read
+        // whole and dropped.
+        Ok(serde_json::Value::deserialize(deserializer)?.as_f64())
     }
 }
 

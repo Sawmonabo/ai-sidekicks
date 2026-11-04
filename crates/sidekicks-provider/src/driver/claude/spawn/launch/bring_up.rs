@@ -19,6 +19,7 @@ use crate::driver::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, read_claude_attached_advisor,
 };
 use crate::driver::claude::session::errors::ClaudeSessionError;
+use crate::driver::claude::session::memory::CLAUDE_AUTO_MEMORY_SETTING;
 use crate::driver::claude::session::permission_level::claude_permission_mode_for;
 use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{
@@ -88,6 +89,8 @@ pub(crate) struct ClaudeBringUpRequest<'a> {
 pub(crate) struct ClaudeSettingsReadback {
     /// The effective `cleanupPeriodDays`, where the reply carries a number.
     pub(crate) cleanup_period_days: Option<f64>,
+    /// The effective `autoMemoryEnabled`, where the reply carries a boolean.
+    pub(crate) auto_memory_enabled: Option<bool>,
     /// The advisor Claude Code says it attaches.
     pub(crate) attached_advisor: ClaudeAttachedAdvisor,
     /// The effective `advisorModel`, `Unpicked` where the reply carries no effective settings.
@@ -223,12 +226,18 @@ fn read_settings_readback(reply: Option<&RawValue>) -> ClaudeSettingsReadback {
     let effective = reply.effective.as_ref();
     let cleanup_period_days =
         effective.and_then(|effective| effective.get("cleanupPeriodDays").and_then(Value::as_f64));
+    let auto_memory_enabled = effective.and_then(|effective| {
+        effective
+            .get(CLAUDE_AUTO_MEMORY_SETTING)
+            .and_then(Value::as_bool)
+    });
     // An `effective` naming no `advisorModel` resolves to no advisor.
     let resolved_advisor = effective.map_or(ClaudeSessionAdvisor::Unpicked, |effective| {
         ClaudeSessionAdvisor::of(effective.get("advisorModel").and_then(Value::as_str))
     });
     ClaudeSettingsReadback {
         cleanup_period_days,
+        auto_memory_enabled,
         resolved_advisor,
         attached_advisor: read_claude_attached_advisor(&reply),
         ultracode: read_claude_ultracode(&reply),
