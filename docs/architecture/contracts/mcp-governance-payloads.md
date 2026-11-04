@@ -110,33 +110,36 @@ type McpEffectiveBinding = McpServerBindingRef | null;
 // only for that call and never storing or logging it.
 // PRESERVATION RULE (Spec-024 §Configuration Mutation): upserts are read-modify-write over the
 // provider's own declaration — provider fields this union does not model (or the request does not
-// carry) are preserved, never erased. Codex `user` writes are field-granular `config/value/write`
-// paths, a Codex `project` write is a format-preserving edit that keeps the file's comments and
-// layout, and the regenerated Claude declaration starts from the observed current one.
+// carry) are preserved, never erased. A Codex `user` or `local` write is one `config/batchWrite` of
+// field-granular key paths under the version the daemon read before it, then
+// `config/mcpServer/reload`; a Codex `project` write is a format-preserving edit that keeps the
+// file's comments and layout, and the regenerated Claude declaration starts from the observed
+// current one. An optional member written `?: T | null` is clearable: absent keeps the provider's
+// value, and `null` removes the member from the provider's entry.
 type McpServerConfigInput =
   | {
       transport: "stdio";
       command: string; // executable; non-empty, NUL-rejected
-      args?: string[];
-      env?: Record<string, string>; // write-only values (see above)
-      envVars?: string[]; // Codex's `env_vars` — variable NAMES the server inherits from the environment Codex starts in
+      args?: string[] | null;
+      env?: Record<string, string> | null; // write-only values (see above)
+      envVars?: string[] | null; // Codex's `env_vars` — variable NAMES the server inherits from the environment Codex starts in
       enabled?: boolean; // whether the server is on; unset keeps the provider's value. Written to the provider's own field where it has one, else kept as the daemon's per-server enabled overlay
       required?: boolean; // Codex's `required` — thread start/resume fails if the server cannot initialize
-      startupTimeoutSec?: number; // Codex's native timeout
-      toolTimeoutSec?: number; // Codex's native timeout
+      startupTimeoutSec?: number | null; // Codex's native timeout
+      toolTimeoutSec?: number | null; // Codex's native timeout
     }
   | {
       transport: "http" | "sse"; // "sse" is a Claude Code transport; Codex declares none
       url: string; // absolute http(s) URL, taken as typed and passed to the provider write path as typed, a user name or password in it included. That user name and password and the query-string VALUES are write-only credential-equivalent material: accepted, passed on — never round-tripped (the view serves query param NAMES)
-      headers?: Record<string, string>; // write-only values (see above)
-      bearerTokenEnvVar?: string; // Codex's `bearer_token_env_var` — the env-var NAME, never the value
-      envHttpHeaders?: Record<string, string>; // Codex's `env_http_headers` — header NAME → env-var NAME (both references, no values; resolved provider-side at connect time)
-      oauthScopes?: string[]; // Codex's `scopes` — OAuth scopes requested for the server's auth flow
-      oauthResource?: string; // Codex's `oauth_resource` — the RFC 8707 resource indicator for the flow
+      headers?: Record<string, string> | null; // write-only values (see above)
+      bearerTokenEnvVar?: string | null; // Codex's `bearer_token_env_var` — the env-var NAME, never the value
+      envHttpHeaders?: Record<string, string> | null; // Codex's `env_http_headers` — header NAME → env-var NAME (both references, no values; resolved provider-side at connect time)
+      oauthScopes?: string[] | null; // Codex's `scopes` — OAuth scopes requested for the server's auth flow
+      oauthResource?: string | null; // Codex's `oauth_resource` — the RFC 8707 resource indicator for the flow
       enabled?: boolean;
       required?: boolean; // Codex's (as above)
-      startupTimeoutSec?: number; // Codex's (as above)
-      toolTimeoutSec?: number; // Codex's (as above)
+      startupTimeoutSec?: number | null; // Codex's (as above)
+      toolTimeoutSec?: number | null; // Codex's (as above)
     };
 
 // Redacted normalized config view (Spec-024 §Unified Inventory): the read-back of what
@@ -327,14 +330,19 @@ interface McpLiveApplicationResult {
 // through the status notices they induce; reconnect is unreceipted:
 //   mcp.server.upsert      McpWritableBindingRef & {clientIdempotencyKey: string, config:
 // McpServerConfigInput} → {server: McpServerInventoryEntry, applied: McpApplicationGrade,
-// liveResults?: McpLiveApplicationResult[]}
+// liveResults?: McpLiveApplicationResult[], reloadFailure?: string} // reloadFailure, on this reply,
+// delete's and enabled.update's, is present when the provider holds the change but its running
+// service did not reload it, so the change applies at that service's next start; it says why, with
+// no config value or file path
 //   mcp.server.delete      McpWritableBindingRef & {clientIdempotencyKey: string} → {applied:
-// McpApplicationGrade, liveResults?: McpLiveApplicationResult[]} // removing an emulated Codex
+// McpApplicationGrade, liveResults?: McpLiveApplicationResult[], reloadFailure?: string} //
+// removing an emulated Codex
 // local server also removes the daemon's row for it; removing any server removes every approval
 // rule over its tools from the provider's file that holds it, in the same transaction
 //   mcp.server.enabled.update        McpServerBindingRef & {clientIdempotencyKey: string, enabled:
 // boolean, projectRoot?: string, place?: WslPlace} → {server: McpServerInventoryEntry, applied:
-// McpApplicationGrade, liveResults?: McpLiveApplicationResult[]} // projectRoot required on a
+// McpApplicationGrade, liveResults?: McpLiveApplicationResult[], reloadFailure?: string} //
+// projectRoot required on a
 // `connector` or `managed` binding and refused on every other, with `place`, the WSL 2 distribution
 // the root is in, its path in Linux form there: the daemon's own switch for that one project, never
 // Claude Code's `disabledMcpServers`
@@ -403,11 +411,13 @@ interface McpLiveApplicationResult {
 // provider's own configuration, each provider through its own mechanism:
 // Claude Code writes through `claude mcp add-json <name> <json> --scope <scope>` (a `project` write
 // run from the project root, landing in `<project>/.mcp.json`; `local` in Claude Code's per-project
-// entry of its user configuration); Codex `user` writes through `config/value/write`; Codex
-// `project` is a format-preserving edit of `<project>/.codex/config.toml` written to a temporary
-// file and renamed into place only while the file still hashes to what the daemon last read (else
-// mcp.server.configWriteConflict), then read back with `config/read` and reloaded with
-// `config/mcpServer/reload`; Codex `local` is emulated as a user entry with `enabled = false`,
+// entry of its user configuration); Codex `user` writes through one `config/batchWrite` of
+// field-granular key paths under the version the daemon read before it, then
+// `config/mcpServer/reload`; Codex `project` is a format-preserving edit of
+// `<project>/.codex/config.toml` written to a temporary file and renamed into place only while the
+// file still hashes to what the daemon last read (else mcp.server.configWriteConflict), then read
+// back with `config/read` and reloaded with `config/mcpServer/reload`; Codex `local` is emulated as
+// a user entry with `enabled = false`, written the same way as a `user` one,
 // switched on per conversation in each session of that project, its name unique across the user
 // file (a clash is refused, naming the project that holds the other one).
 // Overrides, oauthLogin and reconnect apply to any binding, and oauthLogout to any server.

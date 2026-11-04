@@ -407,7 +407,7 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
 
 - **T22.3.10 — Codex `local` emulation.**
   - Files: `crates/sidekicks-provider/src/driver/codex/mcp/config.rs` (EXTEND)
-  - Write the server into the user file through `config/value/write` with `enabled = false`; keep one governance row for the binding, removed with the server; switch it on with `mcp_servers.<name>.enabled = true` in the `thread/start` table of each session whose project is that one. The name must be unique across the user file; a clash refuses per T22.3.5.
+  - Write the server into the user file through `config/batchWrite` with `enabled = false`; keep one governance row for the binding, removed with the server; switch it on with `mcp_servers.<name>.enabled = true` in the `thread/start` table of each session whose project is that one. The name must be unique across the user file; a clash refuses per T22.3.5.
   - **Spec coverage:** Spec-024 §Configuration Mutation
   - **Verifies invariant:** I-022-2
   - **Consumes:** the Codex user writer ← T22.3.4; the session table ← T22.3.8 (same phase).
