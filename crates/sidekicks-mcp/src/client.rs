@@ -108,14 +108,6 @@ impl McpClient {
 
     /// The standing connection of `session_id` to `server_name`, made at its first use; one
     /// already closed, kept nowhere, once the session closed or the client stopped.
-    #[cfg_attr(
-        not(any(test, feature = "test-support")),
-        expect(
-            dead_code,
-            reason = "the tool route and the workflow tool step take the standing connection they \
-                      dispatch a call over through it"
-        )
-    )]
     pub(crate) fn standing_connection(
         &self,
         session_id: SessionId,

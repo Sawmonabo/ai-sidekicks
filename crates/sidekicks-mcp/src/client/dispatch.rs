@@ -19,6 +19,7 @@
 //!   written and the receipt stays in flight.
 
 mod resume;
+pub mod workflow_step;
 
 use std::pin::pin;
 use std::sync::{Arc, Mutex};
@@ -97,13 +98,6 @@ pub(crate) enum McpCallCompletionError {
 /// A call the dispatch sent, with its end. Its caller writes the end through [`Self::complete`],
 /// or hands it off; dropped, its receipt stays in flight.
 #[must_use = "a dispatched call's end is written through `complete` or handed off"]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the tool route and the workflow tool step end the calls they dispatch with it"
-    )
-)]
 pub(crate) struct McpDispatchedCall {
     receipt_id: CommandReceiptId,
     end: Result<McpToolCallEnd, McpToolCallError>,
@@ -163,13 +157,6 @@ impl McpToolDispatch {
     /// client stops before the call is sent, when no connection is live, when the server's tools
     /// cannot be read, or when the receipt is not written; and with `ClientStopping`, the receipt
     /// left in flight, when the call ended without the server's answer as the client stopped.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the tool route and the workflow tool step call tools through it"
-        )
-    )]
     pub(crate) async fn call(
         &self,
         standing: &McpStandingConnection,
@@ -365,13 +352,6 @@ impl McpDispatchedCall {
     /// dispatch wrote it itself, `ClientStopping` when the end came without the server's answer
     /// as the client stopped, and the store's error, a backgrounded call's refusal among them,
     /// when the write fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the tool route and the workflow tool step end the calls they dispatch with it"
-        )
-    )]
     pub(crate) async fn complete(
         self,
     ) -> (
