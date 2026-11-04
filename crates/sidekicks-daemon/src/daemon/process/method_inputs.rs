@@ -37,6 +37,7 @@ use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::account::credential_home::sign_out_every_home;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_provider::port::run_pause::ContinuedMessages;
 use sidekicks_provider::port::session_wake::SessionWaker;
 use sidekicks_queue::memory_gate::{
     INGEST_WORKER_BYTES, MemoryGate, MemoryGateFigures, QUICK_THREAD_BYTES,
@@ -659,6 +660,8 @@ pub(crate) async fn register_method_inputs(
         providers: Arc::clone(&registry),
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
     });
+    // The messages waiting for a paused run, which a run's and a child's continue deliver.
+    let continued: Arc<dyn ContinuedMessages> = Arc::new(session.queue.delivery());
     let (erase_accounts, erase_legs) = (
         Arc::clone(&accounts.methods.accounts),
         accounts.methods.account_legs.clone(),
@@ -734,12 +737,14 @@ pub(crate) async fn register_method_inputs(
                 interventions: Arc::clone(&session.interventions),
                 pauses: Arc::clone(&session.pauses),
                 choices: Arc::clone(&session.choices),
-                continued: Arc::new(session.queue.delivery()),
+                continued: Arc::clone(&continued),
             },
             child_run_controls: Arc::new(ChildRunControls::new(
                 Arc::clone(&reads),
                 Arc::clone(&registry),
                 InterventionService::clone(&session.interventions),
+                Arc::clone(&session.pauses),
+                continued,
                 Arc::clone(&session.appender),
                 Arc::clone(&read_damaged_from_sequence),
             )),
