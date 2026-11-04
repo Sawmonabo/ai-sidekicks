@@ -5,16 +5,12 @@ use serde_json::json;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use tokio::time::{Duration, timeout};
-use tokio_util::sync::CancellationToken;
 
 use super::{MCP_RESTART_SWEEP_STATEMENT_CAPACITY, McpReceiptSession, McpRestartSweep};
-use crate::client::dispatch::tests::{Fixture, StoredReceipt, task_server};
-use crate::client::tasks::{
-    McpServerEndpoint, McpTaskGeneration, McpTaskHandleObservation, McpTaskHandleSink as _,
-};
+use crate::client::dispatch::tests::{Fixture, StoredReceipt, left_in_flight, task_server};
+use crate::client::tasks::{McpServerEndpoint, McpTaskGeneration};
 use crate::client::test_server::{
-    Reply, method_not_found, text_result, track_call, track_task_handle, tracker_address,
-    v1_status_reply,
+    Reply, method_not_found, text_result, tracker_address, v1_status_reply,
 };
 
 /// The sweep over `fixture`'s client, dispatch and database.
@@ -27,29 +23,6 @@ fn sweep(fixture: &Fixture) -> McpRestartSweep {
             MCP_RESTART_SWEEP_STATEMENT_CAPACITY,
         )),
     )
-}
-
-/// Leaves a call of `track` in flight as a restart finds it: its receipt claimed and, when `task`
-/// names them, holding task `task-1` accepted under the generation on the tracker at the endpoint.
-async fn left_in_flight(fixture: &Fixture, task: Option<(McpTaskGeneration, McpServerEndpoint)>) {
-    let call = track_call();
-    fixture
-        .dispatch
-        .receipts
-        .accept_and_claim(
-            &call.dispatch.command_id,
-            call.run_id,
-            &CancellationToken::new(),
-        )
-        .await
-        .expect("the receipt is written");
-    if let Some((mcp_task_generation, endpoint)) = task {
-        let observation = McpTaskHandleObservation {
-            endpoint,
-            ..track_task_handle(mcp_task_generation)
-        };
-        fixture.dispatch.recorder.record(observation).await;
-    }
 }
 
 /// The one receipt, once its end is written by the sweep's resume, which runs on the client's

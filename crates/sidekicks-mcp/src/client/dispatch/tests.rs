@@ -18,13 +18,16 @@ use crate::client::McpClient;
 use crate::client::connection::standing::McpStandingConnection;
 use crate::client::connection::{McpConnectionStart, McpServerConnection};
 use crate::client::tasks::McpTaskContact::{CancelRefused, Reached};
-use crate::client::tasks::{McpTaskContact, McpToolCallEnd};
+use crate::client::tasks::{
+    McpServerEndpoint, McpTaskContact, McpTaskGeneration, McpTaskHandleObservation,
+    McpTaskHandleSink as _, McpToolCallEnd,
+};
 use crate::client::test_server::{
     Reply, Responder, TestServer, contact, method_not_found, start_test_server, test_client,
-    text_result, track_call, tracked_end, v1_initialize_result, v1_status_reply, v1_task,
-    wait_for_contact,
+    text_result, track_call, track_task_handle, tracked_end, v1_initialize_result, v1_status_reply,
+    v1_task, wait_for_contact,
 };
-use crate::command_receipts::background_statement;
+use crate::command_receipts::{InFlightReceipt, InFlightTask, background_statement};
 use crate::schema::schema_parts;
 
 /// A receipt row as stored: its status, whether it was claimed and ended, and its four task
@@ -150,6 +153,45 @@ pub(super) fn receipt_without_task(status: &str, is_completed: bool) -> StoredRe
         is_started: true,
         is_completed,
         task: [None, None, None, None],
+    }
+}
+
+/// The receipt a call of `track` left in flight across a restart: claimed, and holding task
+/// `task-1` accepted under the generation on the tracker at the endpoint when `task` names them.
+pub(super) async fn left_in_flight(
+    fixture: &Fixture,
+    task: Option<(McpTaskGeneration, McpServerEndpoint)>,
+) -> InFlightReceipt {
+    let call = track_call();
+    let id = fixture
+        .dispatch
+        .receipts
+        .accept_and_claim(
+            &call.dispatch.command_id,
+            call.run_id,
+            &CancellationToken::new(),
+        )
+        .await
+        .expect("the receipt is written");
+    if let Some((mcp_task_generation, endpoint)) = &task {
+        let observation = McpTaskHandleObservation {
+            endpoint: endpoint.clone(),
+            ..track_task_handle(*mcp_task_generation)
+        };
+        fixture.dispatch.recorder.record(observation).await;
+    }
+    let task = task.map(|(mcp_task_generation, endpoint)| InFlightTask {
+        mcp_task_id: "task-1".to_owned(),
+        mcp_task_generation,
+        server_name: fixture.name.clone(),
+        endpoint,
+    });
+    InFlightReceipt {
+        id,
+        command_id: call.dispatch.command_id,
+        run_id: call.run_id,
+        task,
+        is_backgrounded: false,
     }
 }
 

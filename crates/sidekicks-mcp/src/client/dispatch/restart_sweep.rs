@@ -89,14 +89,15 @@ impl McpRestartSweep {
         }
     }
 
-    /// Reads every receipt in flight in one read, with where each one's run stands through
-    /// `session`, then starts resuming each one not left in flight on the client's tracker, and
-    /// returns. A row that does not read, or whose session does not, is logged and left in flight.
-    /// Fails with [`McpRestartSweepError`] as the read fails, resuming nothing.
-    pub async fn start(
-        &self,
-        session: impl Fn(&Connection, &RunId) -> rusqlite::Result<McpReceiptSession> + Send + 'static,
-    ) -> Result<(), McpRestartSweepError> {
+    /// Starts resuming every receipt in flight on the client's tracker, with where its run stands
+    /// as `session` reads it, and returns without waiting for them. Fails with
+    /// [`McpRestartSweepError`] when the read fails, resuming nothing.
+    pub async fn start<Reader>(&self, session: Reader) -> Result<(), McpRestartSweepError>
+    where
+        Reader: Fn(&Connection, &RunId) -> rusqlite::Result<McpReceiptSession> + Send + 'static,
+    {
+        // One read takes every receipt with its session; a row or session that does not read is
+        // logged and left in flight.
         let swept = self
             .reads
             .read(ReadLength::Long, move |connection| {
