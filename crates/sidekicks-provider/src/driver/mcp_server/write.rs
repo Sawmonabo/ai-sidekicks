@@ -2,9 +2,21 @@
 //! for the binding before and after it.
 
 use std::fmt;
+use std::sync::LazyLock;
 
+use regex::Regex;
 use serde_json::{Map, Value};
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpWritableBindingRef};
+use sidekicks_ipc::redaction::{redact_paths, scrub_credentials};
+
+// A double-quoted span, its escaped characters included, or a backtick span, each running to the
+// text's end where it is left open.
+static QUOTED_SPAN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#""(?:[^"\\]|\\.)*(?:"|\\?$)|`[^`]*(?:`|$)"#).expect("the pattern is a valid regex")
+});
+
+/// The word a quoted span of a provider's words is replaced with.
+const ELIDED_SPAN: &str = "…";
 
 /// A declaration's members as the provider holds them, values included. It lives only in memory,
 /// and its `Debug` prints the members' names alone, since a value may carry a credential.
@@ -84,7 +96,12 @@ pub enum McpServerWrite {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum McpServerWriteOutcome {
     /// The provider holds the write.
-    Applied,
+    Applied {
+        /// Why the provider's running service did not reload its servers after the write, in
+        /// words with no config value; `None` where it reloaded. The write stands either way, and
+        /// a service that did not reload reads it at its next start.
+        reload_failure: Option<String>,
+    },
     /// The provider surely does not hold the write.
     Refused(McpServerWriteRefusal),
     /// The write may or may not have landed, so the binding is observed again to tell.
@@ -122,6 +139,14 @@ pub enum McpServerWriteRefusal {
         /// The provider's words, with no config value.
         words: String,
     },
+}
+
+/// `words`, a provider's own words about a write, with every `"…"` and backtick span replaced by
+/// `…`, then its credentials and paths redacted, since a provider quotes the values and key paths
+/// it refuses. Every [`McpServerWriteRefusal`] word goes through it.
+pub fn provider_words_without_values(words: &str) -> String {
+    let elided = QUOTED_SPAN.replace_all(words, ELIDED_SPAN);
+    redact_paths(&scrub_credentials(&elided))
 }
 
 #[cfg(test)]

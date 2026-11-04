@@ -268,36 +268,41 @@ impl SessionDirectoryProviderPort {
             running_model,
         } = lead;
         let row_values = row_values_of(&standing.provider_settings, &binding.provider_name);
+        let create_params = CreateSessionParams {
+            session_id,
+            agent_id,
+            config: Map::new(),
+            model: running_model,
+            effort: binding.effort,
+            larger_window: binding.larger_window,
+            execution_posture: Some(standing.execution_posture),
+            mode: standing.mode,
+            output_speed: binding.output_speed,
+            options: binding
+                .options
+                .map(|options| options.as_slice().to_vec())
+                .unwrap_or_default(),
+            row_values,
+            // The session's tool servers and callback tools are bound by their own owners.
+            callback_tools: None,
+            subagent_policy: None,
+            tool_servers: None,
+            output_schema: None,
+            provider_account_id,
+            // No agent definition or workflow step names an account of its own yet.
+            account_pin: SessionAccountPin::FollowsCurrent,
+            on_mcp_server_status: None,
+        };
         let function_legs_for = self
-            .compose_function_legs(session_id, binding.provider_name.clone())
+            .compose_function_legs(
+                session_id,
+                binding.provider_name.clone(),
+                create_params.tool_servers.as_deref().unwrap_or_default(),
+            )
             .await?;
         Ok(SessionProviderOpening {
             git_folder: standing.git_folder,
-            create_params: CreateSessionParams {
-                session_id,
-                agent_id,
-                config: Map::new(),
-                model: running_model,
-                effort: binding.effort,
-                larger_window: binding.larger_window,
-                execution_posture: Some(standing.execution_posture),
-                mode: standing.mode,
-                output_speed: binding.output_speed,
-                options: binding
-                    .options
-                    .map(|options| options.as_slice().to_vec())
-                    .unwrap_or_default(),
-                row_values,
-                // The session's tool servers and callback tools are bound by their own owners.
-                callback_tools: None,
-                subagent_policy: None,
-                tool_servers: None,
-                output_schema: None,
-                provider_account_id,
-                // No agent definition or workflow step names an account of its own yet.
-                account_pin: SessionAccountPin::FollowsCurrent,
-                on_mcp_server_status: None,
-            },
+            create_params,
             provider: binding.provider_name,
             function_legs_for,
         })

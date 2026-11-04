@@ -1,17 +1,13 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
-use futures::future::BoxFuture;
 use rmcp::transport::auth::{AuthError, CredentialStore as _, StoredCredentials};
 use rstest::rstest;
-use secrecy::SecretString;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_store::credential_store::service::KeychainService;
-use sidekicks_store::credential_store::{KeychainRefusal, SecretKeychain};
 
 use super::SignInCustody;
 use crate::sign_in::canonical_server_address;
-use crate::sign_in::test_keychain::test_keychain;
+use crate::test_keychain::{CountingKeychain, test_keychain};
 
 fn server_address() -> McpServerAddress {
     McpServerAddress::new("https://docs.example.com/mcp").expect("a server address")
@@ -50,57 +46,19 @@ fn access_token(credentials: &StoredCredentials) -> serde_json::Value {
         .clone()
 }
 
-/// A keychain counting the reads that reach the one under it.
-struct CountingKeychain {
-    inner: Arc<dyn SecretKeychain>,
-    reads: AtomicUsize,
-}
-
-impl SecretKeychain for CountingKeychain {
-    fn write<'call>(
-        &'call self,
-        account: &'call str,
-        value: &'call SecretString,
-    ) -> BoxFuture<'call, Result<(), KeychainRefusal>> {
-        self.inner.write(account, value)
-    }
-
-    fn read<'call>(
-        &'call self,
-        account: &'call str,
-    ) -> BoxFuture<'call, Result<Option<SecretString>, KeychainRefusal>> {
-        self.reads.fetch_add(1, Ordering::SeqCst);
-        self.inner.read(account)
-    }
-
-    fn remove<'call>(
-        &'call self,
-        account: &'call str,
-    ) -> BoxFuture<'call, Result<bool, KeychainRefusal>> {
-        self.inner.remove(account)
-    }
-
-    fn accounts(&self) -> BoxFuture<'_, Result<Vec<String>, KeychainRefusal>> {
-        self.inner.accounts()
-    }
-}
-
 /// A sign-in an earlier daemon life kept is read from the keychain once, however many stores
 /// rmcp's managers build for the server load it after. Killed by reading the keychain on every
 /// load, and by a cache kept per store rather than per custody.
 #[tokio::test]
 async fn a_kept_sign_in_is_read_from_the_keychain_once() {
-    let (_data_folder, _credentials, keychain) = test_keychain();
+    let (_data_folder, _credentials, keychain) = test_keychain(KeychainService::McpSignIns);
     keep(
         &SignInCustody::new(Arc::clone(&keychain)),
         &server_address(),
         "test-access-token",
     )
     .await;
-    let counting = Arc::new(CountingKeychain {
-        inner: keychain,
-        reads: AtomicUsize::new(0),
-    });
+    let counting = Arc::new(CountingKeychain::new(keychain));
     let custody = SignInCustody::new(Arc::clone(&counting) as _);
 
     for _ in 0..11 {
@@ -113,14 +71,14 @@ async fn a_kept_sign_in_is_read_from_the_keychain_once() {
         assert_eq!(access_token(&loaded), "test-access-token");
     }
 
-    assert_eq!(counting.reads.load(Ordering::SeqCst), 1);
+    assert_eq!(counting.reads(), 1);
 }
 
 /// A save the keychain refuses comes back refused, and the server's sign-in stays the one held
 /// before it. Killed by writing memory before the keychain.
 #[tokio::test]
 async fn a_refused_save_keeps_the_sign_in_held_before_it() {
-    let (_data_folder, platform_store, keychain) = test_keychain();
+    let (_data_folder, platform_store, keychain) = test_keychain(KeychainService::McpSignIns);
     let custody = SignInCustody::new(keychain);
     let address = server_address();
     let store = custody.attempt_credential_store(
@@ -158,7 +116,7 @@ async fn a_refused_save_keeps_the_sign_in_held_before_it() {
 /// does not count, and by a refused save that still marks the server signed in.
 #[tokio::test]
 async fn a_sign_in_begun_before_a_sign_out_is_never_kept() {
-    let (_data_folder, _platform_store, keychain) = test_keychain();
+    let (_data_folder, _platform_store, keychain) = test_keychain(KeychainService::McpSignIns);
     let custody = SignInCustody::new(Arc::clone(&keychain));
     let address = server_address();
     let canonical_address = canonical_server_address(&address);
@@ -210,7 +168,7 @@ async fn a_sign_in_begun_before_a_sign_out_is_never_kept() {
 /// leaves the item or the memory behind.
 #[tokio::test]
 async fn a_sign_out_answers_the_sign_in_it_removed() {
-    let (_data_folder, _platform_store, keychain) = test_keychain();
+    let (_data_folder, _platform_store, keychain) = test_keychain(KeychainService::McpSignIns);
     let custody = SignInCustody::new(Arc::clone(&keychain));
     let address = server_address();
     keep(&custody, &address, "test-access-token-1").await;
@@ -259,7 +217,7 @@ enum DuringRenewal {
 async fn a_renewal_keeps_its_tokens_only_over_the_sign_in_it_loaded(
     #[case] during_renewal: DuringRenewal,
 ) {
-    let (_data_folder, _platform_store, keychain) = test_keychain();
+    let (_data_folder, _platform_store, keychain) = test_keychain(KeychainService::McpSignIns);
     let custody = SignInCustody::new(Arc::clone(&keychain));
     let address = server_address();
     let canonical_address = canonical_server_address(&address);

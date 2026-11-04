@@ -591,6 +591,7 @@ async fn a_report_before_any_read_shows_once_the_table_is_filled(#[case] is_fill
             Arc::clone(&inventory.attribution),
             inventory.provider.clone(),
             None,
+            &[],
         )
         .expect("a session in no root"),
         SessionId::try_from(mint_uuid_v7()).expect("a session id"),

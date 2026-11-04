@@ -313,12 +313,15 @@ interface McpLiveApplicationResult {
 // sentinel session's log; a status change has none (Spec-024 §Status Observation and Events)
 //   mcp.registry.search {query: string, cursor?: string} → {servers: McpRegistryServer[],
 // nextCursor?: string} // `Browse servers`: a search of the public MCP Registry (`GET
-// /v0/servers?search=<query>&version=latest` on registry.modelcontextprotocol.io), made by the
+// /v0.1/servers?search=<query>&version=latest` on registry.modelcontextprotocol.io), made by the
 // daemon only when the person types and caching nothing past the page. Each result carries its
-// title or name, description and version, whether it runs as a package (its `runtimeHint` and
-// `runtimeArguments`) or at an address (its `remotes`), and each environment variable's name,
-// description and whether it is required — never a value. A pick fills the add form; the person
-// still adds the server and types every secret Non-reads (open to this machine's own client or any
+// title or name, description and version, whether it runs as a package (its `version`,
+// `runtimeHint`, `runtimeArguments` and `packageArguments`) or at an address (its `remotes`, each
+// `url` an address or a template its `variables` fill, with its `headers`), and each environment
+// variable, header and address variable as one input: its name, description, whether it is
+// required and whether it is secret — never a value or a default, and a secret argument carries
+// neither. A pick fills the add form; the person still adds the server and types every secret.
+// Non-reads (open to this machine's own client or any
 // linked device, with no policy check; every operation except mcp.server.reconnect carries the
 // MANDATORY clientIdempotencyKey: string — requester-generated UUID; a retry under the same key
 // returns the saved result from the durable receipt, Spec-024 §Authorization). The governance
@@ -422,7 +425,8 @@ interface McpLiveApplicationResult {
 // file (a clash is refused, naming the project that holds the other one).
 // Overrides, oauthLogin and reconnect apply to any binding, and oauthLogout to any server.
 // One mcp.registry.search result, read from the registry's own record. Untrusted data: it fills the
-// add form and nothing else, and no value of any environment variable is ever part of it.
+// add form and nothing else. No environment variable, header or address input carries a value or a
+// default, and neither does a secret argument.
 interface McpRegistryServer {
   name: string;
   title?: string;
@@ -431,11 +435,27 @@ interface McpRegistryServer {
   packages?: Array<{
     registryType: string;
     identifier: string;
+    version?: string;
     runtimeHint?: string;
-    runtimeArguments?: Array<Record<string, unknown>>;
+    runtimeArguments?: Array<Record<string, unknown>>; // a secret one carries no value or default
+    packageArguments?: Array<Record<string, unknown>>; // a secret one carries no value or default
   }>; // runs as a package
-  remotes?: Array<{ type: string; url: string }>; // reached at an address
-  environmentVariables: Array<{ name: string; description?: string; isRequired: boolean }>;
+  remotes?: Array<{
+    type: string;
+    url: string; // an http: or https: address, or a template whose {name} placeholders it fills
+    variables?: McpRegistryInput[]; // the form asks for each and checks the filled address
+    headers?: McpRegistryInput[];
+  }>; // reached at an address
+  environmentVariables: McpRegistryInput[];
+}
+
+// What a registry server asks the person to fill: an environment variable, a header or a
+// placeholder in its address.
+interface McpRegistryInput {
+  name: string;
+  description?: string;
+  isRequired: boolean;
+  isSecret: boolean;
 }
 
 // ---- The status notice and the event payload mirror (Spec-005 §MCP Governance) ----

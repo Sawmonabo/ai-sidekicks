@@ -13,6 +13,7 @@ pub mod items;
 pub mod os;
 pub mod place;
 pub(crate) mod seal;
+pub mod seed_item;
 pub mod service;
 
 use std::borrow::Cow;

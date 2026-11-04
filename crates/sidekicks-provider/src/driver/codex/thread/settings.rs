@@ -468,7 +468,7 @@ fn compose_tool_servers(
         return servers;
     };
     for tool_server in &settings.tool_servers {
-        let server_name = tool_server.server_name.as_str();
+        let server_name = tool_server.binding.server_name().as_str();
         servers.insert(
             server_name.to_owned(),
             json!({

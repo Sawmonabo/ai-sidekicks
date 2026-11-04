@@ -9,7 +9,9 @@ use std::error::Error;
 
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::mcp::governance::McpServerConfigWriteConflictReason;
+use sidekicks_contracts::mcp::governance::{
+    McpBindingStoreUnavailableCause, McpServerConfigWriteConflictReason,
+};
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
 use sidekicks_ipc::registry::HandlerError;
@@ -63,12 +65,15 @@ pub enum SignInUnsupportedReason {
 /// binding it names, so every `Result` carrying the refusal stays small.
 #[derive(Debug, thiserror::Error)]
 pub enum McpRefusal {
-    /// The binding store cannot be reached, so every MCP change fails closed, changing nothing.
+    /// The daemon's stores of a server's bindings and receipts, or its receipt key, cannot be
+    /// used, so every MCP change fails closed, changing nothing.
     #[error("the MCP binding store cannot be reached, so no MCP change can be made until it can")]
     BindingStoreUnavailable {
-        /// The store's failure.
+        /// Why, sent as the detail's `cause` where it is known.
+        cause: Option<McpBindingStoreUnavailableCause>,
+        /// The store's failure, where there is one.
         #[source]
-        source: Box<dyn Error + Send + Sync>,
+        source: Option<Box<dyn Error + Send + Sync>>,
     },
     /// The submitted configuration failed validation before anything was written.
     #[error("the MCP server configuration is invalid: {reason}")]
@@ -158,9 +163,11 @@ impl From<McpRefusal> for DomainError {
     fn from(refusal: McpRefusal) -> Self {
         let message = refusal.to_string();
         let (code, detail, source) = match refusal {
-            McpRefusal::BindingStoreUnavailable { source } => {
-                (RefusalCode::McpBindingStoreUnavailable, None, Some(source))
-            }
+            McpRefusal::BindingStoreUnavailable { cause, source } => (
+                RefusalCode::McpBindingStoreUnavailable,
+                cause.map(|cause| refusal_fields(json!({ "cause": cause }))),
+                source,
+            ),
             McpRefusal::ServerConfigInvalid { .. } => {
                 (RefusalCode::McpServerConfigInvalid, None, None)
             }
