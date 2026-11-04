@@ -225,7 +225,7 @@ CREATE TABLE provider_account_usage_turns (
   CHECK (run_id IS NULL OR session_id IS NOT NULL)  -- a run belongs to a session, so a row naming a run and no session describes a turn that cannot exist
 ) STRICT;
 
--- Four reads, each served by its own index, and nothing reads this table by any other shape: the account surface's slices by day and by model, a request's rows by its key, and a session's rows by time.
+-- Five reads, each served by its own index, and nothing reads this table by any other shape: the account surface's slices by day and by model, a request's rows by its key, a session's rows by time, and the held requests' rows no figure names yet.
 CREATE INDEX idx_provider_account_usage_turns_account_day
   ON provider_account_usage_turns(account_id, occurred_at);
 CREATE INDEX idx_provider_account_usage_turns_account_model
@@ -236,6 +236,9 @@ CREATE INDEX idx_provider_account_usage_turns_account_request
 -- A session's rows by time, so the thread tier live when a helper's request ran is found without a scan; the account indexes miss a session that moved accounts.
 CREATE INDEX idx_provider_account_usage_turns_session_time
   ON provider_account_usage_turns(session_id, occurred_at);
+-- The held requests' reads: the distinct keys of the rows no figure names, read from the index alone at start, and one key's rows a page at a time in request order. The figure leads so both reads stay inside the index.
+CREATE INDEX idx_provider_account_usage_turns_unpriced
+  ON provider_account_usage_turns(cost_usd_micros, provider, account_id, model_id, speed, processing_region, request_key);
 ```
 
 Rows are appended; an unpriced row's cost and its source are set once when the price table prices it, and nothing else on a row changes. A provider's own usage history, where it publishes one, is drawn **beside** this table with the vendor named and is never reconciled into it: two accountants counting the same tokens differently is what one source of truth exists to prevent.
