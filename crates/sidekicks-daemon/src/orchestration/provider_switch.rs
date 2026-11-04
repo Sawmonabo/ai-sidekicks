@@ -2,12 +2,14 @@
 //! against the target driver before anything is written, then, under the agent's lock, a pick back
 //! to the binding the agent is on cancels any pending switch, and any other switch is stored as the
 //! agent's one pending switch, replacing the one before, before the answer returns. No event
-//! records an accepted switch; its application settles it.
+//! records an accepted switch; its application settles it, with exactly one terminal event, where
+//! the switch still stands when that event commits.
 #![cfg_attr(
     not(test),
     expect(dead_code, reason = "the agent config binder calls it")
 )]
 
+use std::error::Error;
 use std::sync::Arc;
 
 use sidekicks_contracts::agent::definition::AgentId;
@@ -21,9 +23,11 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::instant::{NotAnInstant, WireInstant};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::not_found::agent::agent_not_found;
+use sidekicks_provider::driver::ProviderAccountReader;
 use sidekicks_provider::driver::binding_switch::check_binding_switch;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::runtime_binding::store::RuntimeBindingStoreError;
 use sidekicks_session::agents::projection::{
     AgentRow, InterruptDispatch, StoredPendingSwitch, clear_pending_switch, read_agent_row,
     write_pending_switch,
@@ -33,22 +37,33 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_store::events::session::appender::{
+    SessionEventAppendError, SessionEventAppender, SessionEventDraftError,
+};
 
 use crate::orchestration::account_switch::mint_switch_id;
 
-/// The acceptance of agents' binding switches, one for the daemon; see the module doc.
+pub(crate) mod apply;
+
+/// The acceptance and settlement of agents' binding switches, one for the daemon; see the module
+/// doc.
 pub(crate) struct ProviderSwitches {
-    /// The daemon's read connections, which read the agent's row.
+    /// The daemon's read connections, which read the agent's row and its session's leg.
     pub(crate) pool: Arc<DatabaseReadPool>,
     /// The one writer, which stores or clears the pending switch.
     pub(crate) writer: Arc<DatabaseWriter>,
+    /// The session log's appender, whose terminal event settles a switch and clears it.
+    pub(crate) appender: Arc<SessionEventAppender>,
+    /// The accounts, whose current one a switch lands on in a session that has not run.
+    pub(crate) account_reader: Arc<dyn ProviderAccountReader>,
     /// The drivers, whose declared vocabulary each axis is checked against.
     pub(crate) providers: Arc<ProviderRegistry>,
     /// One lock per agent, held from the second read of its row until its write commits.
     pub(crate) locks: KeyedLock<AgentId>,
 }
 
-/// Why a switch was not accepted: refused, or its row could not be read or written.
+/// Why a switch was not accepted or settled: refused, or its row, its session's leg or the accounts
+/// could not be read, or its pending switch or terminal event could not be written.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ProviderSwitchError {
     /// The agent names no row.
@@ -69,6 +84,18 @@ pub(crate) enum ProviderSwitchError {
     /// The row's stored change time does not read as an instant.
     #[error("the agent's row holds no readable change time")]
     UpdatedAt(#[from] NotAnInstant),
+    /// The session's leg, whose account a switch lands on, could not be read.
+    #[error("the session's leg could not be read")]
+    Leg(#[from] RuntimeBindingStoreError),
+    /// The provider's current account could not be read.
+    #[error("the provider's current account could not be read")]
+    AccountRead(#[source] Box<dyn Error + Send + Sync>),
+    /// The terminal event breaks one of its type's checks.
+    #[error("the switch's terminal event could not be drafted")]
+    Draft(#[from] SessionEventDraftError),
+    /// The terminal event was not appended.
+    #[error("the switch's terminal event was not appended")]
+    Append(#[from] SessionEventAppendError),
 }
 
 impl ProviderSwitches {
@@ -230,26 +257,41 @@ mod tests {
     use serde_json::{Value, json};
     use sidekicks_contracts::agent::definition::AgentId;
     use sidekicks_contracts::agent::provider_binding::{AgentBindingSwitchDisposition, SwitchId};
+    use sidekicks_contracts::provider::account::record::ProviderAccountId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_provider::driver::CurrentProviderAccount;
     use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_provider::driver::contract::MockProviderDriver;
     use sidekicks_provider::driver::contract::error::DriverError;
-    use sidekicks_provider::driver::test_registry::registry_of_first_provider;
+    use sidekicks_provider::driver::test_registry::{
+        TestProviderAccounts, registry_of_first_provider,
+    };
     use sidekicks_session::agents::projection::test_fixture::{
         binding, binding_changed, project, session_created,
     };
-    use sidekicks_session::agents::projection::{AgentRow, read_agent_row};
+    use sidekicks_session::agents::projection::{
+        AgentRow, agents_projection_statements, read_agent_row,
+    };
     use sidekicks_std::keyed_lock::KeyedLock;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
     use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+    use sidekicks_store::events::log_service::{
+        EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
+    };
+    use sidekicks_store::events::session::appender::SessionEventAppender;
+    use sidekicks_store::events::session::followers::SessionEventFollowers;
+    use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
     use super::{ProviderSwitchError, ProviderSwitches};
     use crate::daemon::schema::schema_parts;
 
     /// The model the agent's binding names.
-    const MODEL: &str = "model-a";
+    pub(super) const MODEL: &str = "model-a";
+
+    // The statements the switches' pool prepares: the agent's row and its session's leg.
+    const READ_STATEMENT_CAPACITY: usize = 4;
 
     /// The agent a fixture's driver is built for, and the database file its rows are in.
     pub(super) struct SeededAgent {
@@ -261,7 +303,8 @@ mod tests {
         pub(super) agent_id: AgentId,
     }
 
-    /// One agent on the first provider, as the lead of its session.
+    /// One agent on the first provider, as the lead of its session, over a log that keeps the
+    /// agents' rows in step; the provider's current account is `account-1`.
     pub(super) struct Fixture {
         pub(super) database: TestDatabase,
         pub(super) switches: ProviderSwitches,
@@ -305,10 +348,31 @@ mod tests {
                 session_id,
                 agent_id,
             });
+            let event_log = Arc::new(EventLogService::new(EventLogServiceDependencies {
+                writer: Arc::clone(&writer),
+                pool: Arc::new(DatabaseReadPool::new(
+                    database.path(),
+                    EVENT_LOG_STATEMENT_CAPACITY,
+                )),
+                followers: Arc::new(SessionEventFollowers::default()),
+                projection_statements: Some(Box::new(agents_projection_statements)),
+                refuse_session_write: None,
+                read_damaged_from_sequence: None,
+            }));
+            let current = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
             let switches = ProviderSwitches {
-                // The one statement it prepares reads the agent's row.
-                pool: Arc::new(DatabaseReadPool::new(database.path(), 1)),
+                pool: Arc::new(DatabaseReadPool::new(
+                    database.path(),
+                    READ_STATEMENT_CAPACITY,
+                )),
                 writer,
+                appender: Arc::new(SessionEventAppender::new(
+                    event_log,
+                    SESSION_EVENT_VERSION.clone(),
+                )),
+                account_reader: Arc::new(TestProviderAccounts(CurrentProviderAccount::Current(
+                    current,
+                ))),
                 providers: Arc::new(registry_of_first_provider(Arc::new(driver))),
                 locks: KeyedLock::new(),
             };
@@ -320,7 +384,8 @@ mod tests {
             }
         }
 
-        async fn accept(
+        /// Accepts the switch `members` names, from one device.
+        pub(super) async fn accept(
             &self,
             members: Value,
         ) -> Result<AgentBindingSwitchDisposition, ProviderSwitchError> {
@@ -339,20 +404,25 @@ mod tests {
             Ok(self.switches.accept(request, actor).await?.switch)
         }
 
+        /// The agent's row.
         pub(super) fn row(&self) -> AgentRow {
             read_agent_row(&self.database.reader(), &self.agent_id)
                 .expect("the row reads")
                 .expect("the agent has a row")
         }
 
-        fn pending_id(&self) -> Option<SwitchId> {
+        /// The id of the switch the agent has pending.
+        pub(super) fn pending_id(&self) -> Option<SwitchId> {
             self.row()
                 .pending_switch
                 .map(|pending| pending.switch.switch_id)
         }
     }
 
-    fn pending_ids(disposition: AgentBindingSwitchDisposition) -> (SwitchId, Option<SwitchId>) {
+    /// The switch a `pending` answer names, and the one it replaced.
+    pub(super) fn pending_ids(
+        disposition: AgentBindingSwitchDisposition,
+    ) -> (SwitchId, Option<SwitchId>) {
         match disposition {
             AgentBindingSwitchDisposition::Pending {
                 switch_id,

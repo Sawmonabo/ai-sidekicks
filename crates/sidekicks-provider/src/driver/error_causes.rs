@@ -125,7 +125,7 @@ pub struct ProviderAxisInvalid {
     /// The agent whose binding set the axis.
     pub(crate) agent_id: AgentId,
     /// The request's member the value was set on.
-    pub(crate) axis: ProviderAxis,
+    pub axis: ProviderAxis,
     /// The value as the request set it.
     pub(crate) value: Value,
 }
@@ -222,7 +222,7 @@ impl ProviderAxisInvalid {
 /// The request members that set a provider axis, named as the request names them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, strum::Display, strum::IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
-pub(crate) enum ProviderAxis {
+pub enum ProviderAxis {
     /// The provider.
     ProviderName,
     /// The model.

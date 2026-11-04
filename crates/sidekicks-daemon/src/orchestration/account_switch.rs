@@ -825,9 +825,9 @@ pub(crate) fn mint_switch_id() -> SwitchId {
     SwitchId::new(mint_uuid_v7().to_string()).expect("a minted UUID is a switch id")
 }
 
-// The state a failed move's refusal names of the account: a gone sign-in, a gone home, an account
-// not registered, and anything else not decided.
-fn account_state_of(error: &DriverError) -> AgentBindingSwitchAccountState {
+/// The state a failed move's refusal names of the account: a gone sign-in, a gone home, an
+/// account not registered, and anything else not decided.
+pub(crate) fn account_state_of(error: &DriverError) -> AgentBindingSwitchAccountState {
     let code = match error {
         DriverError::Refused(refusal) => Some(refusal.code),
         DriverError::Unanswered(_)
