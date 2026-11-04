@@ -10,11 +10,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures::FutureExt as _;
+use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_TERMINAL_DRAIN_MS;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_recovery::restart_settle::RestartSettleError;
 use sidekicks_recovery::stop_intent::StopIntentError;
 use sidekicks_session::search::index::live::LiveIndexCloseError;
+use sidekicks_std::scheduler::SchedulerStopError;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_workspace::clone::askpass::broker::AskpassBrokerError;
 use sidekicks_workspace::git::worktree::setup::WorktreeSetupError;
@@ -106,9 +108,9 @@ pub(crate) enum DaemonStopFailure {
     /// account's home one left.
     #[error("sign-ins were still settling when the stop's drain bound ran out")]
     SignInsRunning,
-    /// The scheduler's task ended abnormally.
-    #[error("the scheduler ended abnormally")]
-    Scheduler(#[source] JoinError),
+    /// The scheduler's task ended abnormally, or still ran at the drain bound and was aborted.
+    #[error("the scheduler did not stop cleanly")]
+    Scheduler(#[source] SchedulerStopError),
     /// The session search index did not close cleanly.
     #[error("the session search index did not close cleanly")]
     SearchIndex(#[source] Arc<LiveIndexCloseError>),
@@ -128,10 +130,17 @@ pub(crate) enum DaemonStopFailure {
     /// there leaves its receipts in flight for the next start's sweep.
     #[error("the tool servers' connections were still closing when the stop's drain bound ran out")]
     ToolServersClosing,
-    /// A task the start began in the background was still running when the drain bound ran out,
-    /// and was ended; the next start does its work again.
+    /// A background task, one the start began or a service's own, was still running when the drain
+    /// bound ran out, and was ended; the next start does its work again.
     #[error("the {0} was still running when the stop's drain bound ran out")]
     StartTaskRunning(&'static str),
+    /// A step with no failure of its own was still running when the drain bound ran out, and was
+    /// left to the process's end.
+    #[error(
+        "the {0} was still running when the stop's drain bound ran out, and was left to the \
+         process's end"
+    )]
+    StepRunning(&'static str),
     /// The person's Stop could not write its intent, so the next start resumes the work the
     /// drain did not end as after a crash.
     #[error("the stop intent could not be written")]
@@ -174,6 +183,18 @@ pub(crate) async fn end_start_tasks(
     failures
 }
 
+// Waits on `step` of the stop within `bound`, answering its own output, or the step's failure once
+// the bound runs out, the wait then dropped.
+async fn wait_within<T>(
+    bound: Duration,
+    step: &'static str,
+    wait: impl Future<Output = T>,
+) -> Result<T, DaemonStopFailure> {
+    tokio::time::timeout(bound, wait)
+        .await
+        .map_err(|_elapsed| DaemonStopFailure::StepRunning(step))
+}
+
 /// Why the crash monitor's end failed.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CrashMonitorEndFailure {
@@ -195,8 +216,9 @@ pub(crate) enum CrashMonitorEndFailure {
 }
 
 /// Ends the daemon's work, `bound` counted from this call: the person's Stop first writes its
-/// intent whole; then the stop token, so the work under way ends; the socket, so no new call
-/// comes; then, within what is left of `bound`, the mutating calls under way, the machine keys'
+/// intent whole, the one wait `bound` does not cut; then the stop token, so the work under way
+/// ends; then, within what is left of `bound`, the socket, so no new call comes, the mutating
+/// calls under way, the machine keys'
 /// background read, the capability refresh, the providers' registration, the tool servers' client,
 /// the run queue, the worktree cleanup's requests and the start's background tasks, the clone
 /// service with its askpass broker, the worktrees' setup commands, the repository services'
@@ -230,10 +252,13 @@ pub(crate) async fn stop_work(
     }
     process.process_state.mark_stopping();
     process.work_stop.cancel();
-    if let Some(gateway) = process.gateway.take() {
-        gateway.stop().await;
-    }
     let remaining = || bound.saturating_sub(started.elapsed());
+    // Its listener closed at the cancel, so no call comes past a cut wait.
+    if let Some(gateway) = process.gateway.take()
+        && let Err(failure) = wait_within(remaining(), "socket", gateway.stop()).await
+    {
+        failures.push(failure);
+    }
     if let Some(in_flight) = process.in_flight.take() {
         let running = in_flight.wait_for_pending_within(None, remaining()).await;
         if running > 0 {
@@ -261,8 +286,16 @@ pub(crate) async fn stop_work(
     }
     let drivers = match process.providers.take() {
         Some(providers) => {
-            if let Err(failure) = providers.refreshing.stop().await {
-                failures.push(DaemonStopFailure::CapabilityRefresh(failure));
+            match wait_within(
+                remaining(),
+                "capability refresh",
+                providers.refreshing.stop(),
+            )
+            .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => failures.push(DaemonStopFailure::CapabilityRefresh(error)),
+                Err(failure) => failures.push(failure),
             }
             Some(providers.registry)
         }
@@ -285,8 +318,10 @@ pub(crate) async fn stop_work(
         failures.push(DaemonStopFailure::ToolServersClosing);
     }
     // Before the attachments and the drivers, so no run is admitted or delivered past here.
-    if let Some(session) = &process.session {
-        session.queue.stop().await;
+    if let Some(session) = &process.session
+        && let Err(failure) = wait_within(remaining(), "run queue", session.queue.stop()).await
+    {
+        failures.push(failure);
     }
     // Before the scheduler, which runs the cleanup, and before the services the tasks write
     // through.
@@ -307,35 +342,34 @@ pub(crate) async fn stop_work(
         failures.push(failure.into());
     }
     // Before the scheduler, whose tick wakes the health re-probe.
-    if let (Some(repo_attachments), Some(repo)) = (process.repo_attachments.take(), &process.repo)
-        && let Some(failure) = repo_attachments.stop(repo).await
-    {
-        failures.push(failure.into());
+    if let (Some(repo_attachments), Some(repo)) = (process.repo_attachments.take(), &process.repo) {
+        match wait_within(
+            remaining(),
+            "repository services' background work",
+            repo_attachments.stop(repo),
+        )
+        .await
+        {
+            Ok(None) => {}
+            Ok(Some(failure)) => failures.push(failure.into()),
+            Err(failure) => failures.push(failure),
+        }
     }
-    // The work's stop ends the attention decisions; a write under way is waited out.
-    if let Some(attention) = process.attention.take()
-        && let Err(error) = attention.await
-    {
-        failures.push(
-            TaskStopFailure {
-                task: "attention decisions",
-                error,
-            }
-            .into(),
-        );
-    }
-    // The work's stop ends the web address's sender; a write under way is waited out.
-    if let Some(sender) = process.web_address_sender.take()
-        && let Err(error) = sender.await
-    {
-        failures.push(
-            TaskStopFailure {
-                task: "web address sender",
-                error,
-            }
-            .into(),
-        );
-    }
+    // The work's stop ends the attention decisions and the web address's sender; a write under way
+    // is waited out within the bound, and either is ended past it.
+    let decision_tasks = [
+        ("attention decisions", process.attention.take()),
+        ("web address sender", process.web_address_sender.take()),
+    ];
+    failures.extend(
+        end_start_tasks(
+            decision_tasks
+                .into_iter()
+                .filter_map(|(task, handle)| Some((task, handle?))),
+            remaining(),
+        )
+        .await,
+    );
     // The session services' follows end with the chats' write watch, which they wait out.
     match (
         process.session_attachments.take(),
@@ -343,35 +377,60 @@ pub(crate) async fn stop_work(
         &process.repo,
     ) {
         (Some(attachments), Some(session), Some(repo)) => {
-            let ended = attachments.stop(session, &repo.workspaces).await;
-            // Every write the watch sent was taken, so the next start walks from here once each
-            // report held behind an open tool call is recorded too.
-            if ended.is_empty() {
-                session
-                    .chat_versions
-                    .keep_caught_up(repo.workspaces.whole_since())
-                    .await;
+            match wait_within(
+                remaining(),
+                "session follows",
+                attachments.stop(session, &repo.workspaces),
+            )
+            .await
+            {
+                Ok(ended) => {
+                    // Every write the watch sent was taken, so the next start walks from here once
+                    // each report held behind an open tool call is recorded too; a watermark not
+                    // kept makes it walk from the last one kept.
+                    if ended.is_empty()
+                        && let Err(failure) = wait_within(
+                            remaining(),
+                            "chat watermark",
+                            session
+                                .chat_versions
+                                .keep_caught_up(repo.workspaces.whole_since()),
+                        )
+                        .await
+                    {
+                        failures.push(failure);
+                    }
+                    failures.extend(ended.into_iter().map(DaemonStopFailure::from));
+                }
+                Err(failure) => failures.push(failure),
             }
-            failures.extend(ended.into_iter().map(DaemonStopFailure::from));
         }
         (_, _, Some(repo)) => {
-            if let Err(error) = repo.workspaces.stop().await {
-                failures.push(
+            match wait_within(remaining(), "chats' file recount", repo.workspaces.stop()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => failures.push(
                     TaskStopFailure {
                         task: "chats' file recount",
                         error,
                     }
                     .into(),
-                );
+                ),
+                Err(failure) => failures.push(failure),
             }
         }
         (_, _, None) => {}
     }
     if let Some(session) = &process.session {
-        session.changes.stop().await;
+        if let Err(failure) =
+            wait_within(remaining(), "chats' change feed", session.changes.stop()).await
+        {
+            failures.push(failure);
+        }
         session.highlighter.stop();
-        // Before the orphan guard goes, so every child the drain ended is still retired.
-        let drain = session.terminals.drain(remaining()).await;
+        // Before the orphan guard goes, so every child the drain ended is still retired. Capped at
+        // the terminals' own drain, so the drivers keep the rest when a shell ignores its stop.
+        let terminals_bound = remaining().min(Duration::from_millis(DAEMON_STOP_TERMINAL_DRAIN_MS));
+        let drain = session.terminals.drain(terminals_bound).await;
         tracing::info!("{}", describe_drain(drain));
     }
     if let Some(provider_accounts) = &mut process.provider_accounts {
@@ -387,20 +446,33 @@ pub(crate) async fn stop_work(
     }
     // Before the drivers, since a job it runs may still call into them.
     if let Some(scheduler) = process.scheduler.take()
-        && let Err(failure) = scheduler.stop().await
+        && let Err(failure) = scheduler
+            .stop(tokio::time::Instant::now() + remaining())
+            .await
     {
         failures.push(DaemonStopFailure::Scheduler(failure));
     }
-    if let Some(repo) = &process.repo {
-        repo.folder_watch.stop().await;
+    // The watch only reads, so one cut leaves nothing half written.
+    if let Some(repo) = &process.repo
+        && let Err(failure) = wait_within(
+            remaining(),
+            "repositories' folder watch",
+            repo.folder_watch.stop(),
+        )
+        .await
+    {
+        failures.push(failure);
     }
     if let Some(project_list_feed) = process.project_list_feed.take() {
         project_list_feed.close();
     }
-    if let Some(search_index) = process.search_index.take()
-        && let Err(failure) = search_index.close().await
-    {
-        failures.push(DaemonStopFailure::SearchIndex(failure));
+    // A close cut leaves the index at its last durable commit, which its next open catches up.
+    if let Some(search_index) = process.search_index.take() {
+        match wait_within(remaining(), "session search index", search_index.close()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => failures.push(DaemonStopFailure::SearchIndex(error)),
+            Err(failure) => failures.push(failure),
+        }
     }
     if let Some(drivers) = drivers {
         failures.extend(
@@ -421,16 +493,29 @@ pub(crate) async fn stop_work(
     {
         failures.push(DaemonStopFailure::Drain(error));
     }
-    // After the drivers, so no turn ends past here; each capture under way is waited out whole.
-    if let Some(turn_capturing) = process.turn_capturing.take() {
-        turn_capturing.stop().await;
+    // After the drivers, so no turn ends past here; a capture still under way at the bound is cut
+    // at the process's end, and may leave its scratch index behind.
+    if let Some(turn_capturing) = process.turn_capturing.take()
+        && let Err(failure) = wait_within(remaining(), "turn captures", turn_capturing.stop()).await
+    {
+        failures.push(failure);
     }
-    if let Some(git) = &process.git {
-        git.wait_for_tree_ends().await;
+    if let Some(git) = &process.git
+        && let Err(failure) = wait_within(remaining(), "git trees", git.wait_for_tree_ends()).await
+    {
+        failures.push(failure);
     }
-    // Last, so nothing writes once the stop resolves.
-    if let Some(workspace_work) = process.workspace_work.take() {
-        workspace_work.settle().await;
+    // Last, so nothing writes once the stop resolves; a size read or deletion cut here runs past
+    // the stop and the next cleanup does it again.
+    if let Some(workspace_work) = process.workspace_work.take()
+        && let Err(failure) = wait_within(
+            remaining(),
+            "workspace services' work",
+            workspace_work.settle(),
+        )
+        .await
+    {
+        failures.push(failure);
     }
     // After the drain, so every child it ended is still retired.
     drop(process.orphan_guard.take());
