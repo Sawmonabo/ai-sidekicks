@@ -34,10 +34,6 @@ use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
 
 use crate::driver::contract::account::WindowTurnSpend;
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the held requests' repricing reads them")
-)]
 pub mod unpriced;
 
 // The provider column is the account's own, so a row is written only while its account is held:
