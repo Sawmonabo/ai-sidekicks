@@ -35,7 +35,9 @@ use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::error_causes::unanswered;
 use sidekicks_provider::driver::message_handing::MessageHanding;
-use sidekicks_provider::driver::run_control::{AnswerProviderChoiceResult, WaitingMessage};
+use sidekicks_provider::driver::run_control::{
+    AnswerProviderChoiceResult, ResumeRunOutcome, WaitingMessage,
+};
 use sidekicks_provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError};
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
@@ -743,7 +745,12 @@ async fn a_limit_owed_through_a_pause_is_handed_once_the_provider_runs(
                     })
                     .expect("the test reads the run");
                 assert_eq!((rows, state.as_str()), (1, state_before));
-                async { Ok(()) }.boxed()
+                async {
+                    Ok(ResumeRunOutcome {
+                        is_hold_lost: false,
+                    })
+                }
+                .boxed()
             });
     }
     let harness = harness(driver).await;
