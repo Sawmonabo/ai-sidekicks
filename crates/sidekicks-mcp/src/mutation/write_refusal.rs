@@ -77,15 +77,11 @@ mod tests {
     /// The audit ref every binding-naming refusal sends.
     const BINDING_KEYS: [&str; 3] = ["provider", "scope", "serverName"];
 
-    fn words(text: &str) -> String {
-        text.to_owned()
-    }
-
     // Every driver refusal answers its own code and fields, and a config that does not load sends
     // the before-read's layer paths, never one its words name.
     #[rstest]
     #[case::provider(
-        McpServerWriteRefusal::Provider { words: words("the provider is busy") },
+        McpServerWriteRefusal::Provider { words: "the provider is busy".to_owned() },
         RefusalCode::ProviderUnavailable,
         &BINDING_KEYS[..],
         None
@@ -97,14 +93,14 @@ mod tests {
         None
     )]
     #[case::entry_invalid(
-        McpServerWriteRefusal::EntryInvalid { words: words("url is not an address") },
+        McpServerWriteRefusal::EntryInvalid { words: "url is not an address".to_owned() },
         RefusalCode::McpServerConfigInvalid,
         &[][..],
         None
     )]
     #[case::config_file_invalid(
         McpServerWriteRefusal::ConfigFileInvalid {
-            words: words("/Users/x/.codex/config.toml: expected a table at line 3"),
+            words: "/Users/x/.codex/config.toml: expected a table at line 3".to_owned(),
         },
         RefusalCode::McpServerConfigFileInvalid,
         &["provider", "scope", "serverName", "configFiles"][..],
@@ -112,8 +108,8 @@ mod tests {
     )]
     #[case::stale_version(
         McpServerWriteRefusal::StaleVersion {
-            expected_version: words("v1"),
-            current_version: words("v2"),
+            expected_version: "v1".to_owned(),
+            current_version: "v2".to_owned(),
         },
         RefusalCode::McpServerConfigWriteConflict,
         &["provider", "scope", "serverName", "reason", "expectedVersion", "currentVersion"][..],

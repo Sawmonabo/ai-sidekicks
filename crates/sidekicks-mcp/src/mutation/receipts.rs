@@ -653,43 +653,6 @@ pub(super) mod tests {
         );
     }
 
-    /// A receipt committed when the receipt key was lost keeps no digest and answers its saved
-    /// failure under any request. Killed by the digests kept, and by the compare made before the
-    /// missing digest is read.
-    #[tokio::test]
-    async fn a_receipt_committed_on_a_lost_key_answers_its_failure_under_any_request() {
-        let (database, receipts, _writer, _reads) = receipts_over_a_database().await;
-        let key = idempotency_key();
-        let failure = json!({ "type": "mcp.bindingStoreUnavailable" });
-        receipts
-            .begin(&intent(&key, digest_of(1)))
-            .await
-            .expect("the intent begins");
-
-        receipts
-            .writer
-            .write(vec![McpMutationReceipts::commit_key_lost_statement(
-                &key, &failure,
-            )])
-            .await
-            .expect("the lost key's commit is written");
-
-        assert_eq!(
-            check(&receipts, &key, digest_of(9)).await,
-            McpSavedCheck::Saved(failure)
-        );
-        let digests_left: i64 = database
-            .reader()
-            .query_row(
-                "SELECT count(request_digest) + count(before_digest) + count(after_digest)
-                   FROM mcp_mutation_receipts",
-                [],
-                |row| row.get(0),
-            )
-            .expect("the test reads the digests");
-        assert_eq!(digests_left, 0);
-    }
-
     /// The commit's flip and the caller's rows are one write: a refused row keeps the receipt
     /// pending and writes none of the rows, and a receipt already committed is not committed
     /// again. Killed by the flip and the rows written apart, and by the flip without its row

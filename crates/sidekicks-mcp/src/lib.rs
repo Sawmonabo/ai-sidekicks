@@ -4,9 +4,10 @@
 //! provider's bindings with their status and what the store keeps, the `mcp.*` refusals, each
 //! binding's live status and the notices it sends, the sign-in to a server reached at an address
 //! with its `DPoP` proofs, signed sends, pushed authorization requests and the one-time redirect
-//! receiver, the governance mutations' receipts and their settle, and the crate's part of the
-//! daemon's schema. It sits over std, store, ipc, workspace and provider and is taken by session
-//! and the daemon.
+//! receiver, the service that adds, removes and switches a binding in its provider's config with
+//! its receipts and their settle, the search of the public MCP registry, and the crate's part of
+//! the daemon's schema. It sits over std, store, ipc, workspace and provider and is taken by
+//! session and the daemon.
 
 pub mod binding;
 pub mod client;
@@ -19,6 +20,8 @@ pub mod registry_search;
 pub mod schema;
 pub mod sign_in;
 pub mod status;
+#[cfg(test)]
+mod test_inventory;
 #[cfg(test)]
 mod test_keychain;
 pub(crate) mod tool_calls;

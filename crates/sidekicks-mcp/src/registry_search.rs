@@ -472,13 +472,16 @@ fn non_empty<T>(items: Vec<T>) -> Option<Vec<T>> {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use axum::Router;
+    use axum::body::Body;
     use axum::http::header;
     use axum::response::IntoResponse as _;
     use axum::routing::get;
+    use futures::stream;
     use rstest::rstest;
     use serde_json::json;
     use sidekicks_contracts::mcp::server::config::McpRequestText;
@@ -488,15 +491,21 @@ mod tests {
 
     use super::{McpRegistryClient, McpRegistrySearchError, SERVERS_PATH};
 
-    /// A registry on a local port that answers every list with `page`, counting the requests.
-    async fn serve_page(page: String) -> (McpRegistryClient, Arc<AtomicUsize>) {
+    /// A registry on a local port that answers every list with `page`, counting the requests;
+    /// a streamed page goes as one chunk of a body that declares no length.
+    async fn serve_page(page: String, is_streamed: bool) -> (McpRegistryClient, Arc<AtomicUsize>) {
         let requests = Arc::new(AtomicUsize::new(0));
         let counted = Arc::clone(&requests);
         let router = Router::new().route(
             SERVERS_PATH,
             get(move || async move {
                 counted.fetch_add(1, Ordering::SeqCst);
-                ([(header::CONTENT_TYPE, "application/json")], page).into_response()
+                let body = if is_streamed {
+                    Body::from_stream(stream::iter([Ok::<_, io::Error>(page)]))
+                } else {
+                    Body::from(page)
+                };
+                ([(header::CONTENT_TYPE, "application/json")], body).into_response()
             }),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -522,7 +531,7 @@ mod tests {
     #[case::two_code_points_in_four_bytes("éé ")]
     #[tokio::test]
     async fn a_query_under_three_code_points_sends_nothing(#[case] query: &str) {
-        let (client, requests) = serve_page(json!({ "servers": [] }).to_string()).await;
+        let (client, requests) = serve_page(json!({ "servers": [] }).to_string(), false).await;
 
         let page = client
             .search(&search_request(query))
@@ -610,7 +619,7 @@ mod tests {
             }],
             "metadata": { "nextCursor": "next", "count": 1 }
         });
-        let (client, requests) = serve_page(page.to_string()).await;
+        let (client, requests) = serve_page(page.to_string(), false).await;
 
         let answer = client
             .search(&search_request("weather"))
@@ -679,8 +688,12 @@ mod tests {
         );
     }
 
+    /// A reply past the bound is refused whether its length is declared or only read.
+    #[rstest]
+    #[case::declared(false)]
+    #[case::streamed(true)]
     #[tokio::test]
-    async fn a_reply_past_the_size_bound_is_refused() {
+    async fn a_reply_past_the_size_bound_is_refused(#[case] is_streamed: bool) {
         let page = json!({
             "servers": [{
                 "server": {
@@ -690,7 +703,7 @@ mod tests {
                 }
             }]
         });
-        let (client, requests) = serve_page(page.to_string()).await;
+        let (client, requests) = serve_page(page.to_string(), is_streamed).await;
 
         let answer = client.search(&search_request("large")).await;
 

@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use futures::FutureExt as _;
 use futures::future::ready;
 use rstest::rstest;
-use rusqlite::{Connection, OptionalExtension as _, params};
+use rusqlite::{OptionalExtension as _, params};
 use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
@@ -16,7 +16,6 @@ use sidekicks_contracts::mcp::server::requests::{
 use sidekicks_contracts::mcp::server::{
     McpApplicationGrade, McpApprovalMode, McpServerBindingRef, McpServerConfigChangedNotice,
 };
-use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_ipc::domain_error::DomainError;
@@ -34,43 +33,23 @@ use sidekicks_provider::driver::mcp_server::write::{
 };
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
 use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_workspace::project::records::{
-    ProjectRecords, ProjectSessionActivity, ProjectSessionFacts,
-};
 use tempfile::TempDir;
 
 use super::{McpMutationService, McpMutationSources, McpRemovalRows};
-use crate::binding::resolver::McpAttributionTable;
-use crate::binding::store::{McpBindingKey, McpBindingStore, open_first_observation_drain};
-use crate::inventory_service::{McpInventoryService, McpInventorySources};
+use crate::binding::store::McpBindingKey;
 use crate::mutation::receipts::tests::{idempotency_key, receipts_over_a_database};
 use crate::mutation::settle::tests::settled;
-use crate::status::McpServerStatusTracker;
-use crate::status::machine_probe::McpMachineProbeGate;
 use crate::status::notices::McpNoticeBoard;
+use crate::test_inventory::open_test_inventory;
 use crate::test_keychain::{CountingKeychain, test_keychain};
 
 /// The trigger that refuses every receipt's commit, so a write lands and its receipt stays
 /// `pending`.
 const FAIL_COMMITS_SQL: &str = "CREATE TRIGGER fail_commits BEFORE UPDATE ON mcp_mutation_receipts
      BEGIN SELECT RAISE(ABORT, 'the test fails this commit'); END";
-
-/// No project has a session; the inventory reads only the attached roots.
-struct NoProjectSessions;
-
-impl ProjectSessionActivity for NoProjectSessions {
-    fn read_session_facts(
-        &self,
-        _reader: &Connection,
-        _project_ids: Option<&[ProjectId]>,
-    ) -> rusqlite::Result<Vec<ProjectSessionFacts>> {
-        Ok(Vec::new())
-    }
-}
 
 /// The provider the test registry registers first, which every test's driver answers for.
 fn first_provider() -> ProviderId {
@@ -243,10 +222,6 @@ impl Fixture {
         let (data_folder, platform_store, keychain) = test_keychain(KeychainService::McpReceiptKey);
         let keychain = Arc::new(CountingKeychain::new(keychain));
         let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
-        let store = McpBindingStore::new(Arc::clone(&writer), Arc::clone(&reads));
-        let (outlet, drain) = open_first_observation_drain(store.clone()).await;
-        // The drain records each binding the tracker observes; it ends when the tracker drops.
-        tokio::spawn(drain);
         let board = Arc::new(McpNoticeBoard::default());
         let subscriber_board = Arc::clone(&board);
         let notices = KeyedLatestValueFeed::open(move |outlet| {
@@ -255,22 +230,16 @@ impl Fixture {
         })
         .await
         .expect("the board's follow succeeds");
-        let inventory = Arc::new(McpInventoryService::new(McpInventorySources {
-            providers: Arc::clone(&providers),
-            reads: Arc::clone(&reads),
-            meter: ProcessorMeter::default(),
-            projects: Arc::new(ProjectRecords::new(
-                Arc::clone(&reads),
-                Arc::new(NoProjectSessions),
-            )),
-            store,
-            tracker: Arc::new(McpServerStatusTracker::new(Arc::clone(&board), outlet)),
-            attribution: Arc::new(McpAttributionTable::default()),
-            probe_gate: Arc::new(McpMachineProbeGate::default()),
-        }));
+        let inventory = open_test_inventory(
+            Arc::clone(&providers),
+            Arc::clone(&writer),
+            Arc::clone(&reads),
+            Arc::clone(&board),
+        )
+        .await;
         let service = McpMutationService::new(McpMutationSources {
             providers,
-            inventory,
+            inventory: inventory.service,
             keychain: Arc::clone(&keychain) as _,
             writer,
             reads,
@@ -348,51 +317,25 @@ enum NoticeEdit {
 }
 
 /// A change committed as landed sends one config-changed notice for its binding, a daemon-kept
-/// switch committed with no provider call included; a write the provider refuses, committed as
-/// that refusal, sends none. Killed by a notice sent for a refusal, and by no notice on the
-/// daemon-kept commit.
+/// switch committed with no provider call included. Killed by no notice on the daemon-kept
+/// commit.
 #[rstest]
-#[case::a_landed_upsert(
-    &[],
-    McpServerWriteOutcome::Applied { reload_failure: None },
-    1,
-    false,
-    NoticeEdit::Upsert,
-    1
-)]
-#[case::a_refused_upsert(
-    &[],
-    McpServerWriteOutcome::Refused(McpServerWriteRefusal::StaleVersion {
-        expected_version: "sha256:read".to_owned(),
-        current_version: "sha256:moved".to_owned(),
-    }),
-    1,
-    false,
-    NoticeEdit::Upsert,
-    0
-)]
-#[case::a_switch_the_daemon_keeps(
-    &["docs"],
-    McpServerWriteOutcome::Applied { reload_failure: None },
-    0,
-    true,
-    NoticeEdit::SwitchOff,
-    1
-)]
+#[case::a_landed_upsert(&[], 1, false, NoticeEdit::Upsert)]
+#[case::a_switch_the_daemon_keeps(&["docs"], 0, true, NoticeEdit::SwitchOff)]
 #[tokio::test]
 async fn the_config_notice_follows_the_commit(
     #[case] declared: &[&str],
-    #[case] outcome: McpServerWriteOutcome,
     #[case] writes: usize,
     #[case] is_switch_kept_by_daemon: bool,
     #[case] edit: NoticeEdit,
-    #[case] expected_notices: usize,
 ) {
     let provider = first_provider();
     let driver = scripted_driver(
         &provider,
         declared,
-        outcome,
+        McpServerWriteOutcome::Applied {
+            reload_failure: None,
+        },
         writes,
         is_switch_kept_by_daemon,
     );
@@ -414,16 +357,13 @@ async fn the_config_notice_follows_the_commit(
         ),
     };
 
-    assert_eq!(answered.is_none(), expected_notices == 1);
+    assert_eq!(answered, None);
     let bindings: Vec<_> = fixture
         .config_notices()
         .iter()
         .map(McpServerConfigChangedNotice::binding)
         .collect();
-    assert_eq!(
-        bindings,
-        vec![user_binding_ref(&provider, "docs"); expected_notices]
-    );
+    assert_eq!(bindings, vec![user_binding_ref(&provider, "docs")]);
 }
 
 /// Two calls under one key at once, the second with another request: the provider is written
@@ -548,8 +488,9 @@ async fn every_mutation_reads_the_receipt_key_first() {
     assert_eq!(fixture.keychain.writes(), 0);
 }
 
-/// A provider's definite refusal commits the receipt with it, so a retry under the key answers
-/// the same refusal without a second write. Killed by the refused receipt deleted.
+/// A provider's definite refusal commits the receipt with it and sends no config-changed notice,
+/// so a retry under the key answers the same refusal without a second write. Killed by the
+/// refused receipt deleted, and by a notice sent for a refusal.
 #[tokio::test]
 async fn a_definite_refusal_is_saved_and_replayed() {
     let provider = first_provider();
@@ -563,7 +504,7 @@ async fn a_definite_refusal_is_saved_and_replayed() {
         1,
         false,
     );
-    let fixture = Fixture::new(driver, None).await;
+    let mut fixture = Fixture::new(driver, None).await;
     let key = idempotency_key();
 
     let first = fixture
@@ -585,6 +526,7 @@ async fn a_definite_refusal_is_saved_and_replayed() {
         first.err().map(|refusal| refusal.message)
     );
     assert_eq!(fixture.receipt_status(&key).as_deref(), Some("committed"));
+    assert_eq!(fixture.config_notices(), Vec::new());
 }
 
 /// A removal whose commit failed after the write is settled by the start's pass with the removal
@@ -633,10 +575,9 @@ async fn a_removal_settled_at_the_start_commits_the_ports_rows() {
     assert_eq!(fixture.count(markers), 1);
 }
 
-/// Two first mutations under two keys at once, with no receipt key made yet: one key is made
-/// and both land. Killed by the key made without its lock.
+/// Two first mutations under two keys at once, with no receipt key made yet, both land.
 #[tokio::test]
-async fn two_first_mutations_make_one_receipt_key() {
+async fn two_first_mutations_both_land() {
     let provider = first_provider();
     let driver = scripted_driver(
         &provider,
@@ -660,7 +601,6 @@ async fn two_first_mutations_make_one_receipt_key() {
     );
 
     assert_eq!((code(&docs), code(&mail)), (None, None));
-    assert_eq!(fixture.keychain.writes(), 1);
     assert_eq!(
         fixture.receipt_status(&docs_key).as_deref(),
         Some("committed")

@@ -12,7 +12,7 @@ use std::error::Error;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::governance::{
-    McpBindingStoreUnavailableCause, McpServerConfigFileInvalidDetails,
+    McpBindingStoreUnavailableCause, McpReceiptKeyCause, McpServerConfigFileInvalidDetails,
     McpServerConfigWriteConflictReason,
 };
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
@@ -48,12 +48,12 @@ pub enum McpConfigWriteConflict {
 #[derive(Debug)]
 pub struct McpConfigFileInvalid {
     /// The binding the write was for.
-    pub binding: McpServerBindingRef,
+    pub(crate) binding: McpServerBindingRef,
     /// The provider's words about the file, with no config value.
-    pub words: String,
+    pub(crate) words: String,
     /// The paths of the config's layers the read before the write reported, never a path read
     /// from the provider's words.
-    pub config_files: Vec<String>,
+    pub(crate) config_files: Vec<String>,
 }
 
 /// Why no sign-in the daemon or a provider can run reaches a server, which the refusal's message
@@ -86,7 +86,7 @@ pub enum SignInUnsupportedReason {
 pub enum McpRefusal {
     /// The daemon's stores of a server's bindings and receipts, or its receipt key, cannot be
     /// used, so every MCP change fails closed, changing nothing.
-    #[error("the MCP binding store cannot be reached, so no MCP change can be made until it can")]
+    #[error("{}", binding_store_words(.cause.as_ref()))]
     BindingStoreUnavailable {
         /// Why, sent as the detail's `cause` where it is known.
         cause: Option<McpBindingStoreUnavailableCause>,
@@ -182,6 +182,19 @@ pub enum McpRefusal {
 }
 
 const _: () = assert!(size_of::<McpRefusal>() <= 64);
+
+// The binding store refusal's message: a lost receipt key left the change unconfirmed, and any
+// other cause leaves the store unusable.
+fn binding_store_words(cause: Option<&McpBindingStoreUnavailableCause>) -> &'static str {
+    match cause {
+        Some(McpBindingStoreUnavailableCause::ReceiptKey(McpReceiptKeyCause::ReceiptKeyLost)) => {
+            "The change was not confirmed."
+        }
+        Some(McpBindingStoreUnavailableCause::Keychain(_)) | None => {
+            "the MCP binding store cannot be reached, so no MCP change can be made until it can"
+        }
+    }
+}
 
 /// Why an `mcp.server.signIn` launch opened no browser: an `mcp.*` refusal, or a provider's own
 /// flow that failed before the browser opened for a cause its driver names, answered as the

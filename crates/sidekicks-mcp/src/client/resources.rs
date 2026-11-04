@@ -165,17 +165,89 @@ fn read_headers(
 mod tests {
     use futures::FutureExt as _;
     use serde_json::json;
-    use sidekicks_contracts::mcp::server::McpServerName;
+    use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
+    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::text::FreeFormText;
+    use sidekicks_platforms::{POSIX_SHELL, Spawner};
+    use sidekicks_provider::driver::PROVIDERS;
+    use sidekicks_provider::driver::mcp_server::resources::McpServerReach;
+    use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
 
-    use super::list_and_close;
+    use super::{McpServerCopyStart, list_and_close};
     use crate::client::connection::McpConnectionStart;
     use crate::client::test_server::{
         Reply, method_not_found, start_test_server, test_client, v1_initialize_result,
     };
     use crate::client::tests::lasting_process;
+
+    /// A program server that writes `start` to the log its first argument names when it starts
+    /// and `end` once it answers its resource list, after a 0.2 s pause another copy could start
+    /// in; any other request is answered as a method it does not have.
+    const LOGGING_SERVER: &str = r#"echo start >> "$1"
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed 's/.*"id":\([0-9]*\).*/\1/')
+  case $line in
+    *'"method":"initialize"'*)
+      printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"protocolVersion\":"\
+"\"2025-11-25\",\"capabilities\":{\"resources\":{}},"\
+"\"serverInfo\":{\"name\":\"tracker\",\"version\":\"1.0.0\"}}}" ;;
+    *'"method":"resources/list"'*)
+      sleep 0.2
+      echo end >> "$1"
+      printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"resources\":[]}}" ;;
+    *'"id":'*)
+      printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":$id,\"error\":{\"code\":-32601,"\
+"\"message\":\"Method not found\"}}" ;;
+  esac
+done"#;
+
+    // Mutation: in `list_server_resources`, take no copy lock, and the second copy starts while
+    // the first still runs, so the log reads two starts before any end.
+    #[tokio::test]
+    async fn two_lists_of_one_binding_run_one_copy_at_a_time() {
+        let (client, _card) = test_client();
+        let spawner = Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts");
+        let reserved_names = ReservedEnvironmentNames::of_providers(PROVIDERS);
+        let session_id =
+            SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+        let binding = McpServerBindingRef::User {
+            provider: ProviderId::new("provider-a".to_owned()).expect("a provider id"),
+            server_name: FreeFormText::new("tracker".to_owned()).expect("a short server name"),
+        };
+        let folder = tempfile::tempdir().expect("the test makes a folder");
+        let log = folder.path().join("copies.log");
+        let reach = || McpServerReach::Stdio {
+            program: POSIX_SHELL.to_owned(),
+            arguments: vec![
+                "-c".to_owned(),
+                LOGGING_SERVER.to_owned(),
+                "sh".to_owned(),
+                log.to_string_lossy().into_owned(),
+            ],
+            environment: vec![(
+                "PATH".to_owned(),
+                std::env::var("PATH").expect("the test runs with a PATH"),
+            )],
+            working_folder: None,
+        };
+        let copy_start = || McpServerCopyStart {
+            spawner: &spawner,
+            descriptor: PROVIDERS[0],
+            reserved_names: &reserved_names,
+        };
+
+        let (first, second) = tokio::join!(
+            client.list_server_resources(session_id, &binding, reach(), copy_start()),
+            client.list_server_resources(session_id, &binding, reach(), copy_start()),
+        );
+
+        first.expect("the first copy lists");
+        second.expect("the second copy lists");
+        let logged = std::fs::read_to_string(&log).expect("the copies wrote the log");
+        assert_eq!(logged, "start\nend\nstart\nend\n");
+    }
 
     // Mutations: in `list_and_close`, leave out the close, and the copy's process is still
     // running when the read answers; in `list_every_page`, read only the first page, and the

@@ -541,8 +541,6 @@ fn leg_server(
     }
 }
 
-/// The entries of `key`'s legs that are in its aggregate, not switched off and holding a status,
-/// each with that status.
 // One leg's reading of a server whose status is `status`, as the wire lists it.
 fn leg_status(leg_id: &LegId, server: &LegServer, status: McpServerStatus) -> McpServerLegStatus {
     McpServerLegStatus {
@@ -554,6 +552,8 @@ fn leg_status(leg_id: &LegId, server: &LegServer, status: McpServerStatus) -> Mc
     }
 }
 
+/// The entries of `key`'s legs that are in its aggregate, not switched off and holding a status,
+/// each with that status.
 fn live_servers<'a>(
     legs: &'a HashMap<LegId, Leg>,
     key: &'a McpBindingKey,

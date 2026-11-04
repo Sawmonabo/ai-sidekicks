@@ -360,6 +360,13 @@ impl McpMutationService {
         self.pending.request();
     }
 
+    /// Closes the pass over the `pending` receipts' task tracker, so no pass starts after it, a
+    /// mutation's owed request included, and waits for a running pass to end; the daemon's stop
+    /// calls it under its own deadline before the drivers shut down.
+    pub async fn stop(&self) {
+        self.pending.stop().await;
+    }
+
     // A mutation's first steps, in their order: the receipt key, then `idempotency_key`'s lock,
     // then its receipt's answer, a pending one settled under the lock.
     async fn start(
@@ -409,11 +416,16 @@ impl McpMutationService {
                 binding: Box::new(binding.clone()),
             }
             .into()),
-            McpSavedCheck::Pending(intent) => self
-                .parts
-                .settle(operation, &intent, &receipt_key)
-                .await
-                .map(McpMutationStart::Answered),
+            McpSavedCheck::Pending(intent) => {
+                let settlement = self
+                    .parts
+                    .settlement(operation, &intent, &receipt_key)
+                    .await;
+                self.parts
+                    .commit_settlement(operation, &intent, settlement, None)
+                    .await
+                    .map(McpMutationStart::Answered)
+            }
         }
     }
 }
@@ -501,16 +513,16 @@ impl McpMutationParts {
             .await
     }
 
-    // Settles `intent`, a `pending` receipt of `operation` whose idempotency key's lock the
-    // caller holds, by what its provider's config holds; a switch the daemon keeps never reached
-    // the provider, so its receipt is unlanded.
-    async fn settle(
+    // How `intent`, a `pending` receipt of `operation` whose idempotency key's lock the caller
+    // holds, settles against what its provider's config holds; a switch the daemon keeps never
+    // reached the provider, so its receipt is unlanded.
+    async fn settlement(
         &self,
         operation: McpOperation,
         intent: &McpIntentReceipt,
         receipt_key: &McpReceiptKey,
-    ) -> Result<Value, DomainError> {
-        let settlement = match self.driver_of_intent(intent) {
+    ) -> McpIntentSettlement {
+        match self.driver_of_intent(intent) {
             None => McpIntentSettlement::Unsettled,
             Some(driver) if operation == McpOperation::SetEnabled => {
                 match self.is_switch_kept_by_daemon(intent).await {
@@ -520,9 +532,7 @@ impl McpMutationParts {
                 }
             }
             Some(driver) => observe_settlement(driver, receipt_key, intent).await,
-        };
-        self.commit_settlement(operation, intent, settlement, None)
-            .await
+        }
     }
 
     // Answers `intent` by `settlement` and keeps its receipt so, sending the binding's
@@ -610,15 +620,25 @@ struct McpOperationSettler {
 }
 
 impl McpIntentSettler for McpOperationSettler {
-    fn settle(&self, intent: McpIntentReceipt, key: Arc<McpReceiptKey>) -> BoxFuture<'_, ()> {
+    fn settle(
+        &self,
+        intent: McpIntentReceipt,
+        key: Arc<McpReceiptKey>,
+    ) -> BoxFuture<'_, McpIntentSettlement> {
         Box::pin(async move {
-            if let Err(refusal) = self.parts.settle(self.operation, &intent, &key).await {
+            let settlement = self.parts.settlement(self.operation, &intent, &key).await;
+            if let Err(refusal) = self
+                .parts
+                .commit_settlement(self.operation, &intent, settlement, None)
+                .await
+            {
                 tracing::warn!(
                     error = &refusal as &(dyn Error + 'static),
                     operation = intent.operation.as_str(),
                     "an unfinished MCP change was answered with a refusal when it was settled"
                 );
             }
+            settlement
         })
     }
 }

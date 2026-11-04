@@ -2,7 +2,7 @@
 //! the daemon's own `StreamableHttpClient` on `reqwest`, which asks the connection's authorizer
 //! for each request's headers, repairs each JSON reply and each SSE event's data as text a
 //! provider sends is and keeps it in the raw copy before rmcp reads it, and holds every SSE event
-//! to the transport's size bound.
+//! and every reply body to the transport's size bound.
 //!
 //! - A server that wants a `DPoP` proof bound to its own nonce sends the nonce with any response;
 //!   the last one is handed to the authorizer with each request, and a 401 whose `DPoP` challenge
@@ -46,6 +46,7 @@ use sidekicks_contracts::dpop::{DPOP_AUTHORIZATION_SCHEME, DPOP_NONCE_HEADER_NAM
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_provider::inbound_json::decode_inbound_json;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::outbound_http::{CappedBodyError, read_capped_body};
 
 use crate::client::connection::{
     McpConnectionError, McpConnectionScope, McpConnectionStart, McpServerConnection,
@@ -141,6 +142,9 @@ pub(crate) enum McpHttpError {
     /// The authorizer could not answer a refused request, its token's renewal failed.
     #[error("the tool server's sign-in could not be renewed")]
     Renewal(#[source] Box<dyn Error + Send + Sync>),
+    /// A reply's body could not be read, or ran past the bound one message is held to.
+    #[error("the tool server's reply could not be read within its bound")]
+    Body(#[source] CappedBodyError),
     /// A resume asked for a stream cut past the size bound, which would send the same event.
     #[error("the tool server's event stream was cut for an event past {max_event_size} bytes")]
     StreamCut {
@@ -338,6 +342,11 @@ fn http_error(error: reqwest::Error) -> StreamableHttpError<McpHttpError> {
     StreamableHttpError::Client(McpHttpError::Http(error))
 }
 
+/// A reply body's failed or overlong read as the transport's error.
+fn body_error(error: CappedBodyError) -> StreamableHttpError<McpHttpError> {
+    StreamableHttpError::Client(McpHttpError::Body(error))
+}
+
 /// Whether `response` is a 401 asking for a `DPoP` proof bound to the server's nonce, as RFC 9449
 /// §8 asks for it.
 fn asks_for_dpop_nonce(response: &reqwest::Response) -> bool {
@@ -510,7 +519,9 @@ impl StreamableHttpClient for McpHttpClient {
             .map(str::to_owned);
         let is_reply_awaited = matches!(message, ClientJsonRpcMessage::Request(_));
         if !status.is_success() {
-            let body = response.bytes().await.map_err(http_error)?;
+            let body = read_capped_body(response, max_sse_event_size)
+                .await
+                .map_err(body_error)?;
             if let Some(rejection) =
                 discover_rejection(&message, is_session_attached, status, &body)
             {
@@ -544,7 +555,9 @@ impl StreamableHttpClient for McpHttpClient {
                 ))
             }
             Some(kind) if kind.starts_with(JSON_MIME_TYPE) => {
-                let body = response.bytes().await.map_err(http_error)?;
+                let body = read_capped_body(response, max_sse_event_size)
+                    .await
+                    .map_err(body_error)?;
                 let text = decode_inbound_json(&body);
                 self.raw.keep_text(&text);
                 match read_message(&text) {

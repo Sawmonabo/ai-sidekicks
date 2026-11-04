@@ -365,11 +365,12 @@ ts_constants! {
 }
 
 /// The TypeScript module of the `mcp.*` method table, the status notice, the sign-in payload, a
-/// write conflict's reason and a config file refusal's details.
+/// write conflict's reason, the binding store's cause and a config file refusal's details.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "mcp/governance",
     doc: "The `mcp.*` method table, the sign-in event payload, the status notice, the refusal \
-          codes, a write conflict's reason and a config file refusal's details.",
+          codes, a write conflict's reason, the binding store's cause and a config file \
+          refusal's details.",
     definitions: &[
         Definition::read::<McpServerStatusChangedNotice>().checked(),
         Definition::read::<McpServerSignInOutcome>(),

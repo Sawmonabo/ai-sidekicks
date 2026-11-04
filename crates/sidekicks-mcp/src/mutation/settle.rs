@@ -45,9 +45,13 @@ const UNSETTLED_WORDS: &str =
 /// Settles the `pending` receipts of one operation, each saving its own answer.
 pub(crate) trait McpIntentSettler: Send + Sync {
     /// Settles `intent`, a `pending` receipt of this settler's operation whose idempotency key's
-    /// lock the caller holds, its digests taken under `key`; a receipt it cannot settle yet stays
-    /// `pending`.
-    fn settle(&self, intent: McpIntentReceipt, key: Arc<McpReceiptKey>) -> BoxFuture<'_, ()>;
+    /// lock the caller holds, its digests taken under `key`, and answers the settlement it
+    /// reached; a receipt it cannot settle yet stays `pending` and answers `Unsettled`.
+    fn settle(
+        &self,
+        intent: McpIntentReceipt,
+        key: Arc<McpReceiptKey>,
+    ) -> BoxFuture<'_, McpIntentSettlement>;
 }
 
 /// Each receipt operation's settler, by the `mcp.*` method the receipt was spent on.
@@ -296,8 +300,8 @@ struct McpPendingPass {
     key_locks: Arc<KeyedLock<ClientUuid>>,
     /// Each operation's settler.
     settlers: McpIntentSettlers,
-    /// Whether a pass could not read the receipt key or list the receipts, so the next mutation
-    /// starts one.
+    /// Whether a pass could not read the receipt key, list the receipts or settle one of them,
+    /// so the next mutation starts one.
     is_owed: AtomicBool,
     /// Whether a pass's task runs.
     is_running: AtomicBool,
@@ -326,20 +330,24 @@ impl McpPendingSettle {
     }
 
     /// Starts a pass in the background, as the daemon's start does; nothing starts while one
-    /// runs.
+    /// runs, nor once [`Self::stop`] has begun.
     pub(crate) fn request(&self) {
-        if self
-            .pass
-            .is_running
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
+        // The token keeps a stop's wait from ending between the closed check and the spawn.
+        let token = self.tracker.token();
+        if self.tracker.is_closed()
+            || self
+                .pass
+                .is_running
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
         {
             return;
         }
         let pass = Arc::clone(&self.pass);
-        self.tracker.spawn(async move {
+        tokio::spawn(async move {
             pass.run().await;
             pass.is_running.store(false, Ordering::Release);
+            drop(token);
         });
     }
 
@@ -349,6 +357,12 @@ impl McpPendingSettle {
         if self.pass.is_owed.load(Ordering::Acquire) {
             self.request();
         }
+    }
+
+    /// Closes the pass to new requests and waits for a running one to end.
+    pub(crate) async fn stop(&self) {
+        self.tracker.close();
+        self.tracker.wait().await;
     }
 }
 
@@ -402,7 +416,10 @@ impl McpPendingPass {
                 .await
             {
                 Ok(McpSavedCheck::Pending(intent)) => {
-                    settler.settle(intent, Arc::clone(&key)).await;
+                    let settlement = settler.settle(intent, Arc::clone(&key)).await;
+                    if settlement == McpIntentSettlement::Unsettled {
+                        self.is_owed.store(true, Ordering::Release);
+                    }
                 }
                 Ok(McpSavedCheck::Fresh | McpSavedCheck::Saved(_) | McpSavedCheck::Conflict) => {}
                 Err(error) => {
@@ -421,6 +438,7 @@ impl McpPendingPass {
 #[cfg(test)]
 pub(super) mod tests {
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use futures::future::BoxFuture;
     use rstest::rstest;
@@ -430,6 +448,7 @@ pub(super) mod tests {
     use sidekicks_contracts::wire::id::ClientUuid;
     use sidekicks_platforms::CredentialStore as PlatformCredentialStore;
     use sidekicks_provider::driver::contract::MockProviderDriver;
+    use sidekicks_provider::driver::contract::error::DriverError;
     use sidekicks_provider::driver::mcp_server::write::{
         McpServerObserved, McpServerObservedEntry,
     };
@@ -559,14 +578,19 @@ pub(super) mod tests {
     }
 
     impl McpIntentSettler for SwitchSettler {
-        fn settle(&self, intent: McpIntentReceipt, key: Arc<McpReceiptKey>) -> BoxFuture<'_, ()> {
+        fn settle(
+            &self,
+            intent: McpIntentReceipt,
+            key: Arc<McpReceiptKey>,
+        ) -> BoxFuture<'_, McpIntentSettlement> {
             Box::pin(async move {
                 let settlement = observe_settlement(&self.driver, &key, &intent).await;
-                apply_settlement(&self.receipts, &intent, settlement, || async {
+                let answer = apply_settlement(&self.receipts, &intent, settlement, || async {
                     Ok(landed_commit(&intent))
                 })
-                .await
-                .expect("the observed switch lands");
+                .await;
+                assert_eq!(answer.is_ok(), settlement == McpIntentSettlement::Landed);
+                settlement
             })
         }
     }
@@ -579,28 +603,31 @@ pub(super) mod tests {
         }
     }
 
-    /// A driver whose config holds the binding switched on, observed exactly `times` times.
-    fn observing(times: usize) -> MockProviderDriver {
+    /// A driver whose config holds the binding switched on, its first `failures` observes
+    /// failing, with the count of the observes that reached it.
+    fn observing(failures: usize) -> (MockProviderDriver, Arc<AtomicUsize>) {
+        let observes = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&observes);
         let mut driver = MockProviderDriver::new();
-        driver
-            .expect_observe_mcp_server()
-            .times(times)
-            .returning(|_| {
-                Box::pin(async {
-                    Ok(McpServerObserved {
-                        entry: McpServerObservedEntry::Switch(true),
-                        config_version: None,
-                        config_files: Vec::new(),
-                    })
+        driver.expect_observe_mcp_server().returning(move |_| {
+            let is_failing = counted.fetch_add(1, Ordering::SeqCst) < failures;
+            Box::pin(async move {
+                if is_failing {
+                    return Err(DriverError::Internal("the config is unreadable".into()));
+                }
+                Ok(McpServerObserved {
+                    entry: McpServerObservedEntry::Switch(true),
+                    config_version: None,
+                    config_files: Vec::new(),
                 })
-            });
-        driver
+            })
+        });
+        (driver, observes)
     }
 
-    /// Waits for the pass's task, then lets the next one be tracked.
+    /// Waits for the pass's task, then lets the next one start.
     pub(in crate::mutation) async fn settled(pass: &McpPendingSettle) {
-        pass.tracker.close();
-        pass.tracker.wait().await;
+        pass.stop().await;
         pass.tracker.reopen();
     }
 
@@ -676,16 +703,17 @@ pub(super) mod tests {
         assert_eq!(fixture.count_bindings(), bindings);
     }
 
-    /// A pass whose receipt key read is refused lists, observes and writes nothing and is owed;
-    /// once the keychain answers, one owed request settles the receipt with one more read and a
+    /// A pass whose receipt key read is refused observes and writes nothing and is owed; once
+    /// the keychain answers, one owed request settles the receipt with one more read and a
     /// second request at once starts nothing, nor does one after the pass, which is no longer
-    /// owed. Killed by the receipts listed or observed before the key is read, by the owed flag
-    /// never set or never cleared, and by two passes at once.
+    /// owed. Killed by the receipts observed before the key is read, by the owed flag never set
+    /// or never cleared, and by two passes at once.
     #[tokio::test]
     async fn a_pass_reads_the_key_first_and_runs_once_when_owed() {
         let fixture = Fixture::new().await;
         let intent = fixture.begin().await;
-        let pass = fixture.pass(observing(1));
+        let (driver, observes) = observing(0);
+        let pass = fixture.pass(driver);
         let (reads, writes) = (fixture.keychain.reads(), fixture.keychain.writes());
         fixture
             .keychain
@@ -696,6 +724,7 @@ pub(super) mod tests {
 
         assert_eq!(fixture.keychain.reads(), reads + 1);
         assert_eq!(fixture.keychain.writes(), writes);
+        assert_eq!(observes.load(Ordering::SeqCst), 0);
         assert!(matches!(
             fixture.check(&intent).await,
             McpSavedCheck::Pending(_)
@@ -709,6 +738,7 @@ pub(super) mod tests {
         settled(&pass).await;
 
         assert_eq!(fixture.keychain.reads(), reads + 2);
+        assert_eq!(observes.load(Ordering::SeqCst), 1);
         let McpSavedCheck::Saved(saved) = fixture.check(&intent).await else {
             panic!("the owed pass settles the receipt");
         };
@@ -733,7 +763,8 @@ pub(super) mod tests {
     async fn a_receipt_settled_before_the_pass_holds_it_is_skipped() {
         let fixture = Fixture::new().await;
         let intent = fixture.begin().await;
-        let pass = fixture.pass(observing(0));
+        let (driver, observes) = observing(0);
+        let pass = fixture.pass(driver);
         let retry_answer: Value = json!({ "answer": "served", "response": {} });
         let held = fixture
             .key_locks
@@ -756,10 +787,58 @@ pub(super) mod tests {
         drop(held);
         settled(&pass).await;
 
+        assert_eq!(observes.load(Ordering::SeqCst), 0);
         assert_eq!(
             fixture.check(&intent).await,
             McpSavedCheck::Saved(retry_answer)
         );
         assert_eq!(fixture.count_bindings(), 0);
+    }
+
+    /// A receipt whose config cannot be read stays `pending` and leaves the pass owed, so the
+    /// next mutation's owed request settles it. Killed by an unsettled receipt not owing a pass.
+    #[tokio::test]
+    async fn an_unsettled_receipt_owes_the_next_pass() {
+        let fixture = Fixture::new().await;
+        let intent = fixture.begin().await;
+        let (driver, observes) = observing(1);
+        let pass = fixture.pass(driver);
+
+        pass.request();
+        settled(&pass).await;
+
+        assert!(matches!(
+            fixture.check(&intent).await,
+            McpSavedCheck::Pending(_)
+        ));
+        pass.request_if_owed();
+        settled(&pass).await;
+
+        assert_eq!(observes.load(Ordering::SeqCst), 2);
+        assert!(matches!(
+            fixture.check(&intent).await,
+            McpSavedCheck::Saved(_)
+        ));
+        assert_eq!(fixture.count_bindings(), 1);
+    }
+
+    /// A stopped pass waits for its running task and starts no other. Killed by a request after
+    /// the stop starting a pass.
+    #[tokio::test]
+    async fn a_stopped_pass_starts_nothing() {
+        let fixture = Fixture::new().await;
+        let intent = fixture.begin().await;
+        let (driver, observes) = observing(0);
+        let pass = fixture.pass(driver);
+
+        pass.stop().await;
+        pass.request();
+        pass.stop().await;
+
+        assert_eq!(observes.load(Ordering::SeqCst), 0);
+        assert!(matches!(
+            fixture.check(&intent).await,
+            McpSavedCheck::Pending(_)
+        ));
     }
 }

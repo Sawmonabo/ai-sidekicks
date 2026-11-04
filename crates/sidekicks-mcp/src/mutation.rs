@@ -1,6 +1,7 @@
 //! The governance mutations of a provider's MCP config: the service that runs each one, each
-//! mutation's two-phase receipt, the settle of an intent whose provider leg may or may not have
-//! landed, and the checks a mutation passes before anything is written.
+//! mutation's two-phase receipt, the receipt key its digests are taken under, the answer a
+//! receipt saves, the settle of an intent whose provider leg may or may not have landed, and the
+//! checks a mutation passes before anything is written.
 
 pub(crate) mod preflight;
 pub(crate) mod receipt_key;
