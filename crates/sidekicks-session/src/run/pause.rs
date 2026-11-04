@@ -286,6 +286,9 @@ impl RunPauseControl {
     /// session's opening was deferred because its lead is still held, calls no driver: its
     /// waiting messages are kept for its lead's continue to carry as its words, it moves to
     /// `running`, and the lead's continue is handed to the queue, the answer not waiting on it.
+    /// A lead whose session's opening was deferred because a run beneath it waits on the person
+    /// calls no driver either: its waiting messages are kept and it moves to `running`, its
+    /// continue carrying them going with the person's answer that frees the session.
     /// A resume the driver refuses moves nothing, gives the
     /// messages back and fails with [`RunPauseError::Driver`], as does one whose answer never
     /// came, which keeps the messages for the provider's own word to settle. A move refused once
@@ -333,16 +336,20 @@ impl RunPauseControl {
                             },
                         )
                         .await?;
-                    // A helper the restart cut, under a lead still held with no process: the
-                    // lead's continue carries it, its waiting messages kept as its words.
-                    if opening == SessionOpening::Deferred && is_helper && is_continuation_owed {
+                    // A helper the restart cut under a lead still held with no process, or the
+                    // lead itself while a run beneath it waits on the person: the lead's continue
+                    // carries it, its waiting messages kept as its words. A lead's continue goes
+                    // with the answer that frees it, so only a helper's is handed now.
+                    if opening == SessionOpening::Deferred && (!is_helper || is_continuation_owed) {
                         let hold = continued.hold_session(session_id).await;
                         continued
                             .read(&hold, run_id, driver.message_handing())
                             .await
                             .map_err(RunPauseError::WaitingMessagesUnread)?;
                         continued.keep(&hold, run_id);
-                        is_held_lead_continue.get_or_init(|| ());
+                        if is_helper {
+                            is_held_lead_continue.get_or_init(|| ());
+                        }
                         return Ok(());
                     }
                     let messages = {

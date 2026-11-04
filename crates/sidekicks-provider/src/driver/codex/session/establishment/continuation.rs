@@ -539,7 +539,7 @@ fn ask_codex_helper_again(subagent_id: &SubagentId) -> String {
 }
 
 // The id the answers' steer goes under: the first answered card's or question's, so the steer
-// names the answer it carries; a fresh one where every entry is a continued helper.
+// names the answer it carries; a fresh one where every entry is a continued run.
 fn read_answer_steer_key(held: &HeldRunContinue) -> QueueItemId {
     held.entries
         .iter()
@@ -551,7 +551,7 @@ fn read_answer_steer_key(held: &HeldRunContinue) -> QueueItemId {
             ContinueAnswer::Question { question_id, .. } => {
                 QueueItemId::new(question_id.text().as_str()).ok()
             }
-            ContinueAnswer::HelperContinued { .. } => None,
+            ContinueAnswer::Continued { .. } => None,
         })
         .unwrap_or_else(|| {
             QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item's id")

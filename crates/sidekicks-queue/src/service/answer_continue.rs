@@ -7,7 +7,9 @@
 //! the daemon's own, in the recovery status the Runtime page shows; a failure after the provider
 //! carried the continue, its settle's or the reconcile's, leaves the run running as the provider
 //! has it. A paused helper the person continued under a lead the restart holds is such an answer:
-//! its kept messages go into the lead's continue as its words.
+//! its kept messages go into the lead's continue as its words. A held lead the person continued
+//! waits for the answer that frees it, its kept messages going into that continue as its words,
+//! and a failed continue moves it back to `paused`, its messages kept.
 
 use std::error::Error;
 use std::sync::Weak;
@@ -24,7 +26,7 @@ use sidekicks_session::run::state_change::{RunStateChange, RunWriteCompanions};
 use super::RunQueue;
 use crate::delivery::HeldLeadContinuation;
 use crate::error::QueueError;
-use crate::provider_session::held_run_continue::HelperWords;
+use crate::provider_session::held_run_continue::ContinuedWords;
 
 impl HeldLeadContinuation for Weak<RunQueue> {
     // The helper's continue is an answer's: a failed one moves it back to `paused`, words kept.
@@ -44,12 +46,14 @@ pub trait HaltedRunRecord: Send + Sync {
 
 impl RunQueue {
     /// Continues `session_id`'s lead with the answers the person gave while the daemon's restart
-    /// held it, and the words each paused helper beneath it the person continued kept, on a task
-    /// the queue's stop waits for, once none is still owed it, then hands it
-    /// the messages that waited while no process held its session. A resume that fails moves
-    /// `run_id`, which the answer moved to `running`, back to `waiting`, the wait the answer
-    /// ended, or a continued helper back to `paused` with its words kept, and halts it in the recovery status under its failure's category, but for the
-    /// provider's refusal, which the resume posts on the session. A resume that fails after its
+    /// held it, and the words each paused run the person continued kept, a helper beneath it or
+    /// the lead itself, on a task the queue's stop waits for, once none is still owed it, then
+    /// hands it the messages that waited while no process held its session. A resume that fails
+    /// moves `run_id`, which the answer moved to `running`, back to `waiting`, the wait the answer
+    /// ended, or a continued helper back to `paused` with its words kept, and a held lead the
+    /// person continued back to `paused` with its words kept, and halts `run_id` in the recovery
+    /// status under its failure's category, but for the provider's refusal, which the resume posts
+    /// on the session. A resume that fails after its
     /// provider carried the continue, or a hand that fails after the resume, leaves the run
     /// running and halts it as the daemon's own failure.
     pub fn continue_after_answer(
@@ -63,8 +67,8 @@ impl RunQueue {
             let Some(queue) = queue.upgrade() else {
                 return;
             };
-            let helper_words = match queue.delivery.kept_helper_words(session_id).await {
-                Ok(kept) => HelperWords {
+            let continued_words = match queue.delivery.kept_words(session_id).await {
+                Ok(kept) => ContinuedWords {
                     kept,
                     messages: &queue.delivery,
                 },
@@ -80,13 +84,13 @@ impl RunQueue {
                         run_id,
                         RunFailureCategory::LocalPersistenceFailure,
                     );
-                    queue.restore_wait(run_id, waiting).await;
+                    queue.restore_continue(session_id, run_id, waiting).await;
                     return;
                 }
             };
             if let Err(failure) = queue
                 .provider_sessions
-                .resume_after_answer(session_id, &helper_words)
+                .resume_after_answer(session_id, &continued_words)
                 .await
             {
                 // The provider runs the lead on with its answers, so the run stays running.
@@ -113,7 +117,7 @@ impl RunQueue {
                 if let Some(failure_category) = failure.continue_halt_category() {
                     queue.halt(session_id, run_id, failure_category);
                 }
-                queue.restore_wait(run_id, waiting).await;
+                queue.restore_continue(session_id, run_id, waiting).await;
                 return;
             }
             let reconciled = match queue.lifecycle.reconcile(session_id).await {
@@ -147,6 +151,31 @@ impl RunQueue {
                 failure_category: Some(failure_category),
             },
         );
+    }
+
+    // Moves `run_id` back to `waiting`, then the held lead of `session_id` a person's continue
+    // moved to `running`, which the failed continue was to carry, back to `paused`, its kept
+    // messages kept; while a process holds the session the lead runs there and is left.
+    async fn restore_continue(&self, session_id: SessionId, run_id: RunId, waiting: RunStateEntry) {
+        self.restore_wait(run_id, waiting).await;
+        if self.delivery.has_live_process(session_id) {
+            return;
+        }
+        match self
+            .provider_sessions
+            .read_held_continued_lead(session_id)
+            .await
+        {
+            Ok(Some(lead_run_id)) if lead_run_id != run_id => {
+                self.restore_wait(lead_run_id, RunStateEntry::Paused).await;
+            }
+            Ok(_) => {}
+            Err(failure) => tracing::warn!(
+                session_id = %session_id,
+                error = &failure as &(dyn Error + 'static),
+                "a held lead whose continue failed could not be read to move it back to its pause"
+            ),
+        }
     }
 
     // Moves `run_id` from `running` back to `waiting`; a run that moved on since is left as it is,

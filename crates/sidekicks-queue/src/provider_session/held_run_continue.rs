@@ -1,9 +1,9 @@
 //! The held lead's continue a relaunch carries: composed from the answers the person gave while
 //! the daemon's restart held the session's lead, the lead's own and those of the helpers beneath
-//! it, and from each paused helper beneath it the person continued, with the words its kept
-//! messages make, once no answer is still owed it, each answer's continue mark claimed before the
-//! driver is called and given back when the driver fails or defers, or later tells the queue it
-//! did not carry the continue, so the next relaunch carries it again.
+//! it, and from each paused run the person continued, each helper beneath it and the lead itself,
+//! with the words its kept messages make, once no answer is still owed it, each answer's continue
+//! mark claimed before the driver is called and given back when the driver fails or defers, or
+//! later tells the queue it did not carry the continue, so the next relaunch carries it again.
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
@@ -29,6 +29,7 @@ use sidekicks_provider::driver::session_control::held_run_continue::{
 };
 use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::run::pause::owes_continuation;
+use sidekicks_session::run::read::RunStateReader;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use tokio_util::task::TaskTracker;
@@ -152,19 +153,19 @@ impl OrphanedAnswerSource<QuestionId> for QuestionsService {
     }
 }
 
-/// The messages a paused helper's continue kept for its lead's continue, and the words they make,
-/// each file a line naming its path.
+/// The messages a paused run's continue kept for its held lead's continue, and the words they
+/// make, each file a line naming its path.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct KeptHelperWords {
-    /// The kept messages, delivered with the helper once a continue carried their words.
+pub(crate) struct KeptWords {
+    /// The kept messages, delivered with their run once a continue carried their words.
     pub(crate) message_ids: Vec<QueueItemId>,
     /// The words they make.
     pub(crate) words: String,
 }
 
-/// Delivers a paused helper's kept messages once its lead's continue carried their words, under
+/// Delivers a paused run's kept messages once its held lead's continue carried their words, under
 /// the session's transition lock alone, before the runs the resume named are settled.
-pub(crate) trait KeptHelperMessages: Send + Sync {
+pub(crate) trait KeptMessages: Send + Sync {
     /// Delivers each of `message_ids` still waiting with `run_id`. Fails as a read or record
     /// fails.
     fn deliver_carried(
@@ -174,14 +175,14 @@ pub(crate) trait KeptHelperMessages: Send + Sync {
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
 }
 
-/// What a continue of the person's carries for the paused helpers they continued: each helper's
-/// kept words, by its run, as the queue read them before the continue, and where their messages
-/// are delivered once it carried them.
-pub(crate) struct HelperWords<'a> {
-    /// Each paused helper's kept words, by its run; a helper with none waiting has no entry.
-    pub(crate) kept: HashMap<RunId, KeptHelperWords>,
-    /// Delivers the kept messages of the helpers a continue carried.
-    pub(crate) messages: &'a dyn KeptHelperMessages,
+/// What a continue of the person's carries for the paused runs they continued, the held lead or a
+/// helper beneath it: each run's kept words, as the queue read them before the continue, and where
+/// their messages are delivered once it carried them.
+pub(crate) struct ContinuedWords<'a> {
+    /// Each paused run's kept words, by its run; a run with none waiting has no entry.
+    pub(crate) kept: HashMap<RunId, KeptWords>,
+    /// Delivers the kept messages of the runs a continue carried.
+    pub(crate) messages: &'a dyn KeptMessages,
 }
 
 // One continue mark a relaunch claimed.
@@ -193,13 +194,13 @@ pub(super) enum ClaimedMark {
 
 /// The continue a relaunch claimed for the held lead, the marks it claimed, the runs waiting on
 /// the person, every ask of theirs answered, that it continues, each beside the wait it leaves,
-/// and the kept messages of each continued helper whose words it carries.
+/// and the kept messages of each continued run whose words it carries.
 #[derive(Default)]
 pub(super) struct ClaimedContinue {
     pub(super) held_run_continue: Option<HeldRunContinue>,
     pub(super) claims: Vec<ClaimedMark>,
     pub(super) answered_runs: Vec<(RunId, RunState)>,
-    pub(super) helper_messages: Vec<(RunId, Vec<QueueItemId>)>,
+    pub(super) continued_messages: Vec<(RunId, Vec<QueueItemId>)>,
 }
 
 // The marks of the continue a relaunch handed its driver for the lead `lead_run_id`, kept until
@@ -299,14 +300,15 @@ impl ProviderSessions {
     // running: the continue carries it on, and `live_runs` names it running where a continue was
     // claimed. An answer of a run outside the lead and its helpers is left out, as is one another
     // relaunch claimed first; a failed claim gives back the marks claimed before it. Given
-    // `helper_words`, each helper beneath the lead the person continued from the restart's cut
-    // (running, no turn open, its newest turn end the cut) is owed too, with its kept words.
+    // `continued_words`, each paused run the person continued while the lead was held, each helper
+    // beneath it and then the lead itself (running, no turn open, its newest turn end the cut or
+    // its messages kept), is owed too, with its kept words.
     pub(super) async fn claim_held_run_continue(
         &self,
         session_id: SessionId,
         live_runs: &mut [LiveRunResume],
         kept_schedules: &[KeptSchedule],
-        helper_words: Option<&HelperWords<'_>>,
+        continued_words: Option<&ContinuedWords<'_>>,
     ) -> Result<ClaimedContinue, ProviderSessionError> {
         let may_continue = |run: &LiveRunResume| {
             run.is_lead()
@@ -403,17 +405,20 @@ impl ProviderSessions {
                 answer,
             });
         }
-        let mut helper_messages = Vec::new();
-        if let Some(helper_words) = helper_words {
-            for (helper, subagent_id) in self.continued_helpers(lead, &continued_runs).await? {
-                let kept = helper_words.kept.get(&helper);
+        let mut continued_messages = Vec::new();
+        if let Some(continued_words) = continued_words {
+            let continued = self
+                .continued_paused_runs(lead, &continued_runs, &answered_runs, &continued_words.kept)
+                .await?;
+            for (run_id, subagent_id) in continued {
+                let kept = continued_words.kept.get(&run_id);
                 if let Some(kept) = kept {
-                    helper_messages.push((helper, kept.message_ids.clone()));
+                    continued_messages.push((run_id, kept.message_ids.clone()));
                 }
                 entries.push(ContinueEntry {
-                    run_id: helper,
-                    subagent_id: Some(subagent_id),
-                    answer: ContinueAnswer::HelperContinued {
+                    run_id,
+                    subagent_id,
+                    answer: ContinueAnswer::Continued {
                         words: kept.map(|kept| kept.words.clone()),
                     },
                 });
@@ -449,40 +454,84 @@ impl ProviderSessions {
             )),
             claims,
             answered_runs,
-            helper_messages,
+            continued_messages,
         })
     }
 
-    // Each helper beneath `lead` the person continued from the restart's cut, with its id: running
-    // with no turn open, its newest turn end the cut. Fails as the read fails.
-    async fn continued_helpers(
+    // Each paused run the person continued while the restart held `lead`, the lead itself or a
+    // helper beneath it, with its helper's id, `None` for the lead, which comes last: running with
+    // no turn open and no answer of `answered_runs` carrying it on, and owed the continue, its
+    // newest turn end the restart's cut or its waiting messages kept in `kept`. Fails as the read
+    // fails.
+    async fn continued_paused_runs(
         &self,
         lead: &LiveRunResume,
         live_runs: &[LiveRunResume],
-    ) -> Result<Vec<(RunId, SubagentId)>, ProviderSessionError> {
-        let candidates: Vec<(RunId, SubagentId)> = live_runs
+        answered_runs: &[(RunId, RunState)],
+        kept: &HashMap<RunId, KeptWords>,
+    ) -> Result<Vec<(RunId, Option<SubagentId>)>, ProviderSessionError> {
+        let mut candidates: Vec<(RunId, Option<SubagentId>, bool)> = live_runs
             .iter()
             .filter(|run| {
                 !run.is_stopping
                     && run.run_state == RunState::Running
                     && run.open_turns.is_empty()
-                    && lead.is_above(run, live_runs)
+                    && !answered_runs
+                        .iter()
+                        .any(|(run_id, _)| *run_id == run.run_id)
             })
-            .filter_map(|run| Some((run.run_id, run.subagent_id.clone()?)))
+            .filter_map(|run| {
+                let subagent_id = if run.run_id == lead.run_id {
+                    None
+                } else if lead.is_above(run, live_runs) {
+                    Some(run.subagent_id.clone()?)
+                } else {
+                    return None;
+                };
+                Some((run.run_id, subagent_id, kept.contains_key(&run.run_id)))
+            })
             .collect();
         if candidates.is_empty() {
-            return Ok(candidates);
+            return Ok(Vec::new());
         }
+        // The helpers' words first, then the lead's own.
+        candidates.sort_by_key(|(_, subagent_id, _)| subagent_id.is_none());
         self.deps
             .pool
             .read(ReadLength::Short, move |reader| {
                 let mut continued = Vec::new();
-                for (run_id, subagent_id) in candidates {
-                    if owes_continuation(reader, &run_id)? {
+                for (run_id, subagent_id, is_kept) in candidates {
+                    if is_kept || owes_continuation(reader, &run_id)? {
                         continued.push((run_id, subagent_id));
                     }
                 }
                 Ok::<_, ProviderSessionError>(continued)
+            })
+            .await
+    }
+
+    /// The lead of `session_id` a person's continue moved to `running` while the restart held it:
+    /// a live lead read `running` with no turn open and no stop, or `None` with none. Read only
+    /// while no process holds the session, where no other lead reads so. Fails as the read fails.
+    pub(crate) async fn read_held_continued_lead(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Option<RunId>, ProviderSessionError> {
+        self.deps
+            .pool
+            .read(ReadLength::Short, move |reader| {
+                let live_runs = RunStateReader::new(reader).list_live_run_resumes(&session_id)?;
+                Ok::<_, ProviderSessionError>(
+                    live_runs
+                        .iter()
+                        .find(|run| {
+                            run.is_lead()
+                                && !run.is_stopping
+                                && run.run_state == RunState::Running
+                                && run.open_turns.is_empty()
+                        })
+                        .map(|run| run.run_id),
+                )
             })
             .await
     }

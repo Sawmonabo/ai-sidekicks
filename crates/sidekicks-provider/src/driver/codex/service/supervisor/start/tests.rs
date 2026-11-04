@@ -8,12 +8,13 @@ use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::{Value, json};
 use sidekicks_platforms::{
-    CAN_LINK_A_SOCKET, LeftoverSweep, ProcessRecord, Spawner, connect_unix_domain_socket,
-    create_file_atomically, harness_test_name, pin_child_process, read_socket_link,
-    replace_socket_link,
+    CAN_LINK_A_SOCKET, CAN_SIGNAL_A_STOP, LeftoverSweep, POSIX_SHELL, ProcessRecord, Spawner,
+    connect_unix_domain_socket, create_file_atomically, harness_test_name, pin_child_process,
+    read_socket_link, replace_socket_link, shell_line_command,
 };
 use tokio::io::AsyncReadExt as _;
 use tokio::sync::mpsc;
+use tokio::time::{Instant, timeout};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::{HeaderValue, header};
@@ -352,7 +353,9 @@ async fn an_account_start_adds_the_relay_environment_before_it_answers() {
     // it runs before any assertion can fail.
     stop_kept_services(
         service.dependencies().data_folder.clone(),
-        KeptServicesStop::DaemonStop,
+        KeptServicesStop::DaemonStop {
+            deadline: Instant::now() + Duration::from_secs(60),
+        },
     )
     .await;
 
@@ -432,6 +435,59 @@ async fn an_erase_takes_the_home_link_off_a_gone_service_s_socket() {
         read_socket_link(&home_socket).expect("the link reads"),
         None
     );
+}
+
+// Killed by the daemon's stop giving a kept service its full grace in place of what is left of the
+// stop: the top cap returns at the deadline, but a service ignoring its stop then runs on past it.
+#[tokio::test]
+async fn a_daemon_stop_ends_a_kept_service_that_ignores_its_stop_by_the_deadline() {
+    if !CAN_SIGNAL_A_STOP {
+        return;
+    }
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    let mut child = shell_line_command(Path::new(POSIX_SHELL), "trap '' TERM; echo; exec sleep 60")
+        .stdout(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("the stand-in starts");
+    // Its first byte says the stop's signal is ignored, so the signal cannot win the race.
+    let mut ready = [0_u8];
+    child
+        .stdout
+        .take()
+        .expect("the stand-in's output is piped")
+        .read_exact(&mut ready)
+        .await
+        .expect("the stand-in ignores the stop's signal");
+    let process = pin_child_process(child.id().expect("the stand-in runs"))
+        .expect("the stand-in pins")
+        .record()
+        .expect("the record reads")
+        .expect("the stand-in runs");
+    let socket = folder.path().join("codex.sock");
+    LastingServiceRecordFile::of_socket(folder.path(), folder.path(), &socket)
+        .expect("the record file is named")
+        .lock()
+        .expect("the records lock")
+        .write(&LastingServiceRecord::launched(process, socket))
+        .expect("the record is written");
+    let deadline = Instant::now() + Duration::from_millis(300);
+
+    let stopped = timeout(
+        Duration::from_millis(1300),
+        stop_kept_services(
+            folder.path().to_owned(),
+            KeptServicesStop::DaemonStop { deadline },
+        ),
+    )
+    .await;
+    let ended = timeout(Duration::from_secs(1), child.wait()).await;
+
+    assert!(stopped.is_ok(), "the stop ran past its deadline");
+    let status = ended
+        .expect("the stand-in still runs a second after the stop")
+        .expect("the stand-in's end reads");
+    assert!(status.code().is_none(), "{status:?}");
 }
 
 // Killed by any service's launch left without the person's privacy choices, the capability read's

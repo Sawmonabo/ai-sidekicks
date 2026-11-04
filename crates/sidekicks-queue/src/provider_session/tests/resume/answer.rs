@@ -2,7 +2,8 @@
 //! while the lead runs, each answer once, and owes it again to the next resume when the provider
 //! refused the one that carried it or resumed without continuing the lead, never once the provider
 //! carried it, though the resume's runs could not be settled or its binding recorded after. A
-//! paused helper the person continued counts as answered, carrying its kept words.
+//! paused helper the person continued counts as answered, carrying its kept words, and a lead the
+//! person continued behind a waiting helper goes on with that helper's answer, carrying its own.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -36,7 +37,7 @@ use super::super::{Opening, WAIT};
 use super::{SUBAGENT_ID, insert_run_event};
 use crate::provider_session::errors::ProviderSessionError;
 use crate::provider_session::held_run_continue::{
-    HelperWords, KeptHelperMessages, KeptHelperWords, OwedAnswer,
+    ContinuedWords, KeptMessages, KeptWords, OwedAnswer,
 };
 use crate::provider_session::test_opening::read_notices;
 
@@ -93,16 +94,24 @@ fn set_run_state(opening: &Opening, run_id: RunId, state: &str) {
 }
 
 async fn resume_after_answer(opening: &Opening) -> Result<(), ProviderSessionError> {
-    let no_helper_messages = DeliveredHelperMessages::default();
-    let helper_words = HelperWords {
+    let no_messages = DeliveredMessages::default();
+    let continued_words = ContinuedWords {
         kept: HashMap::new(),
-        messages: &no_helper_messages,
+        messages: &no_messages,
     };
+    resume_with_words(opening, &continued_words).await
+}
+
+// The person's answer's continue of the fixture's session, carrying `continued_words`.
+async fn resume_with_words(
+    opening: &Opening,
+    continued_words: &ContinuedWords<'_>,
+) -> Result<(), ProviderSessionError> {
     timeout(
         WAIT,
         opening
             .sessions
-            .resume_after_answer(opening.session_id, &helper_words),
+            .resume_after_answer(opening.session_id, continued_words),
     )
     .await
     .expect("the continue takes its own lock once")
@@ -342,9 +351,9 @@ async fn a_carried_continue_that_fails_after_keeps_its_answer_claimed(
 
 // The kept messages a carried continue delivered, by helper run.
 #[derive(Default)]
-struct DeliveredHelperMessages(Mutex<Vec<(RunId, Vec<QueueItemId>)>>);
+struct DeliveredMessages(Mutex<Vec<(RunId, Vec<QueueItemId>)>>);
 
-impl KeptHelperMessages for DeliveredHelperMessages {
+impl KeptMessages for DeliveredMessages {
     fn deliver_carried(
         &self,
         run_id: RunId,
@@ -419,11 +428,11 @@ async fn two_paused_helpers_continue_their_lead_once_both_are_continued() {
     make_cut_helper(&opening, (lead, second), "helper-2", "paused", 102);
     let message_id =
         QueueItemId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an item id");
-    let delivered = DeliveredHelperMessages::default();
-    let helper_words = HelperWords {
+    let delivered = DeliveredMessages::default();
+    let continued_words = ContinuedWords {
         kept: HashMap::from([(
             first,
-            KeptHelperWords {
+            KeptWords {
                 message_ids: vec![message_id],
                 words: "check the tests first".to_owned(),
             },
@@ -435,7 +444,7 @@ async fn two_paused_helpers_continue_their_lead_once_both_are_continued() {
         WAIT,
         opening
             .sessions
-            .resume_after_answer(opening.session_id, &helper_words),
+            .resume_after_answer(opening.session_id, &continued_words),
     )
     .await
     .expect("the continue takes its own lock once")
@@ -450,7 +459,7 @@ async fn two_paused_helpers_continue_their_lead_once_both_are_continued() {
         WAIT,
         opening
             .sessions
-            .resume_after_answer(opening.session_id, &helper_words),
+            .resume_after_answer(opening.session_id, &continued_words),
     )
     .await
     .expect("the continue takes its own lock once")
@@ -470,16 +479,116 @@ async fn two_paused_helpers_continue_their_lead_once_both_are_continued() {
             ContinueEntry {
                 run_id: first,
                 subagent_id: helper_id("helper-1"),
-                answer: ContinueAnswer::HelperContinued {
+                answer: ContinueAnswer::Continued {
                     words: Some("check the tests first".to_owned()),
                 },
             },
             ContinueEntry {
                 run_id: second,
                 subagent_id: helper_id("helper-2"),
-                answer: ContinueAnswer::HelperContinued { words: None },
+                answer: ContinueAnswer::Continued { words: None },
             },
         ]
     );
     assert_eq!(*lock(&delivered.0), [(first, vec![message_id])]);
+}
+
+// A lead the person continued while a helper beneath it waited on them, the lead's waiting message
+// kept, goes on once the helper's ask is answered: one continue carries the helper's answer, then
+// the lead's own words, and delivers the lead's kept message with it; a continue after it, the
+// message no longer kept, carries nothing. Killed by the lead left out of the continue (no lead
+// member, nothing delivered), by its member before the helper's, by the answered helper counted
+// as continued too (a third member), and by the lead continued while its helper still waits.
+#[tokio::test]
+async fn a_continue_of_a_lead_held_behind_a_waiting_helper_goes_once_the_helper_is_answered() {
+    let carried = Arc::new(Mutex::new(Vec::new()));
+    let opening = Opening::new(
+        Box::new({
+            let carried = Arc::clone(&carried);
+            move |params| lock(&carried).push(params.held_run_continue.clone())
+        }),
+        Box::new(|| {}),
+        |_, _| {},
+    )
+    .await;
+    let (lead, helper) = (opening.earlier_run_id, opening.run_id);
+    make_cut_helper(
+        &opening,
+        (lead, helper),
+        "helper-1",
+        "waitingForApproval",
+        100,
+    );
+    let approval_request_id =
+        ApprovalRequestId::try_from(mint_uuid_v7()).expect("a minted UUID is an ask's id");
+    let answer = ContinueAnswer::Approval {
+        approval_request_id,
+        subject: "cargo test".to_owned(),
+        tool_name: Some("Bash".to_owned()),
+        decision: ApprovalDecision::Approved,
+        decline_reason: None,
+        edited_action: None,
+    };
+    opening.orphaned_approvals.owe(OwedAnswer {
+        id: approval_request_id,
+        run_id: helper,
+        answer: answer.clone(),
+    });
+    opening.orphaned_approvals.set_open_ask(helper, true);
+    let message_id =
+        QueueItemId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an item id");
+    let delivered = DeliveredMessages::default();
+    let continued_words = ContinuedWords {
+        kept: HashMap::from([(
+            lead,
+            KeptWords {
+                message_ids: vec![message_id],
+                words: "check the logs".to_owned(),
+            },
+        )]),
+        messages: &delivered,
+    };
+
+    resume_with_words(&opening, &continued_words)
+        .await
+        .expect("a lead held behind its helper waits");
+    assert!(
+        lock(&carried).is_empty(),
+        "the lead was continued while its helper waited"
+    );
+    opening.orphaned_approvals.set_open_ask(helper, false);
+    resume_with_words(&opening, &continued_words)
+        .await
+        .expect("the helper's answer continues the lead");
+    let nothing_kept = ContinuedWords {
+        kept: HashMap::new(),
+        messages: &delivered,
+    };
+    resume_with_words(&opening, &nothing_kept)
+        .await
+        .expect("a continue with nothing owed answers");
+
+    let continued = lock(&carried).clone();
+    let [Some(held_run_continue)] = continued.as_slice() else {
+        panic!("one resume carries the continue: {continued:?}");
+    };
+    assert_eq!(held_run_continue.lead_run_id, lead);
+    assert_eq!(
+        held_run_continue.entries,
+        [
+            ContinueEntry {
+                run_id: helper,
+                subagent_id: Some(SubagentId::new("helper-1".to_owned()).expect("a helper id")),
+                answer,
+            },
+            ContinueEntry {
+                run_id: lead,
+                subagent_id: None,
+                answer: ContinueAnswer::Continued {
+                    words: Some("check the logs".to_owned()),
+                },
+            },
+        ]
+    );
+    assert_eq!(*lock(&delivered.0), [(lead, vec![message_id])]);
 }

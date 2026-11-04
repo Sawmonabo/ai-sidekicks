@@ -1,5 +1,6 @@
-//! A paused helper the person continued under a lead the daemon's restart holds: its lead's
-//! continue, handed to the queue's own task, that the provider failed.
+//! A paused run the person continued while the daemon's restart held its lead, a helper beneath
+//! the lead or the lead itself: the lead's continue, run on the queue's own task, that the
+//! provider failed.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -20,6 +21,7 @@ use sidekicks_provider::driver::session_control::{
     DriverResumeResult, ProviderTurnAnswer, ResumedRunAnswer,
 };
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
+use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_session::queue_store::RecordedQueueItemState;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::timeout;
@@ -143,11 +145,108 @@ async fn a_failed_helper_continue_halts_and_pauses_the_helper_with_its_words_kep
     let kept = fixture
         .queue
         .delivery
-        .kept_helper_words(fixture.session_id)
+        .kept_words(fixture.session_id)
         .await
         .expect("the kept words read");
     assert_eq!(
         kept.get(&helper).map(|words| words.message_ids.clone()),
+        Some(vec![item_id])
+    );
+    assert_eq!(
+        fixture.stored_state(item_id),
+        RecordedQueueItemState::Queued
+    );
+}
+
+// A lead the person continued while a helper beneath it waited on them moves to `running` with no
+// process and its message kept; the provider failing the continue the helper's answer starts moves
+// the helper back to its wait and the lead back to `paused`, its message still kept for its words,
+// so the person's next continue tries again. Killed by the lead's restore dropped (it stays
+// `running` with no process) and by its words settled on the failure.
+#[tokio::test]
+async fn a_failed_continue_of_a_held_lead_pauses_it_with_its_words_kept() {
+    let calls = Arc::new(DriverCalls::default());
+    let mut driver = recording_driver(&calls);
+    let resumes = Arc::new(AtomicUsize::new(0));
+    driver.expect_resume_session().returning({
+        let resumes = Arc::clone(&resumes);
+        move |params| {
+            // The lead's own continue finds its helper waiting and opens no process; the continue
+            // the helper's answer starts fails.
+            let opening = resumes.fetch_add(1, Ordering::SeqCst) == 0;
+            let runs = params
+                .live_runs
+                .iter()
+                .map(|run| ResumedRunAnswer {
+                    run_id: run.run_id,
+                    turn: ProviderTurnAnswer::Waiting,
+                })
+                .collect();
+            async move {
+                if opening {
+                    Ok(DriverResumeResult::Deferred { runs })
+                } else {
+                    Err(DriverError::Internal("the test's resume fails".into()))
+                }
+            }
+            .boxed()
+        }
+    });
+    let fixture = fixture(driver).await;
+    let lead = fixture.insert_run("paused").await;
+    let binding_id = bind_run_to_first_provider(&fixture.database, lead);
+    let reader = fixture.database.reader();
+    reader
+        .execute(
+            "UPDATE runtime_bindings SET resume_handle = 'conversation-1' WHERE id = ?1",
+            [binding_id.as_str()],
+        )
+        .expect("the test gives the lead's binding a conversation");
+    let helper = fixture.insert_run("waitingForApproval").await;
+    reader
+        .execute(
+            "UPDATE runs SET parent_run_id = ?1, reached_by = 'providerSubagent' WHERE run_id = ?2",
+            params![lead.text().as_str(), helper.text().as_str()],
+        )
+        .expect("the test makes the run the lead's helper");
+    let item_id = fixture.queue_message(lead).await;
+
+    timeout(
+        WAIT,
+        fixture.queue.pauses.resume(
+            &AgentRunResumeRequest {
+                target_run_id: lead,
+                expected_run_version: SafeInt::new(1).expect("a version"),
+            },
+            &fixture.queue.delivery,
+        ),
+    )
+    .await
+    .expect("the continue answers")
+    .expect("the lead is held for the helper's answer");
+    assert_eq!(fixture.run_state(lead), "running");
+    // The person's answer moved the helper on from its wait, then hands the lead's continue over.
+    fixture.set_run_state(helper, "running");
+    fixture.queue.continue_after_answer(
+        fixture.session_id,
+        helper,
+        RunStateEntry::WaitingForApproval,
+    );
+    timeout(WAIT, fixture.queue.stop())
+        .await
+        .expect("the lead's continue ends");
+
+    assert_eq!(resumes.load(Ordering::SeqCst), 2);
+    assert_eq!(fixture.run_state(lead), "paused");
+    assert_eq!(fixture.run_state(helper), "waitingForApproval");
+    let kept = fixture
+        .queue
+        .delivery
+        .kept_words(fixture.session_id)
+        .await
+        .expect("the kept words read");
+    assert_eq!(
+        kept.get(&lead).map(|words| words.message_ids.clone()),
         Some(vec![item_id])
     );
     assert_eq!(

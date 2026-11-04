@@ -1,6 +1,7 @@
 //! A paused run continued in a session no process holds since the daemon's restart: a lead's
 //! session is opened before its driver is asked to continue it, and a helper whose lead is still
-//! held moves to running with no driver call, its waiting messages kept for its lead's continue.
+//! held, or a lead held behind a run waiting on the person, moves to running with no driver call,
+//! its waiting messages kept for the lead's continue.
 
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -84,4 +85,35 @@ async fn a_paused_helper_under_a_held_lead_moves_running_with_no_driver_call() {
     assert!(resumed.is_ok(), "{resumed:?}");
     assert_eq!(fixture.run().0, "running");
     assert_eq!(messages.kept_messages().len(), 1);
+}
+
+// A paused lead whose session's opening is deferred, a run beneath it waiting on the person, moves
+// to running with no driver call, its waiting message kept for the continue the person's answer
+// frees, and hands no continue to the queue now. Killed by calling the driver anyway (`.times(0)`
+// fails, as does the driver's refusal of a session no process holds), by the message given back
+// rather than kept, and by the lead's continue handed before the answer.
+#[tokio::test]
+async fn a_paused_lead_held_behind_a_waiting_helper_moves_running_with_no_driver_call() {
+    let mut driver = MockProviderDriver::new();
+    driver.expect_resume_run().times(0);
+    let fixture = fixture(driver, "paused").await;
+    let messages = WaitingMessages {
+        opening: SessionOpening::Deferred,
+        ..WaitingMessages::holding(waiting_message())
+    };
+
+    let resumed = fixture.resume(1, &messages).await;
+
+    assert!(resumed.is_ok(), "{resumed:?}");
+    assert_eq!(fixture.run().0, "running");
+    assert_eq!(messages.kept_messages().len(), 1);
+    assert_eq!(messages.releases.load(Ordering::SeqCst), 0);
+    assert!(
+        messages
+            .held_lead_continues
+            .lock()
+            .expect("the continues read")
+            .is_empty(),
+        "the lead's continue was handed before the answer that frees it"
+    );
 }

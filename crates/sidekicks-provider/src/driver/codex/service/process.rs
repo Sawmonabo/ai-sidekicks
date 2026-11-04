@@ -25,8 +25,10 @@ use sidekicks_std::output_tail::{OUTPUT_CHUNK_BYTES, OutputTail};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use tokio::process::{ChildStderr, ChildStdout, Command};
 use tokio::sync::{oneshot, watch};
+use tokio::time::{Instant, timeout_at};
 use tokio_tungstenite::tungstenite::{self, Message};
 
+use crate::child_ending::ChildEnds;
 use crate::driver::child_records::{
     ChildRecord, DaemonChildRecords, RecordedChild, spawn_recorded_child,
 };
@@ -106,8 +108,7 @@ fn share_service_exit(answer: oneshot::Receiver<io::Result<ProcessExit>>) -> Cod
 /// tail of what it printed kept for its exit.
 pub(crate) struct ManagedCodexService {
     process_id: Option<u32>,
-    // The end asked last; a kill is never replaced by a stop.
-    ends: watch::Sender<Option<ChildEnd>>,
+    ends: ChildEnds,
     exit: CodexServiceExit,
 }
 
@@ -119,27 +120,17 @@ impl ManagedCodexService {
 
     /// Asks the service to stop; its exit answers once it has.
     pub(crate) fn stop(&self) {
-        self.ask_to_end(ChildEnd::Stop);
+        self.ends.ask(ChildEnd::Stop);
     }
 
     /// Ends the service at once, for one that did not stop when asked.
     pub(crate) fn kill(&self) {
-        self.ask_to_end(ChildEnd::Kill);
+        self.ends.ask(ChildEnd::Kill);
     }
 
     /// How the service ended, answered once it has exited and both its outputs have ended.
     pub(crate) fn exited(&self) -> CodexServiceExit {
         self.exit.clone()
-    }
-
-    fn ask_to_end(&self, end: ChildEnd) {
-        self.ends.send_if_modified(|asked| {
-            let is_changed = *asked != Some(ChildEnd::Kill) && *asked != Some(end);
-            if is_changed {
-                *asked = Some(end);
-            }
-            is_changed
-        });
     }
 }
 
@@ -160,7 +151,7 @@ pub(crate) async fn start_managed_codex_service(
     let RecordedChild { child, record } =
         spawn_recorded_child(spawner, child_records, command, None).await?;
     let process_id = child.id();
-    let (ends, ends_received) = watch::channel(None);
+    let (ends, ends_received) = ChildEnds::new();
     let (exit, exit_received) = oneshot::channel();
     tokio::spawn(own_managed_child(child, record, ends_received, exit));
     Ok(ManagedCodexService {
@@ -296,25 +287,36 @@ impl LastingCodexService {
         Ok(self.process.record()?.is_none())
     }
 
-    /// Stops the service and answers how it ended: on macOS and Linux `SIGTERM`, then `SIGKILL`
-    /// once `grace` passes; on Windows first Codex's own shutdown request over the service's
-    /// control socket at `control_socket`, so a running reply finishes, then the forced end after
-    /// `grace`. A failed shutdown request is logged and the stop goes on. Fails when the process
-    /// could not be ended or its blocking stop failed to run.
+    /// Stops the service within `grace`, the bound of the whole stop, and answers how it ended:
+    /// on macOS and Linux `SIGTERM`, then `SIGKILL` once `grace` passes; on Windows first Codex's
+    /// own shutdown request over the service's control socket at `control_socket`, inside the
+    /// grace, so a running reply finishes, then the forced end once what is left of it passes. A
+    /// failed or cut shutdown request is logged and the stop goes on. Fails when the process could
+    /// not be ended or its blocking stop failed to run.
     pub(crate) async fn stop(
         &self,
         grace: Duration,
         control_socket: &Path,
     ) -> io::Result<ChildEnd> {
-        if !CAN_SIGNAL_A_STOP && let Err(error) = self.request_shutdown(control_socket).await {
-            tracing::warn!(
-                error = &error as &(dyn Error + 'static),
-                process_id = self.process.id(),
-                "the Codex service's shutdown request failed; it is ended after the grace"
-            );
+        let started_at = Instant::now();
+        if !CAN_SIGNAL_A_STOP {
+            match timeout_at(started_at + grace, self.request_shutdown(control_socket)).await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    process_id = self.process.id(),
+                    "the Codex service's shutdown request failed; it is ended after the grace"
+                ),
+                Err(cut) => tracing::warn!(
+                    error = &cut as &(dyn Error + 'static),
+                    process_id = self.process.id(),
+                    "the Codex service's shutdown request ran past the grace; it is ended now"
+                ),
+            }
         }
+        let rest_of_grace = grace.saturating_sub(started_at.elapsed());
         let process = self.process.clone();
-        tokio::task::spawn_blocking(move || process.stop(grace))
+        tokio::task::spawn_blocking(move || process.stop(rest_of_grace))
             .await
             .map_err(io::Error::other)?
     }
