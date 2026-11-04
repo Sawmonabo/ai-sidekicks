@@ -13,8 +13,6 @@ use sidekicks_contracts::session::controls::methods::SessionMcpResource;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::ComposedText;
 
-use crate::driver::mcp_server::read::McpServerSignInClient;
-
 /// Where a session's server's resources come from, as its driver answers.
 #[derive(Clone, Debug, PartialEq)]
 pub enum McpResourceSource {
@@ -59,8 +57,6 @@ pub enum McpServerReach {
         address: McpServerAddress,
         /// The headers each request carries, values included.
         headers: Vec<(String, String)>,
-        /// The sign-in client the declaration names, where the daemon signs in for it.
-        sign_in: Option<McpServerSignInClient>,
     },
 }
 

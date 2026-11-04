@@ -1,7 +1,8 @@
 //! The daemon's one MCP client, on `rmcp`: the connections a session's tool servers are reached
 //! over, by stdio or at an address, each speaking either MCP Tasks protocol (2026-07-28 or
-//! 2025-11-25); the `/` list's prompts read over those same connections; and the questions a
-//! server's task asks, on the session's questions card.
+//! 2025-11-25); the `/` list's prompts read over those same connections; the resources a server
+//! offers to attach, read over a connection made for the read; and the questions a server's task
+//! asks, on the session's questions card.
 
 mod calls;
 mod connection;
@@ -12,6 +13,7 @@ mod poll;
 mod prompts;
 mod raw_copy;
 mod requests;
+pub mod resources;
 mod stdio;
 pub(crate) mod tasks;
 #[cfg(test)]
@@ -24,6 +26,7 @@ use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::port::question::QuestionPort;
+use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::outbound_http::outbound_client_builder;
 use sidekicks_std::port_registration::PortRegistration;
@@ -32,6 +35,7 @@ use tokio_util::task::TaskTracker;
 #[cfg(any(test, feature = "test-support"))]
 use tokio_util::task::task_tracker::TaskTrackerToken;
 
+use crate::binding::store::McpBindingKey;
 use crate::client::connection::McpServerConnection;
 use crate::client::connection::standing::{McpStandingConnection, McpStandingConnectionFeed};
 use crate::client::prompts::PromptWatchers;
@@ -80,6 +84,8 @@ pub struct McpClient {
     task_watches: Arc<TaskWatches>,
     /// The daemon's release version, which each connection declares to its server.
     release_version: ReleaseVersion,
+    /// The program servers whose copy a resource read runs now, so each runs one copy at a time.
+    resource_copies: KeyedLock<McpBindingKey>,
 }
 
 impl McpClient {
@@ -103,6 +109,7 @@ impl McpClient {
             prompt_watchers: Arc::new(PromptWatchers::default()),
             task_watches: Arc::new(TaskWatches::new(questions)),
             release_version,
+            resource_copies: KeyedLock::new(),
         })
     }
 
@@ -204,13 +211,6 @@ impl McpClient {
     }
 
     /// The scope a new connection of `session_id` to `server_name` is opened in.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session's tool-server connection opener opens its connections in it"
-        )
-    )]
     pub(crate) fn connection_scope(
         &self,
         session_id: SessionId,
@@ -346,7 +346,7 @@ mod tests {
     }
 
     // A process that runs until it is signaled, so a connection holding it waits in its close.
-    async fn lasting_process(
+    pub(super) async fn lasting_process(
         client: &McpClient,
         session_id: SessionId,
         name: &McpServerName,

@@ -86,7 +86,6 @@ impl ClaudeDriver {
                 address: McpServerAddress::new(&url)
                     .ok_or_else(|| unreachable("is declared at an address that does not read"))?,
                 headers: headers.into_iter().collect(),
-                sign_in: None,
             },
             Some(ClaudeToolServerEntry::Sse { .. }) => {
                 return Err(unreachable(

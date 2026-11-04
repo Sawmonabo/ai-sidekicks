@@ -439,6 +439,33 @@ impl McpLegs {
         }
     }
 
+    /// What each live leg of `session_id` last saw of each server, by name: a retired leg, a
+    /// server switched off for a leg and one with no status yet are left out.
+    pub(super) fn session_server_statuses(
+        &self,
+        session_id: SessionId,
+    ) -> Vec<(McpServerName, McpServerLegStatus)> {
+        self.legs
+            .iter()
+            .filter(|(leg_id, leg)| leg_id.session_id == session_id && !leg.is_retired)
+            .flat_map(|(leg_id, leg)| {
+                leg.servers.iter().filter_map(move |(name, server)| {
+                    let status = server.status.filter(|_| !server.is_switched_off)?;
+                    Some((
+                        name.clone(),
+                        McpServerLegStatus {
+                            session_id: leg_id.session_id,
+                            binding_id: leg_id.binding_id.clone(),
+                            status,
+                            observed_at: Some(server.observed_at.clone()),
+                            failed_reason: None,
+                        },
+                    ))
+                })
+            })
+            .collect()
+    }
+
     /// How many legs are remembered, retired ones included.
     #[cfg(test)]
     pub(super) fn leg_count(&self) -> usize {

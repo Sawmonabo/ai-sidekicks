@@ -108,14 +108,6 @@ pub(crate) trait McpRequestAuthorizer: Send + Sync {
 }
 
 /// The authorizer of a server that takes requests without one: it adds no header.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the session's tool-server connection opener reaches a server that needs no \
-                  sign-in with it"
-    )
-)]
 pub(crate) struct NoAuthorization;
 
 impl McpRequestAuthorizer for NoAuthorization {
@@ -176,14 +168,6 @@ impl McpServerConnection {
     /// `authorizer` makes for each, its start held to `startup_timeout` or the 30 s default.
     /// Refused when `headers` names `Accept`, `Mcp-Session-Id` or `Last-Event-Id`, which the
     /// transport sets itself; fails when the server does not complete its start in time.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session's tool-server connection opener connects to a server at an \
-                      address through it"
-        )
-    )]
     pub(crate) async fn connect_http(
         address: &McpServerAddress,
         headers: HashMap<HeaderName, HeaderValue>,

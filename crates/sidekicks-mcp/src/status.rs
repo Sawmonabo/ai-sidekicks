@@ -16,7 +16,9 @@ use sidekicks_contracts::mcp::governance::{
     McpServerStatusChangedNotice, McpServerStatusChangedType,
 };
 use sidekicks_contracts::mcp::server::inventory::McpServerLegStatus;
-use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus, McpToolName};
+use sidekicks_contracts::mcp::server::{
+    McpServerBindingRef, McpServerName, McpServerStatus, McpToolName,
+};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
@@ -149,6 +151,15 @@ impl McpServerStatusTracker {
     /// The status of the binding `binding` keys.
     pub(crate) fn reading(&self, binding: &McpBindingKey) -> McpBindingStatusReading {
         lock(&self.legs).reading(binding)
+    }
+
+    /// What each live leg of `session_id` last saw of each server it reports, by the server's
+    /// name; a server switched off for a leg, or one it never gave a status, is left out.
+    pub fn session_server_statuses(
+        &self,
+        session_id: SessionId,
+    ) -> Vec<(McpServerName, McpServerLegStatus)> {
+        lock(&self.legs).session_server_statuses(session_id)
     }
 
     /// How many legs are remembered, retired ones included.
