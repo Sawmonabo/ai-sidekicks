@@ -168,26 +168,23 @@ impl HeldPriceList {
                 None
             }
         };
-        let (held_copy, decoded) = match held {
-            Some(decoded) => {
-                let etag = read_held_etag(&config.folder).await;
-                let held_copy = HeldCopy {
-                    source: held_file,
-                    etag,
-                };
-                (held_copy, decoded)
-            }
-            None => {
-                let seed = HeldSource::Seed(config.seed);
-                let decoded = decode_source(seed.clone(), in_use.clone())
-                    .await
-                    .expect("the built-in copy decodes, as the program's build checks");
-                let held_copy = HeldCopy {
-                    source: seed,
-                    etag: None,
-                };
-                (held_copy, decoded)
-            }
+        let (held_copy, decoded) = if let Some(decoded) = held {
+            let etag = read_held_etag(&config.folder).await;
+            let held_copy = HeldCopy {
+                source: held_file,
+                etag,
+            };
+            (held_copy, decoded)
+        } else {
+            let seed = HeldSource::Seed(config.seed);
+            let decoded = decode_source(seed.clone(), in_use.clone())
+                .await
+                .expect("the built-in copy decodes, as the program's build checks");
+            let held_copy = HeldCopy {
+                source: seed,
+                etag: None,
+            };
+            (held_copy, decoded)
         };
         log_refused_fields(&decoded.refused_fields);
         let held = Arc::new(Self {
@@ -319,7 +316,7 @@ impl HeldPriceList {
                 }
             }
             Ok(FetchedPriceList::Copy { bytes, etag }) => {
-                self.take_copy(bytes, etag, attempt).await
+                self.take_copy(bytes, etag, attempt).await;
             }
             Err(error) => tracing::warn!(
                 error = &error as &(dyn Error + 'static),
@@ -527,5 +524,251 @@ fn log_refused_fields(refused_fields: &[RefusedPriceField]) {
             field = refused.field.as_str(),
             "a price list rate was refused, so its row goes without it"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{HashSet, VecDeque};
+    use std::fs;
+    use std::path::Path;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, SystemTime};
+
+    use axum::Router;
+    use axum::extract::State;
+    use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+    use axum::response::{IntoResponse as _, Response};
+    use axum::routing::get;
+    use futures::FutureExt as _;
+    use reqwest::Url;
+    use rstest::rstest;
+    use sidekicks_platforms::WallClock;
+    use sidekicks_std::mutex_lock::lock;
+    use sidekicks_std::scheduler::Scheduler;
+    use sidekicks_std::scheduler::armed_instant::InstantJob as _;
+    use sidekicks_std::scheduler::test_wall_clock::{TEST_CLOCK_START, TestWallClock};
+    use tokio::sync::watch;
+
+    use super::{COPY_FILE, HeldCopyState, HeldPriceList, PriceListConfig, STATE_FILE};
+
+    const HELD_COPY: &[u8] = br#"{"m1": {"input_cost_per_token": 1e-06}}"#;
+    const HELD_ETAG: &str = r#"W/"held""#;
+    const SEED_COPY: &[u8] =
+        br#"{"m1": {"input_cost_per_token": 3e-06}, "seed-only": {"input_cost_per_token": 2e-06}}"#;
+
+    const NEW_COPY: &[u8] =
+        br#"{"m1": {"input_cost_per_token": 1e-06}, "seed-only": {"input_cost_per_token": 2e-06}}"#;
+
+    fn test_seed() -> Vec<u8> {
+        SEED_COPY.to_vec()
+    }
+
+    // One answer the list's server gives, in the order the test scripts them.
+    struct ScriptedAnswer {
+        status: StatusCode,
+        etag: Option<&'static str>,
+        body: &'static [u8],
+    }
+
+    // The list's stand-in server: it answers from its script and records each request's
+    // `If-None-Match`, whose count is the requests made.
+    #[derive(Default)]
+    struct ListServer {
+        answers: Mutex<VecDeque<ScriptedAnswer>>,
+        if_none_match: Mutex<Vec<Option<String>>>,
+    }
+
+    impl ListServer {
+        fn script(&self, status: StatusCode, etag: Option<&'static str>, body: &'static [u8]) {
+            lock(&self.answers).push_back(ScriptedAnswer { status, etag, body });
+        }
+
+        fn if_none_match(&self) -> Vec<Option<String>> {
+            lock(&self.if_none_match).clone()
+        }
+    }
+
+    async fn answer(State(server): State<Arc<ListServer>>, headers: HeaderMap) -> Response {
+        let if_none_match = headers.get(header::IF_NONE_MATCH).map(|value| {
+            value
+                .to_str()
+                .expect("the tag sent is visible ASCII")
+                .to_owned()
+        });
+        lock(&server.if_none_match).push(if_none_match);
+        let answer = lock(&server.answers)
+            .pop_front()
+            .expect("the test scripted an answer for each request");
+        let mut response = (answer.status, answer.body).into_response();
+        if let Some(etag) = answer.etag {
+            response
+                .headers_mut()
+                .insert(header::ETAG, HeaderValue::from_static(etag));
+        }
+        response
+    }
+
+    async fn serve(server: &Arc<ListServer>) -> Url {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a loopback port binds");
+        let address = listener.local_addr().expect("the bound address reads");
+        let router = Router::new()
+            .route("/list.json", get(answer))
+            .with_state(Arc::clone(server));
+        tokio::spawn(async move { axum::serve(listener, router).await });
+        Url::parse(&format!("http://{address}/list.json")).expect("the address parses")
+    }
+
+    // Puts `copy` and a state naming `HELD_ETAG` in `folder`, as an earlier fetch left them.
+    fn hold_copy(folder: &Path, copy: &[u8]) {
+        fs::create_dir_all(folder).expect("the list's folder is made");
+        fs::write(folder.join(COPY_FILE), copy).expect("the held copy is written");
+        let state = HeldCopyState {
+            etag: Some(HELD_ETAG.to_owned()),
+            fetched_at: "2026-01-01T00:00:00Z".to_owned(),
+        };
+        fs::write(
+            folder.join(STATE_FILE),
+            serde_json::to_vec(&state).expect("the state serializes"),
+        )
+        .expect("the held state is written");
+    }
+
+    // Opens the list in `folder` against `url`, with `m1` and `seed-only` in use, its scheduler and
+    // the list on one test clock.
+    async fn open_held(folder: &Path, url: Url, clock: &Arc<TestWallClock>) -> Arc<HeldPriceList> {
+        let wall_clock: Arc<dyn WallClock> = Arc::<TestWallClock>::clone(clock);
+        let scheduler = Arc::new(Scheduler::start(
+            Arc::clone(&wall_clock),
+            None,
+            watch::channel(0).1,
+        ));
+        let in_use = HashSet::from(["m1".to_owned(), "seed-only".to_owned()]);
+        let config = PriceListConfig {
+            folder: folder.to_path_buf(),
+            url,
+            seed: test_seed,
+        };
+        HeldPriceList::open(config, scheduler, wall_clock, in_use).await
+    }
+
+    // Whether a pass is due, taking its wake.
+    fn is_due(held: &HeldPriceList) -> bool {
+        held.wake.notified().now_or_never().is_some()
+    }
+
+    // With a held copy on disk, an answer that is not JSON, a 304 and a copy lacking a model in
+    // use each leave the held file's bytes and its rows, and the fetch sent the held tag back.
+    // Killed by replacing the copy before checking it.
+    #[rstest]
+    #[case::not_json(StatusCode::OK, Some(r#"W/"new""#), b"not json".as_slice())]
+    #[case::not_modified(StatusCode::NOT_MODIFIED, None, b"".as_slice())]
+    #[case::lacks_a_model_in_use(
+        StatusCode::OK,
+        Some(r#"W/"new""#),
+        br#"{"other": {"input_cost_per_token": 1e-06}}"#.as_slice()
+    )]
+    #[tokio::test]
+    async fn an_answer_it_cannot_take_keeps_the_held_copy(
+        #[case] status: StatusCode,
+        #[case] etag: Option<&'static str>,
+        #[case] body: &'static [u8],
+    ) {
+        let scratch = tempfile::tempdir().expect("a scratch folder is made");
+        let folder = scratch.path().join("price-list");
+        hold_copy(&folder, HELD_COPY);
+        let server = Arc::new(ListServer::default());
+        server.script(status, etag, body);
+        let clock = Arc::new(TestWallClock::default());
+        let held = open_held(&folder, serve(&server).await, &clock).await;
+        let held_table = held.table();
+        assert!(held_table.row("m1").is_some());
+
+        held.pass().await;
+
+        assert_eq!(
+            fs::read(folder.join(COPY_FILE)).expect("the held copy reads"),
+            HELD_COPY
+        );
+        assert!(Arc::ptr_eq(&held_table, &held.table()));
+        assert_eq!(server.if_none_match(), [Some(HELD_ETAG.to_owned())]);
+    }
+
+    // A held copy that fails to decode at open gives the built-in copy's rows, and the first fetch
+    // asks for a whole copy though a tag is saved beside it. Killed by a conditional GET on the
+    // built-in copy.
+    #[tokio::test]
+    async fn a_held_copy_that_fails_to_decode_gives_the_seed_and_a_plain_get() {
+        let scratch = tempfile::tempdir().expect("a scratch folder is made");
+        let folder = scratch.path().join("price-list");
+        hold_copy(&folder, b"{not json");
+        let server = Arc::new(ListServer::default());
+        server.script(StatusCode::NOT_MODIFIED, None, b"");
+        let clock = Arc::new(TestWallClock::default());
+        let held = open_held(&folder, serve(&server).await, &clock).await;
+        assert!(held.table().row("seed-only").is_some());
+
+        held.pass().await;
+
+        assert_eq!(server.if_none_match(), [None]);
+    }
+
+    // An attempt arms the next fetch an hour after it began while requests are held, and a day
+    // after otherwise, whatever it answered. Killed by the daily delay while requests are held.
+    #[rstest]
+    #[case::requests_held(true, Duration::from_hours(1))]
+    #[case::none_held(false, Duration::from_hours(24))]
+    #[tokio::test]
+    async fn the_next_fetch_is_armed_from_the_attempt(
+        #[case] are_requests_held: bool,
+        #[case] delay: Duration,
+    ) {
+        let scratch = tempfile::tempdir().expect("a scratch folder is made");
+        let server = Arc::new(ListServer::default());
+        server.script(StatusCode::SERVICE_UNAVAILABLE, None, b"");
+        let clock = Arc::new(TestWallClock::default());
+        let held = open_held(
+            &scratch.path().join("price-list"),
+            serve(&server).await,
+            &clock,
+        )
+        .await;
+        held.set_requests_held(are_requests_held);
+
+        held.pass().await;
+
+        assert_eq!(
+            held.armed_instant().instant(),
+            Some(SystemTime::UNIX_EPOCH + TEST_CLOCK_START + delay)
+        );
+    }
+
+    // A key the copy lacks wakes one fetch per tag: missed again under the same tag it wakes none,
+    // and once a copy under a new tag is taken it wakes one again. Killed by a miss that never
+    // wakes the task, a miss not keyed on the tag, and misses kept across a new tag.
+    #[tokio::test]
+    async fn a_missing_key_wakes_one_fetch_per_tag() {
+        let scratch = tempfile::tempdir().expect("a scratch folder is made");
+        let folder = scratch.path().join("price-list");
+        let server = Arc::new(ListServer::default());
+        server.script(StatusCode::OK, Some(r#"W/"new""#), NEW_COPY);
+        let clock = Arc::new(TestWallClock::default());
+        let held = open_held(&folder, serve(&server).await, &clock).await;
+        assert!(is_due(&held), "open leaves the first fetch due");
+
+        held.report_missing("k");
+        assert!(is_due(&held));
+        held.report_missing("k");
+        assert!(!is_due(&held));
+
+        held.pass().await;
+        assert_eq!(
+            fs::read(folder.join(COPY_FILE)).expect("the taken copy reads"),
+            NEW_COPY
+        );
+        held.report_missing("k");
+        assert!(is_due(&held));
     }
 }
