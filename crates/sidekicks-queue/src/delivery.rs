@@ -20,6 +20,7 @@
 mod chain;
 mod continued;
 mod interrupt;
+pub mod run_end;
 mod state;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_fixture;
@@ -33,7 +34,7 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -60,6 +61,7 @@ use tracing::Instrument as _;
 pub(crate) use self::interrupt::InterruptHoldRelease;
 pub(crate) use self::state::UndoHoldId;
 use crate::delivery::chain::{ChainJob, SessionChain};
+use crate::delivery::run_end::FAILED_DELIVERY;
 use crate::delivery::state::{DeliveryState, HandRoute, is_kept_by_process};
 use crate::provider_session::ProviderSessions;
 use crate::recorder::{QueueRecordError, QueueRecorder};
@@ -681,7 +683,7 @@ impl QueueDelivery {
     fn lead_messages(&self, waiting: Vec<QueueItemRecord>) -> Vec<QueueItemRecord> {
         self.lead_waiting(waiting, false)
             .into_iter()
-            .filter(|item| item.body.as_message().is_some())
+            .filter(is_lead_message)
             .collect()
     }
 
@@ -708,16 +710,19 @@ impl QueueDelivery {
 
     // Records `item` not delivered, its delivery failed.
     async fn record_failed(&self, item: &QueueItemRecord) -> Result<(), DeliveryError> {
-        let outcome = QueueItemOutcome::NotDelivered {
-            reason: QueueItemNotDeliveredReason::Failed {},
-        };
         self.shared
             .deps
             .recorder
-            .record_outcome(item, outcome, &WireInstant::now())
+            .record_outcome(item, FAILED_DELIVERY, &WireInstant::now())
             .await?;
         Ok(())
     }
+}
+
+/// Whether `item` is a lead message: one the lead's queue holds, no helper's box, carrying a
+/// person's message rather than a review or a plan message.
+pub(crate) fn is_lead_message(item: &QueueItemRecord) -> bool {
+    item.child_handle.is_none() && item.body.as_message().is_some()
 }
 
 /// `waiting` with the item `deliver_first` names moved ahead of the rest, which keep their order;

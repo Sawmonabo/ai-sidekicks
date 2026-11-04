@@ -83,7 +83,7 @@ pub(super) fn still_running(_run_id: RunId) -> ProviderTurnAnswer {
 }
 
 // A driver that resumes `resumes` sessions, answering from each resume's params through `answer`.
-fn resuming_driver(
+pub(super) fn resuming_driver(
     resumes: usize,
     answer: impl Fn(&ResumeSessionParams) -> DriverResumeResult + Send + Sync + 'static,
 ) -> MockProviderDriver {
@@ -100,7 +100,9 @@ fn resuming_driver(
 
 // Has `driver` expect one end of the turns a restart kept, answered at once, and answers where
 // the params it is handed are recorded.
-fn expect_kept_turns_ended(driver: &mut MockProviderDriver) -> Arc<Mutex<Vec<EndKeptTurnsParams>>> {
+pub(super) fn expect_kept_turns_ended(
+    driver: &mut MockProviderDriver,
+) -> Arc<Mutex<Vec<EndKeptTurnsParams>>> {
     let ended: Arc<Mutex<Vec<EndKeptTurnsParams>>> = Arc::default();
     let recorded = Arc::clone(&ended);
     driver
@@ -114,7 +116,9 @@ fn expect_kept_turns_ended(driver: &mut MockProviderDriver) -> Arc<Mutex<Vec<End
 }
 
 // The one end of kept turns recorded in `ended`: its conversation, and its runs in id order.
-fn ended_kept_turns(ended: &Mutex<Vec<EndKeptTurnsParams>>) -> (String, Vec<KeptRunTurns>) {
+pub(super) fn ended_kept_turns(
+    ended: &Mutex<Vec<EndKeptTurnsParams>>,
+) -> (String, Vec<KeptRunTurns>) {
     let ended = lock(ended);
     let [params] = ended.as_slice() else {
         panic!("the kept turns were ended once: {ended:?}");
@@ -125,7 +129,7 @@ fn ended_kept_turns(ended: &Mutex<Vec<EndKeptTurnsParams>>) -> (String, Vec<Kept
 }
 
 // A run's one kept turn, `turn_id`, ended for its own stop where `is_for_stop`.
-fn kept_turn(run_id: RunId, turn_id: &str, is_for_stop: bool) -> KeptRunTurns {
+pub(super) fn kept_turn(run_id: RunId, turn_id: &str, is_for_stop: bool) -> KeptRunTurns {
     KeptRunTurns {
         run_id,
         subagent_id: None,
@@ -203,7 +207,7 @@ impl PassFixture {
 
     // Opens `run_id`'s first turn in `session_id`, under the provider's id `provider_turn_id`
     // where it reported one.
-    async fn open_turn(
+    pub(super) async fn open_turn(
         &self,
         session_id: SessionId,
         run_id: RunId,
@@ -222,7 +226,7 @@ impl PassFixture {
     }
 
     // Queues a message for `run_id` in `session_id` and answers its id.
-    async fn queue_message(&self, session_id: SessionId, run_id: RunId) -> QueueItemId {
+    pub(super) async fn queue_message(&self, session_id: SessionId, run_id: RunId) -> QueueItemId {
         let item = NewQueueItem {
             id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id"),
             session_id,
@@ -251,7 +255,7 @@ impl PassFixture {
     }
 
     // The recorded state of queue item `item_id`.
-    fn queue_item_state(&self, item_id: QueueItemId) -> RecordedQueueItemState {
+    pub(super) fn queue_item_state(&self, item_id: QueueItemId) -> RecordedQueueItemState {
         QueueItemReader::new(&self.store.database.reader())
             .get(&item_id)
             .expect("the test reads its message")
@@ -260,7 +264,7 @@ impl PassFixture {
     }
 
     // The payloads of `run_id`'s `event_type` events in `session_id`, in log order.
-    fn run_payloads(
+    pub(super) fn run_payloads(
         &self,
         session_id: SessionId,
         event_type: SessionEventType,
@@ -273,7 +277,7 @@ impl PassFixture {
     }
 
     // The trigger of `run_id`'s one interrupted end in `session_id`, `None` when it carries none.
-    fn run_trigger(&self, session_id: SessionId, run_id: RunId) -> Option<String> {
+    pub(super) fn run_trigger(&self, session_id: SessionId, run_id: RunId) -> Option<String> {
         let ends = self.run_payloads(session_id, SessionEventType::AgentRunInterrupted, run_id);
         let [end] = ends.as_slice() else {
             panic!("run {run_id} ended interrupted once: {ends:?}");

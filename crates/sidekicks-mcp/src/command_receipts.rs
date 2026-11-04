@@ -272,13 +272,6 @@ pub(crate) struct InFlightTask {
 
 /// Every claimed receipt with no end, ordered by run. Fails as the statement fails; a row that
 /// does not read as its types is its own `Err`, so one damaged row never strands the others.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the restart's sweep, which resumes each receipt in flight"
-    )
-)]
 pub(crate) fn read_in_flight_receipts(
     connection: &Connection,
 ) -> rusqlite::Result<Vec<rusqlite::Result<InFlightReceipt>>> {

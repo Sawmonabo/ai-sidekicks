@@ -18,6 +18,7 @@
 //! - An end without the server's answer while the client stops came from the stop, so nothing is
 //!   written and the receipt stays in flight.
 
+pub mod restart_sweep;
 mod resume;
 pub mod workflow_step;
 
