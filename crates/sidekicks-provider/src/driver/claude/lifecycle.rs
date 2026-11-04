@@ -211,6 +211,7 @@ impl ClaudeDriver {
             pool: Arc::clone(&services.pool),
             execution_postures: Arc::clone(&services.execution_postures),
             base_environment: Arc::clone(&services.base_environment),
+            command_search: Arc::clone(&services.command_search),
             reserved_names: Arc::clone(&services.reserved_names),
             background_work: Arc::clone(&services.background_work),
             data_folder: services.data_folder.clone(),
