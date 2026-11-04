@@ -55,23 +55,38 @@ pub(crate) struct BriefTurn {
     pub(crate) brief: OutboundText,
 }
 
-/// A send failure, kept whole for the settlement.
+/// A send or lookup failure, kept whole for the settlement.
 pub(crate) type BriefSendError = Arc<dyn Error + Send + Sync>;
 
-/// The target as this coordinator sees it: the one send.
-pub(crate) trait BriefTargetGateway: Send + Sync {
-    /// Delivers `turn`. An error is uncertain: the turn may have been applied.
-    fn send_brief_turn(&self, turn: BriefTurn) -> BoxFuture<'_, Result<(), BriefSendError>>;
+/// What one send of a brief turn did.
+#[derive(Debug)]
+pub(crate) enum BriefSendOutcome {
+    /// The provider took the turn.
+    Sent,
+    /// Nothing reached the provider.
+    NotSent(BriefSendError),
+    /// The turn may have reached the provider: a timeout, a dropped connection or a restart came
+    /// between the send and its answer.
+    Uncertain(BriefSendError),
 }
 
-/// Whether the target acknowledged the brief. An unconfirmed send may or may not have landed, so
-/// the switch fails and nothing is sent into that target again.
+/// The target as this coordinator sees it: the send, and the lookup that settles an uncertain one.
+pub(crate) trait BriefTargetGateway: Send + Sync {
+    /// Sends `turn` under its message id.
+    fn send_brief_turn(&self, turn: BriefTurn) -> BoxFuture<'_, BriefSendOutcome>;
+
+    /// Whether the provider's own record of the conversation holds `turn`'s message id, resolving
+    /// only once nothing can still take the send. An error is a record that cannot be read.
+    fn find_brief(&self, turn: &BriefTurn) -> BoxFuture<'_, Result<bool, BriefSendError>>;
+}
+
+/// Whether the brief landed. A failed brief fails the switch.
 #[derive(Clone, Debug)]
 pub(crate) enum BriefDeliveryDisposition {
-    /// The target acknowledged it.
+    /// The provider took the brief.
     Delivered,
-    /// The send failed.
-    Unconfirmed {
+    /// Nothing reached the provider, or its record of the conversation could not be read.
+    Failed {
         /// Why.
         cause: BriefSendError,
     },
@@ -174,13 +189,25 @@ impl BriefDeliveryCoordinator {
     }
 }
 
-/// The one send into a target, shared, so it runs to its end once however many callers await it.
+/// The one brief into a target, shared, so it runs to its end once however many callers await it.
+/// An uncertain send is looked up by its id and sent again under the same id only once the record
+/// proves it absent, so the provider never holds the brief twice.
 fn send_once(gateway: Arc<dyn BriefTargetGateway>, turn: BriefTurn) -> SharedDelivery {
     async move {
-        Arc::new(match gateway.send_brief_turn(turn).await {
-            Ok(()) => BriefDeliveryDisposition::Delivered,
-            Err(cause) => BriefDeliveryDisposition::Unconfirmed { cause },
-        })
+        let disposition = loop {
+            match gateway.send_brief_turn(turn.clone()).await {
+                BriefSendOutcome::Sent => break BriefDeliveryDisposition::Delivered,
+                BriefSendOutcome::NotSent(cause) => {
+                    break BriefDeliveryDisposition::Failed { cause };
+                }
+                BriefSendOutcome::Uncertain(_) => match gateway.find_brief(&turn).await {
+                    Ok(true) => break BriefDeliveryDisposition::Delivered,
+                    Ok(false) => {}
+                    Err(cause) => break BriefDeliveryDisposition::Failed { cause },
+                },
+            }
+        };
+        Arc::new(disposition)
     }
     .boxed()
     .shared()
@@ -188,30 +215,88 @@ fn send_once(gateway: Arc<dyn BriefTargetGateway>, turn: BriefTurn) -> SharedDel
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
     use std::io;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
 
     use futures::FutureExt as _;
     use futures::future::BoxFuture;
     use sidekicks_contracts::run::queue::QueueItemId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_std::mutex_lock::lock;
 
     use super::{
-        BriefDeliveryCoordinator, BriefDeliveryDisposition, BriefSendError, BriefTargetGateway,
-        BriefTurn,
+        BriefDeliveryCoordinator, BriefDeliveryDisposition, BriefSendError, BriefSendOutcome,
+        BriefTargetGateway, BriefTurn,
     };
     use crate::driver::test_registry::new_run_id;
 
-    /// A target whose every send fails after counting it.
-    struct FailingGateway {
-        sends: AtomicUsize,
+    /// What the scripted gateway was asked, in order, with the message id each call carried.
+    #[derive(Debug, PartialEq, Eq)]
+    enum GatewayCall {
+        Sending(QueueItemId),
+        Lookup(QueueItemId),
     }
 
-    impl BriefTargetGateway for FailingGateway {
-        fn send_brief_turn(&self, _turn: BriefTurn) -> BoxFuture<'_, Result<(), BriefSendError>> {
-            self.sends.fetch_add(1, Ordering::SeqCst);
-            async { Err(Arc::new(io::Error::other("the target closed")) as BriefSendError) }.boxed()
+    /// One scripted answer to a send or a lookup.
+    enum Scripted {
+        Sent,
+        NotSent,
+        Uncertain,
+        Found,
+        Absent,
+        Unreadable,
+    }
+
+    /// A target answering each call with the next scripted answer, recording every call.
+    struct ScriptedGateway {
+        script: Mutex<VecDeque<Scripted>>,
+        calls: Mutex<Vec<GatewayCall>>,
+    }
+
+    impl ScriptedGateway {
+        fn new(script: impl IntoIterator<Item = Scripted>) -> Arc<Self> {
+            Arc::new(Self {
+                script: Mutex::new(script.into_iter().collect()),
+                calls: Mutex::new(Vec::new()),
+            })
+        }
+
+        fn next(&self, call: GatewayCall) -> Scripted {
+            lock(&self.calls).push(call);
+            lock(&self.script)
+                .pop_front()
+                .expect("a scripted answer for every call")
+        }
+    }
+
+    fn cause(message: &str) -> BriefSendError {
+        Arc::new(io::Error::other(message.to_owned()))
+    }
+
+    impl BriefTargetGateway for ScriptedGateway {
+        fn send_brief_turn(&self, turn: BriefTurn) -> BoxFuture<'_, BriefSendOutcome> {
+            let outcome = match self.next(GatewayCall::Sending(turn.message_id)) {
+                Scripted::Sent => BriefSendOutcome::Sent,
+                Scripted::NotSent => BriefSendOutcome::NotSent(cause("nothing reached it")),
+                Scripted::Uncertain => BriefSendOutcome::Uncertain(cause("the connection dropped")),
+                Scripted::Found | Scripted::Absent | Scripted::Unreadable => {
+                    panic!("a lookup's answer scripted for a send")
+                }
+            };
+            async move { outcome }.boxed()
+        }
+
+        fn find_brief(&self, turn: &BriefTurn) -> BoxFuture<'_, Result<bool, BriefSendError>> {
+            let found = match self.next(GatewayCall::Lookup(turn.message_id)) {
+                Scripted::Found => Ok(true),
+                Scripted::Absent => Ok(false),
+                Scripted::Unreadable => Err(cause("the record cannot be read")),
+                Scripted::Sent | Scripted::NotSent | Scripted::Uncertain => {
+                    panic!("a send's answer scripted for a lookup")
+                }
+            };
+            async move { found }.boxed()
         }
     }
 
@@ -219,38 +304,72 @@ mod tests {
         QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id")
     }
 
+    /// Delivers one brief through a gateway answering `script`, and answers the settlement with the
+    /// calls it made and the id the brief went under.
+    async fn settle(
+        script: impl IntoIterator<Item = Scripted>,
+    ) -> (BriefDeliveryDisposition, Vec<GatewayCall>, QueueItemId) {
+        let gateway = ScriptedGateway::new(script);
+        let coordinator =
+            BriefDeliveryCoordinator::new(Arc::clone(&gateway) as Arc<dyn BriefTargetGateway>);
+        let target = coordinator.establish_target("provider-session");
+        let message_id = new_message_id();
+        let disposition = coordinator
+            .deliver(&target, new_run_id(), message_id, "brief".to_owned())
+            .await
+            .expect("the coordinator established the target");
+        let calls = std::mem::take(&mut *lock(&gateway.calls));
+        ((*disposition).clone(), calls, message_id)
+    }
+
     #[tokio::test]
-    async fn a_target_gets_one_brief_however_many_deliveries_reach_it() {
-        let gateway = Arc::new(FailingGateway {
-            sends: AtomicUsize::new(0),
-        });
+    async fn a_target_gets_one_brief_settled_by_its_id() {
+        use GatewayCall::{Lookup, Sending};
+
+        let (found, calls, id) = settle([Scripted::Uncertain, Scripted::Found]).await;
+        assert!(matches!(found, BriefDeliveryDisposition::Delivered));
+        assert_eq!(calls, [Sending(id), Lookup(id)]);
+
+        let (resent, calls, id) =
+            settle([Scripted::Uncertain, Scripted::Absent, Scripted::Sent]).await;
+        assert!(matches!(resent, BriefDeliveryDisposition::Delivered));
+        assert_eq!(calls, [Sending(id), Lookup(id), Sending(id)]);
+
+        let (unreadable, calls, id) = settle([Scripted::Uncertain, Scripted::Unreadable]).await;
+        assert!(matches!(
+            unreadable,
+            BriefDeliveryDisposition::Failed { .. }
+        ));
+        assert_eq!(calls, [Sending(id), Lookup(id)]);
+
+        let (not_sent, calls, id) = settle([Scripted::NotSent]).await;
+        assert!(matches!(not_sent, BriefDeliveryDisposition::Failed { .. }));
+        assert_eq!(calls, [Sending(id)]);
+
+        // Overlapping and later deliveries into one target share its one send.
+        let gateway = ScriptedGateway::new([Scripted::Uncertain, Scripted::Found]);
         let coordinator =
             BriefDeliveryCoordinator::new(Arc::clone(&gateway) as Arc<dyn BriefTargetGateway>);
         let target = coordinator.establish_target("provider-session");
         let (run_id, message_id) = (new_run_id(), new_message_id());
         let brief = || "brief".to_owned();
-
         let (first, second) = futures::join!(
-            coordinator.deliver(&target, run_id.clone(), message_id.clone(), brief()),
-            coordinator.deliver(&target, run_id.clone(), message_id.clone(), brief()),
+            coordinator.deliver(&target, run_id, message_id, brief()),
+            coordinator.deliver(&target, run_id, message_id, brief()),
         );
         let later = coordinator
-            .deliver(&target, run_id.clone(), message_id.clone(), brief())
+            .deliver(&target, run_id, message_id, brief())
             .await
             .expect("the coordinator established the target");
         let first = first.expect("the coordinator established the target");
-
-        assert_eq!(gateway.sends.load(Ordering::SeqCst), 1);
         assert!(Arc::ptr_eq(
             &first,
             &second.expect("the coordinator established the target")
         ));
         assert!(Arc::ptr_eq(&first, &later));
-        assert!(matches!(
-            *first,
-            BriefDeliveryDisposition::Unconfirmed { .. }
-        ));
+        assert!(matches!(*first, BriefDeliveryDisposition::Delivered));
 
+        // A target another coordinator established is refused before anything is sent.
         let other =
             BriefDeliveryCoordinator::new(Arc::clone(&gateway) as Arc<dyn BriefTargetGateway>);
         let foreign = other.establish_target("provider-session");
@@ -260,6 +379,9 @@ mod tests {
                 .await
                 .is_err()
         );
-        assert_eq!(gateway.sends.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            *lock(&gateway.calls),
+            [Sending(message_id), Lookup(message_id)]
+        );
     }
 }
