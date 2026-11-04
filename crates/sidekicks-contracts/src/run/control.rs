@@ -166,12 +166,15 @@ pub enum ProcessExit {
     Silent(ProcessExitAfterSilence),
 }
 
-/// Why the daemon itself ended a run `stopped`: the run passed the token limit the person set.
+/// Why the daemon itself ended a run `stopped`: the run passed the token limit the person set, or
+/// the person stopped it with every other agent, which ends it `stopped` as the token limit does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum StopTrigger {
     /// The token limit was passed.
     TokenLimit,
+    /// The person stopped every agent at once; its end is final, as the token limit's is.
+    StopAll,
 }
 
 /// Declares the four bodies of a state change: each carries the members every transition has and

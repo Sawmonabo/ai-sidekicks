@@ -180,9 +180,9 @@ pub(crate) fn read_claude_worker_shutdown_reason(
 /// The move a helper's child run makes on its `task_notification`, read with why the daemon
 /// stopped the helper (`stop`). `completed` ends it completed, or stopped at its token limit when
 /// that limit stopped it; `failed` ends it failed with the summary's words; `stopped` ends it
-/// stopped when the person stopped it with every other agent or its token limit stopped it, and
-/// interrupted otherwise, as Claude Code's own stop or a worker restart. Any other status reads as
-/// `None`.
+/// stopped, with that stop's trigger, when the person stopped it with every other agent or its
+/// token limit stopped it, and interrupted otherwise, as Claude Code's own stop or a worker
+/// restart. Any other status reads as `None`.
 pub(crate) fn read_claude_helper_end(
     task: &ClaudeTaskFrame,
     child_run_id: RunId,
@@ -210,7 +210,7 @@ pub(crate) fn read_claude_helper_end(
         "stopped" => match stop {
             Some(HelperStopReason::StopAll) => RunStateEntry::Stopped {
                 intended_close: None,
-                trigger: None,
+                trigger: Some(StopTrigger::StopAll),
             },
             Some(HelperStopReason::TokenLimit) => stopped_at_token_limit,
             Some(HelperStopReason::SetupRefused { .. }) | None => RunStateEntry::Interrupted {
@@ -225,4 +225,50 @@ pub(crate) fn read_claude_helper_end(
         failure_category: is_failed.then_some(RunFailureCategory::ProviderFailure),
         ..RunStateReport::new(child_run_id, entry)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use serde_json::json;
+    use sidekicks_contracts::run::control::StopTrigger;
+
+    use super::read_claude_helper_end;
+    use crate::driver::claude::delivery::commands::ClaudeTaskFrame;
+    use crate::driver::run_control::HelperStopReason;
+    use crate::driver::test_registry::new_run_id;
+    use crate::run::state_entry::{RunStateEntry, RunStateReport};
+
+    // A helper's `stopped` end is final, with the stop-all's trigger, when the person stopped it
+    // with every other agent, and an interruption when no stop of the daemon's names it. Killed by
+    // leaving the stop-all's trigger unset and by reading every `stopped` end as final.
+    #[rstest]
+    #[case::stop_all(
+        Some(HelperStopReason::StopAll),
+        RunStateEntry::Stopped { intended_close: None, trigger: Some(StopTrigger::StopAll) }
+    )]
+    #[case::no_stop_reason(
+        None,
+        RunStateEntry::Interrupted { intended_close: None, trigger: None }
+    )]
+    fn a_stopped_helper_reads_by_the_daemons_stop(
+        #[case] stop: Option<HelperStopReason>,
+        #[case] expected: RunStateEntry,
+    ) {
+        let task = ClaudeTaskFrame::read(
+            &json!({
+                "type": "system",
+                "subtype": "task_notification",
+                "task_id": "helper-task",
+                "status": "stopped",
+            })
+            .to_string(),
+        )
+        .expect("a task frame");
+        let child_run_id = new_run_id();
+
+        let end = read_claude_helper_end(&task, child_run_id, stop.as_ref());
+
+        assert_eq!(end, Some(RunStateReport::new(child_run_id, expected)));
+    }
 }
