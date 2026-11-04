@@ -51,6 +51,9 @@ use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::session_control::held_run_continue::HeldRunContinue;
 
 pub mod held_run_continue;
+mod subagent_policy;
+
+pub use self::subagent_policy::{SubagentDefinition, SubagentPolicy};
 
 /// The longest account or plan descriptor an authentication probe keeps, in code points; a longer
 /// one is cut, and dropping it loses only words, never the probe's status.
@@ -818,75 +821,6 @@ pub(crate) fn build_auth_probe_result(
     let detail =
         FreeFormText::new(cut_to_code_points(detail, PROVIDER_AUTH_DETAIL_MAX_LEN).to_owned()).ok();
     DriverAuthProbeResult { status, detail }
-}
-
-/// The provider-native subagent policy (gated on `subagents`). Provider subagents run inside the
-/// session only, so their usage counts against the run and their tool calls go through the same
-/// approval pipeline. A `Helpers at once` setting of 0 is `Disabled`, which withholds the
-/// provider's helper tool; nothing bounds how deep helpers nest.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(
-    tag = "policy",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase",
-    deny_unknown_fields
-)]
-pub enum SubagentPolicy {
-    /// No helpers.
-    Disabled {},
-    /// Helpers run.
-    Enabled {
-        /// How many run at once, or `None` for no limit.
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            deserialize_with = "sidekicks_contracts::wire::present"
-        )]
-        helpers_at_once: Option<SafeInt<1>>,
-        /// The helpers the lead can hand work to.
-        definitions: Vec<SubagentDefinition>,
-    },
-}
-
-/// One helper as each driver maps it onto its provider's own form; the members past `name`,
-/// `prompt` and `description` are mapped where the provider supports them.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SubagentDefinition {
-    /// The helper's name.
-    pub(crate) name: String,
-    /// The helper's own instructions.
-    pub(crate) prompt: String,
-    /// When the lead should hand work to it.
-    pub(crate) description: String,
-    /// Its model.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "sidekicks_contracts::wire::present"
-    )]
-    pub(crate) model: Option<ProviderToken>,
-    /// The tools it may use.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "sidekicks_contracts::wire::present"
-    )]
-    pub(crate) tools: Option<Vec<String>>,
-    /// Its reasoning effort.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "sidekicks_contracts::wire::present"
-    )]
-    pub(crate) effort: Option<ProviderToken>,
-    /// How many turns it may take.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "sidekicks_contracts::wire::present"
-    )]
-    pub(crate) max_turns: Option<SafeInt<1>>,
 }
 
 /// One tool server a session can reach, by its name, and whether the person switched it on.
