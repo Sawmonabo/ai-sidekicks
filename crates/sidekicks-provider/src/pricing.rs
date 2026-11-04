@@ -2,5 +2,6 @@
 //! from them, kept apart from any one provider.
 
 pub mod decimal;
+mod fetch;
 pub mod list;
 pub mod receiver;
