@@ -1,6 +1,8 @@
 //! Pause and continue on Claude Code, by the two hooks the daemon registers. A paused lead's batch
 //! hook ends its turn after the step in flight and its tool hook denies; a paused helper's next
-//! tool hook is held unanswered until it continues. Each pause reports when it took effect.
+//! tool hook is held unanswered until it continues. Each pause reports when it took effect. A
+//! message aimed at a helper a pause or an interrupt holds, or one stopped with every other agent,
+//! is denied, so no agent wakes it around the hold.
 
 use std::collections::HashMap;
 
@@ -11,7 +13,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::scheduler::ScheduledJobHandle;
 
 use crate::driver::claude::hooks::stopped_helpers::ClaudeStoppedHelpers;
-use crate::driver::hook_pauses::{HookPauses, PAUSED_REASON, PausedRole};
+use crate::driver::hook_pauses::{HELD_TARGET_REASON, HookPauses, PAUSED_REASON, PausedRole};
 use crate::driver::run_control::HelperStopReason;
 
 /// The reason a held helper's call is denied with before Claude Code's own bound would end the
@@ -213,6 +215,37 @@ impl ClaudeRunPauses {
         self.helper_pauses
             .get(&(*session_id, agent_id.to_owned()))
             .is_some()
+    }
+
+    /// Answers a message call by the helper `agent_id` or the lead aimed at the helper `to`, from
+    /// what memory holds: a stopped caller is denied with its own stop's sentence, a call aimed at
+    /// a helper stopped with every other agent with that stop's, and one aimed at a helper a pause
+    /// or an interrupt holds with [`HELD_TARGET_REASON`]. `None` leaves the call to the stored
+    /// stop and then the pause; a target stopped any other way stays wakeable by its parent.
+    pub(crate) fn answer_aimed_call(
+        &self,
+        session_id: &SessionId,
+        agent_id: Option<&str>,
+        to: &str,
+    ) -> Option<ClaudeHookAnswer> {
+        if let Some(denial) = self
+            .stopped_helpers
+            .answer_before_tool(*session_id, agent_id)
+        {
+            return Some(denial);
+        }
+        match self.stopped_helpers.stop_reason_of(*session_id, to) {
+            Some(stop @ HelperStopReason::StopAll) => {
+                return Some(ClaudeHookAnswer::Deny {
+                    reason: stop.sentence(),
+                });
+            }
+            Some(HelperStopReason::TokenLimit | HelperStopReason::SetupRefused { .. }) | None => {}
+        }
+        self.is_helper_held(session_id, to)
+            .then(|| ClaudeHookAnswer::Deny {
+                reason: HELD_TARGET_REASON.to_owned(),
+            })
     }
 
     /// Answers a pre-tool callback: a stopped helper is denied, a paused lead's is denied, a
