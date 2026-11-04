@@ -5,3 +5,4 @@ pub mod decimal;
 mod fetch;
 pub mod list;
 pub mod receiver;
+pub mod store;
