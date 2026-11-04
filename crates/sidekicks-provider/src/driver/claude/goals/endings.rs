@@ -321,24 +321,15 @@ pub(crate) struct ClaudeGoalEndings {
 }
 
 impl ClaudeGoalEndings {
-    /// Takes the goal a session's process comes up with, as the daemon stored it: `None`, or a
-    /// final status, leaves none active.
-    #[expect(
-        dead_code,
-        reason = "the session bring-up that seeds the goal the daemon stored"
-    )]
-    pub(crate) fn seed(&self, session_id: SessionId, goal: Option<(String, SessionGoalStatus)>) {
+    /// Takes the goal a session's process restored from its conversation file as it came up: the
+    /// condition of the active goal, or `None`, which leaves none active.
+    pub(crate) fn seed(&self, session_id: SessionId, restored_condition: Option<String>) {
         let mut active = lock(&self.active_by_session);
-        match goal {
-            Some((condition, status))
-                if !matches!(
-                    status,
-                    SessionGoalStatus::Complete | SessionGoalStatus::Impossible
-                ) =>
-            {
+        match restored_condition {
+            Some(condition) => {
                 active.insert(session_id, condition);
             }
-            Some(_) | None => {
+            None => {
                 active.remove(&session_id);
             }
         }
@@ -432,10 +423,12 @@ impl ClaudeGoalFile {
     /// names, followed from its length as the process comes up, so what an earlier process wrote
     /// is never read again; one not yet written is followed from its start once it appears. A
     /// home that cannot be listed is logged, and the file looked for again at the next read.
+    /// Beside it, the goal the process restores from the records already written, where the file
+    /// exists and reads; a file that cannot be read is logged and restores none.
     pub(crate) async fn open(
         spawn_environment: &[(String, String)],
         provider_session_id: &str,
-    ) -> Self {
+    ) -> (Self, Option<RestoredGoal>) {
         let mut file = Self {
             spawn_environment: spawn_environment.to_vec(),
             provider_session_id: provider_session_id.to_owned(),
@@ -449,17 +442,44 @@ impl ClaudeGoalFile {
                 None
             }
         };
-        if let Some(path) = found {
-            match tokio::fs::metadata(&path).await {
-                Ok(metadata) => {
-                    file.end = metadata.len();
-                    file.path = Some(path);
-                }
-                Err(error) => report_unlocated(provider_session_id, &error),
+        let Some(path) = found else {
+            return (file, None);
+        };
+        match tokio::fs::metadata(&path).await {
+            Ok(metadata) => file.end = metadata.len(),
+            Err(error) => {
+                report_unlocated(provider_session_id, &error);
+                return (file, None);
             }
         }
-        file
+        let restored_goal = match read_goal_status_tail(&path, 0).await {
+            Ok(tail) => Some(RestoredGoal {
+                condition: restored_condition(tail.records),
+            }),
+            Err(error) => {
+                report_unlocated(provider_session_id, &error);
+                None
+            }
+        };
+        file.path = Some(path);
+        (file, restored_goal)
     }
+}
+
+/// The goal a resumed Claude Code process restores by itself from its conversation file.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RestoredGoal {
+    /// The active goal's condition, or `None` when the newest record ended or cleared it.
+    pub(crate) condition: Option<String>,
+}
+
+// Claude Code's own rule: the newest record holds the goal, unless it reads met or failed.
+fn restored_condition(records: Vec<GoalStatusRecord>) -> Option<String> {
+    records
+        .into_iter()
+        .next_back()
+        .filter(|record| !record.is_met && !record.is_failed)
+        .and_then(|record| record.condition)
 }
 
 fn report_unlocated(provider_session_id: &str, error: &io::Error) {
@@ -498,7 +518,11 @@ async fn read_new_records(file: &Mutex<ClaudeGoalFile>) -> io::Result<Vec<GoalSt
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
     use rstest::rstest;
+    use serde_json::json;
     use sidekicks_contracts::session::controls::events::SessionNotice;
     use sidekicks_contracts::session::goal::{
         SessionGoal, SessionGoalClearedPayload, SessionGoalStatus, SessionGoalUpdatedPayload,
@@ -507,9 +531,12 @@ mod tests {
 
     use super::{
         ClaudeSessionGoal, GoalEnding, GoalEndingInput, GoalTurnEnd, classify_goal_ending,
+        restored_condition,
     };
     use crate::driver::claude::goals::records::GoalStatusRecord;
-    use crate::driver::test_registry::{new_agent_id, new_session_id};
+    use crate::driver::claude::session::scripted::binding_id;
+    use crate::driver::claude::session::scripted::driver::{ScriptedDriver, resume_params};
+    use crate::driver::test_registry::{new_agent_id, new_run_id, new_session_id};
 
     // What Claude Code wrote, owned so a case can hold it.
     enum Written {
@@ -742,5 +769,91 @@ mod tests {
 
         assert_eq!(ending, expected);
         assert_eq!(session.active_condition.as_deref(), active_after);
+    }
+
+    // Killed by reading the oldest record, by a met or failed record read as active, and by a clear
+    // read as active; `unmet_check` by reading only a set's sentinel as active.
+    #[rstest]
+    #[case::set(vec![record(false, false, true, Some("c"))], Some("c"))]
+    #[case::set_then_met(
+        vec![record(false, false, true, Some("c")), record(true, false, false, Some("c"))],
+        None
+    )]
+    #[case::set_then_cleared(
+        vec![record(false, false, true, Some("c")), record(true, false, true, Some("c"))],
+        None
+    )]
+    #[case::set_then_impossible(
+        vec![record(false, false, true, Some("c")), record(false, true, false, Some("c"))],
+        None
+    )]
+    #[case::set_then_another(
+        vec![record(false, false, true, Some("c")), record(false, false, true, Some("d"))],
+        Some("d")
+    )]
+    #[case::unmet_check(
+        vec![record(false, false, true, Some("c")), record(false, false, false, Some("c"))],
+        Some("c")
+    )]
+    #[case::no_record(Vec::new(), None)]
+    fn a_resumed_process_restores_the_newest_goal_unless_it_ended(
+        #[case] records: Vec<GoalStatusRecord>,
+        #[case] restored: Option<&str>,
+    ) {
+        assert_eq!(restored_condition(records).as_deref(), restored);
+    }
+
+    // Killed by the bring-up never seeding the goal the resumed process restored: the turn's
+    // `result` with no record, nothing live and no interrupt would then draw nothing.
+    #[tokio::test(start_paused = true)]
+    async fn a_resumed_process_with_an_active_goal_draws_an_unfinished_check() {
+        let fixture = ScriptedDriver::new();
+        let session_id = fixture.closed_session_resumed_on(Arc::default()).await;
+        let params = resume_params(session_id);
+        let project = fixture.home.join(".claude/projects/work");
+        std::fs::create_dir_all(&project).expect("the project folder is made");
+        let set = json!({
+            "type": "attachment",
+            "attachment": {
+                "type": "goal_status", "met": false, "sentinel": true, "condition": "ship it",
+            },
+        });
+        std::fs::write(
+            project.join(format!("{}.jsonl", params.resume_handle)),
+            format!("{set}\n"),
+        )
+        .expect("the conversation is written");
+        fixture
+            .driver
+            .resume_session(params)
+            .await
+            .expect("the resume answers");
+        let start = fixture.next_start().await;
+        fixture
+            .driver
+            .composed_parts()
+            .expect("the pieces are composed")
+            .run_start
+            .routes
+            .hold_turn(new_run_id(), session_id, binding_id("lead"))
+            .expect("the session's turn is free");
+
+        fixture.end_turn(&start, session_id);
+
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            fixture.engine.wait_until(|_| {
+                fixture
+                    .engine
+                    .deliveries()
+                    .into_iter()
+                    .filter(|delivery| delivery.kind == "sessionNotice")
+                    .filter_map(|delivery| delivery.payload)
+                    .any(|row| row["kind"] == "goalCheckUnfinished")
+                    .then_some(())
+            }),
+        )
+        .await
+        .expect("the unfinished check is noticed");
     }
 }
