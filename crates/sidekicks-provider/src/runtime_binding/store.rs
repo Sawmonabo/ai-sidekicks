@@ -146,6 +146,22 @@ const MOVE_BINDING_ACCOUNT_SQL: &str = "
 // The spawn record's member naming the account, as the record is serialized.
 const PROVIDER_ACCOUNT_MEMBER: &str = "providerAccountId";
 
+// Only the server set of the run's newest resumable row changes, that row chosen as the leg read
+// chooses it and in the same statement, so a relaunch's row committed first is the one written.
+// `json()` stores the set as a JSON list, never a quoted string.
+const REPLACE_TOOL_SERVERS_SQL: &str = "
+  UPDATE runtime_bindings
+     SET spawn_config = json_set(spawn_config, @tool_servers_member, json(@tool_servers)),
+         updated_at   = @updated_at
+   WHERE id = (SELECT id
+                 FROM runtime_bindings
+                WHERE run_id = @run_id AND resume_handle IS NOT NULL
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1)";
+
+// The spawn record's member holding the tool servers, as the record is serialized.
+const TOOL_SERVERS_MEMBER: &str = "toolServers";
+
 const DELETE_BINDING_SQL: &str = "DELETE FROM runtime_bindings WHERE id = ?";
 
 /// The spawn-bound legs a resume rebuilds from, stored at every binding write, since a resume is a
@@ -350,6 +366,12 @@ pub enum RuntimeBindingStoreError {
     NoRowToWrite {
         /// The binding.
         binding_id: RuntimeBindingId,
+    },
+    /// The run has no binding with a resume handle, so no server set was recorded.
+    #[error("run {run_id} has no resumable runtime binding to write")]
+    NoResumableRow {
+        /// The run.
+        run_id: RunId,
     },
 }
 
@@ -641,6 +663,32 @@ impl RuntimeBindingStore {
                     text_binding("@id", id.as_str()),
                     text_binding("@account_member", &format!("$.{PROVIDER_ACCOUNT_MEMBER}")),
                     text_binding("@provider_account_id", provider_account_id.as_str()),
+                    text_binding("@updated_at", WireInstant::now().as_str()),
+                ]),
+                expected_row_count: None,
+            }])
+            .await?;
+        Ok(results.first().is_some_and(|result| result.row_count > 0))
+    }
+
+    /// Replaces the tool servers stored on run `run_id`'s newest resumable binding with
+    /// `tool_servers`, so a relaunch of its session starts with that set; returns whether the run
+    /// had such a row. Fails when the write fails.
+    pub async fn replace_tool_servers(
+        &self,
+        run_id: &RunId,
+        tool_servers: &[SessionToolServer],
+    ) -> Result<bool, RuntimeBindingStoreError> {
+        let tool_servers_text =
+            serde_json::to_string(tool_servers).expect("every tool server is JSON data");
+        let results = self
+            .writer
+            .write(vec![WriteStatement {
+                sql: Cow::Borrowed(REPLACE_TOOL_SERVERS_SQL),
+                bindings: StatementBindings::Named(vec![
+                    text_binding("@run_id", run_id.text().as_str()),
+                    text_binding("@tool_servers_member", &format!("$.{TOOL_SERVERS_MEMBER}")),
+                    text_binding("@tool_servers", &tool_servers_text),
                     text_binding("@updated_at", WireInstant::now().as_str()),
                 ]),
                 expected_row_count: None,

@@ -258,6 +258,7 @@ mod tests {
     use serde_json::{Map, Value, json};
     use sidekicks_contracts::provider::account::record::ProviderAccountId;
     use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+    use sidekicks_contracts::run::id::RunId;
     use sidekicks_platforms::ChildEnd;
     use sidekicks_std::mutex_lock::lock;
     use tokio::io::{AsyncRead, AsyncWriteExt, ReadBuf};
@@ -279,6 +280,7 @@ mod tests {
     use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
     use crate::driver::claude::session::transport::user_message::ClaudeWriteAttempt;
     use crate::driver::diagnostics::RecordedEvents;
+    use crate::driver::session_control::SessionToolServer;
     use crate::runtime_binding::store::RuntimeBindingRebind;
     use crate::runtime_binding::test_store::test_provider_account_id;
     use crate::runtime_binding::writer::RuntimeBindingWriter;
@@ -476,6 +478,17 @@ mod tests {
             let readings = self.usage.metered().len();
             lock(&self.moves).push((binding_id, provider_account_id, readings));
             ready(Ok(())).boxed()
+        }
+
+        fn replace_tool_servers(
+            &self,
+            _run_id: RunId,
+            _tool_servers: Vec<SessionToolServer>,
+        ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+            ready(Err(
+                io::Error::other("no tool server set is written here").into()
+            ))
+            .boxed()
         }
     }
 

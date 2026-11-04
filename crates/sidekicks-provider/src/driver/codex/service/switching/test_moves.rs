@@ -8,6 +8,7 @@ use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -29,6 +30,7 @@ use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::contract::account::{FirstRequestAfterMove, SessionAccountMove};
 use crate::driver::contract::error::DriverError;
+use crate::driver::session_control::SessionToolServer;
 use crate::port::session_account_move::SessionAccountMoveRecorder;
 use crate::runtime_binding::store::RuntimeBindingRebind;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
@@ -106,6 +108,14 @@ impl RuntimeBindingWriter for RecordedMoves {
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         lock(&self.bindings).push((binding_id, provider_account_id));
         async { Ok(()) }.boxed()
+    }
+
+    fn replace_tool_servers(
+        &self,
+        _run_id: RunId,
+        _tool_servers: Vec<SessionToolServer>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        unreachable!("a switch writes no tool server set")
     }
 }
 
