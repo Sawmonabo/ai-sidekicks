@@ -8,6 +8,7 @@
 
 use std::fs;
 use std::io::{self, Write};
+use std::path::Path;
 
 use anyhow::Context as _;
 use clap::Args;
@@ -228,7 +229,7 @@ fn report_not_answering<Output: Write, ErrorOutput: Write>(
         writeln!(context.stdout, "{line}")?;
         context.stdout.flush()?;
     }
-    let cannot_start = match read_cannot_start() {
+    let cannot_start = match read_cannot_start(&mut context.stderr) {
         Ok(Some(cannot_start)) => cannot_start,
         Ok(None) => return Err(failure),
         Err(unread) => return Err(failure.context(format!("{unread:#}"))),
@@ -239,12 +240,23 @@ fn report_not_answering<Output: Write, ErrorOutput: Write>(
     Ok(ExitCode::Unavailable)
 }
 
-/// Why the service's last start failed, from its status file; `None` where it wrote none or the
-/// file holds another fact.
-pub(crate) fn read_cannot_start() -> anyhow::Result<Option<DaemonCannotStart>> {
+/// Why the service's last start failed, from its status file; `None` where it wrote none, the
+/// file holds another fact, or its bytes do not parse, which a power loss can leave and which
+/// writes a warning to `stderr`. Fails as the run folder's lookup, the file's read other than a
+/// missing file, or that warning's write does.
+pub(crate) fn read_cannot_start(
+    stderr: &mut impl Write,
+) -> anyhow::Result<Option<DaemonCannotStart>> {
     let run_folder = daemon_run_folder()
         .context("could not find where the background service records why it cannot start")?;
-    let path = &run_folder.status_path;
+    read_cannot_start_at(&run_folder.status_path, stderr)
+}
+
+// `read_cannot_start` over the status file at `path`.
+fn read_cannot_start_at(
+    path: &Path,
+    stderr: &mut impl Write,
+) -> anyhow::Result<Option<DaemonCannotStart>> {
     let text = match fs::read(path) {
         Ok(text) => text,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -257,12 +269,18 @@ pub(crate) fn read_cannot_start() -> anyhow::Result<Option<DaemonCannotStart>> {
             });
         }
     };
-    let file = serde_json::from_slice::<ServiceStatusFile>(&text).with_context(|| {
-        format!(
-            "could not read why the background service cannot start from {}",
-            path.display()
-        )
-    })?;
+    let file = match serde_json::from_slice::<ServiceStatusFile>(&text) {
+        Ok(file) => file,
+        Err(unparsed) => {
+            writeln!(
+                stderr,
+                "warning: could not read the background service's status from {}: {:#}",
+                path.display(),
+                anyhow::Error::new(unparsed)
+            )?;
+            return Ok(None);
+        }
+    };
     Ok(match file {
         ServiceStatusFile::CannotStart(cannot_start) => Some(cannot_start),
         ServiceStatusFile::Stopping(_) | ServiceStatusFile::CannotStop(_) => None,
@@ -613,10 +631,84 @@ mod tests {
     use rstest::rstest;
     use serde_json::json;
     use serde_json::value::RawValue;
+    use sidekicks_contracts::daemon::service_status::DaemonCannotStart;
     use sidekicks_contracts::daemon::status::DaemonStatusReadResponse;
 
-    use super::{StatusReply, write_status};
+    use super::{StatusReply, read_cannot_start_at, write_status};
     use crate::exit_codes::ExitCode;
+
+    // A status file holding why the last start failed.
+    const CANNOT_START: &str = r#"{"cannotStart":{"reason":"savedSessionsFromAnotherVersion"}}"#;
+
+    // What the status file holds before the read.
+    #[derive(Clone, Copy, Debug)]
+    enum StatusFile {
+        // Why the last start failed.
+        CannotStart,
+        // The stop under way.
+        Stopping,
+        // Why the last stop failed.
+        CannotStop,
+        // The first half of a start failure's bytes, as a power loss can leave a write.
+        Torn,
+        // No bytes.
+        Empty,
+        // No file.
+        Missing,
+    }
+
+    /// Only a start failure is read from the status file; the stop's two facts read as none, and
+    /// a torn or empty file reads as none after one warning naming the file. Killed by a torn file
+    /// failing the read, and by the warning dropped.
+    #[rstest]
+    #[case::cannot_start(
+        StatusFile::CannotStart,
+        Some(DaemonCannotStart::SavedSessionsFromAnotherVersion {}),
+        false
+    )]
+    #[case::stopping(StatusFile::Stopping, None, false)]
+    #[case::cannot_stop(StatusFile::CannotStop, None, false)]
+    #[case::torn(StatusFile::Torn, None, true)]
+    #[case::empty(StatusFile::Empty, None, true)]
+    #[case::missing(StatusFile::Missing, None, false)]
+    fn the_status_file_reads_only_its_start_failure(
+        #[case] status_file: StatusFile,
+        #[case] expected: Option<DaemonCannotStart>,
+        #[case] is_warned: bool,
+    ) {
+        let folder = tempfile::tempdir().expect("a temporary folder");
+        let path = folder.path().join("service-status.json");
+        let contents = match status_file {
+            StatusFile::CannotStart => Some(CANNOT_START),
+            StatusFile::Stopping => Some(concat!(
+                r#"{"stopping":{"step":"searchIndex","stopStarted":"2026-11-03T23:00:00.000Z","#,
+                r#""process":{"processId":4242,"bootId":"boot","processStartTime":"1730674800"}}}"#
+            )),
+            StatusFile::CannotStop => Some(r#"{"cannotStop":{"reason":"stopIntent"}}"#),
+            StatusFile::Torn => CANNOT_START.get(..CANNOT_START.len() / 2),
+            StatusFile::Empty => Some(""),
+            StatusFile::Missing => None,
+        };
+        if let Some(contents) = contents {
+            std::fs::write(&path, contents).expect("the status file is written");
+        }
+        let mut stderr = Vec::new();
+
+        let cannot_start =
+            read_cannot_start_at(&path, &mut stderr).expect("the status file's read answers");
+
+        assert_eq!(cannot_start, expected);
+        let stderr = String::from_utf8(stderr).expect("UTF-8");
+        if is_warned {
+            assert_eq!(stderr.lines().count(), 1, "{stderr}");
+            assert!(
+                stderr.starts_with("warning: ") && stderr.contains(&path.display().to_string()),
+                "{stderr}"
+            );
+        } else {
+            assert_eq!(stderr, "");
+        }
+    }
 
     /// A status reply carrying every member the response has, in `process_state`.
     fn every_member(process_state: &str) -> String {
