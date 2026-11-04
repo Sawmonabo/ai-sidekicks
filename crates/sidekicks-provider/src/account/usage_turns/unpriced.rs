@@ -74,51 +74,51 @@ static REQUEST_REST_SQL: LazyLock<String> = LazyLock::new(|| {
 /// What a price list prices a held row by: its account and the account's provider, and the
 /// request's model, speed and region as its token event carried them.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct UnpricedUsageKey {
+pub struct UnpricedUsageKey {
     /// The account's provider.
-    pub(crate) provider: ProviderId,
+    pub provider: ProviderId,
     /// The account the rows are charged to.
-    pub(crate) account_id: ProviderAccountId,
+    pub account_id: ProviderAccountId,
     /// The model the requests ran on, `None` where the provider named none.
-    pub(crate) model_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+    pub model_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
     /// The speed tier, `None` for the standard rates.
-    pub(crate) speed: Option<RequestFact>,
+    pub speed: Option<RequestFact>,
     /// The processing region, `None` for no region multiplier.
-    pub(crate) processing_region: Option<RequestFact>,
+    pub processing_region: Option<RequestFact>,
 }
 
 /// One held row as a repricing quotes and records it: the token event it projects, where it was
 /// spent, and its counts, each `None` where the provider reported none.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct UnpricedUsageRow {
+pub struct UnpricedUsageRow {
     /// The token event's id, or the minted id of a turn no session owns.
-    pub(crate) turn_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    pub turn_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
     /// The session, `None` on a turn no session owns, whose row takes its figure directly.
-    pub(crate) session_id: Option<SessionId>,
+    pub session_id: Option<SessionId>,
     /// The run within that session.
-    pub(crate) run_id: Option<RunId>,
+    pub run_id: Option<RunId>,
     /// The helper the turn is attributed to.
-    pub(crate) subagent_id: Option<SubagentId>,
+    pub subagent_id: Option<SubagentId>,
     /// When the turn was spent.
-    pub(crate) occurred_at: WireInstant,
+    pub occurred_at: WireInstant,
     /// Input, output, cache-read, cache-write and reasoning tokens, in that order.
-    pub(crate) tokens: [Option<SafeInt<0>>; 5],
+    pub tokens: [Option<SafeInt<0>>; 5],
     /// The cache write's share at the longer lifetime.
-    pub(crate) cache_write_extended_tokens: Option<SafeInt<0>>,
+    pub cache_write_extended_tokens: Option<SafeInt<0>>,
     /// The web searches the request ran.
-    pub(crate) web_search_requests: Option<SafeInt<0>>,
+    pub web_search_requests: Option<SafeInt<0>>,
     /// The tier the turn's thread declared, which prices the helpers it spawned.
-    pub(crate) thread_speed: Option<RequestFact>,
+    pub thread_speed: Option<RequestFact>,
 }
 
 /// One held request: the rows sharing its request key, or one keyless row, which is a request of
 /// its own.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct UnpricedRequest {
+pub struct UnpricedRequest {
     /// The provider's id of the request, `None` for a keyless row.
-    pub(crate) request_key: Option<RequestFact>,
+    pub request_key: Option<RequestFact>,
     /// Its rows in turn id order; never empty.
-    pub(crate) rows: Vec<UnpricedUsageRow>,
+    pub rows: Vec<UnpricedUsageRow>,
 }
 
 /// Where the next page of a key's held rows starts: past the last row a page read.
