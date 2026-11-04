@@ -17,8 +17,8 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, SubscriptionId};
 use sidekicks_contracts::mcp::event::McpSubscribeEmission;
 use sidekicks_contracts::mcp::governance::McpServerStatusChangedNotice;
+use sidekicks_contracts::mcp::server::McpServerStatus;
 use sidekicks_contracts::mcp::server::inventory::McpServerLegStatus;
-use sidekicks_contracts::mcp::server::{McpServerName, McpServerStatus};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{
     McpResourceList, McpResourceListRequest, McpResourceListResponse, SessionAddressedRequest,

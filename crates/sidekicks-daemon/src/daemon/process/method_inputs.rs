@@ -347,7 +347,7 @@ pub(crate) async fn register_method_inputs(
         mcp_attribution: Arc::clone(&mcp.attribution),
         mcp_tool_servers: Arc::clone(&mcp.session_tool_servers),
     })?;
-    let (mcp_inventory, mcp_mutations) = mcp.build_governance(McpGovernanceStart {
+    let (mcp_inventory, mcp_mutations) = mcp.build_governance(&McpGovernanceStart {
         providers: &registry,
         projects: &port.project_records,
         secret_items: &secret_items,

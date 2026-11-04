@@ -126,12 +126,12 @@ impl CodexDriver {
         drop(turn);
         match fork.await {
             Ok(true) => Ok(McpSessionSwitch::Applied),
-            // A turn began before the fork ran; that turn's end runs it.
-            Ok(false) => Ok(McpSessionSwitch::AtNextTurn),
             Err(error) if matches!(*error, CodexError::SessionClosed { .. }) => {
                 Ok(McpSessionSwitch::AtNextStart)
             }
-            Err(_) => Ok(McpSessionSwitch::AtNextTurn),
+            // A turn began before the fork ran, whose end runs it; or the fork failed, reported on
+            // its own path, and stays owed to the next turn.
+            Ok(false) | Err(_) => Ok(McpSessionSwitch::AtNextTurn),
         }
     }
 

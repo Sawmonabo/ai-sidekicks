@@ -69,7 +69,7 @@ pub(super) struct McpGovernanceStart<'start> {
     /// The project records the inventory reads the attached roots from.
     pub(super) projects: &'start Arc<ProjectRecords>,
     /// Where the receipt key is kept.
-    pub(super) secret_items: &'start SecretItems,
+    pub(super) secret_items: &'start Arc<SecretItems>,
     /// The daemon's one writer.
     pub(super) writer: &'start Arc<DatabaseWriter>,
     /// The daemon's one read pool.
@@ -80,7 +80,7 @@ impl McpStatusServices {
     /// Builds the inventory and the binding edits' service over these services and `start`.
     pub(super) fn build_governance(
         &self,
-        start: McpGovernanceStart<'_>,
+        start: &McpGovernanceStart<'_>,
     ) -> (Arc<McpInventoryService>, Arc<McpMutationService>) {
         let inventory = Arc::new(McpInventoryService::new(McpInventorySources {
             providers: Arc::clone(start.providers),
