@@ -185,6 +185,7 @@ async fn send_codex_steer(
                 client_user_message_id: Some(send.message_id.to_string()),
                 additional_context: None,
                 responsesapi_client_metadata: None,
+                responsesapi_client_metadata_patch: None,
             },
         )
         .await;

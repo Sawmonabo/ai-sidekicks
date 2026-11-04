@@ -229,6 +229,7 @@ async fn read_thread_list_page(
     let params = ThreadListParams {
         ancestor_thread_id: None,
         archived: None,
+        attached_to_thread_id: None,
         cursor,
         cwd: None,
         excluded_thread_ids: None,

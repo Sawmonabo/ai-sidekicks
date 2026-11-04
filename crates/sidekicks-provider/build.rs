@@ -19,15 +19,15 @@ const CODEX_PROTOCOL_BUNDLE: &str =
 
 /// The SHA3-256 of [`CODEX_PROTOCOL_BUNDLE`] as the release ships it.
 const CODEX_PROTOCOL_BUNDLE_SHA3_256: &str =
-    "4edb2d126ff9eba4cb3de19454c88c207e0e26066e6d67c95a1c0c5b8e8594b1";
+    "0936f7ffb276be0d3a69ca2cf59a0e016dbaa79bfb8b457f6ac5d48209c975c2";
 
 /// The Codex release tag [`CODEX_PROTOCOL_BUNDLE`] comes from, named in a hash mismatch. The
 /// bundle names no version of its own, so its hash is the build's one check of the release; a
 /// newer release moves the file and its hash whole.
-const CODEX_PROTOCOL_RELEASE: &str = "rust-v0.163.0";
+const CODEX_PROTOCOL_RELEASE: &str = "rust-v0.166.0";
 
 /// The protocol types the provider crate sends, generated with every type they reach.
-const CODEX_SENT_TYPES: [&str; 37] = [
+const CODEX_SENT_TYPES: [&str; 38] = [
     "ThreadStartParams",
     "ThreadResumeParams",
     "ThreadForkParams",
@@ -65,6 +65,7 @@ const CODEX_SENT_TYPES: [&str; 37] = [
     "CancelLoginAccountParams",
     "McpServerOauthLoginParams",
     "ThreadListParams",
+    "ThreadMemoryModeSetParams",
 ];
 
 /// The sent types generated code cannot carry, each written by hand where its path names: those
