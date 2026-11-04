@@ -40,7 +40,8 @@ pub(crate) enum ClaudeHookCallback {
     PauseBeforeTool,
     /// Holds the turn after a batch of tool calls while the run is paused.
     PauseAfterBatch,
-    /// Holds a new helper's start past `Helpers at once`.
+    /// Holds a new helper's start, and a message's wake of an ended helper, past `Helpers at
+    /// once`.
     HelperLimit,
     /// Answers the question tool and lets the daemon's own tools run.
     QuestionBridge,
@@ -112,8 +113,8 @@ impl ClaudeDialogKind {
 
 /// The `initialize` request a session's process is brought up with: the daemon's hooks, the
 /// session's helper definitions, the two dialogs the console draws, and the per-task stop the
-/// console offers, and the tool servers the daemon hosts in-process, by name. The helper hold is
-/// registered only where the policy limits helpers at once.
+/// console offers, and the tool servers the daemon hosts in-process, by name. The helper hold, on
+/// the helper and message tools, is registered only where the policy limits helpers at once.
 pub(crate) fn compose_claude_initialize_request(
     subagent_policy: Option<&SubagentPolicy>,
     in_process_servers: Vec<String>,
@@ -151,7 +152,9 @@ pub(crate) fn compose_claude_initialize_request(
     {
         if helpers_at_once.is_some() {
             pre_tool_use.push(held(
-                Some(format!("^{CLAUDE_HELPER_TOOL_NAME}$")),
+                Some(format!(
+                    "^({CLAUDE_HELPER_TOOL_NAME}|{CLAUDE_MESSAGE_TOOL_NAME})$"
+                )),
                 ClaudeHookCallback::HelperLimit,
             ));
         }
@@ -205,4 +208,45 @@ fn compose_claude_agents(
             )
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use sidekicks_contracts::wire::integer::SafeInt;
+
+    use super::{ClaudeHookCallback, compose_claude_initialize_request};
+    use crate::driver::claude::session::transport::control::ClaudeControlRequest;
+    use crate::driver::session_control::SubagentPolicy;
+
+    // Killed by the matcher left on the helper tool alone, so a message waking an ended helper
+    // never reaches the limit, and by the hook registered with no limit set.
+    #[rstest]
+    #[case::with_a_limit(Some(1), &[Some("^(Agent|SendMessage)$")])]
+    #[case::with_no_limit(None, &[])]
+    fn the_helper_limit_hook_matches_the_helper_and_message_tools_only_under_a_limit(
+        #[case] helpers_at_once: Option<u64>,
+        #[case] expected_matchers: &[Option<&str>],
+    ) {
+        let policy = SubagentPolicy::Enabled {
+            helpers_at_once: helpers_at_once
+                .map(|limit| SafeInt::new(limit).expect("a positive safe integer")),
+            definitions: Vec::new(),
+        };
+
+        let ClaudeControlRequest::Initialize {
+            hooks: Some(hooks), ..
+        } = compose_claude_initialize_request(Some(&policy), Vec::new())
+        else {
+            panic!("a first initialize carries the hooks");
+        };
+
+        let matchers: Vec<Option<&str>> = hooks
+            .pre_tool_use
+            .iter()
+            .filter(|hook| hook.hook_callback_ids == [ClaudeHookCallback::HelperLimit.id()])
+            .map(|hook| hook.matcher.as_deref())
+            .collect();
+        assert_eq!(matchers, expected_matchers);
+    }
 }
