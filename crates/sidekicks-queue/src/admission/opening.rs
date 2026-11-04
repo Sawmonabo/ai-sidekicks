@@ -1,7 +1,8 @@
 //! The item each run the queue starts or continues opens with: the table of openings whose
 //! outcome is not yet written, with the openings an undo's release reserved beside it; the lock a
 //! read of a run's opening takes once no undo holds the session; the driver's start of the run's
-//! turn with it; and the binding of a turn the daemon starts on a session itself.
+//! turn with it; and the admission and binding of a turn the daemon starts on a session itself,
+//! which opens a session this daemon has not opened as an admitted run does.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -20,7 +21,8 @@ use sidekicks_provider::driver::contract::params_and_results::{
     RunOpening, RunOpeningItem, StartRunParams,
 };
 use sidekicks_provider::driver::run_control::{
-    DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, InterruptRunRequest,
+    DaemonTurnAdmission, DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver,
+    InterruptRunRequest,
 };
 use sidekicks_session::console_state::read_session_max_steps_per_turn;
 use sidekicks_session::queue_store::{QueueItemBody, QueueItemReader, QueueItemRecord};
@@ -332,55 +334,32 @@ impl DaemonTurnBindingResolver for QueueAdmission {
         session_id: SessionId,
     ) -> BoxFuture<'_, Result<DaemonTurnBinding, DaemonTurnBindingError>> {
         async move {
+            let not_recorded = |error: QueueError| DaemonTurnBindingError::BindingNotRecorded {
+                session_id,
+                source: Box::new(error),
+            };
+            // A process this daemon opened is bound as it stands: the turn may be opening on that
+            // process's own task, so it waits for no settle a transition queued behind it holds.
+            if !self.deps.provider_sessions.is_opened(session_id) {
+                let (_provider, _admitted_account, driver) = self
+                    .admit_session_account(session_id)
+                    .await
+                    .map_err(|error| not_admitted(session_id, error))?;
+                self.deps
+                    .provider_sessions
+                    .open(session_id, run_id)
+                    .await
+                    .map_err(|error| binding_not_opened(session_id, error))?;
+                self.settle_session(session_id, driver.as_ref())
+                    .await
+                    .map_err(not_recorded)?;
+            }
             let binding_id = self
                 .deps
                 .provider_sessions
                 .open_run_binding(run_id, session_id)
                 .await
-                .map_err(|error| match error {
-                    ProviderSessionError::NotOpen { session_id } => {
-                        DaemonTurnBindingError::NoProviderSession { session_id }
-                    }
-                    ProviderSessionError::NoConversation { session_id } => {
-                        DaemonTurnBindingError::NoConversation { session_id }
-                    }
-                    other @ (ProviderSessionError::Compose { .. }
-                    | ProviderSessionError::AdmittedAccount(_)
-                    | ProviderSessionError::NoPosture { .. }
-                    | ProviderSessionError::NoContractVersion { .. }
-                    | ProviderSessionError::Provider(_)
-                    | ProviderSessionError::Driver(_)
-                    | ProviderSessionError::ResumeRefused { .. }
-                    | ProviderSessionError::NotResumable(_)
-                    | ProviderSessionError::Closed { .. }
-                    | ProviderSessionError::BeingDeleted { .. }
-                    | ProviderSessionError::Cursor(_)
-                    | ProviderSessionError::ResumedRuns { .. }
-                    | ProviderSessionError::OrphanedAnswers { .. }
-                    | ProviderSessionError::ContinueNotReleased { .. }
-                    | ProviderSessionError::AfterCarriedContinue { .. }
-                    | ProviderSessionError::Port(_)
-                    | ProviderSessionError::UnrecordedNotClosed { .. }
-                    | ProviderSessionError::ProviderMissingNotPosted { .. }
-                    | ProviderSessionError::Store(_)
-                    | ProviderSessionError::PostureRefused { .. }
-                    | ProviderSessionError::LevelNotStored { .. }
-                    | ProviderSessionError::LevelNotMovedBack { .. }
-                    | ProviderSessionError::ModeNotStored { .. }
-                    | ProviderSessionError::ModeNotMovedBack { .. }
-                    | ProviderSessionError::Read(_)
-                    | ProviderSessionError::Pool(_)
-                    | ProviderSessionError::GitFolder { .. }) => {
-                        DaemonTurnBindingError::BindingNotRecorded {
-                            session_id,
-                            source: Box::new(other),
-                        }
-                    }
-                })?;
-            let not_recorded = |error: QueueError| DaemonTurnBindingError::BindingNotRecorded {
-                session_id,
-                source: Box::new(error),
-            };
+                .map_err(|error| binding_not_opened(session_id, error))?;
             let agent_id = read_lead_agent_through::<QueueError>(&self.deps.pool, session_id)
                 .await
                 .map_err(not_recorded)?;
@@ -394,6 +373,84 @@ impl DaemonTurnBindingResolver for QueueAdmission {
             })
         }
         .boxed()
+    }
+
+    fn admit_daemon_turn(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<DaemonTurnAdmission, DaemonTurnBindingError>> {
+        async move {
+            let (_provider, admitted_provider_account_id, _driver) = self
+                .admit_session_account(session_id)
+                .await
+                .map_err(|error| not_admitted(session_id, error))?;
+            let execution_posture = self
+                .deps
+                .provider_sessions
+                .read_execution_posture(session_id, admitted_provider_account_id.clone())
+                .await
+                .map_err(|error| not_admitted(session_id, error))?;
+            Ok(DaemonTurnAdmission {
+                admitted_provider_account_id,
+                execution_posture,
+            })
+        }
+        .boxed()
+    }
+}
+
+// A daemon turn on `session_id` refused for want of a provider, an account or a posture.
+fn not_admitted(
+    session_id: SessionId,
+    source: impl Error + Send + Sync + 'static,
+) -> DaemonTurnBindingError {
+    DaemonTurnBindingError::NotAdmitted {
+        session_id,
+        source: Box::new(source),
+    }
+}
+
+// A daemon turn's process open or binding on `session_id` that failed: a process let go before its
+// binding has none to run on, and any other failure leaves the binding unopened.
+fn binding_not_opened(
+    session_id: SessionId,
+    error: ProviderSessionError,
+) -> DaemonTurnBindingError {
+    match error {
+        ProviderSessionError::NotOpen { session_id } => {
+            DaemonTurnBindingError::NoProviderSession { session_id }
+        }
+        other @ (ProviderSessionError::NoConversation { .. }
+        | ProviderSessionError::Compose { .. }
+        | ProviderSessionError::AdmittedAccount(_)
+        | ProviderSessionError::NoPosture { .. }
+        | ProviderSessionError::NoContractVersion { .. }
+        | ProviderSessionError::Provider(_)
+        | ProviderSessionError::Driver(_)
+        | ProviderSessionError::ResumeRefused { .. }
+        | ProviderSessionError::NotResumable(_)
+        | ProviderSessionError::Closed { .. }
+        | ProviderSessionError::BeingDeleted { .. }
+        | ProviderSessionError::Cursor(_)
+        | ProviderSessionError::ResumedRuns { .. }
+        | ProviderSessionError::OrphanedAnswers { .. }
+        | ProviderSessionError::ContinueNotReleased { .. }
+        | ProviderSessionError::AfterCarriedContinue { .. }
+        | ProviderSessionError::Port(_)
+        | ProviderSessionError::UnrecordedNotClosed { .. }
+        | ProviderSessionError::ProviderMissingNotPosted { .. }
+        | ProviderSessionError::Store(_)
+        | ProviderSessionError::PostureRefused { .. }
+        | ProviderSessionError::LevelNotStored { .. }
+        | ProviderSessionError::LevelNotMovedBack { .. }
+        | ProviderSessionError::ModeNotStored { .. }
+        | ProviderSessionError::ModeNotMovedBack { .. }
+        | ProviderSessionError::Read(_)
+        | ProviderSessionError::Pool(_)
+        | ProviderSessionError::GitFolder { .. }) => DaemonTurnBindingError::BindingNotRecorded {
+            session_id,
+            source: Box::new(other),
+        },
     }
 }
 
