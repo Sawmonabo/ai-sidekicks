@@ -3,10 +3,6 @@
 //! where its process sleeps, and the change goes to the provider on the lead's conversation; a set
 //! on a session that never ran goes to the lead's provider, which opens the session's process for
 //! it. It appends nothing: each goal event comes from what the provider writes.
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the session goal binder calls it")
-)]
 
 use std::error::Error;
 use std::sync::Arc;
@@ -24,6 +20,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::not_found::agent::agent_not_found;
 use sidekicks_ipc::not_found::session::session_not_found;
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
@@ -75,6 +72,22 @@ pub(crate) enum SessionGoalError {
     /// The sleeping session could not be woken.
     #[error("the session could not be woken for its goal")]
     Wake(#[source] Box<dyn Error + Send + Sync>),
+}
+
+impl From<SessionGoalError> for HandlerError {
+    /// A refusal answers by its code and a driver's failure as the driver's own conversion does;
+    /// a failed read or wake is a fault inside the daemon.
+    fn from(error: SessionGoalError) -> Self {
+        match error {
+            SessionGoalError::Refused(refusal) => Self::Refused(refusal),
+            SessionGoalError::Driver(error) => error.into(),
+            fault @ (SessionGoalError::Read(_)
+            | SessionGoalError::Query(_)
+            | SessionGoalError::Lead(_)
+            | SessionGoalError::Leg(_)
+            | SessionGoalError::Wake(_)) => Self::Internal(Box::new(fault)),
+        }
+    }
 }
 
 impl SessionGoals {
