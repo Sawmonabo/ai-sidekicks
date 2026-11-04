@@ -233,19 +233,23 @@ impl ProviderAccountRegistry {
         let bindings =
             StatementBindings::Named(vec![text_binding("@account_id", account_id.as_str())]);
         match self
-            .writer
-            .write(vec![
-                WriteStatement {
-                    sql: Cow::Borrowed(WAITING_STEP_GUARD_SQL.as_str()),
-                    bindings: bindings.clone(),
-                    expected_row_count: Some(0),
-                },
-                WriteStatement {
-                    sql: Cow::Borrowed(MARK_REMOVAL_INTENT_SQL.as_str()),
-                    bindings,
-                    expected_row_count: Some(1),
-                },
-            ])
+            .observed_auth_modes
+            .write_and_forget(
+                &self.writer,
+                account_id,
+                vec![
+                    WriteStatement {
+                        sql: Cow::Borrowed(WAITING_STEP_GUARD_SQL.as_str()),
+                        bindings: bindings.clone(),
+                        expected_row_count: Some(0),
+                    },
+                    WriteStatement {
+                        sql: Cow::Borrowed(MARK_REMOVAL_INTENT_SQL.as_str()),
+                        bindings,
+                        expected_row_count: Some(1),
+                    },
+                ],
+            )
             .await
         {
             Ok(_) => Ok(()),

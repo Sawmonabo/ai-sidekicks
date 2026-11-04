@@ -45,6 +45,7 @@ use crate::account::credential_home::{
     CredentialHome, create_credential_home, remove_credential_home,
 };
 use crate::account::errors::ProviderAccountRegistryError;
+use crate::account::observed_auth_modes::ObservedAuthModes;
 use crate::driver::contract::account::ObservedAccountIdentity;
 
 pub(crate) mod read_hold;
@@ -328,6 +329,7 @@ pub struct ProviderAccountRegistry {
     reads: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
     data_folder: PathBuf,
+    observed_auth_modes: Arc<ObservedAuthModes>,
 }
 
 impl ProviderAccountRegistry {
@@ -342,7 +344,13 @@ impl ProviderAccountRegistry {
             reads,
             writer,
             data_folder,
+            observed_auth_modes: Arc::default(),
         }
+    }
+
+    /// The cached kind of sign-in of each account, which this registry's writes of it drop.
+    pub fn observed_auth_modes(&self) -> Arc<ObservedAuthModes> {
+        Arc::clone(&self.observed_auth_modes)
     }
 
     /// Mints a new `provider` account's id, marks it as minted until a row takes it, and makes its
@@ -550,33 +558,39 @@ impl ProviderAccountRegistry {
         observer: HealthObserver,
         observed_auth_mode: Option<ProviderAuthMode>,
     ) -> Result<CredentialGeneration, ProviderAccountRegistryError> {
-        let results = self
-            .write(vec![WriteStatement {
-                sql: Cow::Borrowed(RECORD_HEALTH_SQL.as_str()),
-                bindings: StatementBindings::Named(vec![
-                    text_binding("@account_id", account_id.as_str()),
-                    text_binding("@health_state", observation.state.into()),
-                    text_binding("@health_observed_at", observation.observed_at.as_str()),
-                    nullable_text_binding(
-                        "@observed_auth_mode",
-                        observed_auth_mode.map(<&'static str>::from),
-                    ),
-                    text_binding(
-                        "@authenticated",
-                        ProviderAccountHealthState::Authenticated.into(),
-                    ),
-                    text_binding(
-                        "@indeterminate",
-                        ProviderAccountHealthState::Indeterminate.into(),
-                    ),
-                    (
-                        Cow::Borrowed("@bumps_generation"),
-                        Value::Integer(i64::from(observer == HealthObserver::Probe)),
-                    ),
-                ]),
-                expected_row_count: Some(1),
-            }])
-            .await?;
+        let statements = vec![WriteStatement {
+            sql: Cow::Borrowed(RECORD_HEALTH_SQL.as_str()),
+            bindings: StatementBindings::Named(vec![
+                text_binding("@account_id", account_id.as_str()),
+                text_binding("@health_state", observation.state.into()),
+                text_binding("@health_observed_at", observation.observed_at.as_str()),
+                nullable_text_binding(
+                    "@observed_auth_mode",
+                    observed_auth_mode.map(<&'static str>::from),
+                ),
+                text_binding(
+                    "@authenticated",
+                    ProviderAccountHealthState::Authenticated.into(),
+                ),
+                text_binding(
+                    "@indeterminate",
+                    ProviderAccountHealthState::Indeterminate.into(),
+                ),
+                (
+                    Cow::Borrowed("@bumps_generation"),
+                    Value::Integer(i64::from(observer == HealthObserver::Probe)),
+                ),
+            ]),
+            expected_row_count: Some(1),
+        }];
+        let results = match observed_auth_mode {
+            Some(_) => self
+                .observed_auth_modes
+                .write_and_forget(&self.writer, account_id, statements)
+                .await
+                .map_err(refusal_or_failure)?,
+            None => self.write(statements).await?,
+        };
         returned_generation(&results)
     }
 
@@ -616,7 +630,7 @@ impl ProviderAccountRegistry {
         health: &HealthObservation,
         observed_auth_mode: ProviderAuthMode,
     ) -> Result<RegisteredAccount, ProviderAccountRegistryError> {
-        self.write(vec![WriteStatement {
+        let statements = vec![WriteStatement {
             sql: Cow::Borrowed(RECORD_TOKEN_REPLACEMENT_SQL.as_str()),
             bindings: StatementBindings::Named(vec![
                 text_binding("@account_id", account_id.as_str()),
@@ -629,8 +643,11 @@ impl ProviderAccountRegistry {
                 ),
             ]),
             expected_row_count: Some(1),
-        }])
-        .await?;
+        }];
+        self.observed_auth_modes
+            .write_and_forget(&self.writer, &account_id, statements)
+            .await
+            .map_err(refusal_or_failure)?;
         self.read(account_id).await
     }
 

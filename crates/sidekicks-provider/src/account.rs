@@ -14,6 +14,7 @@ pub mod errors;
 pub mod home_lock;
 pub mod homes;
 pub mod memory_import;
+pub mod observed_auth_modes;
 pub mod observer;
 pub(crate) mod read_folder;
 pub mod readiness;
