@@ -31,6 +31,7 @@ use sidekicks_store::database::stored_column::{closed_word, text_column};
 use crate::account::credential_home::{
     CredentialHome, CredentialHomeCondition, classify_credential_home,
 };
+use crate::account::observed_auth_modes::{ObservedAuthModeRead, ObservedAuthModes};
 use crate::account::registry::record::query_registered_account;
 use crate::account::token_custody::read_sealed_token;
 use crate::driver::{
@@ -96,20 +97,27 @@ pub fn current_account_guard(
     }
 }
 
-/// The daemon's accounts reader, over its read connections and its keychain service for provider
-/// tokens.
+/// The daemon's accounts reader, over its read connections, its keychain service for provider
+/// tokens and the registry's cache of each account's kind of sign-in.
 pub struct ProviderAccounts {
     reads: Arc<DatabaseReadPool>,
     provider_tokens: Arc<dyn SecretKeychain>,
+    observed_auth_modes: Arc<ObservedAuthModes>,
 }
 
 impl ProviderAccounts {
     /// A reader over `reads`, sized with [`PROVIDER_ACCOUNTS_STATEMENT_CAPACITY`] among the rest,
-    /// reading sealed tokens from `provider_tokens`.
-    pub fn new(reads: Arc<DatabaseReadPool>, provider_tokens: Arc<dyn SecretKeychain>) -> Self {
+    /// reading sealed tokens from `provider_tokens` and caching each account's kind of sign-in in
+    /// `observed_auth_modes`, which the registry writing the same database drops.
+    pub fn new(
+        reads: Arc<DatabaseReadPool>,
+        provider_tokens: Arc<dyn SecretKeychain>,
+        observed_auth_modes: Arc<ObservedAuthModes>,
+    ) -> Self {
         Self {
             reads,
             provider_tokens,
+            observed_auth_modes,
         }
     }
 }
@@ -196,18 +204,37 @@ impl ProviderAccountReader for ProviderAccounts {
         .boxed()
     }
 
+    // Answers from the cache after an account's first read. A miss reads the row and stores it
+    // only while no write dropped an entry since, else reads again; a failure is never stored.
     fn read_observed_auth_mode(
         &self,
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>> {
         async move {
-            self.reads
-                .read(ReadLength::Short, move |connection| {
-                    query_registered_account(connection, &provider_account_id)?
-                        .map(|account| account.observed_auth_mode)
-                        .ok_or_else(|| "the account is not registered".into())
-                })
-                .await
+            loop {
+                let seen_generation = match self.observed_auth_modes.read(&provider_account_id) {
+                    ObservedAuthModeRead::Hit(mode) => return Ok(mode),
+                    ObservedAuthModeRead::Miss { generation } => generation,
+                };
+                let read_account_id = provider_account_id.clone();
+                let mode = self
+                    .reads
+                    .read(
+                        ReadLength::Short,
+                        move |connection| -> Result<_, Box<dyn Error + Send + Sync>> {
+                            query_registered_account(connection, &read_account_id)?
+                                .map(|account| account.observed_auth_mode)
+                                .ok_or_else(|| "the account is not registered".into())
+                        },
+                    )
+                    .await?;
+                if self
+                    .observed_auth_modes
+                    .fill(provider_account_id.clone(), mode, seen_generation)
+                {
+                    return Ok(mode);
+                }
+            }
         }
         .boxed()
     }
@@ -236,7 +263,7 @@ mod tests {
     use rstest::rstest;
     use rusqlite::Connection;
     use sidekicks_contracts::provider::account::record::{
-        ProviderAccountHealthState, ProviderAccountId,
+        ProviderAccountHealthState, ProviderAccountId, ProviderAuthMode,
     };
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::wire::instant::WireInstant;
@@ -245,18 +272,24 @@ mod tests {
 
     use super::{PROVIDER_ACCOUNTS_STATEMENT_CAPACITY, ProviderAccounts, select_current_account};
     use crate::account::registry::tests::register;
-    use crate::account::registry::{HealthObservation, HealthObserver, open_test_registry};
+    use crate::account::registry::{
+        HealthObservation, HealthObserver, ProviderAccountRegistry, open_test_registry,
+    };
     use crate::account::token_custody::tests::ScriptedKeychain;
     use crate::driver::schema::schema_parts;
     use crate::driver::{AccountFoldersError, CurrentProviderAccount, ProviderAccountReader};
 
-    fn accounts_over(database: &TestDatabase) -> ProviderAccounts {
+    fn accounts_over(
+        database: &TestDatabase,
+        registry: &ProviderAccountRegistry,
+    ) -> ProviderAccounts {
         ProviderAccounts::new(
             Arc::new(DatabaseReadPool::new(
                 database.path(),
                 PROVIDER_ACCOUNTS_STATEMENT_CAPACITY,
             )),
             Arc::new(ScriptedKeychain::default()),
+            registry.observed_auth_modes(),
         )
     }
 
@@ -282,7 +315,7 @@ mod tests {
                 [marked.account_id.as_str()],
             )
             .expect("the current account is marked for removal");
-        let accounts = accounts_over(&database);
+        let accounts = accounts_over(&database, &registry);
 
         let for_create =
             select_current_account(&connection, &claude()).expect("the current account is read");
@@ -332,7 +365,7 @@ mod tests {
             stored.health.map(|health| health.state),
             Some(ProviderAccountHealthState::Authenticated)
         );
-        let accounts = accounts_over(&database);
+        let accounts = accounts_over(&database, &registry);
 
         let unregistered = ProviderAccountId::new("0".repeat(32)).expect("an account id");
         assert!(matches!(
@@ -369,7 +402,7 @@ mod tests {
         let account = register(&registry, provider).await;
         let home = account.credential_home.path();
 
-        let folders = accounts_over(&database)
+        let folders = accounts_over(&database, &registry)
             .resolve_account_folders(account.account_id.clone())
             .await
             .expect("the account's folders resolve");
@@ -393,7 +426,7 @@ mod tests {
         let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
         let first = register(&registry, "claude").await;
         let second = register(&registry, "claude").await;
-        let accounts = accounts_over(&database);
+        let accounts = accounts_over(&database, &registry);
 
         let (first_folders, second_folders) = tokio::join!(
             accounts.resolve_account_folders(first.account_id.clone()),
@@ -412,6 +445,92 @@ mod tests {
                 assert!(folder.starts_with(account.credential_home.path()));
                 assert!(!folder.starts_with(other.credential_home.path()));
             }
+        }
+    }
+
+    /// A registry write that changes an account's kind of sign-in, each of which drops its cached
+    /// entry.
+    #[derive(Clone, Copy, Debug)]
+    enum KindWrite {
+        TokenReplacement,
+        SignIn,
+        RemovalMark,
+    }
+
+    // After a first read the kind is answered from memory, so a change made past the registry is
+    // not seen; each registry write that changes the kind drops the entry, so the next read
+    // answers the written kind, or no registered account after the removal mark. Killed by no
+    // cache (the raw change is read), and by no drop at the token replacement, at the sign-in or
+    // at the removal mark.
+    #[rstest]
+    #[case::token_replacement(KindWrite::TokenReplacement)]
+    #[case::sign_in(KindWrite::SignIn)]
+    #[case::removal_mark(KindWrite::RemovalMark)]
+    #[tokio::test]
+    async fn a_cached_kind_of_sign_in_is_answered_until_a_registry_write_changes_it(
+        #[case] write: KindWrite,
+    ) {
+        let database = TestDatabase::new(schema_parts());
+        let data_folder = tempfile::tempdir().expect("a data folder");
+        let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
+        let account = register(&registry, "codex").await;
+        let accounts = accounts_over(&database, &registry);
+        let first = accounts
+            .read_observed_auth_mode(account.account_id.clone())
+            .await
+            .expect("the kind is read");
+        assert_eq!(first, None);
+
+        Connection::open(database.path())
+            .expect("the test opens the database")
+            .execute(
+                "UPDATE provider_accounts SET observed_auth_mode = ?1 WHERE account_id = ?2",
+                [
+                    <&'static str>::from(ProviderAuthMode::ApiKey),
+                    account.account_id.as_str(),
+                ],
+            )
+            .expect("the kind is changed past the registry");
+        let cached = accounts
+            .read_observed_auth_mode(account.account_id.clone())
+            .await
+            .expect("the kind is read");
+        assert_eq!(cached, first, "the cached kind is answered");
+
+        let observation = HealthObservation {
+            state: ProviderAccountHealthState::Authenticated,
+            observed_at: WireInstant::now(),
+        };
+        let written = ProviderAuthMode::OauthToken;
+        match write {
+            KindWrite::TokenReplacement => {
+                registry
+                    .record_token_replacement(account.account_id.clone(), &observation, written)
+                    .await
+                    .expect("the replaced token is stored");
+            }
+            KindWrite::SignIn => {
+                registry
+                    .record_sign_in(&account.account_id, &observation, Some(written))
+                    .await
+                    .expect("the sign-in is stored");
+            }
+            KindWrite::RemovalMark => {
+                registry
+                    .mark_removal_intent(&account.account_id)
+                    .await
+                    .expect("the account is marked for removal");
+            }
+        }
+
+        let after = accounts
+            .read_observed_auth_mode(account.account_id.clone())
+            .await;
+        match write {
+            KindWrite::TokenReplacement | KindWrite::SignIn => {
+                assert_eq!(after.expect("the kind is read"), Some(written));
+            }
+            KindWrite::RemovalMark => assert!(after.is_err(), "a marked account is not registered"),
         }
     }
 }

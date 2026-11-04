@@ -166,6 +166,7 @@ pub(crate) async fn build_provider_account_plane(
     let reader: Arc<dyn ProviderAccountReader> = Arc::new(ProviderAccounts::new(
         Arc::clone(&reads),
         Arc::clone(&provider_tokens),
+        registry.observed_auth_modes(),
     ));
     let ProviderAccountLegSet {
         account: account_legs,

@@ -421,6 +421,7 @@ impl MethodInputs {
         let account_reader: Arc<dyn ProviderAccountReader> = Arc::new(ProviderAccounts::new(
             Arc::clone(&reads),
             Arc::clone(&keychain),
+            accounts.observed_auth_modes(),
         ));
         let token_custody = Arc::new(ProviderTokenCustody::new(
             Arc::clone(&accounts),
