@@ -14,20 +14,19 @@ use sidekicks_contracts::agent::provider_binding::{
 };
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::provider::declaration::{ProviderOptionSetting, ProviderOptionSettings};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
-use sidekicks_provider::driver::binding_switch::check_binding_switch;
+use sidekicks_provider::driver::binding_switch::{check_binding_switch, moved_options};
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::error_causes::ProviderAxis;
 use sidekicks_provider::runtime_binding::store::write_output_speed;
 use sidekicks_session::agents::projection::{AgentRow, StoredPendingSwitch, clear_pending_switch};
-use sidekicks_session::run::stored_leg::read_session_leg;
+use sidekicks_session::run::stored_leg::read_agent_leg;
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventLinkage};
 
 use super::{ProviderSwitchError, ProviderSwitches};
-use crate::orchestration::account_switch::account_state_of;
+use crate::orchestration::binding_switch::account_state_of;
 
 // Where the compare-and-set on the switch id sits in a settlement's write.
 const SWITCH_STANDS_INDEX: usize = 0;
@@ -44,7 +43,7 @@ pub(crate) enum SwitchSettlement {
 
 impl ProviderSwitches {
     /// Settles `switch_id`, the switch `agent_id` has pending, whose target names no provider
-    /// other than the binding's: `applied` in place, with the session's leg taking a speed it
+    /// other than the binding's: `applied` in place, with the agent's own leg taking a speed it
     /// names, or `failed` where its axes no longer check; `Abandoned` once the switch has left the
     /// row. A driver error that refuses no axis of the target surfaces with nothing written.
     pub(crate) async fn settle_in_place(
@@ -79,7 +78,7 @@ impl ProviderSwitches {
                 .await;
         }
         let to = target_binding(&row.binding, target);
-        let leg = read_session_leg(&self.pool, row.session_id).await?;
+        let leg = read_agent_leg(&self.pool, row.session_id, agent_id).await?;
         let landed_provider_account_id = match (&leg, &to.provider_account_id) {
             (Some(leg), _) => leg.spawn_config.provider_account_id.clone(),
             (None, Some(pinned)) => pinned.clone(),
@@ -240,33 +239,6 @@ fn target_binding(
     }
 }
 
-// `current` with each setting of `moved` in place of the one for its option, in order, and each
-// option `current` does not set after them.
-fn moved_options(
-    current: Option<&ProviderOptionSettings>,
-    moved: &ProviderOptionSettings,
-) -> Option<ProviderOptionSettings> {
-    let current = current.map_or(&[][..], ProviderOptionSettings::as_slice);
-    let moved = moved.as_slice();
-    let mut settings: Vec<ProviderOptionSetting> = current
-        .iter()
-        .map(|setting| {
-            moved
-                .iter()
-                .find(|moved| moved.id == setting.id)
-                .unwrap_or(setting)
-                .clone()
-        })
-        .collect();
-    settings.extend(
-        moved
-            .iter()
-            .filter(|setting| !current.iter().any(|kept| kept.id == setting.id))
-            .cloned(),
-    );
-    ProviderOptionSettings::new(settings)
-}
-
 // Why a re-check's refusal of `target` fails the switch, with the account's state exactly on an
 // account failure; `None` for a driver error that refuses nothing of the target, which surfaces.
 fn failure_of(
@@ -333,18 +305,29 @@ mod tests {
     use serde_json::json;
     use sidekicks_contracts::agent::definition::binding::ProviderToken;
     use sidekicks_contracts::agent::provider_binding::{
-        AgentBindingSwitchBoundary, AgentBindingSwitchDisposition, AgentBindingSwitchFailureReason,
-        AgentBindingSwitchPending, AgentBindingSwitchTarget, PendingSwitchStatus, SwitchId,
+        AgentBindingSwitchAccountState, AgentBindingSwitchBoundary, AgentBindingSwitchDisposition,
+        AgentBindingSwitchFailureReason, AgentBindingSwitchPending, AgentBindingSwitchTarget,
+        PendingSwitchStatus, SwitchId,
     };
+    use sidekicks_contracts::event::registry::SessionEventType;
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
+    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::text::FreeFormText;
+    use sidekicks_ipc::domain_error::DomainError;
+    use sidekicks_provider::driver::PROVIDERS;
+    use sidekicks_provider::driver::capabilities::{
+        DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
+    };
     use sidekicks_provider::driver::contract::MockProviderDriver;
-    use sidekicks_session::agents::projection::test_fixture::run_statements;
+    use sidekicks_provider::driver::contract::error::DriverError;
+    use sidekicks_provider::driver::test_registry::{bind_run_to_first_provider, new_run_id};
+    use sidekicks_session::agents::projection::test_fixture::{run_statements, write_log_row};
     use sidekicks_session::agents::projection::{StoredPendingSwitch, write_pending_switch};
 
-    use super::SwitchSettlement;
-    use crate::orchestration::account_switch::mint_switch_id;
+    use super::{SwitchSettlement, failure_of};
+    use crate::orchestration::binding_switch::mint_switch_id;
     use crate::orchestration::provider_switch::tests::{Fixture, MODEL, pending_ids};
 
     fn token(word: &str) -> ProviderToken {
@@ -548,6 +531,120 @@ mod tests {
         assert_eq!(
             logged_types(&fixture.database.reader(), fixture.session_id),
             Vec::<String>::new()
+        );
+    }
+
+    // An in-place speed switch on a session that ran writes the speed into the agent's own leg in
+    // its settlement's write, so the next spawn runs at it. Killed by the speed patch dropped or
+    // aimed at no leg.
+    #[tokio::test]
+    async fn an_in_place_speed_switch_moves_the_agents_leg_to_the_target_speed() {
+        let fixture = Fixture::with_driver(|_| {
+            let mut driver = MockProviderDriver::new();
+            driver
+                .expect_list_models()
+                .returning(|_| async { Ok(Vec::new()) }.boxed());
+            driver
+        })
+        .await;
+        fixture
+            .switches
+            .providers
+            .record_capabilities(
+                &ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id"),
+                DriverCapabilities {
+                    flags: DriverCapabilityFlags::from_fn(|flag| {
+                        flag == DriverCapabilityFlag::OutputSpeed
+                    }),
+                    contract_version: FreeFormText::new("1".to_owned()).expect("a version"),
+                },
+            )
+            .expect("the first provider is registered");
+        // The agent's run, which its log names, bound to a leg.
+        let run_id = new_run_id();
+        write_log_row(
+            &fixture.database.reader(),
+            fixture.session_id,
+            1,
+            (
+                SessionEventType::AgentRunQueued,
+                &json!({ "agentId": fixture.agent_id }),
+            ),
+            Some(run_id),
+            "2026-10-28T09:02:00.000Z",
+        );
+        let leg_id = bind_run_to_first_provider(&fixture.database, run_id);
+        let (switch_id, _) = pending_ids(
+            fixture
+                .accept(json!({ "outputSpeed": "fast" }))
+                .await
+                .expect("the switch is accepted"),
+        );
+
+        let settled = fixture
+            .switches
+            .settle_in_place(fixture.agent_id, switch_id)
+            .await
+            .expect("the settlement answers");
+
+        assert!(
+            matches!(
+                &settled,
+                SwitchSettlement::Settled(disposition)
+                    if matches!(**disposition, AgentBindingSwitchDisposition::Applied { .. })
+            ),
+            "the switch applies: {settled:?}"
+        );
+        let speed: Option<String> = fixture
+            .database
+            .reader()
+            .query_row(
+                "SELECT json_extract(spawn_config, '$.outputSpeed') FROM runtime_bindings
+                  WHERE id = ?1",
+                [leg_id.as_str()],
+                |row| row.get(0),
+            )
+            .expect("the leg reads");
+        assert_eq!(speed.as_deref(), Some("fast"));
+    }
+
+    // A re-check refused for no account registered, or for the account named not found, fails the
+    // switch with `notRegistered`, and one refused for no current account stays undecided. Killed
+    // by either code read as undecided, and by the current account's refusal read as unregistered.
+    #[rstest]
+    #[case::no_account_registered(
+        RefusalCode::ProviderAccountNotRegistered,
+        AgentBindingSwitchAccountState::NotRegistered
+    )]
+    #[case::account_not_found(
+        RefusalCode::ProviderAccountNotFound,
+        AgentBindingSwitchAccountState::NotRegistered
+    )]
+    #[case::no_current_account(
+        RefusalCode::ProviderAccountCurrentNotSet,
+        AgentBindingSwitchAccountState::Indeterminate
+    )]
+    fn an_account_refusal_fails_the_switch_with_the_state_it_names(
+        #[case] code: RefusalCode,
+        #[case] account_state: AgentBindingSwitchAccountState,
+    ) {
+        let refusal = DriverError::from(DomainError::new("the account refused", code));
+        let no_move = AgentBindingSwitchTarget {
+            provider_name: None,
+            model_id: None,
+            provider_account_id: None,
+            effort: None,
+            output_speed: None,
+            options: None,
+            larger_window: None,
+        };
+
+        assert_eq!(
+            failure_of(&refusal, &no_move),
+            Some((
+                AgentBindingSwitchFailureReason::AccountUnavailable,
+                Some(account_state)
+            ))
         );
     }
 }

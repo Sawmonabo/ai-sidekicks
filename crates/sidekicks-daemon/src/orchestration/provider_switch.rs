@@ -41,14 +41,14 @@ use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraftError,
 };
 
-use crate::orchestration::account_switch::mint_switch_id;
+use crate::orchestration::binding_switch::mint_switch_id;
 
 pub(crate) mod apply;
 
 /// The acceptance and settlement of agents' binding switches, one for the daemon; see the module
 /// doc.
 pub(crate) struct ProviderSwitches {
-    /// The daemon's read connections, which read the agent's row and its session's leg.
+    /// The daemon's read connections, which read the agent's row and its own leg.
     pub(crate) pool: Arc<DatabaseReadPool>,
     /// The one writer, which stores or clears the pending switch.
     pub(crate) writer: Arc<DatabaseWriter>,
@@ -62,7 +62,7 @@ pub(crate) struct ProviderSwitches {
     pub(crate) locks: KeyedLock<AgentId>,
 }
 
-/// Why a switch was not accepted or settled: refused, or its row, its session's leg or the accounts
+/// Why a switch was not accepted or settled: refused, or its row, its own leg or the accounts
 /// could not be read, or its pending switch or terminal event could not be written.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ProviderSwitchError {
@@ -84,8 +84,8 @@ pub(crate) enum ProviderSwitchError {
     /// The row's stored change time does not read as an instant.
     #[error("the agent's row holds no readable change time")]
     UpdatedAt(#[from] NotAnInstant),
-    /// The session's leg, whose account a switch lands on, could not be read.
-    #[error("the session's leg could not be read")]
+    /// The agent's own leg, whose account a switch lands on, could not be read.
+    #[error("the agent's leg could not be read")]
     Leg(#[from] RuntimeBindingStoreError),
     /// The provider's current account could not be read.
     #[error("the provider's current account could not be read")]
@@ -290,7 +290,7 @@ mod tests {
     /// The model the agent's binding names.
     pub(super) const MODEL: &str = "model-a";
 
-    // The statements the switches' pool prepares: the agent's row and its session's leg.
+    // The statements the switches' pool prepares: the agent's row and its own leg.
     const READ_STATEMENT_CAPACITY: usize = 4;
 
     /// The agent a fixture's driver is built for, and the database file its rows are in.

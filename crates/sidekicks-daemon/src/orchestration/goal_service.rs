@@ -24,7 +24,7 @@ use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
-use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::registry::{ProviderRegistry, provider_capability_unsupported};
 use sidekicks_provider::driver::session_control::{
     ClearSessionGoalParams, DriverGoalResult, SetSessionGoalParams,
 };
@@ -33,7 +33,7 @@ use sidekicks_provider::runtime_binding::store::{RuntimeBinding, RuntimeBindingS
 use sidekicks_session::agents::projection::{AgentRow, read_agent_row};
 use sidekicks_session::directory::lookups::session_exists;
 use sidekicks_session::run::agent::{RunAgentReadError, read_lead_agent_through};
-use sidekicks_session::run::stored_leg::read_session_leg;
+use sidekicks_session::run::stored_leg::read_agent_leg;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -133,10 +133,10 @@ impl SessionGoals {
         Ok(SessionAcknowledgment { session_id })
     }
 
-    // Checks the session, the agent, that it is the lead and that its provider keeps goals, then
-    // reads the session's leg: the lead's row and the leg, `None` for a session that never ran. No
-    // lock is held past the reads, as a goal sent as a turn opens the binding under the session's
-    // own hold.
+    // Checks the session, the agent and that it is the lead, reads the lead's own leg, `None` for a
+    // session that never ran, then checks that the provider whose driver carries the goal keeps
+    // goals: the leg's, else the row's. Answers the lead's row and the leg. No lock is held past
+    // the reads, as a goal sent as a turn opens the binding under the session's own hold.
     async fn reach_lead(
         &self,
         session_id: SessionId,
@@ -148,11 +148,12 @@ impl SessionGoals {
         if lead != agent_id {
             return Err(not_the_lead(&row).into());
         }
-        self.providers.check_capability(
-            &row.binding.provider_name,
-            DriverCapabilityFlag::SessionGoals,
-        )?;
-        let leg = read_session_leg(&self.pool, session_id).await?;
+        let leg = read_agent_leg(&self.pool, session_id, agent_id).await?;
+        let provider = leg
+            .as_ref()
+            .map_or(&row.binding.provider_name, |leg| &leg.provider_name);
+        self.providers
+            .check_capability(provider, DriverCapabilityFlag::SessionGoals)?;
         Ok((row, leg))
     }
 
@@ -214,15 +215,15 @@ fn not_applied(
 // `provider.capability.unsupported` for an agent other than the session's lead: every provider
 // carries a goal only on the session's own conversation.
 fn not_the_lead(row: &AgentRow) -> DomainError {
-    DomainError::new(
-        "Only the session's lead agent can carry a goal.",
-        RefusalCode::ProviderCapabilityUnsupported,
-    )
-    .with_detail(json!({
-        "agentId": row.agent_id,
-        "providerId": row.binding.provider_name.as_str(),
-        "flag": DriverCapabilityFlag::SessionGoals,
-    }))
+    let mut refusal = provider_capability_unsupported(
+        &row.binding.provider_name,
+        DriverCapabilityFlag::SessionGoals,
+    );
+    refusal
+        .detail
+        .get_or_insert_default()
+        .insert("agentId".to_owned(), json!(row.agent_id));
+    refusal
 }
 
 #[cfg(test)]
@@ -242,7 +243,6 @@ mod tests {
         SessionGoal, SessionGoalClearRequest, SessionGoalUpdateRequest, SessionGoalUpdateResponse,
     };
     use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_provider::driver::capabilities::{
@@ -251,7 +251,7 @@ mod tests {
     use sidekicks_provider::driver::contract::MockProviderDriver;
     use sidekicks_provider::driver::session_control::{DriverGoalResult, SetSessionGoalParams};
     use sidekicks_provider::driver::test_registry::{
-        bind_run_to_first_provider, new_run_id, registry_of_first_provider,
+        bind_run_to_first_provider, new_agent_id, new_run_id, registry_of_first_provider,
     };
     use sidekicks_provider::port::session_wake::SessionWaker;
     use sidekicks_session::agents::projection::test_fixture::{
@@ -303,14 +303,17 @@ mod tests {
         // The session after its lead ran once.
         fn new() -> Self {
             let fixture = Self::never_ran();
-            let reader = fixture.database.opener()().expect("the test opens its database");
+            let reader = fixture.database.reader();
             // The lead's run, which the session's log names, bound to a conversation.
             let leg_run_id = new_run_id();
             write_log_row(
                 &reader,
                 fixture.session_id,
                 1,
-                (SessionEventType::AgentRunQueued, &json!({})),
+                (
+                    SessionEventType::AgentRunQueued,
+                    &json!({ "agentId": fixture.lead }),
+                ),
                 Some(leg_run_id),
                 "2026-10-28T09:02:00.000Z",
             );
@@ -338,7 +341,7 @@ mod tests {
                 session_id,
                 &session_created(session_id, lead.text().as_str(), &agent_binding),
             );
-            let helper = mint_agent_id();
+            let helper = new_agent_id();
             project(
                 &reader,
                 session_id,
@@ -350,7 +353,7 @@ mod tests {
                 ),
             );
             let other_session_id = test_session_id();
-            let stranger = mint_agent_id();
+            let stranger = new_agent_id();
             project(
                 &reader,
                 other_session_id,
@@ -399,10 +402,6 @@ mod tests {
         fn calls(&self) -> Vec<&'static str> {
             lock(&self.calls).clone()
         }
-    }
-
-    fn mint_agent_id() -> AgentId {
-        AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id")
     }
 
     fn goal() -> SessionGoal {
@@ -521,9 +520,9 @@ mod tests {
         assert_eq!(refusal_code(cleared), RefusalCode::SessionGoalNotApplied);
     }
 
-    // A set wakes the session before the provider is asked, with the session and the goal as typed,
-    // and echoes the goal. Killed by the wake dropped or moved after the dispatch, and by the params
-    // built on another session or text.
+    // A set wakes the session before the provider is asked, with the session and the goal as
+    // typed, and echoes the goal. Killed by the wake dropped or moved after the dispatch, and by
+    // the params built on another session or text.
     #[tokio::test]
     async fn a_goal_set_wakes_the_session_before_the_leg_carries_it() {
         let fixture = Fixture::new();
