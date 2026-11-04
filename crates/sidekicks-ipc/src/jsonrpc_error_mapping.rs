@@ -53,7 +53,8 @@ const TRUNCATED_DEPTH: &str = "<truncated:max-depth>";
 /// What stands for the rest once [`FIELDS_MAX_NODES`] are kept.
 const TRUNCATED_NODES: &str = "<truncated:max-nodes>";
 
-/// The `mcp.server.configFileInvalid` member whose strings keep their paths.
+/// The `mcp.server.configFileInvalid` member whose strings keep their paths: the camelCase serde
+/// name of `McpServerConfigFileInvalidDetails::config_files` in the contracts' MCP governance.
 const CONFIG_FILES_MEMBER: &str = "configFiles";
 
 /// Member names a JavaScript reader treats as an object's prototype machinery, left out at every

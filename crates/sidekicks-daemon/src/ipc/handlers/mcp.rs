@@ -1,9 +1,9 @@
 //! The `mcp.*` methods: the server inventory's reads, the public MCP Registry's search, the
-//! binding edits the mutation service answers, and `mcp.subscribe`, the MCP governance stream: the stored governance events of the daemon-scope
-//! sentinel session's log, followed from its head when the call is taken, and the newest notice per
-//! key from the status tracker's notice board, the stream's place in the board taken before the
-//! acknowledgment goes out, so a notice sent after it is read and none falls between the call and
-//! a first `mcp.server.list`.
+//! binding edits the mutation service answers, and `mcp.subscribe`, the MCP governance stream: the
+//! stored governance events of the daemon-scope sentinel session's log, followed from its head when
+//! the call is taken, and the newest notice per key from the status tracker's notice board, the
+//! stream's place in the board taken before the acknowledgment goes out, so a notice sent after it
+//! is read and none falls between the call and a first `mcp.server.list`.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, LazyLock};
@@ -66,9 +66,8 @@ pub(crate) struct McpMethodSources {
 
 /// Registers `mcp.server.list`, `mcp.server.read`, `mcp.server.upsert`,
 /// `mcp.server.enabled.update` and `mcp.subscribe` over `sources`, and `mcp.registry.search` over
-/// a registry client built here. A first read of the log that fails
-/// refuses the subscription with nothing open. Fails the start when a method is already
-/// registered.
+/// a registry client built here. A first read of the log that fails refuses the subscription with
+/// nothing open. Fails the start when a method is already registered.
 pub(crate) fn register_mcp_methods(
     registry: &mut MethodRegistryBuilder,
     sources: McpMethodSources,

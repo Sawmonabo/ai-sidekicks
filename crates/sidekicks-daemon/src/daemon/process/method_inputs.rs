@@ -1,9 +1,10 @@
 //! What the daemon's start builds over its store, its providers and its repository services for the
-//! serving socket: the session directory's port, the session services, the terminals' table, the
-//! project and clone services, the worktree creator and its setup card, the workspace services,
-//! the recovery services and the stored data's methods, then every method table registered over
-//! them; it hands back the parts the start runs next and the stop ends.
+//! serving socket: the MCP services, the session directory's port, the session services, the
+//! terminals' table, the project and clone services, the worktree creator and its setup card, the
+//! workspace services, the recovery services and the stored data's methods, then every method
+//! table registered over them; it hands back the parts the start runs next and the stop ends.
 
+mod mcp;
 mod recovery;
 
 use std::error::Error;
@@ -21,15 +22,10 @@ use sidekicks_contracts::wire::text::{BoundedText, TextError};
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_ipc::presence::PresenceRegister;
 use sidekicks_ipc::registry::{HandlerError, MethodRegistryBuilder, RegistrationError};
-use sidekicks_mcp::binding::resolver::McpAttributionTable;
-use sidekicks_mcp::binding::store::{McpBindingStore, open_first_observation_drain};
 use sidekicks_mcp::client::dispatch::McpToolDispatch;
 use sidekicks_mcp::client::{McpClient, McpClientError};
-use sidekicks_mcp::inventory_service::{McpInventoryService, McpInventorySources};
-use sidekicks_mcp::mutation::service::{McpMutationService, McpMutationSources};
-use sidekicks_mcp::status::McpServerStatusTracker;
-use sidekicks_mcp::status::machine_probe::McpMachineProbeGate;
-use sidekicks_mcp::status::notices::McpNoticeBoard;
+use sidekicks_mcp::inventory_service::McpInventoryService;
+use sidekicks_mcp::mutation::service::McpMutationService;
 use sidekicks_platforms::{
     DaemonRunFolder, Spawner, TOOL_MEMORY_CAP_ENFORCEABLE, WallClock, available_memory,
     physical_memory, read_process_peak_bytes,
@@ -60,7 +56,6 @@ use sidekicks_shell::orphan::guard::OrphanGuard;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
 use sidekicks_std::scheduler::Scheduler;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::credential_store::items::SecretItems;
 use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::machine::identity_key::MachineIdentity;
@@ -87,6 +82,7 @@ use crate::daemon::machine_settings::methods::{
     FindBranchPatternRefusal, MachineSettingsMethodsDeps,
 };
 use crate::daemon::process::database::DatabaseFile;
+use crate::daemon::process::method_inputs::mcp::{McpGovernanceStart, open_mcp_status};
 use crate::daemon::process::method_inputs::recovery::{
     RecoveryServiceStart, RecoveryServices, build_recovery_services,
 };
@@ -338,17 +334,7 @@ pub(crate) async fn register_method_inputs(
     let settings_reader: Arc<dyn MachineSettingsReader> = Arc::clone(&settings) as _;
     let epochs = Arc::clone(&providers.epochs);
     let binding_cursors = Arc::clone(&providers.binding_cursors);
-    let mcp_binding_store = McpBindingStore::new(Arc::clone(&writer), Arc::clone(&reads));
-    // The status tracker sends each binding it first observes to the drain, which records it.
-    let (first_observations, mcp_first_observations) =
-        open_first_observation_drain(mcp_binding_store.clone()).await;
-    let mcp_notice_board = Arc::new(McpNoticeBoard::default());
-    // One table, so the inventory's reads refresh what the status producers resolve names by.
-    let mcp_attribution = Arc::new(McpAttributionTable::default());
-    let mcp_status = Arc::new(McpServerStatusTracker::new(
-        Arc::clone(&mcp_notice_board),
-        first_observations,
-    ));
+    let mcp = open_mcp_status(&writer, &reads).await;
     let port = build_provider_port(ProviderPortStart {
         reads: Arc::clone(&reads),
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
@@ -357,29 +343,17 @@ pub(crate) async fn register_method_inputs(
         settings: Arc::clone(&settings_reader),
         plan_holds: plan_holds.as_ref(),
         ports: &providers.ports,
-        mcp_status: Arc::clone(&mcp_status),
-        mcp_attribution: Arc::clone(&mcp_attribution),
+        mcp_status: Arc::clone(&mcp.status),
+        mcp_attribution: Arc::clone(&mcp.attribution),
+        mcp_tool_servers: Arc::clone(&mcp.session_tool_servers),
     })?;
-    let mcp_inventory = Arc::new(McpInventoryService::new(McpInventorySources {
-        providers: Arc::clone(&registry),
-        reads: Arc::clone(&reads),
-        // The accounts read's time on the pool, over the daemon's life.
-        meter: ProcessorMeter::default(),
-        projects: Arc::clone(&port.project_records),
-        store: mcp_binding_store,
-        tracker: Arc::clone(&mcp_status),
-        attribution: mcp_attribution,
-        probe_gate: Arc::new(McpMachineProbeGate::default()),
-    }));
-    let mcp_mutations = Arc::new(McpMutationService::new(McpMutationSources {
-        providers: Arc::clone(&registry),
-        inventory: Arc::clone(&mcp_inventory),
-        keychain: Arc::new(secret_items.keychain(KeychainService::McpReceiptKey)),
-        writer: Arc::clone(&writer),
-        reads: Arc::clone(&reads),
-        removal_rows: None,
-        board: Arc::clone(&mcp_notice_board),
-    }));
+    let (mcp_inventory, mcp_mutations) = mcp.build_governance(McpGovernanceStart {
+        providers: &registry,
+        projects: &port.project_records,
+        secret_items: &secret_items,
+        writer: &writer,
+        reads: &reads,
+    });
     let worktree_sources = Arc::new(WorktreeSources {
         reads: Arc::clone(&reads),
         records: Arc::clone(&port.project_records),
@@ -497,8 +471,8 @@ pub(crate) async fn register_method_inputs(
         token_limits: Arc::new(token_limits),
         halted_runs: Arc::clone(&database.status) as Arc<dyn HaltedRunRecord>,
         scheduler: Arc::clone(&scheduler),
-        mcp_status: Arc::clone(&mcp_status),
-        mcp_first_observations: mcp_first_observations.boxed(),
+        mcp_status: Arc::clone(&mcp.status),
+        mcp_first_observations: mcp.first_observations,
     })?;
     let accounts = build_provider_account_plane(ProviderAccountPlaneStart {
         reads: Arc::clone(&reads),
@@ -765,7 +739,7 @@ pub(crate) async fn register_method_inputs(
             event_log: Arc::clone(&database.event_log),
             mcp_methods: McpMethodSources {
                 log: Arc::clone(&database.event_log),
-                board: mcp_notice_board,
+                board: mcp.board,
                 inventory: Arc::clone(&mcp_inventory),
                 mutations: Arc::clone(&mcp_mutations),
             },
@@ -798,10 +772,11 @@ pub(crate) async fn register_method_inputs(
             },
             mcp_servers: McpServerMethods {
                 sources: Arc::clone(&driver_methods),
-                statuses: mcp_status,
+                statuses: mcp.status,
                 client: Arc::clone(&mcp_client),
                 spawner: resource_copy_spawner,
                 reserved_names: Arc::clone(&providers.reserved_names),
+                followers: Arc::clone(&database.followers),
             },
             session_controls: SessionControlMethods {
                 sources: driver_methods,

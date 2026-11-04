@@ -33,6 +33,21 @@ pub(crate) struct McpBindingRow {
     pub(crate) stored: Option<McpStoredBinding>,
 }
 
+impl McpBindingRow {
+    /// Whether the binding's own switch leaves it on: the daemon's switch where it keeps the
+    /// binding's, else the declaration's own `enabled`, on where it sets none; `None` where the
+    /// daemon keeps the switch and the store did not answer.
+    pub(crate) fn own_switch(&self) -> Option<bool> {
+        let is_declared_on = !is_off_by_default(&self.declaration.config);
+        if !self.declaration.is_switch_kept_by_daemon {
+            return Some(is_declared_on);
+        }
+        self.stored
+            .as_ref()
+            .map(|stored| stored.enabled_override.unwrap_or(is_declared_on))
+    }
+}
+
 /// Folds one provider's reading into its binding rows, the account servers' among them, one row
 /// per binding and none merged across scopes. A `local` row of the store that the reading does not
 /// declare, matching a user entry of the same name that is off by default, is the emulated
@@ -42,16 +57,20 @@ pub(crate) fn resolve_binding_rows(
     reading: &ProviderMcpServersReading,
     stored: Option<&McpStoredBindings>,
 ) -> Vec<McpBindingRow> {
-    let declarations: Vec<&McpServerDeclaration> = reading
-        .declarations
-        .iter()
-        .chain(
-            reading
-                .account_servers
-                .iter()
-                .flat_map(|account| &account.declarations),
-        )
-        .collect();
+    let declarations = reading.declarations.iter().chain(
+        reading
+            .account_servers
+            .iter()
+            .flat_map(|account| &account.declarations),
+    );
+    resolve_declared_rows(declarations.collect(), stored)
+}
+
+/// Folds `declarations` into their binding rows as [`resolve_binding_rows`] folds a reading's.
+pub(crate) fn resolve_declared_rows(
+    declarations: Vec<&McpServerDeclaration>,
+    stored: Option<&McpStoredBindings>,
+) -> Vec<McpBindingRow> {
     let emulated_locals: Vec<&McpServerBindingRef> = stored
         .map(|stored| {
             stored
@@ -162,12 +181,13 @@ const ROOT_FREE_SCOPES: [McpBindingScope; 4] = [
 
 /// Which binding each server name a session reports resolves to, per provider and project root:
 /// what the provider loads there by its own config, and for a session in no root, the provider's
-/// root-free bindings; a session's own set of tool servers is read by its status producer first. It sits behind a lock taken only for
-/// a lookup or a replacement, never across an await, so a status producer reads it without
-/// waiting. Each read that replaces it is stamped before its driver read, so an older read that
-/// finishes later replaces nothing but, where it asked the accounts and no later read that asked
-/// them has replaced their bindings, those; a leg holding a report no name resolved waits on it
-/// and is handed each replacement.
+/// root-free bindings; a session's own set of tool servers is read by its status producer first.
+/// It also keeps the declarations each provider's own config made, which a session's set is
+/// composed from. It sits behind a lock taken only for a lookup or a replacement, never across an
+/// await, so a status producer reads it without waiting. Each read that replaces it is stamped
+/// before its driver read, so an older read that finishes later replaces nothing but, where it
+/// asked the accounts and no later read that asked them has replaced their bindings, those; a leg
+/// holding a report no name resolved waits on it and is handed each replacement.
 #[derive(Debug, Default)]
 pub struct McpAttributionTable {
     roots: Mutex<McpAttributionRoots>,
@@ -204,8 +224,8 @@ struct McpAttributionRoots {
     /// The provider's bindings in no project root (managed, user, plugin and connector), from its
     /// own and its accounts' declared bindings, which a session in no root loads.
     root_free: HashMap<ProviderId, HashMap<McpServerName, McpServerBindingRef>>,
-    /// The bindings each provider's own config declared at the newest read that replaced them.
-    config_declared: HashMap<ProviderId, Vec<McpServerBindingRef>>,
+    /// The declarations each provider's own config made at the newest read that replaced them.
+    config_declarations: HashMap<ProviderId, Vec<McpServerDeclaration>>,
     /// The bindings each provider's accounts declared at the newest read that asked them.
     account_declared: HashMap<ProviderId, Vec<McpServerBindingRef>>,
     /// The stamp of the newest read that replaced each provider's bindings.
@@ -256,11 +276,6 @@ impl McpAttributionTable {
         stamp: u64,
     ) -> bool {
         let loaded = read_provider_loaded(reading);
-        let config_declared: Vec<McpServerBindingRef> = reading
-            .declarations
-            .iter()
-            .map(|declaration| declaration.binding.clone())
-            .collect();
         let is_later = |applied: Option<&u64>| applied.is_some_and(|applied| *applied > stamp);
         let is_newest = {
             let mut roots = lock(&self.roots);
@@ -284,16 +299,17 @@ impl McpAttributionTable {
             }
             if is_newest {
                 roots
-                    .config_declared
-                    .insert(provider.clone(), config_declared);
+                    .config_declarations
+                    .insert(provider.clone(), reading.declarations.clone());
                 roots.provider_loaded.insert(provider.clone(), loaded);
                 roots.applied_stamps.insert(provider.clone(), stamp);
             }
             let declared: Vec<&McpServerBindingRef> = roots
-                .config_declared
+                .config_declarations
                 .get(provider)
                 .into_iter()
                 .flatten()
+                .map(|declaration| &declaration.binding)
                 .chain(roots.account_declared.get(provider).into_iter().flatten())
                 .collect();
             let root_free = find_root_free(&declared);
@@ -302,6 +318,24 @@ impl McpAttributionTable {
         };
         self.resolve_waiting_legs();
         is_newest
+    }
+
+    /// The declarations `provider`'s own config made at the newest read that replaced them, none
+    /// before a read did.
+    pub(crate) fn config_declarations(&self, provider: &ProviderId) -> Vec<McpServerDeclaration> {
+        lock(&self.roots)
+            .config_declarations
+            .get(provider)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Replaces what the table holds of `provider` with `reading`, as an inventory read that
+    /// asked the accounts does, for another crate's tests.
+    #[cfg(feature = "test-support")]
+    pub fn replace_with_reading(&self, provider: &ProviderId, reading: &ProviderMcpServersReading) {
+        let stamp = self.stamp_read();
+        self.replace_provider_loaded(provider, reading, McpAccountsAsked::Asked, stamp);
     }
 
     // Hands every leg waiting on the table the replacement, each resolving its held reports again.

@@ -28,6 +28,9 @@ use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::TextError;
 use sidekicks_mcp::binding::resolver::McpAttributionTable;
+use sidekicks_mcp::binding::session_tool_servers::{
+    McpSessionToolServers, McpSessionToolServersError,
+};
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_provider::driver::ports::SessionRelaunchListener;
 use sidekicks_provider::driver::session_control::{
@@ -164,6 +167,9 @@ pub enum SessionDirectoryProviderPortError {
     /// The session's project root is no path its MCP servers can be attributed at.
     #[error("the session's project root is no path its MCP servers can be attributed at")]
     McpRootPath(#[source] TextError),
+    /// The set of tool servers the session opens with could not be composed.
+    #[error("the session's tool servers could not be read")]
+    McpToolServers(#[source] McpSessionToolServersError),
 }
 
 /// Why a session's git folder is unavailable, each answered as a refusal rather than a fault.
@@ -223,6 +229,8 @@ pub struct SessionDirectoryProviderPortDeps {
     pub mcp_status: Arc<McpServerStatusTracker>,
     /// Which binding each server name a session reports resolves to at its root.
     pub mcp_attribution: Arc<McpAttributionTable>,
+    /// The set of tool servers each opening sends.
+    pub mcp_tool_servers: Arc<McpSessionToolServers>,
 }
 
 /// The session directory's reads and records that the provider side calls: the spawn context of
@@ -249,9 +257,10 @@ impl SessionDirectoryProviderPort {
     /// What `session_id`'s provider session opens with on `provider_account_id`'s account: its
     /// lead's provider, the model it runs on now and the effort, output speed, options and larger
     /// window its binding names, at the posture of the level it stands at, in the mode it was last
-    /// moved to, with the row values set in the app for that provider, and each binding's function
-    /// legs. Fails for a session with no lead or no workspace, as the reads, git or the settings
-    /// file fail, and when its project root is no path.
+    /// moved to, with the row values set in the app for that provider, the person's tool servers
+    /// at the session's project root, and each binding's function legs. Fails for a session with
+    /// no lead or no workspace, as the reads, git or the settings file fail, and when its project
+    /// root is no path.
     pub async fn compose_opening(
         &self,
         session_id: SessionId,
@@ -268,6 +277,17 @@ impl SessionDirectoryProviderPort {
             running_model,
         } = lead;
         let row_values = row_values_of(&standing.provider_settings, &binding.provider_name);
+        let root = self
+            .deps
+            .project_records
+            .read_project_root_of_session(session_id)
+            .await?;
+        let tool_servers = self
+            .deps
+            .mcp_tool_servers
+            .compose(&binding.provider_name, root.as_ref())
+            .await
+            .map_err(SessionDirectoryProviderPortError::McpToolServers)?;
         let create_params = CreateSessionParams {
             session_id,
             agent_id,
@@ -283,23 +303,22 @@ impl SessionDirectoryProviderPort {
                 .map(|options| options.as_slice().to_vec())
                 .unwrap_or_default(),
             row_values,
-            // The session's tool servers and callback tools are bound by their own owners.
+            // The session's callback tools are bound by their own owner.
             callback_tools: None,
             subagent_policy: None,
-            tool_servers: None,
+            tool_servers: Some(tool_servers),
             output_schema: None,
             provider_account_id,
             // No agent definition or workflow step names an account of its own yet.
             account_pin: SessionAccountPin::FollowsCurrent,
             on_mcp_server_status: None,
         };
-        let function_legs_for = self
-            .compose_function_legs(
-                session_id,
-                binding.provider_name.clone(),
-                create_params.tool_servers.as_deref().unwrap_or_default(),
-            )
-            .await?;
+        let function_legs_for = self.compose_function_legs(
+            session_id,
+            binding.provider_name.clone(),
+            root.as_ref(),
+            create_params.tool_servers.as_deref().unwrap_or_default(),
+        )?;
         Ok(SessionProviderOpening {
             git_folder: standing.git_folder,
             create_params,

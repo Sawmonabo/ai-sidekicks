@@ -1,4 +1,4 @@
-//! The port's relaunch record, its run folder and its git folder.
+//! The port's opening's tool servers, its relaunch record, its run folder and its git folder.
 
 use std::error::Error;
 use std::num::NonZeroUsize;
@@ -10,8 +10,12 @@ use futures::future::BoxFuture;
 use rstest::rstest;
 use rusqlite::{Connection, params};
 use serde_json::{Value, json};
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::settings::MachineSettings;
-use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpServerStatus};
+use sidekicks_contracts::mcp::server::config::McpServerConfigView;
+use sidekicks_contracts::mcp::server::{
+    McpApprovalMode, McpBindingScope, McpServerBindingRef, McpServerName, McpServerStatus,
+};
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -22,8 +26,13 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_ipc::stream::feed::{CreditGate, Feed};
 use sidekicks_mcp::binding::resolver::McpAttributionTable;
+use sidekicks_mcp::binding::session_tool_servers::McpSessionToolServers;
+use sidekicks_mcp::binding::store::{MCP_BINDING_STORE_STATEMENT_CAPACITY, McpBindingStore};
 use sidekicks_mcp::status::open_test_tracker;
 use sidekicks_platforms::Spawner;
+use sidekicks_provider::driver::mcp_server::read::{
+    McpServerDeclaration, McpServerPolicy, McpServerToolDefaults, ProviderMcpServersReading,
+};
 use sidekicks_provider::driver::mcp_server::status::{McpServerReading, McpServerStatusEmission};
 use sidekicks_provider::driver::ports::SessionRelaunchListener;
 use sidekicks_provider::driver::session_control::{DriverResumeResult, SessionToolServer};
@@ -39,7 +48,11 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
-use sidekicks_store::database::writer::test_file::{TestDatabase, test_run_id, test_session_id};
+use sidekicks_store::database::writer::test_file::{
+    TestDatabase, insert_lead, test_run_id, test_session_id,
+};
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+use sidekicks_workspace::git::process::test_repository::make_test_repository;
 use sidekicks_workspace::git::process::{GitLimits, GitRunner, test_git_runner};
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use sidekicks_workspace::project::records::{
@@ -86,6 +99,7 @@ struct PortOverLeg<FirstObservations> {
     epochs: Arc<Mutex<ExecutionEpochs>>,
     leg_id: RuntimeBindingId,
     first_observations: FirstObservations,
+    mcp_attribution: Arc<McpAttributionTable>,
 }
 
 // A port over a session whose leg was stored with `spawn_config`.
@@ -102,7 +116,8 @@ async fn port_over_a_leg(
         database.path(),
         SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY
             + RUN_BINDING_CURSORS_STATEMENT_CAPACITY
-            + PROJECT_RECORDS_STATEMENT_CAPACITY,
+            + PROJECT_RECORDS_STATEMENT_CAPACITY
+            + MCP_BINDING_STORE_STATEMENT_CAPACITY,
     ));
     let epochs = Arc::new(Mutex::new(ExecutionEpochs::new(
         NonZeroUsize::new(8).expect("the cap is not zero"),
@@ -124,6 +139,11 @@ async fn port_over_a_leg(
         .expect("the leg is recorded");
     // The session is in no project, so its relaunch's leg attributes at no root.
     let (mcp_status, _subscriber, first_observations) = open_test_tracker().await;
+    let mcp_attribution = Arc::new(McpAttributionTable::default());
+    let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+        .await
+        .expect("the writer opens its database");
+    let mcp_store = McpBindingStore::new(Arc::new(writer), Arc::clone(&pool));
     let port = SessionDirectoryProviderPort::new(SessionDirectoryProviderPortDeps {
         pool: Arc::clone(&pool),
         read_damaged_from_sequence: Arc::new(|_: &SessionId| None),
@@ -133,7 +153,11 @@ async fn port_over_a_leg(
         project_records: Arc::new(ProjectRecords::new(Arc::clone(&pool), Arc::new(Unread))),
         provider_accounts: Arc::new(PortRegistration::new("provider accounts")),
         mcp_status,
-        mcp_attribution: Arc::new(McpAttributionTable::default()),
+        mcp_attribution: Arc::clone(&mcp_attribution),
+        mcp_tool_servers: Arc::new(McpSessionToolServers::new(
+            Arc::clone(&mcp_attribution),
+            mcp_store,
+        )),
     });
     PortOverLeg {
         port,
@@ -141,6 +165,7 @@ async fn port_over_a_leg(
         epochs,
         leg_id,
         first_observations,
+        mcp_attribution,
     }
 }
 
@@ -322,6 +347,123 @@ async fn a_relaunch_resolves_the_set_its_binding_stored() {
         "{first_observed:?}"
     );
     drop(producer);
+}
+
+// An opening at `/repos/app` sends the person's `user` binding on, the project's own binding of
+// that root off as the daemon's switch keeps it, and leaves another project's binding out. Killed
+// by an opening that sends no set, by a set that keeps every project's bindings, and by a set that
+// ignores the store's switch.
+#[tokio::test]
+async fn an_opening_sends_the_persons_servers_at_its_root() {
+    let database = TestDatabase::new(schema_parts());
+    let session_id = test_session_id();
+    let PortOverLeg {
+        port,
+        mcp_attribution,
+        ..
+    } = port_over_a_leg(
+        &database,
+        session_id,
+        test_git_runner(),
+        spawn_config_on(test_provider_account_id()),
+    )
+    .await;
+    let connection = database.reader();
+    store_session_and_mount(&connection, session_id);
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let repository = make_test_repository(&test_git_runner(), folder.path(), "app").await;
+    let fs_root = repository.to_string_lossy().into_owned();
+    insert_workspace(
+        &connection,
+        session_id,
+        "live",
+        WorkspaceState::Ready,
+        Some(&fs_root),
+        &json!({}),
+        "2026-10-14T09:30:00.000Z",
+    );
+    insert_lead(&database, session_id, PROVIDERS[0].id);
+    let provider =
+        ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id is a provider id");
+    let project_binding = |root: &str, name: &str| McpServerBindingRef::Project {
+        provider: provider.clone(),
+        scope_ref: FilesystemPath::new(root.to_owned()).expect("a test path is a path"),
+        place: None,
+        server_name: McpServerName::new(name.to_owned()).expect("a server name"),
+    };
+    let user_docs = McpServerBindingRef::User {
+        provider: provider.clone(),
+        server_name: McpServerName::new("docs".to_owned()).expect("a server name"),
+    };
+    let app_tracker = project_binding("/repos/app", "tracker");
+    let declaration = |binding: &McpServerBindingRef| McpServerDeclaration {
+        binding: binding.clone(),
+        config: McpServerConfigView::Stdio {
+            command: "server".to_owned(),
+            args: None,
+            env_var_names: None,
+            enabled: None,
+            required: None,
+            startup_timeout_sec: None,
+            tool_timeout_sec: None,
+        },
+        superseded_in: Vec::new(),
+        disabled_in: Vec::new(),
+        is_read_only: false,
+        sign_in_client: None,
+        is_switch_kept_by_daemon: true,
+        tool_defaults: McpServerToolDefaults::with_approval_mode(McpApprovalMode::Auto),
+        organization_managed: None,
+    };
+    mcp_attribution.replace_with_reading(
+        &provider,
+        &ProviderMcpServersReading {
+            declarations: [
+                &user_docs,
+                &app_tracker,
+                &project_binding("/repos/other", "mail"),
+            ]
+            .into_iter()
+            .map(declaration)
+            .collect(),
+            roots: Vec::new(),
+            is_machine_managed: false,
+            server_policy: McpServerPolicy::default(),
+            account_servers: Vec::new(),
+            probe_readings: Vec::new(),
+        },
+    );
+    connection
+        .execute(
+            "INSERT INTO mcp_server_bindings (provider, scope, scope_ref, scope_place, \
+             server_name, enabled_override, first_observed_at, updated_at) \
+             VALUES (?1, ?2, '/repos/app', '', 'tracker', 0, ?3, ?3)",
+            params![
+                provider.as_str(),
+                <&'static str>::from(McpBindingScope::Project),
+                "2026-10-14T09:30:00.000Z"
+            ],
+        )
+        .expect("the daemon's switch of the project's server is stored");
+
+    let opening = port
+        .compose_opening(session_id, test_provider_account_id())
+        .await
+        .expect("the session opens");
+
+    assert_eq!(
+        opening.create_params.tool_servers,
+        Some(vec![
+            SessionToolServer {
+                binding: user_docs,
+                is_enabled: true,
+            },
+            SessionToolServer {
+                binding: app_tracker,
+                is_enabled: false,
+            },
+        ])
+    );
 }
 
 // The run folder is the session's newest live workspace's prepared root, else the folder it

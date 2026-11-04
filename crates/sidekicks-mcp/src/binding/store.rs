@@ -197,7 +197,7 @@ impl McpBindingKey {
 
 /// Why the binding store did not record a binding's first observation or answer a read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum McpBindingStoreError {
+pub enum McpBindingStoreError {
     /// The row's write failed.
     #[error("the MCP binding's first observation could not be recorded")]
     Write(#[source] WriteError),

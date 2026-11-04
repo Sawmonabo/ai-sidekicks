@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use futures::FutureExt as _;
 use sidekicks_mcp::binding::resolver::McpAttributionTable;
+use sidekicks_mcp::binding::session_tool_servers::McpSessionToolServers;
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_provider::driver::SessionSpawnContextResolver;
 use sidekicks_provider::driver::ports::{DriverPorts, SessionRelaunchListener};
@@ -48,6 +49,8 @@ pub(crate) struct ProviderPortStart<'start> {
     pub(crate) mcp_status: Arc<McpServerStatusTracker>,
     /// Which binding each server name a session reports resolves to at its root.
     pub(crate) mcp_attribution: Arc<McpAttributionTable>,
+    /// The set of tool servers each opening sends.
+    pub(crate) mcp_tool_servers: Arc<McpSessionToolServers>,
 }
 
 /// The session directory's answers to the providers, and the project records they read.
@@ -76,6 +79,7 @@ pub(crate) fn build_provider_port(
         ports,
         mcp_status,
         mcp_attribution,
+        mcp_tool_servers,
     } = start;
     let project_records = Arc::new(ProjectRecords::new(
         Arc::clone(&reads),
@@ -92,6 +96,7 @@ pub(crate) fn build_provider_port(
             provider_accounts: Arc::clone(&ports.provider_accounts),
             mcp_status,
             mcp_attribution,
+            mcp_tool_servers,
         },
     ));
     ports

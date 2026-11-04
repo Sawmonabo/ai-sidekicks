@@ -29,10 +29,9 @@ use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
 use tokio_util::task::AbortOnDropHandle;
 use x25519_dalek::{PublicKey, StaticSecret};
-use zeroize::Zeroizing;
 
 use crate::credential_store::items::SecretItems;
-use crate::credential_store::seed_item::{encode_seed, item_seed, random_seed};
+use crate::credential_store::seed_item::{SEED_LENGTH, Seed, encode_seed, item_seed, random_seed};
 use crate::credential_store::service::KeychainService;
 use crate::credential_store::{KeychainRefusal, SecretKeychain};
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
@@ -40,7 +39,7 @@ use crate::database::statement::{StatementBindings, WriteStatement, text_binding
 use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::machine::local::LocalMachine;
 
-// The bytes of a seed and of a public half.
+// The bytes of a public half and of the channel key's secret.
 const KEY_LENGTH: usize = 32;
 
 const SELECT_IDENTITY_PIN_SQL: &str =
@@ -421,11 +420,7 @@ impl MachineKeyStore {
     }
 
     // Writes `seed` under `account` and reads it back before the key is used.
-    async fn write_item(
-        &self,
-        account: &str,
-        seed: &Zeroizing<[u8; KEY_LENGTH]>,
-    ) -> Result<(), KeychainRefusal> {
+    async fn write_item(&self, account: &str, seed: &Seed) -> Result<(), KeychainRefusal> {
         self.keychain
             .write_verified(account, &encode_seed(seed))
             .await
@@ -682,7 +677,7 @@ trait PinnedKey: Sized {
     const ROLE: KeyRole;
 
     /// The key `seed` makes.
-    fn from_seed(seed: &[u8; KEY_LENGTH]) -> Self;
+    fn from_seed(seed: &[u8; SEED_LENGTH]) -> Self;
 
     /// The key's public half, which its pin holds.
     fn public_half(&self) -> [u8; KEY_LENGTH];
@@ -694,7 +689,7 @@ trait PinnedKey: Sized {
 impl PinnedKey for SigningKey {
     const ROLE: KeyRole = KeyRole::Identity;
 
-    fn from_seed(seed: &[u8; KEY_LENGTH]) -> Self {
+    fn from_seed(seed: &[u8; SEED_LENGTH]) -> Self {
         Self::from_bytes(seed)
     }
 
@@ -710,7 +705,7 @@ impl PinnedKey for SigningKey {
 impl PinnedKey for StaticSecret {
     const ROLE: KeyRole = KeyRole::Channel;
 
-    fn from_seed(seed: &[u8; KEY_LENGTH]) -> Self {
+    fn from_seed(seed: &[u8; SEED_LENGTH]) -> Self {
         Self::from(*seed)
     }
 
@@ -730,7 +725,7 @@ struct Resolved<Key> {
 }
 
 impl<Key: PinnedKey> Resolved<Key> {
-    fn of_seed(seed: &Zeroizing<[u8; KEY_LENGTH]>) -> Self {
+    fn of_seed(seed: &Seed) -> Self {
         let key = Key::from_seed(seed);
         Self {
             public_half: key.public_half(),
