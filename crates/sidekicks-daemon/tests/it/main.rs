@@ -10,3 +10,4 @@ mod recovery;
 mod search_index_build;
 mod shell_mode;
 mod spawn_cwd_translator;
+mod terminal_drain;
