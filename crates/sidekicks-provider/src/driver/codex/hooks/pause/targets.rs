@@ -90,12 +90,16 @@ impl CodexRunPauses {
             })
     }
 
-    // Whether a pause holds the helper conversation `thread_id`.
+    // Whether a pause holds the helper conversation `thread_id`; a pause outliving its run, which
+    // the helper's own next call lets go, holds nothing. Run control is asked outside the lock.
     fn is_helper_held(&self, thread_id: &str) -> bool {
-        self.lock()
+        let run_id = self
+            .lock()
             .pauses
             .get(&thread_id.to_owned())
-            .is_some_and(|pause| pause.role() == PausedRole::Helper)
+            .filter(|pause| pause.role() == PausedRole::Helper)
+            .map(|pause| pause.detail().run_id);
+        run_id.is_some_and(|run_id| self.run_control.is_run_live(&run_id))
     }
 
     // Whether a pause holds any helper of `session_id`.
