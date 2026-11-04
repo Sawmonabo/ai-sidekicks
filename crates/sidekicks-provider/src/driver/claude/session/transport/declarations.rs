@@ -50,8 +50,9 @@ pub(crate) struct ClaudeOfferedModel {
     pub(crate) effort_levels: Option<Vec<String>>,
 }
 
-/// What the `initialize` reply declared about the session's models and styles: the models it
-/// offers, in its order, which of them run in auto mode, and the output styles the process offers.
+/// What the `initialize` reply declared about the session's models, styles and commands: the
+/// models it offers, in its order, which of them run in auto mode, the output styles the process
+/// offers, and the commands it lists.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ClaudeInitializeDeclaration {
     /// The fast mode it reports.
@@ -65,6 +66,8 @@ pub(crate) struct ClaudeInitializeDeclaration {
     pub(crate) output_styles: Vec<String>,
     /// The output style the process runs with, where the reply names one.
     pub(crate) output_style: Option<String>,
+    /// The commands it lists, by name without the `/`, in its order.
+    pub(crate) commands: Vec<String>,
 }
 
 impl ClaudeInitializeDeclaration {

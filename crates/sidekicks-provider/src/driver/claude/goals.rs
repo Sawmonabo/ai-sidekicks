@@ -286,13 +286,20 @@ mod tests {
     use sidekicks_std::mutex_lock::lock;
     use tokio::task::JoinHandle;
 
+    use futures::FutureExt;
+
     use super::degraded;
+    use crate::driver::claude::session::scripted::channel::ScriptedChannel;
+    use crate::driver::claude::session::scripted::driver::{ScriptedDriver, create_params};
     use crate::driver::claude::session::scripted::{
-        SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
+        SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, hand_scripted_frame, settle,
     };
-    use crate::driver::claude::session::transport::declarations::ClaudeHandshakeDeclaration;
+    use crate::driver::claude::session::transport::declarations::{
+        ClaudeHandshakeDeclaration, ClaudeInitializeDeclaration, ClaudeOfferedModel,
+    };
     use crate::driver::contract::error::DriverError;
-    use crate::driver::session_control::DriverGoalResult;
+    use crate::driver::session_control::{DriverGoalResult, SetSessionGoalParams};
+    use crate::driver::test_registry::new_session_id;
 
     // A live session whose handshake lists `/goal`.
     async fn goal_session() -> Arc<ScriptedSession> {
@@ -482,5 +489,94 @@ mod tests {
             session.channel.user_frames().is_empty(),
             "nothing is written"
         );
+    }
+
+    // A set on a session that never ran starts its own run, whose binding brings the process up,
+    // and writes `/goal` as that run's opening on the commands the process's `initialize` reply
+    // listed, before any `system/init`. Killed by reading the live session first in the daemon
+    // turn's start (the set fails `NoLiveSession`), and by the reply's commands not seeded as the
+    // process's handshake (the set answers `Degraded` with nothing written).
+    #[tokio::test(start_paused = true)]
+    async fn a_goal_set_on_a_session_that_never_ran_opens_its_process_and_is_written() {
+        let scripted = ScriptedDriver::new();
+        scripted
+            .starts
+            .script_initialize(ClaudeInitializeDeclaration {
+                models: vec![ClaudeOfferedModel {
+                    value: "opus".to_owned(),
+                    resolved_model: None,
+                    display_name: None,
+                    effort_levels: None,
+                }],
+                commands: vec!["goal".to_owned()],
+                ..ClaudeInitializeDeclaration::default()
+            });
+        let channel = Arc::new(ScriptedChannel::default());
+        scripted.starts.script_session(Arc::clone(&channel));
+        let driver = Arc::clone(&scripted.driver);
+        scripted
+            .ports
+            .open_processes_for_daemon_turns(Arc::new(move |session_id| {
+                let driver = Arc::clone(&driver);
+                async move {
+                    driver
+                        .create_session(create_params(session_id))
+                        .await
+                        .expect("the turn's process opens");
+                }
+                .boxed()
+            }));
+        let session_id = new_session_id();
+        let parts = Arc::clone(
+            scripted
+                .driver
+                .composed_parts()
+                .expect("the pieces are composed"),
+        );
+        assert!(parts.run_start.slots.live_session(session_id).is_none());
+
+        let driver = Arc::clone(&scripted.driver);
+        let setting = tokio::spawn(async move {
+            driver
+                .set_session_goal(SetSessionGoalParams::new(session_id, "ship it".to_owned()))
+                .await
+        });
+        settle().await;
+        let frames = channel.user_frames();
+        assert_eq!(frames.len(), 1, "only the goal is written: {frames:?}");
+        assert_eq!(frames[0]["message"]["content"], "/goal ship it");
+        let message_uuid = frames[0]["uuid"]
+            .as_str()
+            .expect("the frame carries its uuid")
+            .to_owned();
+        let run_id = scripted
+            .engine
+            .first_daemon_turn_run()
+            .expect("the goal opens the session's own run");
+        assert_eq!(
+            parts
+                .run_start
+                .routes
+                .lead_run_on(session_id)
+                .map(|lead| lead.run_id),
+            Some(run_id)
+        );
+
+        let listener = scripted
+            .starts
+            .take_started()
+            .pop()
+            .expect("the turn's process was started")
+            .listener;
+        let routes = &parts.run_start.routes;
+        hand_scripted_frame(
+            &*listener,
+            routes,
+            session_id,
+            &command_lifecycle(&message_uuid, "started"),
+        );
+        hand_scripted_frame(&*listener, routes, session_id, &turn_result());
+
+        assert_eq!(answer(setting).await, DriverGoalResult::Applied {});
     }
 }

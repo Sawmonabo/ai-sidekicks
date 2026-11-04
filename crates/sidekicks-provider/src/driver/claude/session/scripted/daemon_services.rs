@@ -83,13 +83,19 @@ pub(crate) enum PortCall {
     },
 }
 
+/// What brings a session's process up for a daemon turn's binding, as the queue's open does.
+pub(crate) type ScriptedProcessOpener =
+    Arc<dyn Fn(SessionId) -> BoxFuture<'static, ()> + Send + Sync>;
+
 /// Approval ports, the queue's intake of taken messages, the status line intake and the session
-/// message readings, each recording what reaches it.
+/// message readings, each recording what reaches it, and the queue's opening of a daemon turn's
+/// process once a test sets one.
 #[derive(Default)]
 pub(crate) struct RecordingPorts {
     calls: Mutex<Vec<PortCall>>,
     taken: Mutex<Vec<(String, RunId)>>,
     message_readings: Mutex<Vec<SessionMessageReading>>,
+    process_opener: Mutex<Option<ScriptedProcessOpener>>,
 }
 
 impl RecordingPorts {
@@ -106,6 +112,11 @@ impl RecordingPorts {
     /// The session message readings published so far, in order.
     pub(crate) fn message_readings(&self) -> Vec<SessionMessageReading> {
         lock(&self.message_readings).clone()
+    }
+
+    /// Brings each daemon turn's session process up through `opener` before its binding opens.
+    pub(crate) fn open_processes_for_daemon_turns(&self, opener: ScriptedProcessOpener) {
+        *lock(&self.process_opener) = Some(opener);
     }
 
     fn record(&self, call: PortCall) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
@@ -188,7 +199,7 @@ impl SessionMessageReadingPublisher for RecordingPorts {
 pub(super) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<RecordingPorts>) {
     ports
         .daemon_turn_bindings
-        .register(Arc::new(ScriptedBindings))
+        .register(Arc::new(ScriptedBindings(Arc::clone(recording))))
         .expect("the turn bindings register once");
     ports
         .repositories
@@ -348,17 +359,22 @@ impl AttachmentResolver for ScriptedAttachments {
     }
 }
 
-/// Opens every daemon turn on one binding, and admits each on the account and at the posture a
-/// scripted session is created with.
-struct ScriptedBindings;
+/// Opens every daemon turn on one binding, after the process opener the recording ports hold
+/// where a test set one, and admits each on the account and at the posture a scripted session is
+/// created with.
+struct ScriptedBindings(Arc<RecordingPorts>);
 
 impl DaemonTurnBindingResolver for ScriptedBindings {
     fn open_daemon_turn_binding(
         &self,
         _run_id: RunId,
-        _session_id: SessionId,
+        session_id: SessionId,
     ) -> BoxFuture<'_, Result<DaemonTurnBinding, DaemonTurnBindingError>> {
-        async {
+        let opener = lock(&self.0.process_opener).clone();
+        async move {
+            if let Some(opener) = opener {
+                opener(session_id).await;
+            }
             Ok(DaemonTurnBinding {
                 binding_id: binding_id("daemon-turn"),
                 agent_id: new_agent_id(),

@@ -726,6 +726,11 @@ impl ClaudeSessionEstablishment {
             &live.provider_session_id,
             &started.initialize.fast_mode,
         );
+        self.handshakes.hold_initialize_commands(
+            session_id,
+            &live.provider_session_id,
+            &started.initialize.commands,
+        );
         if let Some(SubagentPolicy::Enabled {
             helpers_at_once: Some(helpers_at_once),
             ..

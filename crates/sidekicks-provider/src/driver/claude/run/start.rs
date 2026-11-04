@@ -214,9 +214,9 @@ impl ClaudeRunStart {
     ) -> Result<RunId, DriverError> {
         self.wake_if_asleep(session_id).await?;
         let (admitted_provider_account_id, execution_posture) =
-            match self.slots.live_session(session_id) {
-                Some(live) => {
-                    let execution_posture = lock(&live.settings)
+            if let Some(live) = self.slots.live_session(session_id) {
+                let execution_posture =
+                    lock(&live.settings)
                         .execution_posture
                         .clone()
                         .ok_or_else(|| {
@@ -226,19 +226,17 @@ impl ClaudeRunStart {
                                 None,
                             )
                         })?;
-                    (live.admitted_provider_account_id(), execution_posture)
-                }
-                None => {
-                    let admission = self
-                        .bindings
-                        .admit_daemon_turn(session_id)
-                        .await
-                        .map_err(|error| DriverError::Internal(Box::new(error)))?;
-                    (
-                        admission.admitted_provider_account_id,
-                        admission.execution_posture,
-                    )
-                }
+                (live.admitted_provider_account_id(), execution_posture)
+            } else {
+                let admission = self
+                    .bindings
+                    .admit_daemon_turn(session_id)
+                    .await
+                    .map_err(|error| DriverError::Internal(Box::new(error)))?;
+                (
+                    admission.admitted_provider_account_id,
+                    admission.execution_posture,
+                )
             };
         let is_provider_started = matches!(opening, ClaudeDaemonTurnOpening::Provider);
         if !is_provider_started && self.routes.is_turn_held(session_id) {
