@@ -44,6 +44,7 @@ use sidekicks_queue::run_token_limit::RunTokenLimitReader;
 use sidekicks_queue::service::answer_continue::HaltedRunRecord;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::startup::StartupRecovery;
+use sidekicks_session::agent_tree::controls::ChildRunControls;
 use sidekicks_session::agent_tree::lookup::StoredAgentTreeLookup;
 use sidekicks_session::attention::banner_launcher::BannerLauncher;
 use sidekicks_session::attention::delivery::web_address::sender::{
@@ -52,6 +53,7 @@ use sidekicks_session::attention::delivery::web_address::sender::{
 use sidekicks_session::attention::service::{AttentionService, AttentionServiceDependencies};
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::groups::service::SessionGroupService;
+use sidekicks_session::interventions::service::InterventionService;
 use sidekicks_session::plan_holds::PlanHolds;
 use sidekicks_session::run::folders::SessionLiveRunFolders;
 use sidekicks_session::run::held_tool_calls::StoredHeldToolCalls;
@@ -732,6 +734,10 @@ pub(crate) async fn register_method_inputs(
                 choices: Arc::clone(&session.choices),
                 continued: Arc::new(session.queue.delivery()),
             },
+            child_run_controls: Arc::new(ChildRunControls::new(
+                Arc::clone(&reads),
+                InterventionService::clone(&session.interventions),
+            )),
             command_methods: Arc::new(CommandMethodSources {
                 pool: Arc::clone(&reads),
                 running: Arc::clone(&session.running_commands),

@@ -14,6 +14,7 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_recovery::damaged_history::DamagedHistory;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_recovery::write_gate::RecoveryWriteGate;
+use sidekicks_session::agent_tree::controls::ChildRunControls;
 use sidekicks_session::attention::delivery::web_address::sender::WebAddressSender;
 use sidekicks_session::attention::service::AttentionService;
 use sidekicks_session::changes::SessionChanges;
@@ -77,6 +78,7 @@ use crate::ipc::handlers::provider_account::{
 use crate::ipc::handlers::question::register_question_resolve;
 use crate::ipc::handlers::repo::branches::register_repo_branches;
 use crate::ipc::handlers::repo::mount::register_repo_mounts;
+use crate::ipc::handlers::run::child::register_child_run_controls;
 use crate::ipc::handlers::run::control::{RunControlServices, register_run_control};
 use crate::ipc::handlers::run::queue::{RunQueueMethods, register_run_queue};
 use crate::ipc::handlers::run::safety_holds::RunSafetyHolds;
@@ -129,6 +131,8 @@ pub(crate) struct MethodTableServices {
     pub(crate) approval_methods: Arc<ApprovalMethodSources>,
     /// The run control methods' services.
     pub(crate) run_control: RunControlServices,
+    /// A person's controls on one helper of a run.
+    pub(crate) child_run_controls: Arc<ChildRunControls>,
     /// The run queue methods' inputs.
     pub(crate) run_queue: RunQueueMethods,
     /// The command methods' sources.
@@ -245,6 +249,7 @@ pub(crate) fn register_method_tables(
     register_provider_account_methods(builder, services.provider_accounts)?;
     register_approval_methods(builder, &services.approval_methods)?;
     register_run_control(builder, &services.run_control)?;
+    register_child_run_controls(builder, services.child_run_controls)?;
     register_run_queue(builder, &services.run_queue)?;
     register_command_methods(builder, &services.command_methods)?;
     register_turn_methods(builder, &services.turn_readings)?;
