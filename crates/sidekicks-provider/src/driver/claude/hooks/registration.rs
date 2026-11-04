@@ -5,8 +5,6 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use sidekicks_contracts::wire::integer::SafeInt;
-
 use crate::driver::claude::event_normalizer::CLAUDE_QUESTION_TOOL_NAME;
 use crate::driver::claude::session::transport::control::{
     ClaudeAgentDefinition, ClaudeControlRequest, ClaudeHookMatcher, ClaudeHooks,
@@ -200,7 +198,6 @@ fn compose_claude_agents(
                         .effort
                         .as_ref()
                         .map(|effort| effort.as_str().to_owned()),
-                    max_turns: definition.max_turns.map(SafeInt::get),
                 },
             )
         })

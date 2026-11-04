@@ -199,6 +199,16 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         // asks text and number questions under a title; unset, a process asks neither.
         ("CLAUDE_CODE_QUESTION_PREVIEW_FORMAT", "markdown"),
         ("CLAUDE_CODE_QUESTION_EXTENDED", "1"),
+        // Claude Code's own helper caps are lifted: the daemon applies the person's limit itself,
+        // and nothing bounds how deep helpers nest.
+        (
+            "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
+            "9223372036854775807",
+        ),
+        (
+            "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
+            "9223372036854775807",
+        ),
     ],
     launch_environment_names: &[],
     // The account's configuration home, its credential store, and the scratch folder the daemon
