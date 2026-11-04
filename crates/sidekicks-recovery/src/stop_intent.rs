@@ -21,8 +21,8 @@ use sidekicks_store::database::sibling_path;
 use tokio::sync::Mutex;
 use tokio::task::JoinError;
 
-// The intent's file beside the database file.
-const STOP_INTENT_SUFFIX: &str = ".stop-intent";
+/// The suffix of the intent's file beside the database file.
+pub(crate) const STOP_INTENT_SUFFIX: &str = ".stop-intent";
 
 // The intent is the person's alone.
 const STOP_INTENT_MODE: u32 = 0o600;
