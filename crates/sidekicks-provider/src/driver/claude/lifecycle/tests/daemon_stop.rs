@@ -1,6 +1,6 @@
 //! The daemon's stop of Claude Code's sessions: every slot closing before any process ends, the
-//! surviving background tasks stopped under a person's Stop, a bring-up waited out, and each run
-//! left for the stop's own settle.
+//! surviving background tasks stopped under a person's Stop, a bring-up waited out, each run left
+//! for the stop's own settle, and the whole stop ended by its deadline.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -43,8 +43,11 @@ fn stop_deadline() -> Instant {
 // Fails when the stop ends a run itself, or a slot closes after its process could end. Mutations:
 // `end_turn_on_close` run under the daemon's stop (an `EndTurnOnClose` in every case);
 // `signal_intended_close` sent under the daemon's stop (the `result` reads `intended_close`); the
-// survivors' stop dropped (no `stop_task`) or sent after the channel's close (`Terminate` first);
-// the slot wait skipped (the stop ends while the bring-up is held).
+// survivors' stop dropped (no `stop_task`), or sent after the processes' stop or the channel's
+// close; the slot wait skipped, or the processes stopped before a bring-up's slot settles (a stop
+// marked while the bring-up is held); `begin_close` run after the processes' stop (the slot reads
+// live at the stop); each close finished before the processes' stop (`Terminate` first); the
+// deadline not handed to the processes' stop.
 #[rstest]
 #[case::restart_process_exits(AtTheStop::RestartProcessExits)]
 #[case::restart_result_arrives(AtTheStop::RestartResultArrives)]
@@ -80,12 +83,20 @@ async fn restart_with_a_live_run(at_the_stop: AtTheStop) {
     settle().await;
     let before = fixture.engine.moves_of_run(run_id);
     let release_close = channel.hold_next_close();
+    let release_stop = fixture.starts.hold_stop();
+    let deadline = stop_deadline();
 
     let shutdown = tokio::spawn({
         let driver = Arc::clone(&driver);
-        let deadline = stop_deadline();
         async move { driver.shutdown(DaemonStopIntent::Restart, deadline).await }
     });
+    ScriptedDriver::wait_for(|| channel.processes_stopped_at().is_some()).await;
+    let parts = fixture.driver.composed_parts().expect("composed");
+    assert!(
+        parts.slots().holds_slot(session_id) && parts.slots().live_session(session_id).is_none(),
+        "the session's slot reads closing before its process stops"
+    );
+    release_stop.send(()).expect("the stop is held");
     ScriptedDriver::wait_for(|| channel.writes().contains(&ScriptedWrite::Terminate)).await;
     match at_the_stop {
         AtTheStop::RestartProcessExits => {
@@ -105,6 +116,19 @@ async fn restart_with_a_live_run(at_the_stop: AtTheStop) {
         .expect("the driver stops");
     settle().await;
 
+    assert_eq!(fixture.starts.take_stop_deadlines(), [deadline]);
+    let closed = channel
+        .writes()
+        .iter()
+        .position(|write| *write == ScriptedWrite::Terminate);
+    assert!(
+        matches!(
+            (channel.processes_stopped_at(), closed),
+            (Some(stopped), Some(close)) if stopped <= close
+        ),
+        "the process stops before its channel closes: {:?}",
+        channel.writes()
+    );
     assert_eq!(fixture.engine.turn_ends(), []);
     let mut expected = before;
     if !matches!(at_the_stop, AtTheStop::RestartNothingArrives) {
@@ -116,7 +140,8 @@ async fn restart_with_a_live_run(at_the_stop: AtTheStop) {
 }
 
 // A person's Stop meeting a process that holds a surviving task: its `stop_task` goes out before
-// the process's channel closes, and the run is left to the stop's settle.
+// the processes stop, which is before the process's channel closes, and the run is left to the
+// stop's settle.
 async fn stop_with_a_surviving_task() {
     let fixture = ScriptedDriver::new();
     let channel = Arc::new(ScriptedChannel::default());
@@ -143,8 +168,12 @@ async fn stop_with_a_surviving_task() {
         .iter()
         .position(|write| *write == ScriptedWrite::Terminate);
     assert!(
-        matches!((stop_sent, closed), (Some(stop), Some(close)) if stop < close),
-        "the survivor's stop goes out before the process's channel closes: {writes:?}"
+        matches!(
+            (stop_sent, channel.processes_stopped_at(), closed),
+            (Some(stop), Some(stopped), Some(close)) if stop < stopped && stopped <= close
+        ),
+        "the survivor's stop goes out before the processes stop, and they before the process's \
+         channel closes: {writes:?}"
     );
     assert_eq!(fixture.engine.turn_ends(), []);
 }
@@ -179,6 +208,11 @@ async fn stop_while_establishing() {
     });
     settle().await;
     assert!(!shutdown.is_finished(), "the stop waits out the bring-up");
+    assert_eq!(
+        channel.processes_stopped_at(),
+        None,
+        "no process stops while the bring-up's slot is unsettled"
+    );
     release_start.send(()).expect("the start is held");
     shutdown
         .await
@@ -188,6 +222,35 @@ async fn stop_while_establishing() {
     settle().await;
 
     assert!(!parts.slots().holds_slot(session_id));
+    assert!(
+        channel.processes_stopped_at().is_some(),
+        "the brought-up process is stopped"
+    );
     assert_eq!(fixture.engine.turn_ends(), []);
     assert_eq!(closes(fixture.engine.deliveries()), []);
+}
+
+// Fails when a survivor's stop that Claude Code never answers holds the daemon's stop past its
+// deadline. Mutation: the survivors' stop bounded by the person's close bound, 2 s, in place of
+// what is left of the deadline.
+#[tokio::test]
+async fn a_daemon_stop_with_an_unanswered_task_stop_ends_by_its_deadline() {
+    let fixture = ScriptedDriver::new();
+    let channel = Arc::new(ScriptedChannel::default());
+    let (session_id, ..) = holding_session(&fixture, &channel, &[("call-A", "task-A")]).await;
+    keep_record(&fixture, session_id, "call-A", "task-A");
+    // Held for the whole test, so the stop is never answered.
+    let _unanswered = channel.hold_next_control("stop_task");
+    let deadline = Instant::now() + Duration::from_millis(300);
+
+    fixture
+        .driver
+        .shutdown(DaemonStopIntent::Stop, deadline)
+        .await;
+
+    assert!(
+        Instant::now() <= deadline + Duration::from_secs(1),
+        "the stop ends by its deadline"
+    );
+    assert_eq!(stopped_tasks(&channel), ["task-A"]);
 }

@@ -14,6 +14,7 @@ use sidekicks_std::mutex_lock::lock;
 use super::CLAUDE_INTERRUPT_CANCEL_QUEUED_CAPABILITY;
 use crate::driver::claude::hooks::pause::ClaudePauseAnswer;
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedWrite};
+use crate::driver::claude::session::scripted::held_calls::init;
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
 };
@@ -25,6 +26,7 @@ use crate::driver::run_control::{
 };
 use crate::driver::test_registry::new_message_id;
 use crate::port::permission_ask::ProviderPermissionAnswer;
+use crate::run::state_entry::RunStateEntry;
 
 fn steer(
     run_id: RunId,
@@ -700,4 +702,68 @@ async fn a_released_send_now_settles_its_runs_choice_behind_the_frames_queued_be
         matches!((queued, settled), (Some(queued), Some(settled)) if queued < settled),
         "{kinds:?}"
     );
+}
+
+// Killed by recording the refusal's end on the interrupt (a second settlement row and a refused
+// move), by sending Claude Code's interrupt beside the cancel, by delivering the turn end Claude
+// Code sends after the cancel as the run's end, and by leaving that turn end held for good.
+#[tokio::test(start_paused = true)]
+async fn an_interrupt_of_a_waiting_refusal_answers_claude_code_and_leaves_the_end_to_the_engine() {
+    let session = ScriptedSession::new().await;
+    let run_id = session.hold_lead_turn("lead");
+    session.request(
+        "refusal",
+        &json!({
+            "subtype": "request_user_dialog",
+            "dialog_kind": "refusal_fallback_prompt",
+            "payload": {"originalModel": "claude-fable-5", "fallbackModel": "claude-opus-5"},
+        }),
+    );
+    settle().await;
+
+    let response = apply(
+        &session,
+        interrupt(run_id, InterruptPendingChoice::NextTurn, false),
+    )
+    .await;
+    settle().await;
+    let is_held_before_the_turn_end = session.stream.is_turn_ending_for_interrupt(run_id);
+    session.frame(&init());
+    session.frame(&json!({
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "result": "",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+    }));
+    settle().await;
+
+    assert_eq!(response.status, InterventionResultStatus::Applied);
+    assert_eq!(
+        answers_and_messages(&session),
+        [ScriptedWrite::Answer {
+            request_id: "refusal".to_owned(),
+            answer: json!({"behavior": "cancelled"}),
+        }]
+    );
+    assert!(
+        session
+            .channel
+            .control_requests()
+            .iter()
+            .all(|request| request["subtype"] != "interrupt")
+    );
+    assert_eq!(
+        session.engine.moves_of_run(run_id),
+        [RunStateEntry::WaitingForInput]
+    );
+    let rows = session
+        .engine
+        .deliveries()
+        .into_iter()
+        .filter(|delivery| delivery.kind == "unstampedRow")
+        .count();
+    assert_eq!(rows, 1);
+    assert!(is_held_before_the_turn_end);
+    assert!(!session.stream.is_turn_ending_for_interrupt(run_id));
 }
