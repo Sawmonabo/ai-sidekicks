@@ -269,8 +269,8 @@ pub struct McpLiveApplicationResult {
 }
 
 /// What a governance mutation answers with: the row as it now stands, where the change took
-/// effect, and each live session's outcome. `liveResults` is absent, not empty, where none was
-/// touched.
+/// effect, each live session's outcome, and why the provider's running service did not reload the
+/// change, where it did not. `liveResults` is absent, not empty, where none was touched.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -288,9 +288,21 @@ pub struct McpServerMutationResponse {
     )]
     #[schemars(with = "Vec<McpLiveApplicationResult>")]
     pub live_results: Option<Vec<McpLiveApplicationResult>>,
+    /// Present when the provider holds the change but its running service did not reload it, so
+    /// the change applies at that service's next start; it says why, with no config value or file
+    /// path.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<ERROR_MESSAGE_MAX_LEN>")]
+    pub reload_failure: Option<FreeFormText<ERROR_MESSAGE_MAX_LEN>>,
 }
 
-/// What removing a binding answers with. There is no row left to return.
+/// What removing a binding answers with: where the change took effect, each live session's
+/// outcome, and why the provider's running service did not reload the removal, where it did not.
+/// There is no row left to return.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -305,6 +317,16 @@ pub struct McpServerDeleteResponse {
     )]
     #[schemars(with = "Vec<McpLiveApplicationResult>")]
     pub live_results: Option<Vec<McpLiveApplicationResult>>,
+    /// Present when the provider holds the change but its running service did not reload it, so
+    /// the change applies at that service's next start; it says why, with no config value or file
+    /// path.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<ERROR_MESSAGE_MAX_LEN>")]
+    pub reload_failure: Option<FreeFormText<ERROR_MESSAGE_MAX_LEN>>,
 }
 
 literal! {
