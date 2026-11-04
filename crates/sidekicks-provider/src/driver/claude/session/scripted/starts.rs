@@ -385,6 +385,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 initialize,
                 settings_readback: ClaudeSettingsReadback {
                     cleanup_period_days: None,
+                    auto_memory_enabled: None,
                     attached_advisor: ClaudeAttachedAdvisor::Unreported,
                     resolved_advisor,
                     ultracode: None,

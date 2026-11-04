@@ -45,7 +45,7 @@ use crate::driver::claude::delivery::commands::{ClaudeCommandChannel, ClaudeSess
 use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeKeptCallsSource;
 use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSessionStreams};
 use crate::driver::claude::frame_routing::ClaudeFrameRouting;
-use crate::driver::claude::goals::endings::{ClaudeGoalFile, ClaudeProcessGoal};
+use crate::driver::claude::goals::file::{ClaudeGoalFile, ClaudeGoalFork, ClaudeProcessGoal};
 use crate::driver::claude::handshake_register::ClaudeHandshakeRegister;
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
@@ -494,9 +494,23 @@ impl ClaudeSessionEstablishment {
         let config_folder = claude_config_folder(&legs.spawn_environment, PathRules::NATIVE);
         let kept_calls =
             ClaudeKeptCallsSource::new(config_folder.clone(), provider_session_id.clone());
-        // Followed from before the process starts, so every goal outcome it writes is read.
+        // Followed from before the process starts, so every goal outcome it writes is read; a fork
+        // passes over the records it copies from its predecessor.
+        let fork = if let ClaudeConversationStart::Fork {
+            resume_handle,
+            resume_at_message_uuid,
+            ..
+        } = &conversation
+        {
+            Some(ClaudeGoalFork {
+                resume_handle,
+                resume_at_message_uuid,
+            })
+        } else {
+            None
+        };
         let (goal_file, restored_goal) =
-            ClaudeGoalFile::open(&legs.spawn_environment, &provider_session_id).await;
+            ClaudeGoalFile::open(&legs.spawn_environment, &provider_session_id, fork).await;
         // A process with no file yet restores none, and a fork keeps what its predecessor held.
         if let Some(restored_goal) = restored_goal {
             self.task_services

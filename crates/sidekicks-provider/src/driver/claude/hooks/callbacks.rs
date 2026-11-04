@@ -1,7 +1,7 @@
 //! Routes each request a live Claude Code process sends: the daemon's own pause, helper-start,
-//! helper-limit and background-work hooks are answered here, and every other request (tool asks,
-//! dialogs, the question hook, a reviewer's block) goes on to the event side, which answers it or
-//! leaves it pending at the provider.
+//! message-target, helper-limit and background-work hooks are answered here, and every other
+//! request (tool asks, dialogs, the question hook, a reviewer's block) goes on to the event side,
+//! which answers it or leaves it pending at the provider.
 
 use std::sync::{Arc, Mutex};
 
@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
+use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
@@ -21,7 +22,7 @@ use crate::driver::claude::hooks::helper_limit::{ClaudeHelperLimit, ClaudeHelper
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudePauseAnswer, ClaudeRunPauses};
 use crate::driver::claude::hooks::registration::{
-    CLAUDE_HELPER_TOOL_NAME, ClaudeHookCallback as RegisteredHook,
+    CLAUDE_HELPER_TOOL_NAME, CLAUDE_MESSAGE_TOOL_NAME, ClaudeHookCallback as RegisteredHook,
 };
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::inbound::{
@@ -33,7 +34,10 @@ use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
+use crate::driver::hook_pauses::target_unread_reason;
+use crate::driver::run_control::HelperStopReason;
 use crate::lenient_json::{lenient_object, read_lenient};
+use crate::port::agent_tree_lookup::AgentTreeLookup;
 use crate::run::posture::resolve_posture;
 
 /// Where one request a process sent goes.
@@ -67,6 +71,16 @@ pub(crate) enum ClaudeRequestRoute {
         /// The calling helper's id, `None` on the lead.
         agent_id: Option<String>,
     },
+    /// Answer or hold it through [`route_message_target`], which checks the helper a message call
+    /// aims at before the pause decides: a call of the message tool that names a recipient.
+    CheckMessageTarget {
+        /// The request's id.
+        request_id: String,
+        /// The calling helper's id, `None` on the lead.
+        agent_id: Option<String>,
+        /// The recipient the call names.
+        to: String,
+    },
     /// Hand it on to the event side: every request the daemon's hooks do not answer, and every
     /// withdrawal.
     Forward(ClaudeInboundRequestEvent),
@@ -91,11 +105,13 @@ struct HookInput {
     #[serde(default, deserialize_with = "read_lenient")]
     tool_use_id: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
-    tool_input: Option<ShellToolInput>,
+    tool_input: Option<HookToolInput>,
 }
 
+// The members of a hooked tool call's input the daemon's hooks read: a shell call's, and the
+// recipient of a message call.
 #[derive(Deserialize)]
-struct ShellToolInput {
+struct HookToolInput {
     #[serde(default, deserialize_with = "read_lenient")]
     command: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
@@ -103,6 +119,8 @@ struct ShellToolInput {
     // Only whether a limit is set is read; Claude Code checks its type before the hook runs.
     #[serde(default)]
     timeout: Option<serde::de::IgnoredAny>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    to: Option<String>,
 }
 
 /// The parts of a shell call the background-work hook reads.
@@ -116,7 +134,7 @@ pub(crate) struct ClaudeShellCall {
 }
 
 impl ClaudeShellCall {
-    fn of(tool_input: ShellToolInput) -> Self {
+    fn of(tool_input: HookToolInput) -> Self {
         Self {
             command: tool_input.command.filter(|command| !command.is_empty()),
             is_untimed_background: tool_input.run_in_background == Some(true)
@@ -132,11 +150,12 @@ pub(crate) const UNTIMED_BACKGROUND_REASON: &str = "Not started: a command run w
     watcher or anything meant to keep running until someone stops it, start it with shell_run \
     instead.";
 
-lenient_object!(HookInput, ShellToolInput);
+lenient_object!(HookInput, HookToolInput);
 
 /// Routes one request event off a session's process, at the session's `level`: a withdrawal also
 /// withdraws a held pause or helper start; a call of the helper tool goes to the helper-start
-/// check before the pause decides; a pause or helper-limit callback is answered or held here; a
+/// check, and a call of the message tool that names a recipient to the message-target check,
+/// before the pause decides; a pause or helper-limit callback is answered or held here; a
 /// helper's post-tool and stop callbacks carry its waiting words; the background-work callback is
 /// checked; the question hook goes on only at Sandboxed and the denial hook only at
 /// Reviewed, both registered at every level since a live process can move, and pass with no
@@ -170,6 +189,11 @@ pub(crate) fn route_claude_request(
         .filter(|id| !id.is_empty());
     let is_helper_start = input.as_ref().and_then(|input| input.tool_name.as_deref())
         == Some(CLAUDE_HELPER_TOOL_NAME);
+    let message_to = input
+        .as_ref()
+        .filter(|input| input.tool_name.as_deref() == Some(CLAUDE_MESSAGE_TOOL_NAME))
+        .and_then(|input| input.tool_input.as_ref()?.to.clone())
+        .filter(|to| !to.is_empty());
     let request_id = request.request_id.clone();
     let pass_off_level = |at: PermissionLevel, request| {
         if level == Some(at) {
@@ -190,9 +214,15 @@ pub(crate) fn route_claude_request(
                 agent_id,
             }
         }
-        RegisteredHook::PauseBeforeTool => {
-            route_before_tool(pauses, session_id, request.request_id, agent_id)
-        }
+        RegisteredHook::PauseBeforeTool => match message_to {
+            // Checked before the pause for the same reason as a helper start.
+            Some(to) => ClaudeRequestRoute::CheckMessageTarget {
+                request_id: request.request_id,
+                agent_id,
+                to,
+            },
+            None => route_before_tool(pauses, session_id, request.request_id, agent_id),
+        },
         RegisteredHook::PauseAfterBatch => pause_route(
             pauses.answer_after_batch(session_id, agent_id.as_deref()),
             request.request_id,
@@ -298,6 +328,49 @@ fn helper_start_refused_reason(cause: &str) -> String {
     )
 }
 
+/// The route of a message call `request_id` by the helper `agent_id` or the lead, aimed at the
+/// helper `to`: a stopped caller is denied with its own stop's sentence; a call aimed at a helper
+/// stopped with every other agent, in memory or, once its process or the daemon restarted, by the
+/// stop its newest own run stored through `lookup`, is denied with that stop's sentence; one aimed
+/// at a helper a pause or an interrupt holds is denied with [`HELD_TARGET_REASON`]; a failed read
+/// is denied with its cause; any other is answered or held as the pause says. A `to` naming the
+/// lead or no helper finds none. `pauses` is never locked across the read.
+///
+/// [`HELD_TARGET_REASON`]: crate::driver::hook_pauses::HELD_TARGET_REASON
+pub(crate) async fn route_message_target(
+    lookup: Option<Arc<dyn AgentTreeLookup>>,
+    pauses: &Mutex<ClaudeRunPauses>,
+    session_id: &SessionId,
+    request_id: String,
+    agent_id: Option<String>,
+    to: String,
+) -> ClaudeRequestRoute {
+    let aimed = lock(pauses).answer_aimed_call(session_id, agent_id.as_deref(), &to);
+    if let Some(answer) = aimed {
+        return ClaudeRequestRoute::Answer { request_id, answer };
+    }
+    if let Some(lookup) = lookup {
+        let stored = lookup
+            .helper_by_subagent_id(*session_id, DESCRIPTOR.provider_id(), to)
+            .await;
+        let denial = match stored {
+            Ok(Some(helper)) => match helper.own_run_stop_trigger {
+                Some(StopTrigger::StopAll) => Some(HelperStopReason::StopAll.sentence()),
+                Some(StopTrigger::TokenLimit) | None => None,
+            },
+            Ok(None) => None,
+            Err(error) => Some(target_unread_reason(&describe_error(&*error))),
+        };
+        if let Some(reason) = denial {
+            return ClaudeRequestRoute::Answer {
+                request_id,
+                answer: ClaudeHookAnswer::Deny { reason },
+            };
+        }
+    }
+    route_before_tool(&mut lock(pauses), session_id, request_id, agent_id)
+}
+
 // The pause's route for a pre-tool callback: an answer now, or a hold that names the helper.
 fn route_before_tool(
     pauses: &mut ClaudeRunPauses,
@@ -379,23 +452,32 @@ fn read_hook_input(callback: &ClaudeHookCallback) -> Option<HookInput> {
 #[cfg(test)]
 mod tests {
     use crate::driver::test_registry::fixed_session_id;
+    use std::error::Error;
     use std::path::Path;
     use std::sync::{Arc, Mutex};
 
+    use futures::FutureExt;
+    use futures::future::BoxFuture;
     use rstest::rstest;
     use serde_json::json;
     use serde_json::value::RawValue;
+    use sidekicks_contracts::agent::tree::ChildHandle;
     use sidekicks_contracts::free_form_string::FilesystemPath;
     use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
+    use sidekicks_contracts::provider::id::ProviderId;
+    use sidekicks_contracts::run::control::StopTrigger;
+    use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::run::state::RunState;
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
+    use sidekicks_contracts::session::id::SessionId;
     use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
     use sidekicks_std::error_description::describe_error;
     use sidekicks_std::mutex_lock::lock;
 
     use super::{
-        ClaudeHeldHelper, ClaudeRequestRoute, ClaudeShellCall, ShellToolInput,
+        ClaudeHeldHelper, ClaudeRequestRoute, ClaudeShellCall, HookToolInput,
         UNTIMED_BACKGROUND_REASON, answer_background_work_check, helper_start_refused_reason,
-        route_claude_request, route_helper_start,
+        route_claude_request, route_helper_start, route_message_target,
     };
     use crate::background_work::BackgroundWorkForms;
     use crate::driver::PROVIDERS;
@@ -407,18 +489,26 @@ mod tests {
         ClaudeHookCallback, ClaudeInboundRequest, ClaudeInboundRequestBody,
         ClaudeInboundRequestEvent,
     };
+    use crate::driver::hook_pauses::{HELD_TARGET_REASON, target_unread_reason};
+    use crate::driver::run_control::HelperStopReason;
+    use crate::port::agent_tree_lookup::{AgentTreeHelper, AgentTreeLookup};
     use crate::run::posture::{compose_execution_posture, resolve_posture};
 
-    // Routes one pre-tool callback for `tool_name`, called by the helper `agent_id` or the lead.
+    // Routes one pre-tool callback for `tool_name`, called by the helper `agent_id` or the lead,
+    // its input naming the recipient `to` when given.
     fn route_pre_tool_call(
         pauses: &Mutex<ClaudeRunPauses>,
         tool_name: &str,
         agent_id: Option<&str>,
+        to: Option<&str>,
         request_id: &str,
     ) -> ClaudeRequestRoute {
         let mut input = json!({ "tool_name": tool_name });
         if let Some(agent_id) = agent_id {
             input["agent_id"] = agent_id.into();
+        }
+        if let Some(to) = to {
+            input["tool_input"] = json!({ "to": to, "message": "go on" });
         }
         let event = ClaudeInboundRequestEvent::Request(ClaudeInboundRequest {
             request_id: request_id.to_owned(),
@@ -448,7 +538,7 @@ mod tests {
         let ClaudeRequestRoute::CheckHelperStart {
             request_id,
             agent_id,
-        } = route_pre_tool_call(pauses, "Agent", agent_id, request_id)
+        } = route_pre_tool_call(pauses, "Agent", agent_id, None, request_id)
         else {
             panic!("a helper start goes to the check");
         };
@@ -503,7 +593,7 @@ mod tests {
     ) {
         let shell_lines = ShellLineReadingBound::new(4096);
         let background_work = Arc::new(BackgroundWorkForms::of_providers(PROVIDERS));
-        let tool_input: ShellToolInput = serde_json::from_value(tool_input).expect("a tool input");
+        let tool_input: HookToolInput = serde_json::from_value(tool_input).expect("a tool input");
 
         let answer = answer_background_work_check(
             &shell_lines,
@@ -556,7 +646,7 @@ mod tests {
         );
 
         assert!(matches!(
-            route_pre_tool_call(&pauses, "Bash", None, "r2"),
+            route_pre_tool_call(&pauses, "Bash", None, None, "r2"),
             ClaudeRequestRoute::Answer {
                 answer: ClaudeHookAnswer::Pass,
                 ..
@@ -593,5 +683,204 @@ mod tests {
                 has_taken_effect: true,
             })
         );
+    }
+
+    const CALLER: &str = "helper-caller";
+    const TARGET: &str = "helper-target";
+
+    /// The session's agent tree as one stored helper whose newest own run stopped with its
+    /// trigger, or a read that fails.
+    struct StoredStop(Result<Option<StopTrigger>, &'static str>);
+
+    type Lookup<'a> = BoxFuture<'a, Result<Option<AgentTreeHelper>, Box<dyn Error + Send + Sync>>>;
+
+    impl AgentTreeLookup for StoredStop {
+        fn helper_by_subagent_id(
+            &self,
+            _session_id: SessionId,
+            _provider_name: ProviderId,
+            subagent_id: String,
+        ) -> Lookup<'_> {
+            let found = self.0.map(|trigger| {
+                Some(AgentTreeHelper {
+                    child_handle: ChildHandle::new("child-1".to_owned()).expect("a handle"),
+                    subagent_id,
+                    provider_path: None,
+                    own_run_id: RunId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5e")
+                        .expect("a valid run id"),
+                    own_run_state: if trigger.is_some() {
+                        RunState::Stopped
+                    } else {
+                        RunState::Running
+                    },
+                    own_run_stop_trigger: trigger,
+                })
+            });
+            async move { found.map_err(Into::into) }.boxed()
+        }
+
+        fn helper_by_name(&self, _session_id: SessionId, _name: String) -> Lookup<'_> {
+            async { Ok(None) }.boxed()
+        }
+
+        fn helper_by_provider_path(&self, _session_id: SessionId, _path: String) -> Lookup<'_> {
+            async { Ok(None) }.boxed()
+        }
+    }
+
+    /// Who sends the message: the lead, or a helper paused or stopped at its token limit.
+    #[derive(Clone, Copy, Debug)]
+    enum Caller {
+        Lead,
+        PausedHelper,
+        StoppedHelper,
+    }
+
+    /// What memory holds of the target.
+    #[derive(Clone, Copy, Debug)]
+    enum Target {
+        Running,
+        Paused,
+        Interrupted,
+        StoppedWithAll,
+        StoppedAtLimit,
+    }
+
+    /// The answer a message expects: none, or the sentence it is denied with.
+    #[derive(Clone, Copy, Debug)]
+    enum Denial {
+        None,
+        Held,
+        StopAll,
+        Unread,
+        CallerAtLimit,
+    }
+
+    const UNREAD_CAUSE: &str = "the database is locked";
+
+    // Killed by the target checked after the caller's hold (a paused caller's message held, not
+    // denied), by the stored stop never read (a stop-all forgotten at a restart passing), by a
+    // stored token-limit stop or one in memory read as final, by `StopAll`'s sentence swapped
+    // for the held one, by a running target denied, by a failed read passing, and by a stopped
+    // caller answered with the target's sentence.
+    #[rstest]
+    #[case::lead_to_a_paused_helper(Caller::Lead, Target::Paused, Ok(None), Denial::Held)]
+    #[case::lead_to_an_interrupted_helper(
+        Caller::Lead,
+        Target::Interrupted,
+        Ok(None),
+        Denial::Held
+    )]
+    #[case::paused_helper_to_a_paused_helper(
+        Caller::PausedHelper,
+        Target::Paused,
+        Ok(None),
+        Denial::Held
+    )]
+    #[case::lead_to_a_running_helper(Caller::Lead, Target::Running, Ok(None), Denial::None)]
+    #[case::lead_to_a_helper_stopped_with_all(
+        Caller::Lead,
+        Target::StoppedWithAll,
+        Ok(None),
+        Denial::StopAll
+    )]
+    #[case::lead_to_a_stored_stop_all(
+        Caller::Lead,
+        Target::Running,
+        Ok(Some(StopTrigger::StopAll)),
+        Denial::StopAll
+    )]
+    #[case::lead_to_a_stored_token_limit_stop(
+        Caller::Lead,
+        Target::Running,
+        Ok(Some(StopTrigger::TokenLimit)),
+        Denial::None
+    )]
+    #[case::lead_to_a_helper_stopped_at_its_limit(
+        Caller::Lead,
+        Target::StoppedAtLimit,
+        Ok(None),
+        Denial::None
+    )]
+    #[case::lead_when_the_read_fails(
+        Caller::Lead,
+        Target::Running,
+        Err(UNREAD_CAUSE),
+        Denial::Unread
+    )]
+    #[case::stopped_helper_to_a_paused_helper(
+        Caller::StoppedHelper,
+        Target::Paused,
+        Ok(None),
+        Denial::CallerAtLimit
+    )]
+    #[tokio::test]
+    async fn a_message_aimed_at_a_held_or_finally_stopped_helper_is_denied(
+        #[case] caller: Caller,
+        #[case] target: Target,
+        #[case] stored: Result<Option<StopTrigger>, &'static str>,
+        #[case] denial: Denial,
+    ) {
+        let session_id = fixed_session_id();
+        let pauses = Mutex::new(ClaudeRunPauses::default());
+        {
+            let mut held = lock(&pauses);
+            match caller {
+                Caller::Lead => {}
+                Caller::PausedHelper => held.pause_helper(&session_id, CALLER),
+                Caller::StoppedHelper => {
+                    held.stop_helper(session_id, CALLER, HelperStopReason::TokenLimit);
+                }
+            }
+            match target {
+                Target::Running => {}
+                Target::Paused => held.pause_helper(&session_id, TARGET),
+                Target::Interrupted => held.hold_interrupted_helper(&session_id, TARGET),
+                Target::StoppedWithAll => {
+                    held.stop_helper(session_id, TARGET, HelperStopReason::StopAll);
+                }
+                Target::StoppedAtLimit => {
+                    held.stop_helper(session_id, TARGET, HelperStopReason::TokenLimit);
+                }
+            }
+        }
+        let agent_id = match caller {
+            Caller::Lead => None,
+            Caller::PausedHelper | Caller::StoppedHelper => Some(CALLER),
+        };
+        let ClaudeRequestRoute::CheckMessageTarget {
+            request_id,
+            agent_id,
+            to,
+        } = route_pre_tool_call(&pauses, "SendMessage", agent_id, Some(TARGET), "r1")
+        else {
+            panic!("a message naming its recipient goes to the check");
+        };
+
+        let route = route_message_target(
+            Some(Arc::new(StoredStop(stored))),
+            &pauses,
+            &session_id,
+            request_id,
+            agent_id,
+            to,
+        )
+        .await;
+
+        let ClaudeRequestRoute::Answer { request_id, answer } = route else {
+            panic!("the message is answered at once, never held: {route:?}");
+        };
+        assert_eq!(request_id, "r1");
+        let reason = match denial {
+            Denial::None => None,
+            Denial::Held => Some(HELD_TARGET_REASON.to_owned()),
+            Denial::StopAll => Some(HelperStopReason::StopAll.sentence()),
+            Denial::Unread => Some(target_unread_reason(UNREAD_CAUSE)),
+            Denial::CallerAtLimit => Some(HelperStopReason::TokenLimit.sentence()),
+        };
+        let expected = reason.map_or(ClaudeHookAnswer::Pass, |reason| ClaudeHookAnswer::Deny {
+            reason,
+        });
+        assert_eq!(answer, expected);
     }
 }

@@ -58,7 +58,9 @@ pub(crate) struct RecordedDelivery {
     pub(crate) ended_turn_number: Option<SafeInt<1>>,
     /// Whether it is the end of the daemon's own interrupt.
     pub(crate) is_daemon_interrupt_end: bool,
-    /// The run a child run delivery starts beneath.
+    /// The run the delivery names.
+    pub(crate) run_id: Option<RunId>,
+    /// The run a child run delivery starts beneath, or a parent correction moves its run under.
     pub(crate) parent_run_id: Option<RunId>,
     /// The helper a child run delivery is for.
     pub(crate) subagent: Option<crate::run::delivery::ChildRunSubagent>,
@@ -285,6 +287,7 @@ impl InboundDispatch for RecordingRunEngine {
             | InboundDelivery::UnstampedRow { .. }
             | InboundDelivery::ThinkingUpdate { .. }
             | InboundDelivery::RunMarker { .. }
+            | InboundDelivery::ChildRunParentCorrected { .. }
             | InboundDelivery::SessionNotice { .. }
             | InboundDelivery::SessionEvent { .. }
             | InboundDelivery::MachineEvent { .. } => (
@@ -447,6 +450,7 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
         turn_end: None,
         ended_turn_number: None,
         is_daemon_interrupt_end: false,
+        run_id: None,
         parent_run_id: None,
         subagent: None,
         row: None,
@@ -485,6 +489,16 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
             recorded.binding_id = Some(binding.binding_id.clone());
             recorded.parent_run_id = Some(*parent_run_id);
             recorded.subagent = Some(subagent.clone());
+        }
+        InboundDelivery::ChildRunParentCorrected {
+            binding,
+            child_run_id,
+            parent_run_id,
+        } => {
+            recorded.kind = "childRunParentCorrected";
+            recorded.binding_id = Some(binding.binding_id.clone());
+            recorded.run_id = Some(*child_run_id);
+            recorded.parent_run_id = Some(*parent_run_id);
         }
         InboundDelivery::RunMarker { binding, .. } => {
             recorded.kind = "runMarker";
