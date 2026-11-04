@@ -495,11 +495,17 @@ impl ClaudeSessionEstablishment {
         let kept_calls =
             ClaudeKeptCallsSource::new(config_folder.clone(), provider_session_id.clone());
         // Followed from before the process starts, so every goal outcome it writes is read.
+        let (goal_file, restored_goal) =
+            ClaudeGoalFile::open(&legs.spawn_environment, &provider_session_id).await;
+        // A process with no file yet restores none, and a fork keeps what its predecessor held.
+        if let Some(restored_goal) = restored_goal {
+            self.task_services
+                .goal_endings
+                .seed(session_id, restored_goal.condition);
+        }
         let goal = ClaudeProcessGoal {
             agent_id,
-            file: Mutex::new(
-                ClaudeGoalFile::open(&legs.spawn_environment, &provider_session_id).await,
-            ),
+            file: Mutex::new(goal_file),
         };
         let stream = Arc::new(ClaudeSessionStream::new(
             provider_account_id,
