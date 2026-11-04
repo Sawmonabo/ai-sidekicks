@@ -189,6 +189,24 @@ pub(crate) fn resolve_claude_local_settings_file(
     }
 }
 
+/// The local settings files Claude Code reads for `folder`, in its order: the file it resolves for
+/// the folder, as [`resolve_claude_local_settings_file`] places it, then the folder's own where that
+/// differs.
+pub(crate) fn list_claude_local_settings_files(
+    folder: &ClaudeProjectFolder<'_>,
+    home_folder: &Path,
+    path_rules: PathRules,
+) -> Vec<PathBuf> {
+    let resolved = resolve_claude_local_settings_file(folder, home_folder, path_rules).path;
+    let own = local_settings_path(folder.working_folder);
+    // Claude Code reads the folder's own local file too where it keeps the project's elsewhere.
+    if own == resolved {
+        vec![resolved]
+    } else {
+        vec![resolved, own]
+    }
+}
+
 /// The session's own rules as the flag settings' `allow` and `deny` lists carry them, each path in
 /// the words of a place that spells paths by `path_rules`. Refuses a kind Claude Code keeps no rule
 /// on.
@@ -469,12 +487,12 @@ fn every_local_settings_file(
     path_rules: PathRules,
 ) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    for folder in folders {
-        let resolved = resolve_claude_local_settings_file(folder, home_folder, path_rules).path;
-        for file in [resolved, local_settings_path(folder.working_folder)] {
-            if !files.contains(&file) {
-                files.push(file);
-            }
+    for file in folders
+        .iter()
+        .flat_map(|folder| list_claude_local_settings_files(folder, home_folder, path_rules))
+    {
+        if !files.contains(&file) {
+            files.push(file);
         }
     }
     files

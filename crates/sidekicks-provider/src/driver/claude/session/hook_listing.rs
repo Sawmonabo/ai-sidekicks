@@ -26,10 +26,12 @@ use sidekicks_contracts::wire::number::PositiveNumber;
 use sidekicks_contracts::wire::text::{ComposedText, NulFreeText};
 
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::claude::session::rules::{CLAUDE_SHARED_SETTINGS_FILE, settings_path};
+use crate::driver::claude::session::rules::{
+    CLAUDE_SHARED_SETTINGS_FILE, list_claude_local_settings_files, settings_path,
+};
 use crate::driver::claude::session::settings_file::{
-    ClaudeSettingsReadError, ClaudeSettingsSources, claude_local_settings_files,
-    find_claude_setting, read_claude_managed_settings, read_claude_settings_file,
+    ClaudeSettingsReadError, ClaudeSettingsSources, find_claude_setting,
+    read_claude_managed_settings, read_claude_settings_file,
 };
 use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
 
@@ -165,7 +167,12 @@ pub(crate) async fn read_claude_hook_listing(
             .any(|listed| listed.hook.source.as_str() == source)
     };
     let local_files = if lists_tier(&listed, LOCAL_SETTINGS_SOURCE) {
-        read_tier_files(claude_local_settings_files(sources), &mut unread).await
+        let files = list_claude_local_settings_files(
+            sources.project_folder,
+            sources.home_folder,
+            sources.path_rules,
+        );
+        read_tier_files(files, &mut unread).await
     } else {
         None
     };

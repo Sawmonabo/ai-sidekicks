@@ -22,8 +22,8 @@ use sidekicks_std::missing_entry::MissingEntry;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 
 use crate::driver::claude::session::rules::{
-    CLAUDE_SHARED_SETTINGS_FILE, ClaudeProjectFolder, local_settings_path,
-    resolve_claude_local_settings_file, settings_path,
+    CLAUDE_SHARED_SETTINGS_FILE, ClaudeProjectFolder, list_claude_local_settings_files,
+    settings_path,
 };
 use crate::inbound_json::decode_inbound_json;
 use crate::project_rule_folders::RuleFileHolds;
@@ -319,24 +319,6 @@ pub(crate) async fn list_managed_settings_files(
         .collect()
 }
 
-/// The project's local settings files Claude Code reads for a session, in its order: the file it
-/// resolves for the working folder, then the working folder's own where that differs.
-pub(crate) fn claude_local_settings_files(sources: &ClaudeSettingsSources<'_>) -> Vec<PathBuf> {
-    let local_settings = resolve_claude_local_settings_file(
-        sources.project_folder,
-        sources.home_folder,
-        sources.path_rules,
-    )
-    .path;
-    let working_local_settings = local_settings_path(sources.project_folder.working_folder);
-    // Claude Code reads the folder's own local file too where it keeps the project's elsewhere.
-    if working_local_settings == local_settings {
-        vec![local_settings]
-    } else {
-        vec![local_settings, working_local_settings]
-    }
-}
-
 /// The first value `select` takes at `key_path` and the tier that set it, in Claude Code's own
 /// precedence: the managed settings, then the project's local files, its shared file, then the
 /// account home's own; `None` where no file sets it. Fails with every settings file that could not
@@ -360,10 +342,14 @@ pub(crate) async fn read_claude_setting<Setting>(
             return Ok(Some((ClaudeSettingsSource::Managed, setting.value)));
         }
     }
-    let mut files: Vec<_> = claude_local_settings_files(sources)
-        .into_iter()
-        .map(|file| (ClaudeSettingsSource::Project, file))
-        .collect();
+    let mut files: Vec<_> = list_claude_local_settings_files(
+        sources.project_folder,
+        sources.home_folder,
+        sources.path_rules,
+    )
+    .into_iter()
+    .map(|file| (ClaudeSettingsSource::Project, file))
+    .collect();
     files.push((
         ClaudeSettingsSource::Project,
         settings_path(
@@ -578,6 +564,7 @@ mod tests {
         ClaudeSettingsSource, ClaudeSettingsSources, read_claude_managed_setting,
         read_claude_setting,
     };
+    use crate::driver::claude::session::memory::CLAUDE_AUTO_MEMORY_SETTING;
     use crate::driver::claude::session::rules::ClaudeProjectFolder;
 
     // Writes `contents` to `file`, making its folder, where the case names one.
@@ -663,7 +650,7 @@ mod tests {
                 account_settings_file: &account_settings_file,
                 path_rules: PathRules::NATIVE,
             },
-            &["autoMemoryEnabled"],
+            &[CLAUDE_AUTO_MEMORY_SETTING],
             Value::as_bool,
         )
         .await
