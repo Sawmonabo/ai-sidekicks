@@ -13,7 +13,10 @@ use serde_json::{Map, Value, json};
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::driver::codex::mcp::config::server_entry::ENABLED_MEMBER;
+use crate::driver::codex::mcp::config::server_entry::{
+    ARGS_MEMBER, COMMAND_MEMBER, ENABLED_MEMBER, ENV_MEMBER,
+};
+use crate::driver::codex::mcp::sandbox_wrap::{CodexSandboxWrap, wrap_codex_stdio_server};
 use crate::driver::codex::mcp::server_name::CODEX_MCP_SERVER_NAMES;
 use crate::driver::codex::permission_level::CodexProfileFolders;
 use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
@@ -67,10 +70,6 @@ impl CodexLoadedServers {
     }
 
     /// The entry the read loads under `name`, its members as Codex merged them.
-    #[expect(
-        dead_code,
-        reason = "the sandbox wrap of a loaded stdio server reads its command and arguments"
-    )]
     pub(crate) fn entry(&self, name: &str) -> Option<&McpServerEntry> {
         self.servers.get(name)
     }
@@ -103,13 +102,17 @@ pub(crate) struct CodexSessionTableInput<'input> {
     pub(crate) repository_root: &'input Path,
     /// Whether the call is a side question's copy, which reaches no tool server.
     pub(crate) is_copy_fork: bool,
+    /// The wrap each stdio server the session switches on runs in, at `Sandboxed` only.
+    pub(crate) sandbox_wrap: Option<&'input CodexSandboxWrap>,
 }
 
 /// The `mcp_servers` table of one call: each loaded server `{"enabled": false}` unless the
 /// session switches it on here, then `{"enabled": true}`; each server the session switches on
 /// that the read does not load sent whole with `"enabled": true`; and the daemon's own server on
-/// its route, none without one. A copy fork's table switches every loaded server off and holds
-/// nothing else. A name Codex keeps for its own server is never sent.
+/// its route, none without one. With a sandbox wrap, each stdio server switched on runs inside it:
+/// a loaded one carries its wrapped `command`, `args` and `env`, an unloaded one is sent wrapped.
+/// A copy fork's table switches every loaded server off and holds nothing else. A name Codex
+/// keeps for its own server is never sent.
 pub(crate) fn compose_codex_session_table(table: CodexSessionTableInput<'_>) -> Map<String, Value> {
     let mut servers = Map::new();
     for name in table.loaded.names() {
@@ -126,7 +129,20 @@ pub(crate) fn compose_codex_session_table(table: CodexSessionTableInput<'_>) -> 
             continue;
         }
         if table.loaded.is_loaded(name) {
-            servers.insert(name.to_owned(), json!({ ENABLED_MEMBER: true }));
+            let mut members = Map::new();
+            if let Some((wrap, entry)) = table.sandbox_wrap.zip(table.loaded.entry(name))
+                && entry.members().contains_key(COMMAND_MEMBER)
+            {
+                // Codex merges by member, so the three the wrap replaces are all it needs.
+                let mut wrapped = wrap_codex_stdio_server(wrap, entry.members());
+                for member in [COMMAND_MEMBER, ARGS_MEMBER, ENV_MEMBER] {
+                    if let Some(value) = wrapped.remove(member) {
+                        members.insert(member.to_owned(), value);
+                    }
+                }
+            }
+            members.insert(ENABLED_MEMBER.to_owned(), Value::Bool(true));
+            servers.insert(name.to_owned(), Value::Object(members));
             continue;
         }
         // A binding the person's folder declares no transport for has no entry to send.
@@ -135,7 +151,10 @@ pub(crate) fn compose_codex_session_table(table: CodexSessionTableInput<'_>) -> 
             .iter()
             .find(|(unloaded, _)| unloaded == binding)
         {
-            let mut members = entry.members().clone();
+            let mut members = match table.sandbox_wrap {
+                Some(wrap) => wrap_codex_stdio_server(wrap, entry.members()),
+                None => entry.members().clone(),
+            };
             members.insert(ENABLED_MEMBER.to_owned(), Value::Bool(true));
             servers.insert(name.to_owned(), Value::Object(members));
         }
@@ -218,11 +237,17 @@ mod tests {
     use sidekicks_contracts::mcp::server::McpServerBindingRef;
     use sidekicks_contracts::session::id::SessionId;
 
+    use sidekicks_contracts::session::controls::methods::PermissionLevel;
+
     use super::{
         CodexLoadedServers, CodexSessionTableInput, codex_repository_root, codex_unloaded_bindings,
         compose_codex_session_table,
     };
+    use crate::driver::codex::mcp::sandbox_wrap::{
+        compose_codex_sandbox_wrap, wrap_codex_stdio_server,
+    };
     use crate::driver::codex::permission_level::CodexProfileFolders;
+    use crate::driver::codex::thread::settings::CodexThreadSettings;
     use crate::driver::mcp_server::write::McpServerEntry;
     use crate::driver::session_control::SessionToolServer;
     use crate::port::tool_server_route::ToolServerRoute;
@@ -315,6 +340,7 @@ mod tests {
             route: Some(&TestRoute),
             repository_root,
             is_copy_fork,
+            sandbox_wrap: None,
         }))
     }
 
@@ -397,5 +423,82 @@ mod tests {
             compose(&tool_servers, &loaded(loaded_names), is_copy_fork),
             table
         );
+    }
+
+    // At `Sandboxed` each stdio server the session switches on runs in the sandbox, loaded or
+    // not, and a server at an address is switched as before. Killed by the table's row not calling
+    // the wrap, by a loaded server sent as `{"enabled": true}` alone, which Codex starts as the
+    // person declared it, and by wrapping an address server.
+    #[test]
+    fn the_table_runs_each_stdio_server_it_switches_on_in_the_sandbox() {
+        let folders = CodexProfileFolders {
+            working_directory: PathBuf::from("/work/app-feature"),
+            git_common_folder: Some(Path::new(REPOSITORY).join(".git")),
+            deny_paths: Vec::new(),
+            command_channel_folder: PathBuf::from("/work/channel"),
+        };
+        let settings = CodexThreadSettings {
+            session_id: SessionId::new("0192f3a4-5b6c-7d8e-9f01-23456789abcd")
+                .expect("the text is a UUID"),
+            working_directory: folders.working_directory.clone(),
+            model: "gpt-5".to_owned(),
+            model_context_window: None,
+            level: PermissionLevel::Sandboxed,
+            profile_folders: folders,
+            command_environment: Vec::new(),
+            subagent_policy: None,
+            helper_roles: Vec::new(),
+            tool_servers: vec![
+                switched(user("github"), true),
+                switched(user("notes"), true),
+                switched(user("docs"), true),
+            ],
+            base_instructions: None,
+        };
+        let wrap = compose_codex_sandbox_wrap(
+            &settings,
+            Some(PathBuf::from("/opt/codex/bin/codex")),
+            PathBuf::from("/data/codex-homes/account-1"),
+        )
+        .expect("the service knows its native program")
+        .expect("a session at Sandboxed wraps its servers");
+        let github: Map<String, Value> = serde_json::from_value(json!({
+            "command": "github-server",
+            "env": { "GITHUB_TOKEN": "SECRET-VALUE" },
+        }))
+        .expect("the test's entry is an object");
+        let loaded = CodexLoadedServers::of_config(json!({ "mcp_servers": {
+            "github": github,
+            "notes": { "url": "https://example.com/mcp" },
+        }}));
+        let repository_root = codex_repository_root(&settings.profile_folders);
+        let unloaded = [(user("docs"), docs_entry())];
+
+        let table = compose_codex_session_table(CodexSessionTableInput {
+            session_id: settings.session_id,
+            tool_servers: &settings.tool_servers,
+            loaded: &loaded,
+            unloaded_entries: &unloaded,
+            route: None,
+            repository_root,
+            is_copy_fork: false,
+            sandbox_wrap: Some(&wrap),
+        });
+
+        let wrapped_github = wrap_codex_stdio_server(&wrap, &github);
+        assert_eq!(
+            table["github"],
+            json!({
+                "command": wrapped_github["command"],
+                "args": wrapped_github["args"],
+                "env": wrapped_github["env"],
+                "enabled": true,
+            })
+        );
+        assert_eq!(table["notes"], json!({ "enabled": true }));
+        let mut wrapped_docs = wrap_codex_stdio_server(&wrap, docs_entry().members());
+        wrapped_docs.insert("enabled".to_owned(), Value::Bool(true));
+        assert_eq!(table["docs"], Value::Object(wrapped_docs));
+        assert_eq!(table["github"]["command"], json!("/opt/codex/bin/codex"));
     }
 }

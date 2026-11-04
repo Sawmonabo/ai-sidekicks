@@ -306,15 +306,22 @@ impl CodexSessionEstablishment {
             compose_codex_service_tier(output_speed.as_deref()).map(CodexServiceTierChange);
         let route = self.tool_server_route();
         let (services, route) = (&*self.dependencies.services, route.as_deref());
-        let (start_settings, start_connection) = (&settings, &*connection);
+        let (start_settings, start_connection, start_service) =
+            (&settings, &*connection, &*service);
         let reply = send_with_stale_name_resend(
             start_connection,
             &settings.working_directory,
             move |loaded| {
                 let service_tier = service_tier.clone();
                 async move {
-                    let table =
-                        compose_codex_call_table(services, start_settings, route, &loaded).await?;
+                    let table = compose_codex_call_table(
+                        services,
+                        start_service,
+                        start_settings,
+                        route,
+                        &loaded,
+                    )
+                    .await?;
                     let mut start = compose_codex_thread_start_params(start_settings, table);
                     start.service_tier = service_tier;
                     start_connection.request(THREAD_START_METHOD, &start).await
@@ -614,7 +621,7 @@ impl CodexSessionEstablishment {
         let connection = service.connection()?;
         let _claim = service.begin_thread_claim();
         let reply = self
-            .request_resume_with_settings(record, &connection)
+            .request_resume_with_settings(record, service, &connection)
             .await?;
         let was_held = service
             .threads_of(&record.session_id)
@@ -632,13 +639,14 @@ impl CodexSessionEstablishment {
         }
     }
 
-    // `thread/resume` of the record's conversation with every setting the record holds, its
-    // output speed rebuilt from the record and its tool servers against the resume's own read, and
-    // the reply. Fails as the reads or the request do, and when the reply names another
+    // `thread/resume` of the record's conversation on `service` with every setting the record
+    // holds, its output speed rebuilt from the record and its tool servers against the resume's own
+    // read, and the reply. Fails as the reads or the request do, and when the reply names another
     // conversation or runs it under another profile.
     async fn request_resume_with_settings(
         &self,
         record: &CodexSessionRecord,
+        service: &CodexService,
         connection: &CodexAppServerConnection,
     ) -> Result<Box<RawValue>, CodexError> {
         let settings = &record.thread_settings;
@@ -660,7 +668,8 @@ impl CodexSessionEstablishment {
                 let service_tier = service_tier.clone();
                 async move {
                     let table =
-                        compose_codex_call_table(services, settings, route, &loaded).await?;
+                        compose_codex_call_table(services, service, settings, route, &loaded)
+                            .await?;
                     let mut resume =
                         compose_codex_thread_resume_params(settings, table, thread_id.to_owned());
                     // The history is paged afterwards instead of arriving on one reply.

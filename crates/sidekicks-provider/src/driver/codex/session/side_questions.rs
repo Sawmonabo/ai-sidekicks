@@ -557,6 +557,8 @@ fn compose_copy_fork(
         route: None,
         repository_root: codex_repository_root(&settings.profile_folders),
         is_copy_fork: true,
+        // The copy switches every server off and starts none.
+        sandbox_wrap: None,
     });
     let mut fork = compose_codex_thread_fork_params(settings, mcp_servers, thread_id);
     fork.ephemeral = Some(true);

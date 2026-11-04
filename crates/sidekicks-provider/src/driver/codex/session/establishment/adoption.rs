@@ -272,7 +272,8 @@ impl CodexSessionEstablishment {
             let reply = if is_loaded {
                 request_bare_thread_resume(connection, &record.thread_id).await
             } else {
-                self.request_resume_with_settings(record, connection).await
+                self.request_resume_with_settings(record, service, connection)
+                    .await
             };
             match reply {
                 Err(error)

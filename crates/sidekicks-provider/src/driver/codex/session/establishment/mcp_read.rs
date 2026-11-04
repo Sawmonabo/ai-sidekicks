@@ -12,12 +12,14 @@ use sidekicks_contracts::mcp::server::McpServerBindingRef;
 
 use crate::driver::codex::config_read::read_codex_config;
 use crate::driver::codex::mcp::observe_codex_mcp_server;
+use crate::driver::codex::mcp::sandbox_wrap::compose_codex_sandbox_wrap;
 use crate::driver::codex::mcp::session_table::{
     CodexLoadedServers, CodexSessionTableInput, codex_repository_root, codex_unloaded_bindings,
     compose_codex_session_table,
 };
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
+use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
@@ -45,16 +47,24 @@ pub(crate) async fn read_codex_loaded_servers(
 }
 
 /// The `mcp_servers` table one start, resume or fork of `settings`' session carries over
-/// `loaded`, the call's own read, with the daemon's server on `route`: the whole entry of each
-/// server the session switches on that the read does not load is read through `services` from the
-/// person's own Codex folder, at the binding's root, one read per server and none when the read
-/// loads them all. Fails as the folder's service cannot be started or a read fails.
+/// `loaded`, the call's own read, with the daemon's server on `route` and each stdio server in the
+/// sandbox of `service`, the session's own, where the session runs sandboxed: the whole entry of
+/// each server the session switches on that the read does not load is read through `services`
+/// from the person's own Codex folder, at the binding's root, one read per server and none when
+/// the read loads them all. Fails as the sandbox's wrap fails, as the folder's service cannot be
+/// started or a read fails.
 pub(crate) async fn compose_codex_call_table(
     services: &CodexServiceRegistry,
+    service: &CodexService,
     settings: &CodexThreadSettings,
     route: Option<&dyn ToolServerRoute>,
     loaded: &CodexLoadedServers,
 ) -> Result<Map<String, Value>, CodexError> {
+    let sandbox_wrap = compose_codex_sandbox_wrap(
+        settings,
+        service.native_program(),
+        service.home().codex_home.clone(),
+    )?;
     let worktree = settings.working_directory.as_path();
     let repository_root = codex_repository_root(&settings.profile_folders);
     let unloaded: Vec<&McpServerBindingRef> =
@@ -86,6 +96,7 @@ pub(crate) async fn compose_codex_call_table(
         route,
         repository_root,
         is_copy_fork: false,
+        sandbox_wrap: sandbox_wrap.as_ref(),
     }))
 }
 
@@ -222,6 +233,7 @@ mod tests {
             route: None,
             repository_root: codex_repository_root(&settings.profile_folders),
             is_copy_fork: false,
+            sandbox_wrap: None,
         })
     }
 

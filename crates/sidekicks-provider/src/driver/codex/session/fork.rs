@@ -153,6 +153,7 @@ async fn fork_onto_settings(
     let forked = request_codex_fork(
         record_fork_source(task.record),
         dependencies,
+        &service,
         &connection,
         boundary,
     )
@@ -209,6 +210,7 @@ pub(crate) async fn move_codex_session_to_fork(
     let forked = request_codex_fork(
         record_fork_source(task.record),
         dependencies,
+        &service,
         &connection,
         CodexForkBoundary::AfterTurn(&boundary_turn_id),
     )
@@ -294,11 +296,13 @@ pub(crate) async fn bind_codex_first_run(
 /// Sends `thread/fork` of `source`'s conversation up to `boundary` with every setting it carries,
 /// its output speed resolved afresh against the model's tier list, which can change, and its tool
 /// servers against the fork's own read, read through `dependencies`' services, with the daemon's
-/// on its route once its owner registered it. Fails as the catalog read, the tool servers' reads
+/// on its route once its owner registered it and each stdio server in `service`'s sandbox where the
+/// session runs sandboxed. Fails as the catalog read, the tool servers' reads, the sandbox's wrap
 /// or the request does, and with `CodexError::Transport` for a reply that names no conversation.
 pub(crate) async fn request_codex_fork(
     source: CodexForkSource<'_>,
     dependencies: &CodexForkDependencies,
+    service: &CodexService,
     connection: &CodexAppServerConnection,
     boundary: CodexForkBoundary<'_>,
 ) -> Result<CodexForkReply, CodexError> {
@@ -322,7 +326,8 @@ pub(crate) async fn request_codex_fork(
         send_with_stale_name_resend(connection, &settings.working_directory, move |loaded| {
             let service_tier = service_tier.clone();
             async move {
-                let table = compose_codex_call_table(services, settings, route, &loaded).await?;
+                let table =
+                    compose_codex_call_table(services, service, settings, route, &loaded).await?;
                 let mut fork =
                     compose_codex_thread_fork_params(settings, table, thread_id.to_owned());
                 fork.exclude_turns = Some(true);

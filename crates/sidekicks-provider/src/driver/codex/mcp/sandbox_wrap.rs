@@ -18,6 +18,7 @@ use crate::driver::codex::mcp::config::server_entry::{
     ARGS_MEMBER, COMMAND_MEMBER, ENV_MEMBER, ENV_VARS_MEMBER,
 };
 use crate::driver::codex::permission_level::compose_codex_permission_config;
+use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 
 /// The variables Codex hands every stdio server it starts on macOS and Linux, its own default set.
@@ -80,28 +81,36 @@ pub(crate) struct CodexSandboxWrap {
     worktree: PathBuf,
 }
 
-/// The wrap of `settings`' session's stdio servers, run by `native_program` on `service_home`:
-/// one at `Sandboxed`, and none at any other level, whose servers Codex starts as declared.
+/// The wrap of `settings`' session's stdio servers, run by `native_program`, the session's
+/// service's, on `service_home`: one at `Sandboxed`, and none at any other level, whose servers
+/// Codex starts as declared. Fails with `CodexError::Transport` at `Sandboxed` when the service
+/// knows no native program, so no server starts outside the sandbox.
 pub(crate) fn compose_codex_sandbox_wrap(
     settings: &CodexThreadSettings,
-    native_program: PathBuf,
+    native_program: Option<PathBuf>,
     service_home: PathBuf,
-) -> Option<CodexSandboxWrap> {
+) -> Result<Option<CodexSandboxWrap>, CodexError> {
     if settings.level != PermissionLevel::Sandboxed {
-        return None;
+        return Ok(None);
     }
+    let native_program = native_program.ok_or_else(|| CodexError::Transport {
+        detail: "Codex's program could not be found, so the session's tool servers cannot run \
+            in its sandbox."
+            .to_owned(),
+        cause: None,
+    })?;
     let mut config = compose_codex_permission_config(settings.level, &settings.profile_folders);
     let profile = config
         .permissions
         .remove(&config.default_permissions)
         .expect("every level below YOLO defines its own profile");
-    Some(CodexSandboxWrap {
+    Ok(Some(CodexSandboxWrap {
         native_program,
         service_home,
         profile_name: config.default_permissions,
         profile: serde_json::to_value(profile).expect("a profile is string-keyed maps and names"),
         worktree: settings.working_directory.clone(),
-    })
+    }))
 }
 
 /// `entry`, a stdio server's, run inside `wrap`'s sandbox: its `command` Codex's native program,
@@ -277,7 +286,8 @@ mod tests {
     // value on the command line, by keeping Codex's own or the person's excludes, which drop a
     // declared `GITHUB_TOKEN`, by leaving a declared name out of the include list, by a Codex home
     // left to the person's own folder, by a profile that reads back as another, by touching a
-    // member beside the three, and by a wrap below or above `Sandboxed`.
+    // member beside the three, by a wrap below or above `Sandboxed`, and by a server started
+    // unsandboxed where the service knows no native program.
     #[rstest]
     #[case::read_only(PermissionLevel::Readonly)]
     #[case::ask(PermissionLevel::Ask)]
@@ -288,11 +298,18 @@ mod tests {
         #[case] level: PermissionLevel,
     ) {
         let settings = settings_at(level);
+        let without_program =
+            compose_codex_sandbox_wrap(&settings, None, PathBuf::from(SERVICE_HOME));
+        assert_eq!(
+            without_program.is_err(),
+            level == PermissionLevel::Sandboxed
+        );
         let wrap = compose_codex_sandbox_wrap(
             &settings,
-            PathBuf::from("/opt/codex/bin/codex"),
+            Some(PathBuf::from("/opt/codex/bin/codex")),
             PathBuf::from(SERVICE_HOME),
-        );
+        )
+        .expect("a service with a native program wraps its servers");
         let Some(wrap) = wrap else {
             assert_ne!(level, PermissionLevel::Sandboxed);
             return;
@@ -362,7 +379,7 @@ mod tests {
             wrapped["env"],
             json!({ "GITHUB_TOKEN": "SECRET-VALUE", "CODEX_HOME": SERVICE_HOME })
         );
-        let mut untouched = wrapped.clone();
+        let mut untouched = wrapped;
         for member in ["command", "args", "env"] {
             untouched.insert(member.to_owned(), entry[member].clone());
         }
