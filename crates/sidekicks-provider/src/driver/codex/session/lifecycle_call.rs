@@ -15,7 +15,10 @@ use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::inbound::{CodexSessionInbound, CodexSessionInboundSender};
 use crate::driver::codex::session::side_questions::CodexSideQuestionAnswer;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::driver::session_control::{AskSideQuestionParams, UpdatePermissionLevelParams};
+use crate::driver::mcp_server::session_switch::McpSessionSwitch;
+use crate::driver::session_control::{
+    AskSideQuestionParams, SessionToolServer, UpdatePermissionLevelParams,
+};
 
 /// A call of the driver's own on a session's record, each answering on its own `reply`; a dropped
 /// `reply` means the session's task let the record go first.
@@ -39,6 +42,13 @@ pub(crate) enum CodexLifecycleCall {
         params: UpdatePermissionLevelParams,
         /// Where the move's failure goes.
         reply: oneshot::Sender<Result<(), CodexError>>,
+    },
+    /// Switches the session's tool servers to the whole set given, onto a fork of the conversation.
+    SwitchToolServers {
+        /// The session's tool servers, each with its switch.
+        tool_servers: Vec<SessionToolServer>,
+        /// Where when the conversation takes the set goes; `Applied` once its fork runs.
+        reply: oneshot::Sender<McpSessionSwitch>,
     },
     /// Moves the conversation between Build and Plan from its next turn.
     MoveMode {

@@ -23,6 +23,7 @@ use sidekicks_contracts::provider::driver::capabilities::{ProviderMode, Provider
 use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup;
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::controls::methods::TerminalProviderSession;
 use sidekicks_contracts::session::id::SessionId;
@@ -40,6 +41,7 @@ use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
 use crate::driver::mcp_server::resources::McpResourceSource;
+use crate::driver::mcp_server::session_switch::McpSessionSwitch;
 use crate::driver::mcp_server::write::{
     McpServerEntry, McpServerObserved, McpServerWrite, McpServerWriteOutcome, McpServerWriteRefusal,
 };
@@ -58,9 +60,9 @@ use crate::driver::session_control::{
     DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, MoveSessionToForkParams,
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
     ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
-    SessionCommandAnswer, SetSessionGoalParams, SettleHeldToolCallsParams, StartingLevel,
-    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
-    UpdateSessionModeParams,
+    SessionCommandAnswer, SessionToolServer, SetSessionGoalParams, SettleHeldToolCallsParams,
+    StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
+    UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
@@ -420,6 +422,17 @@ pub trait ProviderDriver: Send + Sync {
         session_id: SessionId,
         server_name: McpServerName,
     ) -> BoxFuture<'_, Result<McpResourceSource, DriverError>>;
+
+    /// Switches `session_id`'s tool servers to `tool_servers`, the whole set with each server's
+    /// switch: written first to the stored set of run `run_id`'s leg, which a relaunch reads, then
+    /// carried to the live conversation, answering when the provider takes it. Fails as the stored
+    /// write fails, with nothing applied, and as the live apply fails, the stored set kept.
+    fn switch_session_mcp_servers(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+        tool_servers: Vec<SessionToolServer>,
+    ) -> BoxFuture<'_, Result<McpSessionSwitch, DriverError>>;
 
     /// Compacts the bound session's provider-side context on the person's request (gated on
     /// `contextCompaction`), settling on the provider's own compaction evidence, never on the

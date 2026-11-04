@@ -23,6 +23,7 @@ use sidekicks_contracts::provider::driver::capabilities::{ProviderMode, Provider
 use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup;
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::controls::methods::TerminalProviderSession;
 use sidekicks_contracts::session::id::SessionId;
@@ -59,6 +60,7 @@ use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
 use crate::driver::mcp_server::resources::McpResourceSource;
+use crate::driver::mcp_server::session_switch::McpSessionSwitch;
 use crate::driver::mcp_server::write::{
     McpServerEntry, McpServerObserved, McpServerWrite, McpServerWriteOutcome, McpServerWriteRefusal,
 };
@@ -77,9 +79,9 @@ use crate::driver::session_control::{
     DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, MoveSessionToForkParams,
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
     ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
-    SessionCommandAnswer, SetSessionGoalParams, SettleHeldToolCallsParams, StartingLevel,
-    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
-    UpdateSessionModeParams,
+    SessionCommandAnswer, SessionToolServer, SetSessionGoalParams, SettleHeldToolCallsParams,
+    StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
+    UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{
@@ -648,6 +650,16 @@ impl ProviderDriver for CodexDriver {
         server_name: McpServerName,
     ) -> BoxFuture<'_, Result<McpResourceSource, DriverError>> {
         self.list_mcp_resources(session_id, server_name).boxed()
+    }
+
+    fn switch_session_mcp_servers(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+        tool_servers: Vec<SessionToolServer>,
+    ) -> BoxFuture<'_, Result<McpSessionSwitch, DriverError>> {
+        self.switch_session_mcp_servers(session_id, run_id, tool_servers)
+            .boxed()
     }
 
     fn compact_context(

@@ -76,6 +76,11 @@ impl McpServerStatusTracker {
         }
     }
 
+    /// The board the tracker sends its status notices on, which a session's server feed follows.
+    pub fn notice_board(&self) -> &Arc<McpNoticeBoard> {
+        &self.board
+    }
+
     /// Ends the first-observation drain once it has read what was sent before, whoever still
     /// holds the tracker; a binding first observed later is not recorded. The daemon's stop calls
     /// it before it waits for the drain.

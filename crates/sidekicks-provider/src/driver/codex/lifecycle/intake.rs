@@ -39,6 +39,7 @@ use crate::driver::codex::event_normalizer::{
 };
 use crate::driver::codex::lifecycle::CodexDriverParts;
 use crate::driver::codex::lifecycle::account_move::CodexBindingMove;
+use crate::driver::codex::mcp::live_switch::switch_codex_session_servers;
 use crate::driver::codex::notification_routing::{
     CodexContextWindowReading, CodexRoutedFrames, CodexSessionRouting,
 };
@@ -337,6 +338,14 @@ impl CodexSessionIntake {
             CodexLifecycleCall::MoveLevel { params, reply } => {
                 let moved = move_codex_permission_level(record, &parts.config_forks, &params).await;
                 let _unheard = reply.send(moved);
+            }
+            CodexLifecycleCall::SwitchToolServers {
+                tool_servers,
+                reply,
+            } => {
+                let switched =
+                    switch_codex_session_servers(record, &parts.config_forks, tool_servers);
+                let _unheard = reply.send(switched);
             }
             CodexLifecycleCall::MoveMode { mode, reply } => {
                 // A service on its way back resumes the conversation in the mode the record holds.
