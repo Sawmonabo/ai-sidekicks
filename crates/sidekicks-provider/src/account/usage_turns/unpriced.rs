@@ -321,14 +321,14 @@ mod tests {
         Option<String>,
         Option<String>,
         String,
-        [Option<u64>; 5],
-        Option<u64>,
-        Option<u64>,
+        [Option<i64>; 5],
+        Option<i64>,
+        Option<i64>,
         Option<String>,
     );
 
     fn row_facts(row: &UnpricedUsageRow) -> RowFacts {
-        let count = |count: Option<SafeInt<0>>| count.map(u64::from);
+        let count = |count: Option<SafeInt<0>>| count.map(i64::from);
         (
             row.turn_id.as_str().to_owned(),
             row.session_id
