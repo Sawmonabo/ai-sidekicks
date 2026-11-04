@@ -679,7 +679,12 @@ methods! {
             mutating: true,
             params: AgentChildRunPausedUpdateRequest,
             result: AgentChildRunPausedUpdateResponse,
-            refusals: [AgentRunNotFound, AgentChildRunNotFound, AgentChildRunControlRefused],
+            refusals: [
+                AgentRunNotFound,
+                AgentRunVersionStale,
+                AgentChildRunNotFound,
+                AgentChildRunControlRefused,
+            ],
         },
         /// Stops every live agent a session dispatched, at every depth.
         AgentChildRunStopAll = mutation "agent.childRun.stopAll" {
