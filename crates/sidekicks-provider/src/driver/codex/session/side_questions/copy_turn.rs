@@ -56,7 +56,7 @@ pub(crate) enum CopyFrameReading {
     /// The copy's reply.
     Reply(String),
     /// A usage reading, metered against the copy's own base.
-    Usage(MeteredUsageDelta),
+    Usage(Box<MeteredUsageDelta>),
     /// The turn ended, as the frame's turn reads where it carried one.
     Ended(Option<CopyTurn>),
     /// Nothing the copy reads.
@@ -78,7 +78,9 @@ pub(crate) fn read_copy_frame(
             .map_or(CopyFrameReading::Other, CopyFrameReading::Reply),
         CODEX_THREAD_TOKEN_USAGE_METHOD => read_codex_token_usage(params)
             .and_then(|reading| accountant.meter_reading(reading))
-            .map_or(CopyFrameReading::Other, CopyFrameReading::Usage),
+            .map_or(CopyFrameReading::Other, |delta| {
+                CopyFrameReading::Usage(Box::new(delta))
+            }),
         CODEX_TURN_COMPLETED_METHOD => CopyFrameReading::Ended(
             read_codex_object::<CopyFrame>(params.get()).and_then(|frame| frame.turn),
         ),

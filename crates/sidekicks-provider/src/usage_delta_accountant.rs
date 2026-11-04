@@ -35,7 +35,7 @@ use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use strum::{IntoStaticStr, VariantArray};
 
 use crate::driver::contract::account::WindowTurnSpend;
@@ -122,6 +122,30 @@ pub(crate) struct CumulativeUsageReading {
     pub(crate) cumulative: UsageAxisCounts,
     /// The wire's per-turn figure, where it declares one.
     pub(crate) declared_per_turn: Option<UsageAxisCounts>,
+    /// The request the reading's change belongs to and what prices it.
+    pub(crate) request: UsageRequestFacts,
+}
+
+/// What a later repricing needs of the request a token row belongs to, beside its counts: its key,
+/// model and selectors, and the counts priced apart from the token axes. Each is absent where the
+/// provider named none.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct UsageRequestFacts {
+    /// The model the provider attributes the request to.
+    pub model_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+    /// The provider's id of the request, shared by every row of that request.
+    pub request_key: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
+    /// The speed tier the request ran at, in the provider's word.
+    pub speed: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
+    /// The region the request was processed in, in the driver's region word.
+    pub processing_region: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
+    /// The part of the row's cache-write change written at the longer cache lifetime.
+    pub cache_write_extended_tokens: Option<u64>,
+    /// The web searches the row's change ran.
+    pub web_search_requests: Option<u64>,
+    /// The speed tier the reading's thread declared when the reading was taken, which prices the
+    /// requests of helpers that thread spawned.
+    pub thread_speed: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
 }
 
 /// The cache read and write deltas, kept beside the normalized figures for diagnostics.
@@ -153,6 +177,8 @@ pub struct MeteredUsageDelta {
     pub containment: UsageContainment,
     /// The cache split, for diagnostics.
     pub diagnostic_band: UsageDiagnosticBand,
+    /// The request the change belongs to and what prices it.
+    pub request: UsageRequestFacts,
 }
 
 /// How a thread's base registers are established.
@@ -270,6 +296,7 @@ impl UsageDeltaAccountant {
                 cache_read_tokens_delta: axis_deltas.cached_input.unwrap_or(0),
                 cache_write_tokens_delta: axis_deltas.cache_write_input.unwrap_or(0),
             },
+            request: reading.request,
         })
     }
 
@@ -376,6 +403,7 @@ pub(crate) fn compose_one_turn_spend(
         named_turn_id: None,
         cumulative: counts,
         declared_per_turn: None,
+        request: UsageRequestFacts::default(),
     })?;
     // An absent axis stays absent; a present one past the range answers `None`.
     let figure = |figure: Option<u64>| match figure {
@@ -595,6 +623,7 @@ mod tests {
                 ..UsageAxisCounts::default()
             },
             declared_per_turn: None,
+            request: UsageRequestFacts::default(),
         }
     }
 
@@ -651,6 +680,7 @@ mod tests {
                     ..UsageAxisCounts::default()
                 },
                 declared_per_turn: None,
+                request: UsageRequestFacts::default(),
             })
             .expect("the thread is established");
         assert_eq!(metered.normalized_input_tokens, 50);

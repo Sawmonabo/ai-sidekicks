@@ -15,12 +15,15 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::event::usage::UsageTokenCountRecordedPayload;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
+use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
+use sidekicks_store::database::statement::{
+    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
+};
 use sidekicks_store::events::projection::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
@@ -32,11 +35,13 @@ use crate::driver::contract::account::WindowTurnSpend;
 // a rebuild after the account's removal writes nothing for it, as the removal's cascade left it.
 const INSERT_USAGE_TURN_SQL: &str = "INSERT INTO provider_account_usage_turns
   (turn_id, account_id, provider, occurred_at, session_id, run_id, model_id, input_tokens,
-   output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens,
+   output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, request_key, speed,
+   processing_region, cache_write_extended_tokens, web_search_requests, thread_speed, subagent_id,
    observed_credential_generation)
 SELECT @turn_id, account_id, provider, @occurred_at, @session_id, @run_id, @model_id,
   @input_tokens, @output_tokens, @cache_read_tokens, @cache_write_tokens, @reasoning_tokens,
-  @observed_credential_generation
+  @request_key, @speed, @processing_region, @cache_write_extended_tokens, @web_search_requests,
+  @thread_speed, @subagent_id, @observed_credential_generation
 FROM provider_accounts WHERE account_id = @account_id";
 
 // A turn no session owns: no session or run, and the generation the account's row holds now.
@@ -146,6 +151,28 @@ fn insert_usage_turn_statement(
             count_binding("@cache_read_tokens", recorded.cache_read_tokens),
             count_binding("@cache_write_tokens", recorded.cache_write_tokens),
             count_binding("@reasoning_tokens", recorded.reasoning_tokens),
+            nullable_text_binding(
+                "@request_key",
+                recorded.request_key.as_ref().map(BoundedText::as_str),
+            ),
+            nullable_text_binding("@speed", recorded.speed.as_ref().map(BoundedText::as_str)),
+            nullable_text_binding(
+                "@processing_region",
+                recorded.processing_region.as_ref().map(BoundedText::as_str),
+            ),
+            count_binding(
+                "@cache_write_extended_tokens",
+                recorded.cache_write_extended_tokens,
+            ),
+            count_binding("@web_search_requests", recorded.web_search_requests),
+            nullable_text_binding(
+                "@thread_speed",
+                recorded.thread_speed.as_ref().map(BoundedText::as_str),
+            ),
+            nullable_text_binding(
+                "@subagent_id",
+                recorded.subagent_id.as_ref().map(SubagentId::as_str),
+            ),
             credential_generation_binding(
                 "@observed_credential_generation",
                 recorded.credential_generation,
@@ -247,6 +274,15 @@ mod tests {
 
     // The envelope a live append stores for `turn` on the log's lead run.
     fn recorded(log: &SessionTestLog, turn: &Turn<'_>) -> UnsequencedEventEnvelope {
+        recorded_with(log, turn, &json!({}))
+    }
+
+    // As `recorded`, with each of `members` also set on the payload.
+    fn recorded_with(
+        log: &SessionTestLog,
+        turn: &Turn<'_>,
+        members: &Json,
+    ) -> UnsequencedEventEnvelope {
         let [input, output, cache_read, cache_write, reasoning] = turn.counts;
         let mut payload = json!({
             "sessionId": log.session_id,
@@ -263,6 +299,9 @@ mod tests {
         });
         if let Some(subagent) = turn.subagent {
             payload["subagentId"] = json!(subagent);
+        }
+        if let (Some(payload), Some(members)) = (payload.as_object_mut(), members.as_object()) {
+            payload.extend(members.clone());
         }
         let event: SessionEvent = serde_json::from_value(
             json!({"type": "usage.tokenCount.recorded", "payload": payload}),
@@ -302,13 +341,15 @@ mod tests {
             .prepare(
                 "SELECT turn_id, account_id, provider, occurred_at, session_id, run_id, model_id,
                    input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-                   reasoning_tokens, cost_usd_micros, cost_source, observed_credential_generation
+                   reasoning_tokens, request_key, speed, processing_region,
+                   cache_write_extended_tokens, web_search_requests, thread_speed, subagent_id,
+                   cost_usd_micros, cost_source, observed_credential_generation
                  FROM provider_account_usage_turns ORDER BY turn_id",
             )
             .expect("the read prepares");
         statement
             .query_map([], |row| {
-                (0..15).map(|column| row.get::<_, Value>(column)).collect()
+                (0..22).map(|column| row.get::<_, Value>(column)).collect()
             })
             .expect("the rows read")
             .collect::<rusqlite::Result<_>>()
@@ -320,20 +361,29 @@ mod tests {
     }
 
     // Fails when an event lands as anything but one row keyed by its id, holding its session, run,
-    // model, five counts and generation, with the account's provider and no cost.
+    // model, five counts, request facts, helper and generation, with the account's provider and no
+    // cost, or when a request fact's column is left unbound or bound to another's value.
     #[test]
     fn each_usage_event_projects_one_row_keyed_by_its_id() {
         let log = log_with_accounts();
         let envelopes = [
-            recorded(
+            recorded_with(
                 &log,
                 &Turn {
                     account: "account-a",
                     generation: 2,
                     model: LEAD_MODEL,
-                    subagent: None,
+                    subagent: Some("helper"),
                     counts: [10, 4, 300, 20, 7],
                 },
+                &json!({
+                    "requestKey": "msg-1",
+                    "speed": "fast",
+                    "processingRegion": "us",
+                    "cacheWriteExtendedTokens": 12,
+                    "webSearchRequests": 3,
+                    "threadSpeed": "flex",
+                }),
             ),
             recorded(
                 &log,
@@ -348,10 +398,23 @@ mod tests {
         ];
         append(&log, &envelopes);
 
+        let request_facts = [
+            vec![
+                text("msg-1"),
+                text("fast"),
+                text("us"),
+                Value::Integer(12),
+                Value::Integer(3),
+                text("flex"),
+                text("helper"),
+            ],
+            vec![Value::Null; 7],
+        ];
         let mut expected: Vec<Vec<Value>> = envelopes
             .iter()
             .zip([[10, 4, 300, 20, 7], [5, 1, 0, 0, 0]])
-            .map(|(envelope, counts)| {
+            .zip(request_facts)
+            .map(|((envelope, counts), request_facts)| {
                 let mut row = vec![
                     text(envelope.id.as_str()),
                     text("account-a"),
@@ -362,6 +425,7 @@ mod tests {
                     text(LEAD_MODEL),
                 ];
                 row.extend(counts.map(Value::Integer));
+                row.extend(request_facts);
                 row.extend([Value::Null, Value::Null, Value::Integer(2)]);
                 row
             })

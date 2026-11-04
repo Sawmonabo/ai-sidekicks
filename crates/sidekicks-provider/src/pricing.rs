@@ -4,5 +4,10 @@
 pub mod decimal;
 mod fetch;
 pub mod list;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "each driver prices its requests through it")
+)]
+pub(crate) mod quote;
 pub mod receiver;
 pub mod store;
