@@ -329,6 +329,7 @@ mod tests {
     use sidekicks_contracts::agent::provider_binding::AgentBindingSwitchBoundary;
     use sidekicks_contracts::machine::settings::{APP_SET_ENVIRONMENT_NAMES, EnvironmentRow};
     use sidekicks_contracts::mcp::server::config::McpTransport;
+    use sidekicks_contracts::run::children::ChildStoppedState;
     use sidekicks_contracts::wire::text::{BoundedText, NulFreeText};
     use sidekicks_platforms::{PathRules, PerSystem, SystemFolders};
 
@@ -374,6 +375,7 @@ mod tests {
             conversation_bytes: None,
         },
         standard_output_speed: "standard",
+        stop_all_row_word: ChildStoppedState::Stopped,
         output_speed_levels: None,
         switch_boundaries: ProviderSwitchBoundaries {
             model_id: AgentBindingSwitchBoundary::TurnBoundary,
