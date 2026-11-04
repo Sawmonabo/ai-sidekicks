@@ -470,10 +470,11 @@ mod tests {
     }
 
     // Killed by a closed parse of `type`, by the `sourceLabel` or its `~` taken as the path, by a
-    // plugin hook named at a fixed `hooks/hooks.json`, by a local hook always named at the resolved
-    // local file, by an HTTP hook whose listed header values are compared with the stored ones, by
-    // a managed hook always named at `managed-settings.json` while a drop-in sits beside it, by a
-    // hook with an empty command listed, or by a policy or error member dropped.
+    // timeout reader that drops a whole number, by a plugin hook named at a fixed
+    // `hooks/hooks.json`, by a local hook always named at the resolved local file, by an HTTP hook
+    // whose listed header values are compared with the stored ones, by a managed hook always named
+    // at `managed-settings.json` while a drop-in sits beside it, by a hook with an empty command
+    // listed, or by a policy or error member dropped.
     #[tokio::test]
     async fn a_listed_hook_keeps_its_words_and_names_the_file_it_came_from() {
         let tree = ScratchTree::new();
@@ -526,7 +527,7 @@ mod tests {
                  "commandText": "format.sh", "disabled": true},
                 {"event": "PreToolUse", "matcher": "Bash", "source": "localSettings",
                  "sourceLabel": "Local settings", "type": "command",
-                 "commandText": "./check.sh",
+                 "commandText": "./check.sh", "timeout": 30,
                  "editable": {"matcher": "Bash", "config": stored_hook}},
                 {"event": "Notification", "matcher": "", "source": "localSettings",
                  "sourceLabel": "Local settings", "type": "http",
@@ -586,6 +587,7 @@ mod tests {
                     ..hook("PostToolUse", "Edit", "pluginHook", "command", "format.sh")
                 },
                 SessionProviderEventHook {
+                    timeout_seconds: PositiveNumber::new(30.0),
                     source_path: Some(file_path(&working_local_settings)),
                     ..hook(
                         "PreToolUse",
