@@ -11,12 +11,11 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpWritableBindingRef};
-use sidekicks_std::error_description::describe_error;
 use sidekicks_store::data_folder::plugin_home;
 use tokio::time::Instant;
 
 use super::compose::{NO_SWITCH_WORDS, compose_claude_mcp_entry};
-use super::edit::{ClaudeEditTarget, edit_claude_mcp_entry};
+use super::edit::{ClaudeEditTarget, edit_claude_mcp_entry, refused_by_daemon};
 use super::observe::observe_claude_mcp_server;
 use super::{ClaudePersonConfigFiles, SERVERS_FILE};
 use crate::driver::claude::DESCRIPTOR;
@@ -47,6 +46,9 @@ const GET_COMMAND: &str = "get";
 
 /// The flag naming the scope a command writes.
 const SCOPE_FLAG: &str = "--scope";
+
+/// What the daemon's words for a write that no command could make begin with.
+const UNWRITTEN_CONTEXT: &str = "Claude Code's MCP config was not written";
 
 impl ClaudeDriver {
     /// What Claude Code's config holds for `binding`, read from the person's own files and the
@@ -110,7 +112,7 @@ impl ClaudeDriver {
         .await
         {
             Ok(executable) => executable,
-            Err(error) => return refused_by_daemon(&error),
+            Err(error) => return refused_by_daemon(UNWRITTEN_CONTEXT, &error),
         };
         let place = ClaudeMcpWritePlace::of(binding, &sources.home_folder);
         let command = ClaudeMcpCommand {
@@ -285,7 +287,9 @@ impl ClaudeMcpCommand<'_> {
         .await;
         let ended = match ran {
             Ok(Ok(ended)) => ended,
-            Ok(Err(error @ ClaudeOneShotError::Start(_))) => return Err(refused_by_daemon(&error)),
+            Ok(Err(error @ ClaudeOneShotError::Start(_))) => {
+                return Err(refused_by_daemon(UNWRITTEN_CONTEXT, &error));
+            }
             Ok(Err(error @ ClaudeOneShotError::Wait(_))) => {
                 tracing::warn!(
                     error = &error as &(dyn Error + 'static),
@@ -311,13 +315,6 @@ impl ClaudeMcpCommand<'_> {
             },
         ))
     }
-}
-
-// A refusal in the daemon's own words: `failure` and its causes.
-fn refused_by_daemon(failure: &(dyn Error + 'static)) -> McpServerWriteOutcome {
-    McpServerWriteOutcome::Refused(McpServerWriteRefusal::Provider {
-        words: provider_words_without_values(&describe_error(failure)),
-    })
 }
 
 #[cfg(test)]

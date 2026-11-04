@@ -311,8 +311,11 @@ fn config_file_invalid(words: &str) -> EditTry {
     ))
 }
 
-// A refusal in the daemon's own words: `context`, then `failure` and its causes.
-fn refused_by_daemon(context: &str, failure: &(dyn Error + 'static)) -> McpServerWriteOutcome {
+/// A refusal in the daemon's own words: `context`, then `failure` and its causes.
+pub(super) fn refused_by_daemon(
+    context: &str,
+    failure: &(dyn Error + 'static),
+) -> McpServerWriteOutcome {
     McpServerWriteOutcome::Refused(McpServerWriteRefusal::Provider {
         words: provider_words_without_values(&format!("{context}: {}", describe_error(failure))),
     })
