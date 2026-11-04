@@ -26,7 +26,7 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::api_key::{log_in_with_api_key, read_codex_api_key};
 use crate::driver::codex::app_server_protocol::ThreadLoadedListParams;
 use crate::driver::codex::exec_relay::{CODEX_EXECUTOR_ARGUMENTS, CodexExecRelay, RelayedThread};
-use crate::driver::codex::native_program::resolve_codex_native_program;
+use crate::driver::codex::native_program::{CodexNativeProgram, resolve_codex_native_program};
 use crate::driver::codex::privacy::read_codex_privacy;
 use crate::driver::codex::service::command_line::{
     CodexServiceCommandLineInput, compose_codex_service_arguments,
@@ -198,14 +198,7 @@ pub(super) async fn start_codex_service(
 // servers can run in the sandbox; `None`, logged, where it cannot be found, which fails only a
 // sandboxed call's table.
 async fn resolve_joined_native_program(executable: &ResolvedProviderExecutable) -> Option<PathBuf> {
-    let start = executable.start.clone();
-    let environment = executable.environment.clone();
-    let resolved =
-        tokio::task::spawn_blocking(move || resolve_codex_native_program(&start, &environment))
-            .await
-            .map_err(io::Error::other)
-            .and_then(|resolved| resolved);
-    match resolved {
+    match resolve_native_program_off_thread(executable).await {
         Ok(native) => Some(native.program),
         Err(error) => {
             tracing::warn!(
@@ -630,17 +623,12 @@ pub(crate) async fn compose_codex_native_launch(
     executable: &ResolvedProviderExecutable,
     arguments: Vec<String>,
 ) -> Result<CodexProcessLaunch, CodexError> {
-    let not_found = |error: Box<dyn std::error::Error + Send + Sync>| CodexError::Transport {
-        detail: "Codex's program could not be found.".to_owned(),
-        cause: Some(error),
-    };
-    let start = executable.start.clone();
-    let environment = executable.environment.clone();
-    let native =
-        tokio::task::spawn_blocking(move || resolve_codex_native_program(&start, &environment))
-            .await
-            .map_err(|error| not_found(Box::new(error)))?
-            .map_err(|error| not_found(Box::new(error)))?;
+    let native = resolve_native_program_off_thread(executable)
+        .await
+        .map_err(|error| CodexError::Transport {
+            detail: "Codex's program could not be found.".to_owned(),
+            cause: Some(Box::new(error)),
+        })?;
     let mut launch_arguments: Vec<String> = if native.program == executable.start.program {
         executable
             .start
@@ -665,6 +653,18 @@ pub(crate) async fn compose_codex_native_launch(
         environment,
         working_folder,
     })
+}
+
+// The native program `executable` runs, resolved off the async threads since it reads the file
+// system. Fails as the resolve or its blocking task does.
+async fn resolve_native_program_off_thread(
+    executable: &ResolvedProviderExecutable,
+) -> io::Result<CodexNativeProgram> {
+    let start = executable.start.clone();
+    let environment = executable.environment.clone();
+    tokio::task::spawn_blocking(move || resolve_codex_native_program(&start, &environment))
+        .await
+        .map_err(io::Error::other)?
 }
 
 async fn take_start_lock(
