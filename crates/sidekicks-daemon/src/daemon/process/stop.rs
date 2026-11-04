@@ -514,7 +514,8 @@ impl DaemonProcess {
 
     /// Runs the erase's steps as they come, until the first stop asked for: the system's stop
     /// request, which restarts, damage found in the database file, which restarts so the next
-    /// start repairs it, or a stop, restart or the erase's end over the socket, for its own reason.
+    /// start repairs it, or a stop or restart over the socket or the erase's end, each for its own
+    /// reason.
     pub(crate) async fn wait_for_stop(&mut self) -> DaemonStopReason {
         let mut stop_asked = self.stop_asked.subscribe();
         let damage = self
