@@ -624,13 +624,16 @@ mod tests {
     }
 
     // Killed by a lone managed file named without holding the hook, as when another managed source
-    // keeps that file's hooks from loading, or by a managed hook never named.
+    // keeps that file's hooks from loading, by a managed hook never named, or by a number where the
+    // stored entry belongs read as an empty entry, which no stored hook matches.
     #[rstest]
-    #[case::holding("audit.sh", true)]
-    #[case::not_holding("other.sh", false)]
+    #[case::holding("audit.sh", None, true)]
+    #[case::not_holding("other.sh", None, false)]
+    #[case::holding_with_a_number_for_its_entry("audit.sh", Some(json!(1.5)), true)]
     #[tokio::test]
     async fn a_managed_hook_names_only_a_file_that_holds_it(
         #[case] stored_command: &str,
+        #[case] editable: Option<serde_json::Value>,
         #[case] is_named: bool,
     ) {
         let tree = ScratchTree::new();
@@ -641,11 +644,12 @@ mod tests {
                 {"hooks": [{"type": "command", "command": stored_command}]}
             ]}}),
         );
-        let reply = json!({
-            "hooks": [{"event": "SessionStart", "matcher": "", "source": "policySettings",
-                       "type": "command", "commandText": "audit.sh"}],
-            "policy": running_policy()
-        });
+        let mut row = json!({"event": "SessionStart", "matcher": "", "source": "policySettings",
+                             "type": "command", "commandText": "audit.sh"});
+        if let Some(editable) = editable {
+            row["editable"] = editable;
+        }
+        let reply = json!({"hooks": [row], "policy": running_policy()});
 
         let listing = tree.read(session_id(), &reply).await;
 
