@@ -407,7 +407,10 @@ mod tests {
             .expect_err("the control is refused");
 
         assert_eq!(refusal_code(error), code);
-        assert!(child.harness.stored_rows().is_empty());
+        assert_eq!(
+            child.harness.stored_rows(),
+            Vec::<(String, String, Option<String>)>::new()
+        );
     }
 
     // A running child whose driver confirms the interrupt answers `interrupted`; one whose driver
@@ -473,6 +476,9 @@ mod tests {
             .expect("an ended child answers its state");
 
         assert_eq!(state, RunState::Completed);
-        assert!(child.harness.stored_rows().is_empty());
+        assert_eq!(
+            child.harness.stored_rows(),
+            Vec::<(String, String, Option<String>)>::new()
+        );
     }
 }
