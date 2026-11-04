@@ -189,14 +189,8 @@ impl DataErase {
         }
         (self.deps.stop_work)().await;
         let deadline = tokio::time::Instant::now() + DAEMON_STOP_DRAIN_BOUND;
-        for (provider, driver) in self.deps.providers.drivers() {
-            if let Err(failure) = driver.shutdown(DaemonStopIntent::Stop, deadline).await {
-                tracing::warn!(
-                    provider = provider.as_str(),
-                    error = &failure as &(dyn Error + 'static),
-                    "a provider's services did not end before the erase"
-                );
-            }
+        for (_, driver) in self.deps.providers.drivers() {
+            driver.shutdown(DaemonStopIntent::Stop, deadline).await;
         }
         // A draining service outlives its driver's stop, so its record ends it.
         let recorded_stops = self.deps.providers.recorded_service_stops();

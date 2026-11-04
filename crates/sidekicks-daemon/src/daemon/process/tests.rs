@@ -570,7 +570,7 @@ async fn a_system_stop_restarts_the_drivers() {
                 .times(1)
                 .returning(move |intent, _deadline| {
                     lock(&told).push(intent);
-                    async { Ok(()) }.boxed()
+                    async {}.boxed()
                 });
             Arc::new(driver) as Arc<dyn ProviderDriver>
         })

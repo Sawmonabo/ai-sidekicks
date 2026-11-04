@@ -1,7 +1,8 @@
 //! The status file in the run folder, which holds one fact of three for the clients that read it
-//! while no service answers: a failed start leaves why the service cannot start; the person's
-//! Stop records each step it waits on as `stopping` and removes the record as it returns, or
-//! leaves why it failed as `cannotStop`; a start that succeeds removes the file.
+//! while no service answers: a failed start leaves why the service cannot start; each stop of a
+//! running service records each step it waits on as `stopping` and removes the record as it
+//! returns, or leaves why the person's Stop failed as `cannotStop`; a start that succeeds removes
+//! the file.
 
 use std::error::Error;
 use std::io;
@@ -30,24 +31,24 @@ pub(crate) fn write_service_status(
     write_and_flush(&run_folder.status_path, &contents, RUN_FOLDER_FILE_MODE)
 }
 
-/// Writes the stop under way to the run folder's status file, replacing it whole, with no flush:
-/// its readers take it only while this process lives, and take bytes that do not parse as no
-/// fact. Blocking. Fails with the write's error.
+/// Writes the stop under way to the run folder's status file, replacing it whole with no flush,
+/// since its readers take it only while this process lives. Blocking; fails with the write's error.
 pub(crate) fn write_stopping(
     run_folder: &DaemonRunFolder,
     stopping: &DaemonStopping,
 ) -> Result<(), AtomicWriteError> {
+    // A crash can leave the bytes torn, which a reader takes as no fact.
     let contents = serde_json::to_vec(&ServiceStatusFile::Stopping(stopping.clone()))
         .expect("the status file serializes as JSON");
     write_without_flush(&run_folder.status_path, &contents, RUN_FOLDER_FILE_MODE)
 }
 
-/// The person's Stop's record in the status file: each step it waits on as it starts, then, as
-/// the stop returns, why it failed or no file. Only a begun stop writes, so a failed start's
-/// release and the erase's steps write none.
+/// The record in the status file of each stop of a running service: each step it waits on as it
+/// starts, then, as the stop returns, why the person's Stop failed or no file. Only a begun stop
+/// writes, so a failed start's release and the erase's steps record no step.
 pub(crate) struct StopRecord {
-    /// Where the status file sits.
-    run_folder: DaemonRunFolder,
+    /// Where the status file sits, which a failed start's release also records in.
+    pub(crate) run_folder: DaemonRunFolder,
     /// This service's own process, which the record names.
     process: ProcessIdentity,
     /// When the stop began, on the wall clock; `None` until it begins.

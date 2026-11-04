@@ -202,7 +202,7 @@ async fn bind_repairing_socket(
             // Nothing is open to write while the file is repaired.
             flush: Arc::new(|_caller| async { Ok(()) }.boxed()),
             accept_stop: Arc::new(move |reason| {
-                ask_repair_stop(&asked_stop, reason);
+                DaemonStopReason::join_ask(&mut lock(&asked_stop), reason);
                 repair_stop.cancel();
             }),
         },
@@ -231,12 +231,6 @@ async fn bind_repairing_socket(
         session_token,
     )
     .await?)
-}
-
-// Joins `reason` to the stop `asked_stop` holds, so the person's stop replaces a restart.
-fn ask_repair_stop(asked_stop: &Mutex<Option<DaemonStopReason>>, reason: DaemonStopReason) {
-    let mut asked = lock(asked_stop);
-    *asked = Some(asked.map_or(reason, |first| first.joined(reason)));
 }
 
 fn log_leftovers(leftovers: &[LeftoverFile]) {
@@ -273,12 +267,9 @@ impl SupervisionHooks for RepairingSocketHooks {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
-
     use sidekicks_recovery::database_file::repair::DatabaseFileRepair;
-    use sidekicks_std::mutex_lock::lock;
 
-    use super::{DatabaseFileRepairEnd, ask_repair_stop, repair_end};
+    use super::{DatabaseFileRepairEnd, repair_end};
     use crate::daemon::process::stop::DaemonStopReason;
 
     // A stop asked over the socket after the repair's last look at the stop still ends the start
@@ -313,18 +304,5 @@ mod tests {
             ),
             Ok(DatabaseFileRepairEnd::Stopped(DaemonStopReason::Restart))
         ));
-    }
-
-    // The person's stop over the repairing socket replaces a restart asked before it, and a
-    // restart asked after a stop keeps the stop. Killed by the first ask winning.
-    #[test]
-    fn a_stop_over_the_repairing_socket_replaces_a_restart() {
-        let asked_stop = Mutex::new(None);
-
-        ask_repair_stop(&asked_stop, DaemonStopReason::Restart);
-        ask_repair_stop(&asked_stop, DaemonStopReason::Stop);
-        ask_repair_stop(&asked_stop, DaemonStopReason::Restart);
-
-        assert_eq!(*lock(&asked_stop), Some(DaemonStopReason::Stop));
     }
 }

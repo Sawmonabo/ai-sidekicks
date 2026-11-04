@@ -9,6 +9,7 @@ use futures::future::BoxFuture;
 
 use futures::FutureExt as _;
 use sidekicks_artifact::admission::UploadAdmission;
+use sidekicks_artifact::attachment_resolver::ArtifactAttachmentResolver;
 use sidekicks_artifact::payload_store::PayloadStore;
 use sidekicks_artifact::plans::store::StoredPlanHolds;
 use sidekicks_artifact::publish::ArtifactPublishService;
@@ -181,6 +182,10 @@ async fn fixture() -> Fixture {
     ));
     let payloads =
         Arc::new(PayloadStore::new(home.path().join("objects")).expect("the payload store opens"));
+    let attachments = Arc::new(ArtifactAttachmentResolver::new(
+        Arc::clone(&reads),
+        Arc::clone(&payloads),
+    ));
     let spool_folder = home.path().join("spool");
     let publisher = Arc::new(ArtifactPublishService::new(
         appender,
@@ -253,6 +258,7 @@ async fn fixture() -> Fixture {
         plan_holds,
         payloads,
         publisher,
+        attachments,
         spool_folder,
         workspaces_folder: managed_workspaces_folder(home.path()),
         workspace_writes,

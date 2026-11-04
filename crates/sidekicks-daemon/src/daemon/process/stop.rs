@@ -14,7 +14,6 @@ use std::time::{Duration, Instant};
 use futures::FutureExt as _;
 use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_TERMINAL_DRAIN_MS;
 use sidekicks_contracts::daemon::service_status::DaemonStopStep;
-use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_recovery::restart_settle::RestartSettleError;
 use sidekicks_recovery::stop_intent::StopIntentError;
@@ -74,6 +73,15 @@ impl DaemonStopReason {
         }
     }
 
+    /// Joins the stop `later` asks for to the one `asked` holds, the first ask taken as it is;
+    /// answers whether `asked` changed.
+    pub(crate) fn join_ask(asked: &mut Option<Self>, later: Self) -> bool {
+        let joined = asked.map_or(later, |first| first.joined(later));
+        let is_changed = *asked != Some(joined);
+        *asked = Some(joined);
+        is_changed
+    }
+
     /// The reason a failed start's release stops for: the reason of a stop asked for over the
     /// repairing socket, which cut the start short, else a restart.
     pub(super) fn of_failed_start(error: &DaemonStartError) -> Self {
@@ -117,9 +125,6 @@ pub(crate) enum DaemonStopFailure {
     /// The session search index did not close cleanly.
     #[error("the session search index did not close cleanly")]
     SearchIndex(#[source] Arc<LiveIndexCloseError>),
-    /// A driver's shutdown failed.
-    #[error("a provider's driver did not shut down cleanly")]
-    Driver(#[source] DriverError),
     /// A service's background task ended abnormally.
     #[error(transparent)]
     Task(#[from] TaskStopFailure),
@@ -322,12 +327,17 @@ pub(crate) async fn stop_work(
     drop(process.mcp_attribution_fills.take());
     // Before the queue and the drivers, so every end the stop causes meets the stopping mark and
     // writes nothing; while the database is open, so an end a server answered is still written.
-    if let Some(mcp_client) = process.mcp_client.take()
-        && tokio::time::timeout(remaining(), mcp_client.stop())
+    if let Some(mcp_client) = process.mcp_client.take() {
+        process
+            .stop_record
+            .write_step(DaemonStopStep::ToolServers)
+            .await;
+        if tokio::time::timeout(remaining(), mcp_client.stop())
             .await
             .is_err()
-    {
-        failures.push(DaemonStopFailure::ToolServersClosing);
+        {
+            failures.push(DaemonStopFailure::ToolServersClosing);
+        }
     }
     // Before the attachments and the drivers, so no run is admitted or delivered past here.
     if let Some(session) = &process.session {
@@ -462,6 +472,10 @@ pub(crate) async fn stop_work(
             failures.push(failure);
         }
         session.highlighter.stop();
+        process
+            .stop_record
+            .write_step(DaemonStopStep::Terminals)
+            .await;
         // Before the orphan guard goes, so every child the drain ended is still retired. Capped at
         // the terminals' own drain, so the drivers keep the rest when a shell ignores its stop.
         let terminals_bound = remaining().min(Duration::from_millis(DAEMON_STOP_TERMINAL_DRAIN_MS));
@@ -469,6 +483,10 @@ pub(crate) async fn stop_work(
         tracing::info!("{}", describe_drain(drain));
     }
     if let Some(provider_accounts) = &mut process.provider_accounts {
+        process
+            .stop_record
+            .write_step(DaemonStopStep::SignIns)
+            .await;
         // Before the drivers, whose services the flows run on, and before the observer, which a
         // finished sign-in hands its account.
         if !provider_accounts.end_sign_ins(remaining()).await {
@@ -511,36 +529,45 @@ pub(crate) async fn stop_work(
     if let Some(project_list_feed) = process.project_list_feed.take() {
         project_list_feed.close();
     }
-    // A close cut leaves the index at its last durable commit, which its next open catches up.
-    if let Some(search_index) = process.search_index.take() {
+    // A close cut here stays with the process, for the data folder's close to wait out.
+    if let Some(search_index) = process.search_index.clone() {
         process
             .stop_record
             .write_step(DaemonStopStep::SearchIndex)
             .await;
         match wait_within(remaining(), "session search index", search_index.close()).await {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => failures.push(DaemonStopFailure::SearchIndex(error)),
+            Ok(closed) => {
+                process.search_index = None;
+                if let Err(error) = closed {
+                    failures.push(DaemonStopFailure::SearchIndex(error));
+                }
+            }
             Err(failure) => failures.push(failure),
         }
     }
     if let Some(drivers) = drivers {
-        failures.extend(
-            shut_down_drivers(&drivers, reason.driver_intent(), remaining())
-                .await
-                .into_iter()
-                .map(DaemonStopFailure::Driver),
-        );
+        process
+            .stop_record
+            .write_step(DaemonStopStep::Providers)
+            .await;
+        shut_down_drivers(&drivers, reason.driver_intent(), remaining()).await;
     }
     // After the drivers, so no provider runs on; before the captures stop, so a drained turn end
     // is captured as the start's pass captures its own. What the bound cuts off, the next start
     // settles from the intent.
     if reason.is_persons_stop()
         && let Some(restart_settle) = &process.restart_settle
-        && let Err(error) = restart_settle
+    {
+        process
+            .stop_record
+            .write_step(DaemonStopStep::LiveRunsDrain)
+            .await;
+        if let Err(error) = restart_settle
             .settle_at_stop(tokio::time::Instant::now() + remaining())
             .await
-    {
-        failures.push(DaemonStopFailure::Drain(error));
+        {
+            failures.push(DaemonStopFailure::Drain(error));
+        }
     }
     // After the drivers, so no turn ends past here; a capture still under way at the bound is cut
     // at the process's end, and may leave its scratch index behind.
@@ -595,13 +622,12 @@ pub(crate) async fn close_data_folder(process: &mut DaemonProcess) -> Vec<Daemon
     failures
 }
 
-// Closes everything that holds a file in the data folder but its lock: lets the session services,
-// with the restart's settle, and the repository services go, then, within what is left of the
-// latest stop's drain bound, ends the MCP first-observation drain and waits for it, ending it where
-// it stands past the bound, and closes the database file, ends the crash monitor, waiting for its
-// exit, and removes its socket from the run folder. Answers each step's failure, every step having
-// run.
-async fn close_data_folder_contents(process: &mut DaemonProcess) -> Vec<DaemonStopFailure> {
+/// Closes everything that holds a file in the data folder but its lock, within what is left of the
+/// latest stop's drain bound, recorded as one step of a begun stop. Answers each step's failure,
+/// every step having run.
+pub(super) async fn close_data_folder_contents(
+    process: &mut DaemonProcess,
+) -> Vec<DaemonStopFailure> {
     let mut failures = Vec::new();
     let remaining = || {
         DAEMON_STOP_DRAIN_BOUND.saturating_sub(
@@ -610,6 +636,23 @@ async fn close_data_folder_contents(process: &mut DaemonProcess) -> Vec<DaemonSt
                 .map_or(Duration::ZERO, |started| started.elapsed()),
         )
     };
+    process
+        .stop_record
+        .write_step(DaemonStopStep::DataFolderClose)
+        .await;
+    // A close the work's stop cut is waited out before the database file closes, since its deletes
+    // write through the file's writer, and before the lock goes, since the index's files sit in the
+    // data folder.
+    if let Some(search_index) = process.search_index.take() {
+        match wait_within(remaining(), "session search index", search_index.close()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => failures.push(DaemonStopFailure::SearchIndex(error)),
+            Err(failure) => failures.push(failure),
+        }
+    }
+    // The session services, with the restart's settle, and the repository services go; the MCP
+    // first-observation drain is waited for, ended where it stands past the bound; the database
+    // file closes; the crash monitor ends, its exit waited for and its socket removed.
     let mut session = process.session.take();
     let mcp_first_observations = session.as_mut().and_then(|session| {
         // Ended here, since the tracker outlives the session services: the provider port holds it.
@@ -669,12 +712,7 @@ impl DaemonProcess {
     pub(crate) fn accept_stop(&self) -> Arc<dyn Fn(DaemonStopReason) + Send + Sync> {
         let stop_asked = self.stop_asked.clone();
         Arc::new(move |reason| {
-            stop_asked.send_if_modified(|asked| {
-                let joined = asked.map_or(reason, |first| first.joined(reason));
-                let is_changed = *asked != Some(joined);
-                *asked = Some(joined);
-                is_changed
-            });
+            stop_asked.send_if_modified(|asked| DaemonStopReason::join_ask(asked, reason));
         })
     }
 
@@ -792,58 +830,4 @@ impl DaemonProcess {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-
-    use rstest::rstest;
-    use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
-
-    use super::DaemonStopReason::{self, Erase, Restart, Stop};
-    use crate::daemon::process::database::DatabaseFileOpenError;
-    use crate::daemon::process::start_error::DaemonStartError;
-    use crate::daemon::start_stopped_error::DaemonStartStoppedError;
-
-    // Each ask's reason and the intent the drivers are told for it: the person's stop replaces a
-    // restart and every other later ask keeps the first; a start the person's stop cut short on
-    // the repairing socket stops, and any other failed start restarts; a stop and an erase end
-    // every service. Killed by a failed start's release left on `Stop`, by an erase that tells the
-    // drivers `Restart`, and by a stop that does not replace a restart.
-    #[rstest]
-    #[case::a_stop_replaces_a_restart(Restart.joined(Stop), Stop, DaemonStopIntent::Stop)]
-    #[case::a_restart_keeps_a_stop(Stop.joined(Restart), Stop, DaemonStopIntent::Stop)]
-    #[case::an_erase_keeps_a_restart(Restart.joined(Erase), Restart, DaemonStopIntent::Restart)]
-    #[case::a_stop_keeps_an_erase(Erase.joined(Stop), Erase, DaemonStopIntent::Stop)]
-    #[case::a_restart_keeps_an_erase(Erase.joined(Restart), Erase, DaemonStopIntent::Stop)]
-    #[case::an_erase_keeps_a_stop(Stop.joined(Erase), Stop, DaemonStopIntent::Stop)]
-    #[case::a_start_the_person_stopped_in_its_repair(
-        DaemonStopReason::of_failed_start(&DaemonStartError::DatabaseFile(
-            DatabaseFileOpenError::Stopped(Stop)
-        )),
-        Stop,
-        DaemonStopIntent::Stop
-    )]
-    #[case::a_start_another_build_failed(
-        DaemonStopReason::of_failed_start(&DaemonStartError::DatabaseFile(
-            DatabaseFileOpenError::SavedSessionsFromAnotherVersion {
-                path: PathBuf::from("store")
-            }
-        )),
-        Restart,
-        DaemonStopIntent::Restart
-    )]
-    #[case::a_start_a_stop_cut_short_past_its_repair(
-        DaemonStopReason::of_failed_start(&DaemonStartError::Stopped(DaemonStartStoppedError {
-            step: "binding the socket"
-        })),
-        Restart,
-        DaemonStopIntent::Restart
-    )]
-    fn each_stop_ask_maps_to_its_reason(
-        #[case] reason: DaemonStopReason,
-        #[case] expected: DaemonStopReason,
-        #[case] intent: DaemonStopIntent,
-    ) {
-        assert_eq!(reason, expected);
-        assert_eq!(reason.driver_intent(), intent);
-    }
-}
+mod tests;

@@ -150,6 +150,8 @@ pub(crate) struct SessionServiceStart {
     pub(crate) payloads: Arc<PayloadStore>,
     /// The artifact store's publisher, which a plan's record is stored through.
     pub(crate) publisher: Arc<ArtifactPublishService>,
+    /// The artifact store's attachment resolver, which the run queue hands a run's attachments.
+    pub(crate) attachments: Arc<ArtifactAttachmentResolver>,
     /// The artifact store's spool folder, on the store's volume.
     pub(crate) spool_folder: PathBuf,
     /// The folder of the chats' managed workspaces.
@@ -314,6 +316,7 @@ pub(crate) fn build_session_services(
         plan_holds,
         payloads,
         publisher,
+        attachments,
         spool_folder,
         workspaces_folder,
         workspace_writes,
@@ -486,10 +489,7 @@ pub(crate) fn build_session_services(
         provider_accounts,
         token_limits,
         halted_runs,
-        attachments: Arc::new(ArtifactAttachmentResolver::new(
-            Arc::clone(&reads),
-            Arc::clone(&payloads),
-        )),
+        attachments,
     });
     engine
         .set_interrupt_queue(Arc::downgrade(&queue) as Weak<_>)

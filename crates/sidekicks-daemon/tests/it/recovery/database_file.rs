@@ -11,13 +11,12 @@ use rstest::rstest;
 use rusqlite::Connection;
 use rusqlite::config::DbConfig;
 use sidekicks_client::daemon_connection::{DaemonConnection, DaemonEndpoint};
-use sidekicks_contracts::daemon::lifecycle::{DAEMON_READY_LINE, DaemonStop};
+use sidekicks_contracts::daemon::lifecycle::DaemonStop;
 use sidekicks_contracts::daemon::service_status::{DaemonCannotStart, ServiceStatusFile};
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_daemon::daemon::schema::schema_parts;
 use sidekicks_platforms::{
-    CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER, DaemonRunFolder, create_missing_private_folders,
-    physical_memory,
+    CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER, create_missing_private_folders, physical_memory,
 };
 use sidekicks_recovery::database_file::aside_copy::{
     AsideCopyError, DatabaseFilesAside, copy_database_files_aside,
@@ -39,12 +38,12 @@ use sidekicks_store::database::connection::writer_open::{
 use sidekicks_store::database::damage::record_database_damage;
 use sidekicks_store::database::schema::DatabaseSchema;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
-use tokio::io::{AsyncBufReadExt as _, BufReader};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use crate::helpers::{
-    SERVICE_RUN_BOUND, daemon_program, run_service, short_home, spawner, start_service,
+    SERVICE_RUN_BOUND, daemon_program, run_service, service_run_folder, short_home, spawner,
+    start_ready_service,
 };
 
 // The folders the store's files are copied into, each a copy.
@@ -830,13 +829,7 @@ async fn a_start_on_a_file_its_repair_heals_serves_the_fresh_file_beside_the_cop
     record_database_damage(&database_path, "a page failed the integrity check")
         .await
         .expect("the damage is recorded");
-    let run_path = data_folder.join("run");
-    let run_folder = DaemonRunFolder {
-        socket_path: run_path.join("daemon.sock"),
-        token_path: run_path.join("daemon.token"),
-        status_path: run_path.join("service-status.json"),
-        folder_path: run_path,
-    };
+    let run_folder = service_run_folder(home.path());
     create_missing_private_folders(&run_folder.folder_path).expect("the run folder is made");
     let earlier_status =
         ServiceStatusFile::CannotStart(DaemonCannotStart::SavedSessionsFromAnotherVersion {});
@@ -846,30 +839,7 @@ async fn a_start_on_a_file_its_repair_heals_serves_the_fresh_file_beside_the_cop
     )
     .expect("an earlier start's status is written");
 
-    let mut service = start_service(home.path());
-    // The service log writes standard error; it is read to the end so no write of it blocks.
-    let mut lines = BufReader::new(service.stderr.take().expect("standard error is piped")).lines();
-    let mut standard_error = String::new();
-    tokio::time::timeout(SERVICE_RUN_BOUND, async {
-        while let Some(line) = lines.next_line().await.expect("standard error reads") {
-            standard_error.push_str(&line);
-            standard_error.push('\n');
-            if line.contains(DAEMON_READY_LINE) {
-                return;
-            }
-        }
-        panic!("the service ended before it was ready: {standard_error}");
-    })
-    .await
-    .expect("the service is ready within its bound");
-    let rest = tokio::spawn(async move {
-        let mut rest = String::new();
-        while let Some(line) = lines.next_line().await.expect("standard error reads") {
-            rest.push_str(&line);
-            rest.push('\n');
-        }
-        rest
-    });
+    let (mut service, standard_error) = start_ready_service(home.path()).await;
     let connection = DaemonConnection::connect(DaemonEndpoint::new(run_folder.clone()))
         .await
         .expect("the client connects");
@@ -883,7 +853,9 @@ async fn a_start_on_a_file_its_repair_heals_serves_the_fresh_file_beside_the_cop
         .await
         .expect("the service ends within its bound")
         .expect("the service's end reads");
-    standard_error.push_str(&rest.await.expect("standard error is read to its end"));
+    let standard_error = standard_error
+        .await
+        .expect("standard error is read to its end");
 
     assert!(ended.success(), "{ended}: {standard_error}");
     let copies = aside_copies(&data_folder);

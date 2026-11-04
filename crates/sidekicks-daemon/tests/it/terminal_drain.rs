@@ -7,13 +7,10 @@ use std::path::Path;
 use std::pin::pin;
 use std::time::Duration;
 
-use alacritty_terminal::event::EventListener;
 use futures::StreamExt as _;
 use rusqlite::{Connection, params};
 use sidekicks_client::daemon_connection::{DaemonConnection, DaemonEndpoint};
-use sidekicks_contracts::daemon::lifecycle::{
-    DAEMON_READY_LINE, DAEMON_STOP_TERMINAL_DRAIN_MS, DaemonStop,
-};
+use sidekicks_contracts::daemon::lifecycle::{DAEMON_STOP_TERMINAL_DRAIN_MS, DaemonStop};
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceState};
 use sidekicks_contracts::session::id::SessionId;
@@ -35,16 +32,17 @@ use sidekicks_store::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, open_database,
 };
 use sidekicks_terminal::{
-    CommandLine, DrainResult, OutputFilter, ScreenListener, ShellCommand, SpawnRequest,
-    TerminalError, TerminalEvent, Terminals,
+    CommandLine, DrainResult, ShellCommand, SpawnRequest, TerminalError, TerminalEvent, Terminals,
 };
 use sidekicks_workspace::test_rows::{PARENT_ROWS_AT, insert_held_managed_mount};
-use tokio::io::{AsyncBufReadExt as _, BufReader};
 use tokio::process::Child;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
-use crate::helpers::{DAEMON_PROGRAM, SERVICE_RUN_BOUND, short_home, spawner, start_service};
+use crate::helpers::{
+    DAEMON_PROGRAM, KeepAllOutput, NoListener, SERVICE_RUN_BOUND, service_run_folder, short_home,
+    spawner, start_ready_service,
+};
 
 /// The bound on each wait for a shell to start or to write, so a shell that hangs fails the test.
 const WAIT_BOUND: Duration = Duration::from_secs(30);
@@ -54,29 +52,6 @@ const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// What the stop-ignoring shell writes once its stop is ignored.
 const STOP_IGNORED_MARK: &str = "stop-ignored";
-
-/// Keeps every byte of the output.
-struct KeepAllOutput;
-
-impl OutputFilter for KeepAllOutput {
-    fn filter(&mut self, chunk: &[u8], kept: &mut Vec<u8>) {
-        kept.extend_from_slice(chunk);
-    }
-
-    fn finish(&mut self, _kept: &mut Vec<u8>) {}
-}
-
-/// A screen-copy listener that hears nothing and answers nothing.
-#[derive(Clone)]
-struct NoListener;
-
-impl EventListener for NoListener {}
-
-impl ScreenListener for NoListener {
-    fn find_questions(&mut self, _output: &[u8], _ends: &mut Vec<usize>) {}
-
-    fn answer_question(&mut self) {}
-}
 
 /// The service, ready, with one shell open through its socket that ignores its stop and has
 /// written its process id.
@@ -162,42 +137,8 @@ async fn start_service_with_shell() -> ServiceWithShell {
     seed_session_in(&database, &session_id, &project_folder);
     drop(database);
 
-    let mut service = start_service(home.path());
-    // The service log writes standard error; it is read to the end so no write of it blocks.
-    let mut lines = BufReader::new(service.stderr.take().expect("standard error is piped")).lines();
-    let mut start_lines = String::new();
-    let is_ready = tokio::time::timeout(SERVICE_RUN_BOUND, async {
-        while let Some(line) = lines.next_line().await.expect("standard error reads") {
-            start_lines.push_str(&line);
-            start_lines.push('\n');
-            if line.contains(DAEMON_READY_LINE) {
-                return true;
-            }
-        }
-        false
-    })
-    .await
-    .expect("the service is ready within its bound");
-    assert!(
-        is_ready,
-        "the service ended before it was ready: {start_lines}"
-    );
-    let standard_error = tokio::spawn(async move {
-        let mut rest = start_lines;
-        while let Some(line) = lines.next_line().await.expect("standard error reads") {
-            rest.push_str(&line);
-            rest.push('\n');
-        }
-        rest
-    });
-
-    let run_path = data_folder.join("run");
-    let run_folder = DaemonRunFolder {
-        socket_path: run_path.join("daemon.sock"),
-        token_path: run_path.join("daemon.token"),
-        status_path: run_path.join("service-status.json"),
-        folder_path: run_path,
-    };
+    let (service, standard_error) = start_ready_service(home.path()).await;
+    let run_folder = service_run_folder(home.path());
     let connection = DaemonConnection::connect(DaemonEndpoint::new(run_folder.clone()))
         .await
         .expect("the client connects");

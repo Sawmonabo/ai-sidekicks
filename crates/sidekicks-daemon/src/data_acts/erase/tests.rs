@@ -101,7 +101,7 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
                 &shutdown_calls,
                 format!("provider services end ({intent:?})"),
             );
-            async { Ok(()) }.boxed()
+            async {}.boxed()
         });
     let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
     let ended = Arc::new(Notify::new());

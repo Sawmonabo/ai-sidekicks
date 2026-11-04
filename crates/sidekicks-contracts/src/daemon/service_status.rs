@@ -56,6 +56,8 @@ pub enum DaemonStopStep {
     Gateway,
     /// The providers' capability refresh ending.
     CapabilityRefresh,
+    /// The tool servers' connections closing.
+    ToolServers,
     /// The run queue ending, so no run is admitted or delivered.
     RunQueue,
     /// The repository services' background work ending.
@@ -70,18 +72,28 @@ pub enum DaemonStopStep {
     ChatsRecount,
     /// The chats' change feed ending.
     ChatsChanges,
+    /// The terminals draining, a shell that ignores its stop ended at the drain's own bound.
+    Terminals,
+    /// The provider accounts' sign-ins settling, then the sweep of new accounts' homes.
+    SignIns,
     /// The background jobs' scheduler ending.
     Scheduler,
     /// The repositories' folder watch ending.
     FolderWatch,
     /// The session search index closing.
     SearchIndex,
+    /// The providers' services ending, each told why the service stops.
+    Providers,
+    /// The person's Stop ending the runs still live.
+    LiveRunsDrain,
     /// The turn-end captures under way, each waited out whole.
     TurnCaptures,
     /// The trees of git's failed calls ending.
     GitTrees,
-    /// The workspace services' work settling, the last step, so nothing writes once the stop ends.
+    /// The workspace services' work settling, so nothing writes once the work's stop ends.
     WorkspaceWorkSettle,
+    /// Everything that holds a file in the data folder closing, the saved sessions' file last.
+    DataFolderClose,
 }
 
 impl DaemonStopStep {
@@ -90,19 +102,25 @@ impl DaemonStopStep {
         match self {
             Self::Gateway => "closing the connection to the app",
             Self::CapabilityRefresh => "finishing a check of what each provider offers",
-            Self::RunQueue => "stopping the message queue",
+            Self::ToolServers => "disconnecting the sidekicks' tools",
+            Self::RunQueue => "pausing the queued messages",
             Self::RepositoryAttachments => "ending the repositories' background work",
             Self::AttentionDecisions => "finishing the notifications under way",
-            Self::WebAddressSender => "finishing a send to the web address",
-            Self::SessionFollows => "ending the sessions' updates",
-            Self::ChatsRecount => "recounting the chats' files",
-            Self::ChatsChanges => "closing the chats' updates",
+            Self::WebAddressSender => "sending the last message to the web address",
+            Self::SessionFollows | Self::ChatsRecount | Self::ChatsChanges => {
+                "finishing the chats' updates"
+            }
+            Self::Terminals => "closing the terminals",
+            Self::SignIns => "finishing the sign-ins under way",
             Self::Scheduler => "stopping the background jobs",
             Self::FolderWatch => "stopping the watch on the repositories' folders",
             Self::SearchIndex => "closing the search index",
+            Self::Providers => "stopping the providers",
+            Self::LiveRunsDrain => "ending the sidekicks' turns still running",
             Self::TurnCaptures => "saving the file changes of the last turns",
             Self::GitTrees => "cleaning up after git",
             Self::WorkspaceWorkSettle => "finishing the workspace cleanup",
+            Self::DataFolderClose => "closing the saved sessions",
         }
     }
 }

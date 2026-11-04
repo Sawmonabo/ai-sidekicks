@@ -111,11 +111,13 @@ use crate::daemon::process::session_services::{
 };
 use crate::daemon::process::start_error::{DaemonStartError, DaemonStartFailure};
 use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvironment};
-use crate::daemon::process::stop::{DaemonCommand, DaemonStopReason, close_data_folder, stop_work};
+use crate::daemon::process::stop::{
+    DaemonCommand, DaemonStopReason, close_data_folder_contents, stop_work,
+};
 use crate::daemon::process::supervision::{ProcessStateTracker, ServingSocketHooks};
 use crate::daemon::process::workspace_services::{WorkspaceWork, settle_interrupted_creations};
 use crate::daemon::run_folder::{bind_socket, mint_session_token, prepare_run_folder};
-use crate::daemon::service_status::{StopRecord, remove_service_status};
+use crate::daemon::service_status::{StopRecord, record_start_failure, remove_service_status};
 use crate::daemon::start_stopped_error::DaemonStartStoppedError;
 use crate::ipc::local_gateway::{GatewayServices, LocalGateway};
 use crate::observability::diagnostic_buckets::expiry::{
@@ -168,13 +170,15 @@ pub(crate) struct DaemonProcess {
     pub(crate) stop_intent: Arc<StopIntentFile>,
     /// Whether a step of the stop failed, so no clean stop is recorded.
     pub(crate) has_stop_failed: bool,
-    /// The person's Stop's record in the status file, of each step it waits on and how it ended.
+    /// The record in the status file of each stop of the running service: each step it waits on
+    /// and how it ended.
     pub(crate) stop_record: StopRecord,
     /// Hands freed memory back once the work goes quiet; ends with the work.
     idle_memory: Option<Arc<IdleMemoryCollect>>,
     /// Runs the background jobs, stopped as the work ends.
     pub(crate) scheduler: Option<Arc<Scheduler>>,
-    /// The session search index, closed as the work ends.
+    /// The session search index, closed as the work ends, a close cut there waited out as the
+    /// data folder closes.
     pub(crate) search_index: Option<Arc<LiveIndex>>,
     /// The gate that records every mutating call while it runs, which the stop waits on.
     pub(crate) in_flight: Option<Arc<InFlightMutations>>,
@@ -224,20 +228,19 @@ const START_OPERATION: &str = "the daemon's start";
 
 impl DaemonProcess {
     /// Starts the daemon with `options` and answers it once it is ready. A failed step releases
-    /// what the start took, in the stop's order, and fails with the step's error beside every
-    /// failure of that release; a stop asked for before the daemon is ready fails it with
-    /// [`DaemonStartError::Stopped`].
+    /// what the start took, in the stop's order, records why the start failed in the status file
+    /// and fails with the step's error beside every failure of that release; a stop asked for
+    /// before the daemon is ready fails it with [`DaemonStartError::Stopped`].
     pub(crate) async fn start(options: DaemonStartOptions) -> Result<Self, DaemonStartFailure> {
         let started_at = Timestamp::now();
         let spawner = match Spawner::new(tokio::runtime::Handle::current()) {
             Ok(spawner) => spawner,
             Err(error) => {
+                let error = DaemonStartError::Spawner(error);
+                // The lock `options` holds goes only once this returns, after the record.
+                record_start_failure(&options.run_folder, &error);
                 return Err(DaemonStartFailure {
-                    failures: Box::new(CleanupFailures::new(
-                        DaemonStartError::Spawner(error),
-                        Vec::new(),
-                        START_OPERATION,
-                    )),
+                    failures: Box::new(CleanupFailures::new(error, Vec::new(), START_OPERATION)),
                     release_started: Instant::now(),
                 });
             }
@@ -788,12 +791,15 @@ impl DaemonProcess {
     }
 
     // Releases what a failed start took, in the stop's order, for the reason `error` gives, keeping
-    // each failure beside `error`.
+    // each failure beside `error`. Why the start failed is recorded before the data folder's lock
+    // goes last, so a start that takes the lock next meets no write of this one.
     async fn release(mut self, error: DaemonStartError) -> DaemonStartFailure {
         let release_started = Instant::now();
         let reason = DaemonStopReason::of_failed_start(&error);
         let mut failures = stop_work(&mut self, reason, DAEMON_STOP_DRAIN_BOUND).await;
-        failures.extend(close_data_folder(&mut self).await);
+        failures.extend(close_data_folder_contents(&mut self).await);
+        record_start_failure(&self.stop_record.run_folder, &error);
+        drop(self.data_folder_lock.take());
         DaemonStartFailure {
             failures: Box::new(CleanupFailures::new(error, failures, START_OPERATION)),
             release_started,

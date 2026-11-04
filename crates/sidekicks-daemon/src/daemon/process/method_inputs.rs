@@ -472,6 +472,7 @@ pub(crate) async fn register_method_inputs(
         plan_holds,
         payloads: Arc::clone(&artifacts.payloads),
         publisher: Arc::clone(&artifacts.publisher),
+        attachments: Arc::clone(&artifacts.attachments),
         spool_folder: artifacts.spool_folder.clone(),
         workspaces_folder: managed_workspaces_folder(home_folder),
         workspace_writes: repo
