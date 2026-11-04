@@ -8,9 +8,12 @@ use zeroize::Zeroizing;
 /// The bytes of a seed.
 pub const SEED_LENGTH: usize = 32;
 
-/// A fresh seed from the system's random source, wiped when it drops. Fails when the system gives
+/// A seed, wiped when it drops.
+pub type Seed = Zeroizing<[u8; SEED_LENGTH]>;
+
+/// A fresh seed from the system's random source. Fails when the system gives
 /// no random bytes.
-pub fn random_seed() -> Result<Zeroizing<[u8; SEED_LENGTH]>, getrandom::Error> {
+pub fn random_seed() -> Result<Seed, getrandom::Error> {
     let mut seed = Zeroizing::new([0; SEED_LENGTH]);
     getrandom::fill(seed.as_mut_slice())?;
     Ok(seed)
@@ -18,13 +21,13 @@ pub fn random_seed() -> Result<Zeroizing<[u8; SEED_LENGTH]>, getrandom::Error> {
 
 /// The item that keeps `seed`: its bytes in lowercase hex, encoded from the wiped buffer so no
 /// unwiped copy of the seed is left.
-pub fn encode_seed(seed: &Zeroizing<[u8; SEED_LENGTH]>) -> SecretString {
+pub fn encode_seed(seed: &Seed) -> SecretString {
     SecretString::from(base16ct::lower::encode_string(seed.as_slice()))
 }
 
 /// The seed `item` holds, or `None` when it is not exactly 64 lowercase hex characters or is all
 /// zero, the one seed no mint makes.
-pub fn item_seed(item: &SecretString) -> Option<Zeroizing<[u8; SEED_LENGTH]>> {
+pub fn item_seed(item: &SecretString) -> Option<Seed> {
     let text = item.expose_secret();
     if text.len() != SEED_LENGTH * 2 {
         return None;
