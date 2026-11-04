@@ -162,8 +162,8 @@ pub(crate) struct TaskStopFailure {
     pub(crate) error: JoinError,
 }
 
-/// Waits within `bound` for each task the start began in the background, named by what it does,
-/// and ends one still running then. Answers each task that ended abnormally or ran past the bound.
+/// Waits within `bound` for each background task, one the start began or a service's own, named
+/// by what it does, and ends one still running then. Answers each task that ended abnormally or ran past the bound.
 pub(crate) async fn end_start_tasks(
     tasks: impl IntoIterator<Item = (&'static str, JoinHandle<()>)>,
     bound: Duration,
