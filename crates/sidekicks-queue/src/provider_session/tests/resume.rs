@@ -2,9 +2,11 @@
 //! for them handed on before the binding is recorded, a run bound on it after the resume, the idle
 //! sleep's wake of a session no process holds, and a resume the provider deferred, which opens
 //! nothing; a resume or restart whose provider is missing posts the session's `providerMissing`
-//! notice. A held lead's continue is tested in `answer`.
+//! notice. A held lead's continue is tested in `answer`, the helpers a relaunch re-attaches in
+//! `reattach`.
 
 mod answer;
+mod reattach;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
