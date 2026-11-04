@@ -7,4 +7,5 @@ pub(crate) mod receipt_key;
 pub(crate) mod receipts;
 pub(crate) mod reconciler;
 pub(crate) mod saved_answer;
+pub(crate) mod settle;
 pub(crate) mod write_refusal;

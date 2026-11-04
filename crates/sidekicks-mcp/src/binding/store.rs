@@ -137,10 +137,6 @@ impl McpBindingKey {
 
     /// The binding the key names, rebuilt from its parts; `None` where a stored part is no longer a
     /// valid path, distribution, plugin name or account id.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the mutation service settles a receipt's binding")
-    )]
     pub(crate) fn binding_ref(&self) -> Option<McpServerBindingRef> {
         let provider = self.provider.clone();
         let server_name = self.server_name.clone();
