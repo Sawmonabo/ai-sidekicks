@@ -20,6 +20,7 @@ use super::{
 };
 use crate::questions::schema::schema_parts;
 use crate::run::engine::errors::RunEngineError;
+use crate::run::engine::settle::{SettleAttemptRead, SettleCaller};
 use crate::run::engine::test_fixture::{
     append, insert_running_run, is_run_stopping, stored_run_state, test_engine,
 };
@@ -564,13 +565,17 @@ async fn a_message_queued_while_a_restart_settles_a_queued_run_leaves_it_queued(
         turn_cuts: Vec::new(),
         is_stopping: false,
         has_queued_item: false,
+        is_refusal_waiting: false,
     };
     let settled = engine
         .settle_run_from_facts(
             &run,
             &facts,
             decide_restart_settlement(&run, &facts),
-            "the run could not be resumed",
+            &SettleCaller::Restart {
+                failure_detail: "the run could not be resumed",
+            },
+            SettleAttemptRead::default(),
             None,
         )
         .await
@@ -629,7 +634,10 @@ async fn a_restart_settle_is_refused_by_an_interrupt_asked_for_after_its_read() 
             &run,
             &facts,
             decide_restart_settlement(&run, &facts),
-            "not resumed",
+            &SettleCaller::Restart {
+                failure_detail: "not resumed",
+            },
+            SettleAttemptRead::default(),
             None,
         )
         .await;

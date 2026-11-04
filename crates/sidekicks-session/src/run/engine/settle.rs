@@ -1,6 +1,7 @@
 //! How a run ends outside its provider's own report: for an interrupt accepted earlier, when the
 //! provider process under it exits on its own, and when a restart left it live and recovery could
-//! not resume it or resumed it with its turn gone; and how a restart ends the open turns of a run
+//! not resume it or resumed it with its turn gone, or the person's stop of the service found it
+//! live, its waiting messages ending in its write; and how a restart ends the open turns of a run
 //! that had already ended. Each run's end carries the end of its open turn in the same write; a
 //! process's exit and a restart's settle end every older open turn on its own first, oldest first.
 //! A turn a limit cut ends with that limit, read from the engine's own cut first, then from the
@@ -22,6 +23,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::True;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::contract::error::bound_failure_detail;
@@ -30,18 +32,22 @@ use sidekicks_provider::run::turn_end::TurnOutcome;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::events::session::append_lock::SessionAppendHold;
+use sidekicks_store::events::session::appender::SessionEventDraftError;
 
+use crate::queue_store::{QueueItemReader, QueueItemRecord};
 use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::limits::limit_run_end;
 use crate::run::engine::turns::TurnEnd;
 use crate::run::engine::{RunEngine, settled};
+use crate::run::provider_choice::run_end::{WaitingRefusal, read_waiting_refusal};
+use crate::run::provider_choice::{ChoiceDialog, refused_end};
 use crate::run::read::{LiveRun, RunRead, RunStateReader};
 use crate::run::refusals::RunRefusal;
 use crate::run::restart::{
     RestartDecision, RestartFacts, RestartSettlement, RestartTurnEnd,
-    applied_pending_interrupts_of, decide_restart_settlement, limit_turn_cause,
-    no_pending_interrupt_statement, no_waiting_item_statement, read_restart_facts, read_run_stops,
-    settlement_by_stops,
+    applied_pending_interrupts_of, decide_restart_settlement, decide_stop_settlement,
+    limit_turn_cause, no_pending_interrupt_statement, no_waiting_item_statement,
+    read_restart_facts, read_run_stops, settlement_by_stops,
 };
 use crate::run::state_change::{RunStateChange, RunWriteCompanions, RunWriteError};
 use crate::run::transitions::RUN_TERMINAL_EVENT_TYPES_SQL;
@@ -49,9 +55,6 @@ use crate::run::transitions::RUN_TERMINAL_EVENT_TYPES_SQL;
 // The position among an interrupt end's companions of its guard that the run has not ended since
 // the interrupt was accepted: the first of the caller's companions, before the verdict's.
 const INTERRUPT_END_SINCE_GUARD_COMPANION_INDEX: usize = 0;
-
-// A queued run's settle guards first that no interrupt appeared, then that no message waits for it.
-const QUEUED_RUN_WAITING_ITEM_GUARD_COMPANION_INDEX: usize = 1;
 
 // The failure a restart records when the words it was given fit nothing.
 static RESTART_FAILURE_FALLBACK: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
@@ -74,6 +77,50 @@ static SELECT_TERMINAL_SINCE_SQL: LazyLock<String> = LazyLock::new(|| {
         *RUN_TERMINAL_EVENT_TYPES_SQL
     )
 });
+
+/// Builds the end of each message waiting for a run a Stop settles, for that run's write.
+pub type WaitingMessagesEnd =
+    fn(&[QueueItemRecord], &WireInstant) -> Result<RunWriteCompanions, SessionEventDraftError>;
+
+/// Who settles a run a restart or the person's stop of the service left live, and what that caller
+/// adds to each attempt's write.
+pub(super) enum SettleCaller<'detail> {
+    /// A restart's settle, whose `failed` end carries `failure_detail`.
+    Restart {
+        /// The words a `failed` end carries.
+        failure_detail: &'detail str,
+    },
+    /// A resume that found the run's turn gone, whose caller's companions, given once, ride each
+    /// attempt's write.
+    TurnGone {
+        /// The caller's companions.
+        companions: RunWriteCompanions,
+    },
+    /// The person's stop of the service, which ends the run's waiting messages in its write, built
+    /// at each attempt from the messages that attempt read.
+    Stop {
+        /// The builder of the messages' ends.
+        end_waiting: WaitingMessagesEnd,
+    },
+}
+
+impl SettleCaller<'_> {
+    // The words a `failed` end carries; only a restart's own table ends a run failed.
+    fn failure_detail(&self) -> Option<&str> {
+        match self {
+            Self::Restart { failure_detail } => Some(failure_detail),
+            Self::TurnGone { .. } | Self::Stop { .. } => None,
+        }
+    }
+}
+
+// What one attempt of a settle read beside the run's facts, in the same read: the refusal choice
+// the run waits on, and under a Stop the messages waiting for the run.
+#[derive(Default)]
+struct SettleAttemptRead {
+    waiting_refusal: Option<WaitingRefusal>,
+    waiting_items: Vec<QueueItemRecord>,
+}
 
 impl RunEngine {
     /// Ends the run for an applied or degraded interrupt accepted at `accepted_run_version`, with
@@ -344,38 +391,84 @@ impl RunEngine {
             run,
             decide_restart_settlement,
             is_stopping,
-            failure_detail,
+            &SettleCaller::Restart { failure_detail },
             hold,
         )
         .await
     }
 
-    /// Settles `run`, a run a restart left live, as `decide` decides from its facts and
-    /// `is_stopping`, as [`RunEngine::settle_run_after_restart`] settles it, a `failed` end
-    /// carrying `failure_detail`. Fails as [`RunEngine::transition`] does, the second refusal
-    /// returned.
+    /// Settles a run the person's stop of the service found live, without a driver, as
+    /// `decide_stop_settlement` decides, a run it leaves returned as it is, as
+    /// [`RunEngine::settle_run_after_restart`] settles a run, except that its open turns end with
+    /// `daemonStop`, no run ends failed with words, and the messages waiting for the run end in its
+    /// write as `end_waiting` builds them from those the attempt read, guarded last on no message
+    /// waiting that it did not read. Any refusal of the write, a message queued or one that left
+    /// since the read among them, reads the run, its facts and its messages again once. Fails as
+    /// [`RunEngine::transition`] does, the second refusal returned.
+    pub async fn settle_run_at_stop(
+        &self,
+        run: &LiveRun,
+        end_waiting: WaitingMessagesEnd,
+        hold: Option<&SessionAppendHold>,
+    ) -> Result<RunRead, RunEngineError> {
+        // The Stop's table reads no lead's stop for a helper, so no stopping read is taken.
+        self.settle_after_restart(
+            run,
+            decide_stop_settlement,
+            false,
+            &SettleCaller::Stop { end_waiting },
+            hold,
+        )
+        .await
+    }
+
+    /// Settles `run`, a run a restart or the person's stop of the service left live, as `decide`
+    /// decides from its facts and `is_stopping`, as [`RunEngine::settle_run_after_restart`]
+    /// settles it, with what `caller` adds to each attempt's write. Fails as
+    /// [`RunEngine::transition`] does, the second refusal returned.
     pub(super) async fn settle_after_restart(
         &self,
         run: &LiveRun,
         decide: fn(&LiveRun, &RestartFacts) -> Option<RestartDecision>,
         is_stopping: bool,
-        failure_detail: &str,
+        caller: &SettleCaller<'_>,
         hold: Option<&SessionAppendHold>,
     ) -> Result<RunRead, RunEngineError> {
         let mut read = run.clone();
         let mut is_read_again = false;
+        let lists_waiting = matches!(caller, SettleCaller::Stop { .. });
         loop {
             let facts_of = read.clone();
-            let facts = self
+            let (facts, attempt_read) = self
                 .pool
                 .read(ReadLength::Short, move |reader| {
-                    Ok::<_, RunEngineError>(read_restart_facts(reader, &facts_of, is_stopping)?)
+                    let mut facts = read_restart_facts(reader, &facts_of, is_stopping)?;
+                    let waiting_refusal = if facts.is_refusal_waiting {
+                        read_waiting_refusal(reader, facts_of.run.session_id, facts_of.run_id)?
+                    } else {
+                        None
+                    };
+                    // The facts take the refusal this read holds, settled since the first or not.
+                    facts.is_refusal_waiting = waiting_refusal.is_some();
+                    let waiting_items = if lists_waiting {
+                        QueueItemReader::new(reader).list_waiting_for_run(&facts_of.run_id)?
+                    } else {
+                        Vec::new()
+                    };
+                    Ok::<_, RunEngineError>((
+                        facts,
+                        SettleAttemptRead {
+                            waiting_refusal,
+                            waiting_items,
+                        },
+                    ))
                 })
                 .await?;
             #[cfg(any(test, feature = "test-support"))]
             self.restart_facts_pause.pass().await;
+            let decision = decide(&read, &facts);
             match self
-                .settle_run_from_facts(&read, &facts, decide(&read, &facts), failure_detail, hold)
+                .settle_run_from_facts(&read, &facts, decision, caller, attempt_read, hold)
                 .await
             {
                 Err(RunEngineError::Change(RunWriteError::CompanionRefused { .. }))
@@ -393,22 +486,37 @@ impl RunEngine {
         }
     }
 
-    // The settle of `run` as `decision`, decided from `facts` read before its write, written from
-    // the state `run` read: a run that moved since is left as it now is.
+    // The settle of `run` as `decision`, decided from `facts` and `attempt_read` read before its
+    // write, with what `caller` adds, written from the state `run` read: a run that moved since is
+    // left as it now is.
     async fn settle_run_from_facts(
         &self,
         run: &LiveRun,
         facts: &RestartFacts,
         decision: Option<RestartDecision>,
-        failure_detail: &str,
+        caller: &SettleCaller<'_>,
+        attempt_read: SettleAttemptRead,
         hold: Option<&SessionAppendHold>,
     ) -> Result<RunRead, RunEngineError> {
         let Some(decision) = decision else {
             return Ok(run.run.clone());
         };
         let run_id = run.run_id;
-        let change =
-            settlement_change(run_id, Some(decision.settlement), None, || RunStateChange {
+        let SettleAttemptRead {
+            waiting_refusal,
+            waiting_items,
+        } = attempt_read;
+        let change = settlement_change(run_id, Some(decision.settlement), None, || {
+            if decision.settlement == RestartSettlement::Refused {
+                let refusal = waiting_refusal
+                    .as_ref()
+                    .expect("a refused settle is decided only on a refusal its read found waiting");
+                return refused_end(run_id, refusal.cause.clone());
+            }
+            let failure_detail = caller
+                .failure_detail()
+                .expect("the Stop's table and a gone turn's end no run failed");
+            RunStateChange {
                 failure_category: Some(RunFailureCategory::ProviderFailure),
                 recovery_condition: Some(RecoveryCondition::RecoveryNeeded),
                 ..RunStateChange::new(
@@ -423,7 +531,8 @@ impl RunEngine {
                         process_exit: None,
                     },
                 )
-            });
+            }
+        });
         let change = RunStateChange {
             expected_state: Some(run.run.state),
             ..change
@@ -435,12 +544,39 @@ impl RunEngine {
         companions
             .statements
             .push(no_pending_interrupt_statement(&run_id));
+        // A refused end settles the refusal choice `canceled` itself, so the run's end leaves it.
+        if decision.settlement == RestartSettlement::Refused
+            && let Some(refusal) = waiting_refusal
+        {
+            companions.statements.push(refusal.settlement.guard);
+            companions.preceding_events.push(refusal.settlement.event);
+            companions.settled_choices.push(ChoiceDialog::Refusal);
+        }
+        let is_stop = match caller {
+            SettleCaller::Restart { .. } => false,
+            SettleCaller::TurnGone { companions: added } => {
+                add_caller_companions(&mut companions, added.clone());
+                false
+            }
+            SettleCaller::Stop { end_waiting } => {
+                add_caller_companions(
+                    &mut companions,
+                    end_waiting(&waiting_items, &WireInstant::now())?,
+                );
+                true
+            }
+        };
         let is_queued = run.run.state == RunState::Queued;
-        if is_queued {
+        // Last, so a message queued since the read refuses the write whatever the caller added;
+        // under a Stop every run takes it, since its write ends the run's waiting messages.
+        let waiting_guard_index = (is_queued || is_stop).then(|| {
             companions
                 .statements
                 .push(no_waiting_item_statement(&run_id));
-        }
+            companions.statements.len() - 1
+        });
+        // A restart leaves a queued run a message queued since its read starts; a Stop reads again.
+        let left_guard_index = waiting_guard_index.filter(|_| !is_stop);
         let turn_end = match decision.open_turn_end {
             Some(uncut_end) => {
                 let open_turns = self.read_open_turns(run_id).await?;
@@ -449,7 +585,7 @@ impl RunEngine {
                     &run.run,
                     &open_turns,
                     &facts.turn_cuts,
-                    daemon_restart_outcome(uncut_end),
+                    daemon_turn_outcome(uncut_end, decision.turn_cause),
                     false,
                     hold,
                 )
@@ -463,9 +599,9 @@ impl RunEngine {
         {
             // A message queued for the run since its facts were read starts it, so it is left.
             Err(RunEngineError::Change(RunWriteError::CompanionRefused {
-                companion_index: QUEUED_RUN_WAITING_ITEM_GUARD_COMPANION_INDEX,
+                companion_index,
                 ..
-            })) if is_queued => Ok(run.run.clone()),
+            })) if Some(companion_index) == left_guard_index => Ok(run.run.clone()),
             // The run moved from the state its facts were read in, so it is left as it is now; a
             // move the table refuses from that very state is the settle's own failure.
             Err(RunEngineError::Refused(RunRefusal::InvalidTransition { from_state, .. }))
@@ -512,7 +648,8 @@ impl RunEngine {
         }
         let turn_cuts = self.read_run_turn_cuts(run_id).await?;
         let open_turns = self.read_open_turns(run_id).await?;
-        let uncut_end = daemon_restart_outcome(RestartTurnEnd::Interrupted);
+        let uncut_end =
+            daemon_turn_outcome(RestartTurnEnd::Interrupted, TurnEndCause::DaemonRestart);
         if let Some(turn_end) = self
             .end_open_turns(run_id, run, &open_turns, &turn_cuts, uncut_end, true, None)
             .await?
@@ -533,8 +670,9 @@ enum RunProcessEnd<'exit> {
 }
 
 // The change that settles `run_id` as `settlement` decides, an interrupted or stopped end carrying
-// `intended_close`, a reached pause moving it to `paused`; `None` or a `failed` settlement takes
-// `fallback_change`: the exit's failure, or the close's interruption.
+// `intended_close`, a reached pause moving it to `paused`; `None`, a `failed` or a refused
+// settlement takes `fallback_change`: the exit's failure, the close's interruption, or a settle's
+// failed end.
 fn settlement_change(
     run_id: RunId,
     settlement: Option<RestartSettlement>,
@@ -557,17 +695,35 @@ fn settlement_change(
             },
         ),
         Some(RestartSettlement::Paused) => RunStateChange::new(run_id, RunStateEntry::Paused),
-        Some(RestartSettlement::Failed) | None => fallback_change(),
+        Some(RestartSettlement::Failed | RestartSettlement::Refused) | None => fallback_change(),
     }
 }
 
-/// How a restart ends an open turn no limit cut: as `uncut_end` with `daemonRestart`.
-pub(super) fn daemon_restart_outcome(uncut_end: RestartTurnEnd) -> TurnOutcome {
-    let cause = Some(TurnEndCause::DaemonRestart);
+/// How a restart or the person's stop of the service ends an open turn no limit cut: as
+/// `uncut_end` with `cause`.
+pub(super) fn daemon_turn_outcome(uncut_end: RestartTurnEnd, cause: TurnEndCause) -> TurnOutcome {
     match uncut_end {
-        RestartTurnEnd::Interrupted => TurnOutcome::Interrupted(cause),
-        RestartTurnEnd::Failed => TurnOutcome::Failed(cause),
+        RestartTurnEnd::Interrupted => TurnOutcome::Interrupted(Some(cause)),
+        RestartTurnEnd::Failed => TurnOutcome::Failed(Some(cause)),
     }
+}
+
+// Adds `added`, a caller's companions, after those `companions` holds. A caller outside this crate
+// sets no leading event.
+fn add_caller_companions(companions: &mut RunWriteCompanions, added: RunWriteCompanions) {
+    let RunWriteCompanions {
+        statements,
+        preceding_events,
+        leading_event: _,
+        settled_interventions,
+        settled_choices,
+    } = added;
+    companions.statements.extend(statements);
+    companions.preceding_events.extend(preceding_events);
+    companions
+        .settled_interventions
+        .extend(settled_interventions);
+    companions.settled_choices.extend(settled_choices);
 }
 
 // Holds only while the run has written no terminal after `run_version`.
