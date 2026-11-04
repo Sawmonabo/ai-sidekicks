@@ -7,6 +7,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::jsonrpc::refusal::RefusalCode;
+use crate::keychain::KeychainRefusalCause;
 use crate::mcp::server::requests::{
     McpRegistrySearchRequest, McpRegistrySearchResponse, McpServerDeleteRequest,
     McpServerDeleteResponse, McpServerEnabledUpdateRequest, McpServerListRequest,
@@ -150,6 +151,27 @@ pub enum McpServerConfigWriteConflictReason {
     /// The project file no longer hashes to what the daemon last read, so the edit was not
     /// written and the file was left as it was.
     ProjectFileChanged,
+}
+
+/// Why the daemon's receipt key could not be used: one `mcp.bindingStoreUnavailable` cause.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum McpReceiptKeyCause {
+    /// The receipt key no longer matched what the daemon's receipts were made under, so a new one
+    /// was made and every unfinished change was answered with this failure; a retry under the same
+    /// idempotency key answers it again, so the change is sent again under a new one.
+    ReceiptKeyLost,
+}
+
+/// The `mcp.bindingStoreUnavailable` refusal's `data.fields.cause`: the receipt key's cause, or
+/// the keychain's when it could not be read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum McpBindingStoreUnavailableCause {
+    /// The receipt key was lost.
+    ReceiptKey(McpReceiptKeyCause),
+    /// The keychain holding the receipt key is locked or cannot be used.
+    Keychain(KeychainRefusalCause),
 }
 
 /// The payload of `mcp.server.signIn.completed`: how a sign-in ended. A sign-in that fails after
@@ -311,6 +333,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<McpServerStatusChangedNotice>().checked(),
         Definition::read::<McpServerSignInOutcome>(),
         Definition::read::<McpServerConfigWriteConflictReason>(),
+        Definition::read::<McpReceiptKeyCause>(),
+        Definition::read::<McpBindingStoreUnavailableCause>(),
         Definition::read::<McpServerSignInCompletedPayload>().checked(),
     ],
     constants: TS_CONSTANTS,

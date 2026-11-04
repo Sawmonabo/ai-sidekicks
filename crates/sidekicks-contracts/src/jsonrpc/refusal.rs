@@ -349,7 +349,10 @@ refusal_codes! {
     /// does not own the machine the request's `machineId` names, by the account the machine is
     /// registered to.
     MachinePermissionDenied = "machine.permissionDenied" (PermissionDenied, 403);
-    /// The MCP binding store cannot be read, so every MCP change fails closed until it can.
+    /// The daemon's stores of a server's bindings and receipts, or its receipt key, cannot be used,
+    /// so every MCP change fails closed; `data.fields.cause` names why where it is known: the
+    /// keychain's `locked` or `unavailable`, or `receiptKeyLost`, which a retry under the same
+    /// idempotency key answers again.
     McpBindingStoreUnavailable = "mcp.bindingStoreUnavailable" (Unavailable, 503);
     /// The submitted server configuration failed validation.
     McpServerConfigInvalid = "mcp.server.configInvalid" (InvalidArgument, 400);
