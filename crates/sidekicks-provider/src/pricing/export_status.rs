@@ -176,7 +176,7 @@ mod tests {
         tracker
             .turn_settled(true, settled_at)
             .expect("the scheduler runs");
-        sleep(INTERVAL * 2 - Duration::from_millis(1)).await;
+        sleep((INTERVAL * 2).saturating_sub(Duration::from_millis(1))).await;
         assert_eq!(*status.borrow(), None);
         status.changed().await.expect("the tracker is held");
         assert_eq!(*status.borrow_and_update(), Some(ExportStatus::Stopped));
