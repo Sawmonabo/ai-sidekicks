@@ -37,6 +37,7 @@ use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::account::credential_home::sign_out_every_home;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_provider::port::session_wake::SessionWaker;
 use sidekicks_queue::memory_gate::{
     INGEST_WORKER_BYTES, MemoryGate, MemoryGateFigures, QUICK_THREAD_BYTES,
 };
@@ -129,6 +130,7 @@ use crate::ipc::handlers::session::controls::SessionControlMethods;
 use crate::ipc::handlers::session::search::SessionSearchMethods;
 use crate::ipc::handlers::session::snapshots::SessionSnapshotSources;
 use crate::observability::diagnostic_buckets::recorders::provider_messages_folder;
+use crate::orchestration::goal_service::SessionGoals;
 
 /// What the method tables' services are built from: what the start opened, read and built before
 /// them.
@@ -788,6 +790,11 @@ pub(crate) async fn register_method_inputs(
                 files: Arc::clone(&session.file_search),
                 read_damaged_from_sequence,
             },
+            session_goals: Arc::new(SessionGoals {
+                pool: Arc::clone(&reads),
+                providers: Arc::clone(&registry),
+                session_wakes: Arc::clone(&session.idle_sleep) as Arc<dyn SessionWaker>,
+            }),
             session_controls: SessionControlMethods {
                 sources: driver_methods,
                 provider_sessions: Arc::clone(&session.provider_sessions),
