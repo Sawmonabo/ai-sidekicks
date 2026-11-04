@@ -48,6 +48,8 @@ use crate::port::tool_call_status_publisher::ToolCallStatusPublisher;
 use crate::port::tool_server_route::ToolServerRoute;
 use crate::port::turn_reading_publisher::TurnReadingPublisher;
 use crate::port::usage_sink::UsageSink;
+use crate::pricing::receiver::TelemetryTarget;
+use crate::pricing::store::HeldPriceList;
 use crate::runtime_binding::resume::ResumeFunctionLegs;
 
 /// The run queue's intake of a message the provider took into a run's turn.
@@ -178,6 +180,14 @@ pub struct DriverPorts {
     /// each metered change and quota window is dropped, as the command output and the readings
     /// ports drop theirs while the other ports refuse: the provider's stream never waits on it.
     pub usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
+    /// The held price list each driver prices its requests from and marks its models in use on.
+    /// Until it is registered a request stays unpriced, and each `mark_in_use` and
+    /// `report_missing` call is dropped.
+    pub price_list: Arc<PortRegistration<Arc<HeldPriceList>>>,
+    /// Where a provider process exports its telemetry and the token it presents. A process started
+    /// before it is registered starts with the person's telemetry settings withheld and no
+    /// exporter set.
+    pub telemetry_target: Arc<PortRegistration<Arc<TelemetryTarget>>>,
     /// The running commands of every session, which each driver reports its agent's commands to
     /// and follows each command's channel into; a command reported before it is registered is
     /// dropped.
@@ -272,6 +282,8 @@ impl DriverPorts {
             session_relaunched: Arc::new(PortRegistration::new("session relaunched")),
             process_gone: Arc::new(PortRegistration::new("process gone")),
             usage: Arc::new(PortRegistration::new("usage")),
+            price_list: Arc::new(PortRegistration::new("price list")),
+            telemetry_target: Arc::new(PortRegistration::new("telemetry target")),
             command_output: Arc::new(PortRegistration::new("command output")),
             command_capture: Arc::new(PortRegistration::new("command capture")),
             turn_readings: Arc::new(PortRegistration::new("turn readings")),
