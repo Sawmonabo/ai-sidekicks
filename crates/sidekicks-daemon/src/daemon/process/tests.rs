@@ -1,5 +1,6 @@
 mod provider_accounts;
 mod restart;
+mod stop_intent;
 
 use std::io;
 use std::path::{Path, PathBuf};

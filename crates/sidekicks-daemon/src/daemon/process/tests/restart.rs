@@ -50,7 +50,7 @@ async fn codex_service_stand_in() {
 }
 
 // The stand-in test's path in this program, which its script runs.
-fn stand_in_test() -> String {
+pub(super) fn stand_in_test() -> String {
     format!(
         "{}::codex_service_stand_in",
         module_path!()
@@ -64,16 +64,16 @@ fn stand_in_test() -> String {
 // provider's current account, whose home stands in its own folder; a chat session in a git
 // repository whose lead runs on Codex; its run, running its seeded turn; and the run's binding,
 // holding the conversation a resume brings back.
-struct SeededCodexRun {
+pub(super) struct SeededCodexRun {
     session_id: SessionId,
-    run_id: RunId,
+    pub(super) run_id: RunId,
     account_home: PathBuf,
     _folders: [TempDir; 2],
 }
 
 impl SeededCodexRun {
     // Seeds the run in `home`'s store, made with the daemon's schema.
-    async fn seed(home: &TestHome) -> Self {
+    pub(super) async fn seed(home: &TestHome) -> Self {
         let data_folder = home.data_folder();
         create_missing_private_folders(&data_folder).expect("the data folder is made");
         let database_path = data_folder.join(DAEMON_DATABASE_FILE_NAME);
@@ -136,7 +136,7 @@ impl SeededCodexRun {
     // The environment the stand-in serves in, the seeded turn listed as `turn_status` on every
     // conversation it resumes, with this program's git after the stand-in's `codex` on the search
     // path, since the session's opening reads its repository through git.
-    fn provider_environment(
+    pub(super) fn provider_environment(
         stand_in: &CodexServiceStandIn,
         turn_status: &str,
     ) -> Vec<(String, String)> {
@@ -159,7 +159,7 @@ impl SeededCodexRun {
 
 // Writes the seeded run's rows on `connection`: the account on `account_home`, the session in
 // `repository` with its lead, the run on its turn, each as the daemon stores it.
-fn seed_rows(
+pub(super) fn seed_rows(
     connection: &Connection,
     account_home: &Path,
     repository: &Path,
@@ -239,7 +239,7 @@ fn seed_rows(
 }
 
 // The state the store holds for `run_id` in `home`.
-fn stored_run_state(home: &TestHome, run_id: RunId) -> String {
+pub(super) fn stored_run_state(home: &TestHome, run_id: RunId) -> String {
     Connection::open(home.data_folder().join(DAEMON_DATABASE_FILE_NAME))
         .expect("the store opens")
         .query_row(

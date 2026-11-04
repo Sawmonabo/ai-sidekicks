@@ -77,6 +77,11 @@ impl StopIntentFile {
         }
     }
 
+    /// Where the intent's file lives.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
     /// The intent as the file holds it: `None` where there is none, and whole, logged, where the
     /// file cannot be read or is not an intent, since only a Stop writes one.
     pub async fn read(&self) -> Option<StopIntent> {
