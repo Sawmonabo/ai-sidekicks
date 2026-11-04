@@ -32,7 +32,6 @@ use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::fork::config_change::CodexConfigForks;
 use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
 use crate::driver::codex::session::slots::CodexSessionSlots;
-use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::{DaemonTurnBinding, DaemonTurnBindingResolver};
 use crate::driver::session_control::{
     ClearSessionGoalParams, DriverGoalResult, SetSessionGoalParams,
@@ -82,7 +81,8 @@ impl CodexSessionGoals {
     /// goal by a run of its own, which takes the turn Codex starts for the goal and ends failed
     /// when none starts within the deadline. Only the objective is sent; its status and token
     /// budget are Codex's own. Fails as the request fails, and as the run's start fails before
-    /// the request.
+    /// the request: with the admission's refusal, and `SessionTurnInFlight` while the engine holds
+    /// the session's turn for another run.
     pub(crate) async fn set(
         &self,
         params: SetSessionGoalParams,
@@ -133,10 +133,7 @@ impl CodexSessionGoals {
             .daemon_turn_bindings
             .admit_daemon_turn(session_id)
             .await
-            .map_err(|error| CodexError::PortFailed {
-                port: "daemon turn bindings",
-                cause: Box::new(error),
-            })?;
+            .map_err(CodexError::from_daemon_turn_binding)?;
         // How Codex answered the set, once the run's start sent it.
         let set_answer: Arc<Mutex<Option<Result<(), CodexError>>>> = Arc::new(Mutex::new(None));
         let goal_text = Arc::new(Mutex::new(Some(params.goal_text)));
@@ -213,7 +210,7 @@ impl CodexSessionGoals {
             Some(answer) => answer.map(|()| DriverGoalResult::Applied {}),
             None => started
                 .map(|_run_id| DriverGoalResult::Applied {})
-                .map_err(|error| CodexError::Driver(DriverError::Internal(error))),
+                .map_err(|error| CodexError::from_daemon_turn_start(session_id, error)),
         }
     }
 
@@ -324,15 +321,19 @@ mod tests {
     use futures::FutureExt as _;
     use futures::future::BoxFuture;
     use serde_json::json;
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_ipc::domain_error::DomainError;
 
     use super::CodexSessionGoals;
+    use crate::driver::codex::session::errors::CodexError;
     use crate::driver::codex::session::inbound::CodexSessionInboundSender;
     use crate::driver::codex::session::slots::CodexSessionSlots;
     use crate::driver::codex::session::test_fixture::{
         TEST_THREAD, TestCodexSession, TestDaemonTurnBindings, turn_started,
     };
+    use crate::driver::contract::error::DriverError;
     use crate::driver::run_control::{
         DaemonTurnAdmission, DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver,
     };
@@ -376,6 +377,83 @@ mod tests {
         ) -> BoxFuture<'_, Result<DaemonTurnAdmission, DaemonTurnBindingError>> {
             self.bindings.admit_daemon_turn(session_id)
         }
+    }
+
+    /// Refuses every daemon turn's admission for want of a current account.
+    struct RefusingAdmission;
+
+    impl DaemonTurnBindingResolver for RefusingAdmission {
+        fn open_daemon_turn_binding(
+            &self,
+            _run_id: RunId,
+            session_id: SessionId,
+        ) -> BoxFuture<'_, Result<DaemonTurnBinding, DaemonTurnBindingError>> {
+            async move { Err(DaemonTurnBindingError::NoProviderSession { session_id }) }.boxed()
+        }
+
+        fn admit_daemon_turn(
+            &self,
+            session_id: SessionId,
+        ) -> BoxFuture<'_, Result<DaemonTurnAdmission, DaemonTurnBindingError>> {
+            async move {
+                Err(DaemonTurnBindingError::Refused {
+                    session_id,
+                    refusal: Box::new(DomainError::new(
+                        "no current account".to_owned(),
+                        RefusalCode::ProviderAccountCurrentNotSet,
+                    )),
+                })
+            }
+            .boxed()
+        }
+    }
+
+    // A goal on a session with no process answers the admission's refusal as that refusal, and a
+    // turn the engine holds for another run as the turn-in-flight refusal. Kills: either answered
+    // as an internal fault.
+    #[tokio::test]
+    async fn a_goal_on_a_session_with_no_process_answers_its_refusals() {
+        let session = TestCodexSession::start().await;
+        let session_id = session.task.record.session_id;
+        let goals_over = |bindings: Arc<dyn DaemonTurnBindingResolver>| {
+            CodexSessionGoals::new(
+                Arc::new(CodexSessionSlots::new()),
+                Arc::clone(&session.task.calls.runs.config_forks),
+                Arc::clone(&session.run_start),
+                Arc::clone(&session.task.run_routes),
+                Arc::clone(&session.engine) as _,
+                bindings,
+            )
+        };
+        let params = || SetSessionGoalParams {
+            session_id,
+            goal_text: "ship the checkout fix".to_owned(),
+        };
+
+        let refused = goals_over(Arc::new(RefusingAdmission) as _)
+            .set(params())
+            .await;
+        assert!(
+            matches!(
+                &refused,
+                Err(CodexError::Driver(DriverError::Refused(refusal)))
+                    if refusal.code == RefusalCode::ProviderAccountCurrentNotSet
+            ),
+            "{refused:?}"
+        );
+
+        session.engine.refuse_next_daemon_turns_held(1);
+        let held = goals_over(Arc::clone(&session.daemon_turn_bindings) as _)
+            .set(params())
+            .await;
+        assert!(
+            matches!(
+                &held,
+                Err(CodexError::SessionTurnInFlight { session_id: held_session })
+                    if *held_session == session_id
+            ),
+            "{held:?}"
+        );
     }
 
     // Kills: a set refused while a turn runs, which Codex applies to that turn instead.

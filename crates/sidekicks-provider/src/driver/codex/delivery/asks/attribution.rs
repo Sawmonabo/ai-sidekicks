@@ -84,7 +84,6 @@ pub(crate) fn attribute_codex_ask(
         })
     };
     let child = read_codex_ask_thread_id(&request.params)
-        .filter(|thread_id| *thread_id != record.thread_id)
         .and_then(|thread_id| record.delivery.child_run_by_thread_id.get(&thread_id));
     if let Some(child) = child {
         return match &child.bound {

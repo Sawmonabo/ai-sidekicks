@@ -1,12 +1,13 @@
 //! The check an agent's provider switch passes before it is accepted: every axis the switch names
 //! is held against the target driver and its model catalog, and the answer is where the switch
-//! applies on that provider.
+//! applies on that provider; and the options a switch lands, its own laid over the agent's.
 
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::AgentProviderBinding;
 use sidekicks_contracts::agent::provider_binding::{
     AgentBindingSwitchBoundary, AgentBindingSwitchTarget,
 };
+use sidekicks_contracts::provider::declaration::{ProviderOptionSetting, ProviderOptionSettings};
 use sidekicks_contracts::provider::driver::capabilities::find_provider_model_row;
 use sidekicks_contracts::session::id::SessionId;
 
@@ -43,12 +44,13 @@ pub async fn check_binding_switch(
         providers.check_capability(provider, DriverCapabilityFlag::OutputSpeed)?;
     }
     let model_id = target.model_id.as_ref().unwrap_or(&current.model_id);
-    if target.options.is_some() {
+    // The options checked are the ones the switch lands: the target's over the agent's own.
+    if let Some(target_options) = &target.options {
         driver.check_lead_binding(LeadBindingCheckParams {
             agent_id,
             model_id: model_id.clone(),
             effort: target.effort.clone().or_else(|| current.effort.clone()),
-            options: target.options.clone(),
+            options: moved_options(current.options.as_ref(), target_options),
         })?;
     }
     let names_catalog_axis = target.model_id.is_some()
@@ -125,6 +127,34 @@ pub async fn check_binding_switch(
     })
 }
 
+/// The options a switch lands: `current` with each setting of `moved` in place of the one for its
+/// option, in order, then each option of `moved` that `current` does not set; `None` when the
+/// result holds no setting.
+pub fn moved_options(
+    current: Option<&ProviderOptionSettings>,
+    moved: &ProviderOptionSettings,
+) -> Option<ProviderOptionSettings> {
+    let current = current.map_or(&[][..], ProviderOptionSettings::as_slice);
+    let moved = moved.as_slice();
+    let mut settings: Vec<ProviderOptionSetting> = current
+        .iter()
+        .map(|setting| {
+            moved
+                .iter()
+                .find(|moved| moved.id == setting.id)
+                .unwrap_or(setting)
+                .clone()
+        })
+        .collect();
+    settings.extend(
+        moved
+            .iter()
+            .filter(|setting| !current.iter().any(|kept| kept.id == setting.id))
+            .cloned(),
+    );
+    ProviderOptionSettings::new(settings)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -138,6 +168,9 @@ mod tests {
     };
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::provider::account::record::ProviderAccountId;
+    use sidekicks_contracts::provider::declaration::{
+        ProviderDeclarationId, ProviderOptionSetting, ProviderOptionSettings, ProviderValue,
+    };
     use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
     use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_contracts::wire::text::FreeFormText;
@@ -148,7 +181,7 @@ mod tests {
     use crate::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
     };
-    use crate::driver::contract::params_and_results::ListModelsParams;
+    use crate::driver::contract::params_and_results::{LeadBindingCheckParams, ListModelsParams};
     use crate::driver::contract::{MockProviderDriver, ProviderDriver};
     use crate::driver::test_registry::{
         fixed_session_id, new_agent_id, registry_of_first_providers,
@@ -189,8 +222,9 @@ mod tests {
 
     // Each row is killed by dropping its check: the unregistered provider, the speed flag (whose
     // catalog read the mock refuses), the listed model's effort and speed, the larger window; by
-    // refusing a model the catalog does not list, or its window; by taking the narrowest boundary across a
-    // provider move; and by reading another provider's catalog against this session's account.
+    // refusing a model the catalog does not list, or its window; by taking the narrowest boundary
+    // across a provider move; and by reading another provider's catalog against this session's
+    // account.
     #[rstest]
     #[case::unregistered_provider(
         AgentBindingSwitchTarget {
@@ -333,5 +367,54 @@ mod tests {
             answered,
             expected.map_err(|(code, axis)| (code, axis.map(str::to_owned)))
         );
+    }
+
+    fn options(settings: &[(&str, bool)]) -> Option<ProviderOptionSettings> {
+        ProviderOptionSettings::new(
+            settings
+                .iter()
+                .map(|&(id, is_on)| ProviderOptionSetting {
+                    id: ProviderDeclarationId::new(id.to_owned()).expect("the id fits"),
+                    value: ProviderValue::Switch(is_on),
+                })
+                .collect(),
+        )
+    }
+
+    // The driver checks the options the switch lands, the target's over the agent's own, never
+    // the target's alone. Kills: checking the target's options alone.
+    #[tokio::test]
+    async fn a_switch_checks_the_options_it_lands() {
+        let landed = options(&[("plan", false), ("sandbox", true)]);
+        let mut driver = MockProviderDriver::new();
+        driver
+            .expect_check_lead_binding()
+            .withf(move |params: &LeadBindingCheckParams| params.options == landed)
+            .times(1)
+            .returning(|_| Ok(()));
+        let providers = registry_of_first_providers(vec![Arc::new(driver) as _]);
+        let current = AgentProviderBinding {
+            provider_name: PROVIDERS[0].provider_id(),
+            model_id: token("model-a"),
+            effort: None,
+            output_speed: None,
+            options: options(&[("plan", true)]),
+            larger_window: None,
+            provider_account_id: Some(account()),
+        };
+        let target = AgentBindingSwitchTarget {
+            options: options(&[("sandbox", true), ("plan", false)]),
+            ..no_move()
+        };
+
+        check_binding_switch(
+            &providers,
+            new_agent_id(),
+            fixed_session_id(),
+            &current,
+            &target,
+        )
+        .await
+        .expect("the landed options pass");
     }
 }

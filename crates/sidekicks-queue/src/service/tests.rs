@@ -115,6 +115,8 @@ struct DriverCalls {
     steers: Mutex<Vec<(QueueItemId, bool)>>,
     /// Each resume, with the messages it carried.
     resumes: Mutex<Vec<(RunId, Vec<QueueItemId>)>>,
+    /// How many provider processes were created.
+    creates: AtomicUsize,
     /// Holds a settle of the session's process before it answers.
     settle_pause: PausePoint,
     /// Holds a start before it answers.
@@ -172,7 +174,9 @@ fn recording_driver(calls: &Arc<DriverCalls>) -> MockProviderDriver {
     driver
         .expect_starts_process()
         .returning(|_, _| async { false }.boxed());
-    driver.expect_create_session().returning(|_| {
+    let creating = Arc::clone(calls);
+    driver.expect_create_session().returning(move |_| {
+        creating.creates.fetch_add(1, Ordering::SeqCst);
         async {
             Ok(ProviderSessionHandle {
                 provider_session_id: "provider-session".to_owned(),

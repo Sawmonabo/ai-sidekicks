@@ -5,6 +5,7 @@
 //! run, admitted on the session's bound account.
 
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use rusqlite::params;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -258,8 +259,9 @@ async fn a_send_to_a_closed_session_on_a_missing_provider_posts_no_notice() {
 }
 
 // A turn the daemon starts on a session this daemon never opened creates the session's process for
-// that turn's run, and the run's binding is the one the create recorded. Killed by binding the
-// turn without opening the session first, which refuses a session not yet opened.
+// that turn's run once, after its run took a place at the memory gate, which it keeps; the run's
+// binding is the one the create recorded. Killed by binding the turn without opening the session
+// first, which refuses a session not yet opened, and by opening it outside the gate.
 #[tokio::test]
 async fn a_daemon_turn_on_a_session_not_yet_opened_creates_its_process() {
     let calls = Arc::new(DriverCalls::default());
@@ -283,6 +285,8 @@ async fn a_daemon_turn_on_a_session_not_yet_opened_creates_its_process() {
             .provider_sessions
             .is_opened(fixture.session_id)
     );
+    assert_eq!(calls.creates.load(Ordering::SeqCst), 1);
+    assert!(fixture.queue.admission.is_admitting(run_id));
     assert_eq!(binding.binding_id, fixture.run_binding_id(run_id));
 }
 

@@ -493,9 +493,10 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
             recorded.ended_turn_number = turn_end.map(|turn_end| turn_end.turn_number);
             recorded.is_daemon_interrupt_end = *is_daemon_interrupt_end;
         }
-        InboundDelivery::RunContinued { binding, .. } => {
+        InboundDelivery::RunContinued { binding, run_id } => {
             recorded.kind = "runContinued";
             recorded.binding_id = Some(binding.binding_id.clone());
+            recorded.run_id = Some(*run_id);
         }
         InboundDelivery::ChildRun {
             binding,

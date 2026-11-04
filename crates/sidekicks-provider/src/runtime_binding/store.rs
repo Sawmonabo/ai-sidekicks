@@ -43,7 +43,7 @@ use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use crate::driver::contract::params_and_results::{
     DriverCliVersionReport, SpawnedVersionBindingCarriers,
 };
-use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
+use crate::driver::session_control::SessionToolServer;
 use crate::left_conversations::{LeftConversation, compose_left_conversation_insert};
 use crate::output_validation::{
     ProviderOutputValidationError, check_contract_version, check_resume_handle,
@@ -171,13 +171,6 @@ pub struct RuntimeBindingSpawnConfig {
         deserialize_with = "sidekicks_contracts::wire::present"
     )]
     pub callback_tools: Option<Vec<SessionCallbackTool>>,
-    /// The provider-native subagent policy.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "sidekicks_contracts::wire::present"
-    )]
-    pub subagent_policy: Option<SubagentPolicy>,
     /// Every tool server the session can reach, each with the person's switch, so a resume starts
     /// with exactly the servers that were on.
     #[serde(

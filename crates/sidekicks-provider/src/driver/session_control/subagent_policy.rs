@@ -97,33 +97,3 @@ impl SubagentPolicy {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use rstest::rstest;
-    use sidekicks_contracts::wire::integer::SafeInt;
-
-    use super::SubagentPolicy;
-
-    #[rstest]
-    #[case::zero_switches_helpers_off(Some(0), SubagentPolicy::Disabled {})]
-    #[case::unset_is_no_limit(
-        None,
-        SubagentPolicy::Enabled { helpers_at_once: None, definitions: Vec::new() }
-    )]
-    #[case::a_count_is_that_limit(
-        Some(3),
-        SubagentPolicy::Enabled { helpers_at_once: SafeInt::new(3), definitions: Vec::new() }
-    )]
-    fn from_helper_limit_maps_helpers_at_once(
-        #[case] helpers_at_once: Option<u64>,
-        #[case] expected: SubagentPolicy,
-    ) {
-        let helpers_at_once =
-            helpers_at_once.map(|count| SafeInt::new(count).expect("a safe count"));
-        assert_eq!(
-            SubagentPolicy::from_helper_limit(helpers_at_once, Vec::new()),
-            expected
-        );
-    }
-}

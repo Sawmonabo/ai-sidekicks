@@ -30,9 +30,10 @@ enum Expected {
 }
 
 // A helper's approval waits under the helper's own run, even when it names the lead's live turn,
-// and one from a helper whose run did not start is refused; the lead's own ask stays the lead's.
-// Killed by dropping the helper check, so a helper's ask goes to the lead's turn (the first three
-// cases), and by putting the helper check after the turn check (the second).
+// and one from a helper whose run did not start is refused; an ask on the lead's conversation goes
+// to the run of the turn it names. Killed by dropping the helper check, so a helper's ask goes to
+// the lead's turn (the first three cases), by putting the helper check after the turn check (the
+// second), and by dropping the turn check (the last).
 #[rstest]
 #[case::helper_on_its_own_thread(HELPER_THREAD, None, true, Expected::Helper)]
 #[case::helper_naming_the_leads_turn(HELPER_THREAD, Some(LEAD_TURN), true, Expected::Helper)]

@@ -51,8 +51,8 @@ pub(crate) enum CodexHookEvent {
 /// carries, and the conversation from the call's `_meta`.
 #[expect(
     dead_code,
-    reason = "the pre-tool checks read the call's tool, input and folder, and the post-tool \
-              checks its answer"
+    reason = "the pre-tool checks read the call's tool, input, folder and session, and the \
+              post-tool checks its answer"
 )]
 #[derive(Debug)]
 pub(crate) struct CodexHookInput {

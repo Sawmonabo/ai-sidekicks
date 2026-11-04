@@ -710,7 +710,6 @@ fn spawn_config_of(params: &CreateSessionParams) -> RuntimeBindingSpawnConfig {
     RuntimeBindingSpawnConfig {
         execution_posture: params.execution_posture.clone(),
         callback_tools: params.callback_tools.clone(),
-        subagent_policy: params.subagent_policy.clone(),
         tool_servers: params.tool_servers.clone(),
         output_schema: params.output_schema.clone(),
         provider_account_id: params.provider_account_id.clone(),

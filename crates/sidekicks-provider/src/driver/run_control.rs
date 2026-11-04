@@ -28,6 +28,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
+use sidekicks_ipc::domain_error::DomainError;
 
 use crate::run::delivery::RunSetupRefusal;
 
@@ -475,7 +476,18 @@ pub enum DaemonTurnBindingError {
         /// The session.
         session_id: SessionId,
     },
-    /// The session has no provider or account to run on, or no posture to run at.
+    /// The admission's refusal, which a client reads by its code: a provider no driver answers,
+    /// no account to run on, or a session closed.
+    #[error("a turn on session {session_id} was refused")]
+    Refused {
+        /// The session.
+        session_id: SessionId,
+        /// The refusal.
+        #[source]
+        refusal: Box<DomainError>,
+    },
+    /// The session's admission failed with no refusal to read, or its turn got no place at the
+    /// memory gate in time.
     #[error("a turn on session {session_id} could not be admitted")]
     NotAdmitted {
         /// The session.
@@ -501,8 +513,9 @@ pub trait DaemonTurnBindingResolver: Send + Sync {
     /// The binding `run_id` runs on in `session_id`, and the session's lead agent. A session whose
     /// process this daemon has not opened is opened for the run first, as an admitted run's is:
     /// resumed where it has a conversation, else created on the account the run was admitted
-    /// against, then settled. An error when the session cannot be admitted, opened or bound,
-    /// which ends the run failed.
+    /// against, then settled, its turn first taking a place at the memory gate as an admitted
+    /// run's does. Fails `Refused` with the admission's refusal, and with another error when the
+    /// session cannot be admitted, placed, opened or bound, which ends the run failed.
     fn open_daemon_turn_binding(
         &self,
         run_id: RunId,
@@ -511,7 +524,8 @@ pub trait DaemonTurnBindingResolver: Send + Sync {
 
     /// What a driver fills a daemon turn's start request with when no process of `session_id` is
     /// live: the account a new run of the session is admitted against and the posture its process
-    /// runs at. Fails `NotAdmitted` when the session has no provider or account to run on.
+    /// runs at. Fails `Refused` when the session has no provider or account to run on, and
+    /// `NotAdmitted` as a read fails.
     fn admit_daemon_turn(
         &self,
         session_id: SessionId,
