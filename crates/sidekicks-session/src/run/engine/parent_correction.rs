@@ -83,6 +83,7 @@ mod tests {
     use sidekicks_contracts::run::queued::AgentRunQueuedPayload;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_provider::driver::test_registry::new_run_id;
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
     use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
     use sidekicks_store::events::projection::SessionProjection as _;
@@ -92,7 +93,7 @@ mod tests {
 
     use crate::run::engine::RunEngine;
     use crate::run::engine::errors::RunEngineError;
-    use crate::run::engine::test_fixture::test_engine;
+    use crate::run::engine::test_fixture::{parent_of, test_engine};
     use crate::run::projection::{RunsProjection, insert_queued_run_statement};
     use crate::run::refusals::RunRefusal;
     use crate::run::schema::schema_parts;
@@ -138,18 +139,6 @@ mod tests {
             }
         }
 
-        /// The run's stored parent.
-        fn parent_of(&self, run_id: &RunId) -> Option<String> {
-            self.database
-                .reader()
-                .query_row(
-                    "SELECT parent_run_id FROM runs WHERE run_id = ?1",
-                    [run_id.text().as_str()],
-                    |row| row.get(0),
-                )
-                .expect("the test reads the run's row")
-        }
-
         /// How many events the log holds, every session's.
         fn event_count(&self) -> i64 {
             self.database
@@ -182,14 +171,10 @@ mod tests {
         }
     }
 
-    fn mint_run_id() -> RunId {
-        RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")
-    }
-
     /// Queues a run of `session_id` under `parent`, its `agent.run.queued` and its row in one
     /// write, as the engine writes them.
     async fn queue_run(engine: &RunEngine, session_id: SessionId, parent: Option<RunId>) -> RunId {
-        let run_id = mint_run_id();
+        let run_id = new_run_id();
         let mut payload = json!({
             "sessionId": session_id,
             "runId": run_id,
@@ -272,17 +257,17 @@ mod tests {
             }
             Case::LeadRun => (fixture.lead, fixture.caller),
             Case::OtherSessionParent => (fixture.child, fixture.other_session_lead),
-            Case::UnknownParent => (fixture.child, mint_run_id()),
+            Case::UnknownParent => (fixture.child, new_run_id()),
             Case::ItselfParent => (fixture.child, fixture.child),
             Case::BelowParent => (fixture.child, fixture.grandchild),
-            Case::UnknownRun => (mint_run_id(), fixture.caller),
+            Case::UnknownRun => (new_run_id(), fixture.caller),
         };
         if matches!(case, Case::EndedChild) {
             fixture.end(&fixture.child);
         }
         let events_before = fixture.event_count();
-        let parent_before = fixture.parent_of(&fixture.child);
-        let lead_parent_before = fixture.parent_of(&fixture.lead);
+        let parent_before = parent_of(&fixture.database, &fixture.child);
+        let lead_parent_before = parent_of(&fixture.database, &fixture.lead);
 
         let corrected = fixture
             .engine
@@ -301,7 +286,7 @@ mod tests {
                     )
                 );
                 assert_eq!(
-                    fixture.parent_of(&run_id).as_deref(),
+                    parent_of(&fixture.database, &run_id).as_deref(),
                     Some(parent_run_id.text().as_str())
                 );
             }
@@ -327,8 +312,11 @@ mod tests {
             }
         }
         if expected != Expected::Lands {
-            assert_eq!(fixture.parent_of(&fixture.child), parent_before);
-            assert_eq!(fixture.parent_of(&fixture.lead), lead_parent_before);
+            assert_eq!(parent_of(&fixture.database, &fixture.child), parent_before);
+            assert_eq!(
+                parent_of(&fixture.database, &fixture.lead),
+                lead_parent_before
+            );
         }
     }
 
@@ -372,11 +360,11 @@ mod tests {
             .expect("the rebuild writes");
 
         assert_eq!(
-            fixture.parent_of(&fixture.child).as_deref(),
+            parent_of(&fixture.database, &fixture.child).as_deref(),
             Some(fixture.caller.text().as_str())
         );
         assert_eq!(
-            fixture.parent_of(&fixture.grandchild).as_deref(),
+            parent_of(&fixture.database, &fixture.grandchild).as_deref(),
             Some(fixture.child.text().as_str())
         );
     }

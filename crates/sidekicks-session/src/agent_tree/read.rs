@@ -121,10 +121,40 @@ static SELECT_REJECTED_CREATES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// Whether a helper stop of the session names its own run, with no read bound.
+static SELECT_HELD_STOP_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {}",
+        held_stop_exists_sql("@session_id", "@own_run_id")
+    )
+});
+
 /// The statements the tree read and [`resolve_child`] prepare on a read connection: the session's
 /// runs, its nodes, its helper starts, the newest models, the token counts, the refused creates,
-/// one node and one own run, then the run agent reader's.
-pub const AGENT_TREE_READ_STATEMENT_CAPACITY: usize = 8 + RUN_AGENT_STATEMENT_CAPACITY;
+/// one node, one own run and whether a helper stop names it, then the run agent reader's.
+pub const AGENT_TREE_READ_STATEMENT_CAPACITY: usize = 9 + RUN_AGENT_STATEMENT_CAPACITY;
+
+/// The SQL test that a stop of a helper already interrupted, an `agent.subagent.stopped` of the
+/// session `session_sql`, names the run `own_run_sql` as the helper's own; each argument is a
+/// column or a parameter. The stop is found through the log's type index.
+pub(crate) fn held_stop_exists_sql(session_sql: &str, own_run_sql: &str) -> String {
+    format!(
+        "EXISTS (SELECT 1 FROM session_events AS held
+      WHERE held.session_id = {session_sql} AND held.type = '{helper_stopped}'
+        AND json_extract(held.payload, '$.childRunId') = {own_run_sql})",
+        helper_stopped = SessionEventType::AgentSubagentStopped.as_str(),
+    )
+}
+
+/// The state a helper's own run reads as: an interrupted one that a helper stop names
+/// (`is_held_stop`) was stopped with every agent for good, its row keeping `interrupted`.
+pub(crate) fn own_run_state_with_held_stop(state: RunState, is_held_stop: bool) -> RunState {
+    if state == RunState::Interrupted && is_held_stop {
+        RunState::Stopped
+    } else {
+        state
+    }
+}
 
 /// Why the agent tree, or a child handle, could not be read.
 #[derive(Debug, thiserror::Error)]
@@ -150,7 +180,8 @@ pub enum AgentTreeReadError {
 pub struct ResolvedChild {
     /// The node.
     pub node: AgentTreeNode,
-    /// Its newest own run's state, which is the node's.
+    /// Its newest own run's state, which is the node's; `Stopped` for an interrupted own run a
+    /// helper stop names.
     pub state: RunState,
     /// The run its newest own run hangs under: the wire's `run_id` for the helper, and the run an
     /// interrupt or a pause of it names.
@@ -168,9 +199,9 @@ impl ResolvedChild {
 }
 
 /// The node of `session_id` that the wire handle `child_handle` names, with its newest own run's
-/// state and parent; `None` when no node holds it, or its node belongs to another session. Fails
-/// with [`AgentTreeReadError::RunMissing`] when its own run has no row, and as SQLite or a stored
-/// column does.
+/// state, a held stop folded in as the tree folds it, and parent; `None` when no node holds it, or
+/// its node belongs to another session. Fails with [`AgentTreeReadError::RunMissing`] when its own
+/// run has no row, and as SQLite or a stored column does.
 pub fn resolve_child(
     reader: &Connection,
     session_id: &SessionId,
@@ -185,10 +216,18 @@ pub fn resolve_child(
         .ok_or(AgentTreeReadError::RunMissing {
             run_id: node.own_run_id,
         })?;
+    let is_held_stop = own_run.state == RunState::Interrupted
+        && reader.prepare_cached(&SELECT_HELD_STOP_SQL)?.query_row(
+            named_params! {
+                "@session_id": session_id.text().as_str(),
+                "@own_run_id": node.own_run_id.text().as_str(),
+            },
+            |row| row.get::<_, bool>(0),
+        )?;
     Ok(Some(ResolvedChild {
-        node,
-        state: own_run.state,
+        state: own_run_state_with_held_stop(own_run.state, is_held_stop),
         parent_run_id: own_run_parent(own_run.parent_run_id)?,
+        node,
     }))
 }
 
@@ -429,11 +468,8 @@ impl SessionTree {
         for start in starts {
             let (run_id, provider, subagent_id, event_type) = start?;
             if event_type == SessionEventType::AgentSubagentStopped.as_str() {
-                if let Some(run) = runs
-                    .get_mut(&run_id)
-                    .filter(|run| run.state == RunState::Interrupted)
-                {
-                    run.state = RunState::Stopped;
+                if let Some(run) = runs.get_mut(&run_id) {
+                    run.state = own_run_state_with_held_stop(run.state, true);
                 }
             } else if let Some(&place) =
                 node_of_helper.get(&(provider.as_str(), subagent_id.as_str()))

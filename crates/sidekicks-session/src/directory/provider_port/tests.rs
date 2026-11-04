@@ -397,18 +397,23 @@ async fn a_git_folder_that_is_gone_or_not_named_is_unavailable(
 }
 
 // An opening carries the helper policy of `Helpers at once` as set for the lead's provider: unset
-// there, with `0` set for another provider, it runs helpers with no limit, and `0` there runs
-// none. Killed by the policy left out, by the knob read for another provider, and by the knob
-// never read.
+// there, with `0` set for another provider, it runs helpers with no limit, `0` there runs none,
+// and a count there is that limit. Killed by the policy left out, by the knob read for another
+// provider, by the knob never read, and by a count read as no limit or as helpers switched off.
 #[rstest]
-#[case::set_for_another_provider(1, SubagentPolicy::Enabled {
+#[case::set_for_another_provider(1, 0, SubagentPolicy::Enabled {
     helpers_at_once: None,
     definitions: Vec::new(),
 })]
-#[case::zero_for_the_leads_provider(0, SubagentPolicy::Disabled {})]
+#[case::zero_for_the_leads_provider(0, 0, SubagentPolicy::Disabled {})]
+#[case::a_count_for_the_leads_provider(0, 3, SubagentPolicy::Enabled {
+    helpers_at_once: SafeInt::new(3),
+    definitions: Vec::new(),
+})]
 #[tokio::test]
 async fn compose_opening_carries_the_leads_providers_helpers_at_once(
     #[case] knob_provider: usize,
+    #[case] limit: u64,
     #[case] expected: SubagentPolicy,
 ) {
     let database = TestDatabase::new(schema_parts());
@@ -416,7 +421,7 @@ async fn compose_opening_carries_the_leads_providers_helpers_at_once(
     let settings = HelpersAtOnce {
         provider: ProviderId::new(PROVIDERS[knob_provider].id.to_owned())
             .expect("a registered provider id"),
-        limit: SafeInt::new(0).expect("zero is a limit"),
+        limit: SafeInt::new(limit).expect("a small count is a limit"),
     };
     let PortOverLeg { port, .. } =
         port_over_a_leg(&database, session_id, test_git_runner(), Arc::new(settings)).await;

@@ -13,7 +13,6 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::cost::{AgentSpend, UsdMicros};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::PROVIDERS;
@@ -25,6 +24,7 @@ use crate::agent_tree::store::{NewAgentTreeNode, bind_newest_run, insert_node, m
 use crate::agents::projection::test_fixture::{
     binding, project, resolved_run_queued, run_statements, session_created, write_log_row,
 };
+use crate::instant;
 
 /// The provider that names every helper of these tests, in its started rows and its nodes alike.
 pub(crate) const HELPER_PROVIDER: &str = "test-provider";
@@ -199,7 +199,7 @@ impl SessionLog {
             provider_path: None,
             start_call_id: None,
             own_run_id,
-            started_at: WireInstant::try_from(started_at.to_owned()).expect("an instant"),
+            started_at: instant(started_at),
         });
         run_statements(&self.connection, &[statement]);
         handle
@@ -207,7 +207,7 @@ impl SessionLog {
 
     /// Binds the node `handle` to its newest own run `own_run_id`.
     pub(crate) fn bind(&self, handle: &ChildHandle, own_run_id: RunId, updated_at: &str) {
-        let updated_at = WireInstant::try_from(updated_at.to_owned()).expect("an instant");
+        let updated_at = instant(updated_at);
         run_statements(
             &self.connection,
             &[bind_newest_run(handle, own_run_id, None, &updated_at)],
@@ -609,8 +609,10 @@ fn the_badge_counts_and_the_refused_creates_read_from_the_tree_and_the_log() {
     assert_eq!(rejected, [(lead_run, at(6))]);
 }
 
-// Killed by the session check dropped, by the node's first own run read instead of its newest,
-// and by a missing own run read as no child.
+// Killed by the session check dropped, by the node's first own run read instead of its newest, by
+// a missing own run read as no child, by a held stop left unfolded (the held node reading
+// `interrupted`), and by the fold taken where no helper stop names the own run (the unheld node
+// reading `stopped`).
 #[test]
 fn a_handle_resolves_to_its_node_in_its_session_only() {
     let mut session = SessionLog::new();
@@ -621,6 +623,23 @@ fn a_handle_resolves_to_its_node_in_its_session_only() {
     let handle = session.node(first_run, "h", None, &at(2));
     let newest_run = session.own_run(other_lead_run, "h", RunState::WaitingForInput, &at(3));
     session.bind(&handle, newest_run, &at(3));
+    let held_run = session.own_run(lead_run, "held", RunState::Interrupted, &at(4));
+    let held = session.node(held_run, "held", None, &at(4));
+    let unheld_run = session.own_run(lead_run, "unheld", RunState::Interrupted, &at(5));
+    let unheld = session.node(unheld_run, "unheld", None, &at(5));
+    let session_id = session.session_id;
+    session.event(
+        SessionEventType::AgentSubagentStopped,
+        &json!({
+            "sessionId": session_id,
+            "runId": lead_run,
+            "provider": HELPER_PROVIDER,
+            "subagentId": "held",
+            "childRunId": held_run,
+        }),
+        Some(lead_run),
+        &at(6),
+    );
 
     let resolve = |session_id: &SessionId, child_handle: &ChildHandle| {
         resolve_child(&session.connection, session_id, child_handle)
@@ -638,6 +657,14 @@ fn a_handle_resolves_to_its_node_in_its_session_only() {
     assert_eq!(resolved.state, RunState::WaitingForInput);
     assert_eq!(resolved.parent_run_id, other_lead_run);
     assert_eq!(resolved.member(), helper_member(other_lead_run, &handle));
+    let state_of = |child_handle: &ChildHandle| {
+        resolve(&session_id, child_handle)
+            .expect("the handle resolves")
+            .expect("the node is the session's")
+            .state
+    };
+    assert_eq!(state_of(&held), RunState::Stopped);
+    assert_eq!(state_of(&unheld), RunState::Interrupted);
 
     session
         .connection

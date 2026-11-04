@@ -24,7 +24,7 @@ use sidekicks_provider::driver::error_causes::unanswered;
 use sidekicks_provider::driver::run_control::HelperStopOutcome;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::log_service::test_fixture::open_log;
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::read::session_read_bound;
@@ -81,10 +81,10 @@ fn sweep(
     )
 }
 
-// An appender on the event log of `database`.
-async fn appender(database: &TestDatabase) -> Arc<SessionEventAppender> {
+// An appender on `event_log`.
+fn appender(event_log: Arc<EventLogService>) -> Arc<SessionEventAppender> {
     Arc::new(SessionEventAppender::new(
-        open_log(database, None).await.service,
+        event_log,
         SESSION_EVENT_VERSION.clone(),
     ))
 }
@@ -164,7 +164,8 @@ async fn every_helper_is_stopped_at_once_and_answered_in_dispatch_order() {
             .path()
             .expect("the test's database is a file"),
     );
-    let sweep = sweep(path, driver, &harness, appender(&log.database).await);
+    let appender = appender(open_log(&log.database, None).await.service);
+    let sweep = sweep(path, driver, &harness, appender);
     let read_bound = session_read_bound(|_| None, &log.session_id, None);
 
     let outcomes = tokio::time::timeout(
@@ -286,7 +287,7 @@ async fn a_bridged_run_is_stopped_by_the_run_engines_interrupt(#[case] interrupt
         harness.database.path(),
         MockProviderDriver::new(),
         &harness,
-        appender(&harness.database).await,
+        appender(Arc::clone(&harness.event_log)),
     );
     let read_bound = session_read_bound(|_| None, &harness.session_id, None);
 
@@ -377,7 +378,7 @@ async fn a_held_helper_stopped_for_good_is_told_by_its_own_event() {
         path.clone(),
         driver,
         &harness,
-        appender(&log.database).await,
+        appender(open_log(&log.database, None).await.service),
     );
     let read_bound = session_read_bound(|_| None, &log.session_id, None);
 

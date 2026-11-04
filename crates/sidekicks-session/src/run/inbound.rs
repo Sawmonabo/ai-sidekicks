@@ -11,9 +11,9 @@
 //! call opened in a turn an undo superseded: then it is absorbed.
 
 mod absorb;
-mod run_work;
 #[cfg(test)]
 pub(crate) mod tests;
+mod work;
 
 use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -53,7 +53,7 @@ use crate::run::engine::turns::guards::run_live_or_turn_open_statement;
 use crate::run::engine::{RunEngine, ToolCallOpeningTurn};
 use crate::run::epochs::{DeliveryAttribution, EpochBinding, EpochCursorError, ExecutionEpochs};
 use crate::run::inbound::absorb::absorb;
-use crate::run::inbound::run_work::RunWork;
+use crate::run::inbound::work::RunWork;
 use crate::run::provider_choice::ProviderChoiceResolver;
 use crate::run::refusals::RunRefusal;
 use crate::transcript::reasoning::split_reasoning_text;

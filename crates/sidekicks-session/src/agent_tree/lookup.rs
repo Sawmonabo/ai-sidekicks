@@ -18,6 +18,7 @@ use sidekicks_provider::port::agent_tree_lookup::{AgentTreeHelper, AgentTreeLook
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 
+use crate::agent_tree::read::{held_stop_exists_sql, own_run_state_with_held_stop};
 use crate::agent_tree::store::read_child_handle;
 
 /// The statements the agent tree lookup keeps prepared: one per way a helper is named.
@@ -26,7 +27,7 @@ pub const AGENT_TREE_LOOKUP_STATEMENT_CAPACITY: usize = 3;
 // A node with its own run's state, the trigger of that run's newest stop, and whether a helper
 // stop of the session names that run as the helper's own, in the order `helper_of_row` reads them,
 // filtered by `filter`. The unary `+` drops the node's run id column's affinity, which would keep
-// the log's run index from serving; the helper stop is found through the log's type index.
+// the log's run index from serving.
 fn select_helpers_sql(filter: &str) -> String {
     let stopped = SessionEventType::AgentRunStopped;
     format!(
@@ -35,14 +36,12 @@ fn select_helpers_sql(filter: &str) -> String {
       WHERE e.session_id = n.session_id AND e.run_id = +n.own_run_id
         AND e.category = '{category}' AND e.type = '{stopped_type}'
       ORDER BY e.sequence DESC LIMIT 1),
-    EXISTS (SELECT 1 FROM session_events AS h
-      WHERE h.session_id = n.session_id AND h.type = '{helper_stopped_type}'
-        AND json_extract(h.payload, '$.childRunId') = n.own_run_id)
+    {held_stop}
   FROM agent_tree_nodes AS n JOIN runs AS r ON r.run_id = n.own_run_id
   {filter}",
         category = stopped.category().as_str(),
         stopped_type = stopped.as_str(),
-        helper_stopped_type = SessionEventType::AgentSubagentStopped.as_str(),
+        held_stop = held_stop_exists_sql("n.session_id", "n.own_run_id"),
     )
 }
 
@@ -70,20 +69,15 @@ static SELECT_HELPER_BY_PROVIDER_PATH_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// A helper whose own run ended interrupted and that a stop of every agent then stopped for good
-// reads as stopped by it, its run's row keeping `interrupted`.
+// A helper whose own run a held stop folds to stopped reads as stopped by a stop of every agent.
 fn helper_of_row(row: &Row<'_>) -> rusqlite::Result<AgentTreeHelper> {
-    let own_run_state = text_column(row, 4, closed_word::<RunState>)?;
-    let is_held_stop: bool = row.get(6)?;
-    let (own_run_state, own_run_stop_trigger) =
-        if own_run_state == RunState::Interrupted && is_held_stop {
-            (RunState::Stopped, Some(StopTrigger::StopAll))
-        } else {
-            (
-                own_run_state,
-                optional_text_column(row, 5, closed_word::<StopTrigger>)?,
-            )
-        };
+    let stored_state = text_column(row, 4, closed_word::<RunState>)?;
+    let own_run_state = own_run_state_with_held_stop(stored_state, row.get(6)?);
+    let own_run_stop_trigger = if own_run_state == stored_state {
+        optional_text_column(row, 5, closed_word::<StopTrigger>)?
+    } else {
+        Some(StopTrigger::StopAll)
+    };
     Ok(AgentTreeHelper {
         child_handle: text_column(row, 0, read_child_handle)?,
         subagent_id: row.get(1)?,
@@ -225,7 +219,6 @@ mod tests {
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::state::RunState;
     use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::wire::instant::WireInstant;
     use sidekicks_provider::port::agent_tree_lookup::{AgentTreeHelper, AgentTreeLookup};
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::statement::run_statement;
@@ -233,12 +226,10 @@ mod tests {
         TestDatabase, insert_test_event, test_run_id, test_session_id,
     };
 
-    use super::{
-        AGENT_TREE_LOOKUP_STATEMENT_CAPACITY, StoredAgentTreeLookup, read_helper_by_name,
-        read_helper_by_provider_path, read_helper_by_subagent_id,
-    };
+    use super::{AGENT_TREE_LOOKUP_STATEMENT_CAPACITY, StoredAgentTreeLookup};
     use crate::agent_tree::schema::schema_parts;
     use crate::agent_tree::store::{NewAgentTreeNode, bind_newest_run, insert_node};
+    use crate::instant;
 
     const PROVIDER: &str = "test-provider";
 
@@ -248,10 +239,6 @@ mod tests {
 
     fn handle(text: &str) -> ChildHandle {
         ChildHandle::new(text.to_owned()).expect("a child handle")
-    }
-
-    fn instant(text: &str) -> WireInstant {
-        WireInstant::try_from(text.to_owned()).expect("a stored instant")
     }
 
     // Writes a run of `session_id` in `state`.
@@ -375,9 +362,11 @@ mod tests {
     // answered), by the trigger read from another run's event (`earlier` reading `tokenLimit` when
     // the helper stops with it), by `ORDER BY` reversed or dropped (`earlier` answered by name or
     // path), by a NULL column matched (the unnamed node answered for a name or path no node holds),
-    // by the helper stop ignored (the helper reading `interrupted`), and by the helper stop matched
-    // on a run other than the node's own (the helper reading `interrupted` when matched on the run
-    // it is filed under, the unnamed node reading `stopped` when matched on none).
+    // by the helper stop ignored (the helper reading `interrupted`), by the helper stop matched on
+    // a run other than the node's own (the helper reading `interrupted` when matched on the run it
+    // is filed under, the unnamed node reading `stopped` when matched on none), and by a method of
+    // the registered lookup answering another method's read (each key's text names no node under
+    // the other keys).
     #[rstest]
     #[case::running("running", None, RunState::Running, None)]
     #[case::completed("completed", None, RunState::Completed, None)]
@@ -393,7 +382,8 @@ mod tests {
         RunState::Stopped,
         Some(StopTrigger::StopAll)
     )]
-    fn a_helper_is_found_by_each_name_with_its_own_run(
+    #[tokio::test]
+    async fn a_helper_is_found_by_each_name_with_its_own_run(
         #[case] own_state: &str,
         #[case] own_trigger: Option<&str>,
         #[case] expected_state: RunState,
@@ -479,20 +469,24 @@ mod tests {
             ),
         );
 
-        let reader = database.reader();
+        let lookup: Arc<dyn AgentTreeLookup> = Arc::new(StoredAgentTreeLookup::new(Arc::new(
+            DatabaseReadPool::new(database.path(), AGENT_TREE_LOOKUP_STATEMENT_CAPACITY),
+        )));
         let found = Some(helper(
             ("handle-a", "thread-helper"),
             Some("/root/scout"),
             own_run,
             (expected_state, expected_trigger),
         ));
-        let by_id = |provider_name: &str, subagent_id: &str| {
-            read_helper_by_subagent_id(&reader, session_id, &provider(provider_name), subagent_id)
+        let by_id = async |provider_name: &str, subagent_id: &str| {
+            lookup
+                .helper_by_subagent_id(session_id, provider(provider_name), subagent_id.to_owned())
+                .await
                 .expect("the id read reads")
         };
-        assert_eq!(by_id(PROVIDER, "thread-helper"), found);
+        assert_eq!(by_id(PROVIDER, "thread-helper").await, found);
         assert_eq!(
-            by_id(PROVIDER, "thread-earlier"),
+            by_id(PROVIDER, "thread-earlier").await,
             Some(helper(
                 ("handle-b", "thread-earlier"),
                 Some("/root/scout"),
@@ -501,7 +495,7 @@ mod tests {
             ))
         );
         assert_eq!(
-            by_id(PROVIDER, "agent-unnamed"),
+            by_id(PROVIDER, "agent-unnamed").await,
             Some(helper(
                 ("handle-c", "agent-unnamed"),
                 None,
@@ -509,82 +503,26 @@ mod tests {
                 (RunState::Interrupted, None),
             ))
         );
-        assert_eq!(by_id(PROVIDER, "thread-foreign"), None);
-        assert_eq!(by_id(PROVIDER, "thread-elsewhere"), None);
-        assert_eq!(by_id(PROVIDER, "thread-nobody"), None);
+        assert_eq!(by_id(PROVIDER, "thread-foreign").await, None);
+        assert_eq!(by_id(PROVIDER, "thread-elsewhere").await, None);
+        assert_eq!(by_id(PROVIDER, "thread-nobody").await, None);
 
-        let by_name = |name: &str| {
-            read_helper_by_name(&reader, session_id, name).expect("the name read reads")
-        };
-        assert_eq!(by_name("scout"), found);
-        assert_eq!(by_name("nobody"), None);
-
-        let by_path = |path: &str| {
-            read_helper_by_provider_path(&reader, session_id, path).expect("the path read reads")
-        };
-        assert_eq!(by_path("/root/scout"), found);
-        assert_eq!(by_path("/root/nobody"), None);
-    }
-
-    // Each method reads by its own key: the id, the name and the path each name a different node,
-    // and no node holds one key's text under another key. Killed by an implementation method answering another method's read.
-    #[tokio::test]
-    async fn the_registered_lookup_answers_each_method_from_its_own_read() {
-        let database = TestDatabase::new(schema_parts());
-        let writer = database.opener()().expect("the test creates its database");
-        let session_id = test_session_id();
-        let mut runs = Vec::new();
-        for (child_handle, subagent_id, name, path) in [
-            ("handle-a", "thread-a", "a-name", "/root/a-path"),
-            ("handle-b", "thread-b", "scout", "/root/b-path"),
-            ("handle-c", "thread-c", "c-name", "/root/scout"),
-        ] {
-            let run_id = insert_run(&writer, session_id, "running");
-            write_node(
-                &writer,
-                &node(
-                    (session_id, PROVIDER),
-                    (child_handle, subagent_id),
-                    (Some(name), Some(path)),
-                    run_id,
-                    "2026-10-14T08:00:00.000Z",
-                ),
-            );
-            runs.push((child_handle, subagent_id, path, run_id));
-        }
-        let lookup: Arc<dyn AgentTreeLookup> = Arc::new(StoredAgentTreeLookup::new(Arc::new(
-            DatabaseReadPool::new(database.path(), AGENT_TREE_LOOKUP_STATEMENT_CAPACITY),
-        )));
-        let answer = |index: usize| {
-            let (child_handle, subagent_id, path, run_id) = runs[index];
-            Some(helper(
-                (child_handle, subagent_id),
-                Some(path),
-                run_id,
-                (RunState::Running, None),
-            ))
-        };
-
-        assert_eq!(
+        let by_name = async |name: &str| {
             lookup
-                .helper_by_subagent_id(session_id, provider(PROVIDER), "thread-a".to_owned())
+                .helper_by_name(session_id, name.to_owned())
                 .await
-                .expect("the id read reads"),
-            answer(0)
-        );
-        assert_eq!(
+                .expect("the name read reads")
+        };
+        assert_eq!(by_name("scout").await, found);
+        assert_eq!(by_name("nobody").await, None);
+
+        let by_path = async |path: &str| {
             lookup
-                .helper_by_name(session_id, "scout".to_owned())
+                .helper_by_provider_path(session_id, path.to_owned())
                 .await
-                .expect("the name read reads"),
-            answer(1)
-        );
-        assert_eq!(
-            lookup
-                .helper_by_provider_path(session_id, "/root/scout".to_owned())
-                .await
-                .expect("the path read reads"),
-            answer(2)
-        );
+                .expect("the path read reads")
+        };
+        assert_eq!(by_path("/root/scout").await, found);
+        assert_eq!(by_path("/root/nobody").await, None);
     }
 }

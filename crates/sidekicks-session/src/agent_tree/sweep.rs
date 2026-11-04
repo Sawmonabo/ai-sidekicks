@@ -7,7 +7,6 @@ pub mod stops;
 use std::collections::{HashMap, VecDeque};
 
 use rusqlite::Connection;
-use rusqlite::types::Type;
 use sidekicks_contracts::agent::tree::AgentTreeMember;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
@@ -25,9 +24,6 @@ pub use self::stops::{AgentTreeSweep, AgentTreeSweepError};
 /// The statements [`read_descendants`] prepares on a read connection: the session's runs, its
 /// nodes and its helper starts, then the run agent reader's.
 pub const AGENT_TREE_SWEEP_STATEMENT_CAPACITY: usize = 3 + RUN_AGENT_STATEMENT_CAPACITY;
-
-// The node read's column holding the helper's id, which a failed conversion of it names.
-const NODE_SUBAGENT_ID_COLUMN: usize = 3;
 
 /// Where a sweep of the session's agents starts; the root itself is never listed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,8 +71,7 @@ pub enum DescendantStop {
 /// `Interrupted`, and, with `started_after`, whose run was queued after that sequence of the
 /// session's log; in dispatch order. A bridged or workflow run is listed as its agent, a helper by
 /// its newest own run; every run is walked through. Helper starts count when readable before
-/// `read_bound`. Fails as the tree read does, as a listed run's agent read does, and as a stored
-/// column when a node's helper id does not read as one.
+/// `read_bound`. Fails as the tree read does, and as a listed run's agent read does.
 pub fn read_descendants(
     reader: &Connection,
     session_id: &SessionId,
@@ -144,14 +139,6 @@ pub fn read_descendants(
                     if node.own_run_id != run_id {
                         continue;
                     }
-                    let subagent_id =
-                        SubagentId::new(node.subagent_id.clone()).map_err(|error| {
-                            rusqlite::Error::FromSqlConversionFailure(
-                                NODE_SUBAGENT_ID_COLUMN,
-                                Type::Text,
-                                Box::new(error),
-                            )
-                        })?;
                     listed.push((
                         node.started_at.clone(),
                         node.child_handle.as_str().to_owned(),
@@ -162,7 +149,7 @@ pub fn read_descendants(
                                 provider_name: node.provider_name.clone(),
                                 carrying_run_id: tree.carrying_run(place)?,
                                 run_id,
-                                subagent_id,
+                                subagent_id: node.subagent_id.clone(),
                             },
                         },
                     ));
