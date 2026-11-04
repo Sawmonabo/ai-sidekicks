@@ -30,6 +30,8 @@ use crate::driver::codex::service::registry::personal_folder_read::PersonalFolde
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
 
+pub(super) use config::observe::observe_codex_mcp_server;
+
 /// What Codex's MCP servers are on this computer for `request`: the declarations, roots and allow
 /// list the config read finds on `registry`'s service on the person's own Codex folder, `home`
 /// being the person's home folder, bounded by the requirements read from `requirements`, and what
