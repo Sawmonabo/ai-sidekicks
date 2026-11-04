@@ -525,6 +525,7 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::AgentRunTokenLimitReached(_)
         | SessionEvent::AgentRunRecoveryResolved(_)
         | SessionEvent::AgentRunRecoveryStepsAdded(_)
+        | SessionEvent::AgentRunParentCorrected(_)
         | SessionEvent::SessionAdvisorChanged(_)
         | SessionEvent::SessionOutputStyleChanged(_)
         | SessionEvent::RepoMountHealthChanged(_)

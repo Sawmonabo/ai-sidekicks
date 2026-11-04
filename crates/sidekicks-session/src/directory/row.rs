@@ -287,6 +287,7 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::AgentRunWaitingForInput
         | SessionEventType::AgentRunPausing
         | SessionEventType::AgentRunRolledBack
+        | SessionEventType::AgentRunParentCorrected
         | SessionEventType::AgentRunProviderInitialized
         | SessionEventType::AgentTurnStarted
         | SessionEventType::AgentTurnCompleted
