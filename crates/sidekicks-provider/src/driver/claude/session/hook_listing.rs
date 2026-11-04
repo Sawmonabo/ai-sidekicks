@@ -78,9 +78,8 @@ struct HookRow {
     hook_type: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     command_text: Option<String>,
-    // Any JSON value reads, so a timeout that is no number fails only itself.
-    #[serde(default)]
-    timeout: Option<Value>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    timeout: Option<f64>,
     #[serde(default, deserialize_with = "read_lenient")]
     status_message: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
@@ -119,8 +118,8 @@ struct PolicyRow {
     plugin_only: Option<bool>,
     #[serde(default, deserialize_with = "read_lenient")]
     all_disabled: Option<bool>,
-    #[serde(default)]
-    policy_hook_count: Option<Value>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    policy_hook_count: Option<u64>,
     #[serde(default, deserialize_with = "read_lenient")]
     policy_unreadable: Option<bool>,
 }
@@ -234,11 +233,7 @@ fn read_hook(row: HookRow) -> Option<ListedHook> {
         hook_type: text(row.hook_type)?,
         command_text: text(row.command_text)?,
         status_message: text(row.status_message),
-        timeout_seconds: row
-            .timeout
-            .as_ref()
-            .and_then(Value::as_f64)
-            .and_then(PositiveNumber::new),
+        timeout_seconds: row.timeout.and_then(PositiveNumber::new),
         disabled: row.disabled == Some(true),
         source_path: None,
     };
@@ -262,11 +257,7 @@ fn read_policy(row: &PolicyRow) -> Option<ProviderHookPolicy> {
         managed_only: row.managed_only?,
         plugin_only: row.plugin_only?,
         all_disabled: row.all_disabled?,
-        policy_hook_count: row
-            .policy_hook_count
-            .as_ref()
-            .and_then(Value::as_u64)
-            .and_then(SafeInt::<0>::new)?,
+        policy_hook_count: row.policy_hook_count.and_then(SafeInt::<0>::new)?,
         policy_unreadable: row.policy_unreadable == Some(true),
     })
 }
