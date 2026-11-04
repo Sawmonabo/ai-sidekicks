@@ -203,6 +203,8 @@ pub(crate) struct CodexService {
     // The log of the lasting process a start named, which the diagnostic-log expiry leaves alone
     // while the service runs.
     lasting_log_file: Mutex<Option<PathBuf>>,
+    // Codex's native program the last start launched or, for a service only joined, resolved.
+    native_program: Mutex<Option<PathBuf>>,
     // Whether the home's link was moved onto this service's own socket and it still holds it.
     holds_home_link: AtomicBool,
     // The ticket of the connection whose frames are routed; an older one's are not.
@@ -239,6 +241,7 @@ impl CodexService {
             physical_socket: Mutex::default(),
             process_record_file: Mutex::default(),
             lasting_log_file: Mutex::default(),
+            native_program: Mutex::default(),
             holds_home_link: AtomicBool::new(false),
             routed_dial: AtomicU64::new(0),
             threads: Arc::new(Mutex::new(CodexServiceThreads::new(
@@ -290,6 +293,16 @@ impl CodexService {
     /// The log of the lasting process a start named; `None` before any such start.
     pub(crate) fn lasting_log_file(&self) -> Option<PathBuf> {
         self.lock_lasting_log_file().clone()
+    }
+
+    /// Codex's native program the service runs; `None` before any start and where it was not found.
+    pub(crate) fn native_program(&self) -> Option<PathBuf> {
+        lock(&self.native_program).clone()
+    }
+
+    /// Records `program` as the native program the service runs, `None` where none is known.
+    pub(crate) fn set_native_program(&self, program: Option<PathBuf>) {
+        *lock(&self.native_program) = program;
     }
 
     /// Records `log_file` as the log the lasting process a start launches writes.

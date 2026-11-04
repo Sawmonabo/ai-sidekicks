@@ -152,7 +152,8 @@ struct LoadedThreadsPage {
 
 /// Starts or joins `service` under the start ticket `launch`; `cancel` stands the start down.
 /// `start_lock` is Codex's start lock, held from the stop of the managed daemon this start takes
-/// the place of, so no terminal starts another in between.
+/// the place of, so no terminal starts another in between. The service keeps the native program
+/// its launch ran, or for a service only joined the one resolved once here.
 pub(super) async fn start_codex_service(
     service: Arc<CodexService>,
     launch: u64,
@@ -168,7 +169,8 @@ pub(super) async fn start_codex_service(
             detail: "The Codex command could not be resolved.".to_owned(),
             cause: Some(Box::new(error)),
         })?;
-    match service.home().kind {
+    service.set_native_program(None);
+    let started = match service.home().kind {
         CodexHomeKind::Account(_) | CodexHomeKind::ApiKeyAccount(_) | CodexHomeKind::Switching => {
             start_relayed_service(&service, launch, &cancel, &executable).await
         }
@@ -184,6 +186,33 @@ pub(super) async fn start_codex_service(
         }
         CodexHomeKind::PersonalFolder => {
             start_terminal_service(&service, launch, &cancel, &executable, start_lock).await
+        }
+    }?;
+    if started.process.is_none() {
+        service.set_native_program(resolve_joined_native_program(&executable).await);
+    }
+    Ok(started)
+}
+
+// The native program of a service the daemon only joined, which launched none, so its stdio
+// servers can run in the sandbox; `None`, logged, where it cannot be found, which fails only a
+// sandboxed call's table.
+async fn resolve_joined_native_program(executable: &ResolvedProviderExecutable) -> Option<PathBuf> {
+    let start = executable.start.clone();
+    let environment = executable.environment.clone();
+    let resolved =
+        tokio::task::spawn_blocking(move || resolve_codex_native_program(&start, &environment))
+            .await
+            .map_err(io::Error::other)
+            .and_then(|resolved| resolved);
+    match resolved {
+        Ok(native) => Some(native.program),
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "the joined Codex service's native program was not found"
+            );
+            None
         }
     }
 }
@@ -585,10 +614,11 @@ async fn compose_launch(
         listen_address: service.listen_address(launch_socket),
         additional_config_overrides,
     });
-    Ok(
+    let launch =
         compose_codex_native_launch(&service.dependencies().data_folder, executable, arguments)
-            .await?,
-    )
+            .await?;
+    service.set_native_program(Some(launch.program.clone()));
+    Ok(launch)
 }
 
 /// The launch of `executable`'s native Codex program, never the npm launcher, with `arguments`
