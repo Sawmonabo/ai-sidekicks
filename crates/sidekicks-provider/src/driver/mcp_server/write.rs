@@ -127,7 +127,8 @@ pub enum McpServerWriteRefusal {
     ProjectFileChanged,
     /// The binding's entry changed after it was observed, so it was left as it was.
     EntryChanged,
-    /// Another writer held the config file past the wait for it.
+    /// Another writer held the config file past the wait for it, or the edit's hold on it ran past
+    /// its bound, so nothing was written.
     ConfigFileBusy,
     /// The provider refused the entry the write composed.
     EntryInvalid {

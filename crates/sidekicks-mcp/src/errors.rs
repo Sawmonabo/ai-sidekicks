@@ -3,14 +3,17 @@
 //!
 //! No path and no config value reaches a message or a detail: a binding is named by its provider,
 //! scope and server name alone, never by its project root, and a failure underneath stays on the
-//! refusal for the service log and never reaches the wire.
+//! refusal for the service log and never reaches the wire. The one exception is
+//! `mcp.server.configFileInvalid`'s `configFiles`, which names the provider's config files on this
+//! machine as the provider reported them.
 
 use std::error::Error;
 
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::governance::{
-    McpBindingStoreUnavailableCause, McpServerConfigWriteConflictReason,
+    McpBindingStoreUnavailableCause, McpServerConfigFileInvalidDetails,
+    McpServerConfigWriteConflictReason,
 };
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
@@ -35,6 +38,22 @@ pub enum McpConfigWriteConflict {
     /// The project file no longer hashes to what the daemon last read, so the edit was not
     /// written and the file was left as it was.
     ProjectFileChanged,
+    /// Another writer changed the binding's entry after the daemon read it, so the provider holds
+    /// that writer's entry and not this change.
+    EntryChanged,
+}
+
+/// A provider's config that does not load, so a write to it wrote nothing: the binding the write
+/// was for, the provider's words and the config's layer paths.
+#[derive(Debug)]
+pub struct McpConfigFileInvalid {
+    /// The binding the write was for.
+    pub binding: McpServerBindingRef,
+    /// The provider's words about the file, with no config value.
+    pub words: String,
+    /// The paths of the config's layers the read before the write reported, never a path read
+    /// from the provider's words.
+    pub config_files: Vec<String>,
 }
 
 /// Why no sign-in the daemon or a provider can run reaches a server, which the refusal's message
@@ -75,6 +94,17 @@ pub enum McpRefusal {
         #[source]
         source: Option<Box<dyn Error + Send + Sync>>,
     },
+    /// A change reused an idempotency key with a request the daemon cannot match to the key's first
+    /// one; what the key first answered is untouched.
+    #[error(
+        "{}: this change reused a request key another change already used, so send it again under \
+         a new key",
+        binding_words(.binding)
+    )]
+    IdempotencyConflict {
+        /// The binding the key first answered.
+        binding: Box<McpServerBindingRef>,
+    },
     /// The submitted configuration failed validation before anything was written.
     #[error("the MCP server configuration is invalid: {reason}")]
     ServerConfigInvalid {
@@ -91,6 +121,25 @@ pub enum McpRefusal {
         binding: Box<McpServerBindingRef>,
         /// How the write lost.
         conflict: McpConfigWriteConflict,
+    },
+    /// The provider's own config does not load, so nothing was written and only an edit of the file
+    /// fixes it.
+    #[error(
+        "{}: the provider's config does not load, so nothing was written: {}",
+        binding_words(&.details.binding),
+        .details.words
+    )]
+    ServerConfigFileInvalid {
+        /// The binding, the provider's words and the config's layer paths.
+        details: Box<McpConfigFileInvalid>,
+    },
+    /// The provider did not take a write to its own config; nothing was written.
+    #[error("{}: the provider did not take the change: {words}", binding_words(.binding))]
+    ProviderRefusedWrite {
+        /// The binding the write was for.
+        binding: Box<McpServerBindingRef>,
+        /// Why, in the provider's words or the daemon's, with no config value.
+        words: String,
     },
     /// No server with the binding's provider, scope, reference and name is in the inventory.
     #[error("{} was not found", binding_words(.binding))]
@@ -168,9 +217,24 @@ impl From<McpRefusal> for DomainError {
                 cause.map(|cause| refusal_fields(json!({ "cause": cause }))),
                 source,
             ),
+            McpRefusal::IdempotencyConflict { binding } => (
+                RefusalCode::McpServerIdempotencyConflict,
+                Some(binding_fields(&binding)),
+                None,
+            ),
             McpRefusal::ServerConfigInvalid { .. } => {
                 (RefusalCode::McpServerConfigInvalid, None, None)
             }
+            McpRefusal::ServerConfigFileInvalid { details } => (
+                RefusalCode::McpServerConfigFileInvalid,
+                Some(config_file_invalid_fields(*details)),
+                None,
+            ),
+            McpRefusal::ProviderRefusedWrite { binding, .. } => (
+                RefusalCode::ProviderUnavailable,
+                Some(binding_fields(&binding)),
+                None,
+            ),
             McpRefusal::ServerConfigWriteConflict { binding, conflict } => (
                 RefusalCode::McpServerConfigWriteConflict,
                 Some(write_conflict_fields(&binding, &conflict)),
@@ -258,8 +322,22 @@ fn write_conflict_fields(
         McpConfigWriteConflict::ProjectFileChanged => {
             json!({ "reason": McpServerConfigWriteConflictReason::ProjectFileChanged })
         }
+        McpConfigWriteConflict::EntryChanged => {
+            json!({ "reason": McpServerConfigWriteConflictReason::EntryChanged })
+        }
     };
     let mut fields = binding_fields(binding);
     fields.extend(refusal_fields(conflict_fields));
     fields
+}
+
+// The audit ref with the config's layer paths, the one detail that names a path on this machine.
+fn config_file_invalid_fields(details: McpConfigFileInvalid) -> Map<String, Value> {
+    let key = McpBindingKey::of(&details.binding);
+    refusal_fields(McpServerConfigFileInvalidDetails {
+        provider: key.provider,
+        scope: key.scope,
+        server_name: key.server_name,
+        config_files: details.config_files,
+    })
 }

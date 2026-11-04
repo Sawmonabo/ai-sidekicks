@@ -43,6 +43,7 @@ use crate::driver::ports::{DriverPorts, MessageTakenListener, ProcessGoneListene
 use crate::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver,
 };
+use crate::driver::session_control::SessionToolServer;
 use crate::driver::test_registry::new_agent_id;
 use crate::port::permission_ask::{
     PermissionAskPort, ProviderPermissionAsk, ProviderPermissionAskWithdrawal,
@@ -512,6 +513,14 @@ impl RuntimeBindingWriter for TakenBindingWrites {
             return ready(Err("the test refuses every binding move".into())).boxed();
         }
         lock(&self.writes).push(TakenBindingWrite::Move(binding_id, provider_account_id));
+        ready(Ok(())).boxed()
+    }
+
+    fn replace_tool_servers(
+        &self,
+        _run_id: RunId,
+        _tool_servers: Vec<SessionToolServer>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         ready(Ok(())).boxed()
     }
 }

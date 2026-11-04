@@ -6,8 +6,11 @@
 //! that keeps values takes a single server's entry for the probe that sends it, which drops it
 //! once sent.
 
+mod compose;
+mod edit;
 mod entry;
 mod lock;
+mod observe;
 mod plugin_manifest;
 mod policy;
 
