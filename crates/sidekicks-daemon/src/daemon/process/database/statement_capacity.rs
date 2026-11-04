@@ -17,6 +17,7 @@ use sidekicks_recovery::projection_rebuild::PROJECTION_REBUILD_STATEMENT_CAPACIT
 use sidekicks_recovery::restart_settle::RESTART_SETTLE_STATEMENT_CAPACITY;
 use sidekicks_recovery::startup::STARTUP_RECOVERY_STATEMENT_CAPACITY;
 use sidekicks_recovery::status::RECOVERY_STATUS_STATEMENT_CAPACITY;
+use sidekicks_session::agent_tree::lookup::AGENT_TREE_LOOKUP_STATEMENT_CAPACITY;
 use sidekicks_session::attention::{
     delivery::web_address::sender::WEB_ADDRESS_SENDER_STATEMENT_CAPACITY,
     service::ATTENTION_SERVICE_STATEMENT_CAPACITY,
@@ -93,7 +94,8 @@ use crate::ipc::handlers::session::snapshots::SESSION_SNAPSHOTS_STATEMENT_CAPACI
 /// The statements each read connection keeps prepared: every reading service's set, summed, so a
 /// statement stays prepared on whichever connection a read borrows. A statement another set in the
 /// sum already counts is not counted twice: each set counts only the statements no other one holds.
-pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMENT_CAPACITY
+pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = AGENT_TREE_LOOKUP_STATEMENT_CAPACITY
+    + APPROVAL_METHODS_STATEMENT_CAPACITY
     + APPROVAL_REQUEST_READER_STATEMENT_CAPACITY
     + APPROVAL_RULES_STATEMENT_CAPACITY
     + ARTIFACT_STATEMENT_CAPACITY

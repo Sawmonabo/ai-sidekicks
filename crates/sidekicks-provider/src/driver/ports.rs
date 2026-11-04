@@ -24,6 +24,7 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::DaemonTurnBindingResolver;
 use crate::driver::session_control::DriverResumeResult;
 use crate::driver::{ProviderAccountReader, SessionSpawnContextResolver};
+use crate::port::agent_tree_lookup::AgentTreeLookup;
 use crate::port::command_capture::CommandCapture;
 use crate::port::context_reading_publisher::ContextReadingPublisher;
 use crate::port::held_tool_calls::HeldToolCallReads;
@@ -246,6 +247,8 @@ pub struct DriverPorts {
     /// resumes; a session resumed before it is registered rebuilds none, and a session closed, or
     /// settled at the start, before it is registered settles none.
     pub held_tool_calls: Arc<PortRegistration<Arc<dyn HeldToolCallReads>>>,
+    /// The session's agent tree, which a pre-tool hook looks up the helper a tool call names in.
+    pub agent_tree_lookup: Arc<PortRegistration<Arc<dyn AgentTreeLookup>>>,
 }
 
 impl Default for DriverPorts {
@@ -298,6 +301,7 @@ impl DriverPorts {
             account_home_lock: Arc::new(PortRegistration::new("account home lock")),
             tool_call_statuses: Arc::new(PortRegistration::new("tool call statuses")),
             held_tool_calls: Arc::new(PortRegistration::new("held tool calls")),
+            agent_tree_lookup: Arc::new(PortRegistration::new("agent tree lookup")),
         }
     }
 }
