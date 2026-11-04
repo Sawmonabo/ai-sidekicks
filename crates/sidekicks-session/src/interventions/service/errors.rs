@@ -220,15 +220,31 @@ pub(super) fn failure_text_of(error: &DispatchError) -> String {
         | DispatchError::NoDriver(LiveRunDriverError::ProviderNotFound(refusal)) => {
             refusal.code.as_str().to_owned()
         }
-        DispatchError::Driver(DriverError::Refused(refusal)) => refusal.code.as_str().to_owned(),
-        DispatchError::Driver(DriverError::Unanswered(unanswered)) => {
-            unanswered.refusal.code.as_str().to_owned()
-        }
+        DispatchError::Driver(driver) => driver_failure_text(driver),
         DispatchError::NoDriver(LiveRunDriverError::Unbound { .. })
-        | DispatchError::Driver(_)
         | DispatchError::Engine(_)
         | DispatchError::Queue(_)
         | DispatchError::RejectionReason(_)
         | DispatchError::RunContinued => describe_error(error),
+    }
+}
+
+/// What a driver's failure records: a refusal's code, an unanswered request's refusal's code,
+/// else its description.
+pub(crate) fn driver_failure_text(error: &DriverError) -> String {
+    match error {
+        DriverError::Refused(refusal) => refusal.code.as_str().to_owned(),
+        DriverError::Unanswered(unanswered) => unanswered.refusal.code.as_str().to_owned(),
+        DriverError::SteerTurnEnded(_)
+        | DriverError::RunRefused(_)
+        | DriverError::CapabilityProbe(_)
+        | DriverError::ExecutableUnresolvable(_)
+        | DriverError::ModelCatalogUnreadable(_)
+        | DriverError::ProviderAxisInvalid(_)
+        | DriverError::RuleNotKept(_)
+        | DriverError::SkillNotListed(_)
+        | DriverError::NoPersonServerEntry(_)
+        | DriverError::SignInFailed(_)
+        | DriverError::Internal(_) => describe_error(error),
     }
 }

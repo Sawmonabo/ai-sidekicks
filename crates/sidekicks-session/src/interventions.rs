@@ -2,7 +2,7 @@
 //! limit, stored and applied.
 
 pub mod interrupt_queue;
-mod limit_stop;
+pub(crate) mod limit_stop;
 pub mod service;
 pub mod store;
 pub mod unresolved;
