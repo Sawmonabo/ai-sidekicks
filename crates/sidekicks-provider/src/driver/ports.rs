@@ -8,16 +8,19 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::writer::DatabaseWriter;
 
 use crate::account::home_lock::AccountHomeLock;
 use crate::account::registry::ProviderAccountRegistry;
+use crate::account::usage_turns::unpriced::UnpricedUsageKey;
 use crate::callback_tools::host::CallbackToolHost;
 use crate::command::running_set::RunningCommandSets;
 use crate::driver::contract::error::DriverError;
@@ -131,6 +134,25 @@ pub trait SessionRelaunchListener: Send + Sync {
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
 }
 
+/// A request its driver left unpriced, and the ids of its usage rows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HeldRequest {
+    /// What a price list prices the request by.
+    pub key: UnpricedUsageKey,
+    /// The ids of the request's usage rows.
+    pub row_ids: Vec<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+}
+
+/// The repricing's intake of a request its driver left unpriced.
+pub trait RequestHeldListener: Send + Sync {
+    /// Takes `held` into the repricing, marking its rows held before it answers; fails as the
+    /// mark's write fails.
+    fn request_held(
+        &self,
+        held: HeldRequest,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+}
+
 /// One place the daemon runs sessions in, as its start found it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionPlace {
@@ -188,6 +210,9 @@ pub struct DriverPorts {
     /// before it is registered starts with the person's telemetry settings withheld and no
     /// exporter set.
     pub telemetry_target: Arc<PortRegistration<Arc<TelemetryTarget>>>,
+    /// The repricing's intake of a request a driver left unpriced. Until it is registered, a held
+    /// request waits for the next start's pass.
+    pub request_held: Arc<PortRegistration<Arc<dyn RequestHeldListener>>>,
     /// The running commands of every session, which each driver reports its agent's commands to
     /// and follows each command's channel into; a command reported before it is registered is
     /// dropped.
@@ -284,6 +309,7 @@ impl DriverPorts {
             usage: Arc::new(PortRegistration::new("usage")),
             price_list: Arc::new(PortRegistration::new("price list")),
             telemetry_target: Arc::new(PortRegistration::new("telemetry target")),
+            request_held: Arc::new(PortRegistration::new("request held")),
             command_output: Arc::new(PortRegistration::new("command output")),
             command_capture: Arc::new(PortRegistration::new("command capture")),
             turn_readings: Arc::new(PortRegistration::new("turn readings")),
