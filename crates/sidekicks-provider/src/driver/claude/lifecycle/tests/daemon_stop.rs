@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rstest::rstest;
-use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_DRAIN_BOUND_MS;
 use tokio::time::Instant;
 
 use super::held_calls::{holding_session, keep_record, stopped_tasks};
@@ -16,7 +15,7 @@ use crate::driver::claude::session::scripted::driver::{ScriptedDriver, create_pa
 use crate::driver::claude::session::scripted::held_calls::closes;
 use crate::driver::claude::session::scripted::settle;
 use crate::driver::contract::ProviderDriver;
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::run::state_entry::RunStateEntry;
 
@@ -33,11 +32,6 @@ enum AtTheStop {
     StopWithASurvivingTask,
     /// Under `Stop`, the session's process is still coming up.
     StopWhileEstablishing,
-}
-
-// The stop's deadline, the daemon's whole stop bound from now.
-fn stop_deadline() -> Instant {
-    Instant::now() + Duration::from_millis(DAEMON_STOP_DRAIN_BOUND_MS)
 }
 
 // Fails when the stop ends a run itself, or a slot closes after its process could end. Mutations:
@@ -84,7 +78,7 @@ async fn restart_with_a_live_run(at_the_stop: AtTheStop) {
     let before = fixture.engine.moves_of_run(run_id);
     let release_close = channel.hold_next_close();
     let release_stop = fixture.starts.hold_stop();
-    let deadline = stop_deadline();
+    let deadline = daemon_stop_deadline();
 
     let shutdown = tokio::spawn({
         let driver = Arc::clone(&driver);
@@ -110,10 +104,7 @@ async fn restart_with_a_live_run(at_the_stop: AtTheStop) {
     }
     settle().await;
     release_close.send(()).expect("the close is held");
-    shutdown
-        .await
-        .expect("the stop's task ends")
-        .expect("the driver stops");
+    shutdown.await.expect("the stop's task ends");
     settle().await;
 
     assert_eq!(fixture.starts.take_stop_deadlines(), [deadline]);
@@ -155,7 +146,7 @@ async fn stop_with_a_surviving_task() {
 
     fixture
         .driver
-        .shutdown(DaemonStopIntent::Stop, stop_deadline())
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
         .await;
     settle().await;
 
@@ -181,9 +172,6 @@ async fn stop_with_a_surviving_task() {
 // A person's Stop meeting a session whose process is still coming up: the stop waits the bring-up
 // out, then closes it, writing nothing for it.
 async fn stop_while_establishing() {
-    // On the real clock: a paused one jumps to the stop's deadline while the bring-up waits on its
-    // file work, which would end the slot wait early.
-    tokio::time::resume();
     let fixture = ScriptedDriver::new();
     let driver: Arc<dyn ProviderDriver> = fixture.driver.clone();
     let channel = Arc::new(ScriptedChannel::default());
@@ -194,7 +182,9 @@ async fn stop_while_establishing() {
         let driver = Arc::clone(&driver);
         async move { driver.create_session(create_params(session_id)).await }
     });
-    settle().await;
+    // Held at its start before the stop's deadline is armed: the paused clock jumps to the next
+    // timer whenever every task waits, and the work before the start waits on more than timers.
+    fixture.starts.wait_for_starts(1).await;
     let parts = fixture.driver.composed_parts().expect("composed");
     assert!(
         parts.slots().establishing_settled(session_id).is_some(),
@@ -203,7 +193,7 @@ async fn stop_while_establishing() {
 
     let shutdown = tokio::spawn({
         let driver = Arc::clone(&driver);
-        let deadline = stop_deadline();
+        let deadline = daemon_stop_deadline();
         async move { driver.shutdown(DaemonStopIntent::Stop, deadline).await }
     });
     settle().await;
@@ -214,10 +204,7 @@ async fn stop_while_establishing() {
         "no process stops while the bring-up's slot is unsettled"
     );
     release_start.send(()).expect("the start is held");
-    shutdown
-        .await
-        .expect("the stop's task ends")
-        .expect("the driver stops");
+    shutdown.await.expect("the stop's task ends");
     let _create_answer = create.await.expect("the create's task ends");
     settle().await;
 
@@ -231,8 +218,8 @@ async fn stop_while_establishing() {
 }
 
 // Fails when a survivor's stop that Claude Code never answers holds the daemon's stop past its
-// deadline. Mutation: the survivors' stop bounded by the person's close bound, 2 s, in place of
-// what is left of the deadline.
+// deadline. Mutation: the survivors' stop given the person's close deadline, 2 s from now, in
+// place of the stop's own, which ends the stop past the second this allows.
 #[tokio::test]
 async fn a_daemon_stop_with_an_unanswered_task_stop_ends_by_its_deadline() {
     let fixture = ScriptedDriver::new();

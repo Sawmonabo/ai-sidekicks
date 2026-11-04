@@ -575,11 +575,7 @@ pub trait ProviderDriver: Send + Sync {
     /// the daemon is only disconnected. The daemon calls it once while it stops; a service the
     /// person runs themselves is never stopped. Every wait inside ends by `deadline`, the one
     /// instant the whole stop shares.
-    fn shutdown(
-        &self,
-        intent: DaemonStopIntent,
-        deadline: Instant,
-    ) -> BoxFuture<'_, Result<(), DriverError>>;
+    fn shutdown(&self, intent: DaemonStopIntent, deadline: Instant) -> BoxFuture<'_, ()>;
 
     /// The inbox addresses the daemon holds for every session, where this provider's sessions
     /// must answer them; `None` for a provider whose sessions answer no inbox.

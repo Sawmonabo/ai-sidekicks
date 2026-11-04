@@ -6,13 +6,12 @@ use serde_json::json;
 use sidekicks_platforms::CAN_LINK_A_SOCKET;
 use tokio::task::JoinHandle;
 
-use self::stand_in::daemon_stop_deadline;
 use super::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_account_service_for, start_scripted_codex_service,
     start_scripted_terminal_service,
 };
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::driver::test_registry::new_session_id;
 use crate::runtime_binding::test_store::test_provider_account_id;
 

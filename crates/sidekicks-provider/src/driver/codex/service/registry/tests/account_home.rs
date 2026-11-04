@@ -13,8 +13,8 @@ use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, short_socket_folder};
 use sidekicks_std::port_registration::PortRegistration;
 
 use super::stand_in::{
-    account_home, account_stand_in_services, another_daemon, daemon_stop_deadline, is_running,
-    last_launch_arguments, per_home_services, recorded_requests, services_on, this_daemon,
+    account_home, account_stand_in_services, another_daemon, is_running, last_launch_arguments,
+    per_home_services, recorded_requests, services_on, this_daemon,
     wait_for_end_and_record_removal,
 };
 use crate::driver::ProviderAccountReader;
@@ -24,7 +24,7 @@ use crate::driver::codex::account::{
 use crate::driver::codex::service::home::{CodexHomeKind, CodexHomes};
 use crate::driver::codex::service::registry::CodexHomeResolver;
 use crate::driver::codex::service::switching::test_sign_in::AccountHomes;
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The account the test signs in with a pasted API key.

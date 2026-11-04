@@ -1,8 +1,9 @@
 //! What each session's task shows of its record to the driver's reads that answer at once and so
 //! cannot wait their turn on the task: the service and conversation the session runs on, its
-//! account, folder, model and one live run, for its command list, a request's answer and its
-//! name, the tier it declared, and its open turns, which the daemon's stop interrupts. The task updates a view after each item it handles, only where
-//! it changed, and takes it away as it lets the record go.
+//! account, folder, model and one live run, for its command list, a request's answer and its name,
+//! the tier it declared, and its open turns, which the daemon's stop interrupts. The task updates a
+//! view after each item it handles, only where it changed, and takes it away as it lets the record
+//! go.
 
 use std::collections::HashMap;
 use std::path::PathBuf;

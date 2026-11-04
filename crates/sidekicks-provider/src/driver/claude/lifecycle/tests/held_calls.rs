@@ -5,18 +5,15 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use rstest::rstest;
 use serde_json::{Map, json};
-use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_DRAIN_BOUND_MS;
 use sidekicks_contracts::event::declared_variants::ToolCallEndCause;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
-use tokio::time::Instant;
 
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::session::restart::ClaudeSessionStanding;
@@ -33,7 +30,7 @@ use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, settle,
 };
 use crate::driver::claude::spawn::environment::claude_config_folder;
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::driver::session_control::{
     CloseSessionParams, MoveSessionToForkParams, SessionCloseCause, SettleHeldToolCallsParams,
 };
@@ -375,10 +372,7 @@ async fn a_restart_of_the_daemon_writes_no_held_call_close() {
 
     fixture
         .driver
-        .shutdown(
-            DaemonStopIntent::Restart,
-            Instant::now() + Duration::from_millis(DAEMON_STOP_DRAIN_BOUND_MS),
-        )
+        .shutdown(DaemonStopIntent::Restart, daemon_stop_deadline())
         .await;
     settle().await;
 

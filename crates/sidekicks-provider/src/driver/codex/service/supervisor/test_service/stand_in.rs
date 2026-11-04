@@ -11,13 +11,11 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
 
 #[cfg(test)]
 use futures::future::BoxFuture;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde::{Deserialize, Serialize};
-use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_DRAIN_BOUND_MS;
 #[cfg(test)]
 use sidekicks_platforms::ProgramStart;
 use sidekicks_platforms::{
@@ -41,7 +39,7 @@ use crate::driver::codex::service::registry::{
 use crate::driver::codex::service::supervisor::CodexProgramResolver;
 #[cfg(test)]
 use crate::driver::contract::error::DriverError;
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::runtime_binding::test_store::test_provider_account_id;
 #[cfg(test)]
 use crate::spawned_version::ResolvedProviderExecutable;
@@ -116,11 +114,11 @@ impl CodexServiceScript {
     }
 }
 
-/// Writes in `folder` the `codex` script a stand-in service starts through and answers it with
-/// the guard over its launches. The script keeps its arguments in [`LAUNCH_ARGUMENTS_FILE`],
-/// names the files its launches and requests are recorded in, the writing test program as the
-/// stand-in's owner and, where `daemon_socket` is given, the socket whose presence it records,
-/// has the program ignore the hang-up and the stop where its environment asks, keeps its own standard output as
+/// Writes in `folder` the `codex` script a stand-in service starts through and answers it with the
+/// guard over its launches. The script keeps its arguments in [`LAUNCH_ARGUMENTS_FILE`], names the
+/// files its launches and requests are recorded in, the writing test program as the stand-in's
+/// owner and, where `daemon_socket` is given, the socket whose presence it records, has the program
+/// ignore the hang-up and the stop where its environment asks, keeps its own standard output as
 /// [`EXECUTOR_OUTPUT`] for an executor's answers, and runs this test program's `stand_in_test`,
 /// whose own output goes nowhere. Panics where it cannot be written.
 pub fn write_codex_service_script(
@@ -680,8 +678,7 @@ impl CodexServicesBeside {
 
     /// Stops both, the lasting service included.
     pub async fn stop(self) {
-        let deadline =
-            tokio::time::Instant::now() + Duration::from_millis(DAEMON_STOP_DRAIN_BOUND_MS);
+        let deadline = daemon_stop_deadline();
         self.account
             .shutdown(DaemonStopIntent::Stop, deadline)
             .await;

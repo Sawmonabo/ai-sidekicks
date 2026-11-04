@@ -32,11 +32,12 @@ use crate::driver::codex::service::socket_link::{
 };
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::drain::{LastingServiceDrainWatch, read_drain_end};
-use crate::driver::codex::service::supervisor::runner::{SERVICE_STOP_GRACE, run_until};
+use crate::driver::codex::service::supervisor::runner::{SERVICE_STOP_GRACE, stop_grace_by};
 use crate::driver::codex::service::supervisor::start::{
     StartFailure, start_failed, take_start_lock,
 };
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::daemon_stop::run_until;
 
 // One record kept for the folder, held under the folder's lock, with what it keeps.
 type KeptRecord = (Arc<LockedServiceRecord>, LastingServiceRecord);
@@ -336,16 +337,16 @@ pub(crate) enum KeptServicesStop {
     Erase,
 }
 
-/// Stops every lasting service a record under `data_folder` still keeps, once no service of a
-/// running daemon is left: for the daemon's stop, after its own services stopped, and for the
-/// erase, with no daemon running. One a former daemon kept is stopped and its record removed,
-/// what an ended one left is ended, and one draining is left to its drain under
-/// [`KeptServicesStop::DaemonStop`] and stopped under [`KeptServicesStop::Erase`]. All are stopped
-/// together, so the stop takes one grace whatever the count. Under the daemon's stop the whole
-/// stop ends by its deadline, one failure answered for what was still running there, and every
-/// record not yet removed stays for the next start's retire. Answers every failure of the
-/// listing, a folder's lock or listing, and a record's read, re-pin or removal, and under the
-/// erase every stop's and every end's too; empty when nothing failed.
+/// Stops every lasting service a record under `data_folder` still keeps: for the daemon's stop,
+/// beside its own services' stops, and for the erase, with no daemon running. One a former daemon
+/// kept is stopped and its record removed, what an ended one left is ended, and one draining is
+/// left to its drain under [`KeptServicesStop::DaemonStop`] and stopped under
+/// [`KeptServicesStop::Erase`]. All are stopped together, so the stop takes one grace whatever the
+/// count. Under the daemon's stop the whole stop ends by its deadline, one failure answered for
+/// what was still running there, and every record not yet removed stays for the next start's
+/// retire. Answers every failure of the listing, a folder's lock or listing, and a record's read,
+/// re-pin or removal, and under the erase every stop's and every end's too; empty when nothing
+/// failed.
 pub(crate) async fn stop_kept_services(
     data_folder: PathBuf,
     stop: KeptServicesStop,
@@ -441,9 +442,7 @@ async fn stop_kept_record(
     // goes straight to the forced end.
     let control_socket = record.physical_socket.clone().unwrap_or_default();
     let grace = match stop {
-        KeptServicesStop::DaemonStop { deadline } => {
-            deadline.saturating_duration_since(Instant::now())
-        }
+        KeptServicesStop::DaemonStop { deadline } => stop_grace_by(deadline),
         KeptServicesStop::Erase => SERVICE_STOP_GRACE,
     };
     let ended = end_recorded_service(

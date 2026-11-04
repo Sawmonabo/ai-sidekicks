@@ -277,21 +277,15 @@ impl ClaudeCodeProcess {
             }
             return;
         };
-        if Instant::now() < kill_at {
-            let input_close_end = (Instant::now() + exit_wait).min(kill_at);
-            if timeout_at(input_close_end, self.wait_for_exit())
-                .await
-                .is_ok()
-            {
-                return;
-            }
-            self.ends.ask(ChildEnd::Stop);
-            if timeout_at(kill_at, self.wait_for_exit()).await.is_ok() {
-                return;
-            }
+        let input_close_end = (Instant::now() + exit_wait).min(kill_at);
+        if timeout_at(input_close_end, self.wait_for_exit())
+            .await
+            .is_ok()
+        {
+            return;
         }
-        // The owner reaps the killed process and retires its record without this wait.
-        self.ends.ask(ChildEnd::Kill);
+        // The owner reaps a killed process and retires its record without this wait.
+        self.ends.stop_until(self.wait_for_exit(), kill_at).await;
     }
 
     /// How the process ended, once it has: its exit, read after its error output ended, or the

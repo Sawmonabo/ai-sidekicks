@@ -4,7 +4,6 @@
 
 use std::error::Error;
 use std::path::PathBuf;
-use std::time::Duration;
 
 use futures::future::join_all;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -35,7 +34,7 @@ use crate::driver::claude::session::slots::{ClaudeCloseStart, ClaudeSlotClose};
 use crate::driver::claude::session::state::{ClaudeSlotSettled, LiveClaudeSession};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SessionProcessState;
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, run_until};
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{FindTakenMessagesParams, TakenMessages};
@@ -182,7 +181,8 @@ impl ClaudeDriver {
         if close.cause == SessionCloseCause::Person
             && let Some(slot) = &close.slot
         {
-            stop_surviving_tasks(parts, slot.session(), HELD_TASK_STOP_BOUND).await;
+            stop_surviving_tasks(parts, slot.session(), Instant::now() + HELD_TASK_STOP_BOUND)
+                .await;
         }
         self.finish_session_close(parts, close, None).await;
         Ok(())
@@ -207,12 +207,7 @@ impl ClaudeDriver {
             slot,
         } = close;
         if let Some(slot) = slot {
-            let is_closed = if let Some(deadline) = deadline {
-                timeout_at(deadline, slot.close_channel()).await.is_ok()
-            } else {
-                slot.close_channel().await;
-                true
-            };
+            let is_closed = run_until(deadline, slot.close_channel()).await.is_ok();
             if !is_closed {
                 tracing::warn!(
                     %session_id,
@@ -265,20 +260,15 @@ impl ClaudeDriver {
             .task_services
             .inboxes
             .release(session_id);
-        match deadline {
-            Some(deadline) => {
-                if timeout_at(deadline, self.close_command_channel(session_id))
-                    .await
-                    .is_err()
-                {
-                    tracing::warn!(
-                        %session_id,
-                        "a Claude Code session's command channel was not removed by the stop's \
-                         deadline, so the next start removes its folder"
-                    );
-                }
-            }
-            None => self.close_command_channel(session_id).await,
+        if run_until(deadline, self.close_command_channel(session_id))
+            .await
+            .is_err()
+        {
+            tracing::warn!(
+                %session_id,
+                "a Claude Code session's command channel was not removed by the stop's deadline, \
+                 so the next start removes its folder"
+            );
         }
     }
 
@@ -294,21 +284,18 @@ impl ClaudeDriver {
         }
     }
 
-    /// Ends every Claude Code process as the daemon stops, each wait by `deadline`: no restart
-    /// starts from here, every session's slot reads closing before any process ends, a slot a
-    /// transition holds is waited out, under `Stop` each tool server's background task still
-    /// running is told to stop, every process is stopped and one still running at `deadline`
-    /// killed, and then each close finishes with its runs left for the stop's own settle. A slot
-    /// still held by a transition at the deadline is left to the process stop. Each process is the
-    /// daemon's own child, so a restart of the daemon stops them as a stop does.
+    /// Ends every Claude Code process as the daemon stops, every wait ended by `deadline`, and
+    /// leaves each session's runs for the stop's own settle. A session still coming up or going
+    /// down at the deadline is left to the process stop, which ends its process too.
     pub(crate) async fn shutdown(&self, intent: DaemonStopIntent, deadline: Instant) {
         let Some(parts) = self.composed_parts() else {
             self.starts.stop_every_process(deadline).await;
             return;
         };
+        // No restart starts from here, and every slot reads closing before any process ends.
         parts.restarts.stop();
         parts.establishment.task_services.inboxes.release_all();
-        let mut closes = join_all(parts.slots().session_ids().into_iter().map(|session_id| {
+        let closes = join_all(parts.slots().session_ids().into_iter().map(|session_id| {
             begin_session_close(
                 parts,
                 CloseSessionParams {
@@ -318,46 +305,36 @@ impl ClaudeDriver {
             )
         }))
         .await;
-        let mut settling: Vec<Option<ClaudeSlotSettled>> = closes
-            .iter_mut()
-            .map(|close| close.take_slot(parts))
-            .collect();
-        let settled = timeout_at(deadline, async {
-            for (close, waiting) in closes.iter_mut().zip(&mut settling) {
-                while let Some(settled) = waiting.clone() {
-                    settled.wait().await;
-                    *waiting = close.take_slot(parts);
+        // Each slot a transition holds is waited out on its own, so one slow bring-up holds back
+        // no other session's close.
+        let closes: Vec<ClaudeSessionClose> =
+            join_all(closes.into_iter().map(|mut close| async move {
+                let is_taken = timeout_at(deadline, async {
+                    while let Some(settled) = close.take_slot(parts) {
+                        settled.wait().await;
+                    }
+                })
+                .await
+                .is_ok();
+                if !is_taken {
+                    tracing::warn!(
+                        session_id = %close.session_id,
+                        "a Claude Code session was still coming up or going down at the stop's \
+                         deadline, so its process is left to the process stop"
+                    );
                 }
-            }
-        })
-        .await;
-        if settled.is_err() {
-            tracing::warn!(
-                "a Claude Code session was still coming up or going down at the stop's deadline, \
-                 so its process is left to the process stop"
-            );
-        }
-        let closes: Vec<ClaudeSessionClose> = closes
+                is_taken.then_some(close)
+            }))
+            .await
             .into_iter()
-            .zip(settling)
-            .filter_map(|(close, waiting)| waiting.is_none().then_some(close))
+            .flatten()
             .collect();
         if intent == DaemonStopIntent::Stop {
-            // Bounded whole, so the read of what Claude Code kept before each stop is too.
-            let surviving_stops = join_all(closes.iter().filter_map(|close| {
+            join_all(closes.iter().filter_map(|close| {
                 let slot = close.slot.as_ref()?;
-                Some(stop_surviving_tasks(
-                    parts,
-                    slot.session(),
-                    deadline.saturating_duration_since(Instant::now()),
-                ))
-            }));
-            if timeout_at(deadline, surviving_stops).await.is_err() {
-                tracing::warn!(
-                    "the surviving background tasks of the closing Claude Code sessions were not \
-                     all told to stop by the stop's deadline"
-                );
-            }
+                Some(stop_surviving_tasks(parts, slot.session(), deadline))
+            }))
+            .await;
         }
         self.starts.stop_every_process(deadline).await;
         join_all(
@@ -629,24 +606,34 @@ async fn begin_session_close(
 }
 
 // Before the channel closes, tells Claude Code to stop each background task of a tool server still
-// running for the closing `session`, waiting at most `bound`: a session that never resumes would
-// otherwise leave it running with nobody following it.
+// running for the closing `session`, the read of what Claude Code kept and the stops ended by
+// `deadline`: a session that never resumes would otherwise leave it running with nobody following
+// it.
 async fn stop_surviving_tasks(
     parts: &ClaudeSessionParts,
     session: &LiveClaudeSession,
-    bound: Duration,
+    deadline: Instant,
 ) {
     let session_id = session.session_id;
     let Some(stream) = parts.establishment.streams.get(session_id) else {
         return;
     };
-    match stream.surviving_held_tasks().await {
-        Ok(task_ids) => stop_held_tasks(&*session.channel, task_ids, bound).await,
-        Err(error) => tracing::warn!(
+    let stops = async {
+        match stream.surviving_held_tasks().await {
+            Ok(task_ids) => stop_held_tasks(&*session.channel, task_ids).await,
+            Err(error) => tracing::warn!(
+                %session_id,
+                error = &error as &(dyn Error + 'static),
+                "what Claude Code keeps of a closing session's background calls could not be \
+                 read, so none of its tasks is stopped"
+            ),
+        }
+    };
+    if timeout_at(deadline, stops).await.is_err() {
+        tracing::warn!(
             %session_id,
-            error = &error as &(dyn Error + 'static),
-            "what Claude Code keeps of a closing session's background calls could not be read, \
-             so none of its tasks is stopped"
-        ),
+            "Claude Code had not answered every stop of a closed session's surviving tasks by \
+             the close's deadline, so the stops still waiting are withdrawn"
+        );
     }
 }

@@ -9,8 +9,8 @@ use serde_json::{Map, Value};
 use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, read_socket_link};
 
 use super::stand_in::{
-    another_daemon, daemon_stop_deadline, is_running, last_launch_arguments, per_home_services,
-    recorded_methods, recorded_requests, this_daemon, wait_until_gone,
+    another_daemon, is_running, last_launch_arguments, per_home_services, recorded_methods,
+    recorded_requests, this_daemon, wait_until_gone,
 };
 use crate::account::homes::{account_home_conversation_folders, switching_homes};
 use crate::driver::codex::DESCRIPTOR;
@@ -23,7 +23,7 @@ use crate::driver::codex::service::switching::test_sign_in::{
     AccountHomes, compose_access_token, write_sign_in,
 };
 use crate::driver::codex::session::purge::purge_codex_conversations;
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::driver::registry::ProviderRegistry;
 use crate::driver::session_control::{PurgeSessionParams, SessionConversation};
 use crate::driver::test_registry::{

@@ -19,8 +19,6 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::output_tail::OutputTail;
 use sidekicks_std::retry::jitter::draw_jitter_sample;
 use tokio::sync::mpsc;
-use tokio::time::error::Elapsed;
-use tokio::time::timeout_at;
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::codex::DESCRIPTOR;
@@ -44,7 +42,7 @@ use crate::driver::codex::service::supervisor::transition::event::SupervisorEven
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::diagnostics::{CodexTeardownStep, CodexTransportDiagnostic};
 use crate::driver::codex::transport::socket::CodexSocketWait;
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, run_until};
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -55,6 +53,18 @@ use crate::spawned_version::SpawnedProviderVersionReading;
 /// gives every child at its own stop.
 pub(super) const SERVICE_STOP_GRACE: Duration =
     Duration::from_millis(DAEMON_STOP_TERMINAL_DRAIN_MS);
+
+/// What a stop held to the daemon's stop deadline keeps back from its grace, so a service killed
+/// at the grace's end is reaped and its record removed before the deadline cuts the stop.
+const KILL_REAP_SHARE: Duration = Duration::from_millis(500);
+
+/// The grace of a service's stop that must end by the daemon's stop `deadline`: what is left of it
+/// less the kill's reap share.
+pub(super) fn stop_grace_by(deadline: tokio::time::Instant) -> Duration {
+    deadline
+        .saturating_duration_since(tokio::time::Instant::now())
+        .saturating_sub(KILL_REAP_SHARE)
+}
 
 /// One event for the runner, with what its outcome parked for the runner to adopt or tear down.
 pub(super) struct RunnerInput {
@@ -657,18 +667,6 @@ fn report_version_unread(error: &(dyn std::error::Error + 'static)) {
     );
 }
 
-/// Runs `future` to its end, or until `deadline` where one is given. Fails with `Elapsed` once
-/// the deadline cut it.
-pub(super) async fn run_until<F: Future>(
-    deadline: Option<tokio::time::Instant>,
-    future: F,
-) -> Result<F::Output, Elapsed> {
-    match deadline {
-        Some(deadline) => timeout_at(deadline, future).await,
-        None => Ok(future.await),
-    }
-}
-
 // Closes `connection`, by `deadline` where the daemon's stop gives one; it is marked closed first.
 async fn close_connection(
     connection: &CodexAppServerConnection,
@@ -689,10 +687,10 @@ async fn close_connection(
 
 // Ends a service process by its kind: the daemon's own child asked to stop and killed once the
 // grace runs out; a lasting service as `end` says: drained to its end, stopped with its record
-// removed, or left running in its record. Under the daemon's stop every step ends by `deadline`:
-// the child is killed there and its exit left to its owner, a drain cut while begun is left
-// draining in its record, and a stop cut keeps its record for the next start to retire. Answers
-// whether it was ended, `false` for a lasting service the deadline cut.
+// removed, or left running in its record. Under the daemon's stop every step ends by `deadline`,
+// each kill a reap share before it: a child's exit not read by then is left to its owner, a drain
+// cut while begun is left draining in its record, and a stop cut keeps its record for the next
+// start to retire. Answers whether it was ended, `false` for a lasting service the deadline cut.
 async fn stop_process(
     service: &CodexService,
     process: CodexServiceProcess,
@@ -701,11 +699,11 @@ async fn stop_process(
 ) -> bool {
     match process {
         CodexServiceProcess::Managed(managed) => {
-            managed.stop();
-            let grace_end =
-                deadline.unwrap_or_else(|| tokio::time::Instant::now() + SERVICE_STOP_GRACE);
-            if timeout_at(grace_end, managed.exited()).await.is_err() {
-                managed.kill();
+            let kill_at = deadline.map_or_else(
+                || tokio::time::Instant::now() + SERVICE_STOP_GRACE,
+                |deadline| deadline - KILL_REAP_SHARE,
+            );
+            if managed.stop_until(kill_at).await.is_none() {
                 match run_until(deadline, managed.exited()).await {
                     Ok(Ok(_killed)) => {}
                     Ok(Err(error)) => {
@@ -714,7 +712,8 @@ async fn stop_process(
                     Err(cut) => tracing::warn!(
                         error = &cut as &(dyn std::error::Error + 'static),
                         process_id = managed.process_id(),
-                        "a Codex service killed at the daemon's stop deadline is left to its owner"
+                        "a Codex service killed before the daemon's stop deadline is left to its \
+                         owner"
                     ),
                 }
             }
@@ -735,9 +734,7 @@ async fn stop_process(
                 .await;
             }
             LastingServiceEnd::Stop => {
-                let grace = deadline.map_or(SERVICE_STOP_GRACE, |deadline| {
-                    deadline.saturating_duration_since(tokio::time::Instant::now())
-                });
+                let grace = deadline.map_or(SERVICE_STOP_GRACE, stop_grace_by);
                 match run_until(deadline, lasting.stop(grace, service.socket_path())).await {
                     Ok(Ok(_ended)) => {}
                     Ok(Err(error)) => report_stop_failed(error),

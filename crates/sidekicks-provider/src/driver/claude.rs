@@ -763,8 +763,8 @@ impl ProviderDriver for ClaudeDriver {
         &self,
         intent: DaemonStopIntent,
         deadline: tokio::time::Instant,
-    ) -> BoxFuture<'_, Result<(), DriverError>> {
-        self.shutdown(intent, deadline).map(Ok).boxed()
+    ) -> BoxFuture<'_, ()> {
+        self.shutdown(intent, deadline).boxed()
     }
 
     fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>> {

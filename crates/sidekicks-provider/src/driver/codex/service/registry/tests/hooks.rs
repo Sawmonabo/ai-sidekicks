@@ -2,10 +2,8 @@ use std::sync::Arc;
 
 use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET};
 
-use super::stand_in::{
-    daemon_stop_deadline, last_launch_arguments, stand_in_services, this_daemon,
-};
-use crate::driver::daemon_stop::DaemonStopIntent;
+use super::stand_in::{last_launch_arguments, stand_in_services, this_daemon};
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 // Fails when the terminal service is launched with the daemon's hook switches, or trusts hooks,

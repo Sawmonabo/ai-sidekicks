@@ -771,8 +771,8 @@ impl ProviderDriver for CodexDriver {
         &self,
         intent: DaemonStopIntent,
         deadline: tokio::time::Instant,
-    ) -> BoxFuture<'_, Result<(), DriverError>> {
-        self.shutdown(intent, deadline).map(Ok).boxed()
+    ) -> BoxFuture<'_, ()> {
+        self.shutdown(intent, deadline).boxed()
     }
 
     // A Codex session takes a message through the daemon's own steer and turn start, never

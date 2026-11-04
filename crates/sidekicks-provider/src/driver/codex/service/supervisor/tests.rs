@@ -5,7 +5,6 @@ use futures::{SinkExt as _, StreamExt as _};
 use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::{Value, json};
-use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_DRAIN_BOUND_MS;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::short_socket_folder;
@@ -21,7 +20,7 @@ use super::{CodexService, CodexServiceSocket};
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::session::inbound::codex_session_inbound;
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::driver::test_registry::new_session_id;
 
 /// How long the test watches for a free check that must not come.
@@ -165,10 +164,7 @@ async fn a_joined_service_checks_it_is_free_once_the_daemon_holds_no_session_on_
     notices.send(closed).expect("the listener runs");
     let is_checked_on_a_close_with_none_left = is_checked(&mut loaded_reads, CHECK_WAIT).await;
     service
-        .shutdown(
-            DaemonStopIntent::Stop,
-            tokio::time::Instant::now() + Duration::from_millis(DAEMON_STOP_DRAIN_BOUND_MS),
-        )
+        .shutdown(DaemonStopIntent::Stop, daemon_stop_deadline())
         .await;
 
     assert!(is_joined);

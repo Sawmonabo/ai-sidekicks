@@ -519,9 +519,9 @@ impl CodexServiceRegistry {
     /// has: the daemon's own are stopped, a joined one only disconnected, under `Restart` every
     /// lasting service, the terminal service and each account home's, keeps running in its record
     /// for the next start to join, and under `Stop` every service a record still keeps is stopped
-    /// too, one a former daemon kept that this one never joined among them; every drain's wait is
-    /// called off, its service draining on by itself. Each service's stop ends by `deadline` and
-    /// reports its own failure.
+    /// at the same time, one a former daemon kept that this one never joined among them; every
+    /// drain's wait is called off, its service draining on by itself. Each service's stop ends by
+    /// `deadline` and reports its own failure.
     pub(crate) async fn shutdown(&self, intent: DaemonStopIntent, deadline: Instant) {
         // A stop never waits on a drain: each drains on by itself, its record left marked.
         self.dependencies.drains.call_off();
@@ -537,22 +537,25 @@ impl CodexServiceRegistry {
                 .chain(transient)
                 .collect()
         };
-        join_all(
+        let live_stops = join_all(
             services
                 .iter()
                 .map(|service| service.shutdown(intent, deadline)),
-        )
-        .await;
+        );
         match intent {
+            // Beside the live services' stops, so a kept service gets the whole deadline too.
             DaemonStopIntent::Stop => {
                 let data_folder = self.dependencies.data_folder.clone();
-                for failure in
-                    stop_kept_services(data_folder, KeptServicesStop::DaemonStop { deadline }).await
-                {
+                let kept_stop =
+                    stop_kept_services(data_folder, KeptServicesStop::DaemonStop { deadline });
+                let (_stopped, failures) = tokio::join!(live_stops, kept_stop);
+                for failure in failures {
                     report_kept_service_unstopped(&failure);
                 }
             }
-            DaemonStopIntent::Restart => {}
+            DaemonStopIntent::Restart => {
+                live_stops.await;
+            }
         }
     }
 

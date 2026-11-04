@@ -12,7 +12,6 @@ use sidekicks_std::mutex_lock::lock;
 use tokio::sync::Semaphore;
 
 use super::{PLAN_KEPT_REASON, PLAN_UNSHOWN_REASON};
-use crate::driver::claude::session::scripted::channel::ScriptedWrite;
 use crate::driver::claude::session::scripted::{ScriptedSession, settle};
 use crate::driver::contract::plan_verdict::PlanVerdict;
 use crate::driver::diagnostics::RecordedEvents;
@@ -131,23 +130,6 @@ fn withdrawn(session: &ScriptedSession, plan_id: PlanId) -> ProviderPlanHoldEnd 
     }
 }
 
-fn has_answer(session: &ScriptedSession) -> bool {
-    !answers(session).is_empty()
-}
-
-// Each answer written to a request, by its request id.
-fn answers(session: &ScriptedSession) -> Vec<(String, Value)> {
-    session
-        .channel
-        .writes()
-        .into_iter()
-        .filter_map(|write| match write {
-            ScriptedWrite::Answer { request_id, answer } => Some((request_id, answer)),
-            ScriptedWrite::Control(_) | ScriptedWrite::User(_) | ScriptedWrite::Terminate => None,
-        })
-        .collect()
-}
-
 fn denial(request_id: &str, message: &str) -> (String, Value) {
     (
         request_id.to_owned(),
@@ -198,7 +180,10 @@ async fn a_verdict_while_the_take_runs_answers_the_plan_once() {
     settle().await;
 
     assert_eq!(session.ports.calls(), []);
-    assert_eq!(answers(&session), [denial("plan", PLAN_KEPT_REASON)]);
+    assert_eq!(
+        session.channel.answers(),
+        [denial("plan", PLAN_KEPT_REASON)]
+    );
     assert_eq!(
         record.hold_ends(),
         [],
@@ -261,7 +246,7 @@ async fn each_verdict_on_a_held_plan_writes_exactly_its_answer(
         .expect("the verdict's answer is written");
     settle().await;
 
-    assert_eq!(answers(&session), [("plan".to_owned(), expected)]);
+    assert_eq!(session.channel.answers(), [("plan".to_owned(), expected)]);
     assert!(
         session
             .requests
@@ -331,7 +316,7 @@ async fn a_held_plan_holds_the_session_open_for_any_time() {
             .is_some()
     );
     assert_eq!(record.hold_ends(), []);
-    assert!(!has_answer(&session));
+    assert!(session.channel.answers().is_empty());
 }
 
 // A gone process's held plans are dropped with no report, whether their take had returned or was
@@ -391,7 +376,10 @@ async fn a_plan_that_cannot_be_recorded_is_refused_at_once(#[case] unrecorded: U
     session.request("plan", &request);
     settle().await;
 
-    assert_eq!(answers(&session), [denial("plan", PLAN_UNSHOWN_REASON)]);
+    assert_eq!(
+        session.channel.answers(),
+        [denial("plan", PLAN_UNSHOWN_REASON)]
+    );
     assert_eq!(session.requests.open_request_count(session.session_id), 0);
     assert!(
         recorded
@@ -420,7 +408,7 @@ async fn a_newer_plan_recorded_lets_the_older_go() {
     session.request("newer", &plan_exit());
     settle().await;
     assert!(
-        !has_answer(&session),
+        session.channel.answers().is_empty(),
         "nothing before the newer is recorded"
     );
     assert!(
@@ -434,7 +422,10 @@ async fn a_newer_plan_recorded_lets_the_older_go() {
     record.release_takes();
     settle().await;
     let newer = record.taken()[1].plan_id;
-    assert_eq!(answers(&session), [denial("older", PLAN_KEPT_REASON)]);
+    assert_eq!(
+        session.channel.answers(),
+        [denial("older", PLAN_KEPT_REASON)]
+    );
     assert_eq!(session.requests.open_request_count(session.session_id), 1);
     assert_eq!(
         session
@@ -462,12 +453,18 @@ async fn the_plan_recorded_last_stands_whatever_order_they_were_asked() {
 
     record.release_take(1);
     settle().await;
-    assert!(!has_answer(&session), "the second set nothing aside");
+    assert!(
+        session.channel.answers().is_empty(),
+        "the second set nothing aside"
+    );
     record.release_take(0);
     settle().await;
 
     assert_eq!(record.waiting(), [first]);
-    assert_eq!(answers(&session), [denial("second", PLAN_KEPT_REASON)]);
+    assert_eq!(
+        session.channel.answers(),
+        [denial("second", PLAN_KEPT_REASON)]
+    );
     assert_eq!(
         session
             .requests

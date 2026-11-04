@@ -7,7 +7,7 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{ProgramStart, Spawner};
 use tokio::io::AsyncWriteExt;
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 use tokio::time::Instant;
 
 use super::{
@@ -95,7 +95,7 @@ async fn a_claude_code_process_is_recorded_from_its_start_to_its_reap() {
         &child_records,
         &ProviderProcessRegistry::default(),
         launch,
-        Arc::new(NoSession),
+        Arc::new(NoSession::default()),
         None,
     )
     .await
@@ -132,11 +132,11 @@ async fn a_stop_with_a_deadline_kills_a_process_that_ignores_its_input_and_its_s
             program: PathBuf::from("/bin/sh"),
             leading_arguments: Vec::new(),
         },
-        // Ignores the stop ask and never reads its input; each short sleep keeps the error output
-        // held open at most briefly once the shell is killed.
+        // Ignores the stop ask, then says so in one frame, and never reads its input; each short
+        // sleep keeps the error output held open at most briefly once the shell is killed.
         arguments: vec![
             "-c".to_owned(),
-            "trap '' TERM; while :; do sleep 0.1; done".to_owned(),
+            r#"trap '' TERM; echo '{"type":"system"}'; while :; do sleep 0.1; done"#.to_owned(),
         ],
         environment: vec![("PATH".to_owned(), "/bin:/usr/bin".to_owned())],
         working_folder: folder.path().to_owned(),
@@ -144,16 +144,21 @@ async fn a_stop_with_a_deadline_kills_a_process_that_ignores_its_input_and_its_s
         account: ClaudeProcessAccount::default(),
         token: None,
     };
+    let listener = Arc::new(NoSession::default());
     let process = ClaudeCodeProcess::start(
         &spawner,
         &child_records,
         &ProviderProcessRegistry::default(),
         launch,
-        Arc::new(NoSession),
+        Arc::clone(&listener),
         None,
     )
     .await
     .expect("the process starts");
+    // Its first frame says the stop's signal is ignored, so the signal cannot win the race.
+    tokio::time::timeout(Duration::from_secs(10), listener.frame_printed.notified())
+        .await
+        .expect("the process ignores the stop's signal");
     let deadline = Instant::now() + Duration::from_millis(500);
     let margin = Duration::from_secs(1);
 
@@ -177,10 +182,16 @@ async fn a_stop_with_a_deadline_kills_a_process_that_ignores_its_input_and_its_s
     );
 }
 
-struct NoSession;
+/// A listener with no session behind it, which only tells when the process printed a frame.
+#[derive(Default)]
+struct NoSession {
+    frame_printed: Notify,
+}
 
 impl ClaudeProcessListener for NoSession {
-    fn take_frame(&self, _frame: ClaudeStreamFrame) {}
+    fn take_frame(&self, _frame: ClaudeStreamFrame) {
+        self.frame_printed.notify_one();
+    }
 
     fn take_request(&self, _event: ClaudeInboundRequestEvent) {}
 
@@ -205,7 +216,7 @@ async fn initialize_waits_its_deadline_only_outside_the_startup_hooks() {
     let (mut provider, output) = tokio::io::duplex(4096);
     let reader = ClaudeOutputReader::new(
         ClaudeControlRequests::new(Arc::new(|_request_id: &str| {})),
-        Arc::new(NoSession),
+        Arc::new(NoSession::default()),
         None,
         startup_hooks,
         Weak::new(),

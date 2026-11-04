@@ -10,12 +10,10 @@ use std::time::Duration;
 
 use futures::future::BoxFuture;
 use serde_json::Value;
-use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_DRAIN_BOUND_MS;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{pin_running_process, short_socket_folder};
 use tempfile::TempDir;
 use tokio::sync::mpsc;
-use tokio::time::Instant;
 
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
@@ -42,11 +40,6 @@ const APP_SERVER_STAND_IN: &str =
 
 /// How long a test waits on a crash, a recovery or a process's end to be heard.
 pub(super) const CRASH_WAIT: Duration = Duration::from_secs(10);
-
-/// The deadline of a daemon's stop begun now, the whole bound the daemon gives its drain.
-pub(super) fn daemon_stop_deadline() -> Instant {
-    Instant::now() + Duration::from_millis(DAEMON_STOP_DRAIN_BOUND_MS)
-}
 
 // Listens as Codex does, answering the daemon's start. Skips unless a test's script started it.
 #[tokio::test]

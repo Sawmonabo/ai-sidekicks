@@ -118,14 +118,13 @@ impl ManagedCodexService {
         self.process_id
     }
 
-    /// Asks the service to stop; its exit answers once it has.
-    pub(crate) fn stop(&self) {
-        self.ends.ask(ChildEnd::Stop);
-    }
-
-    /// Ends the service at once, for one that did not stop when asked.
-    pub(crate) fn kill(&self) {
-        self.ends.ask(ChildEnd::Kill);
+    /// Asks the service to stop and kills it once `kill_at` passes with it still running. Answers
+    /// how it ended, or `None` once the kill was asked, its end then read from `exited`.
+    pub(crate) async fn stop_until(
+        &self,
+        kill_at: Instant,
+    ) -> Option<Result<ProcessExit, Arc<io::Error>>> {
+        self.ends.stop_until(self.exited(), kill_at).await
     }
 
     /// How the service ended, answered once it has exited and both its outputs have ended.

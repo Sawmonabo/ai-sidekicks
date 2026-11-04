@@ -8,7 +8,7 @@ use std::time::Duration;
 use process_wrap::tokio::ChildWrapper;
 use sidekicks_platforms::{ChildEnd, ask_child_to_stop};
 use tokio::sync::watch;
-use tokio::time::{Instant, Sleep};
+use tokio::time::{Instant, Sleep, timeout_at};
 
 /// The ends asked of one child, sent to the task that owns it; a kill is never replaced by a stop.
 /// Dropped, its owner kills the child.
@@ -31,6 +31,22 @@ impl ChildEnds {
             }
             is_changed
         });
+    }
+
+    /// Asks the child to stop and waits for `exited` until `kill_at`, asking a kill once it passes
+    /// with the child still running. Answers `exited`'s output, or `None` once the kill was asked;
+    /// the child's owner reaps a killed child.
+    pub(crate) async fn stop_until<Exit: Future>(
+        &self,
+        exited: Exit,
+        kill_at: Instant,
+    ) -> Option<Exit::Output> {
+        self.ask(ChildEnd::Stop);
+        let exit = timeout_at(kill_at, exited).await.ok();
+        if exit.is_none() {
+            self.ask(ChildEnd::Kill);
+        }
+        exit
     }
 }
 

@@ -24,10 +24,9 @@ use crate::driver::codex::service::process::{
     LastingCodexService, codex_lasting_service_environment_entry,
 };
 use crate::driver::codex::service::record::{LastingServiceRecordFile, LockedServiceRecord};
-use crate::driver::codex::service::supervisor::runner::{
-    SERVICE_STOP_GRACE, report_stop_failed, run_until,
-};
+use crate::driver::codex::service::supervisor::runner::{SERVICE_STOP_GRACE, report_stop_failed};
 use crate::driver::codex::service::supervisor::start::kept_records::on_record;
+use crate::driver::daemon_stop::run_until;
 
 /// How a drain ended, as its one waiting task tells it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

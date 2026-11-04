@@ -9,9 +9,9 @@ use sidekicks_platforms::{
 use tokio::time::Instant;
 
 use super::stand_in::{
-    CRASH_WAIT, StandInServices, account_home, cut_short_planned_restart, daemon_stop_deadline,
-    home_record_file, is_running, mark_kept_records_draining, send_signal, services_on,
-    stand_in_services, this_daemon, wait_for_end_and_record_removal, wait_until_gone,
+    CRASH_WAIT, StandInServices, account_home, cut_short_planned_restart, home_record_file,
+    is_running, mark_kept_records_draining, send_signal, services_on, stand_in_services,
+    this_daemon, wait_for_end_and_record_removal, wait_until_gone,
 };
 use crate::driver::PROVIDER_REGISTRATIONS;
 use crate::driver::codex::DESCRIPTOR;
@@ -22,7 +22,7 @@ use crate::driver::codex::service::supervisor::test_service::{
     HANG_UP_IGNORED_NAME, ProgramPerHome, STOP_IGNORED_NAME, StandInReplies,
     answer_as_codex_service,
 };
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 // The start bound of the daemon whose join of a stopped former service must run out.

@@ -9,8 +9,8 @@ use sidekicks_platforms::{
 };
 
 use super::stand_in::{
-    CRASH_WAIT, FirstResolveOnly, another_daemon, daemon_stop_deadline, is_running, send_signal,
-    stand_in_services, this_daemon, wait_until_gone,
+    CRASH_WAIT, FirstResolveOnly, another_daemon, is_running, send_signal, stand_in_services,
+    this_daemon, wait_until_gone,
 };
 use crate::driver::codex::service::home::CodexServiceKind;
 use crate::driver::codex::service::registry::OneHome;
@@ -19,7 +19,7 @@ use crate::driver::codex::service::supervisor::CodexServiceSocket;
 use crate::driver::codex::service::supervisor::test_service::{
     drop_service_connection, script_codex_service, wait_until_disconnected,
 };
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, daemon_stop_deadline};
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 // Fails when a planned restart leaves the home's socket on the first service, when the first's

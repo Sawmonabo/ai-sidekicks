@@ -270,21 +270,18 @@ impl CodexDriver {
         Ok(())
     }
 
-    /// Refuses every establishment from now on, stops every service the driver dials, then waits
-    /// for each transition in flight and lets each live record go, so its session's task ends, and
-    /// waits for the driver's tasks to end. A record let go once its service stopped sends
-    /// nothing, no interrupt among it; a later daemon resumes the conversation by its handle.
-    /// Every side question's copy is stopped first, since its service may outlive the daemon: a
-    /// live session's copy whose turn started is let go here, a resting session's by its own
-    /// task, and one still starting its turn by its ask. Under `Stop`, each open turn on a service
-    /// the daemon does not own is interrupted next, by `deadline`, since that service runs on.
-    /// Every step ends by `deadline`, the first one it cuts logged: a copy whose let-go it cut
-    /// runs its turn on until its service's next start, and a record claimed past it is dropped
-    /// with the driver.
+    /// Shuts the driver down as the daemon stops, every step ended by `deadline` and the first one
+    /// it cuts logged. A record let go here sends nothing, so a later daemon resumes its
+    /// conversation by its handle.
     pub(crate) async fn shutdown(&self, intent: DaemonStopIntent, deadline: Instant) {
+        // No establishment starts from here.
         self.tasks.close();
         self.slots.refuse_establishing();
         let mut cut_step = None;
+        // Every side question's copy stops first, since its service may outlive the daemon: a live
+        // session's copy whose turn started is let go here, a resting session's by its own task,
+        // and one still starting its turn by its ask. A copy whose let-go the deadline cuts runs
+        // its turn on until its service's next start.
         let copies_stopped = async {
             if let Some(parts) = self.parts.get() {
                 parts.side_questions.stop_every_copy().await;
@@ -293,10 +290,15 @@ impl CodexDriver {
         if timeout_at(deadline, copies_stopped).await.is_err() {
             cut_step = Some("stopping the side questions' copies");
         }
+        // A service the daemon does not own runs on, so its open turns are interrupted.
         if intent == DaemonStopIntent::Stop {
             self.interrupt_joined_turns(deadline).await;
         }
+        // Every service the driver dials stops before the records go, so no record let go sends
+        // anything, no interrupt among it.
         self.registry.shutdown(intent, deadline).await;
+        // Each transition in flight is waited out and each live record let go, so its session's
+        // task ends; a record claimed past the deadline is dropped with the driver.
         let records_let_go = async {
             for session_id in self.slots.held_sessions() {
                 let claim = self.slots.claim_closing(session_id).await;
