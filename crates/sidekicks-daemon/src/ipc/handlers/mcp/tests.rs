@@ -22,8 +22,10 @@ use sidekicks_ipc::stream::feed::CreditGate;
 use sidekicks_mcp::binding::resolver::McpAttributionTable;
 use sidekicks_mcp::binding::store::{McpBindingStore, open_first_observation_drain};
 use sidekicks_mcp::inventory_service::McpInventorySources;
+use sidekicks_mcp::mutation::service::McpMutationSources;
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_mcp::status::machine_probe::McpMachineProbeGate;
+use sidekicks_platforms::CredentialStore;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::mcp_server::read::{
     McpAccountServers, McpServerDeclaration, McpServerPolicy, McpServerToolDefaults,
@@ -33,6 +35,9 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
 use sidekicks_session::directory::run_activity::ProjectSessionActivityReader;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
+use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
+use sidekicks_store::credential_store::os::TestStoreAccess;
+use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope};
 use sidekicks_store::events::log_service::EventLogAppendOptions;
@@ -72,7 +77,8 @@ async fn sign_in_completed(log: &EventLogService, server_name: &str) {
     .expect("the append commits");
 }
 
-/// The `mcp.*` methods over `log`, `board` and an inventory of `providers` on `database`.
+/// The `mcp.*` methods over `log`, `board`, and an inventory and a mutation service of
+/// `providers` on `database`; no test here calls a mutation, so nothing reads its keychain.
 async fn mcp_methods_over(
     database: &TestDatabase,
     log: &TestLog,
@@ -87,12 +93,13 @@ async fn mcp_methods_over(
     let (first_observations, drain) = open_first_observation_drain(store.clone()).await;
     // The drain records each binding the tracker observes; it ends when the tracker drops.
     tokio::spawn(drain);
+    let providers = Arc::new(providers);
     let inventory = Arc::new(McpInventoryService::new(McpInventorySources {
-        providers: Arc::new(providers),
+        providers: Arc::clone(&providers),
         reads: Arc::clone(&reads),
         meter: ProcessorMeter::default(),
         projects: Arc::new(ProjectRecords::new(
-            reads,
+            Arc::clone(&reads),
             Arc::new(ProjectSessionActivityReader::new(&StoredPlanHolds)),
         )),
         store,
@@ -103,6 +110,26 @@ async fn mcp_methods_over(
         attribution: Arc::new(McpAttributionTable::default()),
         probe_gate: Arc::new(McpMachineProbeGate::default()),
     }));
+    let secret_items = SecretItems::new(SecretItemsStart {
+        data_folder: database
+            .path()
+            .parent()
+            .expect("the test database sits in a folder")
+            .to_path_buf(),
+        runs_while_logged_out: false,
+        access: TestStoreAccess::new(CredentialStore::in_memory()) as _,
+        call_timeout: READ_BOUND,
+    })
+    .expect("the system gives random bytes");
+    let mutations = Arc::new(McpMutationService::new(McpMutationSources {
+        providers,
+        inventory: Arc::clone(&inventory),
+        keychain: Arc::new(secret_items.keychain(KeychainService::McpReceiptKey)),
+        writer: Arc::clone(&log.writer),
+        reads,
+        removal_rows: None,
+        board: Arc::clone(board),
+    }));
     let mut builder = MethodRegistryBuilder::new();
     register_mcp_methods(
         &mut builder,
@@ -110,6 +137,7 @@ async fn mcp_methods_over(
             log: Arc::clone(&log.service),
             board: Arc::clone(board),
             inventory,
+            mutations,
         },
     )
     .expect("the methods register");
