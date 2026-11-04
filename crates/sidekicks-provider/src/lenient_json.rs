@@ -182,38 +182,6 @@ impl<'de> Visitor<'de> for LenientVisitor<u64> {
     skip_other_shapes!(@map);
 }
 
-impl<'de> Visitor<'de> for LenientVisitor<f64> {
-    type Value = Option<f64>;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("any JSON value")
-    }
-
-    fn visit_f64<E: de::Error>(self, value: f64) -> Result<Self::Value, E> {
-        Ok(Some(value))
-    }
-
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "a JSON number is a JavaScript double, which rounds a whole number past 2^53 too"
-    )]
-    fn visit_u64<E: de::Error>(self, value: u64) -> Result<Self::Value, E> {
-        Ok(Some(value as f64))
-    }
-
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "a JSON number is a JavaScript double, which rounds a whole number past 2^53 too"
-    )]
-    fn visit_i64<E: de::Error>(self, value: i64) -> Result<Self::Value, E> {
-        Ok(Some(value as f64))
-    }
-
-    skip_other_shapes!(visit_bool(bool), visit_str(&str), visit_unit());
-    skip_other_shapes!(@seq);
-    skip_other_shapes!(@map);
-}
-
 impl Lenient for String {
     fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error> {
         deserializer.deserialize_any(LenientVisitor::<Self>(PhantomData))
@@ -234,7 +202,9 @@ impl Lenient for u64 {
 
 impl Lenient for f64 {
     fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error> {
-        deserializer.deserialize_any(LenientVisitor::<Self>(PhantomData))
+        // serde_json's arbitrary precision, which a dependency turns on, hands a fraction to a
+        // visitor in a private form only `Value` reads, so the value is read whole and dropped.
+        Ok(serde_json::Value::deserialize(deserializer)?.as_f64())
     }
 }
 
