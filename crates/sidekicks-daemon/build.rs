@@ -3,7 +3,7 @@
 //! bundles, so the shell and the library always run the same SQLite. On macOS it also links the
 //! `Info.plist` `sidekicks-platforms` names into the program's `__TEXT,__info_plist` section, so
 //! the Local Network alert reads in the product's words with no app behind the daemon. It also
-//! checks LiteLLM's price list, vendored byte for byte, against the hash its sidecar records, and
+//! checks `LiteLLM`'s price list, vendored byte for byte, against the hash its sidecar records, and
 //! packs it with gzip into the seed the program carries.
 
 use std::env::VarError;
@@ -28,7 +28,7 @@ const SHELL_SOURCE_SHA3_256: &str =
 const SHELL_SQLITE_SOURCE_ID: &str =
     "2026-06-03 19:12:13 d6e03d8c777cfa2d35e3b60d8ec3e0187f3e9f99d8e2ee9cac695fd6fcdf1a24";
 
-/// LiteLLM's price list, kept byte for byte from the commit [`PRICE_LIST_SOURCE`] names.
+/// `LiteLLM`'s price list, kept byte for byte from the commit [`PRICE_LIST_SOURCE`] names.
 const PRICE_LIST: &str = "vendor/litellm/model_prices_and_context_window.json";
 
 /// The price list's sidecar: a `commit=` line and a `sha3-256=` line, which a refresh rewrites
