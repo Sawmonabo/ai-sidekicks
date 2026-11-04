@@ -27,6 +27,9 @@ pub(crate) const CLAUDE_HOOK_HOLD_RENEWAL_AFTER: Duration =
 /// matcher written against that name never fires.
 pub(crate) const CLAUDE_HELPER_TOOL_NAME: &str = "Agent";
 
+/// The tool a lead or a helper sends a message to a helper with, which may resume it.
+pub(crate) const CLAUDE_MESSAGE_TOOL_NAME: &str = "SendMessage";
+
 /// The shell tool, whose commands the background-work refusal reads.
 const CLAUDE_SHELL_TOOL_MATCHER: &str = "^Bash$";
 

@@ -2,10 +2,14 @@
 //! helper that launched it unless the daemon refused that run, else the lead run, bound by the
 //! agent id its frames and requests carry once the run engine answers, and moved on the helper's
 //! own `task_notification`, after which its route retires and its pause or hold is dropped. A
-//! helper whose run the daemon refused is bound to that ended run all the same, which absorbs its
-//! frames, and is stopped. A helper's new own run clears a stop that is not final. A helper's start
-//! and end are also rows on the run its start went beneath. The start is dispatched on the
-//! session's task before any later arrival, so a request of the helper finds its run bound.
+//! helper started again in the same process goes beneath the run that read the `SendMessage` call
+//! its start names, else, for a start naming its newest own run's call, beneath that run's parent,
+//! else beneath the run a first start would take; the same helper keeps its node, and an own run
+//! that ended interrupted beneath that same run continues. A helper whose run the daemon refused is
+//! bound to that ended run all the same, which absorbs its frames, and is stopped. A helper's new
+//! own run clears a stop that is not final. A helper's start and end are also rows on the run its
+//! start went beneath. The start is dispatched on the session's task before any later arrival, so
+//! a request of the helper finds its run bound.
 
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::subagent::{SubagentId, SubagentLifecyclePayload};
@@ -25,12 +29,16 @@ use crate::run::delivery::{
     ChildRunSubagent, DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome,
     LateAppendableRow,
 };
+use crate::run::state_entry::RunStateEntry;
 use crate::thread_frame_router::{SubagentLifecycleEmission, SubagentLifecycleEventType};
 
 impl ClaudeDeliveryStream {
     // A helper's start gets a child run beneath the run of the helper that launched it, else the
     // lead run holding the turn as the frame was read, and both its rows go on that run, naming the
-    // helper's child run. `signal` is the lifecycle signal the frame itself carries.
+    // helper's child run. A resume goes beneath the run that read its `SendMessage` call, else,
+    // when it names the call of the helper's newest own start, beneath that start's parent while
+    // it runs, and continues an own run that ended interrupted beneath the same run. `signal` is
+    // the lifecycle signal the frame itself carries.
     pub(super) async fn deliver_helper_lifecycle(
         &self,
         session: &ClaudeSessionStream,
@@ -45,17 +53,24 @@ impl ClaudeDeliveryStream {
         let routes = &self.dependencies.routes;
         let turn_lead = lead_at_read.or_else(|| routes.lead_run_on(session.session_id));
         let parent_task_id = signal.and_then(|signal| signal.parent_task_id.as_deref());
-        // A start hangs under its launcher's bound run, and a launcher whose route retired, was
-        // never seen or holds a run the daemon refused falls to the lead; an end goes on the run
-        // its start went beneath.
+        let parent_tool_call_id = emission.parent_tool_call_id.as_deref();
+        let resume = (emission.event_type == SubagentLifecycleEventType::Started)
+            .then(|| {
+                session.lock().helper_resumes.resume_of(
+                    routes,
+                    &emission.subagent_id,
+                    parent_tool_call_id,
+                )
+            })
+            .flatten();
+        // A resume hangs under the run its call names; any other start under its launcher's bound
+        // run, and a launcher whose route retired, was never seen or holds a run the daemon
+        // refused falls to the lead; an end goes on the run its start went beneath.
         let carrier = match emission.event_type {
-            SubagentLifecycleEventType::Started => parent_task_id
-                .and_then(|parent| routes.child_route_for(session.session_id, parent))
-                .filter(|(_, route)| !route.is_refused)
-                .map(|(run_id, route)| ClaudeBoundRun {
-                    run_id,
-                    binding_id: route.binding_id,
-                })
+            SubagentLifecycleEventType::Started => resume
+                .as_ref()
+                .and_then(|resume| resume.carrier.clone())
+                .or_else(|| parent_task_id.and_then(|parent| self.helper_run(session, parent)))
                 .or_else(|| turn_lead.clone()),
             SubagentLifecycleEventType::Completed => self
                 .helper_parent_run(session, &emission.subagent_id)
@@ -75,35 +90,43 @@ impl ClaudeDeliveryStream {
         if let Some(turn_lead) = &turn_lead {
             self.open_turn(session, turn_lead).await;
         }
-        let parent_tool_call_id = emission.parent_tool_call_id.as_deref();
         let tool_call_id =
             parent_tool_call_id.and_then(|call| ToolCallId::new(call.to_owned()).ok());
         let mut child_run_id = None;
         if emission.event_type == SubagentLifecycleEventType::Started {
-            let child = InboundDelivery::ChildRun {
-                binding: DeliveryBinding {
-                    binding_id: carrier.binding_id.clone(),
-                    operation: parent_tool_call_id.map(|correlation_key| DeliveryOperation {
-                        correlation_key,
-                        is_opening: false,
-                    }),
-                },
-                parent_run_id: carrier.run_id,
-                subagent: ChildRunSubagent {
-                    subagent_id: subagent_id.clone(),
-                    // Kept as Claude Code gave it, even for a launcher no route knows.
-                    parent_subagent_id: parent_task_id
-                        .and_then(|parent| SubagentId::new(parent.to_owned()).ok()),
-                    name: None,
-                    // A role the contract cannot hold reads as absent.
-                    role: signal
-                        .and_then(|signal| signal.subagent_type.as_deref())
-                        .and_then(|role| FreeFormText::new(role.to_owned()).ok()),
-                    provider_path: None,
-                    start_call_id: tool_call_id.clone(),
-                },
+            let interrupted_run = resume
+                .as_ref()
+                .and_then(|resume| resume.interrupted_run_beneath(carrier.run_id));
+            let continued = match interrupted_run {
+                Some(run_id) => self.continue_helper_run(session, &carrier, run_id).await,
+                None => None,
             };
-            let (run_id, refusal) =
+            let (run_id, refusal) = if let Some(run_id) = continued {
+                (Some(run_id), None)
+            } else {
+                let child = InboundDelivery::ChildRun {
+                    binding: DeliveryBinding {
+                        binding_id: carrier.binding_id.clone(),
+                        operation: parent_tool_call_id.map(|correlation_key| DeliveryOperation {
+                            correlation_key,
+                            is_opening: false,
+                        }),
+                    },
+                    parent_run_id: carrier.run_id,
+                    subagent: ChildRunSubagent {
+                        subagent_id: subagent_id.clone(),
+                        // Kept as Claude Code gave it, even for a launcher no route knows.
+                        parent_subagent_id: parent_task_id
+                            .and_then(|parent| SubagentId::new(parent.to_owned()).ok()),
+                        name: None,
+                        // A role the contract cannot hold reads as absent.
+                        role: signal
+                            .and_then(|signal| signal.subagent_type.as_deref())
+                            .and_then(|role| FreeFormText::new(role.to_owned()).ok()),
+                        provider_path: None,
+                        start_call_id: tool_call_id.clone(),
+                    },
+                };
                 match self.send(session, child, Some("system/task_started")).await {
                     Some(InboundOutcome::ChildRunStarted { run_id }) => (Some(run_id), None),
                     Some(InboundOutcome::ChildRunRefused { run_id, reason }) => {
@@ -119,7 +142,8 @@ impl ClaudeDeliveryStream {
                         | InboundOutcome::Absorbed { .. },
                     )
                     | None => (None, None),
-                };
+                }
+            };
             if let Some(run_id) = run_id {
                 child_run_id = Some(run_id);
                 routes.bind_child_run(
@@ -136,6 +160,12 @@ impl ClaudeDeliveryStream {
                 // again below.
                 lock(&self.dependencies.pauses)
                     .release_helper(session.session_id, &emission.subagent_id);
+                session.lock().helper_resumes.record_start(
+                    &emission.subagent_id,
+                    parent_tool_call_id,
+                    run_id,
+                    carrier.clone(),
+                );
             }
             // A refused helper still runs in Claude Code: its next tool use is denied, so it
             // reports and finishes while the lead's turn goes on.
@@ -198,6 +228,9 @@ impl ClaudeDeliveryStream {
         let Some(change) = read_claude_helper_end(task, child_run_id, stop.as_ref()) else {
             return;
         };
+        // A refused run ended failed at its setup, whatever Claude Code reports of the helper.
+        let is_interrupted =
+            !route.is_refused && matches!(change.entry, RunStateEntry::Interrupted { .. });
         let delivery = InboundDelivery::RunLifecycle {
             binding: bound(&ClaudeBoundRun {
                 run_id: child_run_id,
@@ -209,10 +242,31 @@ impl ClaudeDeliveryStream {
         };
         self.send(session, delivery, Some("system/task_notification"))
             .await;
+        session
+            .lock()
+            .helper_resumes
+            .record_end(&route.agent_id, child_run_id, is_interrupted);
         // A pause or an interrupt's hold ends with the run, so the helper's next own run is not
         // held unreported; an ended helper holds no call, so none is answered.
         lock(&self.dependencies.pauses).resume_helper(&session.session_id, &route.agent_id, None);
         routes.retire_child_run(child_run_id);
+    }
+
+    // The child run of the helper `agent_id` with its binding, while it is bound and the daemon did
+    // not refuse it.
+    pub(super) fn helper_run(
+        &self,
+        session: &ClaudeSessionStream,
+        agent_id: &str,
+    ) -> Option<ClaudeBoundRun> {
+        self.dependencies
+            .routes
+            .child_route_for(session.session_id, agent_id)
+            .filter(|(_, route)| !route.is_refused)
+            .map(|(run_id, route)| ClaudeBoundRun {
+                run_id,
+                binding_id: route.binding_id,
+            })
     }
 
     // The run the helper `agent_id` was started beneath, while its child run is bound.
@@ -240,7 +294,7 @@ fn lifecycle_wire_type(event_type: SubagentLifecycleEventType) -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
     use sidekicks_contracts::run::control::{RunFailureCategory, StopTrigger};
@@ -258,9 +312,9 @@ mod tests {
     use crate::run::delivery::{LateAppendableRow, RunSetupRefusal};
     use crate::run::state_entry::RunStateEntry;
 
-    // A helper's `task_started`, launched by the helper `parent` where one is named, started as
-    // `role` where one is named.
-    fn nested_start(
+    /// A helper's `task_started`, launched by the helper `parent` where one is named, started as
+    /// `role` where one is named.
+    pub(in super::super) fn nested_start(
         task_id: &str,
         call_id: &str,
         parent: Option<&str>,
@@ -276,18 +330,23 @@ mod tests {
         frame
     }
 
-    // One child run delivery as a test reads it.
+    /// One child run delivery as a test reads it.
     #[derive(Debug, PartialEq)]
-    struct ChildRunRead {
-        helper: String,
-        parent_run_id: Option<RunId>,
-        launcher: Option<String>,
-        role: Option<String>,
-        start_call: Option<String>,
+    pub(in super::super) struct ChildRunRead {
+        /// The helper's agent id.
+        pub(in super::super) helper: String,
+        /// The run it starts beneath.
+        pub(in super::super) parent_run_id: Option<RunId>,
+        /// The helper that launched it.
+        pub(in super::super) launcher: Option<String>,
+        /// What it was started as.
+        pub(in super::super) role: Option<String>,
+        /// The call that started it.
+        pub(in super::super) start_call: Option<String>,
     }
 
-    // Each child run delivery, in order.
-    fn child_runs(deliveries: &[RecordedDelivery]) -> Vec<ChildRunRead> {
+    /// Each child run delivery, in order.
+    pub(in super::super) fn child_runs(deliveries: &[RecordedDelivery]) -> Vec<ChildRunRead> {
         deliveries
             .iter()
             .filter(|delivery| delivery.kind == "childRun")
@@ -309,9 +368,9 @@ mod tests {
             .collect()
     }
 
-    // Each lifecycle row of the helper `agent_id` as (is a start, the run it sits on, its child
-    // run).
-    fn lifecycle_rows(
+    /// Each lifecycle row of the helper `agent_id` as (is a start, the run it sits on, its child
+    /// run).
+    pub(in super::super) fn lifecycle_rows(
         deliveries: &[RecordedDelivery],
         agent_id: &str,
     ) -> Vec<(bool, RunId, Option<RunId>)> {
@@ -469,8 +528,8 @@ mod tests {
         );
     }
 
-    // The `task_notification` that ends the helper `task_id` with `status`.
-    fn helper_ended(task_id: &str, status: &str, summary: &str) -> Value {
+    /// The `task_notification` that ends the helper `task_id` with `status`.
+    pub(in super::super) fn helper_ended(task_id: &str, status: &str, summary: &str) -> Value {
         json!({
             "type": "system",
             "subtype": "task_notification",

@@ -69,6 +69,7 @@ impl ClaudeDeliveryStream {
                 turn_number: None,
             });
             readings.failed_call_words.clear();
+            readings.helper_resumes.clear_message_calls();
             readings.event_ids_by_message_key.clear();
             readings.counted_step_messages.clear();
             readings.streamed_blocks.open_turn();
