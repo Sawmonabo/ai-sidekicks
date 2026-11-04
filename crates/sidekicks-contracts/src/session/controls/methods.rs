@@ -306,6 +306,8 @@ pub struct McpResourceListResponse {
     pub server_name: McpServerName,
     /// Its resources.
     pub resources: Vec<SessionMcpResource>,
+    /// Whether every page was read; `false` where a page cap stopped the read.
+    pub complete: bool,
 }
 
 /// One prompt a working tool server publishes, listed under the server's name.

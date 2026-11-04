@@ -1,13 +1,15 @@
 //! Claude Code's MCP servers as the driver reads them: the person's own config, each account's
 //! connectors and organization servers, Claude Code's precedence over them, the machine probe of
 //! the bindings no live session reads, the sign-in to one server through Claude Code's own client,
-//! and the names a person may give a server.
+//! the names a person may give a server, and how the daemon reaches a session's server to list
+//! what it offers.
 
 pub(crate) mod config;
 pub(crate) mod connectors;
 pub(crate) mod machine_probe;
 pub(crate) mod organization;
 pub(crate) mod precedence;
+mod resources;
 pub(crate) mod server_name;
 pub(crate) mod sign_in;
 

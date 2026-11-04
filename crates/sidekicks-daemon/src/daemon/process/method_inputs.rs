@@ -123,6 +123,7 @@ use crate::ipc::handlers::mcp::McpMethodSources;
 use crate::ipc::handlers::run::control::RunControlServices;
 use crate::ipc::handlers::run::queue::RunQueueMethods;
 use crate::ipc::handlers::session::controls::SessionControlMethods;
+use crate::ipc::handlers::session::mcp_servers::McpServerMethods;
 use crate::ipc::handlers::session::search::SessionSearchMethods;
 use crate::ipc::handlers::session::snapshots::SessionSnapshotSources;
 use crate::observability::diagnostic_buckets::recorders::provider_messages_folder;
@@ -324,6 +325,7 @@ pub(crate) async fn register_method_inputs(
         close_data_folder,
     } = start;
     let wake_helper_spawner = spawner.clone();
+    let resource_copy_spawner = spawner.clone();
     let presence = Arc::new(PresenceRegister::default());
     let reads = Arc::clone(&database.pool);
     let writer = Arc::clone(&database.writer);
@@ -482,7 +484,7 @@ pub(crate) async fn register_method_inputs(
         token_limits: Arc::new(token_limits),
         halted_runs: Arc::clone(&database.status) as Arc<dyn HaltedRunRecord>,
         scheduler: Arc::clone(&scheduler),
-        mcp_status,
+        mcp_status: Arc::clone(&mcp_status),
         mcp_first_observations: mcp_first_observations.boxed(),
     })?;
     let accounts = build_provider_account_plane(ProviderAccountPlaneStart {
@@ -779,6 +781,13 @@ pub(crate) async fn register_method_inputs(
                 index: search_index,
                 files: Arc::clone(&session.file_search),
                 read_damaged_from_sequence,
+            },
+            mcp_servers: McpServerMethods {
+                sources: Arc::clone(&driver_methods),
+                statuses: mcp_status,
+                client: Arc::clone(&mcp_client),
+                spawner: resource_copy_spawner,
+                reserved_names: Arc::clone(&providers.reserved_names),
             },
             session_controls: SessionControlMethods {
                 sources: driver_methods,

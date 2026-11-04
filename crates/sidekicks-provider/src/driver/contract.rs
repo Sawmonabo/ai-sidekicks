@@ -14,7 +14,7 @@ use std::time::SystemTime;
 use futures::future::BoxFuture;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
-use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpWritableBindingRef};
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpWritableBindingRef};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
     ObservedProviderOptions, ProviderRow, ProviderSessionOption,
@@ -39,6 +39,7 @@ use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTak
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
+use crate::driver::mcp_server::resources::McpResourceSource;
 use crate::driver::mcp_server::write::{
     McpServerEntry, McpServerObserved, McpServerWrite, McpServerWriteOutcome, McpServerWriteRefusal,
 };
@@ -409,6 +410,16 @@ pub trait ProviderDriver: Send + Sync {
         write: McpServerWrite,
         before: McpServerObserved,
     ) -> BoxFuture<'_, McpServerWriteOutcome>;
+
+    /// Where the resources of `server_name`, one of `session_id`'s own servers, come from: the
+    /// provider's own list, how the daemon reaches the server to list them, or the provider's own
+    /// sign-in, which the daemon never reads. Refused `mcp.server.notRunning` for a name that is
+    /// not the session's, and as the provider's read fails.
+    fn list_mcp_resources(
+        &self,
+        session_id: SessionId,
+        server_name: McpServerName,
+    ) -> BoxFuture<'_, Result<McpResourceSource, DriverError>>;
 
     /// Compacts the bound session's provider-side context on the person's request (gated on
     /// `contextCompaction`), settling on the provider's own compaction evidence, never on the
