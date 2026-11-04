@@ -124,6 +124,7 @@ impl ProviderSessions {
             execution_posture.clone(),
             opening.create_params.options,
             opening.create_params.row_values,
+            opening.create_params.subagent_policy,
             kept_schedules,
             live_runs,
         )?;

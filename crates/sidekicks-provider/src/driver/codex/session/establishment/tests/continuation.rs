@@ -202,6 +202,7 @@ pub(super) async fn adopt_continuing(
         ),
         Vec::new(),
         ProviderRowValues::default(),
+        None,
         Vec::new(),
         live_runs,
     )
