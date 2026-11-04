@@ -42,6 +42,9 @@ async fn a_start_whose_profile_reads_back_wrong_lets_its_conversation_go_and_ins
 
     let created = tokio::spawn(async move { establishment.create(&params).await.map(|_| ()) });
     let script = &mut session.scripted.script;
+    let read = script.next_sent().await;
+    assert_eq!(read["method"], "config/read");
+    script.answer(&read, &json!({"config": {}, "origins": {}}));
     let started = script.next_sent().await;
     assert_eq!(started["method"], "thread/start");
     script.answer(
@@ -113,6 +116,9 @@ async fn a_start_refuses_an_effort_its_models_row_does_not_list_before_any_conve
         assert_eq!(invalid.axis, ProviderAxis::Effort);
         assert_eq!(invalid.value, Value::from(effort));
     } else {
+        let read = script.next_sent().await;
+        assert_eq!(read["method"], "config/read");
+        script.answer(&read, &json!({"config": {}, "origins": {}}));
         assert_eq!(script.next_sent().await["method"], "thread/start");
         created.abort();
     }
@@ -143,6 +149,7 @@ async fn resume_on_second_service(
         loop {
             let sent = script.next_sent().await;
             match sent["method"].as_str() {
+                Some("config/read") => script.answer(&sent, &json!({"config": {}, "origins": {}})),
                 Some("thread/resume") => script.answer(&sent, &fork_reply(TEST_THREAD, &settings)),
                 Some("thread/turns/list") => script.answer(&sent, &no_turns()),
                 Some("thread/settings/update") if mode_answer.get("error").is_some() => {

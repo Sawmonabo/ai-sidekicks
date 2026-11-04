@@ -28,15 +28,9 @@ use crate::driver::codex::permission_level::{
 };
 use crate::driver::codex::session::helper_roles::CodexHelperRole;
 use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
-use crate::port::tool_server_route::ToolServerRoute;
-use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 
 /// The config table of the MCP servers, by name.
 pub(crate) const MCP_SERVERS_KEY: &str = "mcp_servers";
-
-/// Seconds Codex waits on one call to the daemon's tool server: Codex's own default, above the
-/// route's own bound, so the route answers first.
-const CODEX_DAEMON_TOOL_TIMEOUT_SECONDS: u64 = 300;
 
 /// The largest helper count Codex accepts, sent where the person set no limit.
 const CODEX_UNLIMITED_HELPERS: i64 = i64::MAX;
@@ -80,14 +74,14 @@ struct CodexThreadMembers {
     config: Map<String, Value>,
 }
 
-/// The `thread/start` params for `settings`, without the output speed, which the caller sets per
-/// request, the conversation's commands running on the daemon's relay. With no tool-server route
-/// registered yet, the conversation reaches no tool server.
+/// The `thread/start` params for `settings` with `mcp_servers`, the call's tool-server table,
+/// without the output speed, which the caller sets per request, the conversation's commands
+/// running on the daemon's relay.
 pub(crate) fn compose_codex_thread_start_params(
     settings: &CodexThreadSettings,
-    route: Option<&dyn ToolServerRoute>,
+    mcp_servers: Map<String, Value>,
 ) -> ThreadStartParams {
-    let members = compose_thread_members(settings, route);
+    let members = compose_thread_members(settings, mcp_servers);
     ThreadStartParams {
         environments: Some(compose_codex_relay_environments(
             &settings.working_directory,
@@ -103,14 +97,14 @@ pub(crate) fn compose_codex_thread_start_params(
     }
 }
 
-/// The `thread/resume` params that resume `thread_id` under `settings`, without the output speed,
-/// which the caller sets per request.
+/// The `thread/resume` params that resume `thread_id` under `settings` with `mcp_servers`, the
+/// call's tool-server table, without the output speed, which the caller sets per request.
 pub(crate) fn compose_codex_thread_resume_params(
     settings: &CodexThreadSettings,
-    route: Option<&dyn ToolServerRoute>,
+    mcp_servers: Map<String, Value>,
     thread_id: String,
 ) -> ThreadResumeParams {
-    let members = compose_thread_members(settings, route);
+    let members = compose_thread_members(settings, mcp_servers);
     ThreadResumeParams {
         thread_id,
         cwd: Some(members.cwd),
@@ -158,14 +152,15 @@ pub(crate) fn compose_codex_bare_thread_resume_params(thread_id: String) -> Thre
     }
 }
 
-/// The `thread/fork` params that fork `thread_id` under `settings`, without the output speed,
-/// which the caller sets per request, or the turn the fork keeps up to.
+/// The `thread/fork` params that fork `thread_id` under `settings` with `mcp_servers`, the call's
+/// tool-server table, without the output speed, which the caller sets per request, or the turn
+/// the fork keeps up to.
 pub(crate) fn compose_codex_thread_fork_params(
     settings: &CodexThreadSettings,
-    route: Option<&dyn ToolServerRoute>,
+    mcp_servers: Map<String, Value>,
     thread_id: String,
 ) -> ThreadForkParams {
-    let members = compose_thread_members(settings, route);
+    let members = compose_thread_members(settings, mcp_servers);
     ThreadForkParams {
         thread_id,
         cwd: Some(members.cwd),
@@ -359,7 +354,7 @@ impl From<CodexApprovalsReviewer> for ApprovalsReviewer {
 
 fn compose_thread_members(
     settings: &CodexThreadSettings,
-    route: Option<&dyn ToolServerRoute>,
+    mcp_servers: Map<String, Value>,
 ) -> CodexThreadMembers {
     let level_settings = compose_codex_level_settings(settings.level, &settings.profile_folders);
     CodexThreadMembers {
@@ -369,15 +364,17 @@ fn compose_thread_members(
         approval_policy: level_settings.approval_policy.into(),
         approvals_reviewer: level_settings.approvals_reviewer.into(),
         base_instructions: settings.base_instructions.clone(),
-        config: compose_thread_config(settings, route),
+        config: compose_thread_config(settings, mcp_servers),
     }
 }
 
-// The `config` a start, resume and fork carry. Dotted keys are Codex's own paths into its config;
-// `agents`, `mcp_servers` and `permissions` are whole tables.
+// The `config` a start, resume and fork carry. Dotted keys are Codex's own paths into its config.
+// Codex merges each table into the person's own config by name and by member, so none replaces
+// theirs: `agents` and `permissions` add the daemon's roles and profiles beside the person's, and
+// `mcp_servers` switches off by name each of their servers the session leaves out.
 fn compose_thread_config(
     settings: &CodexThreadSettings,
-    route: Option<&dyn ToolServerRoute>,
+    mcp_servers: Map<String, Value>,
 ) -> Map<String, Value> {
     let mut config = Map::new();
     if let Some(window) = settings.model_context_window {
@@ -394,10 +391,7 @@ fn compose_thread_config(
     if let Some(roles) = compose_helper_roles(settings) {
         config.insert("agents".to_owned(), roles);
     }
-    config.insert(
-        MCP_SERVERS_KEY.to_owned(),
-        Value::Object(compose_tool_servers(settings, route)),
-    );
+    config.insert(MCP_SERVERS_KEY.to_owned(), Value::Object(mcp_servers));
     config.insert(
         "shell_environment_policy".to_owned(),
         compose_shell_environment_policy(&settings.command_environment),
@@ -457,39 +451,6 @@ fn compose_helper_roles(settings: &CodexThreadSettings) -> Option<Value> {
     }
 }
 
-// The whole `mcp_servers` table: every server on the daemon's route, each as switched; empty with
-// no route, so Codex adds none of its own config's.
-fn compose_tool_servers(
-    settings: &CodexThreadSettings,
-    route: Option<&dyn ToolServerRoute>,
-) -> Map<String, Value> {
-    let mut servers = Map::new();
-    let Some(route) = route else {
-        return servers;
-    };
-    for tool_server in &settings.tool_servers {
-        let server_name = tool_server.binding.server_name().as_str();
-        servers.insert(
-            server_name.to_owned(),
-            json!({
-                "url": route.url_for(&settings.session_id, server_name),
-                "enabled": tool_server.is_enabled,
-            }),
-        );
-    }
-    servers.insert(
-        DAEMON_TOOL_SERVER_NAME.to_owned(),
-        json!({
-            "url": route.url_for(&settings.session_id, DAEMON_TOOL_SERVER_NAME),
-            "enabled": true,
-            // The daemon judges each of its own calls itself, so Codex asks nothing first.
-            "default_tools_approval_mode": "approve",
-            "tool_timeout_sec": CODEX_DAEMON_TOOL_TIMEOUT_SECONDS,
-        }),
-    );
-    servers
-}
-
 // Each command gets exactly the conversation's environment: nothing inherited from the service.
 fn compose_shell_environment_policy(command_environment: &[(String, String)]) -> Value {
     let set: Map<String, Value> = command_environment
@@ -512,7 +473,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use rstest::rstest;
-    use serde_json::{Value, json};
+    use serde_json::{Map, Value, json};
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::integer::SafeInt;
@@ -584,7 +545,7 @@ mod tests {
         #[case] multi_agent: Value,
         #[case] agents_enabled: Option<Value>,
     ) {
-        let params = compose_codex_thread_start_params(&settings_with(policy), None);
+        let params = compose_codex_thread_start_params(&settings_with(policy), Map::new());
         let config = params.config.expect("a start always carries its config");
         assert_eq!(config.get("features.multi_agent_v2"), Some(&multi_agent));
         assert_eq!(config.get("agents.enabled"), agents_enabled.as_ref());
@@ -613,7 +574,7 @@ mod tests {
             ..settings_with(None)
         };
 
-        let params = compose_codex_thread_start_params(&settings, None);
+        let params = compose_codex_thread_start_params(&settings, Map::new());
         let config = params.config.expect("a start always carries its config");
         let switches: Vec<_> = PROVIDERS
             .iter()
@@ -653,15 +614,15 @@ mod tests {
         let params = match request {
             TierRequest::Start => serde_json::to_value(ThreadStartParams {
                 service_tier: change,
-                ..compose_codex_thread_start_params(&settings, None)
+                ..compose_codex_thread_start_params(&settings, Map::new())
             }),
             TierRequest::Resume => serde_json::to_value(ThreadResumeParams {
                 service_tier: change,
-                ..compose_codex_thread_resume_params(&settings, None, "thread".to_owned())
+                ..compose_codex_thread_resume_params(&settings, Map::new(), "thread".to_owned())
             }),
             TierRequest::Fork => serde_json::to_value(ThreadForkParams {
                 service_tier: change,
-                ..compose_codex_thread_fork_params(&settings, None, "thread".to_owned())
+                ..compose_codex_thread_fork_params(&settings, Map::new(), "thread".to_owned())
             }),
             TierRequest::SettingsUpdate => serde_json::to_value(CodexThreadSettingsUpdateParams {
                 thread_id: "thread".to_owned(),

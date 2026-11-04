@@ -40,6 +40,9 @@ use crate::driver::codex::app_server_protocol::{AskForApproval, ThreadForkParams
 use crate::driver::codex::attachments::compose_codex_text_input;
 use crate::driver::codex::delivery::memory::read_codex_error_kind;
 use crate::driver::codex::event_normalizer::CODEX_TURN_COMPLETED_METHOD;
+use crate::driver::codex::mcp::session_table::{
+    CodexLoadedServers, CodexSessionTableInput, codex_repository_root, compose_codex_session_table,
+};
 use crate::driver::codex::permission_level::compose_codex_profile_name;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::routing::read_codex_frame_thread_id;
@@ -48,6 +51,7 @@ use crate::driver::codex::session::detached_conversation::{
 };
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::CodexSessionEstablishment;
+use crate::driver::codex::session::establishment::mcp_read::send_with_stale_name_resend;
 use crate::driver::codex::session::side_questions::copy_turn::{
     CopyFrameReading, CopyTurn, CopyTurnFailure, read_copy_frame,
 };
@@ -218,7 +222,7 @@ impl CodexSideQuestions {
     /// task, which reads the copy's frames. A copy whose session closed while it was forked is let
     /// go with no turn started, one stopped while its turn started has the turn stopped, and one
     /// asked for after the driver stopped every copy is never forked; each closes its answer
-    /// unanswered. Fails as the fork or the turn's request fails, and with
+    /// unanswered. Fails as the fork's reads, the fork or the turn's request fail, and with
     /// `CodexError::Transport` when the copy does not run read-only; the copy is let go either way.
     pub(crate) async fn ask(
         &self,
@@ -231,13 +235,16 @@ impl CodexSideQuestions {
             return Ok(answer);
         }
         let service = Arc::clone(&record.service);
-        let (fork, read_only_profile) =
-            compose_copy_fork(&record.thread_settings, record.thread_id.clone());
+        let read_only_profile = compose_codex_profile_name(
+            PermissionLevel::Readonly,
+            &record.thread_settings.profile_folders,
+        );
         // Frames of the copy that arrive before it is registered are held for it.
         let claim = service.begin_thread_claim();
         let forked = async {
             let connection = service.connection()?;
-            let reply = connection.request(THREAD_FORK_METHOD, &fork).await?;
+            let reply =
+                request_copy_fork(&connection, &record.thread_settings, &record.thread_id).await?;
             let copy_thread_id = read_thread(&reply, THREAD_FORK_METHOD)?.id;
             Ok::<_, CodexError>((connection, reply, copy_thread_id))
         }
@@ -519,22 +526,47 @@ impl CodexSideQuestions {
     }
 }
 
-// The fork of `thread_id` a side question's copy runs on, and the read-only profile it must answer
-// it runs under: ephemeral, its turns left out, asking nothing. A fork keeps none of the thread's
-// inline profiles, so the copy carries the settings again; no route is passed, so it reaches no
-// tool server.
+// `thread/fork` of `thread_id` into a side question's copy under `settings` on `connection`, sent
+// over the servers the fork's own read loads, and the reply. Fails as the reads or the request do.
+async fn request_copy_fork(
+    connection: &CodexAppServerConnection,
+    settings: &CodexThreadSettings,
+    thread_id: &str,
+) -> Result<Box<RawValue>, CodexError> {
+    send_with_stale_name_resend(connection, &settings.working_directory, move |loaded| {
+        let fork = compose_copy_fork(settings, thread_id.to_owned(), &loaded);
+        async move { connection.request(THREAD_FORK_METHOD, &fork).await }
+    })
+    .await
+}
+
+// The fork of `thread_id` a side question's copy runs on: ephemeral, its turns left out, asking
+// nothing, under the read-only profile. A fork keeps none of the thread's inline profiles, so the
+// copy carries the settings again; every server `loaded`, the fork's own read, names is switched
+// off and no other is sent, so it reaches no tool server.
 fn compose_copy_fork(
     settings: &CodexThreadSettings,
     thread_id: String,
-) -> (ThreadForkParams, String) {
-    let read_only_profile =
-        compose_codex_profile_name(PermissionLevel::Readonly, &settings.profile_folders);
-    let mut fork = compose_codex_thread_fork_params(settings, None, thread_id);
+    loaded: &CodexLoadedServers,
+) -> ThreadForkParams {
+    let mcp_servers = compose_codex_session_table(CodexSessionTableInput {
+        session_id: settings.session_id,
+        tool_servers: &settings.tool_servers,
+        loaded,
+        unloaded_entries: &[],
+        route: None,
+        repository_root: codex_repository_root(&settings.profile_folders),
+        is_copy_fork: true,
+    });
+    let mut fork = compose_codex_thread_fork_params(settings, mcp_servers, thread_id);
     fork.ephemeral = Some(true);
     fork.exclude_turns = Some(true);
-    fork.permissions = Some(read_only_profile.clone());
+    fork.permissions = Some(compose_codex_profile_name(
+        PermissionLevel::Readonly,
+        &settings.profile_folders,
+    ));
     fork.approval_policy = Some(AskForApproval::Never);
-    (fork, read_only_profile)
+    fork
 }
 
 /// Starts the copy's one turn on `question`, its commands on the daemon's relay in
@@ -578,10 +610,11 @@ pub(crate) async fn fork_resting_copy(
     let (service, settings) = establishment.compose_resting_conversation(resume).await?;
     let (events, frames) = CodexDetachedFrames::new();
     let connection = service.open_detached_connection(events).await?;
-    let (fork, read_only_profile) = compose_copy_fork(&settings, resume.resume_handle.clone());
     // An error from here drops the connection, which ends the copy.
-    let reply = connection.request(THREAD_FORK_METHOD, &fork).await?;
+    let reply = request_copy_fork(&connection, &settings, &resume.resume_handle).await?;
     let thread_id = read_thread(&reply, THREAD_FORK_METHOD)?.id;
+    let read_only_profile =
+        compose_codex_profile_name(PermissionLevel::Readonly, &settings.profile_folders);
     assert_active_permission_profile(&reply, &read_only_profile, THREAD_FORK_METHOD)?;
     Ok((
         service,

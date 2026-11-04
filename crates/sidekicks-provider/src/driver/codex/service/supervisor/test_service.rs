@@ -582,10 +582,11 @@ pub(crate) struct StandInReplies {
 /// trusted, and no loaded conversation; a config write is refused, so a start that writes trust
 /// fails. A machine probe is answered too: its ephemeral start opens [`PROBE_THREAD_ID`], each
 /// server its config switches on or sends reports ready, and each listed server is connected with
-/// [`PROBE_TOOL_NAME`]. A config read is answered with `replies`' where one is given, and where a
-/// resumed turn is given, a resume is answered on the conversation it names, under the profile it
-/// asks for, and that conversation's turns are listed as that one turn. Once the connection is
-/// handed an API key, its account read names an API-key sign-in; before, it answers nothing.
+/// [`PROBE_TOOL_NAME`]. A config read is answered with `replies`' where one is given, else with an
+/// empty config, and where a resumed turn is given, a resume is answered on the conversation it
+/// names, under the profile it asks for, and that conversation's turns are listed as that one
+/// turn. Once the connection is handed an API key, its account read names an API-key sign-in;
+/// before, it answers nothing.
 pub(crate) async fn answer_as_codex_service(
     stream: impl AsyncRead + AsyncWrite + Unpin,
     replies: StandInReplies,
@@ -637,6 +638,7 @@ pub(crate) async fn answer_as_codex_service(
             Some("config/read") if replies.config_read.is_some() => {
                 json!({"id": id, "result": replies.config_read})
             }
+            Some("config/read") => json!({"id": id, "result": {"config": {}, "origins": {}}}),
             Some("thread/resume") if replies.resumed_turn.is_some() => {
                 json!({"id": id, "result": resumed_thread(&request["params"], &replies)})
             }

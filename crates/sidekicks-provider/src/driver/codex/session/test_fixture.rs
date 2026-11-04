@@ -227,6 +227,7 @@ impl TestCodexSession {
                 delivery,
                 release: Arc::clone(&scripted.dependencies.release),
                 bindings: Arc::clone(&bindings) as Arc<dyn RuntimeBindingWriter>,
+                services: CodexServiceRegistry::holding(&scripted),
                 tool_server_route: Arc::new(PortRegistration::new("tool server route")),
                 reviewer_denials: Arc::new(PortRegistration::new("reviewer denial")),
                 pending_compactions,
@@ -690,6 +691,9 @@ pub(crate) async fn answer_fork(
     fork_thread_id: &str,
     settings: &CodexThreadSettings,
 ) -> Value {
+    let read = script.next_sent().await;
+    assert_eq!(read["method"], "config/read");
+    script.answer(&read, &json!({"config": {}, "origins": {}}));
     let forked = script.next_sent().await;
     assert_eq!(forked["method"], "thread/fork");
     assert_eq!(forked["params"]["threadId"], TEST_THREAD);
