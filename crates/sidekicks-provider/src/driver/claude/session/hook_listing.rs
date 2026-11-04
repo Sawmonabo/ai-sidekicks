@@ -30,8 +30,8 @@ use crate::driver::claude::session::rules::{
     CLAUDE_SHARED_SETTINGS_FILE, list_claude_local_settings_files, settings_path,
 };
 use crate::driver::claude::session::settings_file::{
-    ClaudeSettingsReadError, ClaudeSettingsSources, find_claude_setting,
-    read_claude_managed_settings, read_claude_settings_file,
+    ClaudeSettingsFiles, ClaudeSettingsReadError, ClaudeSettingsSources, find_claude_setting,
+    read_claude_managed_settings, read_claude_settings_files,
 };
 use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
 
@@ -166,25 +166,28 @@ pub(crate) async fn read_claude_hook_listing(
             .iter()
             .any(|listed| listed.hook.source.as_str() == source)
     };
+    // A tier with a file that could not be read names no file, since that one may hold the hook.
+    let mut take_whole_tier = |read: ClaudeSettingsFiles| {
+        if read.failures.is_empty() {
+            Some(read.files)
+        } else {
+            unread.extend(read.failures);
+            None
+        }
+    };
     let local_files = if lists_tier(&listed, LOCAL_SETTINGS_SOURCE) {
         let files = list_claude_local_settings_files(
             sources.project_folder,
             sources.home_folder,
             sources.path_rules,
         );
-        read_tier_files(files, &mut unread).await
+        take_whole_tier(read_claude_settings_files(files).await)
     } else {
         None
     };
     let managed_files = match sources.managed_settings_folder {
         Some(folder) if lists_tier(&listed, POLICY_SETTINGS_SOURCE) => {
-            let managed = read_claude_managed_settings(folder).await;
-            if managed.failures.is_empty() {
-                Some(managed.files)
-            } else {
-                unread.extend(managed.failures);
-                None
-            }
+            take_whole_tier(read_claude_managed_settings(folder).await)
         }
         Some(_) | None => None,
     };
@@ -266,30 +269,6 @@ fn read_policy(row: &PolicyRow) -> Option<ProviderHookPolicy> {
             .and_then(SafeInt::<0>::new)?,
         policy_unreadable: row.policy_unreadable == Some(true),
     })
-}
-
-// The settings files among `files` that hold a settings object, each with that object; `None`
-// where one could not be read, its failure pushed onto `unread`, since it may hold the hook.
-async fn read_tier_files(
-    files: Vec<PathBuf>,
-    unread: &mut Vec<ClaudeSettingsReadError>,
-) -> Option<Vec<(PathBuf, Map<String, Value>)>> {
-    let mut present = Vec::new();
-    let mut is_whole = true;
-    for file in files {
-        match read_claude_settings_file(&file).await {
-            Ok(Some(settings)) => present.push((file, settings)),
-            Ok(None) => {}
-            Err(failure) => {
-                unread.push(ClaudeSettingsReadError {
-                    path: file,
-                    failure,
-                });
-                is_whole = false;
-            }
-        }
-    }
-    is_whole.then_some(present)
 }
 
 // The one file of a tier's `files` the hook came from: the only one present, or else the only one
