@@ -458,6 +458,7 @@ impl CodexDriver {
                     delivery: Arc::clone(&delivery),
                     release: Arc::clone(&self.release),
                     bindings: Arc::clone(&self.runtime_bindings),
+                    services: Arc::clone(&self.registry),
                     tool_server_route: Arc::clone(&ports.tool_server_route),
                     reviewer_denials: Arc::clone(&ports.reviewer_denials),
                     pending_compactions: self.pending_compactions.clone(),

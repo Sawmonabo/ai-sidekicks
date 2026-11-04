@@ -22,7 +22,7 @@ use crate::driver::mcp_server::read::{McpRootReading, McpServerDeclaration, McpS
 
 pub(super) mod attribution;
 mod compose;
-mod observe;
+pub(super) mod observe;
 pub(super) mod plugins;
 mod project_file;
 pub(super) mod server_entry;
