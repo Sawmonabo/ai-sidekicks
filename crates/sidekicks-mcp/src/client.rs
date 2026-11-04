@@ -128,8 +128,7 @@ impl McpClient {
         not(test),
         expect(
             dead_code,
-            reason = "the session's tool-server connections, which the tool-server units open, \
-                      are kept here"
+            reason = "the session's tool-server connection opener keeps its connections here"
         )
     )]
     pub(crate) async fn add_connection(
@@ -209,8 +208,7 @@ impl McpClient {
         not(test),
         expect(
             dead_code,
-            reason = "the session's tool-server connections, which the tool-server units open, \
-                      are opened in it"
+            reason = "the session's tool-server connection opener opens its connections in it"
         )
     )]
     pub(crate) fn connection_scope(
