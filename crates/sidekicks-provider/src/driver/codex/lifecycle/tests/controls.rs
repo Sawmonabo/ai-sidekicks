@@ -179,6 +179,8 @@ async fn a_settle_as_soon_as_a_session_is_created_answers_live() {
                                 "id": sent["params"]["config"]["default_permissions"],
                             },
                         })
+                    } else if sent["method"] == "config/read" {
+                        json!({"config": {}, "origins": {}})
                     } else {
                         json!({})
                     };
