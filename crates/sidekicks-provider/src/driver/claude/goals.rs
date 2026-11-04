@@ -9,6 +9,7 @@
 //! second replaces the first, which then reads unanswered.
 
 pub(crate) mod endings;
+pub(crate) mod file;
 pub(crate) mod records;
 
 use std::collections::HashMap;
