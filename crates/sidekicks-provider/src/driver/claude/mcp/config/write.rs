@@ -1,20 +1,18 @@
-//! The write of one MCP server to the person's own Claude Code config: an add through
-//! `claude mcp add-json` and a removal through `claude mcp remove`, each at the binding's scope,
-//! and an update through the guarded edit of the entry, never a removal and an add. Every command
-//! runs in the person's own environment, so it writes the person's own files, in the project's
-//! root for a `project` or `local` binding. An add or an update is then read back with
-//! `claude mcp get`, Claude Code's own check, once the lock is released.
+//! The write of one MCP server to the person's own Claude Code config at the binding's scope: an
+//! add or an update through the guarded edit of the entry, so no value sits on a command line, and
+//! a removal through `claude mcp remove`, which also clears the server's saved sign-in. Every
+//! command runs in the person's own environment, so it reads and writes the person's own files, in
+//! the project's root for a `project` or `local` binding. An add or an update is then read back
+//! with `claude mcp get`, Claude Code's own check, once the lock is released.
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
-use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpWritableBindingRef};
 use sidekicks_store::data_folder::plugin_home;
 use tokio::time::Instant;
 
-use super::compose::{NO_SWITCH_WORDS, compose_claude_mcp_entry};
+use super::compose::NO_SWITCH_WORDS;
 use super::edit::{ClaudeEditTarget, edit_claude_mcp_entry, refused_by_daemon};
 use super::observe::observe_claude_mcp_server;
 use super::{ClaudePersonConfigFiles, SERVERS_FILE};
@@ -27,16 +25,13 @@ use crate::driver::claude::spawn::one_shot_command::{
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::mcp_server::write::{
-    McpServerEntry, McpServerObserved, McpServerObservedEntry, McpServerWrite,
-    McpServerWriteOutcome, McpServerWriteRefusal, provider_words_without_values,
+    McpServerEntry, McpServerObserved, McpServerWrite, McpServerWriteOutcome,
+    McpServerWriteRefusal, provider_words_without_values,
 };
 use crate::spawned_version::ResolvedProviderExecutable;
 
 /// Claude Code's command group for its MCP servers.
 const MCP_COMMAND: &str = "mcp";
-
-/// The command that adds a server from its entry's JSON.
-const ADD_JSON_COMMAND: &str = "add-json";
 
 /// The command that removes a server.
 const REMOVE_COMMAND: &str = "remove";
@@ -51,30 +46,26 @@ const SCOPE_FLAG: &str = "--scope";
 const UNWRITTEN_CONTEXT: &str = "Claude Code's MCP config was not written";
 
 impl ClaudeDriver {
+    /// The person's own Claude Code config files and the daemon's plugin home for Claude Code,
+    /// where every binding's entry is read.
+    pub(crate) async fn resolve_mcp_entry_places(&self) -> (ClaudePersonConfigFiles, PathBuf) {
+        let sources = &self.sources;
+        let person =
+            ClaudePersonConfigFiles::resolve(&sources.base_environment, &sources.home_folder).await;
+        let plugin_home = plugin_home(&sources.home_folder, &DESCRIPTOR.provider_id());
+        (person, plugin_home)
+    }
+
     /// What Claude Code's config holds for `binding`, read from the person's own files and the
     /// plugins in the daemon's plugin home. Fails as the config read fails.
     pub(crate) async fn observe_mcp_server(
         &self,
         binding: &McpServerBindingRef,
     ) -> Result<McpServerObserved, DriverError> {
-        let sources = &self.sources;
-        let person =
-            ClaudePersonConfigFiles::resolve(&sources.base_environment, &sources.home_folder).await;
-        let plugin_home = plugin_home(&sources.home_folder, &DESCRIPTOR.provider_id());
+        let (person, plugin_home) = self.resolve_mcp_entry_places().await;
         observe_claude_mcp_server(&person, &plugin_home, binding)
             .await
             .map_err(|error| DriverError::Internal(Box::new(error)))
-    }
-
-    /// The entry Claude Code holds for a binding once `config` is written over `before`. Fails as
-    /// [`compose_claude_mcp_entry`] does.
-    #[expect(clippy::unused_self, reason = "the driver trait's method shape")]
-    pub(crate) fn compose_mcp_server(
-        &self,
-        config: &McpServerConfigInput,
-        before: &McpServerObserved,
-    ) -> Result<McpServerEntry, McpServerWriteRefusal> {
-        compose_claude_mcp_entry(config, &before.entry)
     }
 
     /// Writes `write` to the person's own Claude Code config against `before`, every step under
@@ -90,12 +81,7 @@ impl ClaudeDriver {
     ) -> McpServerWriteOutcome {
         let deadline = Instant::now() + CLAUDE_MCP_WRITE_TIMEOUT;
         let (binding, change) = match write {
-            McpServerWrite::Upsert { binding, entry } => match before.entry {
-                McpServerObservedEntry::Absent => (binding, ClaudeMcpChange::Add(entry)),
-                McpServerObservedEntry::Present(_) | McpServerObservedEntry::Switch(_) => {
-                    (binding, ClaudeMcpChange::Update(entry))
-                }
-            },
+            McpServerWrite::Upsert { binding, entry } => (binding, ClaudeMcpChange::Edit(entry)),
             McpServerWrite::Remove { binding } => (binding, ClaudeMcpChange::Remove),
             McpServerWrite::SetEnabled { .. } => {
                 return McpServerWriteOutcome::Refused(McpServerWriteRefusal::Provider {
@@ -122,25 +108,9 @@ impl ClaudeDriver {
             deadline,
         };
         let server_name = place.server_name.as_str();
-        let landed = match change {
-            ClaudeMcpChange::Add(entry) => {
-                let entry_json = Value::Object(entry.members().clone()).to_string();
-                command
-                    .run(&[
-                        ADD_JSON_COMMAND,
-                        server_name,
-                        &entry_json,
-                        SCOPE_FLAG,
-                        place.scope,
-                    ])
-                    .await
-            }
-            ClaudeMcpChange::Update(entry) => {
-                let person = ClaudePersonConfigFiles::resolve(
-                    &sources.base_environment,
-                    &sources.home_folder,
-                )
-                .await;
+        match change {
+            ClaudeMcpChange::Edit(entry) => {
+                let (person, _plugin_home) = self.resolve_mcp_entry_places().await;
                 match edit_claude_mcp_entry(
                     edit_target(binding, &person),
                     place.server_name,
@@ -150,9 +120,9 @@ impl ClaudeDriver {
                 )
                 .await
                 {
-                    McpServerWriteOutcome::Applied { .. } => Ok(()),
+                    McpServerWriteOutcome::Applied { .. } => {}
                     outcome @ (McpServerWriteOutcome::Refused(_)
-                    | McpServerWriteOutcome::Unknown) => Err(outcome),
+                    | McpServerWriteOutcome::Unknown) => return outcome,
                 }
             }
             ClaudeMcpChange::Remove => {
@@ -166,9 +136,6 @@ impl ClaudeDriver {
                     Err(outcome) => outcome,
                 };
             }
-        };
-        if let Err(outcome) = landed {
-            return outcome;
         }
         // Claude Code's own read-back, after the lock is released; a read-back that does not
         // answer cleanly leaves the write for the service to observe.
@@ -183,10 +150,8 @@ impl ClaudeDriver {
 
 /// What one write does to Claude Code's config.
 enum ClaudeMcpChange<'write> {
-    /// Adds the entry where the config holds none.
-    Add(&'write McpServerEntry),
-    /// Writes the entry in place of the one observed.
-    Update(&'write McpServerEntry),
+    /// Writes the entry, added where the config holds none or in place of the one observed.
+    Edit(&'write McpServerEntry),
     /// Removes the server.
     Remove,
 }
@@ -233,8 +198,8 @@ impl<'binding> ClaudeMcpWritePlace<'binding> {
     }
 }
 
-// The file an update of `binding` edits: the person's config, at the project's key for a `local`
-// binding, as Claude Code keys it, or the project's `.mcp.json` for a `project` one.
+// The file an add or an update of `binding` edits: the person's config, at the project's key for a
+// `local` binding, as Claude Code keys it, or the project's `.mcp.json` for a `project` one.
 fn edit_target(
     binding: &McpWritableBindingRef,
     person: &ClaudePersonConfigFiles,
@@ -299,11 +264,11 @@ impl ClaudeMcpCommand<'_> {
             }
             Err(_elapsed) => return Err(McpServerWriteOutcome::Unknown),
         };
-        if ended.is_success {
-            return Ok(());
-        }
         if ended.exit.signal_name.is_some() {
             return Err(McpServerWriteOutcome::Unknown);
+        }
+        if ended.is_success() {
+            return Ok(());
         }
         let error_output = ended.error_output.unwrap_or_default();
         Err(McpServerWriteOutcome::Refused(
@@ -411,10 +376,6 @@ mod tests {
         }
     }
 
-    fn entry(members: Value) -> McpServerEntry {
-        McpServerEntry::from_members(serde_json::from_value(members).unwrap())
-    }
-
     fn observed(entry: McpServerObservedEntry) -> McpServerObserved {
         McpServerObserved {
             entry,
@@ -423,38 +384,75 @@ mod tests {
         }
     }
 
-    // An add runs `mcp add-json` and a removal `mcp remove`, each at the binding's scope, in the
-    // project's root for a `project` or `local` binding and in the home for a `user` one, under
-    // the person's own `CLAUDE_CONFIG_DIR`; an add is read back with `mcp get`. Killed by a wrong
-    // scope, the home as a project write's folder, the environment cleared of the person's
-    // variable, and no read-back.
+    // An add edits the file of its scope, made where it is not there yet, and runs no command but
+    // the read-back, in the project's root for a `project` or `local` binding and in the home for
+    // a `user` one, under the person's own `CLAUDE_CONFIG_DIR`, so no value it carries reaches a
+    // command line. Killed by an add through a command, an entry written at another scope's place,
+    // the home as a project write's folder, the environment cleared of the person's variable, and
+    // no read-back.
     #[rstest]
-    #[case::user_add("user", false)]
-    #[case::project_add("project", false)]
-    #[case::local_add("local", false)]
-    #[case::project_remove("project", true)]
+    #[case::user("user")]
+    #[case::project("project")]
+    #[case::local("local")]
     #[tokio::test]
-    async fn each_command_runs_at_its_scope_in_the_persons_own_environment(
-        #[case] scope: &str,
-        #[case] is_remove: bool,
-    ) {
+    async fn an_add_edits_its_scopes_file_and_puts_no_value_on_a_command_line(#[case] scope: &str) {
         let stand_in = StandIn::new().await;
-        let binding = stand_in.binding(scope);
-        let folder = stand_in.folder(if scope == "user" { "home" } else { "project" });
-        let (write, before) = if is_remove {
-            (
-                McpServerWrite::Remove { binding },
-                McpServerObservedEntry::Present(entry(json!({"command": "npx"}))),
-            )
-        } else {
-            (
-                McpServerWrite::Upsert {
-                    binding,
-                    entry: entry(json!({"command": "npx", "args": ["docs"]})),
-                },
-                McpServerObservedEntry::Absent,
-            )
+        let project = stand_in.folder("project").display().to_string();
+        let added = json!({
+            "command": "npx",
+            "args": ["docs"],
+            "env": {"DOCS_TOKEN": "SECRET-VALUE"},
+        });
+        let write = McpServerWrite::Upsert {
+            binding: stand_in.binding(scope),
+            entry: McpServerEntry::from_json(added.clone()),
         };
+
+        let outcome = stand_in
+            .driver
+            .write_mcp_server(&write, &observed(McpServerObservedEntry::Absent))
+            .await;
+
+        assert_eq!(
+            outcome,
+            McpServerWriteOutcome::Applied {
+                reload_failure: None
+            }
+        );
+        let folder = stand_in.folder(if scope == "user" { "home" } else { "project" });
+        let commands = stand_in.commands().await;
+        assert_eq!(commands, stand_in.command_line(&folder, "get docs"));
+        assert!(!commands.contains("SECRET-VALUE"));
+        let (file, expected) = match scope {
+            "user" => (
+                stand_in.folder("config").join(".claude.json"),
+                json!({"mcpServers": {"docs": added}}),
+            ),
+            "local" => (
+                stand_in.folder("config").join(".claude.json"),
+                json!({"projects": {project: {"mcpServers": {"docs": added}}}}),
+            ),
+            _ => (
+                stand_in.folder("project").join(".mcp.json"),
+                json!({"mcpServers": {"docs": added}}),
+            ),
+        };
+        let after: Value =
+            serde_json::from_str(&tokio::fs::read_to_string(&file).await.unwrap()).unwrap();
+        assert_eq!(after, expected);
+    }
+
+    // A removal runs `mcp remove` at the binding's scope in the project's root, under the
+    // person's own `CLAUDE_CONFIG_DIR`, and nothing after it. Killed by a wrong scope, the home as
+    // a project write's folder and the environment cleared of the person's variable.
+    #[tokio::test]
+    async fn a_removal_runs_claude_mcp_remove_at_its_scope() {
+        let stand_in = StandIn::new().await;
+        let write = McpServerWrite::Remove {
+            binding: stand_in.binding("project"),
+        };
+        let before =
+            McpServerObservedEntry::Present(McpServerEntry::from_json(json!({"command": "npx"})));
 
         let outcome = stand_in
             .driver
@@ -467,15 +465,10 @@ mod tests {
                 reload_failure: None
             }
         );
-        let expected = if is_remove {
-            stand_in.command_line(&folder, &format!("remove docs --scope {scope}"))
-        } else {
-            stand_in.command_line(
-                &folder,
-                &format!(r#"add-json docs {{"command":"npx","args":["docs"]}} --scope {scope}"#),
-            ) + &stand_in.command_line(&folder, "get docs")
-        };
-        assert_eq!(stand_in.commands().await, expected);
+        assert_eq!(
+            stand_in.commands().await,
+            stand_in.command_line(&stand_in.folder("project"), "remove docs --scope project")
+        );
     }
 
     // An update edits the entry in place, at the user's servers or under the project's key, and
@@ -506,15 +499,13 @@ mod tests {
             .unwrap();
         let write = McpServerWrite::Upsert {
             binding: stand_in.binding(scope),
-            entry: entry(written.clone()),
+            entry: McpServerEntry::from_json(written.clone()),
         };
+        let before = McpServerObservedEntry::Present(McpServerEntry::from_json(held));
 
         let outcome = stand_in
             .driver
-            .write_mcp_server(
-                &write,
-                &observed(McpServerObservedEntry::Present(entry(held))),
-            )
+            .write_mcp_server(&write, &observed(before))
             .await;
 
         assert_eq!(
@@ -541,14 +532,15 @@ mod tests {
         tokio::fs::write(stand_in.folder("refuse"), "")
             .await
             .unwrap();
-        let write = McpServerWrite::Upsert {
+        let write = McpServerWrite::Remove {
             binding: stand_in.binding("user"),
-            entry: entry(json!({"command": "npx"})),
         };
+        let before =
+            McpServerObservedEntry::Present(McpServerEntry::from_json(json!({"command": "npx"})));
 
         let outcome = stand_in
             .driver
-            .write_mcp_server(&write, &observed(McpServerObservedEntry::Absent))
+            .write_mcp_server(&write, &observed(before))
             .await;
 
         let McpServerWriteOutcome::Refused(McpServerWriteRefusal::Provider { words }) = outcome

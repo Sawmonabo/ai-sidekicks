@@ -6,6 +6,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpServerConfigInput};
 
+use super::{HTTP_TYPE, SSE_TYPE, STDIO_TYPE, URL_MEMBER};
 use crate::driver::mcp_server::write::{
     McpServerEntry, McpServerObservedEntry, McpServerWriteRefusal, provider_words_without_values,
 };
@@ -22,20 +23,8 @@ pub(super) const ARGS_MEMBER: &str = "args";
 /// The member holding the program's environment, values included.
 pub(super) const ENV_MEMBER: &str = "env";
 
-/// The member naming the address an `http` or `sse` entry reaches.
-pub(super) const URL_MEMBER: &str = "url";
-
 /// The member holding the headers sent with each request, values included.
 pub(super) const HEADERS_MEMBER: &str = "headers";
-
-/// The `type` of an entry that starts a program.
-const STDIO_TYPE: &str = "stdio";
-
-/// The `type` of an entry reached over streamable HTTP.
-const HTTP_TYPE: &str = "http";
-
-/// The `type` of an entry reached over server-sent events.
-const SSE_TYPE: &str = "sse";
 
 /// The members only an entry that starts a program holds, removed when it moves to an address.
 const PROGRAM_MEMBERS: [&str; 3] = [COMMAND_MEMBER, ARGS_MEMBER, ENV_MEMBER];
@@ -64,9 +53,9 @@ struct SubmittedMembers {
 /// The entry Claude Code holds for a binding once `config` is written over `before`: `before`'s
 /// members, the other transport's removed and `type` set where the transport changes, then each
 /// submitted member set or removed; an add holds the submitted members alone, with `type` left
-/// off a `stdio` entry as `claude mcp add-json` leaves it. Fails `Provider` over a switch, and
+/// off a `stdio` entry as Claude Code's own add leaves it. Fails `Provider` over a switch, and
 /// `EntryInvalid` for a member Claude Code does not read or a value that does not serialize.
-pub(super) fn compose_claude_mcp_entry(
+pub(crate) fn compose_claude_mcp_entry(
     config: &McpServerConfigInput,
     before: &McpServerObservedEntry,
 ) -> Result<McpServerEntry, McpServerWriteRefusal> {
@@ -263,18 +252,11 @@ fn set_member<T: Serialize>(
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{Value, json};
+    use serde_json::json;
     use sidekicks_contracts::mcp::server::config::McpServerConfigInput;
 
     use super::compose_claude_mcp_entry;
     use crate::driver::mcp_server::write::{McpServerEntry, McpServerObservedEntry};
-
-    // The entry `members`, a JSON object.
-    fn entry(members: Value) -> McpServerEntry {
-        McpServerEntry::from_members(
-            serde_json::from_value(members).expect("the test's entry is an object"),
-        )
-    }
 
     // An update keeps every member the declaration does not model, a sign-in's included, and
     // changes only the one submitted. Killed by a remove-then-add and by an entry rewritten whole
@@ -295,12 +277,12 @@ mod tests {
 
         let composed = compose_claude_mcp_entry(
             &config,
-            &McpServerObservedEntry::Present(entry(held.clone())),
+            &McpServerObservedEntry::Present(McpServerEntry::from_json(held.clone())),
         )
         .expect("the entry composes");
 
         let mut expected = held;
         expected["args"] = json!(["docs-server", "--verbose"]);
-        assert_eq!(composed, entry(expected));
+        assert_eq!(composed, McpServerEntry::from_json(expected));
     }
 }

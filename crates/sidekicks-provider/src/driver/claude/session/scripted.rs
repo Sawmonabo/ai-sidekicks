@@ -42,7 +42,7 @@ use crate::driver::claude::delivery::stream::ClaudeSessionStream;
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::intervention::ClaudeInterventions;
-use crate::driver::claude::lifecycle::ClaudeSessionParts;
+use crate::driver::claude::lifecycle::{ClaudeDriver, ClaudeSessionParts};
 use crate::driver::claude::run::routes::{ClaudeChildRunRoute, ClaudeRunRoutes};
 use crate::driver::claude::run::start::ClaudeRunStart;
 use crate::driver::claude::session::answered_commands::{
@@ -164,6 +164,10 @@ pub(crate) fn scripted_live_session(
 /// and its task, as the reader hands them over. Built inside a Tokio runtime, since the session's
 /// task is spawned.
 pub(crate) struct ScriptedSession {
+    /// The driver the session was opened on.
+    pub(crate) driver: Arc<ClaudeDriver>,
+    /// The person's home the driver reads the person's own config in.
+    pub(crate) home: PathBuf,
     /// The session.
     pub(crate) session_id: SessionId,
     /// Its process.
@@ -219,6 +223,7 @@ impl ScriptedSession {
             usage,
             attachments,
             wall_clock,
+            home,
             folder,
             database,
             ..
@@ -257,6 +262,8 @@ impl ScriptedSession {
             live.provider_session_id.clone(),
         );
         Self {
+            driver,
+            home,
             session_id,
             channel,
             engine,

@@ -28,7 +28,6 @@ use sidekicks_platforms::{
 };
 use sidekicks_std::output_tail::{OutputTail, read_output_chunks};
 use tokio::io::AsyncRead;
-use tokio::process::Command;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
@@ -56,6 +55,7 @@ use crate::driver::claude::session::transport::inbound::{
 use crate::driver::claude::session::transport::user_message::{
     ClaudeUserFrame, ClaudeWriteAttempt,
 };
+use crate::driver::claude::spawn::command::compose_claude_command;
 use crate::driver::claude::spawn::environment::CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE;
 use crate::process_exit::compose_process_exit;
 use crate::process_identity::ProviderProcessIdentity;
@@ -168,13 +168,13 @@ impl ClaudeCodeProcess {
         listener: Arc<dyn ClaudeProcessListener>,
         turn_holds: Option<ClaudeTurnHolds>,
     ) -> io::Result<Self> {
-        let mut command = Command::new(launch.start.program);
+        let mut command = compose_claude_command(
+            &launch.start,
+            &launch.arguments,
+            &launch.environment,
+            &launch.working_folder,
+        );
         command
-            .args(launch.start.leading_arguments)
-            .args(launch.arguments)
-            .env_clear()
-            .envs(launch.environment)
-            .current_dir(launch.working_folder)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

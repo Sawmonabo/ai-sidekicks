@@ -16,6 +16,7 @@ use reqwest::header::{
 };
 use secrecy::SecretString;
 use serde::Deserialize;
+use sidekicks_std::outbound_http::{CappedBodyError, read_capped_body};
 use tokio::sync::OnceCell;
 use tokio::time::Instant;
 use zeroize::Zeroizing;
@@ -90,6 +91,10 @@ pub(crate) const CLAUDE_CONNECTOR_FETCH_WINDOW: Duration = RETRY_BUDGET
 
 /// The idle connections the client keeps per host: the read sends one request at a time.
 const IDLE_CONNECTIONS_PER_HOST: usize = 1;
+
+/// The most bytes of the connector list's body the read takes, so a reply with no end cannot fill
+/// the daemon's memory.
+const CONNECTOR_LIST_MAX_BYTES: usize = 4 * 1024 * 1024;
 
 /// What the read of an account's connector list found, which says how long its `mcp_status` can
 /// still be waiting on Claude Code's own fetch of the list.
@@ -277,10 +282,11 @@ struct ConnectorListRequest {
     client_capabilities: HeaderValue,
 }
 
-// One failed try: the status the list answered, or the transport's error.
+// One failed try: the status the list answered, the transport's error, or a body past its cap.
 enum AttemptFailure {
     Status(StatusCode),
     Transport(reqwest::Error),
+    TooLarge { max_bytes: usize },
 }
 
 impl AttemptFailure {
@@ -288,6 +294,7 @@ impl AttemptFailure {
         match self {
             Self::Status(status) => Some(*status),
             Self::Transport(error) => error.status(),
+            Self::TooLarge { .. } => None,
         }
     }
 
@@ -299,6 +306,7 @@ impl AttemptFailure {
             Self::Transport(error) => {
                 error.is_timeout() || error.is_connect() || error.is_request()
             }
+            Self::TooLarge { .. } => false,
         }
     }
 }
@@ -331,7 +339,7 @@ impl ConnectorListRequest {
     // waiting 500 ms then 1.5 s within the twelve-second budget, and any status but 401 and 429
     // asked once more without the additional accounts, that try not counted unless transient.
     // `None`, logged once, where every try failed.
-    async fn send_with_retries(&self, http: &reqwest::Client, base: &str) -> Option<bytes::Bytes> {
+    async fn send_with_retries(&self, http: &reqwest::Client, base: &str) -> Option<Vec<u8>> {
         let plain = format!("{base}{CONNECTOR_LIST_PATH}");
         let mut address = format!("{plain}{ADDITIONAL_INSTALLS_QUERY}");
         let started = Instant::now();
@@ -390,11 +398,7 @@ impl ConnectorListRequest {
     }
 
     // One try at `address`, with exactly the headers Claude Code sends on it.
-    async fn send(
-        &self,
-        http: &reqwest::Client,
-        address: &str,
-    ) -> Result<bytes::Bytes, AttemptFailure> {
+    async fn send(&self, http: &reqwest::Client, address: &str) -> Result<Vec<u8>, AttemptFailure> {
         let response = http
             .get(address)
             .header(USER_AGENT, self.user_agent.clone())
@@ -417,7 +421,12 @@ impl ConnectorListRequest {
         if !status.is_success() {
             return Err(AttemptFailure::Status(status));
         }
-        response.bytes().await.map_err(AttemptFailure::Transport)
+        read_capped_body(response, CONNECTOR_LIST_MAX_BYTES)
+            .await
+            .map_err(|failure| match failure {
+                CappedBodyError::Read(error) => AttemptFailure::Transport(error),
+                CappedBodyError::TooLarge { max_bytes } => AttemptFailure::TooLarge { max_bytes },
+            })
     }
 }
 
@@ -433,6 +442,11 @@ fn log_final_failure(failure: &AttemptFailure, attempts: u32) {
             error = error as &(dyn std::error::Error + 'static),
             attempts,
             "no connector marks read: the connector list could not be reached"
+        ),
+        AttemptFailure::TooLarge { max_bytes } => tracing::debug!(
+            max_bytes,
+            attempts,
+            "no connector marks read: the connector list is past its cap"
         ),
     }
 }

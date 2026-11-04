@@ -5,7 +5,7 @@
 //! the home's own sign-in is removed from both.
 
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{ExitStatus, Stdio};
 use std::time::Duration;
 
@@ -23,7 +23,7 @@ use sidekicks_contracts::provider::account::sign_in::{
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{ChildEnd, wrap_child_command};
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader, Take};
-use tokio::process::{ChildStderr, ChildStdin, ChildStdout, Command};
+use tokio::process::{ChildStderr, ChildStdin, ChildStdout};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::account::credential_home::CredentialHome;
@@ -35,6 +35,7 @@ use crate::driver::claude::account::credentials::{
     CUSTOM_SIGN_IN_HOST_VARIABLE, ClaudeCustomSignInBase, SIGN_IN_OVERRIDE_VARIABLES,
     read_custom_sign_in_base,
 };
+use crate::driver::claude::spawn::command::compose_claude_command;
 use crate::driver::claude::spawn::environment::{
     ClaudeAccountFolders, ClaudeProcessHome, compose_claude_scratch_folder,
 };
@@ -192,7 +193,7 @@ pub(super) async fn start_claude_sign_in(
         &legs.sources.0.data_folder.to_string_lossy(),
         Path::new(&folders.config_folder),
     );
-    Ok(start_flow(legs, executable, working_folder, arm, &scope.hosts).await?)
+    Ok(start_flow(legs, &executable, &working_folder, arm, &scope.hosts).await?)
 }
 
 /// Reads who signed in on `home` after a sign-in there, through a process that keeps nothing run
@@ -239,21 +240,21 @@ fn read_claude_sign_in_mode(sources: &ClaudeSignInSources) -> Option<ProviderAut
 // task of its own; a flow that writes no usable address is stopped.
 async fn start_flow(
     legs: &ClaudeAccountLegs,
-    executable: ResolvedProviderExecutable,
-    working_folder: PathBuf,
+    executable: &ResolvedProviderExecutable,
+    working_folder: &Path,
     arm: ProviderSignInArm,
     hosts: &[String],
 ) -> Result<ProviderSignInHandle, ClaudeSignInError> {
-    tokio::fs::create_dir_all(&working_folder)
+    tokio::fs::create_dir_all(working_folder)
         .await
         .map_err(ClaudeSignInError::WorkingFolder)?;
-    let mut command = Command::new(executable.start.program);
+    let mut command = compose_claude_command(
+        &executable.start,
+        &CLAUDE_SIGN_IN_ARGUMENTS,
+        &executable.environment,
+        working_folder,
+    );
     command
-        .args(executable.start.leading_arguments)
-        .args(CLAUDE_SIGN_IN_ARGUMENTS)
-        .env_clear()
-        .envs(executable.environment)
-        .current_dir(working_folder)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

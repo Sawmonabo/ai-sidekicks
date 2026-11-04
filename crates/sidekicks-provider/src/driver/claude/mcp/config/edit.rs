@@ -1,8 +1,10 @@
-//! The guarded edit of one server's entry in Claude Code's own config. The person's config is
-//! edited under Claude Code's lock, through any link to it, and lands only while the binding's
-//! entry is still the one observed and the file is still the one read; a project's `.mcp.json`,
-//! which Claude Code writes with no lock, is read, compared and renamed again while it keeps
-//! changing underneath. Every other member keeps its place and its value.
+//! The guarded edit of one server's entry in Claude Code's own config, which adds the entry or
+//! writes it in place, so no value ever sits on a command line. The person's config is edited
+//! under Claude Code's lock, through any link to it, and lands only while the binding's entry is
+//! still the one observed and the file is still the one read, or, where no file is there yet, only
+//! while none is; a project's `.mcp.json`, which Claude Code writes with no lock, is read, compared
+//! and written again while it keeps changing underneath. Every other member keeps its place and
+//! its value.
 
 use std::error::Error;
 use std::fs;
@@ -12,23 +14,27 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::mcp::server::McpServerName;
+use sidekicks_platforms::{LeftoverSweep, create_file_atomically, flush_folder};
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::file::atomic_write::{AtomicWriteError, write_and_flush_while};
 use sidekicks_std::file::real_location::resolve_real_location;
 
 use super::lock::{ClaudeConfigLock, ClaudeConfigLockError, log_unremoved};
 use super::observe::observed_entry;
+use super::{MCP_SERVERS_MEMBER, PROJECTS_MEMBER, value_at};
 use crate::driver::mcp_server::write::{
     McpServerEntry, McpServerObservedEntry, McpServerWriteOutcome, McpServerWriteRefusal,
     provider_words_without_values,
 };
 use crate::inbound_json::decode_inbound_json;
 
-/// The member of a Claude Code config file that lists servers by name.
-const MCP_SERVERS_KEY: &str = "mcpServers";
+/// The mode the person's config is made with where it is not there yet, as Claude Code makes it:
+/// read and written by its owner alone.
+const PERSON_CONFIG_MODE: u32 = 0o600;
 
-/// The member of the person's config that holds each project's own settings, by its root.
-const PROJECTS_KEY: &str = "projects";
+/// The mode a project's `.mcp.json` is made with where it is not there yet, as Claude Code makes
+/// it: a file kept with the repository, which everyone may read.
+const SERVERS_FILE_MODE: u32 = 0o644;
 
 /// The longest the edit of the person's config runs from its stat to its rename: the least age
 /// past which Claude Code's lock library reads a lock as stale, since the lock is never refreshed.
@@ -64,12 +70,13 @@ enum EditTry {
     FileChanged,
 }
 
-/// Writes `entry` whole in place of `server_name`'s entry in `target`, but only while the entry
-/// there is still `before`. The person's config waits for Claude Code's lock until `deadline`.
-/// Answers `Applied` once written or where the entry is already held, `Unknown` where the write's
-/// end is not known, and every other end as a refusal, nothing written: the lock held or the hold
-/// past its bound as `ConfigFileBusy`, the entry changed as `EntryChanged`, the file changed as
-/// `ConfigFileChanged`.
+/// Writes `entry` whole as `server_name`'s entry in `target`, in place of the one there or added
+/// where there is none, the file made where it is not there yet, but only while the entry there is
+/// still `before`. The person's config waits for Claude Code's lock until `deadline`. Answers
+/// `Applied` once written or where the entry is already held, `Unknown` where the write's end is
+/// not known, and every other end as a refusal, nothing written: the lock held or the hold past
+/// its bound as `ConfigFileBusy`, the entry changed as `EntryChanged`, the file changed or made by
+/// another writer as `ConfigFileChanged`.
 pub(super) async fn edit_claude_mcp_entry(
     target: ClaudeEditTarget,
     server_name: &McpServerName,
@@ -97,9 +104,12 @@ where
         ClaudeEditTarget::ProjectServersFile { path } => (path, None),
     };
     let mut keys: Vec<String> = project_key
-        .map(|project_key| vec![PROJECTS_KEY.to_owned(), project_key.to_owned()])
+        .map(|project_key| vec![PROJECTS_MEMBER.to_owned(), project_key.to_owned()])
         .unwrap_or_default();
-    keys.extend([MCP_SERVERS_KEY.to_owned(), server_name.as_str().to_owned()]);
+    keys.extend([
+        MCP_SERVERS_MEMBER.to_owned(),
+        server_name.as_str().to_owned(),
+    ]);
     // Claude Code writes through a link to its config, so the edit goes to the link's target.
     let file = match resolve_real_location(path).await {
         Ok(file) => file,
@@ -123,6 +133,7 @@ where
                 &keys,
                 entry,
                 before,
+                PERSON_CONFIG_MODE,
                 Some(LOCK_HOLD_MAX),
                 on_rename_due,
             )
@@ -138,8 +149,16 @@ where
         }
         ClaudeEditTarget::ProjectServersFile { .. } => {
             for _try in 0..SERVERS_FILE_TRIES {
-                if let EditTry::Ended(outcome) =
-                    edit_once(&file, &keys, entry, before, None, on_rename_due.clone()).await
+                if let EditTry::Ended(outcome) = edit_once(
+                    &file,
+                    &keys,
+                    entry,
+                    before,
+                    SERVERS_FILE_MODE,
+                    None,
+                    on_rename_due.clone(),
+                )
+                .await
                 {
                     return outcome;
                 }
@@ -149,12 +168,14 @@ where
     }
 }
 
-// One try on a blocking thread: the file read, the entry compared and the edit renamed in place.
+// One try on a blocking thread: the file read, the entry compared and the edit renamed in place,
+// or the file made with `new_file_mode` where it is not there.
 async fn edit_once<RenameDue>(
     file: &Path,
     keys: &[String],
     entry: &McpServerEntry,
     before: &McpServerObservedEntry,
+    new_file_mode: u32,
     hold_max: Option<Duration>,
     on_rename_due: RenameDue,
 ) -> EditTry
@@ -168,7 +189,15 @@ where
         before.clone(),
     );
     match tokio::task::spawn_blocking(move || {
-        edit_file(&file, &keys, edited, &before, hold_max, on_rename_due)
+        edit_file(
+            &file,
+            &keys,
+            edited,
+            &before,
+            new_file_mode,
+            hold_max,
+            on_rename_due,
+        )
     })
     .await
     {
@@ -184,26 +213,31 @@ where
     }
 }
 
-// One try on the calling thread. The hold runs from the stat to the rename and is bounded by
-// `hold_max` where given, checked before the rename and never after it.
+// One try on the calling thread. The hold runs from the stat to the rename, or to the making of
+// a file not there, and is bounded by `hold_max` where given, checked before the rename and never
+// after it.
 fn edit_file(
     file: &Path,
     keys: &[String],
     edited: Value,
     before: &McpServerObservedEntry,
+    new_file_mode: u32,
     hold_max: Option<Duration>,
     on_rename_due: impl FnOnce(),
 ) -> EditTry {
     let hold_started = Instant::now();
+    let is_hold_past_bound = || hold_max.is_some_and(|hold_max| hold_started.elapsed() > hold_max);
     let read = fs::metadata(file).and_then(|stat| {
         let modified = stat.modified()?;
         Ok((stat.len(), modified, fs::read(file)?))
     });
-    let (held_length, held_modified, bytes) = match read {
-        Ok(read) => read,
-        Err(gone) if gone.kind() == io::ErrorKind::NotFound => {
-            return config_file_invalid("Claude Code's config file is not there");
+    // The size and modification time of the file read, and its bytes; `None` where no file is
+    // there yet.
+    let (held_stat, bytes) = match read {
+        Ok((held_length, held_modified, bytes)) => {
+            (Some((held_length, held_modified)), Some(bytes))
         }
+        Err(gone) if gone.kind() == io::ErrorKind::NotFound => (None, None),
         Err(failure) => {
             return EditTry::Ended(refused_by_daemon(
                 "Claude Code's config could not be read",
@@ -211,10 +245,12 @@ fn edit_file(
             ));
         }
     };
-    let mut config = match serde_json::from_str::<Value>(&decode_inbound_json(&bytes)) {
-        Ok(config) if config.is_object() => config,
-        Ok(_) => return config_file_invalid("Claude Code's config is not a JSON object"),
-        Err(failure) => {
+    let parsed = bytes.map(|bytes| serde_json::from_str::<Value>(&decode_inbound_json(&bytes)));
+    let mut config = match parsed {
+        None => Value::Object(Map::new()),
+        Some(Ok(config)) if config.is_object() => config,
+        Some(Ok(_)) => return config_file_invalid("Claude Code's config is not a JSON object"),
+        Some(Err(failure)) => {
             return config_file_invalid(&format!(
                 "Claude Code's config is not valid JSON: {failure}"
             ));
@@ -250,11 +286,20 @@ fn edit_file(
             ));
         }
     };
-    let mut is_hold_past_bound = false;
+    let Some((held_length, held_modified)) = held_stat else {
+        on_rename_due();
+        if is_hold_past_bound() {
+            return EditTry::Ended(McpServerWriteOutcome::Refused(
+                McpServerWriteRefusal::ConfigFileBusy,
+            ));
+        }
+        return create_config_file(file, rendered.as_bytes(), new_file_mode);
+    };
+    let mut is_past_bound = false;
     let written = write_and_flush_while(file, rendered.as_bytes(), || {
         on_rename_due();
-        if hold_max.is_some_and(|hold_max| hold_started.elapsed() > hold_max) {
-            is_hold_past_bound = true;
+        if is_hold_past_bound() {
+            is_past_bound = true;
             return Ok(false);
         }
         match fs::metadata(file) {
@@ -267,7 +312,7 @@ fn edit_file(
         Ok(true) => McpServerWriteOutcome::Applied {
             reload_failure: None,
         },
-        Ok(false) if is_hold_past_bound => {
+        Ok(false) if is_past_bound => {
             McpServerWriteOutcome::Refused(McpServerWriteRefusal::ConfigFileBusy)
         }
         Ok(false) => return EditTry::FileChanged,
@@ -282,9 +327,37 @@ fn edit_file(
     })
 }
 
-// The value at `keys` in `config`.
-fn value_at<'config>(config: &'config Value, keys: &[String]) -> Option<&'config Value> {
-    keys.iter().try_fold(config, |value, key| value.get(key))
+// Makes `file`, not there when it was read, holding `contents` with `mode`, then flushes its
+// folder; a file another writer made meanwhile is left as it is.
+fn create_config_file(file: &Path, contents: &[u8], mode: u32) -> EditTry {
+    match create_file_atomically(file, contents, mode, LeftoverSweep::Unswept) {
+        Ok(()) => {}
+        Err(made) if made.failure.kind() == io::ErrorKind::AlreadyExists => {
+            return EditTry::FileChanged;
+        }
+        Err(failure) => {
+            return EditTry::Ended(refused_by_daemon(
+                "Claude Code's config could not be written",
+                &failure,
+            ));
+        }
+    }
+    let folder = file
+        .parent()
+        .expect("a path ending in a file name has the folder before it");
+    EditTry::Ended(match flush_folder(folder) {
+        Ok(()) => McpServerWriteOutcome::Applied {
+            reload_failure: None,
+        },
+        // The file holds the edit with its folder not yet flushed, so it is observed again.
+        Err(failure) => {
+            tracing::warn!(
+                error = &failure as &(dyn Error + 'static),
+                "the folder of Claude Code's new config could not be flushed"
+            );
+            McpServerWriteOutcome::Unknown
+        }
+    })
 }
 
 // The object at `keys` in `config`, each missing member on the way made an empty object; `None`
@@ -359,10 +432,6 @@ mod tests {
     fn config_bytes(entry: &Value, startups: u8) -> Vec<u8> {
         serde_json::to_vec_pretty(&json!({"numStartups": startups, "mcpServers": {"docs": entry}}))
             .unwrap()
-    }
-
-    fn entry(members: Value) -> McpServerEntry {
-        McpServerEntry::from_members(serde_json::from_value(members).unwrap())
     }
 
     // The edit lands only on the entry it observed and the file it read, through the link to the
@@ -463,8 +532,8 @@ mod tests {
         let outcome = edit_entry(
             target,
             &McpServerName::new("docs".to_owned()).unwrap(),
-            &entry(written.clone()),
-            &McpServerObservedEntry::Present(entry(observed)),
+            &McpServerEntry::from_json(written.clone()),
+            &McpServerObservedEntry::Present(McpServerEntry::from_json(observed)),
             Instant::now() + Duration::from_millis(300),
             on_rename_due,
         )
@@ -491,6 +560,100 @@ mod tests {
                 };
                 assert_eq!(after, kept);
             }
+        }
+    }
+
+    // One row of an add: how the file stands when the add reads it, and during the add.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum AddRow {
+        // No person's config is there.
+        MissingConfig,
+        // No project's `.mcp.json` is there.
+        MissingServersFile,
+        // No person's config is there, and another writer makes one just before the add would.
+        ConfigMadeMeanwhile,
+        // The person's config already holds the server's entry.
+        EntryAddedMeanwhile,
+    }
+
+    // An add lands only while the entry is still absent: a file not there yet is made holding the
+    // entry alone, with the mode Claude Code makes it with, and a file or an entry another writer
+    // made first is left as it is. Killed by a missing file refused, a new file made with another
+    // mode, a file made meanwhile written over, and an entry already there written over.
+    #[rstest]
+    #[case::a_missing_config(
+        AddRow::MissingConfig,
+        McpServerWriteOutcome::Applied { reload_failure: None }
+    )]
+    #[case::a_missing_servers_file(
+        AddRow::MissingServersFile,
+        McpServerWriteOutcome::Applied { reload_failure: None }
+    )]
+    #[case::a_config_made_meanwhile(
+        AddRow::ConfigMadeMeanwhile,
+        McpServerWriteOutcome::Refused(McpServerWriteRefusal::ConfigFileChanged)
+    )]
+    #[case::an_entry_added_meanwhile(
+        AddRow::EntryAddedMeanwhile,
+        McpServerWriteOutcome::Refused(McpServerWriteRefusal::EntryChanged)
+    )]
+    #[tokio::test]
+    async fn an_add_lands_only_while_the_entry_is_absent(
+        #[case] row: AddRow,
+        #[case] expected: McpServerWriteOutcome,
+    ) {
+        let home = tempfile::tempdir().unwrap();
+        let is_servers_file = row == AddRow::MissingServersFile;
+        let file = home.path().join(if is_servers_file {
+            ".mcp.json"
+        } else {
+            ".claude.json"
+        });
+        let other_bytes = config_bytes(&json!({"command": "other"}), 4);
+        if row == AddRow::EntryAddedMeanwhile {
+            write_file_atomically(&file, other_bytes.clone(), 0o600)
+                .await
+                .unwrap();
+        }
+        let on_rename_due = {
+            let (file, other_bytes) = (file.clone(), other_bytes.clone());
+            move || {
+                if row == AddRow::ConfigMadeMeanwhile {
+                    fs::write(&file, &other_bytes).unwrap();
+                }
+            }
+        };
+        let target = if is_servers_file {
+            ClaudeEditTarget::ProjectServersFile { path: file.clone() }
+        } else {
+            ClaudeEditTarget::PersonConfig {
+                path: file.clone(),
+                project_key: None,
+            }
+        };
+        let written = json!({"command": "npx", "args": ["docs"]});
+
+        let outcome = edit_entry(
+            target,
+            &McpServerName::new("docs".to_owned()).unwrap(),
+            &McpServerEntry::from_json(written.clone()),
+            &McpServerObservedEntry::Absent,
+            Instant::now() + Duration::from_secs(10),
+            on_rename_due,
+        )
+        .await;
+
+        assert_eq!(outcome, expected);
+        let after = fs::read(&file).unwrap();
+        if matches!(expected, McpServerWriteOutcome::Applied { .. }) {
+            assert_eq!(
+                serde_json::from_slice::<Value>(&after).unwrap(),
+                json!({"mcpServers": {"docs": written}})
+            );
+            let mode = if is_servers_file { 0o644 } else { 0o600 };
+            assert!(has_file_mode(&file, mode).unwrap());
+        } else {
+            assert_eq!(after, other_bytes);
         }
     }
 }

@@ -35,6 +35,12 @@ impl McpServerEntry {
     pub fn members(&self) -> &Map<String, Value> {
         &self.members
     }
+
+    /// The entry a test writes as a JSON object; panics on any other value.
+    #[cfg(test)]
+    pub(crate) fn from_json(members: Value) -> Self {
+        Self::from_members(serde_json::from_value(members).expect("the test's entry is an object"))
+    }
 }
 
 impl fmt::Debug for McpServerEntry {

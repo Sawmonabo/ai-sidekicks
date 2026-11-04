@@ -412,9 +412,10 @@ interface McpLiveApplicationResult {
 // or `managed` one the daemon's own switch for its projectRoot, neither writing provider
 // configuration. On the three writable scopes, upsertServer, removeServer and setEnabled write the
 // provider's own configuration, each provider through its own mechanism:
-// Claude Code writes through `claude mcp add-json <name> <json> --scope <scope>` (a `project` write
-// run from the project root, landing in `<project>/.mcp.json`; `local` in Claude Code's per-project
-// entry of its user configuration); Codex `user` writes through one `config/batchWrite` of
+// Claude Code adds and updates by a guarded edit of the entry (`mcpServers` in `~/.claude.json`
+// under Claude Code's own lock, the project's entry there for `local`, `<project>/.mcp.json` for
+// `project`), read back with `claude mcp get`, and removes through `claude mcp remove --scope
+// <scope>`; Codex `user` writes through one `config/batchWrite` of
 // field-granular key paths under the version the daemon read before it, then
 // `config/mcpServer/reload`; Codex `project` is a format-preserving edit of
 // `<project>/.codex/config.toml` written to a temporary file and renamed into place only while the

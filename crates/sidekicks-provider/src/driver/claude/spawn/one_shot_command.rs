@@ -10,8 +10,8 @@ use std::time::Duration;
 use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
 use sidekicks_platforms::{ChildExit, Spawner, read_child_exit, wrap_child_command};
 use sidekicks_std::output_tail::{OutputTail, read_output_chunks};
-use tokio::process::Command;
 
+use super::command::compose_claude_command;
 use crate::spawned_version::ResolvedProviderExecutable;
 
 /// The longest one write of Claude Code's MCP config runs: the wait for Claude Code's lock and
@@ -20,12 +20,17 @@ pub(crate) const CLAUDE_MCP_WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How a one-shot command ended.
 pub(crate) struct ClaudeOneShotExit {
-    /// Whether it exited with code 0.
-    pub(crate) is_success: bool,
     /// Its exit code, or the signal that ended it.
     pub(crate) exit: ChildExit,
     /// The tail of what it wrote to its error output, where the caller kept it.
     pub(crate) error_output: Option<String>,
+}
+
+impl ClaudeOneShotExit {
+    /// Whether it exited with code 0, which an end by a signal never is.
+    pub(crate) fn is_success(&self) -> bool {
+        self.exit.signal_number.is_none() && self.exit.exit_code == 0
+    }
 }
 
 /// Why a one-shot command's exit was not read.
@@ -51,18 +56,13 @@ pub(crate) async fn run_claude_one_shot(
     working_folder: &Path,
     is_error_output_kept: bool,
 ) -> Result<ClaudeOneShotExit, ClaudeOneShotError> {
-    let mut command = Command::new(&executable.start.program);
+    let mut command = compose_claude_command(
+        &executable.start,
+        arguments,
+        &executable.environment,
+        working_folder,
+    );
     command
-        .args(&executable.start.leading_arguments)
-        .args(arguments)
-        .env_clear()
-        .envs(
-            executable
-                .environment
-                .iter()
-                .map(|(name, value)| (name, value)),
-        )
-        .current_dir(working_folder)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(if is_error_output_kept {
@@ -92,7 +92,6 @@ pub(crate) async fn run_claude_one_shot(
     let (status, error_output) = tokio::join!(child.wait(), read_error_output);
     let status = status.map_err(ClaudeOneShotError::Wait)?;
     Ok(ClaudeOneShotExit {
-        is_success: status.success(),
         exit: read_child_exit(&status, None),
         error_output,
     })

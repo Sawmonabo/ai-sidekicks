@@ -93,7 +93,7 @@ async fn run_sign_out(
         ClaudeOneShotError::Start(error) => ClaudeSignOutError::Start(error),
         ClaudeOneShotError::Wait(error) => ClaudeSignOutError::Wait(error),
     })?;
-    if ended.is_success {
+    if ended.is_success() {
         return Ok(());
     }
     Err(match ended.exit.signal_name {
