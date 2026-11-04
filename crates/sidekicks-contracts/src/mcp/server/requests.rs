@@ -523,6 +523,8 @@ mod tests {
     use super::{McpServerSignOutRequest, McpServerUpsertRequest};
     use crate::mcp::server::config::McpServerConfigInput;
     use crate::wire::attachment::{ReceivedError, parse_received};
+    use crate::wire::number::PositiveNumber;
+    use crate::wire::text::FreeFormText;
 
     const KEY: &str = "00000000-0000-4000-8000-000000000000";
 
@@ -561,24 +563,46 @@ mod tests {
         ));
     }
 
+    /// What a clearable member reads as: kept, cleared or set.
+    #[derive(Debug, PartialEq)]
+    enum Reading<T> {
+        Keep,
+        Clear,
+        Set(T),
+    }
+
+    impl<T> Reading<T> {
+        #[expect(
+            clippy::option_option,
+            reason = "it reads the clearable member's own three-meaning type"
+        )]
+        fn of(member: Option<Option<T>>) -> Self {
+            match member {
+                None => Self::Keep,
+                Some(None) => Self::Clear,
+                Some(Some(value)) => Self::Set(value),
+            }
+        }
+    }
+
     /// A clearable member reads absent as keep, `null` as remove and a value as set, on a remote
     /// member and a shared one alike, and writes each back as sent; a switch still refuses `null`.
     #[rstest]
-    #[case::absent(serde_json::json!({}), None, None)]
+    #[case::absent(serde_json::json!({}), Reading::Keep, Reading::Keep)]
     #[case::null(
         serde_json::json!({ "bearerTokenEnvVar": null, "startupTimeoutSec": null }),
-        Some(None),
-        Some(None)
+        Reading::Clear,
+        Reading::Clear
     )]
     #[case::value(
         serde_json::json!({ "bearerTokenEnvVar": "TOKEN", "startupTimeoutSec": 10.0 }),
-        Some(Some("TOKEN")),
-        Some(Some(10.0))
+        Reading::Set("TOKEN"),
+        Reading::Set(10.0)
     )]
     fn a_clearable_member_keeps_its_three_meanings(
         #[case] members: serde_json::Value,
-        #[case] bearer: Option<Option<&str>>,
-        #[case] startup: Option<Option<f64>>,
+        #[case] bearer: Reading<&str>,
+        #[case] startup: Reading<f64>,
     ) {
         let upsert = |members: &serde_json::Value| {
             let mut config =
@@ -610,13 +634,15 @@ mod tests {
             panic!("{config:?} is not the http arm");
         };
         assert_eq!(
-            bearer_token_env_var
-                .as_ref()
-                .map(|member| member.as_ref().map(|name| name.as_str())),
+            Reading::of(
+                bearer_token_env_var
+                    .as_ref()
+                    .map(|member| member.as_ref().map(FreeFormText::as_str))
+            ),
             bearer
         );
         assert_eq!(
-            (*startup_timeout_sec).map(|member| member.map(|seconds| seconds.get())),
+            Reading::of((*startup_timeout_sec).map(|member| member.map(PositiveNumber::get))),
             startup
         );
         assert_eq!(
