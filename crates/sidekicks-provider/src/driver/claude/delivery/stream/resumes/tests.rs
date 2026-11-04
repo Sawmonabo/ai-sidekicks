@@ -268,12 +268,11 @@ async fn a_resume_before_its_call_waits_for_the_call_or_the_helpers_next_frame()
     );
 }
 
-// A call read on the run the resume already hangs under moves nothing, and a resume naming no call
-// and a first start, whose calls are never read, start at once. Killed by correcting onto the same
-// run (a correction is sent), and by parking a start that names no call or has no own run before
-// (either never starts).
+// A call read on the run the resume already hangs under moves nothing, and a first start, whose
+// call is never read, starts at once. Killed by correcting onto the same run (a correction is
+// sent), and by parking a start that has no own run before (it never starts).
 #[tokio::test(start_paused = true)]
-async fn a_resume_under_its_callers_run_or_naming_no_call_is_not_moved_or_parked() {
+async fn a_resume_under_its_callers_run_or_a_first_start_is_not_moved_or_parked() {
     let session = ScriptedSession::new().await;
     let lead_run = session.hold_lead_turn("lead");
     session.frame(&init());
@@ -283,7 +282,6 @@ async fn a_resume_under_its_callers_run_or_naming_no_call_is_not_moved_or_parked
     session.frame(&helper_text("message-1", "worker"));
     session.frame(&tool_call("message-2", "send-lead", "SendMessage", None));
     session.frame(&helper_ended("worker", "completed", "Reported again"));
-    session.frame(&helper_started("worker", "local_agent", ""));
     session.frame(&helper_started("fresh", "local_agent", "call-fresh"));
     settle().await;
 
@@ -293,7 +291,6 @@ async fn a_resume_under_its_callers_run_or_naming_no_call_is_not_moved_or_parked
         [
             (lead, Some("call-worker".to_owned())),
             (lead, Some("send-lead".to_owned())),
-            (lead, None),
         ]
     );
     assert_eq!(

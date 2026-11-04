@@ -509,7 +509,11 @@ mod tests {
                 .set_session_goal(SetSessionGoalParams::new(session_id, "ship it".to_owned()))
                 .await
         });
-        settle().await;
+        // The process comes up on threads outside the paused clock, so the write is waited for.
+        let opened_by = std::time::Instant::now() + Duration::from_secs(10);
+        while channel.user_frames().is_empty() && std::time::Instant::now() < opened_by {
+            settle().await;
+        }
         let frames = channel.user_frames();
         assert_eq!(frames.len(), 1, "only the goal is written: {frames:?}");
         assert_eq!(frames[0]["message"]["content"], "/goal ship it");
